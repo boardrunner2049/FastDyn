@@ -22,7 +22,7 @@ not mean every physical effect or firmware detail is represented. For example,
 the CUBS2 closed-loop model explicitly uses a surrogate for its unavailable
 onboard stabilizer. Check each model's stated assumptions and tests.
 
-For this tutorial, the new `FastDyn.Copter` adapts a template to FastDyn's
+In this tutorial, `FastDyn.Copter` adapts a template to FastDyn's
 actuator/sensor interface, and `FastDyn.Qavr` gives it a named parameter set.
 The side-load model then changes the applied-force equations. That progression
 is useful for your own vehicle: reuse a nearby model, record your measured
@@ -42,7 +42,7 @@ flowchart TD
     fastdyn --> compare["Compare behavior and investigate differences"]
 ```
 
-Our PX4 and ArduPilot porting work brings flight-control algorithms into
+The PX4 and ArduPilot porting work brings flight-control algorithms into
 Modelica so a controller and plant can be simulated together outside FastDyn.
 Abstracting the RTOS and hardware interfaces removes execution work from the
 simulation and allows faster algorithm experiments. This is a complementary
@@ -69,7 +69,7 @@ PX4/ArduPilot behavioral parity. The controller ports are separate work; the
 library's existing RDD2/CUBS2 controllers should not be mistaken for those
 ports or for a complete port of either autopilot.
 
-## How we intend to connect the workflows
+## Planned workflow
 
 1. Keep reusable templates, named vehicles, units, frame conventions, and
    measured data together in the library.
@@ -85,9 +85,10 @@ Shared model interfaces, reproducible comparison cases, and documented port
 coverage are part of this roadmap. Each new compiler/library combination also
 needs export and runtime checks: a model's presence in the library does not
 guarantee that every Rumoca target supports it. In particular, the tutorial's
-[new-template FMI export blocker](index.md) still applies.
+[Plane contact-event limitation](index.md) still applies.
 
-For the one-hour session, use this page in the closing discussion. The
-[first mission](getting-started.md) and [payload study](monte-carlo.md) remain
-the runnable FastDyn examples; this page does not introduce another setup or
-ask participants to complete a controller port during the workshop.
+When choosing your next experiment, ask whether you need to study a physical
+effect, a control algorithm, or its implementation in firmware. Start with a
+library model close to your vehicle, record its assumptions, and use the
+[first mission](getting-started.md) and [payload study](monte-carlo.md) as
+patterns for testing your changes in FastDyn.

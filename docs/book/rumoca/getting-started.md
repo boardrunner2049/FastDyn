@@ -26,8 +26,8 @@ fastdyn run -c out/copter.toml -o out/copter/work
 ```
 
 The first run compiles the FMU. The mission helper loads the ArduPilot simulation
-parameters, waits for GPS and EKF readiness, uploads the waypoints, arms, flies,
-and exits after landing. Look for:
+parameters, waits for GPS and the state estimator (EKF) to become ready, uploads
+the waypoints, arms, flies, and exits after landing. Look for:
 
 ```text
 [mission] ArduPilot ready with GPS and EKF initialized
@@ -41,8 +41,9 @@ at a time: these examples share MAVLink ports and the viewer port.
 
 The MAVLink log is `out/copter/mission.tlog`. A successful mission reaches the
 final waypoint **and** receives the firmware's on-ground report near the ground;
-being below one meter while still descending is insufficient. An armed vehicle or a moving map alone
-does not establish completion. Ctrl-C stops a run you want to interrupt.
+being below one meter while still descending is insufficient. An armed vehicle
+or a moving map alone does not establish completion. Ctrl-C stops a run you want
+to interrupt.
 
 ## Save and inspect the result
 
@@ -58,4 +59,5 @@ Keep the TOML and telemetry together when comparing model or gain changes.
 
 Regenerate the run TOML after changing tool builds. Keep your own settings in
 a versioned [TOML overlay](configuration.md) and pass it with `--overlay`.
-For Plane and Rover, continue to [other models](running-models.md).
+Next, [read the Modelica model](modelica.md) that produced this flight. For
+additional vehicle examples, see [other models](running-models.md).

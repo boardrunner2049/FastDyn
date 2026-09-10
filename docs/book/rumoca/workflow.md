@@ -18,7 +18,8 @@ flowchart TD
 
 ## 1. Gather the data
 
-Measure the flying mass with its battery and payload. Obtain motor locations
+Measure the flying mass with its battery and payload. Here, **CG** means center
+of gravity. Obtain motor locations
 from drawings or measurements, and estimate inertia from CAD or component
 masses and their positions. Use motor/propeller thrust measurements for the
 actuator model. Record units, reference frames, test conditions, and uncertain
@@ -63,8 +64,8 @@ when inertia or motor dynamics change.
 ## Why equations matter
 
 A TOML or SDF parameter set selects numbers for behavior implemented elsewhere.
-Modelica also lets the model author express equations, component connections,
-and additional states, then compile those into the plant. Here, the side-load
+With Modelica, you can also express equations, component connections, and
+additional states, then compile those into the plant. In the [load exercise](payload.md), the
 model rotates an applied force into body coordinates and computes its moment
 from the attachment location. The plant adds both to its equations of motion.
 
@@ -72,3 +73,6 @@ Gazebo/SDF can also represent offset inertias, joints, and payloads, and plugins
 can add custom forces. The advantage illustrated here is keeping the physical
 relationships in composable Modelica source with the vehicle, while retaining
 FastDyn's firmware-driver interface.
+
+Next, read [how FMI connects the compiled plant to FastDyn](fmi.md), then
+[run the baseline mission](getting-started.md).

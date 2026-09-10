@@ -2,9 +2,9 @@
 
 Use a **50 g payload mass to prescribe a 0.49 N downward force** at the
 front-right motor (motor 1). In the assumed square-X layout, this is 77.8 mm
-forward and 77.8 mm right of the center, in the motor plane. This is a simple external-load experiment: the QAV-R's mass
-and inertia stay at their original values. The exercise introduces three equations:
-convert mass to weight, rotate the force into body coordinates, then compute its moment.
+forward and 77.8 mm right of the center, in the motor plane. The QAV-R's mass
+and inertia stay at their original values. You will convert mass to weight,
+rotate the force into body coordinates, then compute its moment.
 
 ![A downward load at motor 1 changes the hover thrust required from all four motors](../assets/payload.svg)
 
@@ -41,7 +41,7 @@ there is no additional mass, CG shift, or inertia correction in this example.
 
 The library template at the pinned revision sums its forces internally and
 does not yet expose external-load inputs. FastDyn keeps a local adaptation,
-`modelica/FastDyn/QuadrotorWithExternalWrench.mo`, of the new
+`modelica/FastDyn/QuadrotorWithExternalWrench.mo`, of
 `Vehicles.Templates.QuadrotorPlant`. It adds two body-frame inputs and adds them
 to the force and moment sums before rigid-body integration:
 
@@ -102,9 +102,9 @@ The diagonally opposite motor reduces thrust while the other motors increase
 it. These are analytic level-hover predictions, not measured mission results.
 The next chapter derives the allocation and compares missions with larger loads.
 
-First check zero-load behavior and the roll and pitch moment directions. Then compare hover
-motor effort, attitude tracking, and the same waypoint mission with fixed
-gains. Run the constant-load mission:
+Use your unloaded QAV-R mission as the baseline. Check the roll and pitch moment
+directions above, then run the same mission with the constant load and fixed
+controller gains:
 
 ```bash
 fastdyn run -c out/payload.toml -o out/payload/work
@@ -216,8 +216,9 @@ Its recorded mission uses the same new equation and selected gains:
 [Run provenance](../assets/physics-edit/varying.toml)
 
 Compare the two altitude traces and waypoint paths, then change the modulation
-or period in your overlay and repeat. The native force check establishes that
-the equation changed even when the controller rejects much of the disturbance.
+or period in your overlay and repeat. The native force check verifies the
+compiled equation at its default parameters, even when the controller rejects
+much of the disturbance in flight.
 Keep both run logs; a similar-looking trajectory does not mean the plant stayed
 the same. This is the edit → compile → check → run → compare workflow to reuse
 for your own physics.

@@ -20,7 +20,7 @@
 # Rumoca and Modelica
 
 - [Rumoca integration](rumoca/index.md)
-  - [One-hour session](rumoca/session.md)
+  - [One-hour walkthrough](rumoca/session.md)
   - [Workflow and model data](rumoca/workflow.md)
   - [FMI 3 and FastDyn](rumoca/fmi.md)
   - [First mission](rumoca/getting-started.md)

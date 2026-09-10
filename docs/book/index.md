@@ -5,7 +5,7 @@
 </section>
 
 <div class="fd-paths">
-<a class="fd-path" href="rumoca/session.html"><strong>The Rumoca walkthrough</strong><span>Build a vehicle, fly a mission, and investigate an off-center payload.</span><b>One hour · Start the session →</b></a>
+<a class="fd-path" href="rumoca/session.html"><strong>The Rumoca walkthrough</strong><span>Build a vehicle, fly a mission, and investigate an off-center payload.</span><b>One hour · Start the walkthrough →</b></a>
 <a class="fd-path" href="general/overview.html"><strong>The FastDyn field guide</strong><span>Understand the runtime, configure a board, and work with devices and virtuals.</span><b>Reference · Explore FastDyn →</b></a>
 </div>
 

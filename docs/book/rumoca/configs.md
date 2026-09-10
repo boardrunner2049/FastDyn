@@ -5,10 +5,11 @@ see its firmware binary, memory layout, QEMU timing, FMU selection, and helper
 commands together. `fastdyn-config` replaces tool and output locations for your
 machine and materializes the legacy environment defaults as literal TOML.
 
-These select the current repository models. The archived, validated missions
-use the different bases generated in [the first mission](getting-started.md)
+These are the same base configurations used in [the first mission](getting-started.md)
 and [other models](running-models.md). The outputs below use a separate directory
-so inspecting these configurations does not overwrite a working mission TOML.
+so you can inspect them without replacing your mission TOML. The archived
+Plane recording uses an older plant; the Plane configuration here selects the
+current three-wheel model, whose FMI export is still pending compiler support.
 
 ## Copter 4.6.2
 

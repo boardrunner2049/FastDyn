@@ -23,8 +23,8 @@ center-to-motor arm length is **0.11 m**. A 5-inch propeller has a 0.127 m
 diameter. [Lumenier's QAV-R product specification](https://www.getfpv.com/multi-rotor-frames/lumenier-frames/legacy-lumenier-frames/qav-r-fpv-racing-quadcopter-5.html)
 distinguishes this version from the 180 mm and 260 mm variants.
 
-Changing only the arm length is insufficient. The tutorial must also account
-for flying mass including battery, inertia, motor/propeller thrust, motor lag,
+Changing only the arm length is insufficient. You also need to account for
+flying mass including battery, inertia, motor/propeller thrust, motor lag,
 aerodynamic drag, and ground-contact geometry. The frame's wheelbase is a
 manufacturer dimension; inertia and propulsion depend on the actual build.
 
@@ -44,8 +44,8 @@ build.
 
 The 0.50 kg equipped mass, inertia tensor, motor coefficients, drag, and motor
 lag are explicit tutorial assumptions. The `arm_length = 0.11` setting is half
-the specified 220 mm motor diagonal. The inertia tensor stays fixed during the payload study; only the prescribed
-payload weight changes.
+the specified 220 mm motor diagonal. In the later payload study, this tensor
+stays fixed while the prescribed payload weight changes.
 
 Select this model with an overlay:
 
@@ -65,14 +65,13 @@ check that `[FMU].active` is `qavr` and its class is `FastDyn.Qavr`.
 
 ## Tune before the mission
 
-Controller tuning is evaluated in the emulated ArduCopter firmware before
-validating a full autonomous mission. The existing ArduPilot
+Before flying a full mission with the smaller vehicle, compare controller
+responses in the emulated ArduCopter firmware. The existing ArduPilot
 [Holybro QAV250 parameter set](https://github.com/ArduPilot/ardupilot/blob/Copter-4.6.2/Tools/Frame_params/Holybro-QAV250.param)
 is a candidate gain seed from another small frame. It does not establish a
 validated QAV-R tune. Hardware-specific ESC, battery, and notch settings must
 not be copied without matching the modeled hardware.
 
-Continue to the [measured controller comparison](tuning.md): both ±5° candidates
-were flown, and the selected QAV250 gains passed a separate ±10° experiment
-and the waypoint mission. That chapter shows how to export the selected
-parameters and use them in the mission helper.
+Continue to the [measured controller comparison](tuning.md). Inspect the
+recorded ±5° responses and the selected gains' ±10° validation, then export
+those gains and use them for your QAV-R mission.

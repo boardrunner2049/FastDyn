@@ -1,9 +1,10 @@
 # Payload Monte Carlo study
 
-Continue the [right-side load experiment](payload.md): **how much prescribed
+Continue the [load-at-a-motor experiment](payload.md): **how much prescribed
 payload weight can the fixed controller tolerate on the same waypoint mission?**
-Vary the payload mass used in `F = m g`, keeping its attachment at the **front-right motor**, 77.8 mm forward and
-77.8 mm right of the center, in the motor plane. The QAV-R's own mass, inertia,
+Vary the payload mass used in `F = m g`, keeping its attachment at the
+**front-right motor**, 77.8 mm forward and 77.8 mm right of the center, in the
+motor plane. The QAV-R's own mass, inertia,
 geometry, motors, firmware, gains, and mission stay fixed.
 
 The recorded batch contains **18 runs: nine completed missions (including the
@@ -11,8 +12,11 @@ unloaded reference) and nine firmware crash disarms**. The heaviest successful
 sample was **321.6 g**; the lightest failed sample was **359.8 g**. These are
 observations for this mission and controller, not an exact stability boundary.
 The plant models ground contact at landing points; motion after tipping is not
-a detailed airframe collision reconstruction. Samples reveal failure cases,
-without establishing an exact stability limit.
+a detailed airframe collision reconstruction.
+
+Start with the recorded trajectories below. For a short hands-on check, run
+the zero-load reference in step 4. The complete batch is an optional longer
+experiment; you can replot its archived logs immediately using step 6.
 
 ## 1. Inspect the recorded flights
 
@@ -67,8 +71,9 @@ The primary model exposes the scalar `payload_mass` in kilograms:
 ```
 
 At level attitude, a 50 g mass gives a downward force of 0.49 N and a positive
-body-FLU roll moment and pitch moment of approximately 0.0381 N m each. A 100 g mass doubles both. The force remains
-world-down as the aircraft tilts. Each trial compiles its own FMU so the load
+body-FLU roll moment and pitch moment of approximately 0.0381 N m each. A 100 g
+mass doubles both. The force remains world-down as the aircraft tilts.
+Each trial compiles its own FMU so the load
 also reaches any derived expressions evaluated during compilation.
 
 This study uses a zero-load reference, **16 uniformly sampled masses from
@@ -79,7 +84,7 @@ static weight is equivalent to 1.0 kg under gravity. The uniform distribution
 explores the selected range; it does not estimate how frequently real payload
 masses occur.
 
-This is the external-load approximation from the right-side load chapter: changing
+This is the external-load approximation from the preceding chapter: changing
 `payload_mass` changes the prescribed weight, **not the vehicle's inertial
 mass**. It does not simulate the payload's swinging or acceleration-dependent
 tension. Those require additional dynamics.
@@ -127,8 +132,8 @@ Choose a fresh output directory when changing the study or controller. Run one
 batch at a time because the configured MAVLink ports are shared.
 
 The runner snapshots the current model sources and generates each trial's Modelica class.
-Do not edit those output files and rerun the generator expecting the edits to
-persist. Change the study TOML for the supported sweep settings; develop a
+Edit the study TOML to change sweep settings; the runner replaces generated
+trial sources. Develop a
 different force law in a separately maintained model and validate it before
 automating its trials.
 
@@ -140,7 +145,7 @@ All persistent settings, including controller parameters, are in TOML:
 
 Expect a Modelica variant, compiled FMU, controller parameter file, run TOML,
 console log, MAVLink log, and `result.json` for each trial. The `publish`
-setting is optional and is empty for participant runs, so a one-run check
+setting is optional and is empty by default, so your one-run check
 does not replace the book's archived results. Find the new figures under
 `out/payload-experiment/report/`. To publish a reviewed full batch into this
 book, set `publish = "docs/book/assets/payload-study"` before starting a fresh

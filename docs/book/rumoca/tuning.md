@@ -5,12 +5,16 @@ controller torque command produces a different angular acceleration when the
 inertia changes. Motor response and available thrust also affect the useful
 gain range.
 
+For the one-hour walkthrough, inspect the [recorded comparison](#3-decide-from-the-response)
+and [apply the selected gains](#4-use-the-selected-gains-for-a-mission). You can
+run the tuning trials yourself using the commands below when you have more time.
+
 ## 1. Choose a documented starting point
 
 The experiment compares the ArduCopter defaults with roll/pitch rate gains from
 the [Copter 4.6.2 Holybro QAV250 parameter file](https://github.com/ArduPilot/ardupilot/blob/Copter-4.6.2/Tools/Frame_params/Holybro-QAV250.param).
-The QAV250 supplies a seed from another small frame. We select it below from
-measured responses of this simulated QAV-R.
+The QAV250 supplies a seed from another small frame. Use the measured responses
+below to decide whether that seed is suitable for this simulated QAV-R.
 The initial comparison keeps the angle-loop gains the same while varying rate
 gains and their filters.
 
@@ -36,8 +40,8 @@ python utils/tune_copter.py --config configs/tuning/qavr.toml \
   --run-config out/qavr.toml --output out/tuning
 ```
 
-Successful runs must contain
-`[tuning] attitude experiment completed and landed` and produce per-candidate
+For each successful run, look for
+`[tuning] attitude experiment completed and landed` and the per-candidate
 `attitude.csv`, `mission.tlog`, `trial.toml`, and `console.log` files, plus a
 combined `results.json`.
 
@@ -48,11 +52,12 @@ so it cannot overwrite the helper's rates. Each recorded comparison contains
 
 ## 3. Decide from the response
 
-Compare attitude error during transitions and after settling. Check rate
+Compare attitude error during transitions and after settling. **RMSE** is
+root-mean-square error; lower values mean closer tracking. Check rate
 tracking, sustained oscillation, altitude retention, and motor limits. Keep
 the chosen gains fixed while increasing the maneuver amplitude for a separate
-validation run, then fly the waypoint mission. An unsuccessful startup is an
-infrastructure failure, not evidence of unstable gains.
+validation run, then fly the waypoint mission. Diagnose compiler or startup
+errors before drawing conclusions about the gains.
 
 ![Measured roll and pitch response for default and QAV250 gains](../assets/qavr-tuning/comparison.png)
 

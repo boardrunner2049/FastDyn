@@ -91,7 +91,7 @@ container allows Docker's published port to reach mdBook.
 
 ## Share an archive or use GHCR
 
-To give participants the built image without a registry, copy the actual
+To share the built image without a registry, copy the actual
 archive rather than the Nix store symlink:
 
 ```bash
@@ -109,7 +109,7 @@ Use the `docker run` commands above with a checkout of the same FastDyn revision
 The [publishing workflow](../contributing/container-publication.md) builds
 and checks the image on pull requests and publishes it on pushes to `main`.
 Same-repository PRs also publish preview tags such as `pr-1`; fork PRs do not publish.
-After its first successful publication, participants can instead run:
+To use the published image instead, run:
 
 ```bash
 docker pull ghcr.io/jgoppert/fastdyn/dev:latest

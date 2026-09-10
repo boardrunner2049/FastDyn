@@ -173,14 +173,16 @@ valid Modelica model. FMI compliance by itself does not establish that its
 signals or capabilities fit this backend.
 
 The current Plane fails **during Rumoca FMI export** because its ground-contact
-condition introduces continuous state-event indicators. The compiler now
-supports the quadrotor template's parameter assertions and array operations;
-the remaining Plane limitation is separate. The standard's support for events
-does not mean the current exporter and FastDyn integration implement every
-event feature. Plane is therefore marked as pending support in this walkthrough.
+condition introduces continuous state-event indicators. The pinned compiler
+supports the quadrotor template's arrays and parameter assertions, but not
+this Plane export. The FMI standard supports events; the exporter and importer
+must also implement the features a particular model needs.
 
 For implementation details, see `src/fastdyn/fmu_build.py` (export and metadata),
 `src/fastdyn/fmu_runtime.py` (native build and artifact preparation),
 `virtuals/physics/phy.h` (the backend abstraction), `virtuals/virtuals.c`
 (the timer-tick coupling), and
 `virtuals/physics/physics_engines/fmu/fmu.c` (native FMI calls and stepping).
+
+Continue to [your first mission](getting-started.md). You can return to the
+artifact-inspection example after that run has produced an FMU.

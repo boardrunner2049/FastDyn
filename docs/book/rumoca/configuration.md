@@ -1,8 +1,9 @@
 # TOML configuration
 
-Use one generated TOML as the record of a run's firmware, tools, model,
-parameters, and helper commands. The configuration generator resolves tool locations and
-replaces legacy `${NAME:-default}` expressions with their literal defaults.
+Keep reusable settings in source TOML overlays and generate a complete TOML
+for each run. The generated file records the firmware, tools, model, parameters,
+and helper commands. The generator resolves tool locations and replaces legacy
+`${NAME:-default}` expressions with their literal defaults.
 
 For reusable changes, write a small overlay, for example `my-copter.toml`:
 
@@ -70,14 +71,14 @@ inertia tensor in kg m². For a diagonal tensor, a TOML override is:
 inertia = [[0.02601237985, 0.0, 0.0], [0.0, 0.02590943825, 0.0], [0.0, 0.0, 0.045571756801]]
 ```
 
-
 An override must refer to an independent FMI parameter. A Modelica parameter
 bound to another parameter can be exported as `calculatedParameter`; FastDyn
 rejects writing it before launching the firmware. Set the independent source
 parameter instead, or change the Modelica binding and rebuild. The payload's
 `attachment_b` uses explicit motor coordinates so all three components remain
 editable from TOML.
-Use the parameter names exposed by the actual model being compiled. `arm_length` is the center-to-motor distance, so the motor
+Use the parameter names exposed by the model you are compiling.
+`arm_length` is the center-to-motor distance, so the motor
 diagonal is twice that number. Thrust is `Ct * omega²`; `Cm` is the rotor
 torque-to-thrust ratio in meters. PWM spans `pwm_min` to `pwm_max`, mapped to
 `omega_min` through `omega_max` in rad/s. `tau_up` and `tau_down` set the

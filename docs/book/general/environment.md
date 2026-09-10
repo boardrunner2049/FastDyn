@@ -5,21 +5,20 @@ same FastDyn commands. The tutorial then uses `fastdyn-config`, `fastdyn`, and
 `python`; simulation choices belong in TOML files.
 
 The supplied simulation environment targets **x86-64 Linux**. Prepare it before
-the one-hour session: the first compiler and QEMU builds can take much longer
+the one-hour walkthrough: the first compiler and QEMU builds can take much longer
 than an exercise. Run all tutorial commands from the FastDyn repository root.
 
 ## Get the sources
 
-For the tutorial pull request, download the prepared branch:
+Clone the repository's `main` branch:
 
 ```bash
-git clone --branch update/rumoca-main https://github.com/jgoppert/FastDyn.git
+git clone --branch main https://github.com/jgoppert/FastDyn.git
 cd FastDyn
 ```
 
-After these changes are merged, a normal clone of the accepting repository's
-`main` branch provides the same setup. If you already have the tutorial checkout,
-use it. From its root, initialize:
+If you already have this checkout, use it. From the repository root, initialize
+the pinned compiler, model library, and peripheral descriptions:
 
 ```bash
 git submodule update --init --depth 1 \
@@ -78,10 +77,8 @@ Files created under `out/` belong to your host user. Port 5000 exposes the live
 mission viewer; port 3000 is for an optional documentation server. Run the
 simulation and its helpers together inside the container.
 
-**Tutorial PR:** `latest` is published from `main`. Before merge, substitute
-`ghcr.io/jgoppert/fastdyn/dev:pr-1` after the PR's **Development container**
-workflow succeeds. If the image has not been published yet, an instructor can
-provide the locally built image archive:
+If you have a locally built image archive instead, load it and start the same
+environment:
 
 ```bash
 docker load --input fastdyn-dev.tar.gz
@@ -90,7 +87,7 @@ docker run --rm -it --user "$(id -u):$(id -g)" \
   fastdyn-dev:local
 ```
 
-Participants need only Docker to load and use that archive. See
+You need only Docker to load and use that archive. See
 [build and share the Docker environment](container.md) for the Nix build,
 archive distribution, and container commands. In another repository, the
 image address is `ghcr.io/<owner>/<repository>/dev:latest`, all lowercase.

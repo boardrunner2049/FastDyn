@@ -30,8 +30,8 @@ unless you also intend to change FastDyn's physics backend.
 
 ## 1. Open the vehicle wrapper
 
-The source below is included directly from `modelica/FastDyn/Copter.mo`; the
-book rebuilds when it changes. It connects a reusable plant to the PWM and
+The source below is included directly from `modelica/FastDyn/Copter.mo`, so it
+matches the file in this checkout. It connects a reusable plant to the PWM and
 sensor interface expected by the ArduPilot drivers.
 
 <details><summary>Show the complete FastDyn.Copter Modelica model</summary>
@@ -47,9 +47,9 @@ sensor interface expected by the ArduPilot drivers.
 The wrapper's `plant` adapts the library's
 [`Vehicles.Templates.QuadrotorPlant`](https://github.com/CogniPilot/modelica_models/blob/dfdb3294f61ab639a8a8be19611a1f69187a3ff7/Vehicles/Templates/QuadrotorPlant.mo).
 The local `QuadrotorWithExternalWrench` adds external force and moment inputs
-for the [side-load exercise](payload.md); those inputs default to zero.
-Its actuator inputs are four motor speeds. Four motor states lag their commands, and
-each motor produces thrust proportional to the square of its speed. The motor
+for the [load exercise](payload.md); those inputs default to zero.
+Its actuator inputs are four motor speeds. Four motor states lag their commands,
+and each motor produces thrust proportional to the square of its speed. The motor
 moment map turns those thrusts into roll, pitch, and yaw moments. Body drag and
 ground contacts add forces and moments before rigid-body integration.
 
@@ -123,4 +123,7 @@ artifact conflict, not a failure of your new Modelica equations.
 
 A changed source file or a successful DAE export alone is not the final result.
 For your own physics experiment, retain the source, run TOML, compiler revision,
-FMU, and telemetry together so another participant can reproduce the comparison.
+FMU, and telemetry together so you or someone else can reproduce the comparison.
+
+Next, [select the QAV-R model](qavr.md) and see which physical properties change
+when you move to a smaller airframe.
