@@ -1,0 +1,15 @@
+# Same vehicle and attachment as QavrSidePayload, with a different force law.
+[FMU]
+active = "qavr_varying_load"
+
+[FMU.models.qavr_varying_load]
+model = "FastDyn.QavrVaryingLoad"
+model_file = "modelica/FastDyn/QavrVaryingLoad.mo"
+source_roots = ["modelica", "third_party/common/modelica_models"]
+output = "out/fmi3/QavrVaryingLoad"
+build = true
+
+[FMU.models.qavr_varying_load.parameters]
+payload_mass = 0.05
+modulation = 0.5
+period = 5.0

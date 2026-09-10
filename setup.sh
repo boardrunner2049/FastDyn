@@ -137,7 +137,7 @@ fastdyn_setup_qemu_build() {
   git -C "$qemu_root" remote add origin "$qemu_repo" 2>/dev/null \
     || git -C "$qemu_root" remote set-url origin "$qemu_repo" \
     || return
-  git -C "$qemu_root" fetch origin "$qemu_ref" || return
+  git -C "$qemu_root" fetch --depth 1 origin "$qemu_ref" || return
   git -C "$qemu_root" checkout -B fastdyn FETCH_HEAD || return
   fastdyn_setup_qemu_patch "$repo_root" "$qemu_root"
   local patch_status=$?
@@ -148,7 +148,7 @@ fastdyn_setup_qemu_build() {
   if [[ ! -f "$qemu_root/build/build.ninja" ]]; then
     (cd "$qemu_root/build" && ../configure --target-list=arm-softmmu --enable-plugins) || return
   fi
-  make -C "$qemu_root/build" -j"$(nproc)" qemu-system-arm || return
+  ninja -C "$qemu_root/build" -j"$(nproc)" qemu-system-arm || return
 }
 
 fastdyn_setup_cjson() {
@@ -542,11 +542,11 @@ fastdyn_setup_main() {
   if [[ "$update_submodules" == "true" ]]; then
     local submodules=(
       third_party/common/cmsis-svd-data
-      third_party/courbet_deps/SITL_Models
       third_party/courbet_deps/mavlink_headers
     )
     if [[ "$build_gazebo" == "true" ]]; then
       submodules+=(
+        third_party/courbet_deps/SITL_Models
         third_party/courbet_deps/ardupilot_gazebo
       )
     fi
@@ -556,7 +556,7 @@ fastdyn_setup_main() {
         third_party/common/modelica_models
       )
     fi
-    git -C "$repo_root" submodule update --init "${submodules[@]}" || return
+    git -C "$repo_root" submodule update --init --depth 1 --jobs 4 "${submodules[@]}" || return
   fi
 
   if [[ "$build_qemu" == "true" ]]; then
@@ -581,7 +581,7 @@ fastdyn_setup_main() {
       echo "Rumoca submodule is missing. Rerun without --skip-submodules, or use --skip-rumoca." >&2
       return 1
     fi
-    (cd "$repo_root/third_party/common/rumoca" && cargo build -p rumoca --features lockstep --release) || return
+    (cd "$repo_root/third_party/common/rumoca" && cargo build --locked -p rumoca) || return
   fi
   if [[ "$setup_optifuzz" == "true" ]]; then
     fastdyn_setup_optifuzz_deps "$optifuzz_root" "$optifuzz_repo" "$optifuzz_ref" || return

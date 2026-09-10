@@ -1,0 +1,22 @@
+{
+  "vehicle": "rover",
+  "log": "out/local-rumoca/rover/mission.tlog",
+  "mission": "virtuals/physics/flight_controllers/courbet/mavlink/rover_rectangle.txt",
+  "position_samples": 361,
+  "altitude_target_samples": 0,
+  "navigation_target_samples": 242,
+  "max_relative_altitude_m": 149.003,
+  "final_relative_altitude_m": 149.0,
+  "final_mission_item": 4,
+  "duration_s": 113.001,
+  "time_reference": "Time since arming (s)",
+  "altitude_setpoint_source": null,
+  "max_ground_speed_mps": 2.008706051168264,
+  "navigation_target_source": "POSITION_TARGET_GLOBAL_INT",
+  "home_altitude_m": 0.0,
+  "rumoca_revision": "21843c115cd4b4c7fa02011d18a6c1e501ebb387",
+  "modelica_models_revision": "dfdb3294f61ab639a8a8be19611a1f69187a3ff7",
+  "model": "modelica/FastDyn/Rover.mo",
+  "model_sha256": "f749fcba50727bb74d35620d93516427f7c4f83b687187d9a59fc77498136b8d",
+  "completion": "Final waypoint 4 reached"
+}

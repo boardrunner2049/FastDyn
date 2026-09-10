@@ -132,7 +132,8 @@ explicitly when a swarm communication experiment needs it.
 ## OptiFuzz
 
 OptiFuzz/CP-Explore now defaults to the FMUv3 FastDyn backend for `copter`,
-`rover`, and `plane`.
+`rover`, and `plane`. The current Plane model awaits compiler contact-event
+support; only its dry-run wiring is checked.
 
 ```bash
 source ./setup.sh
@@ -154,22 +155,25 @@ Set `FASTDYN_OPTIFUZZ_BACKEND=gazebo` only when running the legacy Gazebo path.
 
 ## CI Coverage
 
-`.github/workflows/courbet-mission.yml` exercises the maintained physics path:
+`.github/workflows/ci.yml` exercises the maintained physics path:
 
 - setup and patched QEMU build,
 - Rumoca FMI v3 FMU generation,
 - OptiFuzz FMUv3 dry-runs for copter, rover, and plane,
 - OptiFuzz two-worker swarm dry-runs for all three vehicles,
-- real two-worker swarm launch smoke tests for all three vehicles,
-- ArduRover and ArduPlane FMUv3 launch smoke tests, and
+- real two-worker swarm launches for Copter and Rover,
+- an explicit pending-export check for Plane contact events,
+- the ArduRover waypoint integration test, and
 - a full ArduCopter mission through takeoff, waypoint progression, and landing.
 
 Run the same scripts locally after setup:
 
 ```bash
-tests/integration/courbet_fmu_vehicle_smoke.sh
+FASTDYN_COURBET_CONFIG=configs/rover462.toml \
+FASTDYN_COURBET_MIN_ALT_M=0 FASTDYN_COURBET_MIN_ITEM=4 \
+tests/integration/courbet_mission_test.sh
 tests/integration/courbet_swarm_smoke.sh
-tests/integration/courbet_mission_smoke.sh
+tests/integration/courbet_mission_test.sh
 ```
 
 ## Backend Interface

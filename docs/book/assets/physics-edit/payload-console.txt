@@ -1,0 +1,260 @@
+fastdyn.main|INFO|  [32m****** Fastdyn Framework 0.1.0 *******[0m
+fastdyn.main|INFO|  [32mThe output directory already exists at Path /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload/work. Deleting it![0m
+fastdyn.main|INFO|  [32mCreating output directory at path: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload/work[0m
+FastDyn timing log: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload/work/fastdyn_timing.jsonl
+Building FMU 'qavr_payload' from /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload.toml
+Compiling target 'fmi3' for FastDyn_QavrSidePayload
+  FMI 3.0.2 source-code ME+CS FMU with native tensor variables
+
+FMI 3 ME+CS source FMU written to: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload
+  FastDyn_QavrSidePayload/     unpacked source FMU
+  FastDyn_QavrSidePayload.fmu  standards-valid flat FMU archive
+Advertised profiles: FMI 3 Model Exchange and Co-Simulation.
+-- The C compiler identification is GNU 15.2.0
+-- The CXX compiler identification is GNU 15.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /nix/store/xcnqqnhw9hb4j5rjgds2yjryi8qki5f3-gcc-wrapper-15.2.0/bin/gcc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /nix/store/xcnqqnhw9hb4j5rjgds2yjryi8qki5f3-gcc-wrapper-15.2.0/bin/g++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (1.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /tmp/nix-shell.mU74ri/tmpsgp94lfm
+[ 50%] Building C object CMakeFiles/Rumoca_5b54a1e7_91e9_4e73_8b4d_8527997db569.dir/home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload/.fastdyn-fmu-igcfalxb/fmu/sources/model.c.o
+[100%] Linking C shared library Rumoca_5b54a1e7_91e9_4e73_8b4d_8527997db569.so
+[100%] Built target Rumoca_5b54a1e7_91e9_4e73_8b4d_8527997db569
+Install the project...
+-- Install configuration: "Release"
+-- Installing: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload/.fastdyn-fmu-igcfalxb/fmu/binaries/x86_64-linux/Rumoca_5b54a1e7_91e9_4e73_8b4d_8527997db569.so
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fmu.prepare_native 3.717s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fmu.rumoca_compile 10.204s ok[0m
+FMU ready: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload/FastDyn_QavrSidePayload.fmu
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.fmu_auto_build 10.216s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.load_config 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helper.mavproxy.popen 0.001s ok[0m
+FASTDYN_LOG|INFO|  [32mMAVCesium web viewer: open http://127.0.0.1:5000/mavcesium/[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helper.mission.popen 0.001s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.start 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32mParsing Config file: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload.toml[0m
+FASTDYN_LOG|INFO|  [32mParsing the passed path for the CMSIS SVD[0m
+FASTDYN_LOG|INFO|  [32mUsing SVD: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/third_party/common/cmsis-svd-data/data/STMicro/STM32F427.svd (key='STM32F427')[0m
+[mission] connecting to udpin:127.0.0.1:14552
+FASTDYN_LOG|INFO|  [32mCreating IRQ Map using the CMSIS SVD[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.parse_config 1.315s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.compile_device_routing 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.write_device_config 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.build_command 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.setup 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.qemu_setup 0.003s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.kill_existing 0.134s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.build_env 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.popen 0.001s ok[0m
+FASTDYN_VIRTUAL|WARN|function_tracer| no function-trace manifests were available
+Initializing flight controllers
+FMU parameter override: attachment_b=0.07778174593052023;-0.07778174593052023;0
+FMU parameter override: payload_mass=0.050000000000000003
+FMU backend loaded: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/payload/FastDyn_QavrSidePayload.runtime/binaries/x86_64-linux/Rumoca_5b54a1e7_91e9_4e73_8b4d_8527997db569.so
+FMU timing: init_wall=0.000s
+Current CPU type: cortex-m4-arm-cpu
+FMU backend advances synchronously from QEMU timer ticks
+Periodic IRQ 66 every 1000000 ns
+GCS using UART at address 0x200139C0
+Copter frame class address mismatch: expected 0x20008284, got 0x00000AAC
+[GCSReceiver]: Listening for incoming data on UDP port 14551...
+[GPSInputReceiver]: Listening for incoming data on UDP port 14553...
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+[31m[GCSReceiver]: Initialized send socket to GCS at 127.0.0.1:58386
+[mission] heartbeat from system=1 component=1
+[mission] loading 27 params from out/qavr-controller.param
+[mission] param BRD_SAFETY_DEFLT=0
+[mission] param FS_THR_ENABLE=0
+[mission] param FS_GCS_ENABLE=0
+[mission] param DISARM_DELAY=0
+[mission] param EK3_SRC1_POSZ=3
+[mission] param EK3_SRC2_POSZ=3
+[mission] param EK3_SRC3_POSZ=3
+[mission] param COMPASS_DEC=0
+[mission] param COMPASS_AUTODEC=0
+[mission] param ARMING_CHECK=0
+[mission] param GUID_OPTIONS=0
+[mission] param MOT_PWM_MIN=1100
+[mission] param MOT_PWM_MAX=1900
+[mission] param MOT_THST_EXPO=0.5
+[mission] param MOT_THST_HOVER=0.2
+[mission] param ATC_RAT_RLL_P=0.0459849
+[mission] param ATC_RAT_RLL_I=0.0459849
+[mission] param ATC_RAT_RLL_D=0.00120043
+[mission] param ATC_RAT_PIT_P=0.0742121
+[mission] param ATC_RAT_PIT_I=0.0742121
+[mission] param ATC_RAT_PIT_D=0.00194942
+[mission] param ATC_RAT_RLL_FLTT=40
+[mission] param ATC_RAT_RLL_FLTD=40
+[mission] param ATC_RAT_PIT_FLTT=40
+[mission] param ATC_RAT_PIT_FLTD=40
+[mission] param ATC_ANG_RLL_P=4.5
+[mission] param ATC_ANG_PIT_P=4.5
+[mission] params sent
+[mission] waiting up to 180s for ArduPilot readiness
+[mission] STATUSTEXT: Initialising ArduPilot
+[mission] STATUSTEXT: ArduPilot Ready
+[mission] STATUSTEXT: AHRS: DCM active
+[mission] STATUSTEXT: RCOut: None
+[mission] STATUSTEXT: GPS 1: specified as MAV
+[mission] STATUSTEXT: Terrain: Allocation failed
+[mission] STATUSTEXT: GPS 1: detected MAV
+[mission] rel_alt=0.0m
+[mission] STATUSTEXT: EKF3 IMU0 initialised
+[mission] STATUSTEXT: AHRS: EKF3 active
+[mission] ArduPilot ready with GPS and EKF initialized
+[mission] keeping QGC home row for ArduPilot mission indexing
+[mission] uploading 6 mission items from virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints
+[mission] previous mission cleared
+[mission] sending mission item 0/5
+[mission] sending mission item 1/5
+[mission] sending mission item 2/5
+[mission] sending mission item 3/5
+[mission] sending mission item 4/5
+[mission] sending mission item 5/5
+[mission] upload accepted
+[mission] ensuring armed state in STABILIZE
+[mission] setting mode STABILIZE
+[mission] safety switch released
+[mission] arming with force
+[mission] STATUSTEXT: Flight plan received
+[mission] safety ack result=0
+[mission] arm ack result=4
+[mission] STATUSTEXT: Arm: AHRS: EKF starting GPS checks
+[mission] STATUSTEXT: Arm: AHRS: EKF starting GPS checks
+[mission] rel_alt=0.0m
+[mission] current item 0/5
+[mission] STATUSTEXT: Frame: QUAD/X
+[mission] rel_alt=0.0m
+[0mFMU timing: sim=14.652s wall_since_init=5.000s sim_wall_rtf=2.93x advanced=14.652s wall_advance=0.179s fmu_compute_rtf=81.95x advance_calls=14648 do_steps=14650 avg_do_step=12.1us
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+[mission] STATUSTEXT: EKF3 IMU0 origin set
+[mission] STATUSTEXT: Field Elevation Set: 149m
+[mission] STATUSTEXT: EKF3 IMU0 tilt alignment complete
+[mission] STATUSTEXT: EKF3 IMU0 MAG0 initial yaw alignment complete
+[mission] rel_alt=0.1m
+[mission] arming with force
+[mission] arm ack result=0
+[mission] armed
+[mission] waiting up to 180s for EKF GPS fusion
+[mission] rel_alt=0.0m
+[mission] current item 0/5
+[mission] rel_alt=0.0m
+FMU timing: sim=27.869s wall_since_init=10.000s sim_wall_rtf=2.79x advanced=27.869s wall_advance=0.354s fmu_compute_rtf=78.76x advance_calls=27865 do_steps=27867 avg_do_step=12.6us
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+FMU timing: sim=41.364s wall_since_init=15.000s sim_wall_rtf=2.76x advanced=41.364s wall_advance=0.542s fmu_compute_rtf=76.30x advance_calls=41360 do_steps=41362 avg_do_step=13.0us
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+FMU timing: sim=54.864s wall_since_init=20.000s sim_wall_rtf=2.74x advanced=54.864s wall_advance=0.730s fmu_compute_rtf=75.16x advance_calls=54860 do_steps=54862 avg_do_step=13.2us
+[mission] rel_alt=0.0m
+[mission] STATUSTEXT: EKF3 IMU0 is using GPS
+[mission] EKF GPS fusion confirmed
+[mission] ensuring mode AUTO
+[mission] setting mode AUTO
+[mission] STATUSTEXT: Mode change to AUTO failed: requires position
+[mission] rel_alt=0.0m
+[mission] current item 0/5
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+FMU timing: sim=68.776s wall_since_init=25.000s sim_wall_rtf=2.75x advanced=68.776s wall_advance=0.907s fmu_compute_rtf=75.84x advance_calls=68772 do_steps=68774 avg_do_step=13.1us
+[mission] setting mode AUTO
+[mission] mode AUTO confirmed
+[mission] current mission item set to 0
+[mission] mission start requested
+[mission] monitoring for 180s
+[mission] current item 0/5
+[mission] STATUSTEXT: Mission: 1 Takeoff
+[mission] STATUSTEXT: Mission: 1 Takeoff
+[mission] rel_alt=0.0m
+[mission] current item 1/5
+[mission] rel_alt=1.4m
+[mission] rel_alt=2.9m
+[mission] STATUSTEXT: EKF3 IMU0 MAG0 in-flight yaw alignment complete
+[mission] rel_alt=4.1m
+[mission] rel_alt=5.3m
+[mission] rel_alt=6.5m
+[mission] rel_alt=7.7m
+[mission] rel_alt=9.0m
+[mission] rel_alt=10.1m
+[mission] rel_alt=11.2m
+[mission] rel_alt=12.5m
+[mission] rel_alt=13.6m
+[mission] rel_alt=14.7m
+[mission] reached item 1/5
+[mission] STATUSTEXT: Mission: 2 WP
+[mission] current item 2/5
+FMU timing: sim=81.523s wall_since_init=30.000s sim_wall_rtf=2.72x advanced=81.523s wall_advance=1.081s fmu_compute_rtf=75.42x advance_calls=81519 do_steps=81521 avg_do_step=13.2us
+[mission] rel_alt=15.0m
+[mission] rel_alt=15.1m
+[mission] reached item 2/5
+[mission] STATUSTEXT: Reached command #2
+[mission] STATUSTEXT: Mission: 3 WP
+[mission] current item 3/5
+[mission] rel_alt=15.1m
+[mission] rel_alt=15.0m
+[mission] reached item 3/5
+[mission] STATUSTEXT: Reached command #3
+[mission] STATUSTEXT: Mission: 4 WP
+[mission] current item 4/5
+[mission] rel_alt=15.0m
+FMU timing: sim=93.797s wall_since_init=35.001s sim_wall_rtf=2.68x advanced=93.797s wall_advance=1.264s fmu_compute_rtf=74.20x advance_calls=93793 do_steps=93795 avg_do_step=13.4us
+[mission] rel_alt=15.0m
+[mission] rel_alt=15.0m
+[mission] reached item 4/5
+[mission] STATUSTEXT: Reached command #4
+[mission] STATUSTEXT: Mission: 5 Land
+[mission] current item 5/5
+[mission] rel_alt=15.0m
+[mission] rel_alt=15.0m
+[mission] rel_alt=15.0m
+FMU timing: sim=106.001s wall_since_init=40.001s sim_wall_rtf=2.65x advanced=106.001s wall_advance=1.424s fmu_compute_rtf=74.46x advance_calls=105997 do_steps=105999 avg_do_step=13.3us
+[mission] rel_alt=14.3m
+[mission] rel_alt=13.2m
+[mission] rel_alt=12.1m
+[mission] rel_alt=11.1m
+[mission] rel_alt=10.0m
+[mission] rel_alt=8.9m
+[mission] rel_alt=7.9m
+[mission] rel_alt=6.9m
+FMU timing: sim=118.339s wall_since_init=45.001s sim_wall_rtf=2.63x advanced=118.339s wall_advance=1.595s fmu_compute_rtf=74.20x advance_calls=118335 do_steps=118337 avg_do_step=13.4us
+[mission] rel_alt=5.8m
+[mission] rel_alt=4.6m
+[mission] rel_alt=3.5m
+[mission] rel_alt=2.5m
+[mission] rel_alt=1.4m
+FMU timing: sim=130.406s wall_since_init=50.001s sim_wall_rtf=2.61x advanced=130.406s wall_advance=1.757s fmu_compute_rtf=74.22x advance_calls=130402 do_steps=130404 avg_do_step=13.4us
+[mission] rel_alt=0.4m
+[mission] rel_alt=-0.1m
+[mission] STATUSTEXT: Mission: 1 Takeoff
+[mission] current item 1/5
+[mission] final landing confirmed near ground
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helper.mission.exited exit_code=0[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.wait 51.836s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.qemu_execution 51.973s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.machine0.run 51.976s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.stop 0.165s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.run.total 63.678s ok[0m

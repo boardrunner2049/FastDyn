@@ -7,45 +7,37 @@ vehicle path. Run them from the FastDyn repository root after setup:
 source ./setup.sh --build-qemu
 ```
 
-## Vehicle Launch Smoke
+## Vehicle Missions
 
-`courbet_fmu_vehicle_smoke.sh` launches one vehicle config and waits for:
-
-- FMU auto-build or ready detection,
-- FMU backend load,
-- QEMU/FMU lockstep clock,
-- 1 ms board tick,
-- MAVCesium URL print,
-- ArduPilot heartbeat, and
-- telemetry.
-
-Examples:
+`courbet_mission_test.sh` checks mission upload, arming, altitude and waypoint
+progress. Copter requires the final mission item, low altitude, and a firmware
+`ON_GROUND` report. Rover drives a rectangle and requires a
+`MISSION_ITEM_REACHED` message for its final waypoint.
 
 ```bash
+tests/integration/courbet_mission_test.sh
+
 FASTDYN_COURBET_CONFIG=configs/rover462.toml \
-FASTDYN_COURBET_LABEL=ardurover \
-tests/integration/courbet_fmu_vehicle_smoke.sh
+FASTDYN_COURBET_LOG=out/ci/ardurover_mission.log \
+FASTDYN_COURBET_MIN_ALT_M=0 FASTDYN_COURBET_MIN_ITEM=4 \
+tests/integration/courbet_mission_test.sh
 
-FASTDYN_COURBET_CONFIG=configs/plane462.toml \
-FASTDYN_COURBET_LABEL=arduplane \
-tests/integration/courbet_fmu_vehicle_smoke.sh
 ```
 
-## Full Copter Mission
-
-`courbet_mission_smoke.sh` runs the ArduCopter KLAF/Purdue mission and requires:
-
-- mission upload,
-- vehicle arm,
-- climb above the configured minimum altitude,
-- mission item progression, and
-- final landing confirmation.
+Build the two supported FMUs, then check stationary startup, disabled PWM, and
+actuator response without firmware:
 
 ```bash
-tests/integration/courbet_mission_smoke.sh
+python utils/build_fmi3_fmu.py --config configs/copter462.toml
+python utils/build_fmi3_fmu.py --config configs/rover462.toml
+python tests/integration/fmu_backend_test.py --vehicle copter --vehicle rover
+python tests/integration/plane_export_limit_test.py
 ```
 
-## Swarm Smoke
+The Plane check lowers the actual three-wheel template and confirms the pinned
+compiler rejects its unsupported contact events. It does not validate flight.
+
+## Swarm launch checks
 
 `courbet_swarm_smoke.sh` launches multiple isolated FastDyn workers and verifies
 each worker prints a MAVCesium URL, loads the FMU backend, and uses the 1 ms
@@ -59,16 +51,22 @@ FASTDYN_SWARM_BASE_PORT=18000 \
 tests/integration/courbet_swarm_smoke.sh
 ```
 
-The same script accepts `configs/rover462.toml` and `configs/plane462.toml`.
+The same script accepts `configs/rover462.toml`. Use the source configs with
+port placeholders for swarms; tutorial-generated single-vehicle configs contain
+fixed helper ports and must not be shared between workers.
 Each worker receives separate QEMU monitor, MAVLink, MAVCesium, Rumoca, GDB,
 QMP, work, and RAM-backing paths.
 
 ## CI
 
-`.github/workflows/courbet-mission.yml` runs the setup script, builds the
+`.github/workflows/ci.yml` runs the setup script, builds the
 renamed Modelica vehicle models through Rumoca FMI v3, checks OptiFuzz dry-run
 wiring for copter/rover/plane, checks two-worker swarm dry-runs, launches real
-two-worker swarms for all three vehicles, and runs the full ArduCopter mission.
+two-worker Copter/Rover swarms and complete missions. Plane export support is
+checked separately and explicitly reported as pending.
+The `mission-report` artifact includes console and MAVLink logs, a top-down
+track with numbered waypoints, and altitude versus setpoint over time. See
+[the repository README](../../README.md#ci) for the local report command.
 
 ## Upstream RTOS introspection smoke test
 

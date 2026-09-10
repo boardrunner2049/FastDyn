@@ -1,0 +1,17 @@
+{
+  "vehicle": "copter",
+  "log": "docs/book/assets/physics-edit/payload.tlog",
+  "mission": "docs/book/assets/physics-edit/mission.waypoints",
+  "position_samples": 383,
+  "altitude_target_samples": 400,
+  "navigation_target_samples": 107,
+  "max_relative_altitude_m": 15.067,
+  "final_relative_altitude_m": -0.035,
+  "final_mission_item": 1,
+  "duration_s": 112.67599999999999,
+  "time_reference": "Time since arming (s)",
+  "altitude_setpoint_source": "GLOBAL_POSITION_INT.relative_alt + NAV_CONTROLLER_OUTPUT.alt_error",
+  "max_ground_speed_mps": 4.424522573114527,
+  "navigation_target_source": "POSITION_TARGET_GLOBAL_INT",
+  "home_altitude_m": 149.02
+}

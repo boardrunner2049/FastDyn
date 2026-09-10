@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import replace
 
 import pytest
 
@@ -55,3 +56,38 @@ def test_value_references_reject_missing_configured_parameter(tmp_path):
 
     with pytest.raises(fmu_build.FmuConfigError, match="not_in_fmu"):
         fmu_build.value_references(build)
+
+
+def test_calculated_parameter_override_fails_before_launch(tmp_path):
+    build = make_build(tmp_path, {"derived_mass": 1.0})
+    write_model_description(build.output, ("derived_mass",))
+    xml = build.output / "modelDescription.xml"
+    xml.write_text(xml.read_text().replace('name="derived_mass"',
+        'name="derived_mass" causality="calculatedParameter"'))
+    with pytest.raises(fmu_build.FmuConfigError, match="calculated and cannot be overridden"):
+        fmu_build.value_references(build)
+
+
+def test_prebuilt_compiler_does_not_invoke_cargo(tmp_path):
+    build = replace(make_build(tmp_path, {}), compiler="rumoca", release=True)
+    command = fmu_build.cargo_command(build)
+    assert command[:2] == ["rumoca", "compile"]
+    assert "cargo" not in command
+    assert "--release" not in command
+    assert command[command.index("--model") + 1] == "FastDyn.Copter"
+    assert command[-2:] == ["--target", "fmi3"]
+
+
+def test_compiler_from_toml_and_empty_compiler_rejected(tmp_path):
+    path = tmp_path / "run.toml"
+    template = '''[FMU]
+compiler = {compiler}
+model = "FastDyn.Copter"
+model_file = "Copter.mo"
+source_root = "."
+'''
+    path.write_text(template.format(compiler='"rumoca"'))
+    assert fmu_build.resolve(path, repo_root=tmp_path).compiler == "rumoca"
+    path.write_text(template.format(compiler='""'))
+    with pytest.raises(fmu_build.FmuConfigError, match="compiler"):
+        fmu_build.resolve(path, repo_root=tmp_path)

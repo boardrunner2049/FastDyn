@@ -1,0 +1,15 @@
+# Overlay for configs/copter462.toml. Vehicle defaults live in Modelica.
+[FMU]
+active = "qavr"
+
+[FMU.models.qavr]
+model = "FastDyn.Qavr"
+model_file = "modelica/FastDyn/Qavr.mo"
+source_roots = ["modelica", "third_party/common/modelica_models"]
+output = "out/fmi3/Qavr"
+build = true
+
+[FMU.models.qavr.parameters]
+lat0 = 40.414929
+lon0 = -86.932387
+ground_alt_wgs84 = 149.0

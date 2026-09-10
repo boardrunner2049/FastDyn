@@ -14,7 +14,7 @@ legacy experiments, but new local and CI coverage targets the FMUv3 backend.
 From the FastDyn repository root:
 
 ```bash
-source ./setup.sh --build-qemu
+source ./setup.sh --build-qemu --with-rumoca
 ```
 
 `setup.sh` creates the Python virtualenv, installs the FastDyn CLI, initializes
@@ -22,11 +22,15 @@ the pinned Rumoca and `modelica_models` submodules, creates the sibling Banquo
 parser checkout used by CP-Explore, prepares QEMU RAM backing files, and, with
 `--build-qemu`, builds the patched QEMU fork and FastDyn plugin.
 
+The commands below disable the default `gazebo` Cargo feature so FMUv3 builds
+do not need Gazebo development libraries. Enable `--features gazebo` when
+using the legacy backend or `trace_recorder`.
+
 ## Run The Default Campaign
 
 ```bash
 cd virtuals/fuzzer/libafl_phi
-cargo run --bin baby_fuzzer
+cargo run --no-default-features --features std --bin baby_fuzzer
 ```
 
 By default this selects:
@@ -49,7 +53,7 @@ To check the FastDyn command wiring without launching QEMU:
 ```bash
 FASTDYN_OPTIFUZZ_SMOKE=1 \
 FASTDYN_OPTIFUZZ_DRY_RUN=1 \
-cargo run --bin baby_fuzzer
+cargo run --no-default-features --features std --bin baby_fuzzer
 ```
 
 CI runs this dry-run path for copter, rover, and plane, including two-worker
@@ -63,14 +67,14 @@ Use environment variables to select another maintained vehicle:
 FASTDYN_OPTIFUZZ_VEHICLE=rover \
 FASTDYN_OPTIFUZZ_CONFIG=configs/rover462.toml \
 FASTDYN_OPTIFUZZ_MISSION_FILE=virtuals/physics/flight_controllers/courbet/mavlink/rover_rectangle.txt \
-cargo run --bin baby_fuzzer
+cargo run --no-default-features --features std --bin baby_fuzzer
 ```
 
 ```bash
 FASTDYN_OPTIFUZZ_VEHICLE=plane \
 FASTDYN_OPTIFUZZ_CONFIG=configs/plane462.toml \
 FASTDYN_OPTIFUZZ_MISSION_FILE=virtuals/physics/flight_controllers/courbet/mavlink/plane_circle_point.txt \
-cargo run --bin baby_fuzzer
+cargo run --no-default-features --features std --bin baby_fuzzer
 ```
 
 For `copter`, `rover`, and `plane`, the backend defaults to `fmuv3`. Override
@@ -84,7 +88,7 @@ OptiFuzz can use `fastdyn swarm` for a fuzzer execution:
 ```bash
 FASTDYN_OPTIFUZZ_SWARM_INSTANCES=2 \
 FASTDYN_OPTIFUZZ_BASE_PORT=19000 \
-cargo run --bin baby_fuzzer
+cargo run --no-default-features --features std --bin baby_fuzzer
 ```
 
 The generated command assigns separate QEMU monitor, MAVLink, MAVCesium, Rumoca,

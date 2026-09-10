@@ -27,6 +27,8 @@ setup(
     entry_points={
         'console_scripts': [
             'fastdyn = fastdyn.main:cli',
+            'fastdyn-config = fastdyn.configure:main',
+            'mdbook-fastdyn-assets = fastdyn.docs_assets:main',
             # boardrunner is an alias for fastdyn — paper-facing name.
             # Both invoke the same CLI; users can use whichever they prefer.
             'boardrunner = fastdyn.main:cli',

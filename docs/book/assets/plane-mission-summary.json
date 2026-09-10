@@ -1,0 +1,19 @@
+{
+  "vehicle": "plane",
+  "log": "out/local-ci/plane/mission-final.tlog",
+  "mission": "out/local-ci/plane/mission-home.waypoints",
+  "position_samples": 275,
+  "altitude_target_samples": 270,
+  "navigation_target_samples": 269,
+  "max_relative_altitude_m": 105.931,
+  "final_relative_altitude_m": 100.462,
+  "final_mission_item": 11,
+  "duration_s": 85.985,
+  "time_reference": "Time since arming (s)",
+  "altitude_setpoint_source": "GLOBAL_POSITION_INT.relative_alt + NAV_CONTROLLER_OUTPUT.alt_error",
+  "max_ground_speed_mps": 41.338582462392196,
+  "navigation_target_source": "POSITION_TARGET_GLOBAL_INT",
+  "home_altitude_m": 148.95,
+  "revision": "f50d547748c9ab2e5411cbe52f21a04d9eab26a0",
+  "model": "modelica/FastDyn/Plane.mo"
+}

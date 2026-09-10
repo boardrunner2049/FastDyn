@@ -1,0 +1,16 @@
+
+# Preserve generated plots, CSV line endings, and verbatim experiment logs.
+docs/book/assets/*.svg linguist-generated=true -whitespace
+docs/book/assets/payload-study/*.svg linguist-generated=true -whitespace
+docs/book/assets/*.csv linguist-generated=true whitespace=cr-at-eol
+docs/book/assets/*-console.txt linguist-generated=true -whitespace
+docs/book/assets/payload-study/*/console.log linguist-generated=true -whitespace
+docs/book/assets/physics-edit/*.svg linguist-generated=true -whitespace
+docs/book/assets/physics-edit/*.csv linguist-generated=true whitespace=cr-at-eol
+docs/book/assets/physics-edit/*-console.txt linguist-generated=true -whitespace
+docs/book/assets/qavr-tuning/*.svg linguist-generated=true -whitespace
+docs/book/assets/qavr-tuning/**/*.csv linguist-generated=true whitespace=cr-at-eol
+docs/book/assets/qavr-tuning/**/console.log linguist-generated=true -whitespace
+*.tlog -text
+# The bundled Mermaid distribution includes whitespace in embedded strings.
+docs/mermaid.min.js linguist-vendored=true -whitespace

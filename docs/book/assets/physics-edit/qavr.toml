@@ -1,0 +1,6 @@
+compiler_revision = "21843c115cd4b4c7fa02011d18a6c1e501ebb387"
+modelica_models_revision = "dfdb3294f61ab639a8a8be19611a1f69187a3ff7"
+model = "FastDyn.Qavr"
+firmware = "ArduCopter 4.6.2"
+controller = "configs/tuning/qavr.toml:candidates.qav250"
+completion = "final landing confirmed near ground"

@@ -1,0 +1,8 @@
+# Browser-only dependencies; independent of the native Rumoca FMU compiler.
+[rumoca]
+url = "https://registry.npmjs.org/@cognipilot/rumoca/-/rumoca-0.9.20.tgz"
+hash = "sha256-p7NAUhEB0KSpVpnvytNCnCOPymcMSBeEK8ChUgqxL2k="
+
+[monaco]
+url = "https://registry.npmjs.org/monaco-editor/-/monaco-editor-0.45.0.tgz"
+hash = "sha256-GqAv1DGVRTd94K4Q+quVf3WuAGDcx8CZFZUGE/IyxKs="

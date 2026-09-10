@@ -19,7 +19,6 @@ From the FastDyn repository root:
 ```bash
 fastdyn run -c configs/copter462.toml
 fastdyn run -c configs/rover462.toml
-fastdyn run -c configs/plane462.toml
 ```
 
 These configs run the real ArduPilot firmware in patched QEMU and connect it to
@@ -27,10 +26,11 @@ a Rumoca-generated FMI v3 plant:
 
 - `configs/copter462.toml` uses `FastDyn.Copter`.
 - `configs/rover462.toml` uses `FastDyn.Rover`.
-- `configs/plane462.toml` uses `FastDyn.Plane`.
+- `configs/plane462.toml` describes `FastDyn.Plane`; its three-wheel contact
+  events currently prevent FMI export, so it is not yet a runnable example.
 
 The FastDyn wrapper models inherit reusable base plants from
-`third_party/common/modelica_models/RigidBody/Examples` and define the
+`third_party/common/modelica_models/Vehicles/Templates` and define the
 ArduPilot-facing sensor and actuator variables in this repository.
 
 The FMU start point and default missions are aligned to the KLAF/Purdue tarmac:
@@ -64,8 +64,7 @@ Important files:
 - `plane_circle_point.txt`: KLAF fixed-wing mission.
 
 The ArduCopter config starts MAVProxy/MAVCesium and the mission helper by
-default. Rover and plane configs start MAVProxy/MAVCesium plus a health check
-helper by default.
+default. Rover also starts a complete waypoint mission helper.
 
 FastDyn prints the viewer URL during startup:
 
@@ -113,19 +112,20 @@ tests/integration/courbet_swarm_smoke.sh
 After setup, these scripts exercise the maintained path:
 
 ```bash
-# Rover or plane launch smoke; set FASTDYN_COURBET_CONFIG.
+# Rover waypoint integration test.
 FASTDYN_COURBET_CONFIG=configs/rover462.toml \
 FASTDYN_COURBET_LABEL=ardurover \
-tests/integration/courbet_fmu_vehicle_smoke.sh
+FASTDYN_COURBET_MIN_ALT_M=0 FASTDYN_COURBET_MIN_ITEM=4 \
+tests/integration/courbet_mission_test.sh
 
 # Full ArduCopter mission.
-tests/integration/courbet_mission_smoke.sh
+tests/integration/courbet_mission_test.sh
 
 # Two-worker swarm launch smoke.
 tests/integration/courbet_swarm_smoke.sh
 ```
 
-GitHub Actions runs these paths in `.github/workflows/courbet-mission.yml`.
+GitHub Actions runs these paths in `.github/workflows/ci.yml`.
 
 ## OptiFuzz
 

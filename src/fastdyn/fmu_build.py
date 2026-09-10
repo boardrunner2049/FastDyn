@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import math
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -21,7 +23,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback.
 RUMOCA_REL = Path("third_party/common/rumoca")
 MODELS_REL = Path("third_party/common/modelica_models")
 SETUP_HINT = (
-    "Run `source ./setup.sh` from the FastDyn repository root "
+    "Run `source ./setup.sh --with-rumoca` from the FastDyn repository root "
     "to initialize the pinned Rumoca/modelica_models checkout."
 )
 REQUIRED_VALUE_REFERENCES = (
@@ -63,7 +65,8 @@ class FmuBuild:
     package: bool = True
     release: bool = False
     auto_build: bool = False
-    parameters: dict[str, float] | None = None
+    parameters: dict[str, float | list] | None = None
+    compiler: str | None = None
 
     @property
     def rumoca_dir(self) -> Path:
@@ -246,20 +249,44 @@ def _flag(
     return default
 
 
-def _parameters(values: dict[str, object]) -> dict[str, float]:
+def parameter_shape(value):
+    if isinstance(value, list):
+        if not value:
+            raise FmuConfigError("FMU parameter arrays must not be empty")
+        shapes = [parameter_shape(item) for item in value]
+        if any(shape != shapes[0] for shape in shapes):
+            raise FmuConfigError("FMU parameter arrays must be rectangular")
+        return (len(value), *shapes[0])
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise FmuConfigError("FMU parameters must contain finite numeric values")
+    return ()
+
+
+def parameter_values(value):
+    """Flatten FMI arrays in row-major order, with the last index varying fastest."""
+    if isinstance(value, list):
+        return [number for item in value for number in parameter_values(item)]
+    return [float(value)]
+
+
+def parameter_argument(value):
+    # Semicolons keep array entries separate from QEMU's comma-delimited options.
+    return ";".join(f"{number:.17g}" for number in parameter_values(value))
+
+
+def _parameters(values: dict[str, object]) -> dict[str, float | list]:
     raw = values.get("parameters", {})
     if raw is None:
         return {}
     if not isinstance(raw, dict):
         raise FmuConfigError("[FMU.models.<name>.parameters] must be a table")
 
-    parameters: dict[str, float] = {}
+    parameters: dict[str, float | list] = {}
     for name, value in raw.items():
         if not isinstance(name, str) or not name:
             raise FmuConfigError("FMU parameter names must be non-empty strings")
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise FmuConfigError(f"FMU parameter {name!r} must be numeric")
-        parameters[name] = float(value)
+        parameter_shape(value)
+        parameters[name] = value if isinstance(value, list) else float(value)
     return parameters
 
 
@@ -296,6 +323,9 @@ def resolve(
         extra_source_roots = source_roots[1:]
 
     output_default = Path("out") / "fmi3" / identifier
+    compiler = fmu_root.get("compiler")
+    if compiler is not None and (not isinstance(compiler, str) or not compiler.strip()):
+        raise FmuConfigError("[FMU].compiler must be a non-empty executable path or name")
     return FmuBuild(
         name=name,
         model=model,
@@ -325,19 +355,22 @@ def resolve(
             False,
         ),
         parameters=_parameters(model_values),
+        compiler=compiler,
     )
 
 
 def cargo_command(build: FmuBuild) -> list[str]:
-    command = ["cargo", "run"]
-    if build.release:
-        command.append("--release")
+    compiler = build.compiler
+    if compiler:
+        command = [compiler]
+    else:
+        command = ["cargo", "run", "--locked"]
+        if build.release:
+            command.append("--release")
+        command.extend(["-p", "rumoca", "--"])
 
     command.extend(
         [
-            "-p",
-            "rumoca",
-            "--",
             "compile",
             str(build.model_file),
             "--model",
@@ -354,8 +387,6 @@ def cargo_command(build: FmuBuild) -> list[str]:
             "fmi3",
         ]
     )
-    if build.package:
-        command.append("--build")
     return command
 
 
@@ -378,9 +409,11 @@ def update_submodules(repo_root: Path) -> None:
 
 
 def require_build_inputs(build: FmuBuild) -> None:
-    if shutil.which("cargo") is None:
+    compiler = build.compiler or "cargo"
+    if shutil.which(compiler) is None:
         raise FmuConfigError(
-            "cargo was not found. Install Rust/Cargo before building the configured FMU."
+            f"{compiler} was not found. Enter `nix develop`, set [FMU].compiler "
+            "to a Rumoca executable, or install Rust/Cargo."
         )
     for label, path in (
         ("pinned Rumoca checkout", build.rumoca_dir / "Cargo.toml"),
@@ -417,16 +450,40 @@ def build_fmu(build: FmuBuild, update_submodules_first: bool = True) -> FmuBuild
         update_submodules(build.repo_root)
     require_build_inputs(build)
     with timing.phase("fmu.rumoca_compile", model=build.model, package=build.package):
-        subprocess.run(cargo_command(build), cwd=build.rumoca_dir, check=True)
+        command = cargo_command(build)
+        if build.package:
+            subprocess.run(command, cwd=build.rumoca_dir, check=True)
+            # Recent Rumoca exports portable source FMUs. Build their native
+            # library using FMI build metadata; older binary FMUs are reused.
+            from .fmu_runtime import prepare
+            with timing.phase("fmu.prepare_native", model=build.model):
+                prepare(build.fmu_path)
+        else:
+            templates = build.rumoca_dir / "crates/rumoca-phase-codegen/src/templates/fmi3"
+            manifest_path = templates / "target.toml"
+            with manifest_path.open("rb") as handle:
+                source_package = "package" in tomllib.load(handle)
+            if source_package:
+                # New exporters always package portable source, without a C
+                # build. Retain the flat inspection layout of --no-build too.
+                subprocess.run(command, cwd=build.rumoca_dir, check=True)
+                from fmpy import extract
+                extract(str(build.fmu_path), unzipdir=str(build.output))
+                return build
+            # Rumoca selects packaging through target.toml, not a CLI flag.
+            # Keep --no-build by rendering a private copy without that step.
+            with tempfile.TemporaryDirectory(prefix="fastdyn-fmi3-") as temporary:
+                target = Path(temporary) / "fmi3"
+                shutil.copytree(templates, target)
+                manifest = target / "target.toml"
+                manifest.write_text(manifest.read_text().replace('build = "fmu"\n', ""))
+                command[command.index("--target") + 1] = str(target)
+                subprocess.run(command, cwd=build.rumoca_dir, check=True)
     return build
 
 
 def _model_description_xml(build: FmuBuild) -> bytes:
-    xml_path = build.output / "modelDescription.xml"
-    if xml_path.is_file():
-        return xml_path.read_bytes()
-
-    if build.fmu_path.is_file():
+    if build.package and build.fmu_path.is_file():
         with zipfile.ZipFile(build.fmu_path) as archive:
             try:
                 return archive.read("modelDescription.xml")
@@ -434,6 +491,10 @@ def _model_description_xml(build: FmuBuild) -> bytes:
                 raise FmuConfigError(
                     f"FMU is missing modelDescription.xml: {build.fmu_path}"
                 ) from exc
+
+    xml_path = build.output / "modelDescription.xml"
+    if xml_path.is_file():
+        return xml_path.read_bytes()
 
     raise FmuConfigError(
         f"FMU metadata not found for {build.name}: expected {xml_path} or {build.fmu_path}"
@@ -458,6 +519,21 @@ def value_references(build: FmuBuild) -> dict[str, int]:
         name = element.attrib.get("name")
         raw_vr = element.attrib.get("valueReference")
         if name in requested and raw_vr is not None:
+            if name in (build.parameters or {}):
+                if element.attrib.get("causality") == "calculatedParameter":
+                    raise FmuConfigError(
+                        f"FMU parameter {name!r} is calculated and cannot be overridden; "
+                        "set its independent source parameters, or change the Modelica "
+                        "binding and rebuild the FMU"
+                    )
+                dimensions = [child.attrib.get("start") for child in element
+                              if child.tag.rsplit("}", 1)[-1] == "Dimension"]
+                if any(size is None for size in dimensions):
+                    raise FmuConfigError(f"FMU parameter {name!r} has unsupported dynamic dimensions")
+                expected = tuple(int(size) for size in dimensions)
+                actual = parameter_shape(build.parameters[name])
+                if actual != expected:
+                    raise FmuConfigError(f"FMU parameter {name!r}: expected shape {expected}, got {actual}")
             try:
                 refs[name] = int(raw_vr)
             except ValueError as exc:

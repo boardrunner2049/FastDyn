@@ -1,0 +1,378 @@
+mission = "mission.waypoints"
+
+[study]
+title = "QAV-R: payload-weight Monte Carlo study"
+seed = 462
+samples = 16
+distribution = "uniform"
+attachment_b_m = [
+    0.07778174593052023,
+    -0.07778174593052023,
+    0.0,
+]
+modelica_models_revision = "dfdb3294f61ab639a8a8be19611a1f69187a3ff7"
+rumoca_revision = "21843c115cd4b4c7fa02011d18a6c1e501ebb387"
+rumoca_version = "0.10.0"
+mission = "virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints"
+vehicle_mass_kg = 0.5
+max_payload_to_vehicle_mass_ratio = 1.0
+
+[[runs]]
+id = "reference"
+payload_mass_kg = 0.0
+log = "reference/mission.tlog"
+console = "reference/console.log"
+model_file = "reference/PayloadTrial.mo"
+status = "reference"
+reason = "Final mission item and landing confirmed"
+fmu_sha256 = "3e717c96d3209299dbfb1e2cbd9ef0cc116ebac9390cb8a93d94dc4c40926a2a"
+wall_time_s = 56.45562489004806
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = true
+attitude_samples = 246
+max_tilt_deg = 16.87264559643364
+max_altitude_m = 15.074
+max_armed_tilt_deg = 16.87264559643364
+
+[[runs]]
+id = "payload-limit"
+payload_mass_kg = 0.5
+log = "payload-limit/mission.tlog"
+console = "payload-limit/console.log"
+model_file = "payload-limit/PayloadTrial.mo"
+status = "flight_failure"
+reason = "Firmware crash check disarmed the vehicle"
+fmu_sha256 = "c9d67cfa51006b53aa652827aa12ce097cf3a6a3d07c9bf3d6d919719afce037"
+wall_time_s = 32.03757890313864
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = false
+attitude_samples = 0
+max_tilt_deg = 0.0
+max_altitude_m = 0.075
+max_armed_tilt_deg = 179.20133169186164
+
+[[runs]]
+id = "run-000"
+payload_mass_kg = 0.43868330978522424
+log = "run-000/mission.tlog"
+console = "run-000/console.log"
+model_file = "run-000/PayloadTrial.mo"
+status = "flight_failure"
+reason = "Firmware crash check disarmed the vehicle"
+fmu_sha256 = "f6dc142742e9591477d323994cff04b0fbfa5710d9a5a72a9eebb6dc231d337a"
+wall_time_s = 36.43703751359135
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = false
+attitude_samples = 0
+max_tilt_deg = 0.0
+max_altitude_m = 0.056
+max_armed_tilt_deg = 178.97451515388104
+
+[[runs]]
+id = "run-001"
+payload_mass_kg = 0.22061343293591473
+log = "run-001/mission.tlog"
+console = "run-001/console.log"
+model_file = "run-001/PayloadTrial.mo"
+status = "passed"
+reason = "Final mission item and landing confirmed"
+fmu_sha256 = "74c74f0faa1c62e5dea05c1e66dea79ec08e28557c93ab0e4201e19f5e926ca0"
+wall_time_s = 56.49210981838405
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = true
+attitude_samples = 249
+max_tilt_deg = 26.06235972848371
+max_altitude_m = 15.115
+max_armed_tilt_deg = 27.466236455755826
+
+[[runs]]
+id = "run-002"
+payload_mass_kg = 0.19835677733242846
+log = "run-002/mission.tlog"
+console = "run-002/console.log"
+model_file = "run-002/PayloadTrial.mo"
+status = "passed"
+reason = "Final mission item and landing confirmed"
+fmu_sha256 = "88b69a87f6e0c403df49e21b33927e9800d39fdfc54b17381b3c3afc761cab35"
+wall_time_s = 51.90133873093873
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = true
+attitude_samples = 250
+max_tilt_deg = 13.724005659462613
+max_altitude_m = 15.081
+max_armed_tilt_deg = 23.42803704035759
+
+[[runs]]
+id = "run-003"
+payload_mass_kg = 0.48828465860015297
+log = "run-003/mission.tlog"
+console = "run-003/console.log"
+model_file = "run-003/PayloadTrial.mo"
+status = "flight_failure"
+reason = "Firmware crash check disarmed the vehicle"
+fmu_sha256 = "3613ff37b589d45495920bb66308d1cd74056c0b35498f391df82387a98e710f"
+wall_time_s = 34.242491928860545
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = false
+attitude_samples = 0
+max_tilt_deg = 0.0
+max_altitude_m = 0.076
+max_armed_tilt_deg = 178.82942144526996
+
+[[runs]]
+id = "run-004"
+payload_mass_kg = 0.0700101463785337
+log = "run-004/mission.tlog"
+console = "run-004/console.log"
+model_file = "run-004/PayloadTrial.mo"
+status = "passed"
+reason = "Final mission item and landing confirmed"
+fmu_sha256 = "3608bf2a45b24762543b8ba4a49581926210a66cf54508db72761a49e3c8326c"
+wall_time_s = 54.18614782532677
+
+[runs.metrics]
+armed = true
+ever_armed = true
+airborne = true
+attitude_samples = 245
+max_tilt_deg = 15.314869413195034
+max_altitude_m = 15.065
+max_armed_tilt_deg = 15.314869413195034
+
+[[runs]]
+id = "run-005"
+payload_mass_kg = 0.23123731399900188
+log = "run-005/mission.tlog"
+console = "run-005/console.log"
+model_file = "run-005/PayloadTrial.mo"
+status = "passed"
+reason = "Final mission item and landing confirmed"
+fmu_sha256 = "77608e2033c9798429b724dba4f5f73bfaee3e6361bfce21e35ff8bc7c249d84"
+wall_time_s = 56.46475243382156
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = true
+attitude_samples = 249
+max_tilt_deg = 22.83464818097046
+max_altitude_m = 15.079
+max_armed_tilt_deg = 28.88202072658882
+
+[[runs]]
+id = "run-006"
+payload_mass_kg = 0.3598320663449383
+log = "run-006/mission.tlog"
+console = "run-006/console.log"
+model_file = "run-006/PayloadTrial.mo"
+status = "flight_failure"
+reason = "Firmware crash check disarmed the vehicle"
+fmu_sha256 = "b65adf53aaa9410e4cbd7cfd4a5001241e0dd6e7278d63fa04ee3f39fa8a452a"
+wall_time_s = 30.02270755590871
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = false
+attitude_samples = 0
+max_tilt_deg = 0.0
+max_altitude_m = 0.084
+max_armed_tilt_deg = 179.4853493533207
+
+[[runs]]
+id = "run-007"
+payload_mass_kg = 0.4305695500345771
+log = "run-007/mission.tlog"
+console = "run-007/console.log"
+model_file = "run-007/PayloadTrial.mo"
+status = "flight_failure"
+reason = "Firmware crash check disarmed the vehicle"
+fmu_sha256 = "ebeb597e1364f32fe0e4e30480ed9e83455a1344cae7a7c88a7776bfa969d3d3"
+wall_time_s = 34.23125564400107
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = false
+attitude_samples = 0
+max_tilt_deg = 0.0
+max_altitude_m = 0.071
+max_armed_tilt_deg = 179.2085410177029
+
+[[runs]]
+id = "run-008"
+payload_mass_kg = 0.430047361963322
+log = "run-008/mission.tlog"
+console = "run-008/console.log"
+model_file = "run-008/PayloadTrial.mo"
+status = "flight_failure"
+reason = "Firmware crash check disarmed the vehicle"
+fmu_sha256 = "f85e1becbe446fe326f1560f440b637b36644ac76a2b7689c0b6c7a03d1edc54"
+wall_time_s = 34.223551847971976
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = false
+attitude_samples = 0
+max_tilt_deg = 0.0
+max_altitude_m = 0.077
+max_armed_tilt_deg = 178.6222723597354
+
+[[runs]]
+id = "run-009"
+payload_mass_kg = 0.32159820100528835
+log = "run-009/mission.tlog"
+console = "run-009/console.log"
+model_file = "run-009/PayloadTrial.mo"
+status = "passed"
+reason = "Final mission item and landing confirmed"
+fmu_sha256 = "e821f095e572f0d2d346c5d4317f238fdd6c01ff1bc022c88ec8b8b751322efa"
+wall_time_s = 56.64831060403958
+
+[runs.metrics]
+armed = true
+ever_armed = true
+airborne = true
+attitude_samples = 267
+max_tilt_deg = 36.458060217444476
+max_altitude_m = 15.187
+max_armed_tilt_deg = 40.94576944060812
+
+[[runs]]
+id = "run-010"
+payload_mass_kg = 0.4722484756229672
+log = "run-010/mission.tlog"
+console = "run-010/console.log"
+model_file = "run-010/PayloadTrial.mo"
+status = "flight_failure"
+reason = "Firmware crash check disarmed the vehicle"
+fmu_sha256 = "ef21d5d13c5a64aeb0d5fc9e80ae053d265e52b7c514159b30bb8c9303213695"
+wall_time_s = 34.24066295195371
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = false
+attitude_samples = 0
+max_tilt_deg = 0.0
+max_altitude_m = 0.058
+max_armed_tilt_deg = 179.10101123300763
+
+[[runs]]
+id = "run-011"
+payload_mass_kg = 0.4855455511091094
+log = "run-011/mission.tlog"
+console = "run-011/console.log"
+model_file = "run-011/PayloadTrial.mo"
+status = "flight_failure"
+reason = "Firmware crash check disarmed the vehicle"
+fmu_sha256 = "f783b08d2dc2c3ce1a8ec24dd4c7e0ba4e136369e2653c6ff07553ce5bfe2b76"
+wall_time_s = 34.25005310494453
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = false
+attitude_samples = 0
+max_tilt_deg = 0.0
+max_altitude_m = 0.059
+max_armed_tilt_deg = 178.94103733248292
+
+[[runs]]
+id = "run-012"
+payload_mass_kg = 0.24216166022695873
+log = "run-012/mission.tlog"
+console = "run-012/console.log"
+model_file = "run-012/PayloadTrial.mo"
+status = "passed"
+reason = "Final mission item and landing confirmed"
+fmu_sha256 = "79528c86b4b8a0ecddf9b567f0aebe7cea4a0e3ae000520b02c7287bf15d12b6"
+wall_time_s = 56.46192627865821
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = true
+attitude_samples = 247
+max_tilt_deg = 27.539797780679116
+max_altitude_m = 15.147
+max_armed_tilt_deg = 28.761603284555214
+
+[[runs]]
+id = "run-013"
+payload_mass_kg = 0.22662893036409887
+log = "run-013/mission.tlog"
+console = "run-013/console.log"
+model_file = "run-013/PayloadTrial.mo"
+status = "passed"
+reason = "Final mission item and landing confirmed"
+fmu_sha256 = "730083098d47a6d62aab7fdb158b4ade585afceb82edba3fa0480f29ee1d1dc1"
+wall_time_s = 59.04351925384253
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = true
+attitude_samples = 249
+max_tilt_deg = 25.821701729807238
+max_altitude_m = 15.077
+max_armed_tilt_deg = 28.583117913078723
+
+[[runs]]
+id = "run-014"
+payload_mass_kg = 0.2253017227248626
+log = "run-014/mission.tlog"
+console = "run-014/console.log"
+model_file = "run-014/PayloadTrial.mo"
+status = "passed"
+reason = "Final mission item and landing confirmed"
+fmu_sha256 = "32012a467fcf39056f7b47d7385a0b20942199967db32e0e07719d7c2a0ac0cd"
+wall_time_s = 58.809923484921455
+
+[runs.metrics]
+armed = true
+ever_armed = true
+airborne = true
+attitude_samples = 249
+max_tilt_deg = 18.984832764683496
+max_altitude_m = 15.086
+max_armed_tilt_deg = 27.25783157158204
+
+[[runs]]
+id = "run-015"
+payload_mass_kg = 0.39151939051664786
+log = "run-015/mission.tlog"
+console = "run-015/console.log"
+model_file = "run-015/PayloadTrial.mo"
+status = "flight_failure"
+reason = "Firmware crash check disarmed the vehicle"
+fmu_sha256 = "c91b681319515f5d88707896a054049604d716482dd61ecf5e20d48f710d46b4"
+wall_time_s = 36.52778151119128
+
+[runs.metrics]
+armed = false
+ever_armed = true
+airborne = false
+attitude_samples = 0
+max_tilt_deg = 0.0
+max_altitude_m = 0.054
+max_armed_tilt_deg = 179.03039158296255

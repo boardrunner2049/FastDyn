@@ -1,0 +1,267 @@
+[ci] +0s starting Courbet mission integration test
+[ci] waiting: max_rel_alt=0.0m max_mission_item=-1 completed=False missing=fmu_ready,fmu_backend_loaded,lockstep_clock,timer_irq_period,mavcesium,mission_upload,armed,max_alt>=80,max_item>=11,mission_completed
+fastdyn.main|INFO|  [32m****** Fastdyn Framework 0.1.0 *******[0m
+fastdyn.main|WARNING|  [33mThe output directory: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-ci/plane/mission-final-work passed by the user does not exist.[0m
+fastdyn.main|INFO|  [32mCreating output directory at path: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-ci/plane/mission-final-work[0m
+FastDyn timing log: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-ci/plane/mission-final-work/fastdyn_timing.jsonl
+FMU ready: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/fmi3/Plane/FastDyn_Plane.fmu
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.fmu_auto_build 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.load_config 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helper.mavproxy.popen 0.001s ok[0m
+FASTDYN_LOG|INFO|  [32mMAVCesium web viewer: open http://127.0.0.1:24703/mavcesium/[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helper.mission.popen 0.001s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.start 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32mParsing Config file: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-ci/plane/mission-final.toml[0m
+FASTDYN_LOG|INFO|  [32mParsing the passed path for the CMSIS SVD[0m
+FASTDYN_LOG|INFO|  [32mUsing SVD: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/third_party/common/cmsis-svd-data/data/STMicro/STM32F427.svd (key='STM32F427')[0m
+[mission] connecting to udpin:127.0.0.1:24702
+[ci] waiting: max_rel_alt=0.0m max_mission_item=-1 completed=False missing=fmu_backend_loaded,lockstep_clock,timer_irq_period,mission_upload,armed,max_alt>=80,max_item>=11,mission_completed
+[ci] +2s MAVCesium web viewer ready
+FASTDYN_LOG|INFO|  [32mCreating IRQ Map using the CMSIS SVD[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.parse_config 1.299s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.compile_device_routing 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.write_device_config 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32mPrepared QEMU memory backend /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-ci/plane/final-memory/machine0_main_ram0.bin with size 512M.[0m
+FASTDYN_LOG|INFO|  [32mPrepared QEMU memory backend /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-ci/plane/final-memory/machine0_ram1_ram1.bin with size 512K.[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.build_command 0.007s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.setup 0.008s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.qemu_setup 0.008s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.kill_existing 0.001s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.build_env 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.popen 0.001s ok[0m
+FASTDYN_VIRTUAL|WARN|function_tracer| no function-trace manifests were available
+Initializing flight controllers
+FMU parameter override: ground_alt_wgs84=149
+FMU parameter override: lat0=40.4149
+FMU parameter override: lon0=-86.9324
+FMU backend loaded: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/fmi3/Plane/binaries/x86_64-linux/FastDyn_Plane.so
+FMU timing: init_wall=0.000s
+Current CPU type: cortex-m4-arm-cpu
+FMU backend advances synchronously from QEMU timer ticks
+Periodic IRQ 66 every 1000000 ns
+GCS using UART at address 0x20013498
+[GCSReceiver]: Listening for incoming data on UDP port 24701...
+[GPSInputReceiver]: Listening for incoming data on UDP port 24704...
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+[31m[GCSReceiver]: Initialized send socket to GCS at 127.0.0.1:35708
+[mission] heartbeat from system=1 component=1
+[mission] loading 19 params from virtuals/physics/flight_controllers/courbet/mavlink/plane_fmu.param
+[mission] param BRD_SAFETY_DEFLT=0
+[mission] STATUSTEXT: Ground start
+[mission] STATUSTEXT: Beginning INS calibration. Do not move plane
+[mission] param ARMING_CHECK=0
+[mission] param EK3_SRC1_POSZ=3
+[mission] param COMPASS_DEC=0
+[mission] param THR_FAILSAFE=0
+[mission] param FS_GCS_ENABL=0
+[mission] param TKOFF_THR_MINSPD=0
+[mission] param TKOFF_THR_MINACC=0
+[mission] param TKOFF_THR_DELAY=0
+[mission] param ARSPD_USE=0
+[mission] param SERVO1_MIN=1000
+[mission] param SERVO1_MAX=2000
+[mission] param SERVO2_MIN=1000
+[mission] param SERVO2_MAX=2000
+[mission] param SERVO3_MIN=1000
+[mission] param SERVO3_MAX=2000
+[mission] param SERVO4_MIN=1000
+[mission] param SERVO4_MAX=2000
+[mission] param COMPASS_AUTODEC=0
+[mission] params sent
+[mission] waiting up to 180s for ArduPilot readiness
+[mission] STATUSTEXT: No airspeed sensor
+[mission] STATUSTEXT: ArduPilot Ready
+[mission] STATUSTEXT: AHRS: DCM active
+[mission] STATUSTEXT: GPS 1: specified as MAV
+[mission] STATUSTEXT: RCOut: None
+[mission] rel_alt=0.0m
+[mission] STATUSTEXT: GPS 1: detected MAV
+[ci] waiting: max_rel_alt=0.0m max_mission_item=-1 completed=False missing=mission_upload,armed,max_alt>=80,max_item>=11,mission_completed
+[ci] +4s FMU backend loaded
+[ci] +4s FMU/QEMU lockstep clock active
+[ci] +4s ArduPilot heartbeat received
+[mission] STATUSTEXT: EKF3 IMU0 initialised
+[mission] rel_alt=0.0m
+[mission] rel_alt=0.0m
+[ci] waiting: max_rel_alt=0.0m max_mission_item=-1 completed=False missing=mission_upload,armed,max_alt>=80,max_item>=11,mission_completed
+[mission] rel_alt=0.0m
+[0mFMU timing: sim=15.184s wall_since_init=5.000s sim_wall_rtf=3.04x advanced=15.184s wall_advance=0.339s fmu_compute_rtf=44.77x advance_calls=15180 do_steps=15182 avg_do_step=22.2us
+[mission] STATUSTEXT: EKF3 IMU0 origin set
+[mission] ArduPilot ready with GPS and EKF initialized
+[mission] uploading 12 mission items from virtuals/physics/flight_controllers/courbet/mavlink/plane_circle_point.txt
+[mission] previous mission cleared
+[mission] sending mission item 0/11
+[mission] sending mission item 1/11
+[mission] sending mission item 2/11
+[mission] sending mission item 3/11
+[mission] sending mission item 4/11
+[mission] sending mission item 5/11
+[mission] sending mission item 6/11
+[mission] sending mission item 7/11
+[mission] sending mission item 8/11
+[mission] sending mission item 9/11
+[mission] sending mission item 10/11
+[mission] sending mission item 11/11
+[mission] upload accepted
+[mission] ensuring armed state in MANUAL
+[mission] setting mode MANUAL
+[mission] safety switch released
+[mission] arming with force
+[mission] STATUSTEXT: Flight plan received
+[mission] safety ack result=0
+[mission] arm ack result=0
+[mission] STATUSTEXT: Throttle armed
+[mission] armed
+[mission] waiting up to 180s for EKF GPS fusion
+[mission] rel_alt=0.0m
+[mission] current item 0/11
+[ci] waiting: max_rel_alt=0.0m max_mission_item=0 completed=False missing=max_alt>=80,max_item>=11,mission_completed
+[mission] STATUSTEXT: EKF3 IMU0 tilt alignment complete
+[mission] STATUSTEXT: EKF3 IMU0 MAG0 initial yaw alignment complete
+[ci] +8s ArduPilot ready with GPS/EKF
+[ci] +8s mission upload accepted
+[mission] STATUSTEXT: EKF3 IMU0 is using GPS
+[mission] EKF GPS fusion confirmed
+[mission] ensuring mode AUTO
+[mission] setting mode AUTO
+[mission] STATUSTEXT: AHRS: EKF3 active
+[ci] +8s vehicle armed
+[mission] mode AUTO confirmed
+[mission] current mission item set to 0
+[mission] mission start requested
+[mission] monitoring for 180s
+[mission] STATUSTEXT: Mission: 1 Takeoff
+[mission] current item 0/11
+[mission] STATUSTEXT: Armed AUTO, xaccel = 0.0 m/s/s, waiting 0.0 sec
+[mission] STATUSTEXT: Triggered AUTO. GPS speed = 0.0
+[mission] STATUSTEXT: Mission: 1 Takeoff
+[mission] rel_alt=0.1m
+[mission] current item 1/11
+[mission] STATUSTEXT: Holding course 35999 at 13.7m/s (-0.0)
+[mission] rel_alt=2.2m
+[mission] rel_alt=7.0m
+[ci] waiting: max_rel_alt=7.0m max_mission_item=1 completed=False missing=max_alt>=80,max_item>=11,mission_completed
+[mission] rel_alt=14.1m
+[mission] rel_alt=23.0m
+[mission] rel_alt=33.2m
+[mission] rel_alt=44.4m
+[mission] rel_alt=56.4m
+[mission] rel_alt=69.0m
+[mission] STATUSTEXT: Takeoff level-off starting at 26m
+FMU timing: sim=29.567s wall_since_init=10.000s sim_wall_rtf=2.96x advanced=29.567s wall_advance=0.671s fmu_compute_rtf=44.08x advance_calls=29563 do_steps=29565 avg_do_step=22.6us
+[mission] rel_alt=81.9m
+[ci] waiting: max_rel_alt=81.9m max_mission_item=1 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=91.1m
+[mission] reached item 1/11
+[mission] STATUSTEXT: Takeoff complete at 93.79m
+[mission] STATUSTEXT: Mission: 2 WP
+[mission] rel_alt=96.6m
+[mission] current item 2/11
+[mission] rel_alt=102.0m
+[mission] rel_alt=104.9m
+[ci] waiting: max_rel_alt=104.9m max_mission_item=2 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=105.9m
+[mission] rel_alt=104.9m
+[mission] rel_alt=103.7m
+[mission] rel_alt=102.4m
+[mission] rel_alt=101.3m
+[ci] waiting: max_rel_alt=105.9m max_mission_item=2 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=100.3m
+FMU timing: sim=43.962s wall_since_init=15.001s sim_wall_rtf=2.93x advanced=43.962s wall_advance=1.008s fmu_compute_rtf=43.62x advance_calls=43958 do_steps=43960 avg_do_step=22.8us
+[mission] rel_alt=99.4m
+[mission] reached item 2/11
+[mission] STATUSTEXT: Passed waypoint #2 dist 292m
+[mission] STATUSTEXT: Mission: 3 WP
+[mission] current item 3/11
+[ci] waiting: max_rel_alt=105.9m max_mission_item=3 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=99.3m
+[mission] rel_alt=99.4m
+[ci] waiting: max_rel_alt=105.9m max_mission_item=3 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=99.2m
+[mission] rel_alt=99.1m
+FMU timing: sim=58.443s wall_since_init=20.001s sim_wall_rtf=2.92x advanced=58.443s wall_advance=1.351s fmu_compute_rtf=43.26x advance_calls=58439 do_steps=58441 avg_do_step=23.0us
+[mission] reached item 3/11
+[mission] STATUSTEXT: Reached waypoint #3 dist 54m
+[mission] STATUSTEXT: Mission: 4 WP
+[ci] waiting: max_rel_alt=105.9m max_mission_item=3 completed=False missing=max_item>=11,mission_completed
+[mission] current item 4/11
+[mission] rel_alt=99.5m
+[mission] rel_alt=100.1m
+[mission] reached item 4/11
+[mission] STATUSTEXT: Passed waypoint #4 dist 49m
+[mission] STATUSTEXT: Mission: 5 WP
+[mission] current item 5/11
+[ci] waiting: max_rel_alt=105.9m max_mission_item=5 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=100.2m
+[mission] reached item 5/11
+[mission] STATUSTEXT: Passed waypoint #5 dist 55m
+[mission] STATUSTEXT: Mission: 6 WP
+[mission] current item 6/11
+[mission] rel_alt=99.9m
+[ci] waiting: max_rel_alt=105.9m max_mission_item=6 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=99.9m
+FMU timing: sim=73.283s wall_since_init=25.001s sim_wall_rtf=2.93x advanced=73.283s wall_advance=1.692s fmu_compute_rtf=43.32x advance_calls=73279 do_steps=73281 avg_do_step=23.0us
+[mission] rel_alt=99.8m
+[mission] reached item 6/11
+[mission] STATUSTEXT: Passed waypoint #6 dist 37m
+[mission] STATUSTEXT: Mission: 7 WP
+[mission] current item 7/11
+[ci] waiting: max_rel_alt=105.9m max_mission_item=7 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=99.7m
+[mission] rel_alt=100.0m
+[mission] reached item 7/11
+[mission] STATUSTEXT: Reached waypoint #7 dist 53m
+[mission] STATUSTEXT: Mission: 8 WP
+[mission] current item 8/11
+[ci] waiting: max_rel_alt=105.9m max_mission_item=8 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=100.3m
+[mission] reached item 8/11
+[mission] STATUSTEXT: Reached waypoint #8 dist 33m
+[mission] STATUSTEXT: Mission: 9 WP
+[mission] current item 9/11
+FMU timing: sim=87.777s wall_since_init=30.001s sim_wall_rtf=2.93x advanced=87.777s wall_advance=2.033s fmu_compute_rtf=43.19x advance_calls=87773 do_steps=87775 avg_do_step=23.1us
+[mission] rel_alt=100.4m
+[mission] reached item 9/11
+[mission] STATUSTEXT: Reached waypoint #9 dist 54m
+[mission] STATUSTEXT: Mission: 10 WP
+[ci] waiting: max_rel_alt=105.9m max_mission_item=9 completed=False missing=max_item>=11,mission_completed
+[mission] current item 10/11
+[mission] rel_alt=100.0m
+[mission] rel_alt=100.3m
+[ci] waiting: max_rel_alt=105.9m max_mission_item=10 completed=False missing=max_item>=11,mission_completed
+[mission] rel_alt=100.1m
+[mission] reached item 10/11
+[mission] STATUSTEXT: Passed waypoint #10 dist 23m
+[mission] STATUSTEXT: Mission: 11 WP
+[mission] current item 11/11
+[mission] reached item 11/11
+[mission] final waypoint reached
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helper.mission.exited exit_code=0[0m
+[ci] flight observed: max_rel_alt=105.9m max_mission_item=11 completed=True
+[ci] +37s Courbet mission integration test passed
+qemu-system-arm: terminating on signal 2 from pid 2210555 (bash)
+FastDyn Exit.
+[Main] Closing all flight log file descriptors...
+[Main] Flight log file descriptors closed.
+[Main] Sending cancellation request to MAVLink listener threads...
+Last Fuzzed Input:
+  MsgID: 0
+  CRC Extra: 0
+  Length: 0
+  Real Length: 0
+  SysID: 0
+  CompID: 0
+  Payload: 
+[Main] MAVLink listener threads joined.
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.wait 35.009s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.qemu_execution 35.011s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.machine0.run 35.020s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.stop 0.114s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.run.total 36.440s ok[0m

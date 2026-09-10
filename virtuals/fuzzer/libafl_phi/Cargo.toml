@@ -8,9 +8,15 @@ authors = [
 edition = "2021"
 
 [features]
-default = ["std"]
+default = ["std", "gazebo"]
 tui = []
 std = []
+gazebo = ["dep:gz-msgs", "dep:gz-transport", "dep:protobuf"]
+
+[[bin]]
+name = "trace_recorder"
+path = "src/bin/trace_recorder/main.rs"
+required-features = ["gazebo"]
 
 [profile.dev]
 panic = "abort"
@@ -23,14 +29,12 @@ opt-level = 3
 debug = true
 
 [dependencies]
-# banquo = { path = "/root/fire/cp_exp/banquo/banquo" }
-# banquo-parser = { path = "/root/fire/cp_exp/banquo/banquo-parser" }
 banquo = { path = "../../../../banquo/banquo" }
 banquo-parser = { path = "../../../../banquo/banquo-parser" }
 csv = "1.4.0"
 env_logger = "0.11.7"
-gz-msgs = "0.9.0"
-gz-transport = "0.9.0"
+gz-msgs = { version = "0.9.0", optional = true }
+gz-transport = { version = "0.9.0", optional = true }
 
 # libafl = { path = "../../../../LibAFL-0.15.4/crates/libafl", features = ["tui_monitor"] }
 # libafl_bolts = { path = "../../../../LibAFL-0.15.4/crates/libafl_bolts" }
@@ -39,7 +43,7 @@ libafl_bolts = "0.15.4"
 
 log = { version = "0.4.22", features = ["release_max_level_info"] }
 ordered-float = "5.1.0"
-protobuf = "3.7.2"
+protobuf = { version = "3.7.2", optional = true }
 scirs2-core = "0.1.1"
 scirs2-optimize = "0.1.1"
 serde = "1.0.228"

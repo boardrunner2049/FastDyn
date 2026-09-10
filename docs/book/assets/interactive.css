@@ -1,0 +1,19 @@
+.mission-explorer { border: 1px solid #a0acb8; border-radius: 8px; padding: 12px; margin: 1.5em 0; }
+.mission-explorer canvas { display: block; width: 100%; height: auto; margin-top: 12px; border-radius: 6px; }
+.plot-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.plot-controls input[type="range"] { flex: 1; min-width: 160px; }
+.plot-controls button { padding: 6px 16px; cursor: pointer; }
+.mission-explorer output { display: block; margin-top: 10px; font-variant-numeric: tabular-nums; }
+details { margin: 1em 0; padding: .6em .8em; border: 1px solid #a0acb8; border-radius: 5px; }
+summary { cursor: pointer; font-weight: 600; }
+.vehicle-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.2em; margin: 1.5em 0; }
+.vehicle-comparison figure { margin: 0; border: 1px solid var(--table-border-color); border-radius: 6px; overflow: hidden; }
+.vehicle-comparison img { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; background: white; }
+.vehicle-comparison figcaption { padding: .8em; font-size: .9em; line-height: 1.6; }
+@media (max-width: 600px) { .vehicle-comparison { grid-template-columns: 1fr; } }
+.ensemble-explorer { padding: 1em; border: 1px solid var(--table-border-color); border-radius: 6px; margin: 1.5em 0; }
+.ensemble-explorer select { max-width: 100%; padding: .4em; color: var(--fg); background: var(--bg); border: 1px solid var(--table-border-color); }
+.ensemble-plots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6em; }
+.ensemble-plots svg { width: 100%; height: auto; }
+.ensemble-legend { display: flex; flex-wrap: wrap; gap: 1em; padding: .6em; background: white; font-size: .85em; }
+@media (max-width: 800px) { .ensemble-plots { grid-template-columns: 1fr; } }

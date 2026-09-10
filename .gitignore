@@ -1,4 +1,5 @@
 docs/html/
+docs/book/vendor/
 out/
 *__pycache__*
 cscope*

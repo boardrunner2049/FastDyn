@@ -1,31 +1,39 @@
-# FastDyn Plugins
+# FastDyn
+
+**[Read the documentation and Rumoca tutorial →](https://jgoppert.github.io/FastDyn/)**
 
 ## Automatic Rehosting of Ardupilot Ardurover v4.6.2
 
 Please access the detailed rehosting steps in the `docs/Ardurover_Rehosting.md`
 
-## Docker Build
+## Development environment and tutorial
 
-A fully containerized setup is available via Docker. The Dockerfile automatically configures the system dependencies, Rust, Gazebo Harmonic, QEMU, `libhw`, and the FastDyn plugin.
+Choose [Nix, Docker, or native installation](docs/book/general/environment.md).
+The [one-hour Rumoca walkthrough](docs/book/rumoca/session.md) includes runnable
+commands, Modelica sources, gain tuning, and recorded payload experiments.
 
-To build the FastDyn environment using Docker, run this from the parent workspace directory (the directory containing `FastDyn/`, `qemu/`, `libhw/`, etc.):
-
-```bash
-cd ..  # Ensure you are in the workspace parent directory
-docker build -f FastDyn/Dockerfile -t fastdyn-env .
-```
-
-After the build completes, launch the container interactively:
+The Docker environment is generated from the Nix development shell:
 
 ```bash
-docker run -it fastdyn-env
+nix build .#devContainer --out-link out/dev-container
+docker load --input out/dev-container
+docker run --rm -it --user "$(id -u):$(id -g)" \
+  --volume "$PWD:/workspace" --publish 5000:5000 fastdyn-dev:local
 ```
 
-You will drop into a bash shell inside `/workspace/FastDyn` with all dependencies built and the virtual environment already activated. All subsequent commands (fuzzing, trace analysis, etc.) should be run inside this container.
+Participants can also use the published GHCR image without installing Nix.
+See [building and sharing the image](docs/book/general/container.md) for preview
+tags, publication status, and commands. The older root Dockerfile serves the
+legacy Gazebo environment.
 
 ## Quick Start: ArduCopter FMUv3 + MAVCesium
 
-On Ubuntu 24.04, this is the shortest path to the Rumoca FMI v3 quadrotor
+The pinned Rumoca compiler supports the current array-based Copter and Rover
+models. Plane uses the library's three-wheel template; its contact-event FMI
+export is pending compiler support. For a working Copter mission, follow the
+[first-mission walkthrough](docs/book/rumoca/getting-started.md).
+
+On Ubuntu 24.04, the native development setup for the Rumoca FMI v3 quadrotor
 plant, ArduCopter running in patched QEMU, mission automation, and the
 MAVCesium web view:
 
@@ -33,14 +41,14 @@ MAVCesium web view:
 sudo apt-get update
 sudo apt-get install -y \
   build-essential cmake device-tree-compiler git libexpat1-dev libfdt-dev \
-  libglib2.0-dev libpixman-1-dev meson ninja-build pkg-config python3-venv \
-  zlib1g-dev
+  libglib2.0-dev libpixman-1-dev libudev-dev lsof meson ninja-build pkg-config \
+  python3-dev python3-venv universal-ctags zlib1g-dev
 
 # Rumoca and OptiFuzz use Rust. Skip this if cargo is already on PATH.
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 
-source ./setup.sh --build-qemu
+source ./setup.sh --build-qemu --with-rumoca
 fastdyn run -c configs/copter462.toml
 ```
 
@@ -60,6 +68,19 @@ runs with a 1 ms board tick, drives QEMU from instruction-counted simulation
 time, uploads the ArduCopter mission, flies it, and exits after final landing.
 
 ## Documentation Map
+
+The tutorial book uses **mdBook** and deploys to
+[GitHub Pages](https://jgoppert.github.io/FastDyn/) from `main`.
+Choose [Nix, Docker, or a manual installation](docs/book/general/environment.md),
+then preview it with `mdbook serve docs --open` at **http://localhost:3000**.
+A lightweight documentation-only setup is also described in
+[the publishing guide](docs/book/documentation.md). Chapters live in `docs/book/`.
+
+The book includes general FastDyn documentation, a one-hour Rumoca walkthrough,
+TOML overlays, recorded Copter/Plane/Rover missions, and a payload study with
+all trajectories. Copter, Rover, QAV-R, and the payload experiments use the
+same pinned compiler. The historical Plane recording is marked separately
+from its current model, which awaits contact-event export support.
 
 For a directly runnable RTOS introspection demonstration using the bundled
 debug-symbol FreeRTOS ELF, see
@@ -81,12 +102,12 @@ debug-symbol FreeRTOS ELF, see
 - `virtuals/physics/README.md`: maintained Rumoca FMI v3 physics path,
   mission assets, timing semantics, and legacy Gazebo notes.
 - `virtuals/physics/flight_controllers/courbet/README.md`: Courbet/ArduPilot
-  firmware configs, MAVLink helpers, missions, and local smoke tests.
+  firmware configs, MAVLink helpers, missions, and local integration tests.
 - `virtuals/physics/physics_engines/README.md`: C physics backend contract and
   FMU/Gazebo backend notes.
 - `virtuals/fuzzer/libafl_phi/README.md`: OptiFuzz/CP-Explore usage with
   FMUv3, vehicle selection, dry-runs, swarm execution, and legacy Docker/Gazebo.
-- `tests/integration/README.md`: local integration smoke and mission tests.
+- `tests/integration/README.md`: local integration and mission tests.
 
 ## Local Build
 
@@ -170,14 +191,14 @@ default FastDyn/Courbet/Rumoca submodules, and create the local QEMU RAM backing
 files:
 
 ```bash
-source ./setup.sh
+source ./setup.sh --with-rumoca
 ```
 
 If the patched QEMU fork and FastDyn QEMU plugin are not built yet, setup prints
 the exact commands. To have setup clone/build them too, run:
 
 ```bash
-source ./setup.sh --build-qemu
+source ./setup.sh --build-qemu --with-rumoca
 ```
 
 `setup.sh --build-qemu` fetches `https://github.com/Arslan8/qemu.git` at
@@ -186,7 +207,7 @@ source ./setup.sh --build-qemu
 needed:
 
 ```bash
-source ./setup.sh --build-qemu \
+source ./setup.sh --build-qemu --with-rumoca \
   --qemu-repo https://github.com/Arslan8/qemu.git \
   --qemu-ref fastdyn
 ```
@@ -209,13 +230,14 @@ using the pinned Rumoca and `modelica_models` submodules. The provided
 Courbet configs build FastDyn-owned ArduPilot wrapper models:
 `FastDyn.Copter`, `FastDyn.Rover`, and `FastDyn.Plane`.
 Those wrappers live directly in `modelica/FastDyn/` and inherit
-the reusable base plants from `third_party/common/modelica_models/RigidBody`.
+the reusable plants from `third_party/common/modelica_models/Vehicles/Templates`.
+Plane source is included, but its contact-event FMI export is not supported yet.
 Keep vehicle-generic rigid-body dynamics in `modelica_models`; keep
 FastDyn-specific sensors, firmware interfaces, missions, ports, helper
 processes, and parameter overrides in this repository. Switch configured FMUs
 with `active = "<name>"` or `fastdyn run -c <config> --fmu <name>`.
 If the pinned FMU toolchain is not available, FastDyn reports the missing path
-and recommends `source ./setup.sh`. For artifact generation without running
+and recommends `source ./setup.sh --with-rumoca`. For artifact generation without running
 QEMU, use `./utils/build_fmi3_fmu.py`.
 
 The same TOML can also start helper processes for a run. Use `[Rumoca]` for an
@@ -297,12 +319,10 @@ Then run the normal command:
 fastdyn run -c configs/copter462.toml
 ```
 
-The same setup also includes ArduRover and ArduPlane FMUv3 configs using the
-shared templates:
+ArduRover drives a rectangle and stops when the final waypoint is reached:
 
 ```bash
 fastdyn run -c configs/rover462.toml
-fastdyn run -c configs/plane462.toml
 ```
 
 FastDyn prints the clickable local MAVCesium URL:
@@ -351,7 +371,7 @@ without launching QEMU:
 fastdyn swarm -c configs/copter462.toml -n 20 -o out/swarm/copter --dry-run
 ```
 
-CI launches real two-worker swarms for ArduCopter, ArduRover, and ArduPlane
+CI launches real two-worker swarms for ArduCopter and ArduRover
 long enough to verify both workers load the FMU backend, use the 1 ms board
 tick, and print independent MAVCesium URLs:
 
@@ -367,17 +387,42 @@ or shared RAM files because those create nondeterministic coupling.
 ## CI
 
 GitHub Actions runs the same high-fidelity path in
-`.github/workflows/courbet-mission.yml`: setup, patched QEMU build, Rumoca FMI
+`.github/workflows/ci.yml`: setup, patched QEMU build, Rumoca FMI
 v3 FMU generation, FastDyn plugin build, OptiFuzz FMUv3 dry-runs for copter,
 rover, and plane, OptiFuzz two-worker swarm dry-runs for all three vehicles,
-MAVCesium helper startup, real two-worker swarm launch smokes for all three
-vehicles, ArduRover and ArduPlane FMUv3 launch smoke, and the ArduCopter mission
-upload, takeoff, waypoint progression, and final landing.
-The full mission integration script is `tests/integration/courbet_mission_smoke.sh`;
+MAVCesium helper startup, real two-worker Copter/Rover swarm launches, the
+ArduRover waypoint mission, and ArduCopter upload, takeoff, waypoints, and
+firmware-confirmed landing. A separate check verifies that the three-wheel
+Plane model lowers and its unsupported contact-event export is rejected.
+Plane flight is not validated by the current CI.
+
+CI caches the patched QEMU checkout, Cargo build artifacts, and pip downloads.
+Cache keys include the compiler and dependency revisions; completed builds are
+saved before simulation checks. Rumoca and OptiFuzz builds appear as separate
+steps so their timings are visible.
+
+The `mission-report` artifact contains console and binary MAVLink logs for
+Copter and Rover, plus PNG/SVG plots and CSV/JSON telemetry. The plot shows the flight track
+and numbered mission waypoints, plus altitude tracking through landing. The
+control altitude setpoint is reconstructed from measured altitude plus
+ArduCopter's `NAV_CONTROLLER_OUTPUT.alt_error`; the reported navigation target
+is shown separately. Time uses the firmware simulation clock and altitude is
+relative to home. A download link appears in the CI job summary.
+
+The full mission integration script is `tests/integration/courbet_mission_test.sh`;
 locally, run it after setup with:
 
 ```bash
-tests/integration/courbet_mission_smoke.sh
+tests/integration/courbet_mission_test.sh
+```
+
+Generate the same report locally after the mission:
+
+```bash
+python -m fastdyn.mission_report \
+  --log out/ci/courbet_mission.tlog \
+  --mission virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints \
+  --output out/ci/mission-summary.png --require-setpoint
 ```
 
 ## Fuzzer
@@ -393,9 +438,9 @@ FastDyn has two complementary fuzzing workflows:
   backend is now the high-fidelity FMUv3 ArduCopter path:
 
   ```bash
-  source ./setup.sh
+  source ./setup.sh --with-rumoca
   cd virtuals/fuzzer/libafl_phi
-  cargo run --bin baby_fuzzer
+  cargo run --no-default-features --features std --bin baby_fuzzer
   ```
 
   `setup.sh` creates the expected sibling Banquo parser checkout at `../banquo`
@@ -407,11 +452,12 @@ FastDyn has two complementary fuzzing workflows:
   vehicle/config with `FASTDYN_OPTIFUZZ_VEHICLE=rover` and
   `FASTDYN_OPTIFUZZ_CONFIG=configs/rover462.toml`, or `plane` /
   `configs/plane462.toml`. Set
-  `FASTDYN_OPTIFUZZ_BACKEND=gazebo` to use the older Gazebo/Courbet runner.
+  `FASTDYN_OPTIFUZZ_BACKEND=gazebo` and build with `--features gazebo` to use
+  the older Gazebo/Courbet runner (requires Gazebo development libraries).
   To check the wiring without launching QEMU, run:
 
   ```bash
-  FASTDYN_OPTIFUZZ_SMOKE=1 FASTDYN_OPTIFUZZ_DRY_RUN=1 cargo run --bin baby_fuzzer
+  FASTDYN_OPTIFUZZ_SMOKE=1 FASTDYN_OPTIFUZZ_DRY_RUN=1 cargo run --no-default-features --features std --bin baby_fuzzer
   ```
 
   Set `FASTDYN_OPTIFUZZ_COVERAGE=1` when using a FastDyn plugin built with the

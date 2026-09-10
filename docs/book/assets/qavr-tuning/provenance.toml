@@ -1,0 +1,12 @@
+rumoca_revision = "21843c115cd4b4c7fa02011d18a6c1e501ebb387"
+rumoca_version = "0.10.0"
+rumoca_binary_sha256 = "f9957618d3a971cf19c1ee93b13825916d3e329a29d339e43c878cd56da9ced9"
+modelica_models_revision = "dfdb3294f61ab639a8a8be19611a1f69187a3ff7"
+firmware = "ArduCopter 4.6.2"
+recorded_utc = "2026-09-10"
+fastdyn_base_revision = "60a23fb"
+fastdyn_worktree = "Tutorial and FMI source-import changes; uncommitted validation snapshot"
+commands = [
+  "python utils/tune_copter.py --config configs/tuning/qavr.toml --run-config out/qavr.toml --output out/tuning",
+  "python utils/tune_copter.py --config docs/book/assets/qavr-tuning/validation.toml --candidate qav250 --run-config out/qavr.toml --output out/tuning-validation",
+]

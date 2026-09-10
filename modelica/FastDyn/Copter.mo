@@ -2,9 +2,8 @@ within FastDyn;
 
 model Copter
   parameter Real mass = 2.5644001 "Gazebo gs_drone equivalent mass [kg]";
-  parameter Real ixx = 0.02601237985 "Gazebo gs_drone equivalent inertia xx [kg*m^2]";
-  parameter Real iyy = 0.02590943825 "Gazebo gs_drone equivalent inertia yy [kg*m^2]";
-  parameter Real izz = 0.045571756801 "Gazebo gs_drone equivalent inertia zz [kg*m^2]";
+  parameter Real inertia[3,3] = diagonal({0.02601237985, 0.02590943825, 0.045571756801})
+    "Inertia about the CG in body FLU [kg*m^2]";
   parameter Real Ct = 8.54858e-6 "Thrust coefficient [N/(rad/s)^2]";
   parameter Real Cm = 0.016 "Rotor torque/thrust ratio [m]";
   parameter Real arm_length = 0.25 "Arm length [m]";
@@ -13,13 +12,24 @@ model Copter
   parameter Real Cn_r = -0.1 "Yawing moment coefficient per yaw rate";
   parameter Real tau_up = 0.0125 "Motor spin-up time constant [s]";
   parameter Real tau_down = 0.025 "Motor spin-down time constant [s]";
+  parameter Real body_area = 0.1 "Reference area for rate damping [m^2]";
+  parameter Real drag_area[3] = {0.06, 0.08, 0.12} "Body drag areas [m^2]";
+  parameter Real linear_drag[3] = {0.12, 0.12, 0.18} "Body linear drag [N*s/m]";
+  parameter Real leg_x = 0.17 "Ground contact X offset [m]";
+  parameter Real leg_y = 0.17 "Ground contact Y offset [m]";
+  parameter Real leg_z = -0.10 "Ground contact Z offset in body FLU [m]";
+  parameter Real ground_k = 3000 "Contact stiffness [N/m]";
+  parameter Real ground_c = 150 "Contact normal damping [N*s/m]";
+  parameter Real ground_tangent_c = 25 "Contact tangential damping [N*s/m]";
 
-  RigidBody.Examples.QuadrotorSIL plant(
+  FastDyn.QuadrotorWithExternalWrench plant(
+    external_force_b = {0, 0, 0},
+    external_moment_b = {0, 0, 0},
     ground_z = 0.0,
     vehicle_mass = mass,
-    vehicle_ixx = ixx,
-    vehicle_iyy = iyy,
-    vehicle_izz = izz,
+    J = inertia,
+    gravity = 9.8,
+    mag_world_enu = {0.21, 0, -0.45},
     Ct = Ct,
     Cm = Cm,
     arm_length = arm_length,
@@ -27,7 +37,16 @@ model Copter
     Cm_q = Cm_q,
     Cn_r = Cn_r,
     tau_up = tau_up,
-    tau_down = tau_down);
+    tau_down = tau_down,
+    S = body_area,
+    CdA = drag_area,
+    linear_drag = linear_drag,
+    leg_x = leg_x,
+    leg_y = leg_y,
+    leg_z = leg_z,
+    ground_k = ground_k,
+    ground_c = ground_c,
+    ground_tangent_c = ground_tangent_c);
 
   parameter Real pwm_min = 1100.0 "Minimum motor PWM used by the Gazebo gs_drone ArduPilot control block";
   parameter Real pwm_max = 1900.0 "Maximum motor PWM used by the Gazebo gs_drone ArduPilot control block";
@@ -62,6 +81,7 @@ protected
   Real pwm_span;
   Real pwm_norm[4];
   Real gps_lat_lon[2];
+  Real geodetic_origin[3] "Reference latitude, longitude, and Earth radius";
   Real yaw_rad;
 
 equation
@@ -73,16 +93,19 @@ equation
     plant.omega_cmd[i] = motor_cmd[i];
   end for;
 
-  accel = plant.accel + accel_bias;
-  gyro = plant.gyro + gyro_bias;
-  mag = plant.mag + mag_bias;
+  accel = {plant.accel[1], -plant.accel[2], -plant.accel[3]} + accel_bias;
+  gyro = {plant.gyro[1], -plant.gyro[2], -plant.gyro[3]} + gyro_bias;
+  mag = {plant.mag[1], -plant.mag[2], -plant.mag[3]} + mag_bias;
 
+  // Avoid collisions between the caller parameters and the function locals
+  // during function projection in the pinned Rumoca compiler.
+  geodetic_origin = {lat0, lon0, earth_radius_m};
   gps_lat_lon = Geodesy.localNorthEastToLatLon(
-    lat0,
-    lon0,
+    geodetic_origin[1],
+    geodetic_origin[2],
     plant.p[1] + gps_bias[1],
     -plant.p[2] + gps_bias[2],
-    earth_radius_m);
+    geodetic_origin[3]);
   gps[1] = gps_lat_lon[1];
   gps[2] = gps_lat_lon[2];
   gps[3] = ground_alt_wgs84 + plant.p[3] + gps_bias[3];

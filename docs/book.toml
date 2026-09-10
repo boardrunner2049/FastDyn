@@ -1,0 +1,29 @@
+[book]
+title = "FastDyn"
+authors = ["FastDyn contributors"]
+language = "en"
+src = "book"
+
+[build]
+build-dir = "../out/docs"
+create-missing = false
+
+[preprocessor.fastdyn-assets]
+command = "mdbook-fastdyn-assets"
+after = ["links"]
+renderers = ["html"]
+
+[output.html]
+no-section-label = false
+git-repository-url = "https://github.com/jgoppert/FastDyn"
+edit-url-template = "https://github.com/jgoppert/FastDyn/edit/main/docs/book/{path}"
+site-url = "/FastDyn/"
+default-theme = "light"
+preferred-dark-theme = "navy"
+mathjax-support = true
+additional-js = ["mermaid.min.js", "mermaid-init.js", "book/assets/interactive.js", "book/assets/modelica.js", "book/assets/ensemble.js", "book/assets/navigation.js", "book/assets/sections.js"]
+additional-css = ["book/assets/interactive.css", "book/assets/modelica.css", "book/assets/theme.css"]
+
+[output.html.fold]
+enable = true
+level = 0

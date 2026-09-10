@@ -25,6 +25,7 @@ class WorkerPorts:
     rumoca_http: int
     rumoca_ws: int
     gdb: int
+    gps_input: int
 
     @property
     def mavcesium_url(self) -> str:
@@ -39,6 +40,7 @@ class WorkerPorts:
             "FASTDYN_RUMOCA_HTTP_PORT": str(self.rumoca_http),
             "FASTDYN_RUMOCA_WS_PORT": str(self.rumoca_ws),
             "FASTDYN_GDB_PORT": str(self.gdb),
+            "GPS_INPUT_PORT": str(self.gps_input),
         }
 
 
@@ -72,9 +74,9 @@ def worker_ports(index: int, base_port: int, port_stride: int) -> WorkerPorts:
     if port_stride < 10:
         raise SwarmError("--port-stride must be at least 10")
     start = base_port + index * port_stride
-    if start < 1 or start + 6 > 65535:
+    if start < 1 or start + 7 > 65535:
         raise SwarmError(
-            f"worker {index} port range {start}-{start + 6} is outside the valid TCP/UDP range"
+            f"worker {index} port range {start}-{start + 7} is outside the valid TCP/UDP range"
         )
     return WorkerPorts(
         monitor=start,
@@ -84,6 +86,7 @@ def worker_ports(index: int, base_port: int, port_stride: int) -> WorkerPorts:
         rumoca_http=start + 4,
         rumoca_ws=start + 5,
         gdb=start + 6,
+        gps_input=start + 7,
     )
 
 
@@ -182,6 +185,7 @@ def check_port_availability(plans: list[WorkerPlan]) -> None:
         udp_ports = {
             "mavlink_firmware": plan.ports.mavlink_firmware,
             "mavlink_gcs": plan.ports.mavlink_gcs,
+            "gps_input": plan.ports.gps_input,
         }
 
         for label, port in {**tcp_ports, **udp_ports}.items():

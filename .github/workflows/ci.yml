@@ -1,0 +1,336 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - rumoca_fmuv3
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Finish active builds so their expensive toolchain caches survive updates.
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+
+    steps:
+      - name: Check out FastDyn
+        uses: actions/checkout@v7
+
+      - name: Initialize compiler, model, and firmware sources
+        run: |
+          git submodule update --init --depth 1 --jobs 4 \
+            third_party/common/rumoca \
+            third_party/common/modelica_models \
+            third_party/common/cmsis-svd-data \
+            third_party/courbet_deps/mavlink_headers
+          git clone --depth 1 --branch banquo-parser-impl https://github.com/michaelprooney/banquo.git ../banquo
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            device-tree-compiler \
+            git \
+            libcjson-dev \
+            libexpat1-dev \
+            libfdt-dev \
+            libglib2.0-dev \
+            libprotobuf-dev \
+            libpixman-1-dev \
+            libssl-dev \
+            libudev-dev \
+            lsof \
+            meson \
+            ninja-build \
+            pkg-config \
+            protobuf-compiler \
+            python3-dev \
+            python3-venv \
+            universal-ctags \
+            zlib1g-dev
+
+      - name: Set up Python and pip cache
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Resolve toolchain revisions and cache paths
+        id: build-inputs
+        run: |
+          toolchain=$(python -c "import tomllib; print(tomllib.load(open('third_party/common/rumoca/rust-toolchain.toml', 'rb'))['toolchain']['channel'])")
+          qemu_revision=$(git ls-remote https://github.com/Arslan8/qemu.git refs/heads/fastdyn | cut -f1)
+          test -n "$qemu_revision"
+          {
+            printf 'rust=%s\n' "$toolchain"
+            printf 'rumoca=%s\n' "$(git -C third_party/common/rumoca rev-parse HEAD)"
+            printf 'banquo=%s\n' "$(git -C ../banquo rev-parse HEAD)"
+            printf 'qemu=%s\n' "$qemu_revision"
+            printf 'qemu-path=%s\n' "$(realpath -m ../qemu)"
+          } >> "$GITHUB_OUTPUT"
+          printf 'RUSTUP_TOOLCHAIN=%s\n' "$toolchain" >> "$GITHUB_ENV"
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.build-inputs.outputs.rust }}
+
+      - name: Restore Cargo build cache
+        id: cargo-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            third_party/common/rumoca/target
+            virtuals/fuzzer/libafl_phi/target
+          key: ${{ runner.os }}-cargo-v2-${{ runner.arch }}-${{ steps.build-inputs.outputs.rust }}-${{ steps.build-inputs.outputs.rumoca }}-${{ steps.build-inputs.outputs.banquo }}-${{ hashFiles('third_party/common/rumoca/Cargo.lock', 'virtuals/fuzzer/libafl_phi/Cargo.lock', 'virtuals/fuzzer/libafl_phi/Cargo.toml', 'virtuals/fuzzer/libafl_phi/src/**') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-v2-${{ runner.arch }}-${{ steps.build-inputs.outputs.rust }}-${{ steps.build-inputs.outputs.rumoca }}-
+            ${{ runner.os }}-cargo-v2-${{ runner.arch }}-${{ steps.build-inputs.outputs.rust }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Restore patched QEMU cache
+        id: qemu-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.build-inputs.outputs.qemu-path }}
+          # Never reuse a binary built from a different QEMU revision or patch.
+          key: ubuntu-24.04-qemu-${{ runner.arch }}-${{ steps.build-inputs.outputs.qemu }}-${{ hashFiles('patches/qemu-fastdyn-plugin-icount.patch') }}
+
+      - name: Set up FastDyn and patched QEMU
+        env:
+          FASTDYN_QEMU_REF: ${{ steps.build-inputs.outputs.qemu }}
+        run: source ./setup.sh --build-qemu --skip-rumoca --skip-submodules
+
+      - name: Save patched QEMU cache
+        if: steps.qemu-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.build-inputs.outputs.qemu-path }}
+          key: ${{ steps.qemu-cache.outputs.cache-primary-key }}
+
+      - name: Build pinned Rumoca
+        working-directory: third_party/common/rumoca
+        env:
+          CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+        run: |
+          if [[ "$CARGO_CACHE_HIT" == true && -x target/debug/rumoca ]]; then
+            echo "Using the compiler cached for this exact Rust toolchain and Rumoca revision"
+            target/debug/rumoca --version
+          else
+            cargo build --locked -p rumoca
+          fi
+
+      - name: Build OptiFuzz FMUv3 runner
+        working-directory: virtuals/fuzzer/libafl_phi
+        run: cargo build --locked --no-default-features --features std --bin baby_fuzzer
+
+      # Save after both Rust builds, before any simulation can fail.
+      - name: Save Cargo build cache
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            third_party/common/rumoca/target
+            virtuals/fuzzer/libafl_phi/target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+      - name: Run Python unit tests
+        run: |
+          source fastdyn-env/bin/activate
+          python -m pytest tests/unit -q
+
+      - name: Build supported Copter and Rover FMUs
+        run: |
+          source fastdyn-env/bin/activate
+          # Cargo's source timestamps change after restoring a cache into a
+          # fresh checkout. Select the verified binary directly instead of
+          # letting each FMU's `cargo run` rebuild that exact cached compiler.
+          python - <<'PYCFG'
+          from pathlib import Path
+          import tomllib
+          import tomli_w
+          compiler = str(Path("third_party/common/rumoca/target/debug/rumoca").resolve())
+          for vehicle in ("copter", "rover", "plane"):
+              path = Path(f"configs/{vehicle}462.toml")
+              config = tomllib.loads(path.read_text())
+              config["FMU"]["compiler"] = compiler
+              path.write_text(tomli_w.dumps(config))
+          PYCFG
+          python utils/build_fmi3_fmu.py --config configs/copter462.toml
+          python utils/build_fmi3_fmu.py --config configs/rover462.toml
+
+      - name: Verify pending Plane contact-event export support
+        run: |
+          source fastdyn-env/bin/activate
+          python tests/integration/plane_export_limit_test.py
+          printf '### Plane support pending\n\nThe three-wheel model lowers, but the pinned compiler cannot export its contact events. Plane flight and swarm execution are not validated by this run.\n' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check FMI startup and actuator response for Copter and Rover
+        run: |
+          source fastdyn-env/bin/activate
+          python tests/integration/fmu_backend_test.py --vehicle copter --vehicle rover
+
+      - name: Check OptiFuzz FMUv3 runner
+        working-directory: virtuals/fuzzer/libafl_phi
+        run: |
+          run_optifuzz_smoke() {
+            local vehicle="$1"
+            local config="$2"
+            local mission="$3"
+            local base_port="$4"
+            FASTDYN_OPTIFUZZ_SMOKE=1 \
+              FASTDYN_OPTIFUZZ_DRY_RUN=1 \
+              FASTDYN_OPTIFUZZ_VEHICLE="$vehicle" \
+              FASTDYN_OPTIFUZZ_CONFIG="$config" \
+              FASTDYN_OPTIFUZZ_MISSION_FILE="$mission" \
+              FASTDYN_OPTIFUZZ_COVERAGE=1 \
+              ./target/debug/baby_fuzzer
+            FASTDYN_OPTIFUZZ_SMOKE=1 \
+              FASTDYN_OPTIFUZZ_DRY_RUN=1 \
+              FASTDYN_OPTIFUZZ_VEHICLE="$vehicle" \
+              FASTDYN_OPTIFUZZ_CONFIG="$config" \
+              FASTDYN_OPTIFUZZ_MISSION_FILE="$mission" \
+              FASTDYN_OPTIFUZZ_SWARM_INSTANCES=2 \
+              FASTDYN_OPTIFUZZ_BASE_PORT="$base_port" \
+              ./target/debug/baby_fuzzer
+          }
+          run_optifuzz_smoke copter configs/copter462.toml virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints 19200
+          run_optifuzz_smoke rover configs/rover462.toml virtuals/physics/flight_controllers/courbet/mavlink/rover_rectangle.txt 19300
+          run_optifuzz_smoke plane configs/plane462.toml virtuals/physics/flight_controllers/courbet/mavlink/plane_circle_point.txt 19400
+
+      - name: Check parallel swarm port plans
+        run: |
+          source fastdyn-env/bin/activate
+          fastdyn swarm -c configs/copter462.toml -n 2 -o out/ci/copter_swarm_plan --base-port 17000 --dry-run
+          fastdyn swarm -c configs/rover462.toml -n 2 -o out/ci/rover_swarm_plan --base-port 17100 --dry-run
+          fastdyn swarm -c configs/plane462.toml -n 2 -o out/ci/plane_swarm_plan --base-port 17200 --dry-run
+
+      - name: Run two-worker swarm launch smoke tests
+        run: |
+          source fastdyn-env/bin/activate
+          run_swarm_smoke() {
+            local label="$1"
+            local config="$2"
+            local base_port="$3"
+            local smoke_sec="$4"
+            FASTDYN_SWARM_LABEL="$label" \
+              FASTDYN_SWARM_CONFIG="$config" \
+              FASTDYN_SWARM_INSTANCES=2 \
+              FASTDYN_SWARM_BASE_PORT="$base_port" \
+              FASTDYN_SWARM_SMOKE_SEC="$smoke_sec" \
+              FASTDYN_SWARM_WORK_ROOT="out/ci/${label}_swarm" \
+              tests/integration/courbet_swarm_smoke.sh
+          }
+          run_swarm_smoke arducopter configs/copter462.toml 18000 30
+          run_swarm_smoke ardurover configs/rover462.toml 18100 5
+
+      - name: Run Rumoca FMI v3 ArduRover waypoint mission
+        env:
+          FASTDYN_COURBET_CONFIG: "configs/rover462.toml"
+          FASTDYN_COURBET_LABEL: "ardurover"
+          FASTDYN_COURBET_LOG: "out/ci/ardurover_mission.log"
+          FASTDYN_COURBET_WORK_DIR: "out/ci/ardurover_work"
+          FASTDYN_COURBET_MIN_ALT_M: "0"
+          FASTDYN_COURBET_MIN_ITEM: "4"
+          FASTDYN_COURBET_TIMEOUT_SEC: "240"
+          FASTDYN_MONITOR_PORT: "19000"
+          FASTDYN_MAVLINK_FIRMWARE_PORT: "19001"
+          FASTDYN_MAVLINK_GCS_PORT: "19002"
+          FASTDYN_MAVCESIUM_PORT: "19003"
+          FASTDYN_QMP_SOCKET: "/tmp/fastdyn-ardurover-qmp.sock"
+        run: |
+          tests/integration/courbet_mission_test.sh
+
+      - name: Run Rumoca FMI v3 ArduCopter mission integration test
+        env:
+          FASTDYN_COURBET_TIMEOUT_SEC: "420"
+          FASTDYN_COURBET_MIN_ALT_M: "10.0"
+          FASTDYN_COURBET_MIN_ITEM: "5"
+          FASTDYN_COURBET_REQUIRE_COMPLETION: "true"
+        run: |
+          tests/integration/courbet_mission_test.sh
+
+      - name: Plot Copter mission track and altitude
+        if: always() && hashFiles('out/ci/courbet_mission.tlog') != ''
+        run: |
+          source fastdyn-env/bin/activate
+          python -m fastdyn.mission_report \
+            --log out/ci/courbet_mission.tlog \
+            --mission virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints \
+            --output out/ci/mission-summary.png \
+            --require-setpoint
+
+      - name: Plot Rover mission track and speed
+        if: always() && hashFiles('out/ci/ardurover_mission.tlog') != ''
+        run: |
+          source fastdyn-env/bin/activate
+          python -m fastdyn.mission_report \
+            --vehicle rover --log out/ci/ardurover_mission.tlog \
+            --mission virtuals/physics/flight_controllers/courbet/mavlink/rover_rectangle.txt \
+            --output out/ci/rover-summary.png
+
+      - name: Upload mission report
+        id: mission-report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mission-report
+          path: |
+            out/ci/*_mission.log
+            out/ci/*_mission.tlog
+            out/ci/*-summary.*
+          if-no-files-found: ignore
+
+      - name: Add mission summary
+        if: always() && hashFiles('out/ci/mission-summary.json') != ''
+        env:
+          MISSION_REPORT_URL: ${{ steps.mission-report.outputs.artifact-url }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = json.loads(Path('out/ci/mission-summary.json').read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('### Mission report\n\n')
+              summary.write(f"Maximum altitude: **{report['max_relative_altitude_m']:.2f} m** above home. ")
+              summary.write(f"Final mission item: **{report['final_mission_item']}**.\n\n")
+              summary.write(f"[Download the plots, console log, MAVLink log, and CSV]({os.environ['MISSION_REPORT_URL']}).\n")
+          PY
+
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-logs
+          compression-level: 1
+          path: |
+            out/ci/courbet_mission.log
+            out/ci/courbet_mission.log.phases
+            out/ci/ardurover_mission.log
+            out/ci/plane-export-limit.log
+            out/ci/plane-dae.json
+            out/ci/ardurover_work/**
+            out/ci/arduplane_work/**
+            out/ci/*_swarm/**
+            !out/ci/**/qemu-memory/**
+            !out/ci/**/*.sock
+            fastdyn_work/fastdyn_timing.jsonl
+            fastdyn_work/profiles/**
+          if-no-files-found: ignore

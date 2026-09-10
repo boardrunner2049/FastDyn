@@ -9,7 +9,8 @@ The maintained vehicle examples are:
 
 - `configs/copter462.toml`: ArduCopter 4.6.2 with a Rumoca FMI v3 quadrotor.
 - `configs/rover462.toml`: ArduRover 4.6.2 with a Rumoca FMI v3 rover.
-- `configs/plane462.toml`: ArduPlane 4.6.2 with a Rumoca FMI v3 fixed-wing model.
+- `configs/plane462.toml`: ArduPlane 4.6.2 three-wheel model; FMI export awaits
+  compiler contact-event support.
 
 Run a config with:
 

@@ -8,11 +8,14 @@
  */
 
 #include <fcntl.h>
+#include <glib.h>
+#include <limits.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "virtuals.h"
+#include "core.h"
 #include "phy.h"
 #include <math.h>
 #include "mavlink_lib.h"
@@ -374,6 +377,11 @@ void init_wheel_encoder(unsigned int cpu_index, void *udata)
     unsigned long type = strtoul(type_str, NULL, 0);
     uint8_t type_u8 = (uint8_t)type;
 
+    // The FMI vehicle models do not expose wheel encoder positions.
+    if (phy_backend_is("fmu")) {
+        type_u8 = 0;
+    }
+
     uint32_t this_pointer = (uint32_t)qemu_get_register(ARM_V7M_R0);
 
     if (type_u8 != 1 && type_u8 != 0)
@@ -705,6 +713,21 @@ void ins_block_read(unsigned int cpu_index, void *udata)
 
     if (reg == 0x72)
     {
+        if (phy_backend_is("fmu")) {
+            // The emulated MPU6000 gyro samples at 8 kHz. Only report
+            // samples that have arrived since the previous FIFO poll.
+            static uint64_t last_sample_ns;
+            uint64_t now_ns = qemu_plugin_get_virtual_timer();
+            if (last_sample_ns == 0 || now_ns < last_sample_ns) {
+                last_sample_ns = now_ns;
+            }
+            uint64_t samples = (now_ns - last_sample_ns) / 125000;
+            last_sample_ns += samples * 125000;
+            if (samples > 32) {
+                samples = 32;
+            }
+            count = (uint16_t)(samples * 14);
+        }
         uint8_t count_bytes[2];
         fifo_count_to_bytes(count, count_bytes);
         qemu_plugin_write_memory(buf, count_bytes, 2);
@@ -736,9 +759,9 @@ void ins_block_read(unsigned int cpu_index, void *udata)
         ins_read_count++;
 #endif // PROFILE_INS_READS
 
-        if (size < 14)
+        if (size < 14 || size > 32 * 14 || size % 14 != 0)
         {
-            fprintf(stderr, "INS block read size too small: %u\n", size);
+            fprintf(stderr, "Invalid INS block read size: %u\n", size);
             qemu_set_register(0, ARM_V7M_R0);                             // failure
             qemu_set_register(qemu_get_register(ARM_V7M_LR), ARM_V7M_PC); // return
             return;
@@ -754,12 +777,11 @@ void ins_block_read(unsigned int cpu_index, void *udata)
             return;
         }
 
-        uint16_t mini_batch_size = 8 * 14; // 8 samples of 14 bytes each
-        uint8_t imu_data_bytes[mini_batch_size];
+        uint8_t imu_data_bytes[32 * 14];
         memset(imu_data_bytes, 0, sizeof(imu_data_bytes));
-        for (int i = 0; i < 8; i++)
+        for (uint32_t i = 0; i < size / 14; i++)
         {
-            imu_t imu = imu_batch.imu[i];
+            imu_t imu = imu_batch.imu[i < 17 ? i : 16];
             float accel_x = imu.accel_body.x;
             float accel_y = imu.accel_body.y;
             float accel_z = imu.accel_body.z;
@@ -843,7 +865,7 @@ void ins_block_read(unsigned int cpu_index, void *udata)
         // uint8_t imu_data_bytes[14];
         // convert_int16_array_to_be_bytes(imu_data_int16, 7, imu_data_bytes);
 
-        qemu_plugin_write_memory(buf, imu_data_bytes, mini_batch_size);
+        qemu_plugin_write_memory(buf, imu_data_bytes, size);
         qemu_set_register(1, ARM_V7M_R0);                             // success
         qemu_set_register(qemu_get_register(ARM_V7M_LR), ARM_V7M_PC); // return
     }
@@ -894,10 +916,11 @@ HMC5843RawData convert_to_hmc5843(SimulatorMagnetometer sim_data)
     // int mag_y_raw = temp_z;    // raw Z -> Y
     // int mag_z_raw = -1 * temp_y;   // raw Y -> Z (negated)
 
-    // Conversion from FLU to FRD
-    temp_x = temp_x;
-    temp_y = -1 * temp_y;
-    temp_z = -1 * temp_z;
+    // FMI models already report FRD, while Gazebo reports FLU.
+    if (phy_get_imu_frame() == PHY_BODY_FRAME_FLU) {
+        temp_y = -temp_y;
+        temp_z = -temp_z;
+    }
 
     // Apply hardware remapping for HMC5843
     int mag_x_raw = temp_y;
@@ -1085,24 +1108,17 @@ void compass_configure(unsigned int cpu_index, void *udata)
 }
 
 /**
- * @brief Advancing the time in the tick handler
+ * @brief Read the ChibiOS system timer's 1 MHz counter.
  *
  * Called like this from virtuals.txt:
  *
- * <address/symbol> advance_time_in_tick_handler *
+ * <address/symbol> chibiOS_tick_handler *
  */
 void chibiOS_tick_handler(unsigned int cpu_index, void *udata)
 {
-    // uint32_t tick_frequency = 1000; // 1 kHz
-    uint32_t tick_frequency = 10000; // 1 MHz
-
-    int64_t current_nanos = qemu_plugin_get_virtual_timer();
-    uint32_t current_millis = (uint32_t)(current_nanos / 1000000);
-    // printf("Current millis: %u\n", current_millis);
-    uint32_t system_ticks = current_millis * tick_frequency / 1000;
-    qemu_set_register(system_ticks, ARM_V7M_R0);
-    uint32_t lr = qemu_get_register(ARM_V7M_LR);
-    qemu_set_register(lr, ARM_V7M_PC);
+    // stGetCounter() and AP_HAL::micros() read the same TIM5 counter in
+    // these firmwares. Keep the legacy hook name for existing configs.
+    micros32(cpu_index, udata);
 }
 
 static uint32_t gcs_uarts[8] = {0};
@@ -1164,7 +1180,7 @@ void gcs_send_text(unsigned int cpu_index, void *udata)
 }
 
 /**
- * @brief Only send the banner once over mavlink
+ * @brief Suppress firmware banners on the virtual GCS link
  *
  * Called like this from virtuals.txt:
  *
@@ -1172,16 +1188,8 @@ void gcs_send_text(unsigned int cpu_index, void *udata)
  */
 void gcs_send_banner_once(unsigned int cpu_index, void *udata)
 {
-    static int banner_sent = 0;
-    if (banner_sent)
-    {
-        return;
-    }
-
-    // Set banner_sent to true
-    banner_sent = 1;
-
-    // return from function and return 0
+    // This replacement hook must return to the guest caller on every call.
+    // Returning only from the host callback leaves the guest PC at this hook.
     qemu_set_register(0, ARM_V7M_R0);
     uint32_t lr = qemu_get_register(ARM_V7M_LR);
     qemu_set_register(lr, ARM_V7M_PC);
@@ -1577,7 +1585,7 @@ int32_t read(int fd, void *buf, uint32_t count);
 int32_t write(int fd, const void *buf, uint32_t count);
 int fsync(int fd);
 
-Should be opening these all under a single directory like flight_logs/
+Guest log files are stored below the current run's flight_logs/ artifacts.
 
 All virtuals should be called like this:
 
@@ -1591,20 +1599,38 @@ All virtuals should be called like this:
 void ap_fs_open(unsigned int cpu_index, void *udata)
 {
     uint32_t fname_ptr = (uint32_t)qemu_get_register(ARM_V7M_R1);
-    // uint32_t flags = (uint32_t)qemu_get_register(ARM_V7M_R2);
-    // bool allow_absolute_paths = false;
+    uint32_t guest_flags = (uint32_t)qemu_get_register(ARM_V7M_R2);
+    // ArduPilot's ARM newlib flags differ from the host's POSIX flag values.
+    int flags = guest_flags & 3;
+    if (guest_flags & 0x0008) flags |= O_APPEND;
+    if (guest_flags & 0x0200) flags |= O_CREAT;
+    if (guest_flags & 0x0400) flags |= O_TRUNC;
+    if (guest_flags & 0x0800) flags |= O_EXCL;
 
     char fname[256];
     memset(fname, 0, sizeof(fname));
     qemu_plugin_read_memory(fname_ptr, (uint8_t *)fname, sizeof(fname));
 
-    // printf("Opening file: /root/rooney/FastDyn/courbet/flight_logs/%s\n", fname);
-
-    char path[256];
-    snprintf(path, sizeof(path) + 59, "/home/mhcho/ws/courbet_project/FastDyn/courbet/flight_logs/%s", fname);
-
-    int fd = open(path, O_RDWR | O_CREAT, 0666);
-    mark_open_flight_log_fd(fd);
+    int fd = -1;
+    if (memchr(fname, '\0', sizeof(fname))) {
+        // A guest absolute path belongs to the guest filesystem, not the host.
+        const char *relative_name = fname;
+        while (*relative_name == '/') relative_name++;
+        char relative[512];
+        char path[PATH_MAX];
+        int length = snprintf(relative, sizeof(relative), "flight_logs/%s", relative_name);
+        // Virtual filesystems (@PARAM, @SYS, @ROMFS) are not host log files.
+        if (*relative_name && *relative_name != '@'
+            && length > 0 && (size_t)length < sizeof(relative)
+            && core_get_run_artifact_path(relative, path, sizeof(path)) == 0) {
+            char *parent = g_path_get_dirname(path);
+            if (!(flags & O_CREAT) || g_mkdir_with_parents(parent, 0700) == 0) {
+                fd = open(path, flags, 0666);
+            }
+            g_free(parent);
+        }
+    }
+    if (fd >= 0) mark_open_flight_log_fd(fd);
     qemu_set_register(fd, ARM_V7M_R0);
     uint32_t lr = qemu_get_register(ARM_V7M_LR);
     qemu_set_register(lr, ARM_V7M_PC);
@@ -1635,7 +1661,7 @@ void ap_fs_read(unsigned int cpu_index, void *udata)
         return;
     }
     ssize_t result = read(fd, buf, count);
-    qemu_plugin_write_memory(buf_ptr, (uint8_t *)buf, count);
+    if (result > 0) qemu_plugin_write_memory(buf_ptr, (uint8_t *)buf, result);
     free(buf);
     qemu_set_register(result, ARM_V7M_R0);
     uint32_t lr = qemu_get_register(ARM_V7M_LR);

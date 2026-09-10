@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -422,7 +423,7 @@ def test_qemu_serialization_uses_the_shared_virtual_pipeline(tmp_path):
     cpu.add_virtual_instruction(
         VirtualInstruction("0x08000100", "raiseirq", ["TIM1_BRK_TIM9"])
     )
-    machine.qemu_target_opts.qemu_path = "/bin/true"
+    machine.qemu_target_opts.qemu_path = shutil.which("true")
     machine.qemu_target_opts.log_options = "none"
 
     build_qemu_cmd(machine, str(tmp_path / "dev_config.json"), str(tmp_path))
@@ -447,7 +448,7 @@ def test_qemu_omits_ram_base_global_for_toml_zero_address(tmp_path):
         "None", None, False,
     )
     cpu.plugin_library = str(plugin)
-    machine.qemu_target_opts.qemu_path = "/bin/true"
+    machine.qemu_target_opts.qemu_path = shutil.which("true")
     machine.qemu_target_opts.log_options = "none"
 
     qemu_cmd, *_ = build_qemu_cmd(

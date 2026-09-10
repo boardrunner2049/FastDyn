@@ -114,22 +114,27 @@ env = { PYTHONPATH = "." }
 command = [
     "mavproxy.py",
     "--daemon",
+    "--logfile=${FASTDYN_MAVLINK_LOG:-mav.tlog}",
+    "--cmd=set flushlogs True",
     "--master=udpout:127.0.0.1:${FASTDYN_MAVLINK_FIRMWARE_PORT:-14551}",
     "--out=udpout:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-14552}",
     "--load-module=fastdyn_cesium:{\"port\":${FASTDYN_MAVCESIUM_PORT:-5000}}",
 ]
 ready_message = "MAVCesium web viewer: open http://127.0.0.1:${FASTDYN_MAVCESIUM_PORT:-5000}/mavcesium/"
 
-[Run.processes.health]
+[Run.processes.mission]
 enabled = true
 terminate_run_on_exit = true
 command = [
     "python3",
-    "virtuals/physics/flight_controllers/courbet/mavlink/mav_health_check.py",
+    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_and_control.py",
     "--connect",
     "udpin:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-14552}",
-    "--monitor-sec",
-    "10",
+    "--arm-mode", "MANUAL",
+    "--completion", "waypoints",
+    "--monitor-sec", "180",
+    "virtuals/physics/flight_controllers/courbet/mavlink/rover_fmu.param",
+    "virtuals/physics/flight_controllers/courbet/mavlink/rover_rectangle.txt",
 ]
 
 # ==============================================================================

@@ -1,7 +1,7 @@
 within FastDyn;
 
 model Rover
-  RigidBody.Examples.RoverPlant plant;
+  RigidBody.Examples.RoverPlant plant(mag_world_enu = {0.21, 0, -0.45});
 
   parameter Real pwm_min = 1000.0 "Minimum PWM";
   parameter Real pwm_trim = 1500.0 "Neutral PWM";
@@ -35,6 +35,7 @@ protected
   Real steering;
   Real throttle;
   Real gps_lat_lon[2];
+  Real geodetic_origin[3] "Reference latitude, longitude, and Earth radius";
   Real yaw_rad;
 
 equation
@@ -43,16 +44,19 @@ equation
   plant.steering = steering;
   plant.throttle = throttle;
 
-  accel = plant.accel + accel_bias;
-  gyro = plant.gyro + gyro_bias;
-  mag = plant.mag + mag_bias;
+  accel = {plant.accel[1], -plant.accel[2], -plant.accel[3]} + accel_bias;
+  gyro = {plant.gyro[1], -plant.gyro[2], -plant.gyro[3]} + gyro_bias;
+  mag = {plant.mag[1], -plant.mag[2], -plant.mag[3]} + mag_bias;
 
+  // Avoid collisions between the caller parameters and the function locals
+  // during function projection in the pinned Rumoca compiler.
+  geodetic_origin = {lat0, lon0, earth_radius_m};
   gps_lat_lon = Geodesy.localNorthEastToLatLon(
-    lat0,
-    lon0,
+    geodetic_origin[1],
+    geodetic_origin[2],
     plant.p[1] + gps_bias[1],
     -plant.p[2] + gps_bias[2],
-    earth_radius_m);
+    geodetic_origin[3]);
   gps[1] = gps_lat_lon[1];
   gps[2] = gps_lat_lon[2];
   gps[3] = ground_alt_wgs84 + plant.p[3] + gps_bias[3];

@@ -1,3 +1,4 @@
+#[cfg(feature = "gazebo")]
 use baby_fuzzer::gz_state_parser::{
     apply_noise, extract_block_from_gz_data, get_raw_gz_data, get_raw_hf_status, get_sim_time,
 };
@@ -5,6 +6,7 @@ use baby_fuzzer::gz_state_parser::{
 use crate::cpexp_input::TargetInput;
 use crate::CVG;
 
+#[cfg(feature = "gazebo")]
 use gz_transport::Node;
 use libafl::executors::ExitKind;
 use libafl::inputs::HasTargetBytes;
@@ -14,7 +16,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[cfg(feature = "gazebo")]
 const RUN_SERVICES_DIR: &str = "../../physics/flight_controllers/courbet/gazebo";
+#[cfg(feature = "gazebo")]
 const MAV_C2_DIR: &str = "../../physics/flight_controllers/courbet/mavlink";
 const FASTDYN_DIR: &str = "../../..";
 
@@ -222,6 +226,31 @@ pub fn execute_mission(
     if optifuzz_backend(cps_name) == "fmuv3" {
         return execute_fmuv3_mission(input, param_names, cps_name, mission_file_name);
     }
+
+    #[cfg(feature = "gazebo")]
+    return execute_gazebo_mission(
+        input, param_names, cps_name, mission_file_name,
+        timeout, param_input_delay, noise_time, headless,
+    );
+
+    #[cfg(not(feature = "gazebo"))]
+    {
+        let _ = (timeout, param_input_delay, noise_time, headless);
+        panic!("the Gazebo backend requires building with --features gazebo");
+    }
+}
+
+#[cfg(feature = "gazebo")]
+fn execute_gazebo_mission(
+    input: &TargetInput,
+    param_names: String,
+    cps_name: &str,
+    mission_file_name: &str,
+    timeout: f64,
+    param_input_delay: f64,
+    noise_time: f64,
+    headless: bool,
+) -> ExitKind {
 
     // 1. Apply inputs
     // println!("execute_mission received inputs: {:?}", input);

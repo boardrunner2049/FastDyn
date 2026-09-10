@@ -1,0 +1,58 @@
+# Payload range: 0 to 100% of the ORIGINAL vehicle mass (0 to 500 g).
+# Attachment: motor 1, front-right, in body FLU.
+# Same array-based model and selected gains as the load exercise.
+[study]
+title = "QAV-R: payload-weight Monte Carlo study"
+seed = 462
+samples = 16
+distribution = "uniform"
+attachment_b_m = [
+    0.07778174593052023,
+    -0.07778174593052023,
+    0.0,
+]
+modelica_models_revision = "dfdb3294f61ab639a8a8be19611a1f69187a3ff7"
+rumoca_revision = "21843c115cd4b4c7fa02011d18a6c1e501ebb387"
+rumoca_version = "0.10.0"
+mission = "virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints"
+vehicle_mass_kg = 0.5
+max_payload_to_vehicle_mass_ratio = 1.0
+
+[execution]
+output = "out/payload-experiment"
+# Optional: set to docs/book/assets/payload-study after reviewing a full batch.
+publish = ""
+wall_timeout_s = 150
+monitor_port = 5565
+max_tilt_deg = 60.0
+tilt_duration_s = 1.0
+max_altitude_m = 50.0
+
+[parameters]
+BRD_SAFETY_DEFLT = 0
+FS_THR_ENABLE = 0
+FS_GCS_ENABLE = 0
+DISARM_DELAY = 0
+EK3_SRC1_POSZ = 3
+EK3_SRC2_POSZ = 3
+EK3_SRC3_POSZ = 3
+COMPASS_DEC = 0.0
+COMPASS_AUTODEC = 0
+ARMING_CHECK = 0
+GUID_OPTIONS = 0
+MOT_PWM_MIN = 1100
+MOT_PWM_MAX = 1900
+MOT_THST_EXPO = 0.5
+MOT_THST_HOVER = 0.2
+ATC_RAT_RLL_P = 0.04598495
+ATC_RAT_RLL_I = 0.04598495
+ATC_RAT_RLL_D = 0.00120043
+ATC_RAT_PIT_P = 0.07421205
+ATC_RAT_PIT_I = 0.07421205
+ATC_RAT_PIT_D = 0.001949416
+ATC_RAT_RLL_FLTT = 40.0
+ATC_RAT_RLL_FLTD = 40.0
+ATC_RAT_PIT_FLTT = 40.0
+ATC_RAT_PIT_FLTD = 40.0
+ATC_ANG_RLL_P = 4.5
+ATC_ANG_PIT_P = 4.5

@@ -1,0 +1,35 @@
+.modelica-viewer {
+  margin: 1em 0;
+  border: 1px solid var(--table-border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  min-width: 0;
+}
+.modelica-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5em 1em;
+  padding: .5em .8em;
+  color: var(--fg);
+  background: var(--quote-bg);
+  border-bottom: 1px solid var(--table-border-color);
+  font-size: .85em;
+}
+.modelica-toolbar > span:first-child { font-family: var(--mono-font); }
+.modelica-status { margin-left: auto; font-size: .9em; }
+.modelica-toolbar button {
+  padding: .3em .7em;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--table-border-color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.modelica-toolbar button:focus-visible { outline: 2px solid var(--links); outline-offset: 2px; }
+/* Monaco owns typography and spacing within its source pane. */
+.modelica-editor .monaco-editor { font-size: 14px; }
+@media print {
+  .modelica-viewer { display: none; }
+  .modelica-ready + pre[hidden] { display: block !important; }
+}

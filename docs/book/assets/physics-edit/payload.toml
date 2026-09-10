@@ -1,0 +1,12 @@
+compiler_revision = "21843c115cd4b4c7fa02011d18a6c1e501ebb387"
+modelica_models_revision = "dfdb3294f61ab639a8a8be19611a1f69187a3ff7"
+model = "FastDyn.QavrSidePayload"
+firmware = "ArduCopter 4.6.2"
+controller = "configs/tuning/qavr.toml:candidates.qav250"
+completion = "final landing confirmed near ground"
+completion_criterion = "Final mission item; relative altitude <=1m; firmware EXTENDED_SYS_STATE=ON_GROUND"
+helper_path = "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_and_control.py"
+helper_sha256 = "7f47f3ec674741f038d56954211b7b00971d3507a0305545c95769951ef7cc51"
+touchdown_in_tlog = true
+helper_note = "Same touchdown criterion; recorded before adding the explicit landed_state console line."
+helper_snapshot = "payload-mission-helper.py"

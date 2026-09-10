@@ -1,0 +1,45 @@
+telemetry = "attitude.csv"
+
+[experiment]
+connect = "udpin:127.0.0.1:14552"
+altitude_m = 8.0
+settle_s = 4.0
+timeout_s = 180.0
+monitor_port = 5565
+startup_stream_rate_hz = 4
+attitude_rate_hz = 50
+minimum_attitude_rate_hz = 25
+steps = [
+    { duration_s = 2.0, roll_deg = 0.0, pitch_deg = 0.0 },
+    { duration_s = 2.0, roll_deg = 5.0, pitch_deg = 0.0 },
+    { duration_s = 2.0, roll_deg = -5.0, pitch_deg = 0.0 },
+    { duration_s = 2.0, roll_deg = 0.0, pitch_deg = 0.0 },
+    { duration_s = 2.0, roll_deg = 0.0, pitch_deg = 5.0 },
+    { duration_s = 2.0, roll_deg = 0.0, pitch_deg = -5.0 },
+    { duration_s = 2.0, roll_deg = 0.0, pitch_deg = 0.0 },
+]
+
+[parameters]
+BRD_SAFETY_DEFLT = 0
+FS_THR_ENABLE = 0
+FS_GCS_ENABLE = 0
+DISARM_DELAY = 0
+EK3_SRC1_POSZ = 3
+EK3_SRC2_POSZ = 3
+EK3_SRC3_POSZ = 3
+COMPASS_DEC = 0.0
+COMPASS_AUTODEC = 0
+ARMING_CHECK = 0
+GUID_OPTIONS = 0
+MOT_PWM_MIN = 1100
+MOT_PWM_MAX = 1900
+MOT_THST_EXPO = 0.5
+MOT_THST_HOVER = 0.2
+ATC_RAT_RLL_P = 0.135
+ATC_RAT_RLL_I = 0.135
+ATC_RAT_RLL_D = 0.0036
+ATC_RAT_PIT_P = 0.135
+ATC_RAT_PIT_I = 0.135
+ATC_RAT_PIT_D = 0.0036
+ATC_ANG_RLL_P = 4.5
+ATC_ANG_PIT_P = 4.5

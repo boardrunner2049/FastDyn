@@ -1,0 +1,30 @@
+# Rebuild reports from the recordings shipped with this checkout.
+# python utils/tutorial_figures.py --missions configs/reports/tutorial.toml
+output = "out/rebuilt-book-reports"
+
+[[missions]]
+name = "baseline-mission"
+vehicle = "copter"
+log = "docs/book/assets/baseline-mission.tlog"
+console = "docs/book/assets/baseline-mission-console.txt"
+mission = "docs/book/assets/baseline-mission.waypoints"
+model = "docs/book/assets/baseline-mission.mo"
+provenance = "docs/book/assets/baseline-mission-summary.json"
+
+[[missions]]
+name = "plane-mission"
+vehicle = "plane"
+log = "docs/book/assets/plane-mission.tlog"
+console = "docs/book/assets/plane-mission-console.txt"
+mission = "docs/book/assets/plane-mission.waypoints"
+model = "docs/book/assets/plane-mission.mo"
+provenance = "docs/book/assets/plane-mission-summary.json"
+
+[[missions]]
+name = "rover-mission"
+vehicle = "rover"
+log = "docs/book/assets/rover-mission.tlog"
+console = "docs/book/assets/rover-mission-console.txt"
+mission = "docs/book/assets/rover-mission.waypoints"
+model = "docs/book/assets/rover-mission.mo"
+provenance = "docs/book/assets/rover-mission-summary.json"

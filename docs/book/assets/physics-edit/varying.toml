@@ -1,0 +1,11 @@
+compiler_revision = "21843c115cd4b4c7fa02011d18a6c1e501ebb387"
+modelica_models_revision = "dfdb3294f61ab639a8a8be19611a1f69187a3ff7"
+model = "FastDyn.QavrVaryingLoad"
+firmware = "ArduCopter 4.6.2"
+controller = "configs/tuning/qavr.toml:candidates.qav250"
+completion = "final landing confirmed near ground"
+completion_criterion = "Final mission item; relative altitude <=1m; firmware EXTENDED_SYS_STATE=ON_GROUND"
+helper_path = "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_and_control.py"
+helper_sha256 = "92e6a836d16785847f5fdaccbc7f046b7aae5735628c5e7b1bc739ff31ed75e8"
+touchdown_in_tlog = true
+helper_snapshot = "varying-mission-helper.py"

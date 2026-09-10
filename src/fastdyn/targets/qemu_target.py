@@ -13,7 +13,7 @@ from ..binary import binary_wrange
 import logging
 
 from .. import fastdyn_log as fastdyn_log_conf
-from .. import profiling, timing
+from .. import fmu_build, profiling, timing
 from ..virtual_preprocessing import (
     VirtualRule,
     prepare_run_preprocessors,
@@ -620,10 +620,16 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
         plugin_kv.append(f"fmu={machine.fmu_path}")
     if getattr(machine, "fmu_name", None):
         plugin_kv.append(f"fmu_name={machine.fmu_name}")
+    for key in ("fmu_instantiation_token", "fmu_resource_path"):
+        value = getattr(machine, key, None)
+        if value is not None:
+            if "," in value:
+                raise ValueError(f"{key} cannot contain ',': {value!r}")
+            plugin_kv.append(f"{key}={value}")
     for name, value in sorted(getattr(machine, "fmu_parameters", {}).items()):
         if "," in name or "=" in name:
             raise ValueError(f"FMU parameter name cannot contain ',' or '=': {name!r}")
-        plugin_kv.append(f"fmu_param_{name}={value:.17g}")
+        plugin_kv.append(f"fmu_param_{name}={fmu_build.parameter_argument(value)}")
     for name, value in sorted(getattr(machine, "fmu_value_references", {}).items()):
         if "," in name or "=" in name:
             raise ValueError(f"FMU value reference name cannot contain ',' or '=': {name!r}")

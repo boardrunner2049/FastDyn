@@ -13,6 +13,7 @@ def test_worker_ports_are_strided():
     assert ports.rumoca_http == 15044
     assert ports.rumoca_ws == 15045
     assert ports.gdb == 15046
+    assert ports.gps_input == 15047
     assert ports.mavcesium_url == "http://127.0.0.1:15043/mavcesium/"
 
 
@@ -34,6 +35,8 @@ def test_build_worker_plans_assigns_isolated_state(tmp_path):
     assert plans[1].work_dir == Path(tmp_path / "runs" / "worker-001").resolve()
     assert plans[0].ports.monitor == 16000
     assert plans[1].ports.monitor == 16020
+    assert plans[0].env["GPS_INPUT_PORT"] == "16007"
+    assert plans[1].env["GPS_INPUT_PORT"] == "16027"
     assert plans[0].env["FASTDYN_QEMU_MEMORY_DIR"].endswith("worker-000/qemu-memory")
     assert plans[1].env["FASTDYN_QEMU_MEMORY_DIR"].endswith("worker-001/qemu-memory")
     assert plans[0].command == [

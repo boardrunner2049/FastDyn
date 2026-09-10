@@ -1,0 +1,22 @@
+{
+  "vehicle": "copter",
+  "log": "out/local-rumoca/copter/mission.tlog",
+  "mission": "virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints",
+  "position_samples": 383,
+  "altitude_target_samples": 406,
+  "navigation_target_samples": 108,
+  "max_relative_altitude_m": 15.074,
+  "final_relative_altitude_m": -0.005,
+  "final_mission_item": 1,
+  "duration_s": 113.22800000000001,
+  "time_reference": "Time since arming (s)",
+  "altitude_setpoint_source": "GLOBAL_POSITION_INT.relative_alt + NAV_CONTROLLER_OUTPUT.alt_error",
+  "max_ground_speed_mps": 4.425471726268285,
+  "navigation_target_source": "POSITION_TARGET_GLOBAL_INT",
+  "home_altitude_m": 149.09,
+  "rumoca_revision": "21843c115cd4b4c7fa02011d18a6c1e501ebb387",
+  "modelica_models_revision": "dfdb3294f61ab639a8a8be19611a1f69187a3ff7",
+  "model": "modelica/FastDyn/Copter.mo",
+  "model_sha256": "e76866c6880bf9faf2debd211695740013b5f9e08b605924350beae3b350aa8b",
+  "completion": "Firmware ON_GROUND near ground after final mission item"
+}

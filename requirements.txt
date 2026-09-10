@@ -5,6 +5,7 @@ colorama==0.4.6
 dotenv==0.9.9
 jpype1==1.5.2
 lxml==6.0.1
+matplotlib>=3.9,<4
 networkx==3.4.2
 numpy==2.2.6
 ollama==0.6.1
@@ -19,7 +20,9 @@ ninja>=1.11.1
 MAVProxy[cesium]>=1.8.74
 pymavlink>=2.4.49
 future>=1.0.0
+fmpy==0.3.32
 python-dotenv>=1.0.0
 scipy==1.15.3
 six==1.17.0
 tomli>=2.0.2,<2.1.0
+tomli-w>=1.0,<2

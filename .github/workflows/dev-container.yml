@@ -1,0 +1,66 @@
+name: Development container
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: development-container-${{ github.ref }}
+  # Let a running image finish so a documentation follow-up does not discard
+  # the first cold build and its cache.
+  cancel-in-progress: false
+
+jobs:
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: nixbuild/nix-quick-install-action@v35
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-container-${{ runner.os }}-${{ hashFiles('flake.lock') }}-${{ github.sha }}
+          restore-prefixes-first-match: |
+            nix-container-${{ runner.os }}-${{ hashFiles('flake.lock') }}-
+            nix-container-${{ runner.os }}-
+          gc-max-store-size: 8G
+      - name: Build the Nix development image
+        run: |
+          mkdir -p out
+          nix develop --profile out/development-env --command true
+          nix build .#devContainer --out-link out/dev-container
+      - name: Load and check the image
+        run: |
+          docker load --input out/dev-container
+          docker run --rm fastdyn-dev:local bash -c 'rumoca --version && python -c "import fastdyn, fmpy, pymavlink" && cc --version && mdbook --version'
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --volume "$PWD:/workspace" fastdyn-dev:local \
+            python utils/configure_nix.py --help
+      - name: Publish to GitHub Container Registry
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          PREVIEW_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}/dev"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_ACTOR" --password-stdin
+          tag=latest
+          if [[ -n "$PREVIEW_NUMBER" ]]; then
+            tag="pr-$PREVIEW_NUMBER"
+          fi
+          docker tag fastdyn-dev:local "$image:$tag"
+          docker tag fastdyn-dev:local "$image:sha-$REVISION"
+          docker push "$image:sha-$REVISION"
+          docker push "$image:$tag"
+          printf 'Published **%s:%s** and **%s:sha-%s**.\n' "$image" "$tag" "$image" "$REVISION" >> "$GITHUB_STEP_SUMMARY"
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io

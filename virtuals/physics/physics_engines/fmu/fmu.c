@@ -13,7 +13,7 @@
 
 typedef unsigned int fmi3ValueReference;
 typedef double fmi3Float64;
-typedef int fmi3Boolean;
+typedef bool fmi3Boolean;
 typedef const char *fmi3String;
 typedef void *fmi3Instance;
 typedef void *fmi3InstanceEnvironment;
@@ -113,6 +113,7 @@ typedef struct {
     fmi3Terminate_ft terminate;
     double time_s;
     double pwm[4];
+    double pwm_neutral[4];
     bool pwm_dirty;
     bool initialized;
     fmu_value_refs_t vr;
@@ -279,7 +280,15 @@ static int resolve_shared_library(const char *fmu_path, char *so_path, size_t so
         return 0;
     }
 
-    int written = snprintf(so_path, so_path_len, "%s/binaries/linux64/%s.so", dir, model);
+    // FMI 3 uses architecture-system platform tuples for native binaries.
+#if defined(__aarch64__)
+    const char *platform = "aarch64-linux";
+#elif defined(__x86_64__)
+    const char *platform = "x86_64-linux";
+#else
+#error "Unsupported FMI 3 host architecture"
+#endif
+    int written = snprintf(so_path, so_path_len, "%s/binaries/%s/%s.so", dir, platform, model);
     return written > 0 && (size_t)written < so_path_len;
 }
 
@@ -394,6 +403,7 @@ static int set_configured_parameters(void)
     const char prefix[] = "fmu_param_";
     const size_t prefix_len = sizeof(prefix) - 1;
     size_t count = 0;
+    size_t value_count = 0;
 
     for (int i = 0; i < fmu_state.argc; i++) {
         const char *arg = fmu_state.argv[i];
@@ -405,6 +415,10 @@ static int set_configured_parameters(void)
             continue;
         }
         count++;
+        value_count++;
+        for (const char *p = equals + 1; *p; p++) {
+            if (*p == ';') value_count++;
+        }
     }
 
     if (count == 0) {
@@ -412,7 +426,7 @@ static int set_configured_parameters(void)
     }
 
     fmi3ValueReference *refs = calloc(count, sizeof(*refs));
-    fmi3Float64 *values = calloc(count, sizeof(*values));
+    fmi3Float64 *values = calloc(value_count, sizeof(*values));
     if (refs == NULL || values == NULL) {
         fprintf(stderr, "FMU failed to allocate parameter override buffers\n");
         free(refs);
@@ -421,6 +435,7 @@ static int set_configured_parameters(void)
     }
 
     size_t out = 0;
+    size_t value_out = 0;
     for (int i = 0; i < fmu_state.argc; i++) {
         const char *arg = fmu_state.argv[i];
         if (strncmp(arg, prefix, prefix_len) != 0) {
@@ -444,14 +459,20 @@ static int set_configured_parameters(void)
         memcpy(name, name_start, name_len);
         name[name_len] = '\0';
 
-        errno = 0;
-        char *end = NULL;
-        double value = strtod(equals + 1, &end);
-        if (errno != 0 || end == equals + 1 || *end != '\0' || !isfinite(value)) {
-            fprintf(stderr, "FMU parameter %s has invalid numeric value '%s'\n", name, equals + 1);
-            free(refs);
-            free(values);
-            return 0;
+        const char *next = equals + 1;
+        while (1) {
+            errno = 0;
+            char *end = NULL;
+            double value = strtod(next, &end);
+            if (errno != 0 || end == next || (*end != '\0' && *end != ';') || !isfinite(value)) {
+                fprintf(stderr, "FMU parameter %s has invalid numeric value '%s'\n", name, next);
+                free(refs);
+                free(values);
+                return 0;
+            }
+            values[value_out++] = value;
+            if (*end == '\0') break;
+            next = end + 1;
         }
 
         fmi3ValueReference vr = 0;
@@ -470,12 +491,11 @@ static int set_configured_parameters(void)
         }
 
         refs[out] = vr;
-        values[out] = value;
         out++;
-        printf("FMU parameter override: %s=%g\n", name, value);
+        printf("FMU parameter override: %s=%s\n", name, equals + 1);
     }
 
-    fmi3Status status = fmu_state.setFloat64(fmu_state.instance, refs, count, values, count);
+    fmi3Status status = fmu_state.setFloat64(fmu_state.instance, refs, count, values, value_count);
     free(refs);
     free(values);
     if (status != fmi3OK) {
@@ -535,12 +555,17 @@ static int fmu_backend_init(void)
     }
     fmu_state.terminate = (fmi3Terminate_ft)dlsym(fmu_state.handle, "fmi3Terminate");
 
-    char token[640];
-    snprintf(token, sizeof(token), "%s-rumoca", model);
+    char legacy_token[640];
+    snprintf(legacy_token, sizeof(legacy_token), "%s-rumoca", model);
+    const char *token = utils_get_arg("fmu_instantiation_token", fmu_state.argc, fmu_state.argv);
+    const char *resources = utils_get_arg("fmu_resource_path", fmu_state.argc, fmu_state.argv);
+    if (token == NULL) {
+        token = legacy_token;
+    }
     fmu_state.instance = fmu_state.instantiateCoSimulation(
         fmu_name ? fmu_name : model,
         token,
-        "",
+        resources ? resources : "",
         0,
         0,
         0,
@@ -555,15 +580,18 @@ static int fmu_backend_init(void)
         return 0;
     }
 
+    // Preserve the model's neutral controls until firmware writes PWM.
+    // 1000 us is motor-off for Copter, but full reverse for Rover.
     if (fmu_state.enterInitializationMode(fmu_state.instance, 0, 0.0, 0.0, 0, 0.0) != fmi3OK ||
         !set_configured_parameters() ||
-        !set_pwm_inputs() ||
+        fmu_state.getFloat64(fmu_state.instance, &fmu_state.vr.pwm, 1, fmu_state.pwm, 4) != fmi3OK ||
         fmu_state.exitInitializationMode(fmu_state.instance) != fmi3OK) {
         fprintf(stderr, "FMU initialization failed for %s\n", so_path);
         return 0;
     }
 
     fmu_state.time_s = 0.0;
+    memcpy(fmu_state.pwm_neutral, fmu_state.pwm, sizeof(fmu_state.pwm));
     fmu_state.initialized = true;
     printf("FMU backend loaded: %s\n", so_path);
     if (fmu_profile_enabled()) {
@@ -649,6 +677,12 @@ static int fmu_get_navsat_reading(gps_data_t *gps_data)
 static int fmu_set_servo_pwm(int channel, int pwm)
 {
     if (channel < 0 || channel >= 4) {
+        return 1;
+    }
+    // A zero pulse disables the output; it is not a 900 us command.
+    if (pwm == 0) {
+        fmu_state.pwm[channel] = fmu_state.pwm_neutral[channel];
+        fmu_state.pwm_dirty = true;
         return 1;
     }
     if (pwm < 900) {

@@ -1,0 +1,118 @@
+/* FastDyn field guide. Local fonts and mdBook's existing accessible controls. */
+:root {
+  --content-max-width: 1040px;
+  --sidebar-width: 292px;
+  --fd-accent: #087f8c;
+  --fd-accent-strong: #076572;
+  --fd-panel: #fff;
+  --fd-muted: #526478;
+  --fd-line: #d9e3ed;
+  --fd-soft: #eaf4f6;
+  --fd-shadow: 0 8px 28px #172c4a09;
+}
+.light, .rust {
+  --bg: #f7f9fc;
+  --fg: #203149;
+  --sidebar-bg: #eef3f9;
+  --sidebar-fg: #43546c;
+  --sidebar-active: #076572;
+  --links: #076b86;
+  --table-border-color: #d9e3ed;
+  --table-header-bg: #eaf0f6;
+  --table-alternate-bg: #f0f4f9;
+  --quote-bg: #eaf4f6;
+  --quote-border: #1596a6;
+}
+.navy, .coal, .ayu {
+  --bg: #101b2a;
+  --fg: #dbe6f2;
+  --sidebar-bg: #142134;
+  --sidebar-fg: #aebfd3;
+  --sidebar-active: #77e0dd;
+  --links: #73d9e8;
+  --fd-accent: #77e0dd;
+  --fd-accent-strong: #9beced;
+  --fd-panel: #17263a;
+  --fd-muted: #a8bcd2;
+  --fd-line: #2c415a;
+  --fd-soft: #1a3544;
+  --fd-shadow: none;
+  --table-border-color: #2c415a;
+  --table-header-bg: #1d3048;
+  --table-alternate-bg: #142336;
+  --quote-bg: #1a3544;
+  --quote-border: #77e0dd;
+}
+body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.content { padding-inline: 32px; }
+.content main { line-height: 1.75; padding-top: 16px; }
+.content main > h1 { font-size: clamp(2.8rem, 3.5vw, 4.4rem); line-height: 1.15; letter-spacing: -.035em; margin: 20px 0 28px; }
+.content h2 { font-size: 2.6rem; letter-spacing: -.025em; margin-top: 2.1em; padding-bottom: .35em; border-bottom: 1px solid var(--fd-line); }
+.content h3 { letter-spacing: -.015em; }
+.section-label { color: var(--fd-muted); font-variant-numeric: tabular-nums; font-size: .78em; font-weight: 550; margin-right: .25em; }
+.content p, .content li { text-wrap: pretty; }
+.content a { text-underline-offset: .2em; }
+.menu-bar { border-bottom: 1px solid var(--fd-line); background: var(--bg); }
+.menu-title { font-weight: 650; font-size: 1.6rem; letter-spacing: -.015em; color: var(--fd-muted); }
+.sidebar { border-right: 1px solid var(--fd-line); }
+.sidebar .sidebar-scrollbox { padding: 22px 14px; }
+.sidebar .chapter li.part-title { color: var(--fd-muted); font-size: 1.1rem; letter-spacing: .1em; text-transform: uppercase; margin-top: 26px; }
+.sidebar .chapter li a { border-radius: 6px; padding: 4px 8px; transition: background .15s; }
+.sidebar .chapter li a.active { background: var(--fd-soft); font-weight: 650; box-shadow: inset 3px 0 var(--fd-accent); }
+.sidebar .chapter li a:hover { background: var(--fd-soft); text-decoration: none; }
+.sidebar .chapter-item > ol.section {
+  margin-left: 22px;
+  padding-left: 8px;
+  border-inline-start: 4px solid var(--sidebar-header-border-color);
+}
+.sidebar .chapter-item > ol.section > .chapter-item { margin-block-start: 0; line-height: 1.9em; }
+.sidebar .chapter-item.expanded:has(> ol.section a.active) > .chapter-link-wrapper > a:first-child {
+  color: var(--sidebar-active);
+  background: var(--fd-soft);
+  font-weight: 650;
+  box-shadow: inset 3px 0 var(--fd-accent);
+}
+.content pre { padding: 18px; border: 1px solid var(--fd-line); border-radius: 10px; }
+.content :not(pre) > code { border-radius: 4px; padding: .12em .3em; }
+.content table { width: 100%; margin: 24px 0; border-spacing: 0; font-size: .94em; }
+.content table th { text-align: left; }
+.content table th, .content table td { padding: 10px 14px; }
+.content blockquote { border-radius: 0 8px 8px 0; padding: 12px 20px; }
+.content details { padding: 14px 18px; background: var(--fd-panel); border: 1px solid var(--fd-line); border-radius: 10px; }
+.content summary { color: var(--fd-accent-strong); }
+.content pre.mermaid { display: flex; justify-content: center; background: var(--fd-panel); padding: 24px 14px; overflow-x: auto; box-shadow: var(--fd-shadow); }
+.mermaid svg { height: auto; }
+.mission-explorer, .ensemble-explorer, .vehicle-comparison figure {
+  background: var(--fd-panel); border: 1px solid var(--fd-line); border-radius: 12px; box-shadow: var(--fd-shadow);
+}
+.mission-explorer, .ensemble-explorer { padding: 20px; }
+.plot-controls button, .ensemble-explorer select { border: 1px solid var(--fd-line); border-radius: 6px; padding: 8px 14px; background: var(--fd-soft); color: var(--fg); }
+input[type="range"] { accent-color: var(--fd-accent-strong); }
+.vehicle-comparison figcaption { padding: 16px 20px; }
+.fd-hero { position: relative; margin: 8px 0 30px; padding: clamp(24px, 5vw, 52px); border: 1px solid #326477; border-radius: 16px; overflow: hidden; color: #edf7ff; background: linear-gradient(115deg, #12314d, #0b4c59); }
+.fd-hero::after { content: ""; pointer-events: none; position: absolute; inset: 0; opacity: .15; background-image: linear-gradient(#97e8ed 1px, transparent 1px), linear-gradient(90deg, #97e8ed 1px, transparent 1px); background-size: 40px 40px; mask-image: linear-gradient(90deg, transparent 35%, #000); }
+.fd-hero > * { position: relative; z-index: 1; }
+.fd-eyebrow { margin: 0 0 12px; color: #9ce7e7; font-size: 1.15rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.fd-hero h1 { font-size: clamp(3.4rem, 4.6vw, 5.6rem); line-height: 1.08; letter-spacing: -.045em; margin: 0 0 18px; max-width: 14em; }
+.fd-hero p:last-child { max-width: 40em; color: #d3e7f2; margin-bottom: 0; font-size: 1.8rem; line-height: 1.65; }
+.fd-paths { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 28px 0 36px; }
+.fd-path { display: block; padding: 24px; border: 1px solid var(--fd-line); border-radius: 12px; background: var(--fd-panel); color: var(--fg) !important; box-shadow: var(--fd-shadow); }
+.fd-path:hover { border-color: var(--fd-accent); text-decoration: none !important; }
+.fd-path strong { display: block; font-size: 2.1rem; letter-spacing: -.025em; }
+.fd-path span { display: block; color: var(--fd-muted); margin: 8px 0 14px; }
+.fd-path b { font-size: 1.3rem; color: var(--fd-accent-strong); }
+:focus-visible { outline: 3px solid var(--fd-accent); outline-offset: 3px; }
+@media (max-width: 700px) {
+  .content { padding-inline: 18px; }
+  .content main { padding-top: 8px; }
+  .fd-paths { grid-template-columns: 1fr; }
+  .fd-hero { border-radius: 10px; }
+  .mission-explorer, .ensemble-explorer { padding: 12px; }
+  .content table { display: block; overflow-x: auto; }
+}
+@media print {
+  .fd-hero { background: none; color: #000; border-color: #ccc; }
+  .fd-hero p:last-child, .fd-eyebrow { color: #333; }
+  .fd-hero::after { display: none; }
+  .fd-path, .mission-explorer, .ensemble-explorer, .vehicle-comparison figure { box-shadow: none; }
+}

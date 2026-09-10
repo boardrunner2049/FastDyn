@@ -1,0 +1,11 @@
+# Export this parameter file from configs/tuning/qavr.toml before running.
+# Apply after the QAV-R, constant-load, or varying-load model overlay.
+[Run.processes.mission]
+command = [
+    "python",
+    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_and_control.py",
+    "--connect", "udpin:127.0.0.1:14552",
+    "--monitor-sec", "180",
+    "out/qavr-controller.param",
+    "virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints",
+]

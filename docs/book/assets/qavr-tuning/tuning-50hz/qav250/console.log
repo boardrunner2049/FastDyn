@@ -1,0 +1,152 @@
+fastdyn.main|INFO|  [32m****** Fastdyn Framework 0.1.0 *******[0m
+fastdyn.main|WARNING|  [33mThe output directory: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/tuning-50hz/qav250/work passed by the user does not exist.[0m
+fastdyn.main|INFO|  [32mCreating output directory at path: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/tuning-50hz/qav250/work[0m
+FastDyn timing log: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/tuning-50hz/qav250/work/fastdyn_timing.jsonl
+FMU ready: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/qavr/FastDyn_Qavr.fmu
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.fmu_auto_build 0.012s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.load_config 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helper.mavproxy.popen 0.001s ok[0m
+FASTDYN_LOG|INFO|  [32mMAVCesium web viewer: open http://127.0.0.1:5000/mavcesium/[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helper.mission.popen 0.001s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.start 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32mParsing Config file: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/tuning-50hz/qav250/fastdyn.toml[0m
+FASTDYN_LOG|INFO|  [32mParsing the passed path for the CMSIS SVD[0m
+FASTDYN_LOG|INFO|  [32mUsing SVD: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/third_party/common/cmsis-svd-data/data/STMicro/STM32F427.svd (key='STM32F427')[0m
+[mission] connecting to udpin:127.0.0.1:14552
+FASTDYN_LOG|INFO|  [32mCreating IRQ Map using the CMSIS SVD[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.parse_config 1.358s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.compile_device_routing 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.write_device_config 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32mPrepared QEMU memory backend out/local-rumoca/tuning-50hz/qav250/ram0.ram with size 512M.[0m
+FASTDYN_LOG|INFO|  [32mPrepared QEMU memory backend out/local-rumoca/tuning-50hz/qav250/ram1.ram with size 512K.[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.build_command 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.setup 0.002s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.qemu_setup 0.003s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.kill_existing 0.118s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.build_env 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.popen 0.001s ok[0m
+FASTDYN_VIRTUAL|WARN|function_tracer| no function-trace manifests were available
+Initializing flight controllers
+FMU parameter override: ground_alt_wgs84=149
+FMU parameter override: lat0=40.414929000000001
+FMU parameter override: lon0=-86.932387000000006
+FMU backend loaded: /home/jgoppert/git/rumoca_fastdyn_tutorial/FastDyn/out/local-rumoca/qavr/FastDyn_Qavr.runtime/binaries/x86_64-linux/Rumoca_dadabb43_7fe4_457b_83fa_0814c19a6ace.so
+FMU timing: init_wall=0.000s
+Current CPU type: cortex-m4-arm-cpu
+FMU backend advances synchronously from QEMU timer ticks
+Periodic IRQ 66 every 1000000 ns
+GCS using UART at address 0x200139C0
+Copter frame class address mismatch: expected 0x20008284, got 0x00000AAC
+[GCSReceiver]: Listening for incoming data on UDP port 14551...
+[GPSInputReceiver]: Listening for incoming data on UDP port 14553...
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+Send socket not initialized. Cannot send MAVLink message.
+Failed to send mavlink message to GCS
+[31m[GCSReceiver]: Initialized send socket to GCS at 127.0.0.1:35777
+[mission] heartbeat from system=1 component=1
+[tuning] BRD_SAFETY_DEFLT=0
+[tuning] FS_THR_ENABLE=0
+[tuning] FS_GCS_ENABLE=0
+[tuning] DISARM_DELAY=0
+[tuning] EK3_SRC1_POSZ=3
+[tuning] EK3_SRC2_POSZ=3
+[tuning] EK3_SRC3_POSZ=3
+[tuning] COMPASS_DEC=0
+[tuning] COMPASS_AUTODEC=0
+[tuning] ARMING_CHECK=0
+[tuning] GUID_OPTIONS=0
+[tuning] MOT_PWM_MIN=1100
+[tuning] MOT_PWM_MAX=1900
+[tuning] MOT_THST_EXPO=0.5
+[tuning] MOT_THST_HOVER=0.2
+[tuning] ATC_RAT_RLL_P=0.0459849
+[tuning] ATC_RAT_RLL_I=0.0459849
+[tuning] ATC_RAT_RLL_D=0.00120043
+[tuning] ATC_RAT_PIT_P=0.0742121
+[tuning] ATC_RAT_PIT_I=0.0742121
+[tuning] ATC_RAT_PIT_D=0.00194942
+[tuning] ATC_RAT_RLL_FLTT=40
+[tuning] ATC_RAT_RLL_FLTD=40
+[tuning] ATC_RAT_PIT_FLTT=40
+[tuning] ATC_RAT_PIT_FLTD=40
+[tuning] ATC_ANG_RLL_P=4.5
+[tuning] ATC_ANG_PIT_P=4.5
+[mission] waiting up to 120s for ArduPilot readiness
+[mission] STATUSTEXT: Initialising ArduPilot
+[mission] STATUSTEXT: ArduPilot Ready
+[mission] STATUSTEXT: AHRS: DCM active
+[mission] STATUSTEXT: RCOut: None
+[mission] STATUSTEXT: GPS 1: specified as MAV
+[mission] rel_alt=0.0m
+[mission] STATUSTEXT: Terrain: Allocation failed
+[mission] STATUSTEXT: GPS 1: detected MAV
+[mission] STATUSTEXT: EKF3 IMU0 initialised
+[mission] STATUSTEXT: AHRS: EKF3 active
+[mission] ArduPilot ready with GPS and EKF initialized
+[mission] ensuring mode STABILIZE
+[mission] setting mode STABILIZE
+[mission] rel_alt=0.0m
+[mission] current item 0/-1
+[mission] mode STABILIZE confirmed
+[mission] arming with force
+[tuning] Arm: AHRS: EKF starting GPS checks
+[tuning] Arm: AHRS: EKF starting GPS checks
+[tuning] Frame: QUAD/X
+[0mFMU timing: sim=15.240s wall_since_init=5.000s sim_wall_rtf=3.05x advanced=15.240s wall_advance=0.154s fmu_compute_rtf=98.86x advance_calls=15236 do_steps=15238 avg_do_step=10.0us
+[mission] arming with force
+[mission] waiting up to 30s for EKF GPS fusion
+[mission] rel_alt=0.0m
+[mission] current item 0/-1
+[mission] STATUSTEXT: EKF3 IMU0 origin set
+[mission] STATUSTEXT: EKF3 IMU0 tilt alignment complete
+[mission] STATUSTEXT: EKF3 IMU0 MAG0 initial yaw alignment complete
+[mission] rel_alt=-0.3m
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+FMU timing: sim=29.235s wall_since_init=10.001s sim_wall_rtf=2.92x advanced=29.235s wall_advance=0.308s fmu_compute_rtf=95.03x advance_calls=29231 do_steps=29233 avg_do_step=10.4us
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+FMU timing: sim=43.813s wall_since_init=15.001s sim_wall_rtf=2.92x advanced=43.813s wall_advance=0.471s fmu_compute_rtf=93.03x advance_calls=43809 do_steps=43811 avg_do_step=10.7us
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+FMU timing: sim=58.529s wall_since_init=20.001s sim_wall_rtf=2.93x advanced=58.529s wall_advance=0.627s fmu_compute_rtf=93.38x advance_calls=58525 do_steps=58527 avg_do_step=10.6us
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+[mission] STATUSTEXT: EKF3 IMU0 is using GPS
+[mission] EKF GPS fusion confirmed
+[mission] ensuring mode GUIDED
+[mission] setting mode GUIDED
+[mission] STATUSTEXT: Mode change to GUIDED failed: requires position
+[mission] rel_alt=-0.4m
+[mission] current item 0/-1
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+FMU timing: sim=73.501s wall_since_init=25.001s sim_wall_rtf=2.94x advanced=73.501s wall_advance=0.783s fmu_compute_rtf=93.92x advance_calls=73497 do_steps=73499 avg_do_step=10.6us
+[mission] rel_alt=-0.4m
+[mission] rel_alt=-0.4m
+[mission] setting mode GUIDED
+[mission] mode GUIDED confirmed
+[tuning] armed in GUIDED
+FMU timing: sim=87.644s wall_since_init=30.001s sim_wall_rtf=2.92x advanced=87.644s wall_advance=0.949s fmu_compute_rtf=92.33x advance_calls=87640 do_steps=87642 avg_do_step=10.7us
+[tuning] takeoff complete; steps start at 91.898s
+FMU timing: sim=101.599s wall_since_init=35.001s sim_wall_rtf=2.90x advanced=101.599s wall_advance=1.128s fmu_compute_rtf=90.10x advance_calls=101595 do_steps=101597 avg_do_step=11.0us
+[mission] setting mode LAND
+FMU timing: sim=115.457s wall_since_init=40.002s sim_wall_rtf=2.89x advanced=115.457s wall_advance=1.296s fmu_compute_rtf=89.12x advance_calls=115453 do_steps=115455 avg_do_step=11.1us
+[tuning] attitude experiment completed and landed
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helper.mission.exited exit_code=0[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.wait 42.627s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.qemu_execution 42.747s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.machine0.run 42.750s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.stop 0.164s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.run.total 44.289s ok[0m

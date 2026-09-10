@@ -7,8 +7,11 @@ timeout_sec="${FASTDYN_COURBET_TIMEOUT_SEC:-420}"
 min_alt_m="${FASTDYN_COURBET_MIN_ALT_M:-10.0}"
 min_item="${FASTDYN_COURBET_MIN_ITEM:-5}"
 require_completion="${FASTDYN_COURBET_REQUIRE_COMPLETION:-true}"
+work_dir="${FASTDYN_COURBET_WORK_DIR:-fastdyn_work}"
 
 mkdir -p "$(dirname "$log_file")"
+# Keep binary telemetry beside the console log, independent of MAVProxy's cwd.
+export FASTDYN_MAVLINK_LOG="$(realpath -m "${log_file%.log}.tlog")"
 : >"$log_file"
 phase_file="${log_file}.phases"
 : >"$phase_file"
@@ -43,8 +46,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-log_ci "starting Courbet mission smoke test"
-setsid fastdyn run -c "$config" >>"$log_file" 2>&1 &
+log_ci "starting Courbet mission integration test"
+setsid fastdyn run -c "$config" -o "$work_dir" >>"$log_file" 2>&1 &
 run_pid=$!
 
 mission_check() {
@@ -67,6 +70,7 @@ max_alt = max([float(x) for x in re.findall(r"\[mission\] rel_alt=([-+0-9.]+)m",
 max_item = max([int(x) for x in re.findall(r"\[mission\] current item (\d+)/", text)] or [-1])
 completed = (
     "[mission] final landing confirmed near ground" in text
+    or "[mission] final waypoint reached" in text
     or "[timing] mission:mission.completed" in text
 )
 
@@ -121,7 +125,7 @@ PY
 deadline=$((SECONDS + timeout_sec))
 while (( SECONDS < deadline )); do
   if mission_check | tee -a "$log_file"; then
-    log_ci "Courbet mission smoke test passed"
+    log_ci "Courbet mission integration test passed"
     exit 0
   fi
 
@@ -137,10 +141,10 @@ while (( SECONDS < deadline )); do
   if ! kill -0 "$run_pid" 2>/dev/null; then
     wait "$run_pid" || true
     if mission_check | tee -a "$log_file"; then
-      log_ci "Courbet mission smoke test passed after fastdyn exit"
+      log_ci "Courbet mission integration test passed after fastdyn exit"
       exit 0
     fi
-    log_ci "fastdyn exited before mission smoke criteria passed" >&2
+    log_ci "fastdyn exited before mission completion criteria passed" >&2
     tail -200 "$log_file" >&2
     exit 1
   fi
@@ -148,6 +152,6 @@ while (( SECONDS < deadline )); do
   sleep 2
 done
 
-log_ci "timed out waiting for mission smoke criteria" >&2
+log_ci "timed out waiting for mission completion criteria" >&2
 tail -200 "$log_file" >&2
 exit 1

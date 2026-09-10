@@ -53,8 +53,6 @@ _ZN28AP_InertialSensor_Invensense15_check_raw_tempEs r0 1
 _ZN28AP_InertialSensor_Invensense15_check_raw_tempEs r15 r14
 _ZN9AP_Arming10ins_checksEb r0 1
 _ZN9AP_Arming10ins_checksEb r15 r14
-_ZN17AP_InertialSensor15wait_for_sampleEv r0 0
-_ZN17AP_InertialSensor15wait_for_sampleEv r15 r14
 _ZN14AP_BoardConfig11init_safetyEv r0 0
 _ZN14AP_BoardConfig11init_safetyEv r15 r14
 0x81722bc r15 0x81722c0

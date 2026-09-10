@@ -1,0 +1,14 @@
+# Overlay for configs/copter462.toml: external force at a body attachment point.
+[FMU]
+active = "qavr_payload"
+
+[FMU.models.qavr_payload]
+model = "FastDyn.QavrSidePayload"
+model_file = "modelica/FastDyn/QavrSidePayload.mo"
+source_roots = ["modelica", "third_party/common/modelica_models"]
+output = "out/fmi3/QavrSidePayload"
+build = true
+
+[FMU.models.qavr_payload.parameters]
+payload_mass = 0.05 # kg; applies a 0.49 N downward load at 9.8 m/s²
+attachment_b = [0.07778174593052023, -0.07778174593052023, 0.0] # front-right motor

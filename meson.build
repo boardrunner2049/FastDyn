@@ -16,7 +16,7 @@ qemu_include = include_directories(
   join_paths(QEMU_DIR, 'include')
 )
 # --- Project include dir
-include_dirs = [include_directories('include'), qemu_include, include_directories('build')]
+include_dirs = [include_directories('include'), qemu_include, include_directories('.')]
 
 # --- Project include dir
 local_include = include_directories('include')

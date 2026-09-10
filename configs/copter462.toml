@@ -96,9 +96,7 @@ pwm_min = 1100.0
 pwm_max = 1900.0
 omega_max = 1300.0
 mass = 2.5644001
-ixx = 0.02601237985
-iyy = 0.02590943825
-izz = 0.045571756801
+inertia = [[0.02601237985, 0.0, 0.0], [0.0, 0.02590943825, 0.0], [0.0, 0.0, 0.045571756801]]
 Ct = 8.54858e-6
 Cm = 0.016
 Cn_r = -0.1
@@ -147,6 +145,8 @@ env = { PYTHONPATH = "." }
 command = [
     "mavproxy.py",
     "--daemon",
+    "--logfile=${FASTDYN_MAVLINK_LOG:-mav.tlog}",
+    "--cmd=set flushlogs True",
     "--master=udpout:127.0.0.1:${FASTDYN_MAVLINK_FIRMWARE_PORT:-14551}",
     "--out=udpout:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-14552}",
     "--load-module=fastdyn_cesium:{\"port\":${FASTDYN_MAVCESIUM_PORT:-5000}}",

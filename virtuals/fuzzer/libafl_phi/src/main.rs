@@ -24,7 +24,6 @@ use std::{
 };
 
 use env_logger::Target;
-use gz_msgs::param::{self, Param};
 #[cfg(feature = "tui")]
 use libafl::monitors::tui::TuiMonitor;
 #[cfg(not(feature = "tui"))]
