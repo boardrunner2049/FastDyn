@@ -1,4 +1,6 @@
-# FastDyn Plugins
+# FastDyn
+
+**[Read the documentation and Rumoca tutorial →](https://jgoppert.github.io/FastDyn/)**
 
 ## Automatic Rehosting of Ardupilot Ardurover v4.6.2
 
