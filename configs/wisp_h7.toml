@@ -1,0 +1,144 @@
+# WISP STM32H753 ArduCopter V4.6.2+WHIV~1.0-WISP3 rehost
+# Reference build: MatekH743 arducopter (commit 1ebd4d99).
+# unlabeled_conf resolved from targeted byte-prefix matching against that ref.
+
+[Memory]
+
+# STM32H7 memory hierarchy:
+#   DTCM    0x20000000..0x2001FFFF   128K   (initial MSP 0x20000600 lives here)
+#   AXI-SRAM 0x24000000..0x2407FFFF  512K   (ChibiOS heap / .bss)
+#   SRAM1..3 0x30000000..0x30047FFF  288K   (D2 domain)
+#   SRAM4   0x38000000..0x3800FFFF    64K   (D3 domain)
+
+[Memory.main]   # DTCM — main SRAM the plugin reports as "ram0"
+id = "ram0"
+base_address = "0x20000000"
+memory_size  = "128K"
+memory_type  = "SRAM"
+backend      = "file"
+memory_file  = "../qemu/ws/wisp_h7_dtcm"
+share        = true
+prealloc     = false
+
+[[Memory.ram1]]   # AXI-SRAM
+id = "ram1"
+index = 1
+base_address = "0x24000000"
+memory_size  = "512K"
+memory_type  = "SRAM"
+backend      = "file"
+memory_file  = "../qemu/ws/wisp_h7_axi"
+share        = true
+prealloc     = false
+
+[[Memory.ram2]]   # SRAM1..3 (D2 domain)
+id = "ram2"
+index = 2
+base_address = "0x30000000"
+memory_size  = "288K"
+memory_type  = "SRAM"
+backend      = "file"
+memory_file  = "../qemu/ws/wisp_h7_sram123"
+share        = true
+prealloc     = false
+
+[[Memory.ram3]]   # SRAM4 (D3 domain)
+id = "ram3"
+index = 3
+base_address = "0x38000000"
+memory_size  = "64K"
+memory_type  = "SRAM"
+backend      = "file"
+memory_file  = "../qemu/ws/wisp_h7_sram4"
+share        = true
+prealloc     = false
+
+# ==============================================================================
+#                              CPU Configuration
+# ==============================================================================
+[Machine]
+platform = "STM32H753x"
+qemu_path = "../qemu/build/qemu-system-arm"
+enable_gdb = true
+stop_on_start = false
+launch_gdb = false
+monitor_port = 5555
+qmp_socket = "/tmp/qmp.sock"
+log_file = "wisp_h7.qemu.log"
+log_options = "unimp,guest_errors"      # print unmodeled MMIO + guest exceptions
+icount = { shift = 5, sleep = false, align = false }
+timer_irq_period_ns = 1000000
+semihosting = true
+semihosting_config = "enable=on,target=native"
+coverage = false
+finline = 'None'
+print_command = true                    # dump the qemu command line for debugging
+
+[CPU]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m7"
+plugin_library = "build/libfastdyn.so"
+monitor_elf = "../qemu/ws/monitor.elf"
+binary = "rehosting_rh_fw/wisp_h7_recovered/wisp_h7.elf"
+init_nsvtor = "0x08000000"              # WISP vector table sits at flash start
+twintrace = "None"
+hardware_trace = 'hardware_log/io.log'
+existing_config_path = "virtuals/physics/flight_controllers/courbet/wisp_h7/unlabeled_conf"
+
+logger_content = """
+# --- Plugin Logger Configuration ---
+# level = DEBUG
+# output = stderr
+"""
+
+# NOTE: no [FMU] section — WISP is a bare rehost (no plant model wired up yet).
+# Omitting [FMU] causes fmu_build.NoFmuConfig to be raised and cleanly handled.
+
+# ==============================================================================
+#                              Runtime Helpers
+# ==============================================================================
+[Rumoca]
+enabled = false
+
+[Run]
+cwd = "."
+
+[Run.profiling]
+timing = true
+timing_echo = true
+python = false
+perf = "off"
+perf_frequency_hz = 99
+fmu = false
+
+# No mavproxy / mission / health for the first boot — we just want to see
+# how far ChibiOS init gets before the plugin reports a missing hook.
+
+# ==============================================================================
+#                              Device Configuration
+# ==============================================================================
+[Device.Models.classic]
+
+[Device.Models.passthrough]
+    backend = "stlink"
+
+[Device.Models.unhandled]
+
+# STM32H7 peripheral windows:
+#   D2 domain APB1/APB2: 0x40000000..0x40007FFF, 0x40010000..0x400157FF
+#   D2 domain AHB1..AHB2: 0x40020000..0x480267FF
+#   D1 domain (DMA/QSPI/SDMMC): 0x51000000..0x52007FFF
+#   D3 domain APB4 (SYSCFG, RCC, PWR): 0x58000000..0x580257FF
+#   Private peripheral bus:      0xE0000000..0xE00FFFFF
+[Device.remaining_space]
+    ranges = [
+        ["0x40000000", "0x5FFFFFFF"],
+        ["0xE0000000", "0xEFFFFFFF"],
+    ]
+    description = "Everything not explicitly modeled — classic backing to catch unmodeled MMIO"
+
+    [[Device.remaining_space.handlers]]
+        model = "classic"
+        enabled = true

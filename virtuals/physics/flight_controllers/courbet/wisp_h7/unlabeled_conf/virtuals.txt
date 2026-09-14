@@ -1,0 +1,9 @@
+0x81677f4 adc_voltage *
+0x81677fc adc_voltage *
+0x80021f8 compass_calibrate *
+0x80aef98 create_gcs_mavlink_backend 
+0x80a89d8 gcs_send_text 
+0x80ad270 gcs_send_banner_once *
+0x805f7c8 gcs_read *
+0x805f6e0 gcs_bytes_available *
+0x80083cc raise_periodic_irq 66

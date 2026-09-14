@@ -1,0 +1,143 @@
+fastdyn.main|INFO|  [32m****** Fastdyn Framework 0.1.0 *******[0m
+fastdyn.main|INFO|  [32mThe output directory already exists at Path /scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work. Deleting it![0m
+fastdyn.main|INFO|  [32mCreating output directory at path: /scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work[0m
+FastDyn timing log: /scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/fastdyn_timing.jsonl
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.fmu_auto_build 0.001s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:helpers.load_config 0.001s ok[0m
+FASTDYN_LOG|INFO|  [32mParsing Config file: /scratch/Fastdyn/rh_firmware/FastDyn/configs/wisp_h7.toml[0m
+FASTDYN_LOG|INFO|  [32mParsing the passed path for the CMSIS SVD[0m
+FASTDYN_LOG|INFO|  [32mUsing SVD: /scratch/Fastdyn/rh_firmware/FastDyn/third_party/common/cmsis-svd-data/data/STMicro/STM32H753x.svd (key='STM32H753x')[0m
+FASTDYN_LOG|INFO|  [32mCreating IRQ Map using the CMSIS SVD[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:fastdyn.parse_config 0.839s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.compile_device_routing 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.write_device_config 0.000s ok[0m
+
+================================================================================
+Running QEMU Command:
+================================================================================
+../qemu/build/qemu-system-arm \
+  -M cortexm,memory-backend=ram0 \
+  -m 128K \
+  -cpu cortex-m7 \
+  -kernel rehosting_rh_fw/wisp_h7_recovered/wisp_h7.elf \
+  -display none \
+  -monitor tcp:127.0.0.1:5555,server,nowait \
+  -qmp unix:/scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/qmp.sock,
+    server,
+    nowait \
+  -icount shift=5,sleep=off,align=off \
+  -d unimp,guest_errors \
+  -D /scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/wisp_h7.qemu.log \
+  -s \
+  --semihosting \
+  --semihosting-config enable=on,target=native \
+  -global armv7m.init-nsvtor=0x08000000 \
+  -object memory-backend-file,
+    id=ram0,
+    mem-path=../qemu/ws/wisp_h7_dtcm,
+    size=128K,
+    share=on \
+  -global cortexm-soc.ram_baseaddr0=0x20000000 \
+  -object memory-backend-file,
+    id=ram1,
+    mem-path=../qemu/ws/wisp_h7_axi,
+    size=512K,
+    share=on \
+  -global cortexm-soc.ram_baseaddr1=0x24000000 \
+  -global cortexm-soc.ram_backend1=ram1 \
+  -object memory-backend-file,
+    id=ram2,
+    mem-path=../qemu/ws/wisp_h7_sram123,
+    size=288K,
+    share=on \
+  -global cortexm-soc.ram_baseaddr2=0x30000000 \
+  -global cortexm-soc.ram_backend2=ram2 \
+  -object memory-backend-file,
+    id=ram3,
+    mem-path=../qemu/ws/wisp_h7_sram4,
+    size=64K,
+    share=on \
+  -global cortexm-soc.ram_baseaddr3=0x38000000 \
+  -global cortexm-soc.ram_backend3=ram3 \
+  --plugin build/libfastdyn.so,
+    dev=/scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/dev_config.json,
+    virtual=/scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/virtuals/virtuals.txt,
+    modifier=/scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/virtuals/modifiers.txt,
+    coverage=0,
+    fuzzing=0,
+    edge_coverage=0,
+    twintrace=off,
+    twintrace_binary=None,
+    exact_budget_stop=0,
+    timer_irq_period_ns=1000000,
+    finline=None
+================================================================================
+
+FASTDYN_LOG|INFO|  [32mRunning following qemu command:
+../qemu/build/qemu-system-arm \
+  -M cortexm,memory-backend=ram0 \
+  -m 128K \
+  -cpu cortex-m7 \
+  -kernel rehosting_rh_fw/wisp_h7_recovered/wisp_h7.elf \
+  -display none \
+  -monitor tcp:127.0.0.1:5555,server,nowait \
+  -qmp unix:/scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/qmp.sock,
+    server,
+    nowait \
+  -icount shift=5,sleep=off,align=off \
+  -d unimp,guest_errors \
+  -D /scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/wisp_h7.qemu.log \
+  -s \
+  --semihosting \
+  --semihosting-config enable=on,target=native \
+  -global armv7m.init-nsvtor=0x08000000 \
+  -object memory-backend-file,
+    id=ram0,
+    mem-path=../qemu/ws/wisp_h7_dtcm,
+    size=128K,
+    share=on \
+  -global cortexm-soc.ram_baseaddr0=0x20000000 \
+  -object memory-backend-file,
+    id=ram1,
+    mem-path=../qemu/ws/wisp_h7_axi,
+    size=512K,
+    share=on \
+  -global cortexm-soc.ram_baseaddr1=0x24000000 \
+  -global cortexm-soc.ram_backend1=ram1 \
+  -object memory-backend-file,
+    id=ram2,
+    mem-path=../qemu/ws/wisp_h7_sram123,
+    size=288K,
+    share=on \
+  -global cortexm-soc.ram_baseaddr2=0x30000000 \
+  -global cortexm-soc.ram_backend2=ram2 \
+  -object memory-backend-file,
+    id=ram3,
+    mem-path=../qemu/ws/wisp_h7_sram4,
+    size=64K,
+    share=on \
+  -global cortexm-soc.ram_baseaddr3=0x38000000 \
+  -global cortexm-soc.ram_backend3=ram3 \
+  --plugin build/libfastdyn.so,
+    dev=/scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/dev_config.json,
+    virtual=/scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/virtuals/virtuals.txt,
+    modifier=/scratch/Fastdyn/rh_firmware/FastDyn/fastdyn_work/virtuals/modifiers.txt,
+    coverage=0,
+    fuzzing=0,
+    edge_coverage=0,
+    twintrace=off,
+    twintrace_binary=None,
+    exact_budget_stop=0,
+    timer_irq_period_ns=1000000,
+    finline=None[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.build_command 0.004s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.setup 0.005s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:machine0.qemu_setup 0.005s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.kill_existing 0.275s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.build_env 0.000s ok[0m
+FASTDYN_LOG|INFO|  [32m[timing] fastdyn:qemu.popen 0.003s ok[0m
+FASTDYN_VIRTUAL|WARN|function_tracer| no function-trace manifests were available
+Initializing flight controllers
+Current CPU type: cortex-m7-arm-cpu
+qemu-system-arm: terminating on signal 15 from pid 822061 (timeout)
+FastDyn Exit.
