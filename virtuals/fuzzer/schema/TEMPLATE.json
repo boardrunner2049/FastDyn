@@ -3,10 +3,12 @@
     "snap": {
       "at": ""
     },
-    "sync": {
-      "at": "",
-      "resume": ""
-    }
+    "sync": [
+      {
+        "at": "",
+        "resume": ""
+      }
+    ]
   },
   "fields": [
     {

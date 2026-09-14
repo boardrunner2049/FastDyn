@@ -58,14 +58,18 @@ also contain `state`:
 "flow": {
   "state": { "at": "0x08001000" },
   "snap":  { "at": "0x08002000" },
-  "sync":  { "at": "0x08002100", "resume": "0x08002000" }
+  "sync": [
+    { "at": "0x08002100", "resume": "0x08002000" },
+    { "at": "0x08002120", "resume": "0x08002000" }
+  ]
 }
 ```
 
 `at` accepts an unsigned JSON number or a decimal/`0x`-prefixed string.
 `state` captures a longer-lived initialization state. `snap` captures the
-per-input state. `sync` ends processing for the current input and its required
-`resume` address is written to the program counter before the next iteration.
+per-input state. `sync` is a non-empty array; every entry ends processing for
+the current input and writes its required `resume` address to the program
+counter before the next iteration.
 
 Flow and hook addresses must all be distinct.
 

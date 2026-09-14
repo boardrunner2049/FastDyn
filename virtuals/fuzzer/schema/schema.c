@@ -371,9 +371,15 @@ static bool rule_addresses_are_unique(const struct SchemaFlow *flow,
 
     for (i = 0; i < hooks_count; i++) {
         if (has_flow && ((flow->state.present && hook_list[i].at == flow->state.at) ||
-                         (flow->snap.present && hook_list[i].at == flow->snap.at) ||
-                         (flow->sync.present && hook_list[i].at == flow->sync.at))) {
+                         (flow->snap.present && hook_list[i].at == flow->snap.at))) {
             return false;
+        }
+        if (has_flow) {
+            for (j = 0; j < flow->sync_point_count; j++) {
+                if (hook_list[i].at == flow->sync_points[j].at) {
+                    return false;
+                }
+            }
         }
         for (j = i + 1; j < hooks_count; j++) {
             if (hook_list[i].at == hook_list[j].at) {
@@ -382,9 +388,21 @@ static bool rule_addresses_are_unique(const struct SchemaFlow *flow,
         }
     }
     if (!has_flow) return true;
-    return (!flow->state.present || flow->state.at != flow->snap.at) &&
-           (!flow->state.present || flow->state.at != flow->sync.at) &&
-           flow->snap.at != flow->sync.at;
+    if (flow->state.present && flow->state.at == flow->snap.at) {
+        return false;
+    }
+    for (i = 0; i < flow->sync_point_count; i++) {
+        if ((flow->state.present && flow->state.at == flow->sync_points[i].at) ||
+            flow->snap.at == flow->sync_points[i].at) {
+            return false;
+        }
+        for (j = i + 1; j < flow->sync_point_count; j++) {
+            if (flow->sync_points[i].at == flow->sync_points[j].at) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 static bool streams_are_bound(struct Stream **stream_list, size_t streams_count)
@@ -522,6 +540,7 @@ bool generic_load_fields(const char *path)
     ok = true;
 
 done:
+    schema_flow_free(&flow);
     cJSON_Delete(root);
     free(contents);
     free_fields(loaded_fields, loaded_field_count);

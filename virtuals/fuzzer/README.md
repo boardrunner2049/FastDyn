@@ -83,10 +83,11 @@ The generic loop uses three lifecycle points:
   iteration.
 
 Choose a snap point immediately before the code that consumes the fuzzed data,
-and a sync point after that code has completed. Put those points in the schema
-`flow` object. `sync.resume` redirects execution for the next iteration; the
-redirected instruction must be safe to skip. Function epilogues are a common
-choice when the redirect updates `r15` before the epilogue executes.
+and one or more sync points after that code has completed. Put those points in
+the schema `flow` object. Each `sync` array entry's `resume` redirects execution
+for the next iteration; the redirected instruction must be safe to skip.
+Function epilogues are a common choice when the redirect updates `r15` before
+the epilogue executes.
 
 ```toml
 [Machine]
@@ -100,7 +101,7 @@ fuzzing_schema = "path/to/schema.json"
   "flow": {
     "state": { "at": "0x08001000" },
     "snap":  { "at": "0x08002000" },
-    "sync":  { "at": "0x08002080", "resume": "0x08002000" }
+    "sync":  [{ "at": "0x08002080", "resume": "0x08002000" }]
   },
   "fields": []
 }
@@ -318,7 +319,7 @@ Here `uart_rx` emits 21 fuzzed bytes followed by the CRC-16/MODBUS of those
 {
   "flow": {
     "snap": { "at": "0x08002000" },
-    "sync": { "at": "0x08002080", "resume": "0x08002000" }
+    "sync": [{ "at": "0x08002080", "resume": "0x08002000" }]
   },
   "fields": [
     { "name": "mode", "location": "reg(0)", "type": "uint", "size": 1 }

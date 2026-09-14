@@ -113,12 +113,16 @@ struct SchemaFlowPoint {
     uint64_t at;
 };
 
+struct SchemaFlowSyncPoint {
+    uint64_t at;
+    uint64_t resume;
+};
+
 struct SchemaFlow {
     struct SchemaFlowPoint state;
     struct SchemaFlowPoint snap;
-    struct SchemaFlowPoint sync;
-    bool has_resume;
-    uint64_t resume;
+    struct SchemaFlowSyncPoint *sync_points;
+    size_t sync_point_count;
 };
 
 /* Compatibility entry points used by fuzz.c. Configuration is parsed early so
@@ -151,6 +155,7 @@ void schema_inject_hook(size_t index);
 
 /* JSON boundaries. */
 bool schema_flow_parse(const struct cJSON *json, struct SchemaFlow *flow);
+void schema_flow_free(struct SchemaFlow *flow);
 bool schema_flow_install(const struct SchemaFlow *flow);
 void schema_activate_post_snapshot_modifiers(void);
 bool schema_hooks_parse(const struct cJSON *json, struct SchemaHook **hooks,
