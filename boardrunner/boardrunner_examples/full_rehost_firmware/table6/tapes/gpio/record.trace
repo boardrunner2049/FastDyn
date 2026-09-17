@@ -1,0 +1,97 @@
+[    0.587708] icount=129 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x00005783, pc=0x0800014E 
+[    0.588804] icount=151 [twintrace] Write: 	 address=0x40021000, size=4 bytes, value=0x00005783, pc=0x08000154
+[    0.589732] icount=171 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00000000, pc=0x08000156 
+[    0.590756] icount=190 [twintrace] Write: 	 address=0x40021004, size=4 bytes, value=0x00000000, pc=0x0800015c
+[    0.591740] icount=206 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x00005783, pc=0x0800015E 
+[    0.592749] icount=221 [twintrace] Write: 	 address=0x40021000, size=4 bytes, value=0x00005783, pc=0x08000168
+[    0.593743] icount=233 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x00005783, pc=0x0800016A 
+[    0.594698] icount=244 [twintrace] Write: 	 address=0x40021000, size=4 bytes, value=0x00005783, pc=0x08000170
+[    0.595693] icount=253 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00000000, pc=0x08000172 
+[    0.596715] icount=261 [twintrace] Write: 	 address=0x40021004, size=4 bytes, value=0x00000000, pc=0x08000178
+[    0.597707] icount=267 [twintrace] Write: 	 address=0x40021008, size=4 bytes, value=0x009f0000, pc=0x0800017e
+[    0.598754] icount=271 [twintrace] Write: 	 address=0xE000ED08, size=4 bytes, value=0x08000000, pc=0x08000186
+[    0.600836] icount=317 [twintrace] Read: 	 address = 0x40022000, size = 4 bytes, value = 0x00000030, pc=0x080001E4 
+[    0.601718] icount=321 [twintrace] Write: 	 address=0x40022000, size=4 bytes, value=0x00000030, pc=0x080001ec
+[    0.602787] icount=334 [twintrace] Read: 	 address = 0xE000ED0C, size = 4 bytes, value = 0xfa050000, pc=0x0800022C 
+[    0.603766] icount=343 [twintrace] Write: 	 address=0xE000ED0C, size=4 bytes, value=0x05fa0300, pc=0x08000244
+[    0.605084] icount=369 [twintrace] Write: 	 address=0xE000E014, size=4 bytes, value=0x00001f3f, pc=0x080002d8
+[    0.606198] IO Write Access NOT Handled (Unknown Region): 	 address = 0x00000004, size = 4 bytes, value = 0x00001f3f, pc=0x080002D8 
+[    0.606346] icount=375 [twintrace] Write: 	 address=0xE000ED23, size=1 bytes, value=0xf0, pc=0x080002da
+[    0.607723] icount=380 [twintrace] Write: 	 address=0xE000E018, size=4 bytes, value=0x00000000, pc=0x080002e2
+[    0.608606] IO Write Access NOT Handled (Unknown Region): 	 address = 0x00000008, size = 4 bytes, value = 0x00000000, pc=0x080002E2 
+[    0.608725] icount=382 [twintrace] Write: 	 address=0xE000E010, size=4 bytes, value=0x00000007, pc=0x080002e4
+[    0.609605] IO Write Access NOT Handled (Unknown Region): 	 address = 0x00000000, size = 4 bytes, value = 0x00000007, pc=0x080002E4 
+[    0.610465] icount=495 [twintrace] Read: 	 address = 0xE000ED0C, size = 4 bytes, value = 0xfa050300, pc=0x08000250 
+[    0.611919] icount=548 [twintrace] Write: 	 address=0xE000ED23, size=1 bytes, value=0xf0, pc=0x080002a0
+[    0.614537] icount=1024 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00000000, pc=0x0800059C 
+[    0.615863] icount=1077 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x00005783, pc=0x080005B4 
+[    0.616861] icount=1124 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x00005783, pc=0x080005C0 
+[    0.617715] icount=1141 [twintrace] Write: 	 address=0x40021000, size=4 bytes, value=0x00005783, pc=0x080005cc
+[    0.618912] icount=1228 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00000000, pc=0x0800074E 
+[    0.619740] icount=1260 [twintrace] Write: 	 address=0x42420060, size=4 bytes, value=0x00000000, pc=0x0800075e
+[    0.620597] icount=1260 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x00005783, pc=0x0800075E 
+[    0.621596] icount=1260 [twintrace] Write: 	 address=0x40021000, size=4 bytes, value=0x00005783, pc=0x0800075e
+[    0.622877] icount=1341 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x00005783, pc=0x08000768 
+[    0.623871] icount=1416 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00000000, pc=0x08000784 
+[    0.624737] icount=1448 [twintrace] Write: 	 address=0x40021004, size=4 bytes, value=0x00380000, pc=0x08000790
+[    0.625737] icount=1475 [twintrace] Write: 	 address=0x42420060, size=4 bytes, value=0x00000001, pc=0x08000794
+[    0.626601] icount=1475 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x03005783, pc=0x08000794 
+[    0.627598] icount=1475 [twintrace] Write: 	 address=0x40021000, size=4 bytes, value=0x03005783, pc=0x08000794
+[    0.628786] icount=1531 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x03005783, pc=0x0800079C 
+[    0.630144] icount=1652 [twintrace] Read: 	 address = 0x40022000, size = 4 bytes, value = 0x00000030, pc=0x0800085A 
+[    0.631349] icount=1687 [twintrace] Read: 	 address = 0x40022000, size = 4 bytes, value = 0x00000030, pc=0x080008B6 
+[    0.632708] icount=1718 [twintrace] Write: 	 address=0x40022000, size=4 bytes, value=0x00000032, pc=0x080008be
+[    0.633723] icount=1746 [twintrace] Read: 	 address = 0x40022000, size = 4 bytes, value = 0x00000032, pc=0x080008C0 
+[    0.634936] icount=1818 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00380000, pc=0x080008D4 
+[    0.636356] icount=1855 [twintrace] Write: 	 address=0x40021004, size=4 bytes, value=0x00380700, pc=0x080008da
+[    0.637812] icount=1902 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00380700, pc=0x080008E0 
+[    0.638834] icount=1934 [twintrace] Write: 	 address=0x40021004, size=4 bytes, value=0x00383f00, pc=0x080008e6
+[    0.639746] icount=1964 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00383f00, pc=0x080008E8 
+[    0.640706] icount=1993 [twintrace] Write: 	 address=0x40021004, size=4 bytes, value=0x00383f00, pc=0x080008f2
+[    0.641788] icount=2049 [twintrace] Read: 	 address = 0x40021000, size = 4 bytes, value = 0x03005783, pc=0x080008FC 
+[    0.642940] icount=2145 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00383f00, pc=0x08000906 
+[    0.644318] icount=2174 [twintrace] Write: 	 address=0x40021004, size=4 bytes, value=0x00383f02, pc=0x08000912
+[    0.645850] icount=2244 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00383f0a, pc=0x0800091A 
+[    0.646840] icount=2289 [twintrace] Read: 	 address = 0x40022000, size = 4 bytes, value = 0x00000032, pc=0x08000870 
+[    0.647921] icount=2350 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00383f0a, pc=0x0800095E 
+[    0.649367] icount=2379 [twintrace] Write: 	 address=0x40021004, size=4 bytes, value=0x00383c0a, pc=0x08000968
+[    0.650927] icount=2436 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x00383c0a, pc=0x08000888 
+[    0.652304] icount=2465 [twintrace] Write: 	 address=0x40021004, size=4 bytes, value=0x0038040a, pc=0x08000894
+[    0.653373] icount=2507 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x0038040a, pc=0x08000802 
+[    0.654588] icount=2600 [twintrace] Read: 	 address = 0x40021004, size = 4 bytes, value = 0x0038040a, pc=0x0800089A 
+[    0.655778] icount=2668 [twintrace] Write: 	 address=0xE000E014, size=4 bytes, value=0x0000f9ff, pc=0x080002d8
+[    0.656597] IO Write Access NOT Handled (Unknown Region): 	 address = 0x00000004, size = 4 bytes, value = 0x0000f9ff, pc=0x080002D8 
+[    0.656619] icount=2686 [twintrace] Write: 	 address=0xE000ED23, size=1 bytes, value=0xf0, pc=0x080002da
+[    0.657598] icount=2691 [twintrace] Write: 	 address=0xE000E018, size=4 bytes, value=0x00000000, pc=0x080002e2
+[    0.658607] IO Write Access NOT Handled (Unknown Region): 	 address = 0x00000008, size = 4 bytes, value = 0x00000000, pc=0x080002E2 
+[    0.658639] icount=2693 [twintrace] Write: 	 address=0xE000E010, size=4 bytes, value=0x00000007, pc=0x080002e4
+[    0.659603] IO Write Access NOT Handled (Unknown Region): 	 address = 0x00000000, size = 4 bytes, value = 0x00000007, pc=0x080002E4 
+[    0.659628] icount=2734 [twintrace] Read: 	 address = 0xE000ED0C, size = 4 bytes, value = 0xfa050300, pc=0x08000250 
+[    0.660628] icount=2775 [twintrace] Write: 	 address=0xE000ED23, size=1 bytes, value=0xf0, pc=0x080002a0
+[    0.662104] icount=2838 [twintrace] Read: 	 address = 0x40021018, size = 4 bytes, value = 0x00000000, pc=0x08000A70 
+[    0.663353] icount=2878 [twintrace] Write: 	 address=0x40021018, size=4 bytes, value=0x00000004, pc=0x08000a78
+[    0.664734] icount=2903 [twintrace] Read: 	 address = 0x40021018, size = 4 bytes, value = 0x00000004, pc=0x08000A7A 
+[    0.666206] icount=3041 [twintrace] Read: 	 address = 0x40010800, size = 4 bytes, value = 0x44444444, pc=0x08000354 
+[    0.667286] icount=3063 [twintrace] Write: 	 address=0x40010800, size=4 bytes, value=0x44244444, pc=0x0800036a
+[    0.668416] icount=3099 [twintrace] Read: 	 address = 0x40021018, size = 4 bytes, value = 0x00000004, pc=0x08000AA2 
+[    0.669760] icount=3123 [twintrace] Write: 	 address=0x40021018, size=4 bytes, value=0x00000014, pc=0x08000aaa
+[    0.670788] icount=3144 [twintrace] Read: 	 address = 0x40021018, size = 4 bytes, value = 0x00000014, pc=0x08000AAC 
+[    0.672189] icount=3342 [twintrace] Write: 	 address=0x40011010, size=4 bytes, value=0x00002000, pc=0x08000444
+[    0.673264] icount=3372 [twintrace] Read: 	 address = 0x40011004, size = 4 bytes, value = 0x44444444, pc=0x08000354 
+[    0.674186] icount=3382 [twintrace] Write: 	 address=0x40011004, size=4 bytes, value=0x44844444, pc=0x0800036a
+[    0.675377] icount=3415 [twintrace] Read: 	 address = 0x40021018, size = 4 bytes, value = 0x00000014, pc=0x08000378 
+[    0.676803] icount=3444 [twintrace] Write: 	 address=0x40021018, size=4 bytes, value=0x00000015, pc=0x08000384
+[    0.677777] icount=3470 [twintrace] Read: 	 address = 0x40021018, size = 4 bytes, value = 0x00000015, pc=0x08000388 
+[    0.678790] icount=3495 [twintrace] Read: 	 address = 0x40010014, size = 4 bytes, value = 0x00000000, pc=0x080003A4 
+[    0.680136] icount=3551 [twintrace] Write: 	 address=0x40010014, size=4 bytes, value=0x00000020, pc=0x080003d8
+[    0.681358] icount=3579 [twintrace] Read: 	 address = 0x40010408, size = 4 bytes, value = 0x00000000, pc=0x080003DA 
+[    0.682324] icount=3606 [twintrace] Write: 	 address=0x40010408, size=4 bytes, value=0x00002000, pc=0x080003e6
+[    0.683697] icount=3628 [twintrace] Read: 	 address = 0x4001040C, size = 4 bytes, value = 0x00000000, pc=0x080003E8 
+[    0.684783] icount=3649 [twintrace] Write: 	 address=0x4001040C, size=4 bytes, value=0x00002000, pc=0x080003f4
+[    0.686224] icount=3665 [twintrace] Read: 	 address = 0x40010404, size = 4 bytes, value = 0x00000000, pc=0x080003F6 
+[    0.687456] icount=3702 [twintrace] Write: 	 address=0x40010404, size=4 bytes, value=0x00000000, pc=0x08000402
+[    0.688837] icount=3722 [twintrace] Read: 	 address = 0x40010400, size = 4 bytes, value = 0x00000000, pc=0x08000404 
+[    0.689775] icount=3741 [twintrace] Write: 	 address=0x40010400, size=4 bytes, value=0x00002000, pc=0x08000410
+[    0.690700] icount=3796 [twintrace] Read: 	 address = 0xE000ED0C, size = 4 bytes, value = 0xfa050300, pc=0x08000250 
+[    0.691660] icount=3825 [twintrace] Write: 	 address=0xE000E428, size=1 bytes, value=0x20, pc=0x0800029c
+[    0.692889] icount=3862 [twintrace] Write: 	 address=0xE000E104, size=4 bytes, value=0x00000100, pc=0x080002bc
