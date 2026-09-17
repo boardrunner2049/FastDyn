@@ -1,7 +1,7 @@
 # Reproducing Figure 9 (macrobench)
 
 This document lets an external reviewer reproduce the paper's
-**HALucinator vs FastDyn-Py** end-to-end speedup numbers (Figure 9)
+**HALucinator vs HALucinator-FD** end-to-end speedup numbers (Figure 9)
 from a clean machine in ~40 minutes.
 
 ## Naming
@@ -11,7 +11,7 @@ Two backends are compared in Figure 9:
 | Identifier (CLI / container / CSV) | Human-facing label | What it is |
 |---|---|---|
 | `halucinator`  | HALucinator | Unmodified HALucinator (Avatar2 + GDB backend) |
-| `fastdyn-py`   | FastDyn-Py  | FastDyn plugin with embedded Python interpreter |
+| `halucinator-fd`   | HALucinator-FD | HALucinator on the FastDyn backend (FastDyn plugin with embedded Python interpreter) |
 
 ## Pinned artifacts
 
@@ -20,12 +20,12 @@ will drift.
 
 | Artifact | Pin |
 |---|---|
-| FastDyn-Py Docker image | `pseclab/fastdyn-py@sha256:2ce475b5d5e7e1830767c0d9f352c5368e03b7c0063a6eafd6a1a5a9a8d772c2` |
+| HALucinator-FD Docker image | `pseclab/halucinator-fd@sha256:2ce475b5d5e7e1830767c0d9f352c5368e03b7c0063a6eafd6a1a5a9a8d772c2` |
 | HALucinator Docker image | `halucinator:latest` (upstream HALucinator, unmodified) |
 | Halucinator_Turbo source | `PSecLab/Halucinator_Turbo` @ commit `c8bed67` (branch `dev`) |
 | FastDyn source (submodule) | `PSecLab/FastDyn` @ commit `82abf50` (branch `halucinator-turbo-optimizations`) |
 
-The FastDyn-Py image is standalone — all source, the compiled
+The HALucinator-FD image is standalone — all source, the compiled
 `libfastdyn.so`, and a debug build of `qemu-system-arm` are baked in.
 Cloning the source repos is only needed if you want to inspect or
 modify the code.
@@ -54,8 +54,8 @@ This is not required for root-mode Docker.
 ## Bring-up (one-time, ~2 min once image is pulled)
 
 ```bash
-# 1. Pull the pinned FastDyn-Py image (~6.7 GB download).
-docker pull pseclab/fastdyn-py@sha256:2ce475b5d5e7e1830767c0d9f352c5368e03b7c0063a6eafd6a1a5a9a8d772c2
+# 1. Pull the pinned HALucinator-FD image (~6.7 GB download).
+docker pull pseclab/halucinator-fd@sha256:2ce475b5d5e7e1830767c0d9f352c5368e03b7c0063a6eafd6a1a5a9a8d772c2
 
 # 2. Pull upstream HALucinator image (for the baseline).
 docker pull halucinator:latest       # or build from https://github.com/embedded-sec/halucinator
@@ -66,14 +66,14 @@ cd FastDyn/boardrunner/boardrunner_examples/macrobench
 
 # 4. Bring up the two long-lived benchmark containers.
 ./setup_containers.sh
-# Expected: "creating halucinator ... creating fastdyn-py ... ready."
+# Expected: "creating halucinator ... creating halucinator-fd ... ready."
 ```
 
 ## Run the sweep (~30 min)
 
 ```bash
 ./sweep.sh 10                  # 10 iterations × 2 backends × 4 firmwares
-python3 summarize.py           # markdown table + geomean speedup
+python3 summarize.py           # markdown table + average speedup (paper: 12.74x)
 ```
 
 ## Regenerate the figure
@@ -90,7 +90,7 @@ python3 make_macro_figure.py
 (Intel Xeon Gold 6248R, Ubuntu 22.04, Docker 24.0):
 
 ```
-| firmware       | HALucinator (s) | FastDyn-Py (s)  | speedup |
+| firmware       | HALucinator (s) | HALucinator-FD (s)  | speedup |
 | stm32_uart_it  |     1.55 ± 0.05 |     1.70 ± 0.06 |   0.91× |
 | zephyr_k64f    |    10.63 ± 0.03 |     2.18 ± 0.03 |   4.87× |
 | zephyr_h103    |    10.48 ± 0.01 |     1.54 ± 0.01 |   6.82× |
@@ -108,29 +108,29 @@ have tested.
 
 ## Interpreting the STM32 UART result
 
-FastDyn-Py is **0.91× on stm32_uart_it** (slightly slower than
+HALucinator-FD is **0.91× on stm32_uart_it** (slightly slower than
 HALucinator). This is the expected outcome for a startup-dominated
 microbenchmark: `stm32_uart_it` issues only **8 handler dispatches**
 in its entire lifetime (see `stats/stm32_uart_it.yaml` —
 HALucinator's own per-breakpoint counters), while `zephyr_fs` issues
-**1,177** (see `stats/zephyr_fs.yaml`). FastDyn-Py's per-op savings
+**1,177** (see `stats/zephyr_fs.yaml`). HALucinator-FD's per-op savings
 amortize the plugin's fixed loading cost only when the firmware
 sustains many per-op dispatches, which is why the speedup grows
 monotonically with dispatch count. See Figure 9 in the paper.
 
 ## Full result tables (per iteration)
 
-Raw per-iteration CSVs are committed to `results/`:
+Raw per-iteration CSVs behind the paper are committed to `results/paper/`; a fresh `sweep.sh` writes to `results/` and does not touch them. `summarize.py` and `make_macro_figure.py` read `results/` by default, pass a directory to read another set (`python3 summarize.py results/paper`):
 
 ```
-results/stm32_uart_it.csv    # 10 iters × 2 backends
-results/zephyr_k64f.csv
-results/zephyr_h103.csv
-results/zephyr_fs.csv
+results/paper/stm32_uart_it.csv    # 10 iters × 2 backends
+results/paper/zephyr_k64f.csv
+results/paper/zephyr_h103.csv
+results/paper/zephyr_fs.csv
 ```
 
 Each row: `iter,firmware,backend,wall_s`, with `backend` ∈
-{`halucinator`, `fastdyn-py`}.
+{`halucinator`, `halucinator-fd`}.
 
 ## Troubleshooting
 

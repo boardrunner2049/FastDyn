@@ -7,17 +7,17 @@ writes a PDF into the paper's figure/ directory.
 """
 import csv
 import glob
+import sys
 import statistics as st
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 
 HERE = Path(__file__).resolve().parent
-RESULTS = HERE / "results"
-PAPER_FIG = Path(
-    "/scratch/Fastdyn/boardrunner_paper_writing/coding-agent-paper-writing-vscode"
-    "/work/boardrunner_paper/figure/macrobench.pdf"
-)
+# results dir: argv[1] if given, else results/ (a fresh sweep); results/paper/ holds the paper's data
+RESULTS = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "results"
+# output: argv[2] if given, else figure/macrobench.pdf next to this script
+PAPER_FIG = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE / "figure" / "macrobench.pdf"
 
 # Ordered so the figure reads left-to-right from smallest to largest
 # workload, ending on the 36x speedup.
@@ -47,24 +47,24 @@ plt.rcParams.update({
 
 
 def load_stats():
-    """Return {firmware: {'halucinator': (mean, stdev), 'fastdyn-py': (mean, stdev)}}."""
+    """Return {firmware: {'halucinator': (mean, stdev), 'halucinator-fd': (mean, stdev)}}."""
     data = {}
     for path in glob.glob(str(RESULTS / "*.csv")):
         key = Path(path).stem
-        by = {"halucinator": [], "fastdyn-py": []}
+        by = {"halucinator": [], "halucinator-fd": []}
         with open(path) as f:
             for row in csv.DictReader(f):
-                if row.get("backend") not in ("halucinator", "fastdyn-py"):
+                if row.get("backend") not in ("halucinator", "halucinator-fd"):
                     continue
                 if row["wall_s"] in ("", "NaN"):
                     continue
                 by[row["backend"]].append(float(row["wall_s"]))
-        if by["halucinator"] and by["fastdyn-py"]:
+        if by["halucinator"] and by["halucinator-fd"]:
             data[key] = {
                 "halucinator": (st.mean(by["halucinator"]),
                           st.stdev(by["halucinator"]) if len(by["halucinator"]) > 1 else 0.0),
-                "fastdyn-py": (st.mean(by["fastdyn-py"]),
-                          st.stdev(by["fastdyn-py"]) if len(by["fastdyn-py"]) > 1 else 0.0),
+                "halucinator-fd": (st.mean(by["halucinator-fd"]),
+                          st.stdev(by["halucinator-fd"]) if len(by["halucinator-fd"]) > 1 else 0.0),
             }
     return data
 
@@ -77,14 +77,14 @@ def main():
         if key not in stats:
             continue
         bm, bs = stats[key]["halucinator"]
-        hm, hs = stats[key]["fastdyn-py"]
+        hm, hs = stats[key]["halucinator-fd"]
         labels.append(f"{label}\n({n_int:,} dispatches)")
         base_mean.append(bm); base_sd.append(bs)
         fd_mean.append(hm); fd_sd.append(hs)
         speedups.append(bm / hm)
 
     if not labels:
-        raise SystemExit("no CSVs to plot under results/")
+        raise SystemExit(f"no CSVs to plot under {RESULTS}/")
 
     n = len(labels)
     x = list(range(n))
@@ -102,7 +102,7 @@ def main():
         [xi + w / 2 for xi in x], fd_mean, w,
         yerr=fd_sd, capsize=3, error_kw=dict(elinewidth=0.8, ecolor="black"),
         facecolor=FD_FACE, edgecolor=EDGE,
-        linewidth=0.8, label="FastDyn-Py",
+        linewidth=0.8, label="HALucinator-FD",
     )
 
     # Annotate each bar with its value.

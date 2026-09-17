@@ -1,0 +1,2 @@
+# fresh sweep output; the paper's data is in results/paper/
+results/*.csv

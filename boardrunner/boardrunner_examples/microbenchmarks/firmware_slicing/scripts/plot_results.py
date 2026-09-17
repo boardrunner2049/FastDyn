@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Bar chart comparing FastDyn against representative baselines on the
-firmware-slicing and HITL microbenchmarks (paper Figure 8). Log-scale Y
+function-bypass, host-operation and HITL microbenchmarks (paper Figure 8a-c). Log-scale Y
 (seconds per 1000-op run). Baseline bars are hatched gray, FastDyn bars solid.
 
 Every bar is computed from a results file; nothing is typed in by hand:
-  * FastDyn slicing (modifier / virtual): `elapsed_ns=` lines from
+  * FastDyn function bypass (modifier) / host operation (virtual): `elapsed_ns=` lines from
     run_benchmarks.sh logs (results/modifier_*.log, results/virtual_*.log,
     or the shipped results/{modifier,virtual}_benchmark.txt).
-  * HALucinator slicing: per-iteration seconds from
+  * HALucinator function bypass / host operation: per-iteration seconds from
     baseline/results/{pc_update,counter_update}_benchmark.txt (or the CSVs
     written by baseline/scripts/run_*_benchmark.sh).
   * HITL: per-iteration `total_s` from the hitl_comparison CSVs.
@@ -85,12 +85,12 @@ def build_data(files: dict) -> list:
     av = _stats(_seconds_per_run(files["avatar2_reads"]) + _seconds_per_run(files["avatar2_writes"]))
     fd = _stats(_seconds_per_run(files["fastdyn_reads"]) + _seconds_per_run(files["fastdyn_writes"]))
     return [
-        ("HALucinator",         "Slicing (PC Update)", *hal_pc, True),
-        ("FastDyn\n(modifier)", "Slicing (PC Update)", *fd_mod, False),
-        ("HALucinator",         "Slicing (Counter)",   *hal_ct, True),
-        ("FastDyn\n(virtual)",  "Slicing (Counter)",   *fd_vir, False),
-        ("Avatar2",             "HITL Execution",      *av,     True),
-        ("FastDyn",             "HITL Execution",      *fd,     False),
+        ("HALucinator", "Function Bypass", *hal_pc, True),
+        ("FastDyn",     "Function Bypass", *fd_mod, False),
+        ("HALucinator", "Host Operation",  *hal_ct, True),
+        ("FastDyn",     "Host Operation",  *fd_vir, False),
+        ("Avatar2",     "HITL Execution",  *av,     True),
+        ("FastDyn",     "HITL Execution",  *fd,     False),
     ]
 
 

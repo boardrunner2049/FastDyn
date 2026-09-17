@@ -19,6 +19,15 @@ FWS="${2:-}"
 RESULTS="$HERE/results"
 mkdir -p "$RESULTS"
 
+# On Ctrl-C, kill the emulators the current runner.py left inside the
+# containers; otherwise they hold the endpoints and the next run stalls.
+cleanup() {
+    for c in halucinator halucinator-fd; do
+        docker exec "$c" bash -c "pkill -9 -f '[/]usr/local/bin/halucinator'; pkill -9 -x qemu-system-arm; pkill -9 -f '[b]ench_uart_peer'; true" >/dev/null 2>&1 || true
+    done
+}
+trap 'cleanup; exit 130' INT TERM
+
 if [[ -z "$FWS" ]]; then
     FWS="stm32_uart_it zephyr_k64f zephyr_h103 zephyr_fs"
 fi
@@ -30,7 +39,7 @@ for fw in $FWS; do
     echo "iter,firmware,backend,wall_s" > "$out"
     echo "--- $fw ---"
     for ((i=1; i<=N; i++)); do
-        for backend in halucinator fastdyn-py; do
+        for backend in halucinator halucinator-fd; do
             line=$(python3 "$HERE/runner.py" --fw "$fw" --backend "$backend" --csv 2>/dev/null || echo "$fw,$backend,NaN")
             echo "  iter=$i $backend → $line"
             echo "${i},${line}" >> "$out"

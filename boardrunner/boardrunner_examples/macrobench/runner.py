@@ -4,7 +4,7 @@ single float (wall-clock seconds), "TIMEOUT", or "ERROR:<msg>".
 
 Assumes two long-running Docker containers exist:
     halucinator   — unmodified HALucinator image
-    fastdyn-py    — FastDyn (with embedded Python interpreter) image
+    halucinator-fd    — FastDyn (with embedded Python interpreter) image
 
 Use setup_containers.sh (once) to create them.
 """
@@ -32,7 +32,7 @@ HERE = Path(__file__).resolve().parent
 PEER_SRC = HERE / "peers" / "bench_uart_peer.py"
 PEER_DST = "/tmp/bench_uart_peer.py"
 
-CONTAINERS = {"halucinator": "halucinator", "fastdyn-py": "fastdyn-py"}
+CONTAINERS = {"halucinator": "halucinator", "halucinator-fd": "halucinator-fd"}
 
 
 def docker(*args, **kw):
@@ -55,9 +55,17 @@ def ensure_container(name):
 
 
 def kill_halucinator(container):
-    # Kill any lingering halucinator processes. The peer lives in /tmp so
-    # this pattern shouldn't match it.
-    docker("exec", container, "pkill", "-f", "halucinator",
+    # Kill anything a previous run may have left in the container: the
+    # halucinator process, the QEMU it spawned (which outlives it), and a
+    # stale UART peer. An interrupted sweep leaves all three behind, and a
+    # leftover pair holds the ZMQ endpoints so the next run's peer waits
+    # out its full timeout.
+    # The [x] bracket trick keeps each pattern from matching this very
+    # `bash -c` command line (pkill -f would otherwise kill the shell
+    # before it reaches the next pkill).
+    docker("exec", container, "bash", "-c",
+           "pkill -9 -f '[/]usr/local/bin/halucinator'; pkill -9 -x qemu-system-arm; "
+           "pkill -9 -f '[b]ench_uart_peer'; true",
            capture_output=True)
     # Give it a moment to release ports.
     time.sleep(0.3)
@@ -93,6 +101,7 @@ def install_peer(container):
 
 
 def run_uart(spec, container, label):
+    kill_halucinator(container)
     install_peer(container)
     reset_plugin_cache(container)
 
@@ -166,11 +175,27 @@ def run_uart(spec, container, label):
 
     threading.Thread(target=_drain_emu, daemon=True).start()
 
+    # Wait for the peer, but stop early if the emulator dies first (e.g. a
+    # stale QEMU still holds the GDB port): the peer would otherwise sit
+    # out its whole timeout for nothing.
+    emu_died_early = False
     try:
-        peer.wait(timeout=spec["timeout"] + 30)
-    except subprocess.TimeoutExpired:
-        peer.kill()
-        peer.wait(timeout=5)
+        deadline = time.time() + spec["timeout"] + 30
+        while peer.poll() is None:
+            if emu.poll() is not None:
+                # give the peer a moment in case success just arrived
+                try:
+                    peer.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    emu_died_early = True
+                    peer.kill()
+                    peer.wait(timeout=5)
+                break
+            if time.time() > deadline:
+                peer.kill()
+                peer.wait(timeout=5)
+                break
+            time.sleep(0.2)
     finally:
         kill_halucinator(container)
         try:
@@ -182,18 +207,22 @@ def run_uart(spec, container, label):
             except ProcessLookupError:
                 pass
 
-    # Guard: on the fastdyn-py backend, the FastDyn plugin must actually
+    # Guard: on the halucinator-fd backend, the FastDyn plugin must actually
     # have loaded. Halucinator keeps going with plain QEMU if the plugin
     # path doesn't resolve, which would produce a completely meaningless
-    # "fastdyn-py" number.
+    # "halucinator-fd" number.
     emu_text = "".join(emu_log)
+    if emu_died_early:
+        sys.stderr.write(f"ERROR: emulator exited (rc={emu.returncode}) before the peer "
+                         "saw success. Emu log tail:\n")
+        sys.stderr.write("\n".join(emu_text.splitlines()[-10:]) + "\n")
     if os.environ.get("_DUMP_EMU_LOG"):
         with open(os.environ["_DUMP_EMU_LOG"], "w") as _f:
             _f.write(emu_text)
-    if container == CONTAINERS["fastdyn-py"]:
+    if container == CONTAINERS["halucinator-fd"]:
         if "Could not load plugin" in emu_text or "libfastdyn.so: cannot open" in emu_text:
             sys.stderr.write(
-                "ERROR: FastDyn plugin failed to load on fastdyn-py — "
+                "ERROR: FastDyn plugin failed to load on halucinator-fd — "
                 "run invalidated. Emu log tail:\n"
             )
             sys.stderr.write("\n".join(emu_text.splitlines()[-10:]) + "\n")
@@ -207,6 +236,7 @@ def run_uart(spec, container, label):
 
 
 def run_stdout(spec, container, label):
+    kill_halucinator(container)
     reset_plugin_cache(container)
     cmd = [
         "docker", "exec", "-w", spec["emu_cwd"], container,
@@ -264,9 +294,9 @@ def run_stdout(spec, container, label):
         with open(os.environ["_DUMP_EMU_LOG"], "w") as _f:
             _f.write("".join(emu_lines))
 
-    if container == CONTAINERS["fastdyn-py"] and saw_plugin_fail[0]:
+    if container == CONTAINERS["halucinator-fd"] and saw_plugin_fail[0]:
         sys.stderr.write(
-            "ERROR: FastDyn plugin failed to load on fastdyn-py — run invalidated.\n"
+            "ERROR: FastDyn plugin failed to load on halucinator-fd — run invalidated.\n"
         )
         return None
     return elapsed[0]

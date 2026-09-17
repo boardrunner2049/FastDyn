@@ -1,10 +1,10 @@
-# Firmware-under-test definitions for the HALucinator-vs-FastDyn-Py macrobench.
+# Firmware-under-test definitions for the HALucinator-vs-HALucinator-FD macrobench.
 #
 # Two modes:
 #   mode = "uart"    — peer sends scripted input via ZMQ; exits on `success`.
 #   mode = "stdout"  — runner watches emulator stdout for `success`.
 #
-# Paths are container-internal. Both the halucinator and fastdyn-py images
+# Paths are container-internal. Both the halucinator and halucinator-fd images
 # expose the halucinator tree at /root/halucinator, so the same spec works
 # for both backends.
 
@@ -13,7 +13,7 @@
 # The screenshot case: UART Hyperterminal, IT-driven USART.
 # Matches the firmware you demoed manually. Uses the example script
 # referenced in HALucinator's top-level Docker README, which works in
-# both the halucinator and fastdyn-py images.
+# both the halucinator and halucinator-fd images.
 # UART peripheral base = 0x40004400 = 1073811456.
 [stm32_uart_it]
 emu_cmd  = "./test/STM32/example/run.sh"

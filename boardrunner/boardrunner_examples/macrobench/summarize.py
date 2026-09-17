@@ -1,27 +1,30 @@
 """
-Read results/*.csv, print a markdown table + geomean speedup.
+Read <results dir>/*.csv (default results/), print a markdown table + average speedup.
 
 Backend labels used in the CSVs and CLI:
     halucinator  — unmodified HALucinator (Avatar2 + GDB backend)
-    fastdyn-py   — FastDyn plugin with embedded Python interpreter
+    halucinator-fd   — FastDyn plugin with embedded Python interpreter
 """
 import csv
 import glob
+import sys
 import math
 import statistics as st
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# results dir: argv[1] if given, else results/ (a fresh sweep); results/paper/ holds the paper's data
+RESULTS = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "results"
 
 BASELINE = "halucinator"
-TARGET = "fastdyn-py"
+TARGET = "halucinator-fd"
 BASELINE_LABEL = "HALucinator"
-TARGET_LABEL = "FastDyn-Py"
+TARGET_LABEL = "HALucinator-FD"
 
 
 def load():
     rows = []
-    for path in sorted(glob.glob(str(HERE / "results" / "*.csv"))):
+    for path in sorted(glob.glob(str(RESULTS / "*.csv"))):
         name = Path(path).stem
         by = {BASELINE: [], TARGET: []}
         with open(path) as f:
@@ -46,7 +49,7 @@ def fmt_cell(values):
 def main():
     rows = load()
     if not rows:
-        print("no usable results under results/.")
+        print(f"no usable results under {RESULTS}/.")
         return
 
     header = (f"| {'firmware':<22} | {BASELINE_LABEL+' (s)':>15} | "
@@ -66,7 +69,8 @@ def main():
     if len(speedups) > 1:
         g = math.exp(sum(math.log(x) for x in speedups) / len(speedups))
         print()
-        print(f"geomean speedup across {len(speedups)} workloads: {g:.2f}×")
+        a = sum(speedups) / len(speedups)
+        print(f"average speedup across {len(speedups)} workloads: {a:.2f}×  (the paper's figure; geomean {g:.2f}×)")
 
 
 if __name__ == "__main__":

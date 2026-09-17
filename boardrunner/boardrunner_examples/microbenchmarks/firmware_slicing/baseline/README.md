@@ -1,9 +1,9 @@
-# HALucinator slicing microbenchmark (baseline for Figure 8a/8b)
+# HALucinator baseline for function bypass and host operation (Figure 8a/8b)
 
 Runs the same `slice_probe` firmware inside the `halucinator` Docker container with two intercept handlers, N=1000 dispatches per run:
 
-- `PcUpdate` (`halucinator.bp_handlers.sentinel_log.PcUpdate`) — modifier analog: `return True, None` (HALucinator sets PC=LR, the emulated function is skipped)
-- `CounterVirt` (`halucinator.bp_handlers.sentinel_log.CounterVirt`) — virtual-callback analog: `counter++; return False, None` (GDB single-steps the BKPT, the emulated function runs)
+- `PcUpdate` (`halucinator.bp_handlers.sentinel_log.PcUpdate`) — function bypass: `return True, None` (HALucinator sets PC=LR, the emulated function is skipped)
+- `CounterVirt` (`halucinator.bp_handlers.sentinel_log.CounterVirt`) — host operation: `counter++; return False, None` (GDB single-steps the BKPT, the emulated function runs)
 
 Reports per-iteration `SENTINEL_ELAPSED` and per-op cost. Our measurements are in `results/` (`pc_update_benchmark.txt`, `counter_update_benchmark.txt`; 100 and 10 iterations); `../scripts/plot_results.py` reads them directly.
 

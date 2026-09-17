@@ -1,7 +1,7 @@
 # macrobench
 
 End-to-end wall-time comparison of unmodified **HALucinator** (Avatar2
-+ GDB backend) vs **FastDyn-Py** (FastDyn plugin with embedded Python
++ GDB backend) vs **HALucinator-FD** (FastDyn plugin with embedded Python
 interpreter), on four firmware workloads drawn from HALucinator's
 public test corpus.
 
@@ -24,15 +24,15 @@ harness for developers extending it.
 ./setup_containers.sh
 ```
 
-Creates `halucinator` (from `halucinator:latest`) and `fastdyn-py`
-(from `pseclab/fastdyn-py:1.3.0`) as `sleep infinity` daemons.
+Creates `halucinator` (from `halucinator:latest`) and `halucinator-fd`
+(from `pseclab/halucinator-fd:1.3.0`) as `sleep infinity` daemons.
 Each benchmark run is a `docker exec` — no repeated container startup
 cost.
 
 ## Run one workload once
 
 ```bash
-python3 runner.py --fw stm32_uart_it --backend fastdyn-py
+python3 runner.py --fw stm32_uart_it --backend halucinator-fd
 python3 runner.py --fw stm32_uart_it --backend halucinator
 ```
 
@@ -45,13 +45,13 @@ counts, see below).
 
 ```bash
 ./sweep.sh 10                    # 10 measured iterations per (fw, backend)
-python3 summarize.py             # markdown table + geomean speedup
-python3 make_macro_figure.py     # regenerates the paper figure
+python3 summarize.py             # markdown table + average speedup (paper: 12.74x)
+python3 make_macro_figure.py     # -> figure/macrobench.pdf (args: [results dir] [output pdf])
 ```
 
 `sweep.sh` writes one CSV per firmware to `results/`, each column is
 `iter,firmware,backend,wall_s`, with `backend` ∈ {`halucinator`,
-`fastdyn-py`}. Each iteration launches a fresh `docker exec` and thus
+`halucinator-fd`}. Each iteration launches a fresh `docker exec` and thus
 a fresh QEMU process — no TCG / interpreter / plugin state carries
 across iterations, so no warm-up discard is performed.
 
@@ -87,12 +87,12 @@ To add a workload:
 ```
 runner.py                one (firmware, backend) run → wall time
 sweep.sh                 loops runner over N iters × all firmwares
-summarize.py             results/*.csv → markdown table + geomean
-make_macro_figure.py     results/*.csv + stats/*.yaml → macrobench.pdf
+summarize.py             [dir]/*.csv → markdown table + average speedup (default dir: results/)
+make_macro_figure.py     [dir]/*.csv + stats/*.yaml → macrobench.pdf (default dir: results/)
 firmwares.toml           per-firmware spec
 peers/bench_uart_peer.py peer that replaces hal_dev_uart for timing
 setup_containers.sh      one-time Docker bring-up
-results/                 raw per-firmware CSVs (committed)
+results/                 per-firmware CSVs of a fresh sweep; results/paper/ holds the paper's (committed)
 stats/                   per-firmware halucinator stats.yaml with
                          intercept dispatch counts (committed)
 figure/macrobench.pdf    the rendered Figure 9
@@ -105,14 +105,14 @@ figure/macrobench.pdf    the rendered Figure 9
 ```
 iter,firmware,backend,wall_s
 1,stm32_uart_it,halucinator,1.5595
-1,stm32_uart_it,fastdyn-py,1.7033
+1,stm32_uart_it,halucinator-fd,1.7033
 ...
 ```
 
 `summarize.py` prints a markdown table:
 
 ```
-| firmware       | HALucinator (s) | FastDyn-Py (s)  | speedup |
+| firmware       | HALucinator (s) | HALucinator-FD (s)  | speedup |
 | stm32_uart_it  |     1.55 ± 0.05 |     1.70 ± 0.06 |   0.91× |
 | zephyr_k64f    |    10.63 ± 0.03 |     2.18 ± 0.03 |   4.87× |
 | zephyr_h103    |    10.48 ± 0.01 |     1.54 ± 0.01 |   6.82× |
@@ -141,4 +141,4 @@ For clarity across scripts, docs, and paper prose:
 | CLI / container / CSV | Human-facing label |
 |---|---|
 | `halucinator` | HALucinator (unmodified, Avatar2 + GDB backend) |
-| `fastdyn-py`  | FastDyn-Py (FastDyn plugin with embedded Python interpreter) |
+| `halucinator-fd`  | HALucinator-FD (HALucinator on the FastDyn backend: FastDyn plugin with embedded Python interpreter) |
