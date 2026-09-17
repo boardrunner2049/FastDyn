@@ -5,7 +5,7 @@ End-to-end wall-time comparison of unmodified **HALucinator** (Avatar2
 interpreter), on four firmware workloads drawn from HALucinator's
 public test corpus.
 
-Feeds Figure 8 in the paper.
+Feeds Figure 9 in the paper.
 
 **For artifact-eval reviewers reproducing the paper's numbers,
 follow [REPRODUCE.md](REPRODUCE.md).** This file describes the
@@ -95,7 +95,7 @@ setup_containers.sh      one-time Docker bring-up
 results/                 raw per-firmware CSVs (committed)
 stats/                   per-firmware halucinator stats.yaml with
                          intercept dispatch counts (committed)
-figure/macrobench.pdf    the rendered Figure 8
+figure/macrobench.pdf    the rendered Figure 9
 ```
 
 ## Output format
@@ -125,7 +125,7 @@ geomean speedup across 4 workloads: 5.84×
 
 `stats/<firmware>.yaml` records the per-breakpoint dispatch counts
 (HALucinator's own `hal_stats` counters), used to annotate workload
-complexity in Figure 8. Regenerate by re-running each firmware and
+complexity in Figure 9. Regenerate by re-running each firmware and
 copying the emitted `tmp/HALucinator/stats.yaml` (or `tmp/<name>/stats.yaml`
 if the firmware uses `-n <name>`).
 

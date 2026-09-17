@@ -1,12 +1,12 @@
-# Reproducing Figure 8 (macrobench)
+# Reproducing Figure 9 (macrobench)
 
 This document lets an external reviewer reproduce the paper's
-**HALucinator vs FastDyn-Py** end-to-end speedup numbers (Figure 8)
+**HALucinator vs FastDyn-Py** end-to-end speedup numbers (Figure 9)
 from a clean machine in ~40 minutes.
 
 ## Naming
 
-Two backends are compared in Figure 8:
+Two backends are compared in Figure 9:
 
 | Identifier (CLI / container / CSV) | Human-facing label | What it is |
 |---|---|---|
@@ -116,7 +116,7 @@ HALucinator's own per-breakpoint counters), while `zephyr_fs` issues
 **1,177** (see `stats/zephyr_fs.yaml`). FastDyn-Py's per-op savings
 amortize the plugin's fixed loading cost only when the firmware
 sustains many per-op dispatches, which is why the speedup grows
-monotonically with dispatch count. See Figure 8 in the paper.
+monotonically with dispatch count. See Figure 9 in the paper.
 
 ## Full result tables (per iteration)
 
@@ -151,5 +151,5 @@ if `FASTDYN_MOUNT_SRC` is set to a locally-built copy. Unset it to
 use the image's baked-in `libfastdyn.so`.
 
 **`samr21_*` firmwares** — pre-existing config issues in HALucinator's
-public corpus; not part of Figure 8. Excluded from `sweep.sh`'s
+public corpus; not part of Figure 9. Excluded from `sweep.sh`'s
 default list.

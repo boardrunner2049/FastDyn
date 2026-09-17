@@ -1,47 +1,98 @@
 #!/usr/bin/env python3
 """
 Bar chart comparing FastDyn against representative baselines on the
-firmware-slicing and HITL microbenchmarks. Log-scale Y (seconds per
-1000-op run). Baseline bars are hatched gray, FastDyn bars are solid blue.
+firmware-slicing and HITL microbenchmarks (paper Figure 8). Log-scale Y
+(seconds per 1000-op run). Baseline bars are hatched gray, FastDyn bars solid.
 
-Update the DATA table below with fresh means/stddevs from the runners:
-  * Firmware slicing FastDyn numbers come from
-    `run_benchmarks.sh` (ns/op x 1000 ops/run -> seconds/run).
-  * Halucinator baseline is the wall time of one bench_start->bench_done
-    iteration on the same 1000-op firmware.
-  * HITL numbers are (ms/op x 1000 ops/run -> seconds/run).
+Every bar is computed from a results file; nothing is typed in by hand:
+  * FastDyn slicing (modifier / virtual): `elapsed_ns=` lines from
+    run_benchmarks.sh logs (results/modifier_*.log, results/virtual_*.log,
+    or the shipped results/{modifier,virtual}_benchmark.txt).
+  * HALucinator slicing: per-iteration seconds from
+    baseline/results/{pc_update,counter_update}_benchmark.txt (or the CSVs
+    written by baseline/scripts/run_*_benchmark.sh).
+  * HITL: per-iteration `total_s` from the hitl_comparison CSVs.
+Each is reported as mean +/- stddev of seconds per one N-op run.
 
 Usage:
-    python3 plot_results.py                       # writes plot.pdf
-    python3 plot_results.py -o results/plot.pdf   # custom path
-    python3 plot_results.py -o plot.png --dpi 200 # raster instead of vector
+    python3 plot_results.py                       # shipped results -> plot.pdf
+    python3 plot_results.py -o results/plot.png --dpi 200
+    python3 plot_results.py --fastdyn-modifier results/modifier_20260917-1200.log
 """
 import argparse
+import re
+import statistics
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from matplotlib.patches import Patch
 
-# ----------------------------------------------------------------------------
-# Data: (label, group, mean_seconds, stddev_seconds, is_baseline)
-# Seconds per one N=1000-op run.
-# ----------------------------------------------------------------------------
-DATA = [
-    # Slicing (PC update): HALucinator's PC-rewrite intercept vs FastDyn's
-    # inline modifier (r15 = r14) that jumps back to the caller.
-    # n=100 iters each. Per-run seconds = per-op ns * 1000 / 1e9 for FastDyn.
-    ("HALucinator",         "Slicing (PC Update)", 40.3546,   0.0041,   True),
-    ("FastDyn\n(modifier)", "Slicing (PC Update)", 102.11e-6, 14.64e-6, False),
-    # Slicing (Counter update): HALucinator's counter-increment observation
-    # vs FastDyn's plugin virtual (bench_tick increments a static counter).
-    ("HALucinator",         "Slicing (Counter)",   10.1420,   0.0056,   True),
-    ("FastDyn\n(virtual)",  "Slicing (Counter)",   100.89e-6, 13.50e-6, False),
-    # HITL Execution: Avatar2 OpenOCD bridge vs FastDyn direct probe.
-    # Both baseline and FastDyn are avgs of read+write directions.
-    ("Avatar2",             "HITL Execution",      10.0766,   0.0054,   True),
-    ("FastDyn",             "HITL Execution",       0.50645,  0.00045,  False),
-]
+HERE = Path(__file__).resolve().parent
+BENCH = HERE.parent                       # firmware_slicing/
+HITL = BENCH.parent / "hitl_comparison"
+
+DEFAULT_FILES = {
+    "fastdyn_modifier":   BENCH / "results" / "modifier_benchmark.txt",
+    "fastdyn_virtual":    BENCH / "results" / "virtual_benchmark.txt",
+    "halucinator_pc":     BENCH / "baseline" / "results" / "pc_update_benchmark.txt",
+    "halucinator_counter": BENCH / "baseline" / "results" / "counter_update_benchmark.txt",
+    "avatar2_reads":      HITL / "results" / "_avatar2_per_iter_reads.csv",
+    "avatar2_writes":     HITL / "results" / "_avatar2_per_iter_writes.csv",
+    "fastdyn_reads":      HITL / "results" / "_fastdyn_per_iter_reads.csv",
+    "fastdyn_writes":     HITL / "results" / "_fastdyn_per_iter_writes.csv",
+}
+
+
+def _seconds_per_run(path: Path) -> list[float]:
+    """Extract one seconds-per-run sample per measurement line, whatever the
+    file's format: `elapsed_ns=N` (FastDyn logs), `iter k  T s` /
+    `iter k: T s` (HALucinator logs, first seconds value on the line), or a
+    CSV with a `total_s` column (HITL harness)."""
+    text = path.read_text()
+    samples: list[float] = []
+    if text.lstrip().startswith("tool,"):
+        header = text.splitlines()[0].split(",")
+        col = header.index("total_s")
+        for line in text.splitlines()[1:]:
+            if line.strip():
+                samples.append(float(line.split(",")[col]))
+        return samples
+    for line in text.splitlines():
+        m = re.search(r"elapsed_ns=(\d+)", line)
+        if m:
+            samples.append(int(m.group(1)) / 1e9)
+            continue
+        m = re.match(r"\s*iter\s*\d+:?\s+([0-9.]+)\s*s", line)
+        if m:
+            samples.append(float(m.group(1)))
+    if not samples:
+        raise SystemExit(f"{path}: no measurements recognised")
+    return samples
+
+
+def _stats(samples: list[float]) -> tuple[float, float]:
+    return statistics.mean(samples), (statistics.stdev(samples) if len(samples) > 1 else 0.0)
+
+
+def build_data(files: dict) -> list:
+    """(label, group, mean_seconds, stddev_seconds, is_baseline) per bar."""
+    hal_pc = _stats(_seconds_per_run(files["halucinator_pc"]))
+    fd_mod = _stats(_seconds_per_run(files["fastdyn_modifier"]))
+    hal_ct = _stats(_seconds_per_run(files["halucinator_counter"]))
+    fd_vir = _stats(_seconds_per_run(files["fastdyn_virtual"]))
+    # HITL: average of the read and write directions, as in the paper.
+    av = _stats(_seconds_per_run(files["avatar2_reads"]) + _seconds_per_run(files["avatar2_writes"]))
+    fd = _stats(_seconds_per_run(files["fastdyn_reads"]) + _seconds_per_run(files["fastdyn_writes"]))
+    return [
+        ("HALucinator",         "Slicing (PC Update)", *hal_pc, True),
+        ("FastDyn\n(modifier)", "Slicing (PC Update)", *fd_mod, False),
+        ("HALucinator",         "Slicing (Counter)",   *hal_ct, True),
+        ("FastDyn\n(virtual)",  "Slicing (Counter)",   *fd_vir, False),
+        ("Avatar2",             "HITL Execution",      *av,     True),
+        ("FastDyn",             "HITL Execution",      *fd,     False),
+    ]
+
 
 BASELINE_COLOR = "#d9d9d9"
 FASTDYN_COLOR  = "#2b6cb0"
@@ -107,7 +158,14 @@ def main() -> None:
     ap.add_argument("-o", "--output", default="plot.pdf",
                     help="Output path; extension chooses format (pdf/png/svg).")
     ap.add_argument("--dpi", type=int, default=150)
+    for key, default in DEFAULT_FILES.items():
+        ap.add_argument(f"--{key.replace('_', '-')}", type=Path, default=default,
+                        help=f"results file for {key} (default: {default.relative_to(BENCH.parent)})")
     args = ap.parse_args()
+    files = {key: getattr(args, key) for key in DEFAULT_FILES}
+    data = build_data(files)
+    for lbl, grp, m, sd, _ in data:
+        print(f"{grp:22s} {lbl.replace(chr(10), ' '):20s} mean={m:.6g} s  stddev={sd:.3g} s")
 
     plt.rcParams.update({
         "font.family":       "serif",
@@ -118,7 +176,7 @@ def main() -> None:
 
     # Group rows in DATA order, one subplot per group.
     groups = {}
-    for row in DATA:
+    for row in data:
         groups.setdefault(row[1], []).append(row)
     group_names = list(groups.keys())
 

@@ -7,7 +7,7 @@ N=1000
 CFG=microbench_slice_pcupdate_config.yaml
 RESULTS="$(dirname "$(readlink -f "$0")")/../results"
 mkdir -p "$RESULTS"
-CSV="$RESULTS/slice_pcupdate_config${N}.csv"
+CSV="$RESULTS/slice_pcupdate_N${N}.csv"
 echo "iter,elapsed_s,per_op_ms" > "$CSV"
 
 for i in $(seq 0 $((ITERS - 1))); do

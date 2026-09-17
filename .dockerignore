@@ -1,0 +1,8 @@
+fastdyn-env
+build
+.git
+out
+fastdyn_work*
+fastdyn_llm_history*
+*.log
+hardware_log
