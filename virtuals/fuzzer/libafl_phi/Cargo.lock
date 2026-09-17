@@ -173,8 +173,6 @@ dependencies = [
  "banquo-parser",
  "csv",
  "env_logger 0.11.8",
- "gz-msgs",
- "gz-transport",
  "libafl",
  "libafl_bolts",
  "log",
@@ -934,59 +932,6 @@ name = "gimli"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
-
-[[package]]
-name = "gz-msgs"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a307301470367904a0fc611b08d3e61d96b40ed523c7bde42781bcd2d3a91188"
-dependencies = [
- "gz-msgs-common",
- "pkg-config",
- "protobuf",
-]
-
-[[package]]
-name = "gz-msgs-common"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ce7ee2be2c8aaf0f696e0fe05ec5b9fdadebde0377ee01ccdfb88acf0de1998"
-dependencies = [
- "gz-msgs-derive",
- "protobuf",
-]
-
-[[package]]
-name = "gz-msgs-derive"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef27b8317bd65f3b358b07842f75e1fb8a4e04c9939a48bb554bc65699114ee4"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
-name = "gz-transport"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3b167d28adc11f39396af2f838e5519be4787eaafdd2c577e637f11799f91e9"
-dependencies = [
- "crossbeam-channel",
- "gz-msgs-common",
- "gz-transport-sys",
- "log",
-]
-
-[[package]]
-name = "gz-transport-sys"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "710b9ce79555a3fd3b0b21ae1dbaeba1b49366e0d9a278d1974c1c59d36599b4"
-dependencies = [
- "cc",
- "pkg-config",
-]
 
 [[package]]
 name = "h2"

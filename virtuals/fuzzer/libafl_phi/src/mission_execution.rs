@@ -1,11 +1,11 @@
-use baby_fuzzer::gz_state_parser::{
-    apply_noise, extract_block_from_gz_data, get_raw_gz_data, get_raw_hf_status, get_sim_time,
-};
+//use baby_fuzzer::gz_state_parser::{
+//    apply_noise, extract_block_from_gz_data, get_raw_gz_data, get_raw_hf_status, get_sim_time,
+//};
 
 use crate::cpexp_input::TargetInput;
 use crate::CVG;
 
-use gz_transport::Node;
+//use gz_transport::Node;
 use libafl::executors::ExitKind;
 use libafl::inputs::HasTargetBytes;
 use std::env;
@@ -222,142 +222,143 @@ pub fn execute_mission(
     if optifuzz_backend(cps_name) == "fmuv3" {
         return execute_fmuv3_mission(input, param_names, cps_name, mission_file_name);
     }
+    return ExitKind::Crash; // Placeholder for Gazebo backend, which is not implemented in this snippet
 
-    // 1. Apply inputs
-    // println!("execute_mission received inputs: {:?}", input);
-    let raw_env_config = input.get_env_config();
-    let work_dir = execution_work_dir();
-    let mutation_path = write_mutations(input, &work_dir);
-
-    // 2. Start Courbet services
-    let mut service_binding = Command::new("./run_and_attach_services.sh");
-    let services_command = service_binding.current_dir(RUN_SERVICES_DIR).arg(cps_name);
-    if headless {
-        services_command.arg("headless");
-    }
-
-    let spawn_services = services_command.stdout(Stdio::null()).spawn();
-    if spawn_services.is_err() {
-        panic!(
-            "Error: Failed to start services: {}",
-            spawn_services.err().unwrap()
-        );
-    }
-
-    // Let services spin up
-    std::thread::sleep(std::time::Duration::from_secs(5));
-
-    let init_file_name: &str;
-    if cps_name == "rover" {
-        init_file_name = "rover_init.param";
-    } else if cps_name == "plane" {
-        init_file_name = "plane_init.parm";
-    } else {
-        panic!("Error: Invalid CPS name: {}", cps_name);
-    }
-
-    let mut py_binding = Command::new("python3");
-    let c2_command = py_binding
-        .current_dir(MAV_C2_DIR)
-        .arg("ardu_mav_c2.py")
-        .arg(init_file_name)
-        .arg(mission_file_name)
-        .arg(param_names)
-        .arg(param_input_delay.to_string())
-        .arg(mutation_path);
-    if headless {
-        c2_command.arg("headless");
-    }
-
-    let mut spawn_c2 = c2_command.spawn();
-    if spawn_c2.is_err() {
-        panic!(
-            "Error: Failed to start ardu_mav_c2.py: {}",
-            spawn_c2.err().unwrap()
-        );
-    }
-
-    // Let mavlink C2 spin up
-    std::thread::sleep(std::time::Duration::from_secs(5));
-
-    let script_name: String = format!("configs/{}462.toml", cps_name);
-    let spawn_fd = Command::new("fastdyn")
-        .current_dir(FASTDYN_DIR)
-        .arg("run")
-        .arg("-c")
-        .arg(script_name)
-        .stdout(Stdio::null())
-        .spawn();
-    if spawn_fd.is_err() {
-        panic!(
-            "Error: Failed to start FastDyn QEMU: {}",
-            spawn_fd.err().unwrap()
-        );
-    }
-
-    // 3. Monitor for end states in order of priority
-    let mut node: Node = Node::new().unwrap();
-    let exit_kind: ExitKind;
-    let mut noise_applied: bool = false;
-    loop {
-        // Check for hard fault
-        let hf_status: String = get_raw_hf_status(&mut node);
-        if hf_status.is_empty() {
-            println!("Warning: Failed to get hf_status from Gazebo!");
-            exit_kind = ExitKind::Ok;
-            break;
-        } else if hf_status.find("true").is_some() {
-            exit_kind = ExitKind::Crash;
-            break;
-        }
-
-        // Check for timeout
-        let gz_data = get_raw_gz_data(&mut node);
-        if gz_data.is_empty() {
-            println!("Warning: Failed to get gz_data from Gazebo!");
-            exit_kind = ExitKind::Ok;
-            break;
-        } else {
-            let clock_block = extract_block_from_gz_data(&gz_data, "clock");
-            let sim_time: f64 = get_sim_time(&clock_block);
-            if sim_time >= timeout {
-                exit_kind = ExitKind::Timeout;
-                break;
-            } else if !noise_applied && sim_time >= noise_time {
-                apply_noise(raw_env_config.clone(), &mut node, sim_time);
-                noise_applied = true;
-            }
-        }
-
-        // Check for mission complete
-        let status = spawn_c2.as_mut().unwrap().try_wait().unwrap();
-        if status.is_some() {
-            // Mavlink C2 has exited. If the exit code is 0, mission complete.
-            if status.unwrap().success() {
-                exit_kind = ExitKind::Ok;
-                break;
-            } else {
-                // Timeout
-                exit_kind = ExitKind::Timeout;
-                break;
-            }
-        }
-    }
-
-    // Just use kill script to force everything dead
-    let mut kill = Command::new("./kill.sh")
-        .spawn()
-        .expect("Failed to spawn kill.sh");
-    let _ = kill.wait();
-
-    // Clean up zombies
-    let _ = spawn_services.unwrap().wait();
-    let _ = spawn_c2.unwrap().wait();
-    let _ = spawn_fd.unwrap().wait();
-
-    let cvg_path = format!("{}/fastdyn_work/cvg.bin", FASTDYN_DIR);
-    deserialize_coverage(&cvg_path);
-
-    println!("Mission execution finished with exit kind: {:?}", exit_kind);
-    exit_kind
+//    // 1. Apply inputs
+//    // println!("execute_mission received inputs: {:?}", input);
+//    let raw_env_config = input.get_env_config();
+//    let work_dir = execution_work_dir();
+//    let mutation_path = write_mutations(input, &work_dir);
+//
+//    // 2. Start Courbet services
+//    let mut service_binding = Command::new("./run_and_attach_services.sh");
+//    let services_command = service_binding.current_dir(RUN_SERVICES_DIR).arg(cps_name);
+//    if headless {
+//        services_command.arg("headless");
+//    }
+//
+//    let spawn_services = services_command.stdout(Stdio::null()).spawn();
+//    if spawn_services.is_err() {
+//        panic!(
+//            "Error: Failed to start services: {}",
+//            spawn_services.err().unwrap()
+//        );
+//    }
+//
+//    // Let services spin up
+//    std::thread::sleep(std::time::Duration::from_secs(5));
+//
+//    let init_file_name: &str;
+//    if cps_name == "rover" {
+//        init_file_name = "rover_init.param";
+//    } else if cps_name == "plane" {
+//        init_file_name = "plane_init.parm";
+//    } else {
+//        panic!("Error: Invalid CPS name: {}", cps_name);
+//    }
+//
+//    let mut py_binding = Command::new("python3");
+//    let c2_command = py_binding
+//        .current_dir(MAV_C2_DIR)
+//        .arg("ardu_mav_c2.py")
+//        .arg(init_file_name)
+//        .arg(mission_file_name)
+//        .arg(param_names)
+//        .arg(param_input_delay.to_string())
+//        .arg(mutation_path);
+//    if headless {
+//        c2_command.arg("headless");
+//    }
+//
+//    let mut spawn_c2 = c2_command.spawn();
+//    if spawn_c2.is_err() {
+//        panic!(
+//            "Error: Failed to start ardu_mav_c2.py: {}",
+//            spawn_c2.err().unwrap()
+//        );
+//    }
+//
+//    // Let mavlink C2 spin up
+//    std::thread::sleep(std::time::Duration::from_secs(5));
+//
+//    let script_name: String = format!("configs/{}462.toml", cps_name);
+//    let spawn_fd = Command::new("fastdyn")
+//        .current_dir(FASTDYN_DIR)
+//        .arg("run")
+//        .arg("-c")
+//        .arg(script_name)
+//        .stdout(Stdio::null())
+//        .spawn();
+//    if spawn_fd.is_err() {
+//        panic!(
+//            "Error: Failed to start FastDyn QEMU: {}",
+//            spawn_fd.err().unwrap()
+//        );
+//    }
+//
+//    // 3. Monitor for end states in order of priority
+//    let mut node: Node = Node::new().unwrap();
+//    let exit_kind: ExitKind;
+//    let mut noise_applied: bool = false;
+//    loop {
+//        // Check for hard fault
+//        let hf_status: String = get_raw_hf_status(&mut node);
+//        if hf_status.is_empty() {
+//            println!("Warning: Failed to get hf_status from Gazebo!");
+//            exit_kind = ExitKind::Ok;
+//            break;
+//        } else if hf_status.find("true").is_some() {
+//            exit_kind = ExitKind::Crash;
+//            break;
+//        }
+//
+//        // Check for timeout
+//        let gz_data = get_raw_gz_data(&mut node);
+//        if gz_data.is_empty() {
+//            println!("Warning: Failed to get gz_data from Gazebo!");
+//            exit_kind = ExitKind::Ok;
+//            break;
+//        } else {
+//            let clock_block = extract_block_from_gz_data(&gz_data, "clock");
+//            let sim_time: f64 = get_sim_time(&clock_block);
+//            if sim_time >= timeout {
+//                exit_kind = ExitKind::Timeout;
+//                break;
+//            } else if !noise_applied && sim_time >= noise_time {
+//                apply_noise(raw_env_config.clone(), &mut node, sim_time);
+//                noise_applied = true;
+//            }
+//        }
+//
+//        // Check for mission complete
+//        let status = spawn_c2.as_mut().unwrap().try_wait().unwrap();
+//        if status.is_some() {
+//            // Mavlink C2 has exited. If the exit code is 0, mission complete.
+//            if status.unwrap().success() {
+//                exit_kind = ExitKind::Ok;
+//                break;
+//            } else {
+//                // Timeout
+//                exit_kind = ExitKind::Timeout;
+//                break;
+//            }
+//        }
+//    }
+//
+//    // Just use kill script to force everything dead
+//    let mut kill = Command::new("./kill.sh")
+//        .spawn()
+//        .expect("Failed to spawn kill.sh");
+//    let _ = kill.wait();
+//
+//    // Clean up zombies
+//    let _ = spawn_services.unwrap().wait();
+//    let _ = spawn_c2.unwrap().wait();
+//    let _ = spawn_fd.unwrap().wait();
+//
+//    let cvg_path = format!("{}/fastdyn_work/cvg.bin", FASTDYN_DIR);
+//    deserialize_coverage(&cvg_path);
+//
+//    println!("Mission execution finished with exit kind: {:?}", exit_kind);
+//    exit_kind
 }
