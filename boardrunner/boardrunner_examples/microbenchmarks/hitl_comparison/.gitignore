@@ -19,3 +19,5 @@ __pycache__/
 
 # Local Python venv (evaluator creates their own; see README step 7).
 .venv/
+*.bin
+libaio_shim/

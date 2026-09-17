@@ -1,6 +1,6 @@
 # HITL Microbenchmark: Avatar2 vs FastDyn Passthrough
 
-Per-op cost comparison for the paper's Figure 7 HITL bar. Both stacks emulate
+Per-op cost comparison for the paper's Figure 8(c), HITL execution. Both stacks emulate
 the *same* firmware and forward *every* MMIO access to a real STM32F429I-DISC1
 via ST-Link/V2; the two paths differ only in the host software between QEMU
 and the probe:
@@ -40,7 +40,8 @@ hitl_comparison/
 │   └── scripts/dev_config.json                  passthrough MMIO range → stlink
 ├── run_all.sh                                   orchestrator (both benches)
 ├── plot.py                                      renders per-direction bar chart
-└── results/                                     CSV and PNGs land here
+└── results/                                     CSV and PNGs land here; our N=1000 measurements are
+                                                 _{avatar2,fastdyn}_per_iter_{reads,writes}.csv and combined.csv
 ```
 
 ## Hardware
@@ -79,7 +80,8 @@ $WORK/
 
 Replace `$WORK` with any directory (e.g. `~/hitl`) and stay consistent
 below. All paths in the scripts can also be overridden via env vars (see
-the header of each bench script for the full set).
+the header of each bench script for the full set), e.g. `AVATAR_QEMU=...`
+if avatar-qemu lives somewhere other than the sibling layout.
 
 ### 1. Apply the FastDyn plugin patch
 
@@ -96,20 +98,19 @@ git apply boardrunner/boardrunner_examples/microbenchmarks/hitl_comparison/patch
 
 ### 2. Build FastDyn with libhw + device models enabled
 
+Needs the FastDyn-fork QEMU (`$WORK/qemu`, built as in the top-level README) and LibHW (step 3) as siblings of `$WORK/FastDyn`:
+
 ```bash
 cd $WORK/FastDyn
-meson setup build -Denable_libhw=true -Ddevice_models=true \
-    -Dlibhw_path=$WORK/libhw
-ninja -C build
-# → produces $WORK/FastDyn/build/libfastdyn.so
+make LIBHW=true DEV=true BOARD_RUNNER=true
+# → produces $WORK/FastDyn/build/libfastdyn.so (the Makefile reconfigures from scratch;
+#   qemu_path=../qemu and libhw_path=../libhw are its defaults)
 ```
-
-If `build/` already exists from another configuration, add `--reconfigure`.
 
 ### 3. Build LibHW
 
 ```bash
-git clone <libhw-url> $WORK/libhw   # or place your existing checkout here
+git clone https://github.com/PSecLab/libhw $WORK/libhw   # or place your existing checkout here
 cd $WORK/libhw && make
 # → produces $WORK/libhw/out/libhw.so and $WORK/libhw/out/hw_test
 ```
@@ -160,8 +161,9 @@ python3 -m venv .venv
 .venv/bin/pip install "setuptools<81"   # avatar2 imports pkg_resources
 .venv/bin/pip install pygdbmi matplotlib
 .venv/bin/pip install -e $WORK/avatar2
-# Sanity check:
-.venv/bin/python -c "from avatar2 import Avatar, OpenOCDTarget, QemuTarget; print('ok')"
+# Sanity check (-P keeps the local avatar2/ scripts directory off sys.path,
+# where it would shadow the installed package):
+.venv/bin/python -P -c "from avatar2 import Avatar, OpenOCDTarget, QemuTarget; print('ok')"
 ```
 
 ### 8. Build the firmware variants (optional; pre-built binaries included)
@@ -228,9 +230,9 @@ firmware/scripts/flash.sh
 ```bash
 cd $WORK/FastDyn/boardrunner/boardrunner_examples/microbenchmarks/hitl_comparison
 source .venv/bin/activate
-./run_all.sh
-# Default N=100. Override:
-#   N=1000 ITERS=5 ./run_all.sh
+./run_all.sh                       # sanity: ITERS=1, ~35 s, one sample per tool and direction
+N=1000 ITERS=100 ./run_all.sh      # the paper's 100 samples per cell, ~55 min (Avatar2 ~13 s and
+                                   # FastDyn ~3 s per sample, x2 directions)
 # Firmware sizes supported by the shipped Makefile: 100, 1000, 100000.
 ```
 
@@ -238,8 +240,8 @@ source .venv/bin/activate
 
 ```bash
 .venv/bin/python avatar2/scripts/bench_avatar2.py \
-    --firmware firmware/firmware_src/pre_built/microbench_hitl_read_N100.axf \
-    --n 100 --iters 1 \
+    --firmware firmware/firmware_src/pre_built/microbench_hitl_read_N1000.axf \
+    --n 1000 --iters 1 \
     --out results/avatar2.csv
 # Direction is inferred from the firmware filename; override with
 # --direction {reads,writes} if needed.
@@ -248,8 +250,8 @@ source .venv/bin/activate
 **FastDyn alone** (single direction):
 
 ```bash
-FIRMWARE=firmware/firmware_src/pre_built/microbench_hitl_write_N100.axf \
-    N=100 OUT=results/fastdyn.csv \
+FIRMWARE=firmware/firmware_src/pre_built/microbench_hitl_write_N1000.axf \
+    N=1000 OUT=results/fastdyn.csv \
     fastdyn_passthrough/scripts/bench_fastdyn.sh
 # DIRECTION=reads|writes overrides the filename inference.
 ```

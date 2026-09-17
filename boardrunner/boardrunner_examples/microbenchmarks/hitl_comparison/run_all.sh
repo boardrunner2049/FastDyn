@@ -8,8 +8,8 @@
 # direction.
 #
 # Optional env vars (see individual bench scripts for the full set):
-#   N          firmware N variant (default: 100; must be 100/1000/100000)
-#   ITERS      Avatar2 sessions per data point (default: 1)
+#   N          firmware N variant (default: 1000, the paper's setting; 100/1000/100000)
+#   ITERS      sessions per tool and direction (default: 1)
 #   AVATAR_QEMU, PLUGIN, LIBHW_DIR, FASTDYN_QEMU, OPENOCD_SCRIPT, ...
 #              → forwarded to the per-tool bench scripts if set
 
@@ -18,7 +18,7 @@ set -euo pipefail
 HERE=$(dirname "$(readlink -f "$0")")
 cd "${HERE}"
 
-N="${N:-100}"
+N="${N:-1000}"
 ITERS="${ITERS:-1}"
 RESULTS_DIR="${HERE}/results"
 mkdir -p "${RESULTS_DIR}"
@@ -65,8 +65,10 @@ for DIR in read write; do
 
     # --- FastDyn passthrough (firmware in FastDyn-fork QEMU, LibHW direct) ---
     echo "-- [2/2] FastDyn passthrough  (${DIR}s) --"
-    FIRMWARE="${FW}" N="${N}" OUT="${CSV}" \
-        "${HERE}/fastdyn_passthrough/scripts/bench_fastdyn.sh"
+    for _ in $(seq 1 "${ITERS}"); do
+        FIRMWARE="${FW}" N="${N}" OUT="${CSV}" \
+            "${HERE}/fastdyn_passthrough/scripts/bench_fastdyn.sh"
+    done
 
     # Cool-down between directions so the probe fully releases.
     sleep 1

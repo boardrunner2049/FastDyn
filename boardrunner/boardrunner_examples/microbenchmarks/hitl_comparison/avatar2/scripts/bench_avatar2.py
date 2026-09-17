@@ -151,6 +151,11 @@ def _run_session(fw_axf: Path, fw_bin: Path, args: argparse.Namespace,
 def _run(args: argparse.Namespace) -> int:
     fw_axf = Path(args.firmware).resolve()
     fw_bin = fw_axf.with_suffix(".bin")
+    # avatar-qemu loads a raw image; derive it from the ELF when it is absent
+    # (pre_built/ ships only .axf files).
+    if fw_axf.is_file() and not fw_bin.is_file():
+        subprocess.run(["arm-none-eabi-objcopy", "-O", "binary", str(fw_axf), str(fw_bin)],
+                       check=True)
     for p in (fw_axf, fw_bin, Path(args.openocd_script), Path(args.avatar_qemu)):
         if not p.is_file():
             print(f"bench_avatar2: missing prerequisite {p}", file=sys.stderr)

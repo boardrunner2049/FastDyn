@@ -1,0 +1,5 @@
+tool,direction,iters,total_s,per_op_ms
+avatar2,reads,1000,10.069624,10.069624
+fastdyn-passthrough,reads,1000,0.506612,0.506612
+avatar2,writes,1000,10.075557,10.075557
+fastdyn-passthrough,writes,1000,0.510745,0.510745

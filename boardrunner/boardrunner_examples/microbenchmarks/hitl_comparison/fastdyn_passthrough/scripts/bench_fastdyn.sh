@@ -4,11 +4,11 @@
 # Runs microbench_hitl_N<N>.axf inside FastDyn's patched QEMU with
 # libfastdyn.so loaded. The passthrough device model owns 0x40000000..
 # 0x5FFFFFFF and forwards every MMIO in that window to the real
-# STM32F429I-DISC1 via LibHW's stlink backend. bench_start_cb /
-# bench_done_cb are native-C callbacks registered in libfastdyn.so's
+# STM32F429I-DISC1 via LibHW's stlink backend. benchmark_start /
+# benchmark_end are native-C callbacks built into libfastdyn.so's
 # virtual registry; virts.txt binds them to the firmware's sentinel PCs.
-# On bench_done_cb, elapsed seconds are printed as
-# "FastDyn Bench: SLICE_DONE elapsed=X" and the plugin calls _exit(0).
+# On benchmark_end the plugin prints "[BENCH][hitl] elapsed_ns=... elapsed_s=X"
+# and exits QEMU.
 #
 # Emits a CSV row matching bench_avatar2.py so plot.py can compare them.
 #
@@ -58,7 +58,9 @@ FASTDYN_QEMU="${FASTDYN_QEMU:-${FDYN_ROOT}/../qemu/build/qemu-system-arm}"
 
 # libhw.so is loaded dynamically by libfastdyn.so at plugin-load; make sure
 # the runtime linker can find it.
-export LD_LIBRARY_PATH="${LIBHW_DIR}:${LD_LIBRARY_PATH:-}"
+# Same runtime search path the fastdyn CLI sets up: libhw, the plugin's own
+# build dir, and the optional fuzzer library a LIBFUZZ=true build links.
+export LD_LIBRARY_PATH="${LIBHW_DIR}:$(dirname "${PLUGIN}"):${FDYN_ROOT}/virtuals/fuzzer/fastdyn_fuzz_lib/target/release:${LD_LIBRARY_PATH:-}"
 
 for f in "${FIRMWARE}" "${FASTDYN_QEMU}" "${PLUGIN}" "${DEV_JSON}"; do
     if [[ ! -f "${f}" ]]; then
@@ -87,9 +89,12 @@ WORK=$(mktemp -d -t fastdyn.XXXXXX)
 trap 'rm -rf "${WORK}"' EXIT
 
 # Bind FastDyn's native-C sentinel callbacks to the firmware PCs.
+# benchmark_start / benchmark_end are libfastdyn.so's built-in timing
+# virtuals (virtuals/virtuals.c); benchmark_end prints
+# "[BENCH][hitl] elapsed_ns=... elapsed_s=..." and exits QEMU.
 cat >"${WORK}/virts.txt" <<EOF
-${BENCH_START} bench_start_cb
-${BENCH_DONE} bench_done_cb
+${BENCH_START} benchmark_start
+${BENCH_DONE} benchmark_end hitl
 EOF
 
 # QEMU needs two file-backed RAM banks for cortexm; sizes match the paper
@@ -111,15 +116,15 @@ set +e
 rc=${PIPESTATUS[0]}
 set -e
 
-# bench_done_cb calls _exit(0), so QEMU exits 0 on a clean run.
+# benchmark_end calls exit(0), so QEMU exits 0 on a clean run.
 if [[ "${rc}" -ne 0 && "${rc}" -ne 143 ]]; then
     echo "bench_fastdyn: qemu exited ${rc}" >&2
     exit "${rc}"
 fi
 
-ELAPSED=$(awk -F'elapsed=' '/SLICE_DONE elapsed=/{print $2+0}' "${LOG}" | tail -1)
+ELAPSED=$(grep -oE 'elapsed_s=[0-9.]+' "${LOG}" | tail -1 | cut -d= -f2)
 if [[ -z "${ELAPSED}" ]]; then
-    echo "bench_fastdyn: could not find 'SLICE_DONE elapsed=' in qemu output" >&2
+    echo "bench_fastdyn: could not find '[BENCH][hitl] ... elapsed_s=' in qemu output" >&2
     exit 1
 fi
 
