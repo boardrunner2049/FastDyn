@@ -18,7 +18,13 @@ bool spi_slave_device_parse(SPIBus* bus, ConfigSection* model_info, const char* 
     for (int i = 0; i < model_info->device_count; i++) {
         DeviceModels* current_dev = &model_info->devices[i];
 
-        if (strcmp(current_dev->name, bus_name) == 0) {
+        /* model_info is the whole elder section, so with a NULL bus_name
+         * (api_spi_init_bus(model_info) form) pick the device that carries
+         * SPI slaves; an explicit name selects one of several SPI buses. */
+        bool match = (bus_name == NULL)
+                         ? (current_dev->SPIdetails.slave_count > 0)
+                         : (strcmp(current_dev->name, bus_name) == 0);
+        if (match) {
             // Use the specific type: SpiSlaveList
             SpiSlaveList* slavelist = calloc(1, sizeof(SpiSlaveList));
             if (!slavelist) {

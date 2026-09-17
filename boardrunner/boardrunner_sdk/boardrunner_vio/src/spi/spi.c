@@ -78,7 +78,7 @@ uint32_t api_spi_transfer(SPIBus *bus, uint32_t val) {
         // Safety check, return idle value
         return ret_val;
     }
-    printf("Current value to be written\n %d", val);
+    // printf("Current value to be written\n %d", val);
 
     // Find the currently selected slave
     for (int i = 0; i < bus->Slaves.num_slaves; i++) {
@@ -99,7 +99,7 @@ uint32_t api_spi_transfer(SPIBus *bus, uint32_t val) {
             }
         }
     }
-    printf("Current value to be returned\n %d", ret_val);
+    // printf("Current value to be returned\n %d", ret_val);
 
     // If no slave was found to be active, return the idle bus value
     return ret_val;
