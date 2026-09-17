@@ -5,8 +5,8 @@
 set -e
 
 OPENOCD="/usr/bin/openocd"
-# BOARD_CFG="/usr/local/share/openocd/scripts/board/st_nucleo_f103rb.cfg"
-BOARD_CFG="/usr/share/openocd/scripts/board/stm32f469discovery.cfg"
+BOARD_CFG="/usr/share/openocd/scripts/board/st_nucleo_f103rb.cfg"
+# BOARD_CFG="/usr/share/openocd/scripts/board/stm32f469discovery.cfg"
 # BOARD_CFG="/usr/local/share/openocd/scripts/board/stm32f7discovery.cfg"
 # BOARD_CFG="/usr/share/openocd/scripts/board/st_nucleo_h743zi.cfg"  #From the official stm comment, all h743 are compatible with h753, let's use this.
 FLASH_ADDR="0x08000000"
