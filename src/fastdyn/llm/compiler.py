@@ -126,11 +126,24 @@ def compile_model(
             "Boardrunner SDK directory not found: %s" % sdk_dir
         )
 
-    config = {}
-    if fastdyn_include_dir is None or qemu_include_dir is None:
+    # Derive include dirs from the checkout layout first
+    # (<root>/boardrunner/boardrunner_sdk -> <root>/include, <root>/../qemu/include),
+    # matching what `fastdyn run` does; fall back to build_config.env (Docker).
+    fastdyn_root = sdk_path.parents[1]
+    auto_fastdyn_include = fastdyn_root / "include"
+    auto_qemu_include = fastdyn_root.parent / "qemu" / "include"
+
+    fastdyn_include = fastdyn_include_dir
+    qemu_include = qemu_include_dir
+    if fastdyn_include is None and (auto_fastdyn_include / "device.h").is_file():
+        fastdyn_include = str(auto_fastdyn_include)
+    if qemu_include is None and auto_qemu_include.is_dir():
+        qemu_include = str(auto_qemu_include)
+
+    if fastdyn_include is None or qemu_include is None:
         config = load_build_config(str(sdk_path))
-    fastdyn_include = fastdyn_include_dir or config["FASTDYN_INCLUDE_DIR"]
-    qemu_include = qemu_include_dir or config["QEMU_INCLUDE_DIR"]
+        fastdyn_include = fastdyn_include or config["FASTDYN_INCLUDE_DIR"]
+        qemu_include = qemu_include or config["QEMU_INCLUDE_DIR"]
 
     # Validate paths exist
     if not Path(fastdyn_include).is_dir():
