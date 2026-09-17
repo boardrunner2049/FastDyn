@@ -105,7 +105,7 @@ Build it with:
   git -C "$qemu_root" apply "$repo_root/patches/qemu-fastdyn-plugin-icount.patch"
   mkdir -p "$qemu_root/build"
   cd "$qemu_root/build"
-  ../configure --target-list=arm-softmmu --enable-plugins
+  ../configure --target-list=arm-softmmu --enable-plugins --disable-werror
   make qemu-system-arm
 EOF
 }
@@ -146,7 +146,7 @@ fastdyn_setup_qemu_build() {
   fi
   mkdir -p "$qemu_root/build" || return
   if [[ ! -f "$qemu_root/build/build.ninja" ]]; then
-    (cd "$qemu_root/build" && ../configure --target-list=arm-softmmu --enable-plugins) || return
+    (cd "$qemu_root/build" && ../configure --target-list=arm-softmmu --enable-plugins --disable-werror) || return
   fi
   make -C "$qemu_root/build" -j"$(nproc)" qemu-system-arm || return
 }
