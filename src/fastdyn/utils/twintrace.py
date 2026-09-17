@@ -4,6 +4,10 @@ import re
 import struct
 from pathlib import Path
 
+from .. import fastdyn_log as fastdyn_log_conf
+
+fastdyn_log = fastdyn_log_conf.getFastdynLogger()
+
 # Matches all:
 #   address = 0x..., size = 4 bytes, value = 0x..., pc=0x...
 #   address=0x...,  size=4 bytes,   value=0x..., pc=0x...
@@ -172,7 +176,7 @@ def replay_binary_verifier(replay_binary):
 
     with open(replay_binary,"rb") as f:
         magic, ver, rsz, count = HDR.unpack(f.read(HDR.size))
-        fastdyn_log.info(magic, ver, rsz, count)
+        fastdyn_log.info(f"[+] Replay tape: magic={magic!r} version={ver} record_size={rsz} records={count}")
         for i in range(5):
             icount, pc, addr, value, size, typ = REC.unpack(f.read(REC.size))
             if typ == 0:
@@ -185,7 +189,7 @@ def replay_binary_verifier(replay_binary):
                 tname = "IRQ_SERVED"
             else:
                 tname = f"UNK({typ})"
-            fastdyn_log.info(i, icount, hex(pc), hex(addr), hex(value), size, tname)
+            fastdyn_log.info(f"    #{i}: icount={icount} pc={pc:#x} addr={addr:#x} value={value:#x} size={size} {tname}")
 
 
 def main():
