@@ -576,7 +576,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
         twintrace_opt= "off"
 
     # ------------------------ Fuzzer ------------------------
-    if (opts.coverage):
+    if (opts.fuzzing):
         binary_wrange.run(f"{out_path}/bin-writable-ranges", cpu0.binary)
 
     savestate_extra_ranges_path = _write_savestate_extra_ranges(
