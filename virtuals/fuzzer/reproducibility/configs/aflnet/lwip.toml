@@ -1,0 +1,340 @@
+# ==============================================================================
+# Machine (machine-wide + QEMU target options)
+# ==============================================================================
+[Machine]
+platform = "STM32F429"
+
+qemu_path = "qemu-system-arm"
+
+monitor_port = 5555
+qmp_socket   = "/tmp/qmp.sock"
+
+enable_gdb    = true
+stop_on_start = false
+launch_gdb    = false
+
+semihosting        = true
+semihosting_config = "enable=on,target=native"
+
+coverage = true
+fuzzing = true
+# AFLNet uses raw Ethernet frames; schema injection is intentionally disabled.
+# fuzzing_schema = "lwip_schema.json"
+finline  = ""
+
+# ==============================================================================
+# Memory
+# ==============================================================================
+[Memory]
+
+  # ---------------------------------------------------------------------------
+  # Main memory (required)
+  #
+  # Used by:  -machine <...>,memory-backend=<id>
+  # Also maps: ram_baseaddr0 / ram_backend0
+  # ---------------------------------------------------------------------------
+  [Memory.main]
+  id           = "ram0"
+  base_address = "0x20000000"
+  memory_size  = "512M"
+  memory_type  = "SRAM"
+
+  backend     = "file"                 # file | ram | memfd
+  memory_file = "/dev/shm/my_m4_ram3"  # only when backend="file"
+
+  share    = true
+  prealloc = false
+
+
+  # ---------------------------------------------------------------------------
+  # Extra memory banks (optional)
+  #
+  # Each bank becomes:
+  #   -object memory-backend-*
+  #   -global <machine>-soc.ram_baseaddrN=<base_address>
+  #   -global <machine>-soc.ram_backendN=<id>
+  # ---------------------------------------------------------------------------
+  [[Memory.ram1]]
+  id           = "ram1"
+  index        = 1
+  base_address = "0x30000000"
+  memory_size  = "512K"
+  memory_type  = "SRAM"
+
+  backend     = "file"
+  memory_file = "/dev/shm/my_m4_ram"
+
+  share    = true
+  prealloc = false
+
+# ==============================================================================
+# CPUs
+# ==============================================================================
+[CPU]
+
+  # ---------------------------------------------------------------------------
+  # CPU 0
+  # ---------------------------------------------------------------------------
+  [[CPU.cpu0]]
+  arch    = "arm"
+  machine = "cortexm"
+  cpu     = "cortex-m7"
+
+  binary     = "boardrunner/boardrunner_examples/examples/STM32F769i-eval/LWIP/firmwares/STM32F769I_EVAL.elf" ##
+  init_nsvtor = "0x08000000"
+
+  map_file        = "courbet/rover_v422_map.txt"
+  plugin_library = "build-aflnet/libfastdyn.so"
+  monitor_elf     = "../ws/monitor.elf"
+
+  log_file    = "qemu.log"
+  log_options = "none"
+
+  twintrace = "None" #options are record, replay or None
+  hardware_trace = 'hardware_log/io.log'   #useful in cases like replay to generate the replay binary
+
+  logger_content = """
+  # --- Plugin Logger Configuration ---
+  # level  = DEBUG
+  # output = stderr
+  """
+
+  # AFLNet flow: one raw Ethernet frame per request; a testcase is a frame sequence.
+  [[CPU.cpu0.virtuals]]
+  at = "0x0800087e"
+  instruction = "fuzz_snap_point"
+  args = ["aflnet-flow"]
+
+  [[CPU.cpu0.virtuals]]
+  at = "0x08000fc4"
+  instruction = "fuzz_sync_point"
+  args = ["aflnet-flow"]
+
+  # The hardware SysTick peripheral is not part of this modeled boundary.
+  # Advance the genuine HAL tick after the fuzz snapshot, so
+  # sys_check_timeouts reaches lwIP's normal fast/slow timer paths between
+  # AFLNet messages. FASTDYN_FUZZ_TIME_STEP_MS controls the 1000 ms default.
+  [[CPU.cpu0.virtuals]]
+  at = "0x08001684"
+  instruction = "fuzz_advance_time"
+  args = ["aflnet-clock"]
+
+
+  # AFLNet owns snapshotting and delivers frames through the modeled MAC/DMA.
+  # Execute Ethernet MAC, PHY, descriptor, and link-state code against the
+  # modeled MAC/DMA/PHY below.  RCC completion is the only missing hardware
+  # dependency, so its blocking HAL calls are the boundary shims.
+  [[CPU.cpu0.modifiers]]
+  at = "0x800285c"
+  patch = "r0 0"
+
+  [[CPU.cpu0.modifiers]]
+  at = "0x800285c"
+  patch = "r15 r14"
+
+  [[CPU.cpu0.modifiers]]
+  at = "0x80027ec"
+  patch = "r0 0"
+
+  [[CPU.cpu0.modifiers]]
+  at = "0x80027ec"
+  patch = "r15 r14"
+
+  [[CPU.cpu0.modifiers]]
+  at = "0x8002c40"
+  patch = "r0 0"
+
+  [[CPU.cpu0.modifiers]]
+  at = "0x8002c40"
+  patch = "r15 r14"
+
+  # Keep the server initial sequence number deterministic so the schema's
+  # valid ACK and HTTP request form one repeatable TCP conversation.
+  [[CPU.cpu0.modifiers]]
+  at = "0x8006060"
+  patch = "r0 1234"
+
+
+  # [[CPU.cpu0.virtuals]]
+  # at = "0x800087e"
+  # instruction = "fuzz_snap_point"
+  # args = [""]
+
+  # [[CPU.cpu0.virtuals]]
+  # at = "0x8000896"
+  # instruction = "fuzz_sync_point"
+  # args = [""]
+
+  # # ethernetif_input -> inject messages, right before pbuf is checked
+  # [[CPU.cpu0.virtuals]]
+  # at = "0x800088c"
+  # instruction = "fuzz_eth_in"
+  # args = [""]
+
+  # # low_level_output -> extract responses
+  # [[CPU.cpu0.virtuals]]
+  # at = "0x8000798"
+  # instruction = "fuzz_eth_out"
+  # args = [""]
+
+  # # used to skip freeing our fake pbufs
+  # [[CPU.cpu0.virtuals]]
+  # at = "0x8004c10"
+  # instruction = "fuzz_pbuf_free"
+  # args = [""]
+
+  # # ethernetif_input: our fuzzer supplies the pbuf instead of HAL_ETH_ReadData
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000886"
+  # patch = "r15 0x800088a"
+
+  # # tcp_next_iss: deterministic initial sequence numbers help reproducibility
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8006060"
+  # patch = "r0 1234"
+
+  # # skip the debug printf on pbuf_free assertion path
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8004c24"
+  # patch = "r15 0x8004c28"
+
+  # # low_level_output: extract packets via fuzz_eth_out and skip HAL transmit
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x80007c4"
+  # patch = "r15 0x80007c8"
+
+  # # avoid periodic PHY polling once the netif has been forced up
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000fca"
+  # patch = "r15 0x8000fce"
+
+  # # avoid unrelated ADC-driven board logic
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000bfc"
+  # patch = "r0 1"
+
+  # # SystemInit only touches MCU bring-up state we do not need for software fuzzing
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000666"
+  # patch = "r15 0x800066a"
+
+  # # BSP LED writes are not relevant; keep later status logic intact
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x80027e2"
+  # patch = "r15 0x80027e4"
+
+  # # Skip BSP_LED_Init after its prologue so it cleanly returns without GPIO setup
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x80012fe"
+  # patch = "r15 0x8001348"
+
+  # # Replace the large main() skip with narrow "return success" patches
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000eca"
+  # patch = "r15 0x8000ece"
+
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000ece"
+  # patch = "r0 0"
+
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000ed4"
+  # patch = "r15 0x8000ed8"
+
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000ed8"
+  # patch = "r0 0"
+
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000ef4"
+  # patch = "r15 0x8000ef8"
+
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000ef8"
+  # patch = "r0 0"
+
+  # # ethernetif_init: skip HAL_ETH_Init but keep the rest of lwIP/netif setup
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000ac6"
+  # patch = "r15 0x8000aca"
+
+  # # Force netif flags to UP|LINK_UP plus the original broadcast/ARP flags
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000ae0"
+  # patch = "r3 0x0f"
+
+  # # After software-side ETH setup, skip PHY registration/probing and return success
+  # [[CPU.cpu0.modifiers]]
+  # at = "0x8000b02"
+  # patch = "r15 0x8000b1c"
+
+
+# ==============================================================================
+# Device model defaults (global settings per model type)
+# ==============================================================================
+[Device.Models]
+
+  [Device.Models.elder]
+  # (empty by default)
+
+  [Device.Models.passthrough]
+  backend = "stlink"
+
+  [Device.Models.classic]
+  # (empty by default)
+
+  [Device.Models.twintrace]
+  backend = "stlink"
+    # The classic model has no global arguments.
+
+  [Device.Models.unhandled]
+  # (empty by default)
+
+#ethernet model
+[Device.ethernet]
+    irq = [[0, 100]]
+    # irq = "61"                                  # ETH Global Interrupt (Vector 77 = IRQ 61)
+    ranges = [["0x40028000", "0x40029FFF"]]          # Covers MAC, MMC, and DMA registers
+    description = "STM32F7 Ethernet MAC, MMC, and DMA (Synopsys IP)"
+
+    # This string is passed to your plugin's init function
+    scroll_config = """
+[ethernet]
+internal_model = "stm32_eth"
+backend = "stlink"
+"""
+
+    [[Device.ethernet.handlers]]
+        model   = "elder"
+        enabled = true
+        scroll = "__MODEL_PATH__"
+
+    [[Device.ethernet.handlers]]
+        model   = "passthrough"
+        enabled = false
+
+    [[Device.ethernet.handlers]]
+        model   = "classic"
+        enabled = false
+
+[Device.unhandled_space]
+    # Existing IRQ config remains the same
+    # irq = "0-15:20-25:41:53"
+    irq = [[0, 100]]
+
+    # THE UPDATED RANGES:
+    ranges = [
+        ["0x40000000", "0x40027FFF"],    # Range 2a: From start to just before Ethernet
+        ["0x4002A000", "0xE00FFFFF"],    # Range 2b: From just after Ethernet -> To end of Peripherals
+        ["0xE0000000", "0xEFFFFFFF"]     # Range 3: System space (Unchanged)
+    ]
+
+    description = "Memory regions explicitly not handled by any model (Ethernet hole created)."
+
+    [[Device.unhandled_space.handlers]]
+        model = "passthrough"
+        enabled = false
+
+    [[Device.unhandled_space.handlers]]
+        model = "classic"
+        enabled = true

@@ -7,8 +7,6 @@
 
 #include "fuzz.h"
 
-typedef void (*fuzz_callback_t)();
-
 static uint8_t fuzz_data[291];
 void fuzz_packetreceived_inject(void) {
     memset(fuzz_data, 0, sizeof(fuzz_data));

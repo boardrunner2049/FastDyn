@@ -1,0 +1,96 @@
+[Memory]
+
+[Memory.main]
+id = "ram0"
+base_address = "0x20000000"
+memory_size = "512M"
+memory_type = "SRAM"
+backend = "file"
+memory_file = "__MODBUS_MAIN_RAM__"
+share = true
+prealloc = false
+
+[[Memory.ram1]]
+id = "ram1"
+index = 1
+base_address = "0x30000000"
+memory_size = "512K"
+memory_type = "SRAM"
+backend = "file"
+memory_file = "__MODBUS_RAM1__"
+share = true
+prealloc = false
+
+[Machine]
+platform = "STM32F103xx"
+qemu_path = "__QEMU_PATH__"
+enable_gdb = false
+stop_on_start = false
+launch_gdb = false
+monitor_port = 15567
+qmp_socket = "__MODBUS_QMP_SOCKET__"
+log_file = "__MODBUS_QEMU_LOG__"
+log_options = "none"
+semihosting = true
+semihosting_config = "enable=on,target=native"
+coverage = true
+fuzzing = false
+finline = "None"
+
+[CPU]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m3"
+plugin_library = "__FASTDYN_PLUGIN_PATH__"
+monitor_elf = "__MONITOR_ELF__"
+binary = "__MODBUS_FIRMWARE__"
+init_nsvtor = "0x08000000"
+twintrace = "None"
+
+# These are only clock-tree readiness shims.  The firmware still initializes
+# and exercises its UART and FreeMODBUS stack normally.
+[[CPU.cpu0.modifiers]]
+at = "0x80019f0"
+patch = "r0 0"
+[[CPU.cpu0.modifiers]]
+at = "0x80019f0"
+patch = "r15 r14"
+[[CPU.cpu0.modifiers]]
+at = "0x8001e54"
+patch = "r0 0"
+[[CPU.cpu0.modifiers]]
+at = "0x8001e54"
+patch = "r15 r14"
+
+# The original BoardRunner USART2 model batches available PTY bytes.  Re-pend
+# USART2 after the firmware has consumed DR so the original FIFO progresses
+# through a complete RTU frame without changing the model or firmware.
+[[CPU.cpu0.virtuals]]
+at = "0x080008d0"
+instruction = "raiseirq"
+args = ["54"]
+
+[Device.Models.elder]
+[Device.Models.classic]
+
+[Device.usart2]
+ranges = [["0x40004400", "0x400047FF"]]
+irq = [["1", "100"]]
+description = "PTY-driven USART2 for the FreeMODBUS RTU slave"
+read_priority = "elder"
+[[Device.usart2.handlers]]
+model = "elder"
+enabled = true
+scroll = "__MODBUS_MODEL_PATH__"
+[[Device.usart2.handlers]]
+model = "classic"
+enabled = false
+
+[Device.remaining_space]
+ranges = [["0x40000000", "0x400043FF"], ["0x40004800", "0xDFFFFFFF"]]
+irq = [["1", "100"]]
+description = "Classic fallback outside the modeled USART2"
+[[Device.remaining_space.handlers]]
+model = "classic"
+enabled = true

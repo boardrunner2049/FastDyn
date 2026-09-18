@@ -7,8 +7,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <sys/shm.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -22,9 +20,31 @@ extern uint8_t CVG[MAP_SIZE];
 
 extern void *afl_main(void *arg);
 
+#if ENABLE_AFLNET && ENABLE_LIBFUZZ
+#error "AFLNet and LibAFL backends are mutually exclusive; configure one backend."
+#endif
+
+#if ENABLE_AFLNET && !ENABLE_LIBFUZZ
+/* AFLNet targets use explicit protocol virtuals, not a schema callback. */
+void generic_configure(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+}
+
+void generic_callback(void)
+{
+}
+
+void schema_activate_post_snapshot_modifiers(void)
+{
+}
+#endif
+
 static pthread_t g_aflnet_thread;
 static int g_tap_fd = -1;
 static uint64_t g_active_seq = 0;
+static uint64_t g_restore_seq = 0;
 static uint8_t g_msg_buf[FASTDYN_MAX_FRAME];
 static uint8_t g_wire_buf[sizeof(fastdyn_msg_hdr_t) + FASTDYN_MAX_FRAME];
 
@@ -34,26 +54,33 @@ static int dir_exists(const char *path)
     return (stat(path, &st) == 0) && S_ISDIR(st.st_mode);
 }
 
+static const char *env_or_default(const char *name, const char *fallback)
+{
+    const char *value = getenv(name);
+    return (value && value[0]) ? value : fallback;
+}
+
+static bool build_default_path(char *out, size_t out_size, const char *leaf)
+{
+    const char *work_dir = env_or_default("FASTDYN_WORK_DIR", "fastdyn_work");
+    int written = snprintf(out, out_size, "%s/%s", work_dir, leaf);
+    return written >= 0 && (size_t)written < out_size;
+}
+
 static bool launch_aflnet(void)
 {
-    static char *out_dir = "./fastdyn_work/aflnet-out";
-    static char *in_dir;
-    if (dir_exists(out_dir)) {
-        in_dir = "-";
-    } else {
-        in_dir = "../modbus_seeds/";
-    }
-
+    static char default_in_dir[4096];
+    static char default_out_dir[4096];
     static char *argv[] = {
         "afl-fuzz",
         "-m", "none",
         "-d",
-        "-i", "-",
-        "-o", "./aflnet-out",
-        "-P", "MODBUS",
-        "-t", "100000",
-        "-D", "100000000",
-        "-W", "100000",
+        "-i", NULL,
+        "-o", NULL,
+        "-P", NULL,
+        "-t", NULL,
+        "-D", NULL,
+        "-W", NULL,
         "-h", "1",
         "-K",
         "-R",
@@ -61,15 +88,57 @@ static bool launch_aflnet(void)
         NULL
     };
 
-    for (int i = 0; argv[i]; i++) {
-        if (strcmp(argv[i], "-i") == 0 && argv[i + 1]) {
-            argv[i + 1] = in_dir;
-        }
+    if (!build_default_path(default_in_dir, sizeof(default_in_dir), "aflnet-in") ||
+        !build_default_path(default_out_dir, sizeof(default_out_dir), "aflnet-out")) {
+        fprintf(stderr, "[aflnet] FASTDYN_WORK_DIR is too long\n");
+        return false;
+    }
 
-        if (strcmp(argv[i], "-o") == 0 && argv[i + 1]) {
-            argv[i + 1] = out_dir;
+    const char *out_dir = env_or_default("FASTDYN_AFLNET_OUT_DIR", default_out_dir);
+    const char *in_dir = getenv("FASTDYN_AFLNET_IN_DIR");
+    if (!in_dir || !in_dir[0]) {
+        if (dir_exists(out_dir)) {
+            in_dir = "-";
+        } else if (dir_exists(default_in_dir)) {
+            in_dir = default_in_dir;
+        } else {
+            fprintf(stderr,
+                    "[aflnet] Set FASTDYN_AFLNET_IN_DIR (or create %s) for initial seeds\n",
+                    default_in_dir);
+            return false;
         }
     }
+
+    const char *protocol = getenv("FASTDYN_AFLNET_PROTOCOL");
+    if (!protocol || !protocol[0]) {
+        fprintf(stderr, "[aflnet] Set FASTDYN_AFLNET_PROTOCOL for the target protocol\n");
+        return false;
+    }
+
+    /* These campaigns retain only execution coverage. Do not reject an
+     * otherwise runnable target merely because the host routes core dumps to
+     * a crash-reporting helper or uses a dynamic CPU governor: AFLNet's
+     * crash-accounting and host-frequency warnings are not relevant to the
+     * in-process FastDyn transport, and changing host kernel settings would
+     * make a target configuration non-self-contained. Preserve an explicit
+     * caller choice when one is already present. */
+    if (getenv("AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES") == NULL &&
+        setenv("AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES", "1", 0) != 0) {
+        perror("[aflnet] failed to configure coverage-only crash handling");
+        return false;
+    }
+    if (getenv("AFL_SKIP_CPUFREQ") == NULL &&
+        setenv("AFL_SKIP_CPUFREQ", "1", 0) != 0) {
+        perror("[aflnet] failed to skip host CPU-frequency validation");
+        return false;
+    }
+
+    argv[5] = (char *)in_dir;
+    argv[7] = (char *)out_dir;
+    argv[9] = (char *)protocol;
+    argv[11] = (char *)env_or_default("FASTDYN_AFLNET_TIMEOUT_MS", "100000");
+    argv[13] = (char *)env_or_default("FASTDYN_AFLNET_NET_TIMEOUT_MS", "100000000");
+    argv[15] = (char *)env_or_default("FASTDYN_AFLNET_WAIT_TIMEOUT_MS", "100000");
 
     if (pthread_create(&g_aflnet_thread, NULL, afl_main, (void *)argv) != 0) {
         perror("Failed to create AFLNet thread");
@@ -77,32 +146,6 @@ static bool launch_aflnet(void)
     }
 
     return true;
-}
-
-static int publish_fd_via_shm(const char *name, int fd)
-{
-    shm_unlink(name);
-
-    int sfd = shm_open(name, O_CREAT | O_RDWR, 0600);
-    if (sfd < 0) {
-        return -1;
-    }
-
-    if (ftruncate(sfd, sizeof(int)) != 0) {
-        close(sfd);
-        return -1;
-    }
-
-    int *p = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, sfd, 0);
-    if (p == MAP_FAILED) {
-        close(sfd);
-        return -1;
-    }
-
-    *p = fd;
-    munmap(p, sizeof(int));
-    close(sfd);
-    return 0;
 }
 
 static bool send_fastdyn_msg(fastdyn_msg_type_t type,
@@ -132,7 +175,18 @@ static bool send_fastdyn_msg(fastdyn_msg_type_t type,
         memcpy(packet + sizeof(hdr), data, len);
     }
 
-    ssize_t written = write(g_tap_fd, packet, total);
+    ssize_t written;
+    do {
+        written = send(g_tap_fd, packet, total, MSG_NOSIGNAL);
+        if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            struct pollfd pfd = { .fd = g_tap_fd, .events = POLLOUT };
+            int ready = poll(&pfd, 1, AFLNET_POLL_TIMEOUT_MS);
+            if (ready > 0) {
+                continue;
+            }
+        }
+        break;
+    } while (true);
     free(packet);
 
     return written == (ssize_t)total;
@@ -178,8 +232,8 @@ static bool setup_aflnet_backend(void)
     fcntl(fds[0], F_SETFL, O_NONBLOCK);
     fcntl(fds[1], F_SETFL, O_NONBLOCK);
 
-    if (publish_fd_via_shm(FASTDYN_SHM_NAME, fds[1]) < 0) {
-        perror("[aflnet] shm publish (data fd) failed");
+    if (fastdyn_attach_fd(fds[1]) != 0) {
+        perror("[aflnet] failed to attach in-process transport");
         close(fds[0]);
         close(fds[1]);
         return false;
@@ -187,17 +241,22 @@ static bool setup_aflnet_backend(void)
 
     g_tap_fd = fds[0];
     g_active_seq = 0;
+    g_restore_seq = 0;
     return true;
 }
 
-static void complete_previous_message(void)
+static bool complete_previous_message(void)
 {
     if (g_active_seq == 0) {
-        return;
+        return true;
     }
 
-    (void)send_fastdyn_msg(FASTDYN_MSG_DONE, g_active_seq, NULL, 0);
+    if (!send_fastdyn_msg(FASTDYN_MSG_DONE, g_active_seq, NULL, 0)) {
+        return false;
+    }
+
     g_active_seq = 0;
+    return true;
 }
 
 static bool read_next_frame(fuzz_backend_msg_t *msg)
@@ -232,6 +291,7 @@ static bool read_next_frame(fuzz_backend_msg_t *msg)
             msg->data = NULL;
             msg->len = 0;
             msg->restore = true;
+            g_restore_seq = hdr.seq;
             return true;
         }
 
@@ -264,7 +324,9 @@ bool fuzz_backend_next(fuzz_backend_msg_t *msg)
         return false;
     }
 
-    complete_previous_message();
+    if (!complete_previous_message()) {
+        return false;
+    }
     return read_next_frame(msg);
 }
 
@@ -277,7 +339,10 @@ void fuzz_backend_report_assert(bool fatal)
 
 void fuzz_backend_restore_complete(void)
 {
-    (void)send_fastdyn_msg(FASTDYN_MSG_RESTORE_DONE, 0, NULL, 0);
+    if (g_restore_seq != 0 &&
+        send_fastdyn_msg(FASTDYN_MSG_RESTORE_DONE, g_restore_seq, NULL, 0)) {
+        g_restore_seq = 0;
+    }
 }
 
 void fuzz_backend_set_data(const uint8_t *buf, size_t len)

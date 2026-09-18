@@ -228,7 +228,9 @@ void fuzz_bbl_add(uint32_t pc, int irq_depth) {
         }
     }
 
-    if (irq_depth == 0 && !g_hash_table_lookup(bbl_set, GUINT_TO_POINTER(bbl_pc))) {
+    /* Basic-block coverage is execution coverage: retain ISR blocks too.
+     * Edge accounting above deliberately keeps interrupt transitions separate. */
+    if (!g_hash_table_lookup(bbl_set, GUINT_TO_POINTER(bbl_pc))) {
         guint timestamp = (guint)(g_get_monotonic_time() / 1000);
 
         g_hash_table_insert(

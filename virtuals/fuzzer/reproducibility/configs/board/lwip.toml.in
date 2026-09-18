@@ -1,0 +1,98 @@
+[Memory]
+
+[Memory.main]
+id = "ram0"
+base_address = "0x20000000"
+memory_size = "512M"
+memory_type = "SRAM"
+backend = "file"
+memory_file = "__LWIP_MAIN_RAM__"
+share = true
+prealloc = false
+
+[[Memory.ram1]]
+id = "ram1"
+index = 1
+base_address = "0x30000000"
+memory_size = "512K"
+memory_type = "SRAM"
+backend = "file"
+memory_file = "__LWIP_RAM1__"
+share = true
+prealloc = false
+
+[Machine]
+# The repository's closest available CMSIS-SVD key. CPU execution remains M7.
+platform = "STM32F429"
+qemu_path = "qemu-system-arm"
+enable_gdb = false
+stop_on_start = false
+launch_gdb = false
+monitor_port = 15559
+qmp_socket = "/tmp/fastdyn-f769-lwip-qmp.sock"
+log_file = "qemu.log"
+log_options = "none"
+semihosting = true
+semihosting_config = "enable=on,target=native"
+coverage = true
+finline = "None"
+
+[CPU]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m7"
+plugin_library = "build/libfastdyn.so"
+monitor_elf = "../ws/monitor.elf"
+binary = "boardrunner/boardrunner_examples/examples/STM32F769i-eval/LWIP/firmwares/STM32F769I_EVAL.elf"
+init_nsvtor = "0x08000000"
+twintrace = "None"
+hardware_trace = "hardware_log/io.log"
+
+[Device.Models.elder]
+
+[Device.Models.passthrough]
+backend = "stlink"
+
+[Device.Models.classic]
+
+[Device.Models.twintrace]
+backend = "stlink"
+
+[Device.Models.unhandled]
+
+[Device.ethernet]
+ranges = [["0x40028000", "0x40029FFF"]]
+irq = [["0", "100"]]
+description = "STM32F7 Ethernet MAC/MMC/DMA through the supplied Elder TAP model."
+scroll_config = """
+[ethernet]
+internal_model = "stm32_eth"
+tap_interface = "tap0"
+"""
+
+[[Device.ethernet.handlers]]
+model = "elder"
+enabled = true
+scroll = "__LWIP_MODEL_PATH__"
+
+[[Device.ethernet.handlers]]
+model = "passthrough"
+enabled = false
+
+[Device.remaining_space]
+ranges = [
+  ["0x40000000", "0x40027FFF"],
+  ["0x4002A000", "0xDFFFFFFF"],
+  ["0xE0000000", "0xEFFFFFFF"],
+]
+irq = [["0", "100"]]
+description = "All non-Ethernet peripherals through ST-LINK passthrough."
+
+[[Device.remaining_space.handlers]]
+model = "passthrough"
+enabled = true
+
+[[Device.remaining_space.handlers]]
+model = "classic"
+enabled = false

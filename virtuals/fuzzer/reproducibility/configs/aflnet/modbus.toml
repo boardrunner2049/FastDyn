@@ -1,0 +1,167 @@
+# ==============================================================================
+# Modbus RTU slave on Nucleo-F103RB — BoardRunner platform config.
+# Same shape as the existing Nucleo-F103RB/UART config.
+# ==============================================================================
+
+[Memory]
+
+[Memory.main]
+id = "ram0"
+base_address = "0x20000000"
+memory_size  = "512M"
+memory_type  = "SRAM"
+backend      = "file"
+memory_file  = "/dev/shm/my_m4_ram3"
+share        = true
+prealloc     = false
+
+[[Memory.ram1]]
+id = "ram1"
+index = 1
+base_address = "0x30000000"
+memory_size  = "512K"
+memory_type  = "SRAM"
+backend      = "file"
+memory_file  = "/dev/shm/my_m4_ram"
+share        = true
+prealloc     = false
+
+# ==============================================================================
+[Machine]
+platform = "STM32F103xx"
+qemu_path = "qemu-system-arm"
+enable_gdb = false
+stop_on_start = false
+launch_gdb = false
+monitor_port = 15557
+qmp_socket = "/tmp/qmp.sock"
+log_file = "qemu.log"
+log_options = "none"
+semihosting = true
+semihosting_config = "enable=on,target=native"
+coverage = true
+fuzzing = true
+# AFLNet injects raw Modbus RTU frames; schema injection is disabled.
+# fuzzing_schema = "modbus_schema.json"
+finline = 'None'
+
+[CPU]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m3"
+plugin_library = "build-aflnet/libfastdyn.so"
+monitor_elf = "../ws/monitor.elf"
+binary = "boardrunner/boardrunner_examples/examples/Nucleo-F103RB/Modbus/firmware/STM32F103RB_Modbus.elf"
+init_nsvtor = "0x08000000"
+twintrace = "None"
+hardware_trace = 'hardware_log/io.log'
+
+logger_content = """
+# level = DEBUG
+# output = stderr
+"""
+
+# AFLNet flow: each testcase is an ordered Modbus RTU request sequence.
+[[CPU.cpu0.virtuals]]
+at = "0x08000268"
+instruction = "fuzz_snap_point"
+args = ["aflnet-flow"]
+
+[[CPU.cpu0.virtuals]]
+# FreeMODBUS bases its RTU T3.5 timer on HAL_GetTick().  Make that clock part
+# of FastDyn's snapshot lifecycle: it advances between sequence frames and is
+# reset only when AFLNet restores for the next testcase.
+at = "0x080018a4"
+instruction = "fuzz_advance_time"
+args = ["aflnet-flow"]
+
+# Execute the real RTU and CRC routines, then normalize only the final
+# CRC predicate.  This preserves decode/output initialization for mutated
+# inputs and avoids the no-response error path that otherwise stalls AFLNet.
+[[CPU.cpu0.modifiers]]
+at = "0x08000d1a"
+patch = "r0 0"
+
+[[CPU.cpu0.modifiers]]
+at = "0x08000d22"
+patch = "r3 10"
+
+[[CPU.cpu0.modifiers]]
+at = "0x08000bc6"
+patch = "r3 r2"
+
+# Run the board and UART setup through the firmware.  The model owns USART2;
+# only the two RCC routines that wait for physical oscillator state are shims.
+[[CPU.cpu0.modifiers]]
+at = "0x80019f0"
+patch = "r0 0"
+
+[[CPU.cpu0.modifiers]]
+at = "0x80019f0"
+patch = "r15 r14"
+
+[[CPU.cpu0.modifiers]]
+at = "0x8001e54"
+patch = "r0 0"
+
+[[CPU.cpu0.modifiers]]
+at = "0x8001e54"
+patch = "r15 r14"
+
+# ==============================================================================
+[Device.Models.elder]
+
+[Device.Models.passthrough]
+    backend = "stlink"
+
+[Device.Models.classic]
+
+[Device.Models.twintrace]
+    backend = "stlink"
+
+[Device.Models.unhandled]
+
+    [Device.usart2]
+        ranges = [["0x40004400", "0x400047FF"]]
+        irq = [['1','100']]
+        description = "USART2 — FreeMODBUS RTU byte stream"
+        read_priority = "elder"
+
+        [[Device.usart2.handlers]]
+            model   = "elder"
+            enabled = true
+            scroll  = "__MODEL_PATH__"
+
+        [[Device.usart2.handlers]]
+            model   = "classic"
+            enabled = false
+
+        [[Device.usart2.handlers]]
+            model   = "passthrough"
+            enabled = false
+
+        [[Device.usart2.handlers]]
+            model   = "twintrace"
+            enabled = false
+
+
+    [Device.remaining_space]
+        ranges = [
+            ["0x40000000", "0x400043FF"],
+            ["0x40004800", "0xDFFFFFFF"]
+        ]
+        irq = [['1','100']]
+        description = "Memory regions handled by passthrough"
+
+        [[Device.remaining_space.handlers]]
+            model   = "classic"
+            enabled = true
+
+        [[Device.remaining_space.handlers]]
+            model   = "passthrough"
+            enabled = false
+
+        [[Device.remaining_space.handlers]]
+            model   = "twintrace"
+            enabled = false

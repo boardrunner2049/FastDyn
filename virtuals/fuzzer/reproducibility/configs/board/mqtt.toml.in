@@ -1,0 +1,106 @@
+[Memory]
+
+[Memory.main]
+id = "ram0"
+base_address = "0x20000000"
+memory_size = "512M"
+memory_type = "SRAM"
+backend = "file"
+memory_file = "/dev/shm/my_m4_ram3"
+share = true
+prealloc = false
+
+[[Memory.ram1]]
+id = "ram1"
+index = 1
+base_address = "0x30000000"
+memory_size = "512K"
+memory_type = "SRAM"
+backend = "file"
+memory_file = "/dev/shm/my_m4_ram"
+share = true
+prealloc = false
+
+[Machine]
+platform = "STM32H753x"
+qemu_path = "qemu-system-arm"
+enable_gdb = false
+stop_on_start = false
+launch_gdb = false
+monitor_port = 5555
+qmp_socket = "/tmp/qmp.sock"
+log_file = "qemu.log"
+log_options = "in_asm,op"
+semihosting = true
+semihosting_config = "enable=on,target=native"
+coverage = true
+finline = "None"
+
+[CPU]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m7"
+plugin_library = "build/libfastdyn.so"
+monitor_elf = "../ws/monitor.elf"
+binary = "boardrunner/boardrunner_examples/examples/STM32H753zi/MQTT/firmware/mqtt_h753.elf"
+init_nsvtor = "0x08000000"
+map_file = "courbet/rover_v422_map.txt"
+twintrace = "None"
+hardware_trace = "hardware_log/io.log"
+
+[Device.Models.elder]
+
+[Device.Models.passthrough]
+backend = "stlink"
+
+[Device.Models.classic]
+
+[Device.Models.twintrace]
+backend = "stlink"
+
+[Device.Models.unhandled]
+
+[Device.usart3]
+ranges = [["0x40004800", "0x40004BFF"]]
+irq = [["1", "100"]]
+description = "USART3 MQTT transport: saved elder model connected to a Mosquitto PTY bridge."
+read_priority = "elder"
+
+[[Device.usart3.handlers]]
+model = "elder"
+enabled = true
+scroll = "__MQTT_MODEL_PATH__"
+
+[[Device.usart3.handlers]]
+model = "classic"
+enabled = false
+
+[[Device.usart3.handlers]]
+model = "passthrough"
+enabled = false
+
+[[Device.usart3.handlers]]
+model = "twintrace"
+enabled = false
+
+[Device.remaining_space]
+ranges = [
+  ["0x40000000", "0x400047FF"],
+  ["0x40004C00", "0xE00FFFFF"],
+  ["0xE0000000", "0xEFFFFFFF"],
+]
+irq = [["1", "100"]]
+description = "All non-USART3 hardware is passed through to the attached H753 ST-LINK."
+
+[[Device.remaining_space.handlers]]
+model = "classic"
+enabled = false
+
+[[Device.remaining_space.handlers]]
+model = "passthrough"
+enabled = true
+
+[[Device.remaining_space.handlers]]
+model = "twintrace"
+enabled = false

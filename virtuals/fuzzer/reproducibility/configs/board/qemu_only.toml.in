@@ -1,0 +1,37 @@
+[Memory]
+[Memory.main]
+id = "ram0"
+base_address = "0x20000000"
+memory_size = "512M"
+memory_type = "SRAM"
+backend = "file"
+memory_file = "__MAIN_RAM__"
+share = true
+
+[[Memory.ram1]]
+id = "ram1"
+base_address = "0x30000000"
+memory_size = "512K"
+memory_type = "SRAM"
+backend = "file"
+memory_file = "__RAM1__"
+share = true
+
+[Machine]
+qemu_path = "__QEMU_PATH__"
+monitor_port = __MONITOR_PORT__
+qmp_socket = "__QMP_SOCKET__"
+coverage = true
+fuzzing = false
+display = "none"
+
+[CPU]
+[[CPU.cpu0]]
+machine = "cortexm"
+cpu = "__CPU__"
+binary = "__FIRMWARE__"
+init_nsvtor = "0x08000000"
+plugin_library = "__FASTDYN_PLUGIN_PATH__"
+
+# Intentionally empty: this run has no peripheral models or handlers.
+[Device.Models]

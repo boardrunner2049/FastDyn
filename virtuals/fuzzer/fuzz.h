@@ -31,11 +31,21 @@ void fuzz_backend_report_assert(bool fatal);
 void fuzz_backend_set_data(const uint8_t *buf, size_t len);
 void fuzz_backend_restore_complete(void);
 
+/* Request a message handoff from a model callback.  Models may call this from
+ * an IRQ-context completion hook; the registered thread-level virtual below
+ * performs the blocking backend exchange and resumes at ``resume_pc``. */
+void fuzz_request_sync(uint32_t resume_pc);
+
 uint32_t fuzz_get_register(int reg);
 void fuzz_set_register(uint32_t value, int reg);
 
 int fuzz_write_memory(unsigned long long addr, uint8_t *mem_buf, int len);
 int fuzz_read_memory(unsigned long long addr, uint8_t *mem_buf, int len);
+
+typedef void (*fuzz_callback_t)(void);
+
+// Registers a model callback that runs after a new fuzz message becomes active.
+void fuzz_register_input_callback(fuzz_callback_t cb);
 
 // Restores the fuzzing snapshot policy (base registers and its selected ranges).
 bool fuzz_restore_snapshot(void);

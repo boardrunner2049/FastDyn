@@ -161,6 +161,34 @@ def prompt_for_segments(segments):
     if not segments:
         return []
 
+    configured_selection = os.environ.get("FASTDYN_SNAPSHOT_SEGMENTS")
+    if configured_selection is not None:
+        try:
+            selected = _parse_selection(configured_selection, len(segments))
+        except ValueError as exc:
+            raise ValueError(
+                "FASTDYN_SNAPSHOT_SEGMENTS must be 'all', 'none', or a "
+                f"valid segment expression: {exc}"
+            ) from exc
+
+        fastdyn_log.info(
+            "[binary_wrange.py] Selecting writable segments from "
+            "FASTDYN_SNAPSHOT_SEGMENTS=%r.",
+            configured_selection,
+        )
+        return selected
+
+    # Automated invocations have no one available to answer the prompt.  The
+    # historical EOF fallback already chose all ranges; detect this condition
+    # before printing a prompt so wrapper scripts cannot spend their entire
+    # timeout in input().
+    if not sys.stdin.isatty():
+        fastdyn_log.info(
+            "[binary_wrange.py] Non-interactive stdin; including all "
+            "writable segments. Set FASTDYN_SNAPSHOT_SEGMENTS to override."
+        )
+        return list(range(len(segments)))
+
     prompt = (
         "Select writable segments to include in the snapshot "
         "(e.g. 0,2-3; blank/all for all; none for none): "

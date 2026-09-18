@@ -1,0 +1,210 @@
+# ==============================================================================
+#                              Memory Configuration
+# ==============================================================================
+[Memory]
+
+[Memory.main]   # required: goes to -machine ... memory-backend=<id>
+id = "ram0"
+base_address = "0x20000000"
+memory_size  = "512M"
+memory_type  = "SRAM"
+backend      = "file"          # file | ram | memfd
+memory_file  = "/dev/shm/my_m4_ram3"
+share        = true
+prealloc     = false
+
+[[Memory.ram1]]   # optional banks: go to -global cortexm-soc.ram_backendN / ram_baseaddrN
+id = "ram1"
+index = 1
+base_address = "0x30000000"
+memory_size  = "512K"
+memory_type  = "SRAM"
+backend      = "file"
+memory_file  = "/dev/shm/my_m4_ram"
+share        = true
+prealloc     = false
+
+# ==============================================================================
+#                                Machine / CPU Configuration
+# ==============================================================================
+[Machine]
+platform = "STM32H753x"
+# --- Debugging, Control, and Logging ---
+qemu_path = "qemu-system-arm"
+enable_gdb = true
+stop_on_start = false
+launch_gdb = false
+monitor_port = 5555
+qmp_socket = "/tmp/qmp.sock"
+log_file = "qemu.log"
+log_options = "none"
+semihosting = true
+semihosting_config = "enable=on,target=native"
+coverage = true
+fuzzing = true
+# AFLNet injects raw broker-to-client MQTT packets; schema injection is disabled.
+# fuzzing_schema = "mqtt_schema.json"
+finline = 'None'
+
+[CPU]
+[[CPU.cpu0]]
+# --- Core Emulation & Plugin Settings ---
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m7"
+plugin_library = "build-aflnet/libfastdyn.so"
+monitor_elf = "../ws/monitor.elf"
+binary = "boardrunner/boardrunner_examples/examples/STM32H753zi/MQTT/firmware/mqtt_h753.elf"
+init_nsvtor = "0x08000000"
+map_file = "courbet/rover_v422_map.txt"
+twintrace = "None"
+hardware_trace = 'hardware_log/io.log'
+
+logger_content = """
+# --- Plugin Logger Configuration ---
+# level = DEBUG
+# output = stderr
+"""
+
+[[CPU.cpu0.virtuals]]
+at = "0x080074d0"
+instruction = "fuzz_sync_point"
+args = ["aflnet-error-recovery"]
+
+# The USART model supplies a fixed CONNECT/SUBSCRIBE bootstrap.  Snapshot at
+# the loop backedge only once that handshake and the first inbound PUBLISH
+# have completed; every AFLNet message therefore resumes in the subscribed
+# client loop, and an ordered testcase is completed only at the next loop
+# backedge.
+[[CPU.cpu0.virtuals]]
+at = "0x08007770"
+instruction = "fuzz_snap_sync_point"
+args = ["aflnet-flow"]
+
+# Execute at HAL_GetTick's `bx lr`: after the snapshot, advance the fuzzer's
+# virtual clock and place that value in r0 before returning to the firmware.
+# Before the snapshot this virtual intentionally leaves the boot-time HAL
+# clock alone, so the real lower-level startup models retain their behavior.
+[[CPU.cpu0.virtuals]]
+at = "0x08007e50"
+instruction = "fuzz_advance_time"
+args = ["aflnet-clock"]
+
+# MQTT parser errors follow the firmware's normal error branch.  The
+# recovery sync above intercepts Error_Handler at entry and restores the next
+# testcase before its terminal loop executes.  HAL_InitTick,
+# HAL_SYSTICK_Config, and HAL_RCC_ClockConfig execute their successful paths
+# through the RCC/PWR/SysTick models below.
+
+# The clocktree supplies this firmware's captured HSE-bypass/PLL1 result after
+# its early RCC reset has completed.  Reapply the original success-return shim
+# only to HAL_RCC_OscConfig: its 57 divider-programming blocks are boot-only,
+# while real clock switching, SysTick, MQTT, and the UART IRQ sweep remain.
+[[CPU.cpu0.modifiers]]
+at = "0x80087f0"
+patch = "r0 0"
+
+[[CPU.cpu0.modifiers]]
+at = "0x80087f0"
+patch = "r15 r14"
+
+# The embedded Paho SUBACK helper has already consumed the modeled reply at
+# this point.  Preserve that parser path, then keep the demonstration loop
+# alive instead of entering the board's terminal Error_Handler on its strict
+# callback-count result check.
+[[CPU.cpu0.modifiers]]
+at = "0x8007916"
+patch = "r0 1"
+
+# ==============================================================================
+#                              Device Configuration
+# ==============================================================================
+
+[Device.Models.elder]
+
+[Device.Models.passthrough]
+    backend = "stlink"
+
+[Device.Models.classic]
+
+[Device.Models.twintrace]
+    backend = "stlink"
+
+[Device.Models.unhandled]
+
+    # --- Peripheral Definitions ---
+    # MQTT firmware: Eclipse Paho Embedded C (client subset) on NUCLEO-H753ZI.
+    # Transport is USART3 (ST-Link VCP on PD8/PD9) @ 115200-8N1, polled HAL
+    # transmit/receive (no UART IRQ used). A host-side bridge forwards the
+    # serial byte stream to a Mosquitto broker on TCP:1883. The fuzz target is
+    # the Paho MQTT parser (Middlewares/MQTTPacket/) which lives above the
+    # emulated UART boundary.
+    [Device.usart3]
+        ranges = [["0x40004800", "0x40004BFF"]]
+        irq = [['1','100']]
+        description = "USART3 — Paho MQTT wire-format byte stream to the host bridge."
+        read_priority = "elder"
+
+        [[Device.usart3.handlers]]
+            model   = "elder"
+            enabled = true
+            scroll  = "__MODEL_PATH__"
+
+        [[Device.usart3.handlers]]
+            model   = "classic"
+            enabled = false
+
+        [[Device.usart3.handlers]]
+            model   = "passthrough"
+            enabled = false
+
+        [[Device.usart3.handlers]]
+            model   = "twintrace"
+            enabled = false
+
+    # The model handles ready flags and RCC_CFGR.SWS mirroring for the one
+    # selected HSE/PLL oscillator setup and the real ClockConfig switch.
+    [Device.clocktree]
+        ranges = [
+            ["0x52002000", "0x52002003"],
+            ["0x58024400", "0x580247FF"],
+            ["0x58024800", "0x58024BFF"]
+        ]
+        description = "FLASH latency plus RCC/PWR ready and clock-switch status for MQTT boot."
+
+        [[Device.clocktree.handlers]]
+            model   = "elder"
+            enabled = true
+            scroll  = "__MODEL_PATH__"
+
+    # Execute the firmware's real SysTick configuration and one handler visit
+    # during boot, without a periodic asynchronous timer after the snapshot.
+    [Device.systick]
+        ranges = [["0xE000E010", "0xE000E01F"]]
+        description = "One-shot boot SysTick used only for block comparison."
+
+        [[Device.systick.handlers]]
+            model   = "elder"
+            enabled = true
+            scroll  = "__MODEL_PATH__"
+
+    [Device.remaining_space]
+        ranges = [
+            ["0x40000000", "0x400047FF"],   # APB1 peripherals before USART3
+            ["0x40004C00", "0xE00FFFFF"],   # everything after USART3 up to Cortex-M7 PPB
+            ["0xE0000000", "0xEFFFFFFF"]    # Cortex-M7 core / debug (NVIC, SysTick, SCB)
+        ]
+        irq = [['1','100']]
+        description = "Memory regions handled by passthrough. Includes GPIOD (USART3 pins), GPIOB (LED1), GPIOE (LED2), and all non-modeled peripherals. RCC/PWR and the SysTick window have dedicated models above."
+
+        [[Device.remaining_space.handlers]]
+            model = "classic"
+            enabled = true
+
+        [[Device.remaining_space.handlers]]
+            model = "passthrough"
+            enabled = false
+
+        [[Device.remaining_space.handlers]]
+            model = "twintrace"
+            enabled = false

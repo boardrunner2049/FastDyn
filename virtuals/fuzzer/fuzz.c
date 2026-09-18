@@ -31,6 +31,13 @@ static int coverage = 0;
  * after fuzz_snap_point has established the fuzzing baseline. */
 static bool fuzz_snap_initialized = false;
 
+/* Some bare-metal targets have no modeled SysTick, so their real timeout
+ * handlers would otherwise never become due between restored AFLNet messages.
+ * A target may hook the return of its tick function to this virtual. */
+static uint32_t fuzz_virtual_time_ms;
+static uint32_t fuzz_virtual_time_step_ms = 1000;
+static bool fuzz_virtual_time_step_configured;
+
 static char g_fuzzing_buf[1024];
 
 uint32_t fuzz_prev_pc = 0;
@@ -110,6 +117,34 @@ static const char *coverage_output_path() {
     return "./fastdyn_work/cvg.bin";
 }
 
+static const char *fuzz_state_file_path(const char *filename, char *buffer,
+                                        size_t buffer_size,
+                                        const char *legacy_path) {
+    const char *work_dir = getenv("FASTDYN_WORK_DIR");
+    int written;
+
+    if (work_dir && work_dir[0]) {
+        written = snprintf(buffer, buffer_size, "%s/%s", work_dir, filename);
+        if (written >= 0 && (size_t)written < buffer_size) {
+            return buffer;
+        }
+    }
+
+    return legacy_path;
+}
+
+static const char *snapshot_raw_path(void) {
+    static char path[4096];
+    return fuzz_state_file_path("snapshot.bin", path, sizeof(path),
+                                SNAPSHOT_RAW_PATH);
+}
+
+static const char *savestate_raw_path(void) {
+    static char path[4096];
+    return fuzz_state_file_path("savestate.bin", path, sizeof(path),
+                                SAVESTATE_RAW_PATH);
+}
+
 static size_t g_snapshot_ranges_count = 0;
 static uint32_t *g_snapshot_ranges = NULL;
 static size_t g_savestate_ranges_count = 0;
@@ -128,13 +163,20 @@ static _Atomic int g_active_msg_state = FUZZ_MSG_INACTIVE;
 static const uint8_t *g_active_msg_data = NULL;
 static size_t g_active_msg_len = 0;
 
+/* Some protocols finish their reply from an IRQ.  An AFLNet exchange must not
+ * happen there: the next request has to start at thread level after the IRQ
+ * has returned.  The model records that completed boundary and the configured
+ * thread-level virtual consumes it. */
+static _Atomic bool g_fuzz_sync_requested = false;
+static _Atomic uint32_t g_fuzz_sync_resume_pc = 0;
+
 extern bool g_trace_enabled;
 
 extern uint8_t CVG[MAP_SIZE];
 extern AddressList core_cc_list; // in future, update so that we aren't using an extern global for this, maybe add core.c helper to consume inputs
 
-typedef void (*fuzz_callback_t)();
 static fuzz_callback_t g_fuzz_snap_callback = NULL;
+static fuzz_callback_t g_fuzz_input_callback = NULL;
 static fuzz_callback_t g_fuzz_sync_callback = NULL;
 static fuzz_callback_t g_fuzz_exit_callback = NULL;
 static fuzz_callback_t g_fuzz_restore_callback = NULL;
@@ -145,6 +187,10 @@ void fuzz_register_snap_callback(fuzz_callback_t cb) {
 
 void fuzz_register_callback(fuzz_callback_t cb) {
     g_fuzz_sync_callback = cb;
+}
+
+void fuzz_register_input_callback(fuzz_callback_t cb) {
+    g_fuzz_input_callback = cb;
 }
 
 void fuzz_register_exit(fuzz_callback_t cb) {
@@ -323,38 +369,6 @@ static uint32_t *fuzz_get_writable_ranges(const char *filename, size_t *out_coun
     return array;
 }
 
-static bool fuzz_append_memory_ranges(uint32_t **ranges, size_t *count,
-                                      uint32_t *extra_ranges,
-                                      size_t extra_count)
-{
-    if ((extra_count & 1) || (extra_count != 0 && !extra_ranges)) {
-        return false;
-    }
-
-    if (extra_count == 0) {
-        free(extra_ranges);
-        return true;
-    }
-
-    if (*count > SIZE_MAX - extra_count ||
-        *count + extra_count > SIZE_MAX / sizeof(**ranges)) {
-        return false;
-    }
-
-    uint32_t *combined = realloc(*ranges,
-                                 (*count + extra_count) * sizeof(**ranges));
-    if (!combined) {
-        return false;
-    }
-
-    memcpy(combined + *count, extra_ranges,
-           extra_count * sizeof(*extra_ranges));
-    free(extra_ranges);
-    *ranges = combined;
-    *count += extra_count;
-    return true;
-}
-
 typedef struct {
     const uint32_t *pairs;
     size_t count;
@@ -367,7 +381,7 @@ typedef enum {
 
 typedef struct {
     const char *name;
-    const char *path;
+    const char *(*path)(void);
     fuzz_register_profile_t registers;
     fuzz_memory_ranges_t (*memory_ranges)(void);
 } fuzz_state_policy_t;
@@ -416,14 +430,14 @@ static fuzz_memory_ranges_t fuzz_snapshot_memory_ranges(void)
 
 static const fuzz_state_policy_t g_savestate_policy = {
     .name = "savestate",
-    .path = SAVESTATE_RAW_PATH,
+    .path = savestate_raw_path,
     .registers = FUZZ_REGISTERS_BASE_AND_SPECIAL,
     .memory_ranges = fuzz_savestate_memory_ranges,
 };
 
 static const fuzz_state_policy_t g_fuzz_snapshot_policy = {
     .name = "snapshot",
-    .path = SNAPSHOT_RAW_PATH,
+    .path = snapshot_raw_path,
     .registers = FUZZ_REGISTERS_BASE,
     .memory_ranges = fuzz_snapshot_memory_ranges,
 };
@@ -594,6 +608,7 @@ static int fuzz_state_take(fuzz_saved_state_t *state)
     bool special_regs = fuzz_state_has_special_registers(state);
     size_t total_mem;
     FILE *f;
+    const char *path = state->policy->path();
 
     state->loaded_from_file = false;
     if (!fuzz_state_select_memory_ranges(state)) {
@@ -609,7 +624,7 @@ static int fuzz_state_take(fuzz_saved_state_t *state)
         return -1;
     }
 
-    f = fopen(state->policy->path, "rb");
+    f = fopen(path, "rb");
     if (f) {
         if (fread(file_regs, sizeof(file_regs[0]), SNAPSHOT_REG_COUNT, f) == SNAPSHOT_REG_COUNT &&
             (!special_regs ||
@@ -623,13 +638,13 @@ static int fuzz_state_take(fuzz_saved_state_t *state)
             }
             state->loaded_from_file = true;
             fclose(f);
-            printf("Loaded %s from %s\n", state->policy->name, state->policy->path);
+            printf("Loaded %s from %s\n", state->policy->name, path);
             return 0;
         }
 
         fclose(f);
         printf("Ignoring invalid %s dump at %s\n",
-               state->policy->name, state->policy->path);
+               state->policy->name, path);
     }
 
     for (int i = 0; i < SNAPSHOT_REG_COUNT; i++) {
@@ -648,26 +663,26 @@ static int fuzz_state_take(fuzz_saved_state_t *state)
         offset += state->ranges[i + 1];
     }
 
-    f = fopen(state->policy->path, "wb");
+    f = fopen(path, "wb");
     if (f) {
         if (fwrite(state->regs, sizeof(state->regs[0]), SNAPSHOT_REG_COUNT, f) != SNAPSHOT_REG_COUNT) {
             printf("Failed to write %s register header to %s\n",
-                   state->policy->name, state->policy->path);
+                   state->policy->name, path);
         } else if (special_regs &&
                    fwrite(state->special_regs, sizeof(state->special_regs[0]),
                          SNAPSHOT_SPECIAL_REG_COUNT, f) != SNAPSHOT_SPECIAL_REG_COUNT) {
             printf("Failed to write %s special-register header to %s\n",
-                   state->policy->name, state->policy->path);
+                   state->policy->name, path);
         } else if (fwrite(state->membuff, 1, total_mem, f) != total_mem) {
             printf("Failed to write full %s to %s\n",
-                   state->policy->name, state->policy->path);
+                   state->policy->name, path);
         } else {
-            printf("Wrote %s to %s\n", state->policy->name, state->policy->path);
+            printf("Wrote %s to %s\n", state->policy->name, path);
         }
         fclose(f);
     } else {
         printf("Failed to open %s for %s dump\n",
-               state->policy->path, state->policy->name);
+               path, state->policy->name);
     }
 
     return 0;
@@ -736,6 +751,12 @@ bool fuzz_restore_snapshot(void)
     if (!fuzz_state_restore(&g_fuzz_snapshot)) {
         return false;
     }
+
+    /* The guest snapshot contains its timeout queues, so its deterministic
+     * coverage clock must start from the same origin. Keep time advancing
+     * across the messages of one AFLNet testcase, but never carry it into the
+     * next restored testcase. */
+    fuzz_virtual_time_ms = 0;
 
     if (g_fuzz_restore_callback) {
         g_fuzz_restore_callback();
@@ -847,7 +868,54 @@ static void fuzz_state_point(unsigned int cpu_index, void *udata)
     state_init = true;
 }
 
+static void fuzz_advance_time(unsigned int cpu_index, void *udata)
+{
+    (void)cpu_index;
+    (void)udata;
+
+    if (!fuzz_snap_initialized) {
+        return;
+    }
+
+    if (!fuzz_virtual_time_step_configured) {
+        const char *configured_step = getenv("FASTDYN_FUZZ_TIME_STEP_MS");
+        if (configured_step && configured_step[0]) {
+            char *end = NULL;
+            unsigned long value = strtoul(configured_step, &end, 10);
+            if (end != configured_step && *end == '\0' && value > 0 &&
+                value <= UINT32_MAX) {
+                fuzz_virtual_time_step_ms = (uint32_t)value;
+            }
+        }
+        fuzz_virtual_time_step_configured = true;
+    }
+
+    fuzz_virtual_time_ms += fuzz_virtual_time_step_ms;
+    qemu_set_register(fuzz_virtual_time_ms, ARM_V7M_R0);
+}
+
 static void fuzz_sync_point(unsigned int cpu_index, void *udata);
+
+void fuzz_request_sync(uint32_t resume_pc)
+{
+    atomic_store_explicit(&g_fuzz_sync_resume_pc, resume_pc,
+                          memory_order_relaxed);
+    atomic_store_explicit(&g_fuzz_sync_requested, true, memory_order_release);
+}
+
+static bool fuzz_take_sync_request(uint32_t *resume_pc)
+{
+    if (!atomic_exchange_explicit(&g_fuzz_sync_requested, false,
+                                  memory_order_acq_rel)) {
+        return false;
+    }
+    if (resume_pc != NULL) {
+        *resume_pc = atomic_load_explicit(&g_fuzz_sync_resume_pc,
+                                          memory_order_relaxed);
+    }
+    return true;
+}
+
 static void fuzz_snap_point(unsigned int cpu_index, void *udata)
 {
     // optionally wait x seconds after first hook to get to post initialization in some firmwares
@@ -870,6 +938,28 @@ static void fuzz_snap_point(unsigned int cpu_index, void *udata)
         fuzz_sync_point(cpu_index, udata);
     }
 
+    /* A model may mark its response complete from an IRQ.  Consume that
+     * request only after normal control flow has unwound to the top-level
+     * loop, where snapshot restoration and the next input begin cleanly. */
+    if (fuzz_snap_initialized && fuzz_take_sync_request(NULL)) {
+        fuzz_sync_point(cpu_index, udata);
+    }
+
+}
+
+/* Stateful targets commonly return to the snapshot instruction at the end of
+ * every request loop.  Take the baseline and obtain the first message there,
+ * then treat each later visit as the completion boundary of the preceding
+ * message.  Keeping this distinct from fuzz_snap_point preserves the latter's
+ * historical one-shot behaviour for existing stateless targets. */
+static void fuzz_snap_sync_point(unsigned int cpu_index, void *udata)
+{
+    if (!fuzz_snap_initialized) {
+        fuzz_snap_point(cpu_index, udata);
+        return;
+    }
+
+    fuzz_sync_point(cpu_index, udata);
 }
 
 static void fuzz_sync_point(unsigned int cpu_index, void *udata)
@@ -931,6 +1021,10 @@ static void fuzz_sync_point(unsigned int cpu_index, void *udata)
             }
 
             fuzz_activate_message(&msg);
+
+            if (g_fuzz_input_callback) {
+                g_fuzz_input_callback();
+            }
             break;
         }
     }
@@ -1046,20 +1140,6 @@ int fuzz_init(int argc, char **argv) {
         utils_die("[state] Couldn't parse all writable memory definitions");
     }
 
-    const char *extra_ranges_path = utils_get_arg("savestate_extra_ranges",
-                                                   argc, argv);
-    if (extra_ranges_path && extra_ranges_path[0]) {
-        size_t extra_ranges_count = 0;
-        uint32_t *extra_ranges = fuzz_get_writable_ranges(extra_ranges_path,
-                                                           &extra_ranges_count);
-        if (!extra_ranges || !fuzz_append_memory_ranges(
-                &g_savestate_ranges, &g_savestate_ranges_count,
-                extra_ranges, extra_ranges_count)) {
-            free(extra_ranges);
-            utils_die("[state] Couldn't parse savestate extra memory definitions");
-        }
-    }
-
     g_snapshot_ranges = fuzz_get_writable_ranges(
         snapshot_ranges_path(), &g_snapshot_ranges_count);
     if (g_snapshot_ranges == NULL || (g_snapshot_ranges_count & 1)) {
@@ -1069,7 +1149,9 @@ int fuzz_init(int argc, char **argv) {
     fuzz_deactivate_message();
 
     virtual_register("assert", virt_assert);
+    virtual_register("fuzz_advance_time", fuzz_advance_time);
     virtual_register("fuzz_snap_point", fuzz_snap_point);
+    virtual_register("fuzz_snap_sync_point", fuzz_snap_sync_point);
     virtual_register("fuzz_state_point", fuzz_state_point);
     virtual_register("fuzz_sync_point", fuzz_sync_point);
 
@@ -1077,8 +1159,7 @@ int fuzz_init(int argc, char **argv) {
     generic_configure(argc, argv);
     fuzz_register_snap_callback(generic_callback);
 
-    if (fuzzing &&
-        (strcasecmp(fuzzing, "true") == 0 || strcmp(fuzzing, "1") == 0)) {
+    if (fuzzing && (strcasecmp(fuzzing, "true") == 0 || strcmp(fuzzing, "1") == 0)) {
         if (!fuzz_backend_init()) {
             utils_die("[sync] Failed backend initialization");
         }
