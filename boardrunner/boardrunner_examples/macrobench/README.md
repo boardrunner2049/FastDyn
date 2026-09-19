@@ -1,115 +1,27 @@
-# macrobench
+# Macrobench: HALucinator vs HALucinator-FD (Figure 9)
 
-End-to-end wall-time comparison of unmodified **HALucinator** (Avatar2
-+ GDB backend) vs **HALucinator-FD** (FastDyn plugin with embedded Python
-interpreter), on four firmware workloads drawn from HALucinator's
-public test corpus.
+End-to-end wall time of four workloads from HALucinator's public test corpus under unmodified **HALucinator** (Avatar2 + GDB backend) and **HALucinator-FD** (the same HALucinator on the FastDyn backend: FastDyn plugin with an embedded Python interpreter). No hardware. Each backend is a self-contained Docker image; nothing is built on the host.
 
-Feeds Figure 9 in the paper.
+| Image | Backend | Pin |
+|---|---|---|
+| `pseclab/halucinator-macro:1.0.1` | HALucinator, upstream `halucinator/halucinator` @ `5403321` unmodified (built on `pseclab/halucinator:5403321`) | `pseclab/halucinator-macro@sha256:f9a6a33bbadfc3527443f89450f68533f1242c1fa9736eca79ba3978ad8b20b8` (3.4 GB) |
+| `pseclab/halucinator-fd-macro:1.0.1` | HALucinator-FD (built on `pseclab/halucinator-fd:1.3.0`, `PSecLab/Halucinator_Turbo` @ `c8bed67` with FastDyn @ `82abf50`) | `pseclab/halucinator-fd-macro@sha256:a49c6323d59f2f007fb8ccd53832ec2f84727402b5a6f8c4a73ab784900518a4` (2.1 GB) |
 
-**For artifact-eval reviewers reproducing the paper's numbers,
-follow [REPRODUCE.md](REPRODUCE.md).** This file describes the
-harness for developers extending it.
-
-## Prereqs
-
-- Docker (rootless or root-mode). On Ubuntu 24.04+, rootless requires
-  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.
-- Python 3.10+ on the host with `tomllib` (stdlib in 3.11+; install
-  `tomli` for 3.10 or use `python3 -c 'import tomllib'` to check).
-- `matplotlib` on the host (for figure regeneration).
-- Two Docker containers, brought up once:
+## Run
 
 ```bash
-./setup_containers.sh
+docker pull pseclab/halucinator-fd-macro:1.0.1
+docker pull pseclab/halucinator-macro:1.0.1
+mkdir -p results && cd results
+docker run --rm -v "$PWD:/results" pseclab/halucinator-fd-macro:1.0.1 all 10   # ~3 min
+docker run --rm -v "$PWD:/results" pseclab/halucinator-macro:1.0.1 all 10      # ~25 min
+docker run --rm -v "$PWD:/results" pseclab/halucinator-macro:1.0.1 summary     # table + average speedup
+docker run --rm -v "$PWD:/results" pseclab/halucinator-macro:1.0.1 plot        # -> macrobench.pdf
 ```
 
-Creates `halucinator` (from `halucinator:latest`) and `halucinator-fd`
-(from `pseclab/halucinator-fd:1.3.0`) as `sleep infinity` daemons.
-Each benchmark run is a `docker exec` — no repeated container startup
-cost.
+`all N` runs the four workloads (`stm32_uart_it`, `zephyr_k64f`, `zephyr_h103`, `zephyr_fs`) N times each and prints one line per run; `<firmware> [N]` runs a subset. Every run is a fresh HALucinator + QEMU process. Before the timed iterations of each firmware, one untimed test run checks that the workload runs in this container (and absorbs the first-use costs of a fresh container: page cache, bytecode); it is not recorded. A run that does not reach its success marker within the per-firmware timeout (`firmwares.toml`, ~3× the expected HALucinator time; `-e TIMEOUT=<s>` overrides) is killed, its output saved to `results/<firmware>_<backend>_iter<i>.log`, and retried once. Both images write rows `iter,firmware,backend,wall_s` into the same `results/<firmware>.csv`, so `summary` and `plot` see both backends.
 
-## Run one workload once
-
-```bash
-python3 runner.py --fw stm32_uart_it --backend halucinator-fd
-python3 runner.py --fw stm32_uart_it --backend halucinator
-```
-
-Prints wall time in seconds (or `TIMEOUT`). Add `--csv` to emit
-`fw,backend,wall_s`. Add `--dump-emu-log <path>` to persist the
-emulator's stdout+stderr for diagnostics (used to extract dispatch
-counts, see below).
-
-## Full sweep
-
-```bash
-./sweep.sh 10                    # 10 measured iterations per (fw, backend)
-python3 summarize.py             # markdown table + average speedup (paper: 12.74x)
-python3 make_macro_figure.py     # -> figure/macrobench.pdf (args: [results dir] [output pdf])
-```
-
-`sweep.sh` writes one CSV per firmware to `results/`, each column is
-`iter,firmware,backend,wall_s`, with `backend` ∈ {`halucinator`,
-`halucinator-fd`}. Each iteration launches a fresh `docker exec` and thus
-a fresh QEMU process — no TCG / interpreter / plugin state carries
-across iterations, so no warm-up discard is performed.
-
-## Extending
-
-`firmwares.toml` defines the workloads. Two shapes:
-
-- `mode = "uart"` — firmware needs scripted input. Runner starts
-  `peers/bench_uart_peer.py` inside the container alongside the
-  emulator. Peer subscribes on the same ZMQ topics
-  (`Peripheral.UARTPublisher.*`) that HALucinator's own
-  `hal_dev_uart` uses, so it's a drop-in substitute for automated
-  timing. Peer sends scripted prompts/responses, watches UART TX for
-  the `success` marker, prints timing to stderr.
-
-- `mode = "stdout"` — firmware terminates on a marker string appearing
-  on the emulator's own stdout (e.g., `zephyr_fs`, which prints
-  `mount /lfs 1` many times before finishing). Runner watches emu
-  stdout directly.
-
-To add a workload:
-
-1. Add a `[name]` block to `firmwares.toml` with `emu_cmd`, `emu_cwd`,
-   `mode`, `timeout`, `success` marker, and (for uart-mode) the
-   scripted `steps`.
-2. Run once untimed to confirm the pipeline works and find the actual
-   terminal marker string.
-3. Add to sweep.sh's default firmware list if you want it in the paper
-   sweep.
-
-## Files
-
-```
-runner.py                one (firmware, backend) run → wall time
-sweep.sh                 loops runner over N iters × all firmwares
-summarize.py             [dir]/*.csv → markdown table + average speedup (default dir: results/)
-make_macro_figure.py     [dir]/*.csv + stats/*.yaml → macrobench.pdf (default dir: results/)
-firmwares.toml           per-firmware spec
-peers/bench_uart_peer.py peer that replaces hal_dev_uart for timing
-setup_containers.sh      one-time Docker bring-up
-results/                 per-firmware CSVs of a fresh sweep; results/paper/ holds the paper's (committed)
-stats/                   per-firmware halucinator stats.yaml with
-                         intercept dispatch counts (committed)
-figure/macrobench.pdf    the rendered Figure 9
-```
-
-## Output format
-
-`results/<firmware>.csv`:
-
-```
-iter,firmware,backend,wall_s
-1,stm32_uart_it,halucinator,1.5595
-1,stm32_uart_it,halucinator-fd,1.7033
-...
-```
-
-`summarize.py` prints a markdown table:
+Expected (`summary`; paper, 10 iterations):
 
 ```
 | firmware       | HALucinator (s) | HALucinator-FD (s)  | speedup |
@@ -117,28 +29,11 @@ iter,firmware,backend,wall_s
 | zephyr_k64f    |    10.63 ± 0.03 |     2.18 ± 0.03 |   4.87× |
 | zephyr_h103    |    10.48 ± 0.01 |     1.54 ± 0.01 |   6.82× |
 | zephyr_fs      |   122.12 ± 0.10 |     3.18 ± 0.02 |  38.37× |
-
-geomean speedup across 4 workloads: 5.84×
+average speedup across 4 workloads: 12.74×
 ```
 
-## Intercept counts
+Absolute times vary ±10% with the host; the speedups reproduce within ±5% and their ordering (`zephyr_fs` >> `zephyr_h103` > `zephyr_k64f` >> `stm32_uart_it`) is stable. `stm32_uart_it` is expected to be *slower* on HALucinator-FD (0.91×): it issues only 8 handler dispatches (`stats/stm32_uart_it.yaml`, HALucinator's own per-breakpoint counters), too few to amortize the plugin's fixed load cost, while `zephyr_fs` issues 1,177 (`stats/zephyr_fs.yaml`). The paper's per-iteration CSVs are in `results/paper/`.
 
-`stats/<firmware>.yaml` records the per-breakpoint dispatch counts
-(HALucinator's own `hal_stats` counters), used to annotate workload
-complexity in Figure 9. Regenerate by re-running each firmware and
-copying the emitted `tmp/HALucinator/stats.yaml` (or `tmp/<name>/stats.yaml`
-if the firmware uses `-n <name>`).
+## How it works
 
-The paper reports these dispatch counts as evidence that the
-`stm32_uart_it` slowdown is a startup-dominated microbenchmark
-(8 total dispatches) whereas `zephyr_fs` amortizes the fixed
-plugin cost over 1,177 dispatches, yielding the 38.37× speedup.
-
-## Naming
-
-For clarity across scripts, docs, and paper prose:
-
-| CLI / container / CSV | Human-facing label |
-|---|---|
-| `halucinator` | HALucinator (unmodified, Avatar2 + GDB backend) |
-| `halucinator-fd`  | HALucinator-FD (HALucinator on the FastDyn backend: FastDyn plugin with embedded Python interpreter) |
+Wall time is measured by the UART peer (`peers/bench_uart_peer.py`), a scripted stand-in for HALucinator's `hal_dev_uart` that subscribes to the firmware's UART over HALucinator's own ZMQ topics: from the moment it is listening and the emulator is launched until the firmware's success marker appears on the UART, sending scripted input at the prompts in between (`firmwares.toml`). The peer is started first and reconnects to HALucinator's `ipc://` sockets every 2 ms until the emulator binds them; with libzmq's default 100 ms interval the fast FD backend can print the whole prompt before the peer is subscribed, which shows up as a hung run. `macro_run.py` is the in-container runner and `run.sh` the entrypoint (`all|<fw>...|summary|plot`); `summarize.py` and `make_macro_figure.py` read `results/*.csv`. The Dockerfile builds either image from this directory: `docker build --build-arg BASE=<base image> --build-arg BACKEND=halucinator|halucinator-fd -t <name> .`.

@@ -16,12 +16,32 @@ import sys
 import threading
 import time
 
+import zmq
+
 # halucinator's src tree is on PYTHONPATH inside both container images,
 # but add it defensively in case this runs from /tmp.
 sys.path.insert(0, "/root/halucinator/src")
 
 from halucinator.external_devices.ioserver import IOServer  # noqa: E402
 import halucinator.hal_log as hal_log  # noqa: E402
+
+# The peer connects to HALucinator's ipc:// sockets before the emulator has
+# bound them (it must subscribe first, or the firmware's first bytes are
+# dropped by the PUB side). libzmq retries a failed connect only every
+# 100 ms by default; a fast backend can bind and print the whole prompt
+# inside that window, and the prompt is lost. Retry every 2 ms instead.
+# Must be set before connect(), so wrap socket creation.
+_orig_socket = zmq.Context.socket
+
+
+def _socket(self, socket_type, *args, **kwargs):
+    sock = _orig_socket(self, socket_type, *args, **kwargs)
+    sock.setsockopt(zmq.RECONNECT_IVL, 2)
+    sock.setsockopt(zmq.RECONNECT_IVL_MAX, 2)
+    return sock
+
+
+zmq.Context.socket = _socket
 
 
 class Peer:

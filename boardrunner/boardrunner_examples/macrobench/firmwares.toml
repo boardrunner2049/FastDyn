@@ -3,6 +3,8 @@
 # Two modes:
 #   mode = "uart"    — peer sends scripted input via ZMQ; exits on `success`.
 #   mode = "stdout"  — runner watches emulator stdout for `success`.
+# `timeout` is the per-iteration limit in seconds (~3x the expected
+# HALucinator time); past it the run is killed, logged and retried once.
 #
 # Paths are container-internal. Both the halucinator and halucinator-fd images
 # expose the halucinator tree at /root/halucinator, so the same spec works
@@ -20,7 +22,7 @@ emu_cmd  = "./test/STM32/example/run.sh"
 emu_cwd  = "/root/halucinator"
 mode     = "uart"
 uart_id  = 1073811456
-timeout  = 120
+timeout  = 60
 success  = "Example Finished"
 steps    = [
   { wait = "Enter 10 characters", send = "0123456789" },
@@ -42,7 +44,7 @@ emu_cwd  = "/root/halucinator"
 mode     = "uart"
 uart_id  = 0
 newline  = true
-timeout  = 240
+timeout  = 90
 success  = "last char was: 0x65"
 steps    = [
   { wait = "Enter a line", send = "test" },
@@ -55,7 +57,7 @@ emu_cwd  = "/root/halucinator"
 mode     = "uart"
 uart_id  = 0
 newline  = true
-timeout  = 240
+timeout  = 90
 success  = "last char was: 0x65"
 steps    = [
   { wait = "Enter a line", send = "test" },
@@ -71,7 +73,7 @@ emu_cwd  = "/root/halucinator"
 mode     = "uart"
 uart_id  = 0
 newline  = false
-timeout  = 600
+timeout  = 400
 success  = "All tests complete."
 steps    = []
 
