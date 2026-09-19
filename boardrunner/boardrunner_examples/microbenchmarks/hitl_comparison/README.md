@@ -1,24 +1,35 @@
-# HITL Microbenchmark: Avatar2 vs FastDyn Passthrough
+# HITL microbenchmark: Avatar2 vs FastDyn passthrough (Figure 8c)
 
-Per-op cost comparison for the paper's Figure 8(c), HITL execution. Both stacks emulate
-the *same* firmware and forward *every* MMIO access to a real STM32F429I-DISC1
-via ST-Link/V2; the two paths differ only in the host software between QEMU
-and the probe:
+Per-op cost of forwarding an MMIO access to a physical **STM32F429I-DISC1** through Avatar2 (`QEMU → Python → OpenOCD → GDB → SWD`) versus FastDyn passthrough (`QEMU → C dispatch → LibHW → libusb → SWD`). The same firmware does N=1000 loads from `GPIOA_IDR` (reads) or N=1000 stores to `GPIOA_BSRR` (writes); the timed window is `bench_start()`…`bench_done()`. **Hardware required**: the board on USB via its on-board ST-Link/V2-1 (`0483:374b`), and the user must be able to open the USB device (udev rule / `plugdev` group). No sensor or wiring.
 
-- **Avatar2**: `QEMU trap → POSIX msg-queue → Python → OpenOCDTarget → GDB
-  → openocd → SWD → chip`
-- **FastDyn passthrough**: `QEMU trap → C dispatch → hw_session → LibHW
-  → libusb → SWD → chip`
+## Run (Docker)
 
-Two directions are measured:
-- **reads**  — N loads from `GPIOA_IDR`  (`0x40020010`, read-only, safe)
-- **writes** — N stores to `GPIOA_BSRR` (`0x40020018`, write-only, atomic
-  bit set/reset; writing `0` is a valid no-op transaction)
+Everything is in one image: `pseclab/hitl-slice:1.0.1` (`pseclab/hitl-slice@sha256:d0cc1cecd2d3869844b47e660bac0bca0bc311b8e624091563bb662f26477566`, 1.8 GB) — patched QEMU, FastDyn plugin with LibHW passthrough, Avatar2 with its avatar-qemu, openocd, and the firmware.
 
-Both addresses live in STM32's vendor peripheral region (`0x40000000-
-0x60000000`), which both stacks forward to the physical chip. On the
-reference host below, FastDyn passthrough is ~**20×** faster than Avatar2
-in both directions.
+```bash
+docker pull pseclab/hitl-slice:1.0.1
+lsusb | grep -i st-link                   # the board must be listed (ST-Link/V2-1, 0483:374b, on the DISC1)
+mkdir -p results && cd results
+docker run --rm -v /dev/bus/usb:/dev/bus/usb --device-cgroup-rule='c 189:* rmw' \
+    pseclab/hitl-slice:1.0.1 check                              # "Cortex-M4 r0p1 processor detected"
+docker run --rm -v /dev/bus/usb:/dev/bus/usb --device-cgroup-rule='c 189:* rmw' \
+    pseclab/hitl-slice:1.0.1 flash                              # idle firmware, once: "flash.sh: OK"
+docker run --rm -v /dev/bus/usb:/dev/bus/usb --device-cgroup-rule='c 189:* rmw' \
+    -v "$PWD:/results" pseclab/hitl-slice:1.0.1 avatar2 10      # ~10 s per run, x2 directions
+docker run --rm -v /dev/bus/usb:/dev/bus/usb --device-cgroup-rule='c 189:* rmw' \
+    -v "$PWD:/results" pseclab/hitl-slice:1.0.1 fastdyn 10      # ~0.5 s per run, x2 directions
+docker run --rm -v "$PWD:/results" pseclab/hitl-slice:1.0.1 plot   # -> fig8.pdf
+```
+
+`avatar2`/`fastdyn` print one line per run and write `hitl_<tool>_{reads,writes}.csv` (`tool,direction,iters,total_s,per_op_ms`); `all N` runs both. Each run is a fresh emulator session (fresh QEMU and openocd). `plot` renders all of Figure 8, using every `*_run.log`/`*.csv` present in `results/` (e.g. from the `fastdyn-slice`/`halucinator-slice` runs of Figure 8a/8b) and the shipped measurements for the rest; it prints which. Use `100` for the paper's sample size (~35 min for Avatar2, ~2 min for FastDyn).
+
+Expected per 1000-op run: Avatar2 ≈10.08 s (10.08 ms/op), FastDyn passthrough ≈0.506 s (0.506 ms/op), both directions; the ≈20× ratio is the claim. Absolute values depend on the USB stack and ST-Link firmware (±30–50% between hosts); the ratio is stable because both stacks ride the same USB link.
+
+Why flash: FastDyn's passthrough resumes the target CPU after connecting, so whatever is in flash runs while the probe is used; the idle `while(1)` firmware keeps it from touching SRAM. `flash` is needed once per board (the halucinator/BoardRunner examples flash their own idle firmwares onto other boards). Docker flags: `-v /dev/bus/usb:/dev/bus/usb` exposes the probe; `--device-cgroup-rule='c 189:* rmw'` is needed by rootful Docker and ignored by rootless Docker, where the host user's own permission on the device node applies. `docker build -f Dockerfile -t hitl-slice .` from the FastDyn root rebuilds the image (on top of `fastdyn-slice`; ~10 min for avatar-qemu).
+
+## Running without Docker
+
+The rest of this file describes the manual, from-source setup the image automates.
 
 ## Contents
 
