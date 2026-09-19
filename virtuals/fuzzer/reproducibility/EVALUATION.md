@@ -21,10 +21,10 @@ Pull the published image, then run from a directory where `results/` may be
 created:
 
 ```sh
-docker pull pseclab/fastdyn-fuzzer:latest
+docker pull pseclab/fastdyn-fuzzer:1.0.0
 
 mkdir -p results
-IMAGE=pseclab/fastdyn-fuzzer:latest
+IMAGE=pseclab/fastdyn-fuzzer:1.0.0
 
 # QEMU-only cold-start baseline: MQTT, lwIP, SD-card, and Modbus.
 docker run --rm -it -v "$PWD/results:/results" "$IMAGE" \
