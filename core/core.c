@@ -851,7 +851,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                     }
 #endif
                     fuzz_bbl_observe((uint32_t)qemu_plugin_insn_vaddr(insn), (uint32_t)n);
-                    
+
                     qemu_plugin_u64 entry_tmp = {0};
                     entry_tmp.offset = (size_t)&core_cc_ret.list->log_buf;
                     entry_tmp.data = (void *)&tracer_consumed_index;
@@ -1236,7 +1236,7 @@ void parse_rules_file(const char *filename) {
             fprintf(stderr, "Max rules limit reached (%d), skipping rest\n", MAX_RULES);
             break;
         }
-        
+
         rules[rules_count].address = strtoull(addr_str, NULL, 0);
         rules[rules_count].func = cb;
 
@@ -1320,7 +1320,7 @@ static int core_parse_arguments(int argc, char ** argv) {
     filename = utils_get_arg("exact_budget_stop", argc, argv);
     if (!arg_is_disabled(filename) &&
         (strcasecmp(filename, "true") == 0 || strcmp(filename, "1") == 0)) {
-        qemu_plugin_set_budget_exact_stop(true);
+        // qemu_plugin_set_budget_exact_stop(true);
     }
 
 	return 0;
