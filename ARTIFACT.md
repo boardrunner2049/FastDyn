@@ -2,7 +2,7 @@
 
 Artifact for *BoardRunner: Automatic Firmware Rehosting Using High-Fidelity Compositional Device Models*. This file is the entry point for evaluators: what is where, and how to run each experiment of the paper. Every experiment is a published, self-contained Docker image run as `docker run --rm` with a host directory mounted at `/results`; nothing needs to be built, and this repository is only needed to read sources, configurations and the shipped measurements. Per-experiment READMEs next to each experiment give the details.
 
-Archived copy: https://doi.org/10.5281/zenodo.22839675 · Sources: https://github.com/PSecLab/FastDyn (this repository, incl. the BoardRunner examples and generated models), https://github.com/PSecLab/libhw, patched QEMU https://github.com/Arslan8/qemu (branch `fastdyn`) · Images: https://hub.docker.com/u/pseclab
+Archive (complete source snapshot, this file, the paper and the appendix): https://doi.org/10.5281/zenodo.22839675 · Images: https://hub.docker.com/u/pseclab · Maintained sources: https://github.com/PSecLab/FastDyn (may lag the archive), with https://github.com/PSecLab/libhw and the patched QEMU https://github.com/Arslan8/qemu (branch `fastdyn`), which the image builds fetch at pinned commits.
 
 ## Requirements
 
