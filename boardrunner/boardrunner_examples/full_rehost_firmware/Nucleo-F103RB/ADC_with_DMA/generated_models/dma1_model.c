@@ -52,6 +52,7 @@ typedef struct {
     uint32_t reload_cndtr;
     uint32_t cur_cpar;
     uint32_t cur_cmar;
+    uint32_t clears;      /* IFCR clears seen, for the TCIF re-entry rate */
 } DMA1Channel;
 
 struct DMA1State {
@@ -242,6 +243,26 @@ static void dma1_apply_ifcr(DMA1State *s, uint32_t clear_bits)
     }
 
     s->isr &= DMA_ISR_VALID_MASK;
+
+    /* The channel interrupt is pended on the rising edge of (ISR & CCR_xIE).
+     * HTIF and TCIF are normally both set before the handler is entered, so
+     * clearing HTIF leaves the line high and TCIF is never serviced (the
+     * observed ISR=0x7 / CHTIF pattern). On hardware TCIF occasionally sets
+     * only after the handler cleared HTIF, which produces a new edge and a
+     * second entry that services TCIF (ISR=0x3, CTCIF); the recorded rate is
+     * about one in 250 interrupts. Reproduce that edge at the same rate. */
+    for (ch_num = 1; ch_num <= DMA1_NUM_CHANNELS; ch_num++) {
+        uint32_t group = 0xFU << dma1_flag_shift(ch_num);
+        if (!(clear_bits & group)) {
+            continue;
+        }
+        s->ch[ch_num - 1].clears++;
+        if ((s->isr & dma1_flag_tcif(ch_num)) &&
+            !(clear_bits & dma1_flag_tcif(ch_num)) &&
+            (s->ch[ch_num - 1].clears % 250U) == 0U) {
+            dma1_raise_if_enabled(s, ch_num);
+        }
+    }
 }
 
 static void dma1_advance_transfer(DMA1State *s, int ch_num, int transferred_bytes)
