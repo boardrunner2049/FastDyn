@@ -6,18 +6,19 @@ function-bypass, host-operation and HITL microbenchmarks (paper Figure 8a-c). Lo
 
 Every bar is computed from a results file; nothing is typed in by hand:
   * FastDyn function bypass (modifier) / host operation (virtual): `elapsed_ns=` lines from
-    run_benchmarks.sh logs (results/modifier_*.log, results/virtual_*.log,
+    the image's {modifier,virtual}_run.log (`elapsed_ns=` lines,
     or the shipped results/{modifier,virtual}_benchmark.txt).
   * HALucinator function bypass / host operation: per-iteration seconds from
-    baseline/results/{pc_update,counter_update}_benchmark.txt (or the CSVs
-    written by baseline/scripts/run_*_benchmark.sh).
+    baseline/results/{pc_update,counter_update}_benchmark.txt (or the
+    `iter,elapsed_s,per_op_ms` CSVs written by the halucinator-slice image).
   * HITL: per-iteration `total_s` from the hitl_comparison CSVs.
 Each is reported as mean +/- stddev of seconds per one N-op run.
 
 Usage:
     python3 plot_results.py                       # shipped results -> plot.pdf
     python3 plot_results.py -o results/plot.png --dpi 200
-    python3 plot_results.py --fastdyn-modifier results/modifier_20260917-1200.log
+    python3 plot_results.py --fresh ./results -o fig8.pdf   # your own image runs (-v ./results:/results)
+    python3 plot_results.py --fastdyn-modifier my_modifier.log  # override one input
 """
 import argparse
 import re
@@ -51,13 +52,16 @@ def _seconds_per_run(path: Path) -> list[float]:
     CSV with a `total_s` column (HITL harness)."""
     text = path.read_text()
     samples: list[float] = []
-    if text.lstrip().startswith("tool,"):
-        header = text.splitlines()[0].split(",")
-        col = header.index("total_s")
-        for line in text.splitlines()[1:]:
-            if line.strip():
-                samples.append(float(line.split(",")[col]))
-        return samples
+    header = text.lstrip().splitlines()[0].split(",") if text.strip() else []
+    # CSV: the HITL harness (`tool,direction,iters,total_s,...`) or the
+    # HALucinator baseline scripts (`iter,elapsed_s,per_op_ms`).
+    for col_name in ("total_s", "elapsed_s"):
+        if col_name in header:
+            col = header.index(col_name)
+            for line in text.lstrip().splitlines()[1:]:
+                if line.strip():
+                    samples.append(float(line.split(",")[col]))
+            return samples
     for line in text.splitlines():
         m = re.search(r"elapsed_ns=(\d+)", line)
         if m:
@@ -161,8 +165,19 @@ def main() -> None:
     for key, default in DEFAULT_FILES.items():
         ap.add_argument(f"--{key.replace('_', '-')}", type=Path, default=default,
                         help=f"results file for {key} (default: {default.relative_to(BENCH.parent)})")
+    ap.add_argument("--fresh", metavar="DIR", type=Path,
+                    help="directory with {modifier,virtual}_run.log and "
+                         "{pcupdate,counter}_run.csv written by the images "
+                         "(-v DIR:/results); missing files fall back to the shipped ones")
     args = ap.parse_args()
     files = {key: getattr(args, key) for key in DEFAULT_FILES}
+    if args.fresh:
+        for key, name in (("fastdyn_modifier", "modifier_run.log"),
+                          ("fastdyn_virtual", "virtual_run.log"),
+                          ("halucinator_pc", "pcupdate_run.csv"),
+                          ("halucinator_counter", "counter_run.csv")):
+            if (args.fresh / name).is_file():
+                files[key] = args.fresh / name
     data = build_data(files)
     for lbl, grp, m, sd, _ in data:
         print(f"{grp:22s} {lbl.replace(chr(10), ' '):20s} mean={m:.6g} s  stddev={sd:.3g} s")

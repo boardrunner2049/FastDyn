@@ -17,11 +17,11 @@
 #     --build-arg N_INNER=1000000   # firmware loop bound (default 1000)
 #     --build-arg QEMU_REF=fastdyn  # patched-QEMU git ref
 #
-# RUN:
-#     docker run --rm fastdyn-slice:latest                    # modifier bench, 100 runs
-#     docker run --rm fastdyn-slice:latest virtual 100        # virtual bench,  100 runs
-#     docker run --rm fastdyn-slice:latest modifier 500       # modifier bench, 500 runs
-#     docker run --rm -v "$PWD/out:/out" fastdyn-slice:latest modifier 100 > out/mod.log
+# RUN (results land in ./results when it is mounted at /results):
+#     mkdir -p results
+#     docker run --rm -v "$PWD/results:/results" fastdyn-slice:latest both 1000
+#     docker run --rm -v "$PWD/results:/results" fastdyn-slice:latest modifier 100
+#     docker run --rm -v "$PWD/results:/results" fastdyn-slice:latest plot   # -> results/fig8.pdf
 #
 # TIP: create a `.dockerignore` at the FastDyn root before building to avoid
 # copying `fastdyn-env/`, `build/`, `.git/`, `out/`, `fastdyn_work/` into the
@@ -85,6 +85,10 @@ RUN mkdir -p /workspace/qemu/ws \
     && truncate -s 512M /workspace/qemu/ws/my_m4_ram3 \
     && truncate -s 512K /workspace/qemu/ws/my_m4_ram
 
+# matplotlib for `run.sh plot` (Figure 8 rendering inside the container)
+RUN apt-get update && apt-get install -y --no-install-recommends python3-matplotlib \
+    && rm -rf /var/lib/apt/lists/*
+
 # ----------------------------------------------------------------------------
 # FastDyn source + plugin build
 # ----------------------------------------------------------------------------
@@ -131,33 +135,11 @@ RUN cd boardrunner/boardrunner_examples/microbenchmarks/firmware_slicing/firmwar
        | grep -E "slice_probe|bench_start|bench_done"
 
 # ----------------------------------------------------------------------------
-# Entrypoint wrapper
+# Entrypoint: scripts/run.sh (modifier | virtual | both | plot)
 # ----------------------------------------------------------------------------
-# Usage inside container: run.sh [modifier|virtual|both] [iterations]
-RUN mkdir -p /opt/bin
-RUN cat > /opt/bin/run.sh <<'EOF'
-#!/bin/bash
-set -u
-BENCH="${1:-modifier}"
-ITERS="${2:-100}"
-ROOT=/workspace/FastDyn/boardrunner/boardrunner_examples/microbenchmarks/firmware_slicing
-case "$BENCH" in
-    modifier|mod|m)  exec "$ROOT/modifier_benchmarking/run_bench.sh" "$ITERS" ;;
-    virtual|virt|v)  exec "$ROOT/virtuals_benchmarking/run_bench.sh"  "$ITERS" ;;
-    both|all)
-        echo "=== modifier ($ITERS runs) ==="
-        "$ROOT/modifier_benchmarking/run_bench.sh" "$ITERS"
-        echo "=== virtual  ($ITERS runs) ==="
-        "$ROOT/virtuals_benchmarking/run_bench.sh"  "$ITERS"
-        ;;
-    *)
-        echo "Usage: $0 [modifier|virtual|both] [iterations]" >&2
-        exit 2
-        ;;
-esac
-EOF
-RUN chmod +x /opt/bin/run.sh
+RUN install -D -m 0755 boardrunner/boardrunner_examples/microbenchmarks/firmware_slicing/scripts/run.sh /opt/bin/run.sh \
+    && mkdir -p /results
 
 WORKDIR /workspace/FastDyn
 ENTRYPOINT ["/opt/bin/run.sh"]
-CMD ["modifier", "100"]
+CMD ["both", "100"]
