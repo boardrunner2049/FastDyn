@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import shutil
@@ -64,10 +65,14 @@ class FmuBuild:
     release: bool = False
     auto_build: bool = False
     parameters: dict[str, float] | None = None
+    compose_config: Path | None = None
+    config_path: Path | None = None
+    compiler_root: Path | None = None
+    compose_table: str | None = None
 
     @property
     def rumoca_dir(self) -> Path:
-        return self.repo_root / RUMOCA_REL
+        return self.compiler_root or self.repo_root / RUMOCA_REL
 
     @property
     def fmu_path(self) -> Path:
@@ -77,7 +82,9 @@ class FmuBuild:
     def artifact_path(self) -> Path:
         if self.package:
             return self.fmu_path
-        return self.output / "modelDescription.xml"
+        direct = self.output / "modelDescription.xml"
+        nested = self.output / self.model.replace(".", "_") / "modelDescription.xml"
+        return direct if direct.exists() or not nested.exists() else nested
 
     @property
     def source_roots(self) -> tuple[Path, ...]:
@@ -295,6 +302,27 @@ def resolve(
         source_root = source_roots[0]
         extra_source_roots = source_roots[1:]
 
+    physics = model_values.get("physics")
+    if "physics" in model_values:
+        if not isinstance(physics, dict):
+            raise FmuConfigError("[FMU] physics must be a table")
+        if "compose" in model_values:
+            raise FmuConfigError("[FMU] use either an inline physics table or a compose path")
+    compose_config = None
+    compose_table = None
+    if "compose" in model_values or os.environ.get("FASTDYN_FIRE_CONFIG"):
+        compose_config = repo_relative(
+            Path(_string(model_values, "compose", "FASTDYN_FIRE_CONFIG", None)), repo_root
+        )
+    elif physics is not None:
+        if physics.get("model_name") != model:
+            raise FmuConfigError("[FMU] physics.model_name must match model")
+        compose_config = config_path
+        compose_table = (
+            f"FMU.models.{json.dumps(name, ensure_ascii=False)}.physics"
+            if "models" in fmu_root else "FMU.physics"
+        )
+
     output_default = Path("out") / "fmi3" / identifier
     return FmuBuild(
         name=name,
@@ -325,10 +353,14 @@ def resolve(
             False,
         ),
         parameters=_parameters(model_values),
+        compose_config=compose_config,
+        compose_table=compose_table,
+        config_path=config_path,
+        compiler_root=repo_relative(Path(os.environ.get("FASTDYN_RUMOCA_DIR") or fmu_root.get("rumoca_dir", str(RUMOCA_REL))), repo_root),
     )
 
 
-def cargo_command(build: FmuBuild) -> list[str]:
+def cargo_command(build: FmuBuild, *, legacy_build: bool = True) -> list[str]:
     command = ["cargo", "run"]
     if build.release:
         command.append("--release")
@@ -354,7 +386,7 @@ def cargo_command(build: FmuBuild) -> list[str]:
             "fmi3",
         ]
     )
-    if build.package:
+    if build.package and legacy_build:
         command.append("--build")
     return command
 
@@ -404,6 +436,11 @@ def _newest_model_mtime(build: FmuBuild) -> float:
 
 
 def needs_build(build: FmuBuild) -> bool:
+    if build.compose_config is not None:
+        from .physics_composition import input_digest
+        stamp = build.output / "fire-build.sha256"
+        return (not build.artifact_path.exists() or not stamp.exists()
+                or stamp.read_text().strip() != input_digest(build))
     artifact = build.artifact_path
     if not artifact.exists():
         return True
@@ -415,16 +452,43 @@ def needs_build(build: FmuBuild) -> bool:
 def build_fmu(build: FmuBuild, update_submodules_first: bool = True) -> FmuBuild:
     if update_submodules_first:
         update_submodules(build.repo_root)
+    if build.compose_config is not None:
+        from .physics_composition import compose, stage_msl
+        compose(build)
+        stage_msl(build)
     require_build_inputs(build)
+    # New Rumoca exports a standards-valid source FMU; older pinned versions
+    # provide their own --build switch. Ask the CLI instead of guessing versions.
+    help_command = ["cargo", "run"] + (["--release"] if build.release else [])
+    help_command += ["-p", "rumoca", "--", "compile", "--help"]
+    cli_help = subprocess.run(help_command, cwd=build.rumoca_dir, check=True,
+                              capture_output=True, text=True).stdout
+    legacy_build = "--build" in cli_help
     with timing.phase("fmu.rumoca_compile", model=build.model, package=build.package):
-        subprocess.run(cargo_command(build), cwd=build.rumoca_dir, check=True)
+        try:
+            subprocess.run(cargo_command(build, legacy_build=legacy_build), cwd=build.rumoca_dir, check=True)
+            if build.package and not legacy_build:
+                from .fmi3_package import package_sources
+                package_sources(build)
+        except (subprocess.CalledProcessError, FmuConfigError, OSError):
+            if build.compose_config is not None:
+                from .physics_composition import record_compilation
+                record_compilation(build, "failed")
+            raise
+    if not build.artifact_path.is_file():
+        raise FmuConfigError(f"Compiler did not produce {build.artifact_path}")
+    if build.compose_config is not None:
+        from .physics_composition import input_digest, record_compilation
+        record_compilation(build, "passed")
+        (build.output / "fire-build.sha256").write_text(input_digest(build) + "\n")
     return build
 
 
 def _model_description_xml(build: FmuBuild) -> bytes:
-    xml_path = build.output / "modelDescription.xml"
-    if xml_path.is_file():
-        return xml_path.read_bytes()
+    for xml_path in (build.output / "modelDescription.xml",
+                     build.output / build.model.replace(".", "_") / "modelDescription.xml"):
+        if xml_path.is_file():
+            return xml_path.read_bytes()
 
     if build.fmu_path.is_file():
         with zipfile.ZipFile(build.fmu_path) as archive:

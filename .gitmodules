@@ -26,3 +26,6 @@
 [submodule "tools/world"]
 	path = tools/world
 	url = git@github.com:PSecLab/world.git
+[submodule "third_party/courbet_deps/fire_modelica_models"]
+	path = third_party/courbet_deps/fire_modelica_models
+	url = https://github.com/mhcho1994/FIRE_Modelica_Models.git

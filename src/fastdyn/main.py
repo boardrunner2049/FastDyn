@@ -80,7 +80,6 @@ def _auto_build_fmu(config, fmu_name, skip_build):
         if not fmu_build.needs_build(build):
             click.echo(f"FMU ready: {build.artifact_path}")
             return
-        fmu_build.require_build_inputs(build)
         click.echo(f"Building FMU '{build.name}' from {config}")
         fmu_build.build_fmu(build, update_submodules_first=False)
         if build.package:
