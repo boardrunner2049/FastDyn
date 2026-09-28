@@ -142,35 +142,53 @@ bool i2c_slave_device_parse(I2CBus* bus, ConfigSection* model_info) {
                     new_slave->name = curr_slave_info->slave_name;
                     new_slave->address = curr_slave_info->address;
 
-                    char symbol[256];
-                    snprintf(symbol, sizeof(symbol), "%s_send", curr_slave_info->slave_name);
-                    new_slave->send = (SlaveSendFunc)dlsym(scroll_handle, symbol);
+                    /* Fixed symbol names (mirror SPI convention). Each slave
+                     * .so provides `slave_i2c_send`, `slave_i2c_receive`,
+                     * `slave_i2c_event`, and optionally `slave_i2c_init`. */
+                    new_slave->send = (SlaveSendFunc)dlsym(scroll_handle, "slave_i2c_send");
                     if (!new_slave->send) {
-                        fprintf(stderr, "Missing send function ('%s') in the slave model '%s'\n", symbol, curr_slave_info->scroll_path);
+                        fprintf(stderr, "Missing 'slave_i2c_send' in slave model '%s'\n",
+                                curr_slave_info->scroll_path);
                         dlclose(scroll_handle);
                         free(slavelist->slave);
                         free(slavelist);
                         return false;
                     }
 
-                    snprintf(symbol, sizeof(symbol), "%s_receive", curr_slave_info->slave_name);
-                    new_slave->recv = (SlaveRecvFunc)dlsym(scroll_handle, symbol);
+                    new_slave->recv = (SlaveRecvFunc)dlsym(scroll_handle, "slave_i2c_receive");
                     if (!new_slave->recv) {
-                        fprintf(stderr, "Missing receive function ('%s') in the slave model '%s'\n", symbol, curr_slave_info->scroll_path);
+                        fprintf(stderr, "Missing 'slave_i2c_receive' in slave model '%s'\n",
+                                curr_slave_info->scroll_path);
                         dlclose(scroll_handle);
                         free(slavelist->slave);
                         free(slavelist);
                         return false;
                     }
 
-                    snprintf(symbol, sizeof(symbol), "%s_event", curr_slave_info->slave_name);
-                    new_slave->event = (SlaveEventFunc)dlsym(scroll_handle, symbol);
-                     if (!new_slave->event) {
-                        fprintf(stderr, "Missing event function ('%s') in the slave model '%s'\n", symbol, curr_slave_info->scroll_path);
+                    new_slave->event = (SlaveEventFunc)dlsym(scroll_handle, "slave_i2c_event");
+                    if (!new_slave->event) {
+                        fprintf(stderr, "Missing 'slave_i2c_event' in slave model '%s'\n",
+                                curr_slave_info->scroll_path);
                         dlclose(scroll_handle);
                         free(slavelist->slave);
                         free(slavelist);
                         return false;
+                    }
+
+                    /* Optional per-slave init hook. Missing is fine — many
+                     * I2C slaves have nothing to init. If present, called
+                     * once with TOML-carried attributes (data_source URI
+                     * etc.) before any transaction. */
+                    SlaveI2cInitFunc slave_init =
+                        (SlaveI2cInitFunc)dlsym(scroll_handle, "slave_i2c_init");
+                    if (slave_init) {
+                        I2cSlaveInit info = {
+                            .slave_name  = curr_slave_info->slave_name,
+                            .address     = (uint16_t)curr_slave_info->address,
+                            .data_source = curr_slave_info->data_source, // may be NULL
+                            .scroll_path = curr_slave_info->scroll_path,
+                        };
+                        slave_init(&info);
                     }
                 }
             }

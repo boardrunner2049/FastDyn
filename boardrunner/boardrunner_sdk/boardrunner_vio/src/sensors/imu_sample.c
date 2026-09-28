@@ -10,7 +10,7 @@
 
 typedef struct {
     const char *device_name;
-    BoardrunnerImuSample sample;
+    BoardrunnerImuSampleLSB sample;
 } BoardrunnerImuDefault;
 
 static const BoardrunnerImuDefault k_imu_defaults[] = {
@@ -96,7 +96,7 @@ static void apply_field_override(const char *device_key, const char *field, int1
     }
 }
 
-static BoardrunnerImuSample default_sample_for_device(const char *device_name)
+static BoardrunnerImuSampleLSB default_sample_for_device(const char *device_name)
 {
     size_t i;
 
@@ -109,7 +109,7 @@ static BoardrunnerImuSample default_sample_for_device(const char *device_name)
     return k_imu_defaults[0].sample;
 }
 
-void boardrunner_imu_get_sample(const char *device_name, BoardrunnerImuSample *sample)
+void boardrunner_imu_get_sample(const char *device_name, BoardrunnerImuSampleLSB *sample)
 {
     char device_key[48];
 

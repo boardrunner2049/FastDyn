@@ -24,6 +24,7 @@ typedef struct {
     char* slave_name;   //name of current slave device
     char* scroll_path;   //scroll of current slave device
     bool _is_scroll;    //whether it's a share lib or built in qemu model
+    char* data_source;  //optional boardrunner:// URI for VIO channel attach
 } I2CDevice;
 
 typedef struct {
@@ -39,6 +40,7 @@ typedef struct {
     int cs_id;
     char* scroll_path;
     bool is_scroll_path;
+    char* data_source;  //optional boardrunner:// URI for VIO channel attach
 } SPISlaveDevice;
 
 typedef struct {

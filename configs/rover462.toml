@@ -644,6 +644,7 @@ logger_content = """
     cs_id = 3
     bus = "spi"
     device_scroll = "boardrunner/boardrunner_sdk/build/ms5611_spi1.so"
+    data_source = "boardrunner://vehicle/0/sensor/baro/0"
 
 [Device.spi4]
     ranges = [["0x40013400", "0x40013800"]]
@@ -667,6 +668,7 @@ logger_content = """
     bus = "spi"
     cs_id = 2
     device_scroll = "boardrunner/boardrunner_sdk/build/ms5611_spi4.so"
+    data_source = "boardrunner://vehicle/0/sensor/baro/1"
 
 [[Device.spi4.connections]]
     type    = "slave"
@@ -676,6 +678,7 @@ logger_content = """
     cs_id = 4
     bus = "spi"
     device_scroll = "boardrunner/boardrunner_sdk/build/icm20602_spi.so"
+    data_source = "boardrunner://vehicle/0/sensor/imu/0"
 
 [[Device.spi4.connections]]
     type    = "slave"
@@ -685,6 +688,7 @@ logger_content = """
     cs_id = 1
     bus = "spi"
     device_scroll = "boardrunner/boardrunner_sdk/build/icm20948_spi.so"
+    data_source = "boardrunner://vehicle/0/sensor/imu/1"
 
 [[Device.spi1.connections]]
     type    = "slave"
@@ -694,6 +698,7 @@ logger_content = """
     cs_id = 4
     bus = "spi"
     device_scroll = "boardrunner/boardrunner_sdk/build/mpu9250_spi.so"
+    data_source = "boardrunner://vehicle/0/sensor/imu/2"
 
 [Device.i2c2]
     ranges = [["0x40005800", "0x40005c00"]]

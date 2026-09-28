@@ -4,10 +4,19 @@
 #include <device.h>
 #include <boardrunner/vio.h>
 #include <boardrunner/spi.h>
+#include <boardrunner/canonical.h>
+#include <boardrunner/channel.h>
+#include <boardrunner/packers/measurement_specialties.h>
 
 #define MS5611_CMD_RESET        0x1E
 #define MS5611_CMD_PROM_BASE    0xA0
 #define MS5611_CMD_ADC_READ     0x00
+
+/* VIO channel state — set by slave_spi_init if data_source is in TOML.
+ * When g_channel is NULL, the model falls back to the legacy hardcoded
+ * D1/D2 counter pattern for bit-exact boot behaviour. */
+static BrChannel*        g_channel = NULL;
+static MS5611PromCoeffs  g_coeffs;
 
 typedef struct {
     uint16_t prom[8];
@@ -98,6 +107,19 @@ static void ms5611_prepare_adc(MS5611State *s) {
 static void ms5611_start_conversion(MS5611State *s, bool is_d2) {
     s->sample_counter++;
     s->last_conv_is_d2 = is_d2;
+
+    /* Live SI sample path — read from shm via channel API and pack to D1/D2. */
+    BoardrunnerBaroSample si;
+    if (g_channel != NULL && BR_BARO_READ(g_channel, &si)) {
+        uint32_t d1, d2;
+        ms5611_pack_d1_d2(&si, &g_coeffs, &d1, &d2);
+        s->d1 = d1;
+        s->d2 = d2;
+        return;
+    }
+
+    /* Fallback: legacy hardcoded counter pattern. Preserves bit-exact boot
+     * behaviour when no data_source is configured or the writer is silent. */
     s->d1 = 9085466U + (s->sample_counter & 0x3FU);
     s->d2 = 8569150U + ((s->sample_counter << 1) & 0x3FU);
 }
@@ -160,5 +182,27 @@ void slave_spi_set_cs(int level) {
     if (!g_ms5611.cs_active) {
         g_ms5611.out_pos = 0U;
         g_ms5611.out_len = 0U;
+    }
+}
+
+/* Optional per-slave init hook. Attaches a VIO channel if TOML declared
+ * a data_source URI. See docs/BoardRunner_VIO_Physics_Architecture.md
+ * for the boot-safety fallback story. */
+void slave_spi_init(const SpiSlaveInit *info) {
+    /* Packer must use the same PROM coefficients the model reports on
+     * PROM_READ. Otherwise driver decode(pack(x)) != x. Use the built-in
+     * default set defined in the packer header. */
+    g_coeffs = ms5611_default_prom();
+
+    if (info != NULL && info->data_source != NULL && info->data_source[0] != '\0') {
+        g_channel = api_channel_attach(info->data_source,
+                                       BR_ROLE_READER,
+                                       sizeof(BoardrunnerBaroSample));
+        if (g_channel == NULL) {
+            dev_debug("ms5611_spi1: attach '%s' failed, using static defaults\n",
+                      info->data_source);
+        } else {
+            dev_debug("ms5611_spi1: attached VIO channel '%s'\n", info->data_source);
+        }
     }
 }

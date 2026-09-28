@@ -15,6 +15,24 @@ typedef int     (*SlaveSendFunc)(uint8_t data);
 typedef uint8_t (*SlaveRecvFunc)(void);
 typedef int     (*SlaveEventFunc)(enum i2c_event event);
 
+/*
+ * Optional per-slave init hook. If an I2C slave .so exports
+ * `slave_i2c_init` with this signature, i2c_helper.c calls it once during
+ * bus setup — after the slave is dlopen'd but before any transaction —
+ * with the slave's TOML-defined attributes. Slaves typically use this to
+ * call api_channel_attach() on their `data_source` URI.
+ *
+ * Mirrors the SPI plumbing (see boardrunner/spi.h SpiSlaveInit).
+ */
+typedef struct {
+    const char* slave_name;    // TOML [[Device.<bus>.connections]].name
+    uint16_t    address;
+    const char* data_source;   // boardrunner:// URI or NULL if TOML omitted
+    const char* scroll_path;   // for diagnostics
+} I2cSlaveInit;
+
+typedef void (*SlaveI2cInitFunc)(const I2cSlaveInit* info);
+
 typedef struct {
     char* name;
     uint16_t address;      // you already store as uint16_t

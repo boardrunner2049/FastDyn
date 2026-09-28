@@ -83,6 +83,21 @@ bool spi_slave_device_parse(SPIBus* bus, ConfigSection* model_info, const char* 
                         free(slavelist);
                         return false;
                     }
+
+                    // Optional per-slave init hook. Called once with TOML-carried
+                    // attributes (data_source URI etc.) before any CS transition.
+                    // Absence is fine — many slaves have nothing to init this way.
+                    SlaveInitFunc slave_init =
+                        (SlaveInitFunc)dlsym(scroll_handle, "slave_spi_init");
+                    if (slave_init) {
+                        SpiSlaveInit info = {
+                            .slave_name  = curr_slave_config->slave_name,
+                            .cs_id       = curr_slave_config->cs_id,
+                            .data_source = curr_slave_config->data_source, // may be NULL
+                            .scroll_path = curr_slave_config->scroll_path,
+                        };
+                        slave_init(&info);
+                    }
                 }
             }
 

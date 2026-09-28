@@ -6,6 +6,9 @@
 #include <boardrunner/imu_sample.h>
 #include <boardrunner/vio.h>
 #include <boardrunner/spi.h>
+#include <boardrunner/canonical.h>
+#include <boardrunner/channel.h>
+#include <boardrunner/packers/invensense.h>
 
 #define ICM20602_REG_SMPLRT_DIV    0x19
 #define ICM20602_REG_CONFIG        0x1A
@@ -49,24 +52,47 @@ typedef struct {
 
 static ICM20602State g_icm20602;
 
+/* VIO channel state — populated by slave_spi_init if TOML declared a
+ * data_source URI. When g_channel is NULL (no URI, or attach failed), the
+ * model falls back to the legacy chip-LSB sample source for bit-exact
+ * boot behaviour. */
+static BrChannel*         g_channel = NULL;
+static InvensenseChipScale g_scale;
+
 static void icm20602_store_be16(uint8_t *dst, int16_t v) {
     dst[0] = (uint8_t)(((uint16_t)v >> 8) & 0xFFU);
     dst[1] = (uint8_t)((uint16_t)v & 0xFFU);
 }
 
+/* Refresh the 14-byte ACCEL_XOUT_H..GYRO_ZOUT_L window from whichever
+ * sample source is currently active. Contiguous frame layout matches the
+ * chip register map so the packer's output can be memcpy'd straight in. */
 static void icm20602_update_sample(ICM20602State *s) {
-    BoardrunnerImuSample sample;
-
     s->sample_counter++;
-    boardrunner_imu_get_sample("icm20602", &sample);
 
-    icm20602_store_be16(&s->regs[ICM20602_REG_ACCEL_XOUT_H + 0], sample.ax_lsb);
-    icm20602_store_be16(&s->regs[ICM20602_REG_ACCEL_XOUT_H + 2], sample.ay_lsb);
-    icm20602_store_be16(&s->regs[ICM20602_REG_ACCEL_XOUT_H + 4], sample.az_lsb);
-    icm20602_store_be16(&s->regs[ICM20602_REG_TEMP_OUT_H], sample.temp_lsb);
-    icm20602_store_be16(&s->regs[ICM20602_REG_GYRO_XOUT_H + 0], sample.gx_lsb);
-    icm20602_store_be16(&s->regs[ICM20602_REG_GYRO_XOUT_H + 2], sample.gy_lsb);
-    icm20602_store_be16(&s->regs[ICM20602_REG_GYRO_XOUT_H + 4], sample.gz_lsb);
+    BoardrunnerImuSample si;
+    if (g_channel != NULL && BR_IMU_READ(g_channel, &si)) {
+        /* Live SI sample from a VIO writer (Gazebo endpoint, fake writer,
+         * etc.). Pack through the invensense translator into the register
+         * frame. Layout is ACCEL_TEMP_GYRO for ICM20602. */
+        uint8_t frame[14];
+        invensense_pack_be16(&si, &g_scale, frame);
+        memcpy(&s->regs[ICM20602_REG_ACCEL_XOUT_H], frame, sizeof(frame));
+    } else {
+        /* No writer attached OR seq==0 (writer never published). Serve the
+         * legacy static defaults directly in LSB — guarantees Stage-A
+         * bit-exact regression vs the pre-VIO model. */
+        BoardrunnerImuSampleLSB lsb;
+        boardrunner_imu_get_sample("icm20602", &lsb);
+
+        icm20602_store_be16(&s->regs[ICM20602_REG_ACCEL_XOUT_H + 0], lsb.ax_lsb);
+        icm20602_store_be16(&s->regs[ICM20602_REG_ACCEL_XOUT_H + 2], lsb.ay_lsb);
+        icm20602_store_be16(&s->regs[ICM20602_REG_ACCEL_XOUT_H + 4], lsb.az_lsb);
+        icm20602_store_be16(&s->regs[ICM20602_REG_TEMP_OUT_H],       lsb.temp_lsb);
+        icm20602_store_be16(&s->regs[ICM20602_REG_GYRO_XOUT_H + 0],  lsb.gx_lsb);
+        icm20602_store_be16(&s->regs[ICM20602_REG_GYRO_XOUT_H + 2],  lsb.gy_lsb);
+        icm20602_store_be16(&s->regs[ICM20602_REG_GYRO_XOUT_H + 4],  lsb.gz_lsb);
+    }
 
     memcpy(s->fifo_sample, &s->regs[ICM20602_REG_ACCEL_XOUT_H], sizeof(s->fifo_sample));
 }
@@ -221,4 +247,29 @@ void slave_spi_set_cs(int level) {
     s->expect_command = true;
     s->read_phase = false;
     s->current_reg = 0U;
+}
+
+/* Optional per-slave init hook called by spi_helper.c after dlopen. If TOML
+ * declared a data_source URI for this slave, we attach a reader-side VIO
+ * channel and swap the sample source over to live SI data. Missing URI or
+ * failed attach leaves g_channel NULL and the model continues on the
+ * static-default LSB fallback path. */
+void slave_spi_init(const SpiSlaveInit *info) {
+    /* Chip-scale defaults match the ±16g / ±2000dps reset-state used in
+     * icm20602_reset_registers. If firmware later reprograms ACCEL_CONFIG /
+     * GYRO_CONFIG, this preset drifts — for now our known-good calibration
+     * happens against these defaults, so mirroring them is correct. */
+    g_scale = invensense_scale_icm20602_default();
+
+    if (info != NULL && info->data_source != NULL && info->data_source[0] != '\0') {
+        g_channel = api_channel_attach(info->data_source,
+                                       BR_ROLE_READER,
+                                       sizeof(BoardrunnerImuSample));
+        if (g_channel == NULL) {
+            dev_debug("icm20602: attach '%s' failed, using static defaults\n",
+                      info->data_source);
+        } else {
+            dev_debug("icm20602: attached VIO channel '%s'\n", info->data_source);
+        }
+    }
 }

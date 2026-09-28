@@ -600,6 +600,11 @@ AppConfig* dev_parse_json_configs(const char* json_string) {
                             if (cJSON_IsBool(is_scroll)) {
                                 current_slave->_is_scroll = cJSON_IsTrue(is_scroll);
                             }
+
+                            cJSON* i2c_data_source = cJSON_GetObjectItemCaseSensitive(slave_item, "data_source");
+                            if (cJSON_IsString(i2c_data_source)) {
+                                current_slave->data_source = strdup(i2c_data_source->valuestring);
+                            }
                         }
                     } else if (strstr(current_device->name, "spi") != 0) {
                         cJSON_ArrayForEach(slave_item, slaves_obj) {
@@ -627,6 +632,11 @@ AppConfig* dev_parse_json_configs(const char* json_string) {
                             cJSON* is_scroll = cJSON_GetObjectItemCaseSensitive(slave_item, "is_scroll_path");
                             if (cJSON_IsBool(is_scroll)) {
                                 current_spi_slave->is_scroll_path = cJSON_IsTrue(is_scroll);
+                            }
+
+                            cJSON* spi_data_source = cJSON_GetObjectItemCaseSensitive(slave_item, "data_source");
+                            if (cJSON_IsString(spi_data_source)) {
+                                current_spi_slave->data_source = strdup(spi_data_source->valuestring);
                             }
                         }
                     }

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # Host-side python endpoint: ap_iomcu_uart_endpoint.py
+import argparse
 import errno
+import mmap
 import os
 import selectors
 import struct
@@ -15,6 +17,27 @@ ENV_CANDIDATES = (
     "PTY_PATH",
     "SERIAL_PATH",
 )
+
+# --- Boardrunner VIO actuator-out publishing ---------------------------------
+# Mirrors include/boardrunner/canonical.h:
+#   BrShmHeader              (64 B):  6*uint32 + 2*uint64 + 6*uint32
+#   BoardrunnerActuatorSample(32 B):  seq, ts_ns, channel, pulse_us, flags, _pad
+BR_SHM_MAGIC       = 0x42525653   # 'BRVS'
+BR_SHM_VERSION     = 1
+BR_SHM_PAGE_SIZE   = 4096
+BR_URI_SCHEME      = "boardrunner://"
+
+BR_HEADER_FMT      = "<6I2Q6I"        # 64 B
+BR_HEADER_SIZE     = struct.calcsize(BR_HEADER_FMT)
+BR_ACTUATOR_FMT    = "<2Q4I"          # 32 B
+BR_ACTUATOR_SIZE   = struct.calcsize(BR_ACTUATOR_FMT)
+BR_HEADER_OFF_SEQ  = 24               # offset of seq inside BrShmHeader
+BR_HEADER_OFF_TS   = 32               # offset of last_write_ns
+BR_PAYLOAD_OFF     = BR_HEADER_SIZE   # payload starts right after header
+BR_SAMPLE_HEALTHY  = 1 << 0
+
+DEFAULT_ACTUATOR_URI_BASE = "boardrunner://vehicle/0/actuator/pwm"
+NUM_PWM_CHANNELS = 16
 
 CODE_READ = 0
 CODE_WRITE = 1
@@ -83,14 +106,124 @@ crc8_table = [
 ]
 
 
-def resolve_path():
-    if len(sys.argv) > 1 and sys.argv[1]:
-        return sys.argv[1]
+def resolve_pty_env():
     for key in ENV_CANDIDATES:
         val = os.environ.get(key)
         if val:
             return val
     return None
+
+
+def _uri_to_shm_path(uri):
+    """URI -> /dev/shm/... path. Mirrors br_uri_to_shm_name in transport/shm.c."""
+    if not uri.startswith(BR_URI_SCHEME):
+        raise ValueError("URI must start with %r: %r" % (BR_URI_SCHEME, uri))
+    tail = uri[len(BR_URI_SCHEME):]
+    if not tail:
+        raise ValueError("URI has no body: %r" % (uri,))
+    name = "/br_" + tail.replace("/", "_")
+    return "/dev/shm" + name
+
+
+class ActuatorShmPublisher:
+    """Publishes IOMCU PWM values to per-channel Boardrunner VIO shm segments.
+
+    One segment per PWM channel at boardrunner://<base>/<idx> for idx in
+    0..NUM_PWM_CHANNELS-1. Uses the same SPSC seqlock protocol as the C
+    transport in boardrunner_vio/src/transport/shm.c so future C readers
+    (Gazebo endpoints, probes) can safely observe values.
+
+    Fail-soft: if a segment cannot be opened, the publisher logs and skips
+    that channel — the IOMCU endpoint must keep working even when shm is
+    unavailable.
+    """
+
+    def __init__(self, uri_base, num_channels=NUM_PWM_CHANNELS):
+        self.uri_base = uri_base.rstrip("/")
+        self.num_channels = num_channels
+        self.channel_seq = [0] * num_channels
+        self.mmaps = [None] * num_channels
+        self.paths = [None] * num_channels
+        self._pid = os.getpid()
+
+    def open_all(self):
+        """Create and initialize all channel segments. Idempotent."""
+        for idx in range(self.num_channels):
+            uri = "%s/%d" % (self.uri_base, idx)
+            path = _uri_to_shm_path(uri)
+            self.paths[idx] = path
+            try:
+                fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+                try:
+                    os.ftruncate(fd, BR_SHM_PAGE_SIZE)
+                    mm = mmap.mmap(fd, BR_SHM_PAGE_SIZE)
+                finally:
+                    os.close(fd)
+            except OSError as e:
+                sys.stderr.write(
+                    "ap_iomcu_uart_endpoint: shm open failed for %s: %s\n"
+                    % (path, e))
+                continue
+
+            # Write header. seq=0 signals "no sample published yet" to
+            # readers; the first note_output_write will bump to 2 (even).
+            header = struct.pack(
+                BR_HEADER_FMT,
+                BR_SHM_MAGIC,      # magic
+                BR_SHM_VERSION,    # version
+                BR_ACTUATOR_SIZE,  # payload_size
+                1,                 # slot_count
+                0,                 # flags
+                self._pid,         # writer_pid
+                0,                 # seq (fresh)
+                0,                 # last_write_ns
+                0, 0, 0, 0, 0, 0,  # reserved[6]
+            )
+            mm[0:BR_HEADER_SIZE] = header
+            # Zero the payload slot.
+            mm[BR_PAYLOAD_OFF:BR_PAYLOAD_OFF + BR_ACTUATOR_SIZE] = b"\x00" * BR_ACTUATOR_SIZE
+            self.mmaps[idx] = mm
+            self.channel_seq[idx] = 0
+
+    def publish(self, idx, pulse_us):
+        """Seqlock-commit one PWM value on channel idx. Fail-soft on error."""
+        if idx < 0 or idx >= self.num_channels:
+            return
+        mm = self.mmaps[idx]
+        if mm is None:
+            return
+
+        new_seq = self.channel_seq[idx] + 2  # skip odd (mid-write) to next even
+        seq_odd = new_seq - 1
+        try:
+            struct.pack_into("<Q", mm, BR_HEADER_OFF_SEQ, seq_odd)
+            ts_ns = time.monotonic_ns()
+            payload = struct.pack(
+                BR_ACTUATOR_FMT,
+                new_seq,              # payload seq matches header seq
+                ts_ns,                # timestamp_ns
+                idx,                  # channel
+                pulse_us & 0xFFFFFFFF,# pulse_us
+                BR_SAMPLE_HEALTHY,    # flags
+                0,                    # _pad
+            )
+            mm[BR_PAYLOAD_OFF:BR_PAYLOAD_OFF + BR_ACTUATOR_SIZE] = payload
+            struct.pack_into("<Q", mm, BR_HEADER_OFF_TS, ts_ns)
+            struct.pack_into("<Q", mm, BR_HEADER_OFF_SEQ, new_seq)
+            self.channel_seq[idx] = new_seq
+        except (ValueError, OSError) as e:
+            sys.stderr.write(
+                "ap_iomcu_uart_endpoint: shm publish failed for channel %d: %s\n"
+                % (idx, e))
+
+    def close(self):
+        for i, mm in enumerate(self.mmaps):
+            if mm is not None:
+                try:
+                    mm.close()
+                except Exception:
+                    pass
+                self.mmaps[i] = None
 
 
 def crc_crc8(data):
@@ -183,12 +316,13 @@ def build_write_ack(page, offset):
 
 
 class MockIOMCU:
-    def __init__(self):
+    def __init__(self, actuator_publisher=None):
         self.pages = {}
         self.seq = 0
         self.status_flags = 0x0001
         self.setup_flags = 0x0000
         self.bootstrap_index = 0
+        self.actuator_publisher = actuator_publisher
         self.rc_channels = [1500] * MAX_RC_CHANNELS
         rc_defaults = parse_pwm_list(os.environ.get("AP_IOMCU_RC_DEFAULTS"), MAX_RC_CHANNELS)
         for i, value in enumerate(rc_defaults):
@@ -319,6 +453,8 @@ class MockIOMCU:
             idx = offset + i
             if 0 <= idx < len(self.output_channels):
                 self.output_channels[idx] = clamp_u16(value)
+                if self.actuator_publisher is not None:
+                    self.actuator_publisher.publish(idx, self.output_channels[idx])
         self.output_seq = (self.output_seq + 1) & 0xFFFFFFFF
         self.output_updated_us = monotonic_us()
         self._sync_output_pages()
@@ -477,15 +613,49 @@ def update_selector(sel, fd, pending_tx):
     sel.modify(fd, mask, "pty")
 
 
+def parse_cli():
+    parser = argparse.ArgumentParser(
+        description="ArduPilot IOMCU UART mock endpoint (Boardrunner VIO)")
+    parser.add_argument(
+        "path", nargs="?", default=None,
+        help="PTY path or symlink to bind. Falls back to env vars if omitted.")
+    parser.add_argument(
+        "--actuator-uri-base", default=None,
+        help=("Boardrunner URI base for PWM publishing. Per-channel segments "
+              "are created as <base>/0 .. <base>/%d. "
+              "Default: %s. Pass empty string to disable shm publishing."
+              % (NUM_PWM_CHANNELS - 1, DEFAULT_ACTUATOR_URI_BASE)))
+    return parser.parse_args()
+
+
 def main():
-    path = resolve_path()
+    args = parse_cli()
+    path = args.path or resolve_pty_env()
+
+    if args.actuator_uri_base is None:
+        uri_base = os.environ.get("AP_IOMCU_ACTUATOR_URI_BASE",
+                                  DEFAULT_ACTUATOR_URI_BASE)
+    else:
+        uri_base = args.actuator_uri_base
+
+    actuator_publisher = None
+    if uri_base:
+        actuator_publisher = ActuatorShmPublisher(uri_base)
+        actuator_publisher.open_all()
+        sys.stderr.write(
+            "ap_iomcu_uart_endpoint: publishing PWM to %s/{0..%d}\n"
+            % (uri_base, NUM_PWM_CHANNELS - 1))
+    else:
+        sys.stderr.write(
+            "ap_iomcu_uart_endpoint: actuator shm publishing disabled\n")
+
     fd = open_endpoint(path)
 
     sel = selectors.DefaultSelector()
     sel.register(fd, selectors.EVENT_READ, "pty")
     sys.stderr.flush()
 
-    iomcu = MockIOMCU()
+    iomcu = MockIOMCU(actuator_publisher=actuator_publisher)
     buf = bytearray()
     pending_tx = bytearray()
     saw_valid_request = False
@@ -595,6 +765,8 @@ def main():
         return 0
     finally:
         os.close(fd)
+        if actuator_publisher is not None:
+            actuator_publisher.close()
 
     return 0
 

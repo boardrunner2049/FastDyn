@@ -19,7 +19,12 @@
 
 #define USART_CR1_RE        (1U << 2)
 #define USART_CR1_TE        (1U << 3)
+#define USART_CR1_TCIE      (1U << 6)
+#define USART_CR1_TXEIE     (1U << 7)
 #define USART_CR1_UE        (1U << 13)
+
+/* STM32F427 NVIC position 39 = USART3. */
+#define USART3_IRQ_LINE     (39U + 16U)
 
 #define USART3_RXQ_SIZE     256
 #define USART3_POLL_NS      1000000ULL
@@ -44,6 +49,22 @@ static USART3State g_usart3;
 static void usart3_ensure_pty(USART3State *s) {
     if (s->pty_fd < 0) {
         s->pty_fd = api_pty_fd_gen("usart3");
+    }
+}
+
+static void usart3_maybe_raise_tx_irq(USART3State *s) {
+    if ((s->cr1 & USART_CR1_UE) == 0U) {
+        return;
+    }
+    if ((s->cr1 & USART_CR1_TE) == 0U) {
+        return;
+    }
+    if ((s->cr1 & USART_CR1_TXEIE) != 0U && (s->sr & USART_SR_TXE) != 0U) {
+        qemu_plugin_raise_irq(USART3_IRQ_LINE, false);
+        return;
+    }
+    if ((s->cr1 & USART_CR1_TCIE) != 0U && (s->sr & USART_SR_TC) != 0U) {
+        qemu_plugin_raise_irq(USART3_IRQ_LINE, false);
     }
 }
 
@@ -113,18 +134,21 @@ static void usart3_transmit_byte(USART3State *s, uint8_t ch) {
     }
 
     s->sr |= (USART_SR_TXE | USART_SR_TC);
+    usart3_maybe_raise_tx_irq(s);
 }
 
 static void usart3_poll_cb(void *opaque) {
     USART3State *s = (USART3State *)opaque;
     usart3_host_poll(s);
     usart3_drain_rx(s);
+    usart3_maybe_raise_tx_irq(s);
 }
 
 void* usart3_init(ConfigSection* model_info) {
     (void)model_info;
 
     memset(&g_usart3, 0, sizeof(g_usart3));
+    g_usart3.sr = USART_SR_TXE | USART_SR_TC;
     g_usart3.pty_fd = api_pty_fd_gen("usart3");
     g_usart3.poll_timer = qemu_plugin_timer_new_period_ns(usart3_poll_cb, &g_usart3, USART3_POLL_NS);
     dev_debug("usart3: initialized with stateful USART registers and PTY backend\n");
@@ -179,9 +203,15 @@ void usart3_write(void *opaque, uint64_t addr, uint64_t value, unsigned size) {
     (void)size;
 
     switch (offset) {
-    case USART_SR_OFF:
-        s->sr = (uint32_t)value;
+    case USART_SR_OFF: {
+        /* See usart2.c for full rationale. TXE is HW-managed and must NOT
+         * be cleared by firmware SR writes, otherwise usart3_maybe_raise_tx_irq
+         * refuses to raise IRQ 39 and ChibiOS's TX ISR never runs. */
+        uint32_t w0c_mask = USART_SR_TC | (1U << 8) | (1U << 9); /* TC, LBD, CTS */
+        uint32_t vw = (uint32_t)value;
+        s->sr = (s->sr & ~w0c_mask) | (s->sr & w0c_mask & vw);
         break;
+    }
     case USART_DR_OFF:
         ch = (uint8_t)(value & 0xFFU);
         usart3_transmit_byte(s, ch);
@@ -192,6 +222,7 @@ void usart3_write(void *opaque, uint64_t addr, uint64_t value, unsigned size) {
     case USART_CR1_OFF:
         s->cr1 = (uint32_t)value;
         usart3_drain_rx(s);
+        usart3_maybe_raise_tx_irq(s);
         break;
     case USART_CR2_OFF:
         s->cr2 = (uint32_t)value;

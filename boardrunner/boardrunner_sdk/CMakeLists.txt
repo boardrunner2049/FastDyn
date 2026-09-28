@@ -181,7 +181,9 @@ if(BOARDRUNNER_BUILD_RUNTIME)
     "${QEMU_INCLUDE_DIR}"
   )
 
-  target_link_libraries(boardrunner_vio PRIVATE ${GLIB_LIBRARIES})
+  # rt: shm_open / clock_gettime (glibc split before 2.34; harmless after)
+  # m:  lroundf and friends from invensense_packer.c
+  target_link_libraries(boardrunner_vio PRIVATE ${GLIB_LIBRARIES} rt m)
   target_link_options(boardrunner_vio PRIVATE -Wl,--no-undefined)
 
   # ---------------------------

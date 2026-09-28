@@ -6,6 +6,9 @@
 #include <boardrunner/imu_sample.h>
 #include <boardrunner/vio.h>
 #include <boardrunner/spi.h>
+#include <boardrunner/canonical.h>
+#include <boardrunner/channel.h>
+#include <boardrunner/packers/invensense.h>
 
 #define MPU9250_REG_SMPLRT_DIV        0x19
 #define MPU9250_REG_CONFIG            0x1A
@@ -49,24 +52,40 @@ typedef struct {
 
 static MPU9250State g_mpu9250;
 
+/* VIO channel state — populated by slave_spi_init if TOML declared a
+ * data_source URI. When g_channel is NULL, the model falls back to the
+ * legacy chip-LSB sample source for bit-exact boot behaviour. */
+static BrChannel*          g_channel = NULL;
+static InvensenseChipScale g_scale;
+
 static void mpu9250_store_be16(uint8_t *dst, int16_t v) {
     dst[0] = (uint8_t)(((uint16_t)v >> 8) & 0xFFU);
     dst[1] = (uint8_t)((uint16_t)v & 0xFFU);
 }
 
 static void mpu9250_update_sample(MPU9250State *s) {
-    BoardrunnerImuSample sample;
-
     s->sample_counter++;
-    boardrunner_imu_get_sample("mpu9250", &sample);
 
-    mpu9250_store_be16(&s->regs[MPU9250_REG_ACCEL_XOUT_H + 0], sample.ax_lsb);
-    mpu9250_store_be16(&s->regs[MPU9250_REG_ACCEL_XOUT_H + 2], sample.ay_lsb);
-    mpu9250_store_be16(&s->regs[MPU9250_REG_ACCEL_XOUT_H + 4], sample.az_lsb);
-    mpu9250_store_be16(&s->regs[MPU9250_REG_TEMP_OUT_H], sample.temp_lsb);
-    mpu9250_store_be16(&s->regs[MPU9250_REG_GYRO_XOUT_H + 0], sample.gx_lsb);
-    mpu9250_store_be16(&s->regs[MPU9250_REG_GYRO_XOUT_H + 2], sample.gy_lsb);
-    mpu9250_store_be16(&s->regs[MPU9250_REG_GYRO_XOUT_H + 4], sample.gz_lsb);
+    BoardrunnerImuSample si;
+    if (g_channel != NULL && BR_IMU_READ(g_channel, &si)) {
+        /* Live SI sample. Pack through the invensense translator. Layout is
+         * ACCEL_TEMP_GYRO for MPU9250 (same as ICM20602). */
+        uint8_t frame[14];
+        invensense_pack_be16(&si, &g_scale, frame);
+        memcpy(&s->regs[MPU9250_REG_ACCEL_XOUT_H], frame, sizeof(frame));
+    } else {
+        /* Fallback: legacy static defaults. Preserves bit-exact boot. */
+        BoardrunnerImuSampleLSB lsb;
+        boardrunner_imu_get_sample("mpu9250", &lsb);
+
+        mpu9250_store_be16(&s->regs[MPU9250_REG_ACCEL_XOUT_H + 0], lsb.ax_lsb);
+        mpu9250_store_be16(&s->regs[MPU9250_REG_ACCEL_XOUT_H + 2], lsb.ay_lsb);
+        mpu9250_store_be16(&s->regs[MPU9250_REG_ACCEL_XOUT_H + 4], lsb.az_lsb);
+        mpu9250_store_be16(&s->regs[MPU9250_REG_TEMP_OUT_H],       lsb.temp_lsb);
+        mpu9250_store_be16(&s->regs[MPU9250_REG_GYRO_XOUT_H + 0],  lsb.gx_lsb);
+        mpu9250_store_be16(&s->regs[MPU9250_REG_GYRO_XOUT_H + 2],  lsb.gy_lsb);
+        mpu9250_store_be16(&s->regs[MPU9250_REG_GYRO_XOUT_H + 4],  lsb.gz_lsb);
+    }
 
     memcpy(s->fifo_sample, &s->regs[MPU9250_REG_ACCEL_XOUT_H], sizeof(s->fifo_sample));
 }
@@ -221,4 +240,21 @@ void slave_spi_set_cs(int level) {
     s->expect_command = true;
     s->read_phase = false;
     s->current_reg = 0U;
+}
+
+/* Optional per-slave init hook — see icm20602_spi.c for rationale. */
+void slave_spi_init(const SpiSlaveInit *info) {
+    g_scale = invensense_scale_mpu9250_default();
+
+    if (info != NULL && info->data_source != NULL && info->data_source[0] != '\0') {
+        g_channel = api_channel_attach(info->data_source,
+                                       BR_ROLE_READER,
+                                       sizeof(BoardrunnerImuSample));
+        if (g_channel == NULL) {
+            dev_debug("mpu9250: attach '%s' failed, using static defaults\n",
+                      info->data_source);
+        } else {
+            dev_debug("mpu9250: attached VIO channel '%s'\n", info->data_source);
+        }
+    }
 }

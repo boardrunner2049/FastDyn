@@ -6,6 +6,9 @@
 #include <boardrunner/imu_sample.h>
 #include <boardrunner/vio.h>
 #include <boardrunner/spi.h>
+#include <boardrunner/canonical.h>
+#include <boardrunner/channel.h>
+#include <boardrunner/packers/invensense.h>
 
 #define ICM20948_SPI_READ_FLAG      0x80U
 
@@ -50,24 +53,50 @@ typedef struct {
 
 static ICM20948State g_icm20948;
 
+/* VIO channel state — populated by slave_spi_init if TOML declared a
+ * data_source URI. When g_channel is NULL, fall back to legacy LSB defaults. */
+static BrChannel*          g_channel = NULL;
+static InvensenseChipScale g_scale;
+
 static void icm20948_store_be16(uint8_t *dst, int16_t v) {
     dst[0] = (uint8_t)(((uint16_t)v >> 8) & 0xFFU);
     dst[1] = (uint8_t)((uint16_t)v & 0xFFU);
 }
 
+/* ICM20948 bank 0 register layout DIFFERS from MPU9250/ICM20602: gyro comes
+ * right after accel, temp is LAST. Reflected via ICM20948-specific packer
+ * layout INVENSENSE_LAYOUT_ACCEL_GYRO_TEMP. But the fake register file's
+ * ACCEL_XOUT_H..TEMP_OUT_H range is NOT contiguous (accel at 0x2D, gyro at
+ * 0x33, temp at 0x39) — so the 14-byte packer output can't be memcpy'd in
+ * one shot. Split into three copies at the correct offsets. */
 static void icm20948_update_sample(ICM20948State *s) {
-    BoardrunnerImuSample sample;
-
     s->sample_counter++;
-    boardrunner_imu_get_sample("icm20948", &sample);
 
-    icm20948_store_be16(&s->regs[0][ICM20948_BANK0_ACCEL_XOUT_H + 0], sample.ax_lsb);
-    icm20948_store_be16(&s->regs[0][ICM20948_BANK0_ACCEL_XOUT_H + 2], sample.ay_lsb);
-    icm20948_store_be16(&s->regs[0][ICM20948_BANK0_ACCEL_XOUT_H + 4], sample.az_lsb);
-    icm20948_store_be16(&s->regs[0][ICM20948_BANK0_TEMP_OUT_H], sample.temp_lsb);
-    icm20948_store_be16(&s->regs[0][ICM20948_BANK0_GYRO_XOUT_H + 0], sample.gx_lsb);
-    icm20948_store_be16(&s->regs[0][ICM20948_BANK0_GYRO_XOUT_H + 2], sample.gy_lsb);
-    icm20948_store_be16(&s->regs[0][ICM20948_BANK0_GYRO_XOUT_H + 4], sample.gz_lsb);
+    BoardrunnerImuSample si;
+    if (g_channel != NULL && BR_IMU_READ(g_channel, &si)) {
+        /* Live SI sample. Packer emits 14-byte frame in ACCEL_GYRO_TEMP order:
+         *   [0..5]   accel BE16 x/y/z
+         *   [6..11]  gyro  BE16 x/y/z
+         *   [12..13] temp  BE16
+         * Split-copy into the discontiguous ICM20948 bank 0 register file. */
+        uint8_t frame[14];
+        invensense_pack_be16(&si, &g_scale, frame);
+        memcpy(&s->regs[0][ICM20948_BANK0_ACCEL_XOUT_H], &frame[0], 6);
+        memcpy(&s->regs[0][ICM20948_BANK0_GYRO_XOUT_H],  &frame[6], 6);
+        memcpy(&s->regs[0][ICM20948_BANK0_TEMP_OUT_H],   &frame[12], 2);
+    } else {
+        /* Fallback: legacy static defaults. Preserves bit-exact boot. */
+        BoardrunnerImuSampleLSB lsb;
+        boardrunner_imu_get_sample("icm20948", &lsb);
+
+        icm20948_store_be16(&s->regs[0][ICM20948_BANK0_ACCEL_XOUT_H + 0], lsb.ax_lsb);
+        icm20948_store_be16(&s->regs[0][ICM20948_BANK0_ACCEL_XOUT_H + 2], lsb.ay_lsb);
+        icm20948_store_be16(&s->regs[0][ICM20948_BANK0_ACCEL_XOUT_H + 4], lsb.az_lsb);
+        icm20948_store_be16(&s->regs[0][ICM20948_BANK0_TEMP_OUT_H],       lsb.temp_lsb);
+        icm20948_store_be16(&s->regs[0][ICM20948_BANK0_GYRO_XOUT_H + 0],  lsb.gx_lsb);
+        icm20948_store_be16(&s->regs[0][ICM20948_BANK0_GYRO_XOUT_H + 2],  lsb.gy_lsb);
+        icm20948_store_be16(&s->regs[0][ICM20948_BANK0_GYRO_XOUT_H + 4],  lsb.gz_lsb);
+    }
 
     memcpy(s->fifo_sample,
            &s->regs[0][ICM20948_BANK0_ACCEL_XOUT_H],
@@ -248,4 +277,21 @@ void slave_spi_set_cs(int level) {
     s->expect_command = true;
     s->read_phase = false;
     s->current_reg = 0U;
+}
+
+/* Optional per-slave init hook — see icm20602_spi.c for rationale. */
+void slave_spi_init(const SpiSlaveInit *info) {
+    g_scale = invensense_scale_icm20948_default();
+
+    if (info != NULL && info->data_source != NULL && info->data_source[0] != '\0') {
+        g_channel = api_channel_attach(info->data_source,
+                                       BR_ROLE_READER,
+                                       sizeof(BoardrunnerImuSample));
+        if (g_channel == NULL) {
+            dev_debug("icm20948: attach '%s' failed, using static defaults\n",
+                      info->data_source);
+        } else {
+            dev_debug("icm20948: attached VIO channel '%s'\n", info->data_source);
+        }
+    }
 }
