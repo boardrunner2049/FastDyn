@@ -124,6 +124,14 @@ if ENABLE_LIBHW
 endif
 
 
+# Record which QEMU this build was compiled against. The frontend reads it
+# (next to libfastdyn.so) when a config does not set [Machine].qemu_path.
+configure_file(
+  input : 'fastdyn_build.json.in',
+  output : 'fastdyn_build.json',
+  configuration : {'QEMU_DIR' : QEMU_DIR},
+)
+
 #Based on the configurations, generate config.h
 ENABLE_LIBDEV = get_option('device_models')
 configure_file(

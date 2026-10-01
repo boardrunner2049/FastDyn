@@ -73,7 +73,7 @@ def test_essential_run_configuration_browsers_expose_toml_fragments():
     assert 'binary = "build/firmware.elf"' in firmware["ELF firmware"].toml
     assert "monitor_port" not in firmware["start under GDB"].toml
     assert "existing [Machine] table" in firmware["start under GDB"].toml
-    assert 'qemu_path = "qemu/build/qemu-system-arm"' in machine["headless QEMU"].toml
+    assert '# qemu_path = "path/to/qemu-system-arm"  # optional' in machine["headless QEMU"].toml
     assert "fastdyn run -c configs/target.toml" in run["run a configuration"].toml
 
 

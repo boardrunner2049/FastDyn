@@ -212,7 +212,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     # additional machine params if set by the user related to qemu target
     q = machine0.qemu_target_opts
 
-    q.qemu_path          = toml_parser.machine_info.get("qemu_path", "qemu-system-arm")
+    q.qemu_path          = toml_parser.machine_info.get("qemu_path", "")  # optional; see qemu_target.resolve_qemu_binary
 
     q.enable_gdb         = toml_parser.machine_info.get("enable_gdb", False)
     q.stop_on_start      = toml_parser.machine_info.get("stop_on_start", False)

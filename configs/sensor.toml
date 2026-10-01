@@ -30,7 +30,7 @@ prealloc     = false
 [Machine]
 platform = "STM32F429"
 # --- Debugging, Control, and Logging ---
-qemu_path = "qemu/build/qemu-system-arm"
+# qemu_path = "qemu/build/qemu-system-arm"  # optional: defaults to the QEMU FastDyn was built against
 enable_gdb = false
 stop_on_start = false
 launch_gdb = false

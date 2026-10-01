@@ -2,6 +2,7 @@
 One of the supported targets by Fastdyn: QEMU.
 """
 
+import json
 import os
 import re
 import shutil
@@ -150,7 +151,58 @@ def _ensure_executable(executable, description):
     raise FileNotFoundError(
         f"{description} not found or not executable: {executable}\n"
         "Run `source ./setup.sh --build-qemu` or build the patched QEMU fork "
-        "at the path configured by [Machine].qemu_path."
+        "at the path configured by [Machine].qemu_path or $FASTDYN_QEMU."
+    )
+
+
+QEMU_ENV_VAR = "FASTDYN_QEMU"
+BUILD_RECORD_NAME = "fastdyn_build.json"
+
+
+def resolve_qemu_binary(qemu_path, arch, plugin_library):
+    """Return ``(executable, source)`` for the QEMU used by a run.
+
+    Resolution order, first match wins:
+
+    1. ``[Machine].qemu_path`` from the configuration, when set;
+    2. the ``FASTDYN_QEMU`` environment variable;
+    3. the QEMU this FastDyn build was compiled against, read from
+       ``fastdyn_build.json`` next to the plugin library;
+    4. ``qemu-system-<target>`` on ``PATH``.
+    """
+    if qemu_path:
+        return qemu_path, "[Machine].qemu_path"
+    env_path = os.environ.get(QEMU_ENV_VAR)
+    if env_path:
+        return env_path, f"${QEMU_ENV_VAR}"
+
+    target = str(arch or "arm").lower()
+    executable = f"qemu-system-{target}"
+    tried = []
+    if plugin_library:
+        record = os.path.join(os.path.dirname(os.path.abspath(plugin_library)), BUILD_RECORD_NAME)
+        if os.path.isfile(record):
+            try:
+                with open(record, encoding="utf-8") as stream:
+                    qemu_dir = json.load(stream).get("qemu_dir")
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(f"Unable to read FastDyn build record {record}: {exc}") from exc
+            if qemu_dir:
+                candidate = os.path.join(qemu_dir, "build", executable)
+                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                    return candidate, f"build record {record}"
+                tried.append(candidate)
+        else:
+            tried.append(f"{record} (missing)")
+
+    on_path = shutil.which(executable)
+    if on_path:
+        return on_path, "PATH"
+    tried.append(f"{executable} on PATH")
+    raise FileNotFoundError(
+        "No QEMU executable found. Tried:\n  " + "\n  ".join(tried) + "\n"
+        f"Set [Machine].qemu_path or ${QEMU_ENV_VAR}, or build the QEMU this "
+        "FastDyn build points at (source ./setup.sh --build-qemu)."
     )
 def _abs_path(path, base=None):
     if path is None:
@@ -288,7 +340,9 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     cpu0 = cpus[0]
     opts = machine.qemu_target_opts
     print_command = opts.print_command
-    _ensure_executable(opts.qemu_path, "QEMU executable")
+    qemu_bin, qemu_source = resolve_qemu_binary(opts.qemu_path, cpu0.arch, cpu0.plugin_library)
+    _ensure_executable(qemu_bin, "QEMU executable")
+    fastdyn_log.info(f"QEMU executable: {qemu_bin} (from {qemu_source})")
 
     # QEMU CLI is per-instance: we support SMP (homogeneous CPU model/binary/machine).
     for c in cpus[1:]:
@@ -309,7 +363,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     _ensure_memory_backend_file(main_memory)
 
     # ------------------------ Base QEMU command ------------------------
-    cmd = [opts.qemu_path]
+    cmd = [qemu_bin]
 
     qmp_socket = opts.qmp_socket
     # if user left default /tmp/qmp.sock, it will collide across runs; prefer per-run socket

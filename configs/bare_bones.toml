@@ -5,7 +5,7 @@
 # Browse machine/QEMU settings with: fastdyn help machine
 # Copy a specific SVD platform from: fastdyn help platforms
 platform = "generic-cortexm"
-qemu_path = "qemu/build/qemu-system-arm"
+# qemu_path = "qemu/build/qemu-system-arm"  # optional: defaults to the QEMU FastDyn was built against
 display = "none"
 serial = "none"
 monitor_port = 0

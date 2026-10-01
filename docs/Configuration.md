@@ -44,10 +44,16 @@ Important injected environment variables are:
 
 `[Machine]` controls QEMU and global board timing.
 
+`qemu_path` is optional. When it is not set, FastDyn uses, in order:
+the `FASTDYN_QEMU` environment variable; the QEMU this FastDyn build was
+compiled against (recorded in `build/fastdyn_build.json` next to
+`libfastdyn.so`, normally the `third_party/common/qemu` submodule); then
+`qemu-system-<arch>` on `PATH`. Set it only to use a different QEMU.
+
 ```toml
 [Machine]
 platform = "STM32F427"
-qemu_path = "../qemu/build/qemu-system-arm"
+# qemu_path = "../qemu/build/qemu-system-arm"   # optional, see above
 monitor_port = 5555
 qmp_socket = "/tmp/qmp.sock"
 log_file = "qemu.log"

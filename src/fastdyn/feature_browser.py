@@ -59,8 +59,8 @@ _DEVICE_MODELS = (
 
 
 _MACHINE_SETTINGS = (
-    FeatureEntry("Machine setting", "headless QEMU", "Set QEMU path and disable graphical/serial frontends.",
-                 '[Machine]\nqemu_path = "qemu/build/qemu-system-arm"\ndisplay = "none"\nserial = "none"\nmonitor_port = 0\nqmp_socket = "/tmp/fastdyn.qmp"\nlog_options = "none"',
+    FeatureEntry("Machine setting", "headless QEMU", "Disable graphical/serial frontends; qemu_path is optional (defaults to the QEMU FastDyn was built against).",
+                 '[Machine]\n# qemu_path = "path/to/qemu-system-arm"  # optional\ndisplay = "none"\nserial = "none"\nmonitor_port = 0\nqmp_socket = "/tmp/fastdyn.qmp"\nlog_options = "none"',
                  "docs/Configuration.md"),
     FeatureEntry("Machine setting", "instruction-counted time", "Use deterministic instruction-counted virtual time.",
                  '[Machine]\nicount = { shift = 5, sleep = false, align = false }\ntimer_irq_period_ns = 1000000',
