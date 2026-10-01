@@ -11,12 +11,13 @@ cc = meson.get_compiler('c')
 add_project_arguments('-Wno-address-of-packed-member', language : 'c')
 
 
-QEMU_DIR = get_option('qemu_path')
-qemu_include = include_directories(
-  join_paths(QEMU_DIR, 'include')
-)
+# External include folders (QEMU, libhw) may live inside the source tree as
+# submodules (third_party/common/), and meson rejects include_directories()
+# on absolute in-tree paths. They are therefore passed as plain -I flags.
+QEMU_DIR = join_paths(meson.project_source_root(), get_option('qemu_path'))
+qemu_dep = declare_dependency(compile_args: ['-I' + join_paths(QEMU_DIR, 'include')])
 # --- Project include dir
-include_dirs = [include_directories('include'), qemu_include, include_directories('build')]
+include_dirs = [include_directories('include'), include_directories('build')]
 
 # --- Project include dir
 local_include = include_directories('include')
@@ -106,13 +107,11 @@ subdir('virtuals')
 
 #subdir('virtuals')
 ENABLE_LIBHW = get_option('enable_libhw')
-LIBHW_DIR = get_option('libhw_path')
+LIBHW_DIR = join_paths(meson.project_source_root(), get_option('libhw_path'))
 
 if ENABLE_LIBHW
-  libhw_inc = include_directories(join_paths(LIBHW_DIR, 'include'))
-
   libhw_dep = declare_dependency(
-    include_directories: libhw_inc,
+    compile_args: ['-I' + join_paths(LIBHW_DIR, 'include')],
     link_args: [
       '-L' + join_paths(LIBHW_DIR, 'out'),
       '-Wl,-rpath,' + join_paths(LIBHW_DIR, 'out'),
@@ -146,11 +145,6 @@ configure_file(
 )
 #config_inc = include_directories(meson.current_build_dir())
 
-
-QEMU_DIR = get_option('qemu_path')
-qemu_include = include_directories(
-  join_paths(QEMU_DIR, 'include')
-)
 
 # Find BFD and libiberty
 # bfd_dep = cc.find_library('bfd', required: true)
@@ -215,7 +209,7 @@ endif
 fastdyn_target = shared_module(
   'fastdyn',
   srcs,
-  include_directories: [qemu_include, local_include],
-  dependencies: deps,
+  include_directories: local_include,
+  dependencies: deps + [qemu_dep],
   install: false
 )

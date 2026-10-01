@@ -13,7 +13,7 @@ fmu_static_lib = static_library(
   'fmu_harness_internal',
   'harness/altimeter_virtual.c',
   include_directories: [ fmi_inc_path, include_dirs],
-  dependencies: [dl_dep, glib],
+  dependencies: [dl_dep, glib, qemu_dep],
   # We use install: false because this is just an intermediate research component
   install: false 
 )

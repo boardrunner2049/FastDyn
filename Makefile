@@ -1,7 +1,26 @@
 .PHONY: all clean docs setup build_boardrunner
 
-qemu_path    ?= ../qemu
-libhw_path   ?= ../libhw
+# QEMU and libhw are pinned as submodules under third_party/common/. They are
+# used once they have been built (setup.sh --build-qemu builds the QEMU one);
+# until then the sibling checkouts ../qemu and ../libhw are used as before.
+# Passing qemu_path=... or libhw_path=... always takes precedence.
+QEMU_SUBMODULE  := third_party/common/qemu
+LIBHW_SUBMODULE := third_party/common/libhw
+ifeq ($(origin qemu_path),undefined)
+  ifneq ($(wildcard $(QEMU_SUBMODULE)/build/qemu-system-arm),)
+    qemu_path := $(QEMU_SUBMODULE)
+  else
+    qemu_path := ../qemu
+    $(info [fastdyn] QEMU: using ../qemu ($(QEMU_SUBMODULE) is not built; see setup.sh --build-qemu))
+  endif
+endif
+ifeq ($(origin libhw_path),undefined)
+  ifneq ($(wildcard $(LIBHW_SUBMODULE)/out/libhw.so),)
+    libhw_path := $(LIBHW_SUBMODULE)
+  else
+    libhw_path := ../libhw
+  endif
+endif
 aflnet_path  ?= ../aflnet
 LIBGZ        ?= false
 LIBHW        ?= false
