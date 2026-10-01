@@ -150,6 +150,13 @@ fn execute_fmuv3_mission(
             .arg(&work_dir);
     }
 
+    //let mut child_path = vec![fastdyn_dir().join("fastdyn-env/bin")];
+    //if let Some(inherited_path) = env::var_os("PATH") {
+    //    child_path.extend(env::split_paths(&inherited_path));
+    //}
+    //let child_path = env::join_paths(child_path).expect("failed to construct child PATH");
+
+
     command
         .env("FASTDYN_OPTIFUZZ", "1")
         .env("FASTDYN_OPTIFUZZ_MUTATION_BIN", &mutation_path)
@@ -158,6 +165,7 @@ fn execute_fmuv3_mission(
         .env("FASTDYN_COVERAGE", &coverage_enabled)
         .env("FASTDYN_COVERAGE_FILE", work_dir.join("cvg.bin"))
         .env("FASTDYN_BBL_FILE", work_dir.join("bbl.txt"));
+        //.env("PATH", child_path);
 
     if !mission_file_name.is_empty() {
         maybe_env(
