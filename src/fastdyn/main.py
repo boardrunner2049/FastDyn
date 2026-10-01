@@ -514,8 +514,12 @@ def run(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu,
                     if process_manager is not None:
                         process_manager.stop_terminator_watcher()
                         process_manager.raise_for_terminator_failure()
-    except (runtime_config.RuntimeConfigError, VirtualPreparationError) as exc:
+    except (runtime_config.RuntimeConfigError, VirtualPreparationError,
+            qemu_target.QemuExitError) as exc:
         raise click.ClickException(str(exc)) from exc
+    except KeyboardInterrupt:
+        log.info("Run interrupted by user.")
+        raise SystemExit(130)  # conventional exit status for SIGINT
 
 
 def _resolve_probe_addresses(cache_dir, symbols_list):
@@ -906,7 +910,7 @@ def loop(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu, n
                         keep_dir = True
                     except KeyboardInterrupt:
                         log.info("Loop interrupted by user.")
-                        break
+                        raise SystemExit(130)  # conventional exit status for SIGINT
                     except Exception as e:
                         log.error(f"Run crashed with exception: {e}. Restarting with work directory preserved.")
                         keep_dir = True

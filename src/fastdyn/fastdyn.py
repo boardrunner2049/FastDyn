@@ -35,7 +35,14 @@ class Fastdyn:
         return machine
 
     def run(self, target, machine_name, out_path=None):
+        """Run one machine; returns QEMU's exit code.
+
+        Raises ``qemu_target.QemuExitError`` when QEMU exits with a non-zero
+        code that was not requested through :meth:`shutdown`. A Ctrl-C stops
+        QEMU and propagates as ``KeyboardInterrupt``.
+        """
         machine = self.machines[machine_name]
+        machine.shutdown_requested = False
         if target.lower() == "qemu":
             # Firmware-wide modules prepare
             # declarative virtual rules and artifacts here.  The QEMU
@@ -60,7 +67,7 @@ class Fastdyn:
                     )
 
                 with timing.phase(f"{machine_name}.qemu_execution"):
-                    qemu_target.start_execution(
+                    exit_code = qemu_target.start_execution(
                         qemu_cmd,
                         launch_gdb,
                         gdb_cmd,
@@ -68,6 +75,9 @@ class Fastdyn:
                         python_endpoints=python_endpoints,
                         exit_timeout_ms=machine.qemu_target_opts.exit_timeout_ms,
                     )
+                    if exit_code and not machine.shutdown_requested:
+                        raise qemu_target.QemuExitError(machine_name, exit_code, out_path)
+                return exit_code
             finally:
                 for cleanup in reversed(getattr(machine, "preprocessing_cleanup", [])):
                     cleanup()
@@ -76,6 +86,8 @@ class Fastdyn:
     def shutdown(self, machine_name=None):
         machines = [self.machines[machine_name]] if machine_name is not None else self.machines.values()
         for machine in machines:
+            # A stop requested here is not a QEMU failure (see run()).
+            machine.shutdown_requested = True
             port = getattr(machine.qemu_target_opts, "monitor_port", None)
             if port is not None:
                 qemu_target.kill_qemu_process(port=port)

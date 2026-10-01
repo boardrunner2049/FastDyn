@@ -155,6 +155,22 @@ def _ensure_executable(executable, description):
     )
 
 
+class QemuExitError(RuntimeError):
+    """QEMU exited with a non-zero status that FastDyn did not request."""
+
+    def __init__(self, machine_name, exit_code, work_dir=None):
+        self.machine_name = machine_name
+        self.exit_code = exit_code
+        self.work_dir = work_dir
+        reason = f"code {exit_code}"
+        if exit_code < 0:
+            reason += f" (killed by signal {-exit_code})"
+        message = f"QEMU for {machine_name} exited with {reason}"
+        if work_dir:
+            message += f"; see the QEMU output above and {os.path.join(work_dir, 'qemu.log')}"
+        super().__init__(message)
+
+
 QEMU_ENV_VAR = "FASTDYN_QEMU"
 BUILD_RECORD_NAME = "fastdyn_build.json"
 
@@ -792,6 +808,10 @@ def start_execution(
 ):
     """
     Starts QEMU. If enabled, optionally launches a GDB terminal.
+
+    Returns QEMU's exit code. On Ctrl-C, QEMU is stopped (forcefully after
+    ``exit_timeout_ms``) and the KeyboardInterrupt is re-raised, so callers
+    such as ``fastdyn loop`` can stop instead of treating it as a clean exit.
     """
     if (
         isinstance(exit_timeout_ms, bool)
@@ -849,12 +869,15 @@ def start_execution(
                 kill_qemu_process(port)
             else:
                 qemu_proc.kill()
+        raise
     finally:
         for ep_proc in endpoint_procs:
             try:
                 ep_proc.terminate()
             except Exception:
                 pass
+
+    return ret
 
 
 def kill_qemu_process(port):

@@ -4,6 +4,7 @@ import tomllib
 import types
 
 from click.testing import CliRunner
+import pytest
 
 
 # fastdyn.main imports optional analysis backends that are not needed by this
@@ -82,16 +83,19 @@ def test_loop_starts_helper_terminator_watcher(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "_auto_build_fmu", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main.toml_parser, "parser", lambda *_args, **_kwargs: handle)
 
-    main.loop.callback(
-        config=str(config),
-        map_file=None,
-        work_dir=str(work_dir),
-        svd=None,
-        persist_work_dir=False,
-        fmu=None,
-        no_build_fmu=False,
-        no_run_processes=False,
-    )
+    # The fake run raises KeyboardInterrupt; loop stops with exit status 130.
+    with pytest.raises(SystemExit) as stopped:
+        main.loop.callback(
+            config=str(config),
+            map_file=None,
+            work_dir=str(work_dir),
+            svd=None,
+            persist_work_dir=False,
+            fmu=None,
+            no_build_fmu=False,
+            no_run_processes=False,
+        )
+    assert stopped.value.code == 130
 
     assert manager.started is True
     assert manager.stopped is True
