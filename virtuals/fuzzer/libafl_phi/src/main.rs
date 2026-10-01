@@ -249,7 +249,10 @@ fn run_optifuzz_smoke(input_library: &CPExpInput) {
 }
 
 pub fn main() {
+    println!("Hello from baby_fuzzer");
     env_logger::init();
+    println!("Hello from baby_fuzzer2");
+
     if env::var("FASTDYN_OPTIFUZZ_BACKEND").is_err() {
         env::set_var("FASTDYN_OPTIFUZZ_BACKEND", "fmuv3");
     }
@@ -358,6 +361,8 @@ pub fn main() {
         // ParamInput::new_float("INS_POS1_Y", (-5.0, 5.0), 0.01),
         // ParamInput::new_float("INS_POS1_Z", (-5.0, 5.0), 0.01),
     ];
+    //dbg!(&param_info_vec);
+    //println!("Vector length: {}", param_info_vec.len());
 
     let env_info_vec: Vec<EnvInput> = vec![
         // Group 1 - IMU gyroscope noise

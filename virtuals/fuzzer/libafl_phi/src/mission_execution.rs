@@ -191,6 +191,7 @@ fn execute_fmuv3_mission(
         return ExitKind::Ok;
     }
 
+    println!("Executing: {:?}", command);
     let status = command
         .status()
         .expect("Error: Failed to start FastDyn FMUv3 run");

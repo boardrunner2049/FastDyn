@@ -29,11 +29,19 @@ impl PhysicalFeedback {
 
     pub fn new() -> Self {
 
-        Self {
+        let feedback = Self {
             name: Cow::from("PhysicalFeedback"),
             physical_observer_handle: Handle::new(Cow::from("PhysicalObserver")),
             minimum_robustness_vec: Vec::new(),
+        };
+        println!("name = {}", feedback.name);
+
+        match &feedback.name {
+            Cow::Borrowed(name) => println!("Feedback name (borrowed): {}", name),
+            Cow::Owned(name) => println!("Feedback name (owned): {}", name),
         }
+
+        feedback
 
     }
 
