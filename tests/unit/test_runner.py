@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -85,11 +86,13 @@ def test_load_prepares_without_starting_anything(events, tmp_path):
     assert events == ["helpers_start(skip=True)", "parse", "run:machine0", "helpers_stop"]
 
 
-def test_report_receives_progress_lines(events, tmp_path):
+def test_timing_location_is_logged_not_reported(events, tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="fastdyn.runner")
     lines = []
     runner.run_config("cfg.toml", str(tmp_path / "work"), report=lines.append)
 
-    assert lines == ["FastDyn timing log: timing.jsonl"]
+    assert "FastDyn timing log: timing.jsonl" in caplog.text
+    assert lines == []  # report only carries action results such as FMU builds
 
 
 def test_prepare_work_dir_replaces_unless_persisted(tmp_path):

@@ -58,12 +58,12 @@ def prepare_work_dir(work_dir: Optional[str], persist_work_dir: bool) -> str:
     return work_dir
 
 
-def configure_measurement(config, work_dir, report: Reporter = log.info) -> dict[str, str]:
-    """Set up timing and profiling for the run and report where their output goes."""
+def configure_measurement(config, work_dir) -> dict[str, str]:
+    """Set up timing and profiling for the run and log where their output goes."""
     env = runtime_config.configure_run_environment(config, work_dir)
-    report(f"FastDyn timing log: {env['FASTDYN_TIMING_FILE']}")
+    log.info(f"FastDyn timing log: {env['FASTDYN_TIMING_FILE']}")
     if env.get("FASTDYN_PYTHON_PROFILE") == "1" or env.get("FASTDYN_PERF_MODE") != "off":
-        report(f"FastDyn profile output: {Path(work_dir).expanduser().resolve() / 'profiles'}")
+        log.info(f"FastDyn profile output: {Path(work_dir).expanduser().resolve() / 'profiles'}")
     return env
 
 
@@ -150,12 +150,12 @@ class Session:
         return results
 
 
-def _prepare(config, work_dir, persist_work_dir, validate, report) -> str:
+def _prepare(config, work_dir, persist_work_dir, validate) -> str:
     if validate:
         # Validate before prepare_work_dir can replace an existing directory.
         runtime_config.validate_config(config)
     work_dir = prepare_work_dir(work_dir, persist_work_dir)
-    configure_measurement(config, work_dir, report)
+    configure_measurement(config, work_dir)
     return work_dir
 
 
@@ -176,7 +176,7 @@ def load(
     Helper processes are started, and the configuration is parsed, only by
     :meth:`Session.run`, in the same order as ``fastdyn run``.
     """
-    work_dir = _prepare(config, work_dir, persist_work_dir, validate, report)
+    work_dir = _prepare(config, work_dir, persist_work_dir, validate)
     with timing.phase("fastdyn.fmu_auto_build"):
         auto_build_fmu(config, fmu, not build_fmu, report)
     return Session(config, work_dir, svd or paths.default_svd_dir(), fmu, run_processes)
@@ -201,7 +201,7 @@ def run_config(
     ``phase_name`` names the enclosing timing phase (``fastdyn loop`` uses
     ``fastdyn.loop.iteration``).
     """
-    work_dir = _prepare(config, work_dir, persist_work_dir, validate, report)
+    work_dir = _prepare(config, work_dir, persist_work_dir, validate)
     with timing.phase(phase_name, config=config, work_dir=work_dir):
         with timing.phase("fastdyn.fmu_auto_build"):
             auto_build_fmu(config, fmu, not build_fmu, report)

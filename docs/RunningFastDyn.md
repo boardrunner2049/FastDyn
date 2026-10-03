@@ -65,3 +65,21 @@ contains:
 If the run does not boot, begin with the CPU/machine selection, memory map,
 ELF/vector address, QEMU path, and peripheral routing. Use `fastdyn help` to
 find valid configuration values without memorizing them.
+
+## Slide: Logging
+
+FastDyn writes log messages to stderr and command results to stdout. Control
+them with options placed before the command:
+
+```bash
+fastdyn -q run -c configs/minimal.toml          # warnings and errors only
+fastdyn -v run -c configs/minimal.toml          # include debug messages
+fastdyn --log-level fastdyn.targets=DEBUG run -c configs/minimal.toml   # one area only
+fastdyn --log-file fastdyn_work/fastdyn.log run -c configs/minimal.toml # also save everything
+```
+
+`--log-level` takes a level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) or
+`LOGGER=LEVEL`, and can be repeated. `FASTDYN_LOG_LEVEL` sets the default
+level when no option is given. The log file always records debug messages,
+without colour. Programs that use FastDyn's Python API configure logging
+themselves, for example with `fastdyn.logs.configure()`.

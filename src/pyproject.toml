@@ -21,6 +21,3 @@ version = { attr = "fastdyn.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["fastdyn*"]
-
-[tool.setuptools.package-data]
-fastdyn = ["logging.cfg"]

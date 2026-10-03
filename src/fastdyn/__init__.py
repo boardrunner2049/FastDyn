@@ -6,6 +6,11 @@ __author__ = """Fastdyn Team"""
 __email__ = 'fastdyn@pseclab.com'
 __version__ = '1.0.0'
 
+import logging
+
+# Library code never configures logging; programs call fastdyn.logs.configure().
+logging.getLogger("fastdyn").addHandler(logging.NullHandler())
+
 # Public entry points, imported on first use so `import fastdyn` stays light
 # (runner pulls in the FMU and helper-process machinery).
 _RUNNER_EXPORTS = ("run_config", "load", "Session", "RunResult", "RunError")

@@ -107,6 +107,12 @@ _RUN_GUIDE = (
     FeatureEntry("Execution command", "use an explicit SVD catalog", "Resolve a board platform against a specific CMSIS-SVD file or catalog.",
                  "fastdyn run -c configs/target.toml -s third_party/common/cmsis-svd-data",
                  "docs/RunningFastDyn.md"),
+    FeatureEntry("Execution command", "control logging", "Show fewer or more log messages, for everything or one area, and save them to a file.",
+                 "fastdyn -q run -c configs/target.toml                      # warnings and errors only\n"
+                 "fastdyn -v run -c configs/target.toml                      # include debug messages\n"
+                 "fastdyn --log-level fastdyn.targets=DEBUG run -c configs/target.toml\n"
+                 "fastdyn --log-file fastdyn_work/fastdyn.log run -c configs/target.toml",
+                 "docs/RunningFastDyn.md"),
 )
 
 

@@ -9,7 +9,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from . import fastdyn_log
+from . import logs
 from fastdyn.__init__ import __version__
 # from .machine import Machine, CPUConfig, VirtualInstruction, InstructionModifier
 from . import toml_parser
@@ -22,7 +22,6 @@ from . import platform_browser
 from .virtual_preprocessing import VirtualPreparationError
 import fastdyn.targets.qemu_target as qemu_target
 log = logging.getLogger(__name__)
-fastdyn_log.setLogConfig()
 
 
 def _prepare_work_dir(work_dir, persist_work_dir):
@@ -37,10 +36,38 @@ def _auto_build_fmu(config, fmu_name, skip_build):
     except runner.RunError as exc:
         raise click.ClickException(str(exc)) from exc
 
+def _log_settings(verbose, quiet, log_levels):
+    """Turn -v/-q/--log-level into a default level and per-logger levels."""
+    if verbose and quiet:
+        raise click.UsageError("-v/--verbose and -q/--quiet cannot be combined.")
+    default = "DEBUG" if verbose else "WARNING" if quiet else None
+    overrides = {}
+    for option in log_levels:
+        name, separator, level = option.rpartition("=")
+        try:
+            logs.level_number(level)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc), param_hint="--log-level") from exc
+        if separator:
+            overrides[name] = level
+        else:
+            default = level
+    return default, overrides
+
+
 @click.group()
 @click.version_option(prog_name="Fastdyn Framework",version=__version__)
-def cli():
-    log.info('****** Fastdyn Framework {0} *******'.format(__version__ ))
+@click.option('-v', '--verbose', is_flag=True, help='Show debug messages.')
+@click.option('-q', '--quiet', is_flag=True, help='Show only warnings and errors.')
+@click.option('--log-level', 'log_levels', multiple=True, metavar='[LOGGER=]LEVEL',
+              help='Set the log level, or one logger\'s level (e.g. fastdyn.targets=DEBUG). Repeatable. '
+                   'The default comes from FASTDYN_LOG_LEVEL, else INFO.')
+@click.option('--log-file', type=click.Path(dir_okay=False, writable=True), default=None,
+              help='Also write every log message (DEBUG and above) to this file.')
+def cli(verbose, quiet, log_levels, log_file):
+    default, overrides = _log_settings(verbose, quiet, log_levels)
+    logs.configure(level=default, levels=overrides, log_file=log_file)
+    log.debug('****** Fastdyn Framework {0} *******'.format(__version__ ))
 
 
 def _show_platform_selection(selected):
@@ -788,7 +815,7 @@ def loop(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu, n
         else:
             log.info(f"Running with existing work directory (crash recovery).")
 
-        runner.configure_measurement(config, work_dir, report=click.echo)
+        runner.configure_measurement(config, work_dir)
 
         try:
             with timing.phase("fastdyn.loop.iteration", config=config, work_dir=work_dir):
