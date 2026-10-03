@@ -14,7 +14,7 @@ from ..binary import binary_wrange
 import logging
 
 from .. import fastdyn_log as fastdyn_log_conf
-from .. import profiling, timing
+from .. import logs, profiling, timing
 from ..virtual_preprocessing import (
     VirtualRule,
     prepare_run_preprocessors,
@@ -667,6 +667,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
 
     plugin_kv = [
         f"{plugin_lib},dev={dev_config_path}",
+        f"log_level={logs.native_level()}",
         f"virtual={virtuals_path}",
         f"modifier={modifiers_path}",
         f"coverage={_bool01(opts.coverage)}",

@@ -2,6 +2,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdlib.h>
+
+#include <fastdyn/log.h>
 
 // Global log handle
 static FILE *fp;
@@ -40,6 +43,11 @@ FILE *utils_log_fp(void) {
 }
 
 int utils_init(int argc, char** argv) {
+	/* The frontend passes the log level as a Python logging number. */
+	const char *log_level = utils_get_arg("log_level", argc, argv);
+	if (log_level) {
+		fastdyn_log_set_level((int)strtol(log_level, NULL, 10));
+	}
 	fp = fopen("debug.log", "a");
 	if (!fp) return -1;
 	return 0;

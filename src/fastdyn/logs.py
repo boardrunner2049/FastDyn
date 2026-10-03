@@ -24,6 +24,10 @@ _COLORS = {
 }
 _RESET = "\033[0m"
 _INSTALLED = "_fastdyn_installed"
+NATIVE_LOGGER = "fastdyn.native"
+
+# Threshold for FastDyn's native (C) code, set by configure().
+_native_level: Optional[int] = None
 
 
 def level_number(level) -> int:
@@ -88,6 +92,9 @@ def configure(
         file_handler.setFormatter(logging.Formatter("%(asctime)s " + FORMAT))
         handlers.append(file_handler)
 
+    global _native_level
+    _native_level = overrides.get(NATIVE_LOGGER, default)
+
     lowest = min([default, *overrides.values()])
     for name in namespaces:
         logger = logging.getLogger(name)
@@ -99,3 +106,11 @@ def configure(
             setattr(handler, _INSTALLED, True)
             logger.addHandler(handler)
         logger.setLevel(logging.DEBUG if log_file else lowest)
+
+
+def native_level() -> int:
+    """Level for FastDyn's native code: ``--log-level fastdyn.native=LEVEL`` if
+    given, else the default threshold; WARNING when logging is not configured."""
+    if _native_level is not None:
+        return _native_level
+    return logging.getLogger("fastdyn").getEffectiveLevel()

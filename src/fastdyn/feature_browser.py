@@ -111,6 +111,7 @@ _RUN_GUIDE = (
                  "fastdyn -q run -c configs/target.toml                      # warnings and errors only\n"
                  "fastdyn -v run -c configs/target.toml                      # include debug messages\n"
                  "fastdyn --log-level fastdyn.targets=DEBUG run -c configs/target.toml\n"
+                 "fastdyn --log-level fastdyn.native=ERROR run -c configs/target.toml  # QEMU plugin: errors only\n"
                  "fastdyn --log-file fastdyn_work/fastdyn.log run -c configs/target.toml",
                  "docs/RunningFastDyn.md"),
 )

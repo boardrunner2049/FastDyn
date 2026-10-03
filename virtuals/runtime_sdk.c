@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include <core.h>
+#include <fastdyn/log.h>
 #include <virtuals.h>
 
 extern const VirtualPlugin __start_virtual_plugins[];
@@ -49,21 +50,18 @@ void virtual_register_exit(const VirtualContext *ctx,
 
 void virtual_log(const VirtualContext *ctx, VirtualLogLevel level,
                  const char *format, ...) {
-    static const char *const labels[] = { "DEBUG", "INFO", "WARN", "ERROR" };
+    /* Plugin messages use FastDyn's native logger; the subsystem is the plugin name. */
+    static const int levels[] = {
+        FD_LOG_LEVEL_DEBUG, FD_LOG_LEVEL_INFO, FD_LOG_LEVEL_WARNING, FD_LOG_LEVEL_ERROR,
+    };
     va_list args;
     const char *plugin = (ctx && ctx->plugin_name) ? ctx->plugin_name : "unknown";
-    const char *label = (level >= VIRTUAL_LOG_DEBUG && level <= VIRTUAL_LOG_ERROR)
-                        ? labels[level] : "UNKNOWN";
+    int native_level = (level >= VIRTUAL_LOG_DEBUG && level <= VIRTUAL_LOG_ERROR)
+                       ? levels[level] : FD_LOG_LEVEL_ERROR;
 
-    if (!format) {
-        return;
-    }
-    fprintf(stderr, "FASTDYN_VIRTUAL|%s|%s| ", label, plugin);
     va_start(args, format);
-    vfprintf(stderr, format, args);
+    fastdyn_logv(native_level, plugin, format, args);
     va_end(args);
-    fputc('\n', stderr);
-    fflush(stderr);
 }
 
 uint64_t virtual_pc(const VirtualContext *ctx) {

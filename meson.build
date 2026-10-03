@@ -164,6 +164,7 @@ configure_file(
 srcs += files(
   'core/core.c',
   'utils/utils.c',
+  'utils/log.c',
   'virtuals/virtuals.c',
 )
 

@@ -83,3 +83,10 @@ fastdyn --log-file fastdyn_work/fastdyn.log run -c configs/minimal.toml # also s
 level when no option is given. The log file always records debug messages,
 without colour. Programs that use FastDyn's Python API configure logging
 themselves, for example with `fastdyn.logs.configure()`.
+
+Messages from the QEMU plugin and runtime plugins (for example
+`fastdyn.function_tracer|WARNING|  ...`) use the same format and the same
+default level. `--log-level fastdyn.native=LEVEL` sets their level on its
+own. They are printed by QEMU directly, so they are not saved in the log
+file, and native debug messages only exist in builds with `DEBUG_PRINT`
+enabled.

@@ -133,3 +133,18 @@ def test_cli_level_options(args, banner_shown):
 def test_cli_rejects_conflicting_or_unknown_levels():
     assert _cli("-v", "-q", "timing-summary", "--help").exit_code != 0
     assert _cli("--log-level", "fastdyn.targets=LOUD", "timing-summary", "--help").exit_code != 0
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({}, logging.INFO),
+        ({"level": "ERROR"}, logging.ERROR),
+        ({"level": "ERROR", "levels": {"fastdyn.native": "DEBUG"}}, logging.DEBUG),
+        ({"levels": {"fastdyn.targets": "DEBUG"}}, logging.INFO),  # other loggers do not count
+    ],
+)
+def test_native_level_follows_the_configuration(kwargs, expected):
+    logs.configure(stream=io.StringIO(), **kwargs)
+
+    assert logs.native_level() == expected
