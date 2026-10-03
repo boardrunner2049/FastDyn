@@ -4,9 +4,7 @@ Main file is responsible for kicking the qemu command.
 import logging
 import click
 import os, shutil
-import subprocess
 import json
-import signal
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -14,24 +12,14 @@ from pathlib import Path
 from . import fastdyn_log
 from fastdyn.__init__ import __version__
 # from .machine import Machine, CPUConfig, VirtualInstruction, InstructionModifier
-from .verifier import verifier as verify             #contains the verification framework
-from .verifier import prompt_gen as pg           #Generates the prompt
-from .verifier import context_minimizer as cm   #Minimizes the context
 from . import toml_parser
-from . import fmu_build
 from . import runtime_config
 from . import runner
-from . import swarm as swarm_runner
 from . import timing
-from .fuzzer import fuzzer
 from .utils import parse_config as parse_helper
 from . import platform_browser
 from .virtual_preprocessing import VirtualPreparationError
-from fastdyn.binary.symmap import SymbolResolver
-from fastdyn.binary.symmap.providers.dwarf import DwarfProvider
 import fastdyn.targets.qemu_target as qemu_target
-from fastdyn.llm.handlers import llm_history_next
-from fastdyn.llm.compiler import CompilationError, compile_model
 log = logging.getLogger(__name__)
 fastdyn_log.setLogConfig()
 
@@ -475,6 +463,8 @@ def _resolve_probe_addresses(cache_dir, symbols_list):
 
 
 def _compile_model(sdk_dir):
+    # Feature-only import, kept here so core commands do not depend on the llm package.
+    from .llm.compiler import CompilationError, compile_model
     try:
         return compile_model(
             sdk_dir,
@@ -902,6 +892,8 @@ def swarm(
     skip_port_check,
     dry_run,
 ):
+    # Feature-only import, kept here so other commands do not depend on swarm.
+    from . import swarm as swarm_runner
     runner = "loop" if use_loop else "run"
     jobs = instances if jobs is None else jobs
 
@@ -1117,6 +1109,10 @@ def timing_summary(timing_file, top):
 def generate(hardware_log, slave_model, reference_model, firmware_code, board, peripheral, model_name,
              method, n, isr_window, work_dir, svd, model_sources, no_vio, no_encoder):
     """Generates the LLM Prompt using the hardware log passed by the user."""
+    # Feature-only imports: keeping them here means core commands such as
+    # `fastdyn run` do not need these modules or their dependencies (scipy).
+    from .verifier import context_minimizer as cm
+    from .verifier import prompt_gen as pg
     if slave_model:
         if reference_model is None:
             raise click.UsageError("--slave-model requires --reference-model.")
@@ -1385,6 +1381,11 @@ def verifier(hardware_log, emulation_log, device_models, model_names, board,
              peripheral, method, n, isr_window, work_dir, svd,
              no_rca, no_encoder, no_vio, no_verifier, ms_map):
     """Verifies the model against hardware and emulation logs."""
+    # Feature-only imports: keeping them here means core commands such as
+    # `fastdyn run` do not need these modules or their dependencies (scipy).
+    from .verifier import context_minimizer as cm
+    from .verifier import prompt_gen as pg
+    from .verifier import verifier as verify
     log.info("Running Verifier")
 
     # ── Work directory setup ─────────────────────────────────────────────────
@@ -1688,6 +1689,10 @@ def verifier(hardware_log, emulation_log, device_models, model_names, board,
 )
 def fuzz(config, hardware_log, peripheral, board, method, n, isr_window, work_dir, svd):
     """Performs Fuzzing using the context minimizer for data register and then runs using the toml config"""
+    # Feature-only imports: keeping them here means core commands such as
+    # `fastdyn run` do not need these modules or their dependencies (scipy).
+    from .fuzzer import fuzzer
+    from .verifier import context_minimizer as cm
 
     if work_dir is not None:
         if not os.path.isdir(work_dir):
@@ -1858,6 +1863,8 @@ def llm(ctx, work_dir, output, model, model_provider, env_file, temperature,
         reasoning_effort, stateless, compile, sdk_dir, max_retries, evaluate,
         ollama_url, ollama_num_ctx, ollama_timeout):
     """Sends a prompt to the selected LLM provider and processes the response."""
+    # Feature-only imports, kept here so core commands do not depend on the llm package.
+    from .llm.handlers import llm_history_next
     from fastdyn.llm.llm_client import LLMClient, LLMClientError, load_api_key
     from fastdyn.llm.response_parser import (
         extract_c_code, parse_search_replace_blocks, ParsingError

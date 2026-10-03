@@ -19,10 +19,6 @@ tomli = types.ModuleType("tomli")
 tomli.load = tomllib.load
 sys.modules.setdefault("tomli", tomli)
 
-dwarf_provider = types.ModuleType("fastdyn.binary.symmap.providers.dwarf")
-dwarf_provider.DwarfProvider = object
-sys.modules.setdefault("fastdyn.binary.symmap.providers.dwarf", dwarf_provider)
-
 from fastdyn import main
 
 
