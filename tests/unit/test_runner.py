@@ -124,9 +124,12 @@ def test_package_reexports_are_lazy():
         "assert 'fastdyn.runner' not in sys.modules\n"
         "assert fastdyn.run_config.__module__ == 'fastdyn.runner'\n"
         "assert fastdyn.RunResult is sys.modules['fastdyn.runner'].RunResult\n"
+        "assert 'fastdyn.model_build' not in sys.modules\n"
+        "assert fastdyn.build_models.__module__ == 'fastdyn.model_build'\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
-    assert set(fastdyn.__all__) == {"run_config", "load", "Session", "RunResult", "RunError"}
+    assert set(fastdyn.__all__) == {"run_config", "load", "Session", "RunResult", "RunError",
+                                    "build_models", "Model", "BuildReport"}
 
 
 def test_cli_run_delegates_to_the_runner(monkeypatch, tmp_path):

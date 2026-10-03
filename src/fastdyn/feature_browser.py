@@ -114,6 +114,12 @@ _RUN_GUIDE = (
                  "fastdyn --log-level fastdyn.native=ERROR run -c configs/target.toml  # QEMU plugin: errors only\n"
                  "fastdyn --log-file fastdyn_work/fastdyn.log run -c configs/target.toml",
                  "docs/RunningFastDyn.md"),
+    FeatureEntry("Execution command", "build device models", "Compile device model sources (one .so per .c file) for the elder handler; only changed models are rebuilt.",
+                 "fastdyn build-model models/usart2.c -o build/models              # one file\n"
+                 "fastdyn build-model models/ -o build/models -r -j 8              # a whole tree, in parallel\n"
+                 "fastdyn build-model --name spi4 models/spi4.c models/spi4_dma.c -o build/models\n"
+                 "fastdyn build-model models/ -o build/models --keep-going --json  # report every failure",
+                 "docs/RunningFastDyn.md"),
 )
 
 

@@ -14,8 +14,9 @@ logging.getLogger("fastdyn").addHandler(logging.NullHandler())
 # Public entry points, imported on first use so `import fastdyn` stays light
 # (runner pulls in the FMU and helper-process machinery).
 _RUNNER_EXPORTS = ("run_config", "load", "Session", "RunResult", "RunError")
+_MODEL_BUILD_EXPORTS = ("build_models", "Model", "BuildReport")
 
-__all__ = list(_RUNNER_EXPORTS)
+__all__ = [*_RUNNER_EXPORTS, *_MODEL_BUILD_EXPORTS]
 
 
 def __getattr__(name):
@@ -23,8 +24,12 @@ def __getattr__(name):
         from . import runner
 
         return getattr(runner, name)
+    if name in _MODEL_BUILD_EXPORTS:
+        from . import model_build
+
+        return getattr(model_build, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__():
-    return sorted(set(globals()) | set(_RUNNER_EXPORTS))
+    return sorted(set(globals()) | set(__all__))

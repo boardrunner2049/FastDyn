@@ -6,6 +6,7 @@ import click
 import os, shutil
 import json
 import sys
+import textwrap
 from collections import defaultdict
 from pathlib import Path
 
@@ -393,7 +394,7 @@ def run_help(browse):
     click.echo('Run FastDyn:')
     for entry in feature_browser.run_entries():
         click.echo(f'  {entry.name:<34} {entry.description}')
-        click.echo(f'    {entry.toml}')
+        click.echo(textwrap.indent(entry.toml, '    '))
     click.echo('\nBrowse interactively with: fastdyn help run --browse')
 
 
@@ -988,6 +989,52 @@ def swarm(
     if failed:
         details = ", ".join(f"{result.plan.index:03d}:rc={result.returncode}" for result in failed)
         raise click.ClickException(f"{len(failed)} worker(s) failed: {details}")
+
+
+@cli.command('build-model', help='Compile device model sources into shared libraries (one per .c file).')
+@click.argument('sources', nargs=-1, required=True, type=click.Path(exists=True), metavar='PATH...')
+@click.option('-o', '--out-dir', required=True, type=click.Path(file_okay=False), metavar='DIR',
+              help='Where to write <name>.so.')
+@click.option('-r', '--recursive', is_flag=True, help='Build every .c file under the given folders.')
+@click.option('--name', metavar='NAME', help='Build the given files as one model called NAME.')
+@click.option('-j', '--jobs', type=click.IntRange(min=1), default=None, metavar='N',
+              help='Parallel builds (default: number of CPUs).')
+@click.option('-k', '--keep-going', is_flag=True, help='Keep building the other models after a failure.')
+@click.option('--exclude', multiple=True, metavar='PATTERN', help='Skip matching files (repeatable).')
+@click.option('--no-vio', is_flag=True, help='Build without LibVIO.')
+@click.option('--pkg', 'pkgs', multiple=True, metavar='NAME',
+              help='Add a pkg-config package (repeatable); "fastdyn" links the fuzzer hooks.')
+@click.option('--json', 'as_json', is_flag=True, help='Print a machine-readable report.')
+def build_model(sources, out_dir, recursive, name, jobs, keep_going, exclude, no_vio, pkgs, as_json):
+    # Imported here so other commands do not pay for it.
+    from . import model_build
+
+    try:
+        if name is not None:
+            inputs = model_build.find_models(sources, name=name)
+        else:
+            inputs = list(sources)
+        report = model_build.build_models(
+            inputs, out_dir, jobs=jobs, keep_going=keep_going, vio=not no_vio,
+            pkgs=pkgs, exclude=exclude, recursive=recursive,
+        )
+    except model_build.ModelBuildError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json:
+        click.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        labels = {"built": "built", "up-to-date": "up to date", "failed": "FAILED", "skipped": "skipped"}
+        for result in report.results:
+            line = f"{labels[result.status]:<11} {result.name}"
+            if result.status in ("built", "up-to-date"):
+                line += f" -> {result.output}"
+            elif result.status == "failed":
+                line += f": {result.first_error}"
+            click.echo(line)
+        click.echo(report.summary())
+    if not report.ok:
+        raise SystemExit(1)
 
 
 @cli.command('timing-summary', help='Summarize a FastDyn timing JSONL file.')
