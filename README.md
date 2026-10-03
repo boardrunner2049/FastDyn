@@ -163,6 +163,20 @@ Example:
 make qemu_path=<path/to>/qemu libhw_path=<path/to>/libhw LIBPY=true SUNDIALS=true
 ```
 
+### 6. Optional: install for building device models elsewhere
+
+`meson install` installs `libfastdyn.so`, the device model headers
+(`<fastdyn/device_model.h>`, `<fastdyn/fuzz_hooks.h>`), QEMU's
+`<qemu/qemu-plugin.h>` and `fastdyn.pc`, so device models can be compiled
+outside this checkout with `pkg-config --cflags fastdyn` (add
+`pkg-config --libs fastdyn` only for models that call the fuzzer hooks):
+
+```bash
+meson configure build -Dprefix=$HOME/.local
+meson install -C build
+export PKG_CONFIG_PATH=$HOME/.local/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
+```
+
 ## Install the Python CLI
 
 Use the setup helper to create a virtualenv, install `fastdyn`, initialize the

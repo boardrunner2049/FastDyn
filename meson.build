@@ -220,5 +220,31 @@ fastdyn_target = shared_module(
   srcs,
   include_directories: local_include,
   dependencies: deps + [qemu_dep],
-  install: false
+  install: true,
+  install_dir: get_option('libdir')
+)
+
+# --- What device models build against (`meson install`).
+# <fastdyn/device_model.h> is the model interface, <fastdyn/fuzz_hooks.h>
+# the fuzzer hooks, and QEMU's <qemu/qemu-plugin.h> the host functions
+# models call; fastdyn.pc puts them on the include path. Models only link
+# against libfastdyn.so when they call the fuzzer hooks.
+install_headers(
+  'include/fastdyn/device_model.h',
+  'include/fastdyn/fuzz_hooks.h',
+  subdir: 'fastdyn'
+)
+install_headers(
+  join_paths(QEMU_DIR, 'include', 'qemu', 'qemu-plugin.h'),
+  subdir: join_paths('fastdyn', 'qemu')
+)
+pkgconfig = import('pkgconfig')
+pkgconfig.generate(
+  name: 'fastdyn',
+  description: 'FastDyn device model interface and QEMU plugin',
+  version: meson.project_version(),
+  subdirs: ['.', 'fastdyn'],
+  requires_private: ['glib-2.0'],
+  libraries: ['-L${libdir}', '-lfastdyn'],
+  variables: ['model_abi=2']
 )

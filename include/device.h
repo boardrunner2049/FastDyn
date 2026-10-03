@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <qemu/qemu-plugin.h>
+#include <fastdyn/device_model.h>
 
 #ifdef ENABLE_DEV_DEBUG
     #define dev_debug(fmt, ...) printf(fmt, ##__VA_ARGS__)
@@ -86,7 +87,6 @@ typedef struct {
 } AppConfig;
 
 
-typedef unsigned long hwaddr;
 
 /**
  * @brief Function pointer for a device write operation.
