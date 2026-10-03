@@ -4,7 +4,7 @@
 
 __author__ = """Fastdyn Team"""
 __email__ = 'fastdyn@pseclab.com'
-__version__ = '0.1.0'
+__version__ = '1.0.0'
 
 # Public entry points, imported on first use so `import fastdyn` stays light
 # (runner pulls in the FMU and helper-process machinery).
