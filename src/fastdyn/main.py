@@ -20,6 +20,7 @@ from .verifier import context_minimizer as cm   #Minimizes the context
 from . import toml_parser
 from . import fmu_build
 from . import runtime_config
+from . import runner
 from . import swarm as swarm_runner
 from . import timing
 from .fuzzer import fuzzer
@@ -36,61 +37,16 @@ fastdyn_log.setLogConfig()
 
 
 def _prepare_work_dir(work_dir, persist_work_dir):
-    if work_dir is not None:
-        if not os.path.isdir(work_dir):
-            log.warn(f"The output directory: {work_dir} passed by the user does not exist.")
-    else:
-        work_dir = "fastdyn_work"
-
-    if not persist_work_dir:
-        if os.path.exists(work_dir):
-            log.info(f"The output directory already exists at Path {os.path.abspath(work_dir)}. Deleting it!")
-            shutil.rmtree(work_dir)
-
-        log.info(f"Creating output directory at path: {os.path.abspath(work_dir)}")
-        os.makedirs(work_dir)
-    else:
-        log.info(f"Running with existing work directory.")
-
-    return work_dir
-
-
-def _configure_measurement(config, work_dir):
-    env = runtime_config.configure_run_environment(config, work_dir)
-    click.echo(f"FastDyn timing log: {env['FASTDYN_TIMING_FILE']}")
-    if env.get("FASTDYN_PYTHON_PROFILE") == "1" or env.get("FASTDYN_PERF_MODE") != "off":
-        click.echo(f"FastDyn profile output: {Path(work_dir).expanduser().resolve() / 'profiles'}")
-    return env
+    # Used by probe-run; the implementation lives in runner.
+    return runner.prepare_work_dir(work_dir, persist_work_dir)
 
 
 def _auto_build_fmu(config, fmu_name, skip_build):
-    if skip_build:
-        return
+    # CLI adapter (used by loop and swarm): FMU problems become CLI errors.
     try:
-        build = fmu_build.resolve(Path(config), fmu_name)
-    except fmu_build.NoFmuConfig:
-        return
-    except fmu_build.FmuConfigError as exc:
+        runner.auto_build_fmu(config, fmu_name, skip_build, report=click.echo)
+    except runner.RunError as exc:
         raise click.ClickException(str(exc)) from exc
-
-    if not build.auto_build:
-        return
-
-    try:
-        if not fmu_build.needs_build(build):
-            click.echo(f"FMU ready: {build.artifact_path}")
-            return
-        fmu_build.require_build_inputs(build)
-        click.echo(f"Building FMU '{build.name}' from {config}")
-        fmu_build.build_fmu(build, update_submodules_first=False)
-        if build.package:
-            click.echo(f"FMU ready: {build.fmu_path}")
-        else:
-            click.echo(f"FMU source tree ready: {build.output}")
-    except fmu_build.FmuConfigError as exc:
-        raise click.ClickException(f"FMU auto-build setup is incomplete: {exc}") from exc
-    except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"FMU build failed: {exc}") from exc
 
 @click.group()
 @click.version_option(prog_name="Fastdyn Framework",version=__version__)
@@ -474,47 +430,17 @@ def run_help(browse):
 def run(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu,
         no_run_processes):
     try:
-        # Do this before _prepare_work_dir can replace an existing directory.
-        runtime_config.validate_config(config)
-    except (runtime_config.RuntimeConfigError, VirtualPreparationError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    work_dir = _prepare_work_dir(work_dir, persist_work_dir)
-    _configure_measurement(config, work_dir)
-
-    svd_path = svd if svd is not None else "third_party/common/cmsis-svd-data"
-    try:
-        with timing.phase("fastdyn.run.total", config=config, work_dir=work_dir):
-            with timing.phase("fastdyn.fmu_auto_build"):
-                _auto_build_fmu(config, fmu, no_build_fmu)
-
-            with runtime_config.launch_from_config(config, work_dir, skip=no_run_processes) as process_manager:
-                with timing.phase("fastdyn.parse_config"):
-                    fastdyn_handle = toml_parser.parser(
-                        work_dir,
-                        machine_name="machine0",
-                        toml_config=config,
-                        svd_path=svd_path,
-                        fmu_name=fmu,
-                    )
-
-                if process_manager is not None:
-                    process_manager.start_terminator_watcher(
-                        lambda _handle, _exit_code: fastdyn_handle.shutdown()
-                    )
-
-                try:
-                    for idx, machine in enumerate(fastdyn_handle.machines):
-                        with timing.phase(f"fastdyn.machine{idx}.run"):
-                            fastdyn_handle.run(
-                                machine_name=f"machine{idx}",
-                                target="qemu",
-                                out_path=work_dir,
-                            )
-                finally:
-                    if process_manager is not None:
-                        process_manager.stop_terminator_watcher()
-                        process_manager.raise_for_terminator_failure()
-    except (runtime_config.RuntimeConfigError, VirtualPreparationError,
+        runner.run_config(
+            config,
+            work_dir,
+            svd=svd,
+            persist_work_dir=persist_work_dir,
+            fmu=fmu,
+            build_fmu=not no_build_fmu,
+            run_processes=not no_run_processes,
+            report=click.echo,
+        )
+    except (runner.RunError, runtime_config.RuntimeConfigError, VirtualPreparationError,
             qemu_target.QemuExitError) as exc:
         raise click.ClickException(str(exc)) from exc
     except KeyboardInterrupt:
@@ -871,7 +797,7 @@ def loop(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu, n
         else:
             log.info(f"Running with existing work directory (crash recovery).")
 
-        _configure_measurement(config, work_dir)
+        runner.configure_measurement(config, work_dir, report=click.echo)
 
         try:
             with timing.phase("fastdyn.loop.iteration", config=config, work_dir=work_dir):

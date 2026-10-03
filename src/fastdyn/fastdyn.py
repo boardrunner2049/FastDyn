@@ -1,6 +1,6 @@
 '''
 This package can be used independently as well to include as a tool.
-See test/fastdyn_package/example.py
+See configs/python_api/ for examples
 '''
 from dataclasses import dataclass, field
 from enum import Enum

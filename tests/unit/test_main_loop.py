@@ -79,7 +79,7 @@ def test_loop_starts_helper_terminator_watcher(tmp_path, monkeypatch):
         yield manager
 
     monkeypatch.setattr(main.runtime_config, "launch_from_config", fake_launch_from_config)
-    monkeypatch.setattr(main, "_configure_measurement", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(main.runner, "configure_measurement", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(main, "_auto_build_fmu", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main.toml_parser, "parser", lambda *_args, **_kwargs: handle)
 
