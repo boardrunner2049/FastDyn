@@ -10,13 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import fmu_build, runtime_config, timing, toml_parser
+from . import fmu_build, paths, runtime_config, timing, toml_parser
 from .fastdyn import Fastdyn
 
 log = logging.getLogger(__name__)
 
 DEFAULT_WORK_DIR = "fastdyn_work"
-DEFAULT_SVD_PATH = "third_party/common/cmsis-svd-data"
 
 Reporter = Callable[[str], None]
 
@@ -180,7 +179,7 @@ def load(
     work_dir = _prepare(config, work_dir, persist_work_dir, validate, report)
     with timing.phase("fastdyn.fmu_auto_build"):
         auto_build_fmu(config, fmu, not build_fmu, report)
-    return Session(config, work_dir, svd or DEFAULT_SVD_PATH, fmu, run_processes)
+    return Session(config, work_dir, svd or paths.default_svd_dir(), fmu, run_processes)
 
 
 def run_config(
@@ -206,5 +205,5 @@ def run_config(
     with timing.phase(phase_name, config=config, work_dir=work_dir):
         with timing.phase("fastdyn.fmu_auto_build"):
             auto_build_fmu(config, fmu, not build_fmu, report)
-        session = Session(config, work_dir, svd or DEFAULT_SVD_PATH, fmu, run_processes)
+        session = Session(config, work_dir, svd or paths.default_svd_dir(), fmu, run_processes)
         return session.run(adjust)

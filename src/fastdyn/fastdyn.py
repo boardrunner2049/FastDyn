@@ -11,6 +11,7 @@ import subprocess
 import logging
 
 from .utils import helper
+from . import paths
 from . import timing
 
 from .utils import parse_config as parse_helper
@@ -317,7 +318,7 @@ class CPU:
         self.machine_obj = machine_obj
         self.exstng_config_path = exstng_config_path
 
-        self.plugin_library: Optional[str] = "build/libfastdyn.so"
+        self.plugin_library: Optional[str] = paths.default_plugin_library()
         self.monitor_elf: Optional[str] = None
 
         self.log_file: Optional[str] = "qemu.log"

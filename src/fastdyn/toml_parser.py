@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastdyn.fastdyn import *
 from . import fmu_build
+from . import paths
 from . import fastdyn_log as fastdyn_log_conf
 
 log = logging.getLogger(__name__)
@@ -299,7 +300,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         cpu_obj.drive_file     =   curr_cpu.get('drive_file', None)
         cpu_obj.drive_format   =   curr_cpu.get('drive_format', 'raw')
         cpu_obj.bios           =   curr_cpu.get('bios', None) or toml_parser.machine_info.get("bios", None)
-        cpu_obj.plugin_library  =   curr_cpu.get('plugin_library', 'build/libfastdyn.so')
+        cpu_obj.plugin_library  =   curr_cpu.get('plugin_library', paths.default_plugin_library())
         cpu_obj.monitor_elf     =   curr_cpu.get('monitor_elf', '../ws/monitor.elf')
         cpu_obj.log_file        =   toml_parser.machine_info.get("log_file", curr_cpu.get("log_file", cpu_obj.log_file))
         cpu_obj.log_options     =   toml_parser.machine_info.get("log_options", curr_cpu.get("log_options", cpu_obj.log_options))

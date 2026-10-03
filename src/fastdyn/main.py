@@ -14,6 +14,7 @@ from fastdyn.__init__ import __version__
 # from .machine import Machine, CPUConfig, VirtualInstruction, InstructionModifier
 from . import toml_parser
 from . import runtime_config
+from . import paths
 from . import runner
 from . import timing
 from .utils import parse_config as parse_helper
@@ -476,7 +477,7 @@ def _compile_model(sdk_dir):
 
 
 def _repo_root():
-    return Path(__file__).resolve().parents[2]
+    return paths.repo_root() or Path(__file__).resolve().parents[2]
 
 
 def _qemu_include_dir():
@@ -613,7 +614,7 @@ void {p_name}_write(void *opaque, uint64_t addr, uint64_t value, unsigned size) 
               help='Optional Flag to persist the existing work directory.')
 def probe_run(config, work_dir, svd, persist_work_dir):
     work_dir = _prepare_work_dir(work_dir, persist_work_dir)
-    svd_path = svd if svd is not None else "third_party/common/cmsis-svd-data"
+    svd_path = svd if svd is not None else paths.default_svd_dir()
 
     # Ensure libhw.so can be found by QEMU
     hw_out_dir = "/scratch/Fastdyn/ardurover_rehosting_fastdyn/libhw/out"
@@ -769,7 +770,7 @@ def loop(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu, n
     if work_dir is None:
         work_dir = "fastdyn_work"
 
-    svd_path = svd if svd is not None else "third_party/common/cmsis-svd-data"
+    svd_path = svd if svd is not None else paths.default_svd_dir()
 
     # persist_work_dir controls whether the *current* iteration wipes the dir.
     # After a clean exit we reset to False (fresh start).
@@ -1156,7 +1157,7 @@ def generate(hardware_log, slave_model, reference_model, firmware_code, board, p
         os.makedirs(work_dir)
 
         #discover svd
-        svd_input = svd if svd is not None else "third_party/common/cmsis-svd-data"
+        svd_input = svd if svd is not None else paths.default_svd_dir()
         platform = (board or "").strip()
         if not platform and (svd is None):
             raise click.UsageError(
@@ -1444,7 +1445,7 @@ def verifier(hardware_log, emulation_log, device_models, model_names, board,
             sys.exit(1)
 
     # ── SVD discovery ────────────────────────────────────────────────────────
-    svd_input = svd if svd is not None else "third_party/common/cmsis-svd-data"
+    svd_input = svd if svd is not None else paths.default_svd_dir()
     platform = (board or "").strip()
 
     if not platform and (svd is None):
@@ -2223,7 +2224,7 @@ def static_analyze(config, binary, svd, force, format):
         run_static_analyze,
     )
 
-    svd_path = svd if svd is not None else "third_party/common/cmsis-svd-data"
+    svd_path = svd if svd is not None else paths.default_svd_dir()
 
     fastdyn_handle = toml_parser.parser(
         "fastdyn_static",

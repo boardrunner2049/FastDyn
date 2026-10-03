@@ -18,6 +18,7 @@ import os
 import sys
 import types
 
+from . import paths
 from .machine import VirtualInstruction
 from .utils import parse_config as parse_helper
 
@@ -182,8 +183,8 @@ def _load_run_plugins() -> None:
     modules. A built-in feature supplies ``virtuals/<feature>/host/preprocessor.py``
     and registers itself through the public API when loaded.
     """
-    virtuals_root = Path(__file__).resolve().parents[2] / "virtuals"
-    if not virtuals_root.is_dir():
+    virtuals_root = paths.virtuals_dir()
+    if virtuals_root is None:
         return
     # Utilities shared by independently discovered plugins are exposed as a
     # separate private package. The frontend knows only this generic package
