@@ -12,11 +12,61 @@ from fastdyn.fmu_build import FmuBuild, build_fmu
 
 
 @pytest.mark.skipif(not os.environ.get('FASTDYN_TEST_RUMOCA_DIR'), reason='requires audited Rumoca and FMI3 headers')
-def test_source_fmu_packages_and_simulates(tmp_path):
-    source = tmp_path / 'ContinuousProbe.mo'
-    source.write_text('model ContinuousProbe\ninput Real u(start=0);\noutput Real x(start=0,fixed=true);\nequation\nder(x)=u-x;\nend ContinuousProbe;\n')
+@pytest.mark.parametrize('model,model_source,set_name,set_value,expected', [
+    ('ContinuousProbe', 'model ContinuousProbe\ninput Real u(start=0);\noutput Real x(start=0,fixed=true);\nequation\nder(x)=u-x;\nend ContinuousProbe;\n', 'u', 1, 1-math.exp(-1)),
+    ('ParameterFold', '''model ParameterFold
+  function buildMatrix
+    input Real scale;
+    output Real values[2,2];
+  algorithm
+    for i in 1:2 loop
+      for j in 1:2 loop
+        values[i,j] := if scale > 0 then scale*(i+j) else 0;
+      end for;
+    end for;
+    assert(values[1,1] >= 0, "negative entry");
+  end buildMatrix;
+  parameter Real scale = 2;
+  parameter Real values[2,2] = buildMatrix(scale);
+  parameter Real gain = values[1,1]+values[1,2]+values[2,1]+values[2,2];
+  output Real x(start=0,fixed=true);
+equation
+  der(x) = gain;
+end ParameterFold;
+''', 'scale', 5, 60),
+    ('NestedParameterFold', """model NestedParameterFold
+  function accumulate
+    input Real scale;
+    output Real values[2,2];
+  protected
+    Real total;
+  algorithm
+    values := zeros(2,2);
+    total := 0;
+    for part in 1:2 loop
+      total := total + scale;
+      for i in 1:2 loop
+        for j in 1:2 loop
+          values[i,j] := values[i,j] + total*(i+j);
+        end for;
+      end for;
+    end for;
+    assert(values[1,1] >= 0, "negative accumulated entry");
+  end accumulate;
+  parameter Real scale = 2;
+  parameter Real values[2,2] = accumulate(scale);
+  parameter Real gain = values[1,1]+values[1,2]+values[2,1]+values[2,2];
+  output Real x(start=0,fixed=true);
+equation
+  der(x) = gain;
+end NestedParameterFold;
+""", 'scale', 5, 180),
+])
+def test_source_fmu_packages_and_simulates(tmp_path, model, model_source, set_name, set_value, expected):
+    source = tmp_path / (model + '.mo')
+    source.write_text(model_source)
     repo = Path(__file__).resolve().parents[2]
-    build = FmuBuild(name='probe', model='ContinuousProbe', model_file=source,
+    build = FmuBuild(name='probe', model=model, model_file=source,
                      source_root=source, extra_source_roots=(), output=tmp_path/'fmi3',
                      repo_root=repo, compiler_root=Path(os.environ['FASTDYN_TEST_RUMOCA_DIR']))
     build_fmu(build, update_submodules_first=False)
@@ -50,7 +100,7 @@ def test_source_fmu_packages_and_simulates(tmp_path):
     assert instance
     try:
         assert enter(instance,False,0,0,False,0) == 0
-        assert set_values(instance,(C.c_uint32*1)(refs['u']),1,(C.c_double*1)(1),1) == 0
+        assert set_values(instance,(C.c_uint32*1)(refs[set_name]),1,(C.c_double*1)(set_value),1) == 0
         assert leave(instance) == 0
         for i in range(100):
             event,terminate,early,last = C.c_bool(),C.c_bool(),C.c_bool(),C.c_double()
@@ -58,6 +108,6 @@ def test_source_fmu_packages_and_simulates(tmp_path):
             assert not (event.value or terminate.value or early.value)
         value = (C.c_double*1)()
         assert get_values(instance,(C.c_uint32*1)(refs['x']),1,value,1) == 0
-        assert value[0] == pytest.approx(1-math.exp(-1),abs=1e-8)
+        assert value[0] == pytest.approx(expected,abs=1e-8)
     finally:
         free(instance)

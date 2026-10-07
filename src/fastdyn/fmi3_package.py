@@ -8,6 +8,33 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 
+def _source_files(root: Path, identifier: str) -> list[Path]:
+    from .fmu_build import FmuConfigError
+
+    source_root = root / 'sources'
+    description = source_root / 'buildDescription.xml'
+    if not description.is_file():
+        return [source_root / 'model.c']
+    metadata = ET.parse(description).getroot()
+    configuration = next((entry for entry in metadata.findall('BuildConfiguration')
+                          if entry.get('modelIdentifier') == identifier), None)
+    if configuration is None:
+        raise FmuConfigError(f'FMI3 build description has no configuration for {identifier}')
+    sources = []
+    for file_set in configuration.findall('SourceFileSet'):
+        if file_set.get('language') not in ('C', 'C99'):
+            raise FmuConfigError('Rumoca source FMU packaging requires C sources')
+        for entry in file_set.findall('SourceFile'):
+            source = (source_root / entry.get('name', '')).resolve()
+            if not source.is_relative_to(source_root.resolve()) or not source.is_file():
+                raise FmuConfigError(f'FMI3 build description names an invalid source: {source}')
+            if source not in sources:
+                sources.append(source)
+    if not sources:
+        raise FmuConfigError('FMI3 build description has no source files')
+    return sources
+
+
 def package_sources(build) -> None:
     from .fmu_build import FmuConfigError
 
@@ -30,7 +57,9 @@ def package_sources(build) -> None:
     binary.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([os.environ.get('CC', 'cc'), '-std=c99', '-O2', '-fPIC', '-shared',
                     '-DFMI3_OVERRIDE_FUNCTION_PREFIX', '-I', str(headers),
-                    str(root / 'sources/model.c'), '-lm', '-o', str(binary)], check=True)
+                    '-Wl,--no-undefined',
+                    *(str(source) for source in _source_files(root, identifier)),
+                    '-lm', '-o', str(binary)], check=True)
     temporary = build.fmu_path.with_suffix('.fmu.tmp')
     try:
         with zipfile.ZipFile(temporary, 'w', zipfile.ZIP_DEFLATED) as archive:
