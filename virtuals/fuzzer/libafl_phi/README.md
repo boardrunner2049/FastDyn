@@ -14,13 +14,15 @@ legacy experiments, but new local and CI coverage targets the FMUv3 backend.
 From the FastDyn repository root:
 
 ```bash
-source ./setup.sh --build-qemu
+source ./setup.sh --clone-qemu --build-qemu
 ```
 
 `setup.sh` creates the Python virtualenv, installs the FastDyn CLI, initializes
 the pinned Rumoca and `modelica_models` submodules, creates the sibling Banquo
-parser checkout used by CP-Explore, prepares QEMU RAM backing files, and, with
-`--build-qemu`, builds the patched QEMU fork and FastDyn plugin.
+parser checkout used by CP-Explore, and prepares QEMU RAM backing files.
+`--clone-qemu` downloads missing QEMU sources while preserving existing
+checkouts. `--build-qemu` patches/builds those sources and the FastDyn plugin;
+it requires sources to be present and does not download the QEMU checkout.
 
 ## Run The Default Campaign
 

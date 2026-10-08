@@ -35,9 +35,10 @@ bash virtuals/physics/flight_controllers/courbet/utils/install_gazebo_harmonic.s
 ### Local Build
 To initialize submodules, build Gazebo dependencies, and build FastDyn, run from the FastDyn root:
 ```bash
-source ./setup.sh --build-qemu --build-gazebo --skip-optifuzz
+source ./setup.sh --clone-qemu --build-qemu --build-gazebo --skip-optifuzz
 ```
-*(Omit `--build-qemu` if the patched QEMU is already built).*
+Omit `--clone-qemu` when QEMU sources are already present. Omit both QEMU
+options if the patched QEMU is already built and needs no rebuild.
 
 Then, build the `libhw` repo, by first running the setup file in libhw folder
 ```bash

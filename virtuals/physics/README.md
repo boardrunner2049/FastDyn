@@ -11,7 +11,7 @@ plane fuzzing.
 Use the repository root setup script:
 
 ```bash
-source ./setup.sh --build-qemu
+source ./setup.sh --clone-qemu --build-qemu
 ```
 
 Then run one of the maintained FMI v3 vehicle configs:

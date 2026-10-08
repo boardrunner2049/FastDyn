@@ -14,7 +14,7 @@ The maintained vehicle examples are:
 Run a config with:
 
 ```bash
-source ./setup.sh --build-qemu
+source ./setup.sh --clone-qemu --build-qemu
 fastdyn run -c configs/copter462.toml
 ```
 

@@ -2,7 +2,7 @@
 #
 # FastDyn firmware-slicing microbenchmark — self-contained evaluator image.
 #
-# Builds patched QEMU (Arslan8/qemu@fastdyn + FastDyn icount patch), the
+# Builds patched QEMU (boardrunner2049/qemu@fastdyn + FastDyn icount patch), the
 # FastDyn plugin (minimal: modifier + virtual dispatch paths, no PHY/FMU/
 # FLIGHT_CONTROLLERS/LIBFUZZ), cross-compiles the STM32 slicing firmware,
 # and ships the pinned per-bench config files + run scripts.
@@ -64,7 +64,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Patched QEMU
 # ----------------------------------------------------------------------------
 # Regenerated patch applies cleanly forward against the current fastdyn tip.
-ARG QEMU_REPO=https://github.com/Arslan8/qemu.git
+ARG QEMU_REPO=https://github.com/boardrunner2049/qemu.git
 ARG QEMU_REF=fastdyn
 
 WORKDIR /workspace

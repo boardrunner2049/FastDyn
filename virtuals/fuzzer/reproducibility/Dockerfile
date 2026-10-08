@@ -14,9 +14,9 @@ ARG BUILD_JOBS=4
 
 # These arguments make dependency updates explicit while the defaults retain
 # the versions used by the checked-in reproduction setup.
-ARG QEMU_REPOSITORY=https://github.com/Arslan8/qemu.git
+ARG QEMU_REPOSITORY=https://github.com/boardrunner2049/qemu.git
 ARG QEMU_COMMIT=99b54836ded8dc3271eba52deee7453efc0a13b9
-ARG LIBHW_REPOSITORY=https://github.com/PSecLab/libhw.git
+ARG LIBHW_REPOSITORY=https://github.com/boardrunner2049/libhw.git
 ARG LIBHW_COMMIT=6e53775f8bc3ce932623a5019c2462d0de987e66
 ARG AFLNET_REPOSITORY=https://github.com/CSmith1539/aflnet.git
 ARG AFLNET_COMMIT=509a10384d53ce6dd6f04c6870454619dbf7d35e

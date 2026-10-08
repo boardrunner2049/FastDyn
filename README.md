@@ -40,7 +40,7 @@ sudo apt-get install -y \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 
-source ./setup.sh --build-qemu
+source ./setup.sh --clone-qemu --build-qemu
 fastdyn run -c configs/copter462.toml
 ```
 
@@ -173,21 +173,41 @@ files:
 source ./setup.sh
 ```
 
-If the patched QEMU fork and FastDyn QEMU plugin are not built yet, setup prints
-the exact commands. To have setup clone/build them too, run:
+QEMU source download and compilation are separate options. Without either
+option, setup only reports the QEMU state and prints the next command.
 
 ```bash
+# Download QEMU sources without patching or compiling them.
+source ./setup.sh --clone-qemu
+
+# Patch and build existing QEMU sources, then build the FastDyn plugin.
 source ./setup.sh --build-qemu
 ```
 
-`setup.sh --build-qemu` fetches `https://github.com/Arslan8/qemu.git` at
-`fastdyn` by default and applies
-`patches/qemu-fastdyn-plugin-icount.patch`. Override the QEMU source when
-needed:
+For a first-time download and build in one run:
 
 ```bash
-source ./setup.sh --build-qemu \
-  --qemu-repo https://github.com/Arslan8/qemu.git \
+source ./setup.sh --clone-qemu --build-qemu
+```
+
+`--clone-qemu` fetches `https://github.com/boardrunner2049/qemu.git` at `fastdyn`
+into `../qemu` by default. It also works when that directory only contains
+the RAM backing files in `ws/`. Existing source checkouts are reused without
+fetching, changing their remote or branch, or overwriting local changes.
+`--qemu-repo` and `--qemu-ref` select sources for a new checkout only; use
+`--qemu-root` to select a different source directory.
+
+`--build-qemu` requires existing sources, applies
+`patches/qemu-fastdyn-plugin-icount.patch`, and runs an incremental build even
+if the QEMU executable already exists. It does not fetch or switch QEMU refs.
+QEMU's configure step and the FastDyn plugin build may still obtain their own
+dependencies. Both options also run the usual Python/environment setup.
+
+To select the source for a new checkout:
+
+```bash
+source ./setup.sh --clone-qemu --build-qemu \
+  --qemu-repo https://github.com/boardrunner2049/qemu.git \
   --qemu-ref fastdyn
 ```
 

@@ -25,7 +25,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 # ---- LibHW (ST-Link backend) ---------------------------------------------
 ARG LIBHW_REF=6e53775
-RUN git clone https://github.com/PSecLab/libhw /workspace/libhw \
+RUN git clone https://github.com/boardrunner2049/libhw /workspace/libhw \
     && cd /workspace/libhw && git checkout "$LIBHW_REF" && make && test -f out/libhw.so
 
 # ---- FastDyn tree (fresh copy), CLI, plugin ------------------------------

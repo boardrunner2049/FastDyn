@@ -149,7 +149,7 @@ def _ensure_executable(executable, description):
 
     raise FileNotFoundError(
         f"{description} not found or not executable: {executable}\n"
-        "Run `source ./setup.sh --build-qemu` or build the patched QEMU fork "
+        "Run `source ./setup.sh --clone-qemu --build-qemu` or build the patched QEMU fork "
         "at the path configured by [Machine].qemu_path."
     )
 def _abs_path(path, base=None):

@@ -121,7 +121,7 @@ make LIBHW=true DEV=true BOARD_RUNNER=true
 ### 3. Build LibHW
 
 ```bash
-git clone https://github.com/PSecLab/libhw $WORK/libhw   # or place your existing checkout here
+git clone https://github.com/boardrunner2049/libhw $WORK/libhw   # or place your existing checkout here
 cd $WORK/libhw && make
 # → produces $WORK/libhw/out/libhw.so and $WORK/libhw/out/hw_test
 ```

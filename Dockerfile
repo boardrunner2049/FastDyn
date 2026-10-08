@@ -78,7 +78,7 @@ RUN rm -rf fastdyn-env && \
     find /workspace -name "meson-private" -type d -exec rm -rf {} +
 
 # Run the setup script to build dependencies (QEMU, Gazebo deps, libhw, etc.)
-RUN /bin/bash -c "source ./setup.sh --build-qemu --build-gazebo --skip-optifuzz"
+RUN /bin/bash -c "source ./setup.sh --clone-qemu --build-qemu --build-gazebo --skip-optifuzz"
 
 # Build FastDyn
 RUN /bin/bash -c "source fastdyn-env/bin/activate && make PROBE=true DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true"

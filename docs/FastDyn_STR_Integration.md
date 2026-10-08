@@ -529,7 +529,7 @@ From the workspace directory that contains FastDyn/, qemu/, libhw/:
 docker build -f FastDyn/Dockerfile -t fastdyn-env .
 ```
 
-The build runs `setup.sh --build-qemu --build-gazebo --skip-optifuzz` and then `make PROBE=true DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true`. The resulting image is self-contained: no host QEMU or Ghidra install is required.
+The build runs `setup.sh --clone-qemu --build-qemu --build-gazebo --skip-optifuzz` and then `make PROBE=true DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true`. The resulting image is self-contained: no host QEMU or Ghidra install is required.
 
 ### 5.2 Verify the CLI is installed and visible
 

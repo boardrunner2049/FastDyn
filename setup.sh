@@ -10,11 +10,12 @@ Create/update the FastDyn Python environment and local runtime workspace.
 Options:
   --venv PATH           Virtual environment path (default: fastdyn-env)
   --python PYTHON       Python executable used to create the venv (default: python3)
-  --build-qemu          Clone/build the patched QEMU fork and FastDyn QEMU plugin
+  --clone-qemu          Download QEMU sources if missing; preserve existing checkouts
+  --build-qemu          Patch/build existing QEMU sources and the FastDyn QEMU plugin
   --build-gazebo        Build legacy Gazebo/Courbet deps and FastDyn with LIBGZ/LIBHW
   --qemu-root PATH      Patched QEMU checkout/workspace root (default: ../qemu)
-  --qemu-repo URL       Patched QEMU repository (default: https://github.com/Arslan8/qemu.git)
-  --qemu-ref REF        Patched QEMU ref/branch (default: fastdyn)
+  --qemu-repo URL       Repository for --clone-qemu (default: https://github.com/boardrunner2049/qemu.git)
+  --qemu-ref REF        Ref for --clone-qemu (default: fastdyn)
   --libhw-root PATH     libhw checkout/workspace root (default: ../libhw)
   --optifuzz-root PATH  Banquo checkout root for OptiFuzz (default: ../banquo)
   --optifuzz-repo URL   Banquo repository (default: https://github.com/michaelprooney/banquo.git)
@@ -29,6 +30,8 @@ Options:
 
 When sourced, this script activates the virtual environment after setup.
 When executed, it prints the activation command.
+Use --clone-qemu --build-qemu together for a first-time QEMU setup.
+Without these options, QEMU sources are neither downloaded nor built.
 USAGE
 }
 
@@ -50,12 +53,74 @@ fastdyn_setup_qemu_patch() {
   if git -C "$qemu_root" apply --check "$patch" >/dev/null 2>&1; then
     git -C "$qemu_root" apply "$patch" || return
     echo "Applied FastDyn QEMU compatibility patch: $patch"
-    return 2
+    return 0
   fi
 
   echo "FastDyn QEMU compatibility patch does not apply cleanly: $patch" >&2
-  echo "Check that --qemu-ref points at the expected patched QEMU base." >&2
+  echo "Check that the existing QEMU sources use the expected patched QEMU base." >&2
   return 1
+}
+
+fastdyn_setup_qemu_source_exists() {
+  [[ -f "$1/configure" && -f "$1/include/qemu/qemu-plugin.h" ]]
+}
+
+fastdyn_setup_qemu_require_source() {
+  local repo_root="$1"
+  local qemu_root="$2"
+
+  if fastdyn_setup_qemu_source_exists "$qemu_root"; then
+    return 0
+  fi
+
+  cat >&2 <<EOF
+QEMU sources are missing or incomplete: $qemu_root
+--build-qemu only builds existing sources; it does not download them.
+Download and build with:
+  source "$repo_root/setup.sh" --clone-qemu --build-qemu --qemu-root "$qemu_root"
+Or use --qemu-root to select an existing QEMU source checkout.
+EOF
+  return 1
+}
+
+fastdyn_setup_qemu_clone() {
+  local qemu_root="$1"
+  local qemu_repo="$2"
+  local qemu_ref="$3"
+
+  if fastdyn_setup_qemu_source_exists "$qemu_root"; then
+    echo "Using existing QEMU sources without fetching or switching refs: $qemu_root"
+    return 0
+  fi
+
+  # Preserve existing repositories, including worktrees with a .git file.
+  if [[ -e "$qemu_root/.git" ]] &&
+     git -C "$qemu_root" rev-parse --verify HEAD >/dev/null 2>&1; then
+    echo "Existing QEMU checkout is incomplete: $qemu_root" >&2
+    echo "Restore its missing source files or select another --qemu-root." >&2
+    return 1
+  fi
+
+  # setup may already have created ws/. git checkout protects untracked files.
+  mkdir -p "$qemu_root" || return
+  git -C "$qemu_root" init || return
+  local origin
+  if origin=$(git -C "$qemu_root" remote get-url origin 2>/dev/null); then
+    if [[ "$origin" != "$qemu_repo" ]]; then
+      echo "Incomplete QEMU repository has a different origin: $origin" >&2
+      echo "Use --qemu-repo to match it or select another --qemu-root." >&2
+      return 1
+    fi
+  else
+    git -C "$qemu_root" remote add origin "$qemu_repo" || return
+  fi
+  git -C "$qemu_root" fetch --depth 1 origin "$qemu_ref" || return
+  git -C "$qemu_root" checkout -b fastdyn FETCH_HEAD || return
+  if ! fastdyn_setup_qemu_source_exists "$qemu_root"; then
+    echo "Downloaded ref does not contain the expected QEMU sources: $qemu_ref" >&2
+    return 1
+  fi
+  echo "QEMU sources are ready: $qemu_root (not built)"
 }
 
 fastdyn_setup_qemu_workspace() {
@@ -78,7 +143,7 @@ fastdyn_setup_qemu_hint() {
   local qemu_patch="$repo_root/patches/qemu-fastdyn-plugin-icount.patch"
 
   if [[ -x "$qemu_bin" ]]; then
-    if [[ -d "$qemu_root/.git" ]] &&
+    if fastdyn_setup_qemu_source_exists "$qemu_root" &&
        ! git -C "$qemu_root" apply --reverse --check "$qemu_patch" >/dev/null 2>&1; then
       cat >&2 <<EOF
 FastDyn patched QEMU exists, but the required icount/plugin compatibility patch
@@ -94,61 +159,34 @@ EOF
     return 0
   fi
 
+  if ! fastdyn_setup_qemu_source_exists "$qemu_root"; then
+    cat >&2 <<EOF
+QEMU sources are missing: $qemu_root
+Download sources only with:
+  source "$repo_root/setup.sh" --clone-qemu --qemu-root "$qemu_root" --qemu-repo "$qemu_repo" --qemu-ref "$qemu_ref"
+To download and build in one run, also add --build-qemu.
+EOF
+    return 0
+  fi
+
   cat >&2 <<EOF
 FastDyn patched QEMU is missing: $qemu_bin
-Build it with:
-  mkdir -p "$qemu_root"
-  git -C "$qemu_root" init
-  git -C "$qemu_root" remote add origin "$qemu_repo" 2>/dev/null || git -C "$qemu_root" remote set-url origin "$qemu_repo"
-  git -C "$qemu_root" fetch origin "$qemu_ref"
-  git -C "$qemu_root" checkout -B fastdyn FETCH_HEAD
-  git -C "$qemu_root" apply "$repo_root/patches/qemu-fastdyn-plugin-icount.patch"
-  mkdir -p "$qemu_root/build"
-  cd "$qemu_root/build"
-  ../configure --target-list=arm-softmmu --enable-plugins
-  make qemu-system-arm
+Build the existing sources and FastDyn plugin with:
+  source "$repo_root/setup.sh" --build-qemu --qemu-root "$qemu_root"
 EOF
 }
 
 fastdyn_setup_qemu_build() {
   local repo_root="$1"
   local qemu_root="$2"
-  local qemu_repo="$3"
-  local qemu_ref="$4"
-  local qemu_bin="$qemu_root/build/qemu-system-arm"
 
-  if [[ -x "$qemu_bin" && -d "$qemu_root/.git" ]]; then
-    if fastdyn_setup_qemu_patch "$repo_root" "$qemu_root"; then
-      echo "FastDyn patched QEMU is already built: $qemu_bin"
-      return 0
-    fi
-    local patch_status=$?
-    if [[ $patch_status -ne 2 ]]; then
-      return "$patch_status"
-    fi
-    echo "QEMU patch changed; rebuilding $qemu_bin"
-  elif [[ -x "$qemu_bin" ]]; then
-    echo "FastDyn patched QEMU is already built: $qemu_bin"
-    return 0
-  fi
-
-  mkdir -p "$qemu_root" || return
-  git -C "$qemu_root" init || return
-  git -C "$qemu_root" remote add origin "$qemu_repo" 2>/dev/null \
-    || git -C "$qemu_root" remote set-url origin "$qemu_repo" \
-    || return
-  git -C "$qemu_root" fetch origin "$qemu_ref" || return
-  git -C "$qemu_root" checkout -B fastdyn FETCH_HEAD || return
-  fastdyn_setup_qemu_patch "$repo_root" "$qemu_root"
-  local patch_status=$?
-  if [[ $patch_status -ne 0 && $patch_status -ne 2 ]]; then
-    return "$patch_status"
-  fi
+  fastdyn_setup_qemu_require_source "$repo_root" "$qemu_root" || return
+  fastdyn_setup_qemu_patch "$repo_root" "$qemu_root" || return
   mkdir -p "$qemu_root/build" || return
   if [[ ! -f "$qemu_root/build/build.ninja" ]]; then
     (cd "$qemu_root/build" && ../configure --target-list=arm-softmmu --enable-plugins) || return
   fi
-  make -C "$qemu_root/build" -j"$(nproc)" qemu-system-arm || return
+  make -C "$qemu_root/build" -j"$(fastdyn_setup_build_jobs)" qemu-system-arm || return
 }
 
 fastdyn_setup_cjson() {
@@ -343,7 +381,7 @@ cannot build FastDyn legacy Gazebo plugin because patched QEMU is missing:
   $qemu_bin
 
 Build it first with:
-  source "$repo_root/setup.sh" --build-qemu --build-gazebo --skip-optifuzz
+  source "$repo_root/setup.sh" --clone-qemu --build-qemu --qemu-root "$qemu_root" --build-gazebo --skip-optifuzz
 EOF
     return 1
   fi
@@ -404,7 +442,7 @@ fastdyn_setup_main() {
   local venv_path="fastdyn-env"
   local python_bin="python3"
   local qemu_root="$repo_root/../qemu"
-  local qemu_repo="${FASTDYN_QEMU_REPO:-https://github.com/Arslan8/qemu.git}"
+  local qemu_repo="${FASTDYN_QEMU_REPO:-https://github.com/boardrunner2049/qemu.git}"
   local qemu_ref="${FASTDYN_QEMU_REF:-fastdyn}"
   local libhw_root="$repo_root/../libhw"
   local optifuzz_root="$repo_root/../banquo"
@@ -413,6 +451,7 @@ fastdyn_setup_main() {
   local update_submodules="true"
   local build_rumoca="false"
   local setup_optifuzz="true"
+  local clone_qemu="false"
   local build_qemu="false"
   local build_gazebo="false"
   local setup_qemu_workspace="true"
@@ -438,6 +477,10 @@ fastdyn_setup_main() {
         ;;
       --skip-rumoca)
         build_rumoca="false"
+        shift
+        ;;
+      --clone-qemu)
+        clone_qemu="true"
         shift
         ;;
       --build-qemu)
@@ -513,6 +556,10 @@ fastdyn_setup_main() {
     optifuzz_root="$repo_root/$optifuzz_root"
   fi
 
+  if [[ "$build_qemu" == "true" && "$clone_qemu" != "true" ]]; then
+    fastdyn_setup_qemu_require_source "$repo_root" "$qemu_root" || return
+  fi
+
   if ! command -v "$python_bin" >/dev/null 2>&1; then
     echo "$python_bin was not found. Install Python 3 with venv support." >&2
     return 1
@@ -559,8 +606,11 @@ fastdyn_setup_main() {
     git -C "$repo_root" submodule update --init "${submodules[@]}" || return
   fi
 
+  if [[ "$clone_qemu" == "true" ]]; then
+    fastdyn_setup_qemu_clone "$qemu_root" "$qemu_repo" "$qemu_ref" || return
+  fi
   if [[ "$build_qemu" == "true" ]]; then
-    fastdyn_setup_qemu_build "$repo_root" "$qemu_root" "$qemu_repo" "$qemu_ref" || return
+    fastdyn_setup_qemu_build "$repo_root" "$qemu_root" || return
     if [[ "$build_gazebo" != "true" ]]; then
       fastdyn_setup_plugin_build "$repo_root" "$qemu_root" || return
     fi
