@@ -504,11 +504,11 @@ def _model_description_xml(build: FmuBuild) -> bytes:
     )
 
 
-def value_references(build: FmuBuild) -> dict[str, int]:
+def value_references(build: FmuBuild, *, xml: bytes | None = None) -> dict[str, int]:
     """Read named FMI value references from the generated modelDescription.xml."""
 
     try:
-        root = ET.fromstring(_model_description_xml(build))
+        root = ET.fromstring(_model_description_xml(build) if xml is None else xml)
     except ET.ParseError as exc:
         raise FmuConfigError(f"invalid FMU modelDescription.xml for {build.name}: {exc}") from exc
 

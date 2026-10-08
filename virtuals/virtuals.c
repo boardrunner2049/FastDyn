@@ -686,8 +686,9 @@ int virtuals_init(int argc, char **argv) {
 		if ((status = shared_sim_time_init() < 0)) {
                 utils_warn("Shared simulation time initialization failed");
         }
-		if ((status = phy_init(argc, argv)) < 0)
-				utils_warn("Physics Engine failed");
+        if ((status = phy_init(argc, argv)) <= 0) {
+            utils_die("Physics engine initialization failed");
+        }
 #endif
 #if ENABLE_LIBFUZZ || ENABLE_AFLNET
 		if ((status = fuzz_init(argc, argv)) < 0)

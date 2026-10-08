@@ -9,11 +9,9 @@
 #include <string.h>
 #include <time.h>
 
-#include <utils.h>
-
-typedef unsigned int fmi3ValueReference;
+typedef uint32_t fmi3ValueReference;
 typedef double fmi3Float64;
-typedef int fmi3Boolean;
+typedef bool fmi3Boolean;
 typedef const char *fmi3String;
 typedef void *fmi3Instance;
 typedef void *fmi3InstanceEnvironment;
@@ -23,16 +21,14 @@ typedef enum {
     fmi3Warning,
     fmi3Discard,
     fmi3Error,
-    fmi3Fatal,
-    fmi3Pending
+    fmi3Fatal
 } fmi3Status;
 
 typedef void (*fmi3LogMessageCallback)(
     fmi3InstanceEnvironment instanceEnvironment,
     fmi3Status status,
     fmi3String category,
-    fmi3String message,
-    ...);
+    fmi3String message);
 
 typedef fmi3Instance (*fmi3InstantiateCoSimulation_ft)(
     fmi3String instanceName,
@@ -222,73 +218,11 @@ static void fmu_profile_report(bool force)
     fmu_profile.last_report_wall_s = now;
 }
 
-static bool ends_with(const char *s, const char *suffix)
-{
-    size_t s_len = strlen(s);
-    size_t suffix_len = strlen(suffix);
-    return s_len >= suffix_len && strcmp(s + s_len - suffix_len, suffix) == 0;
-}
-
-static int split_fmu_path(const char *path, char *dir, size_t dir_len, char *model, size_t model_len)
-{
-    const char *slash = strrchr(path, '/');
-    const char *base = slash ? slash + 1 : path;
-    size_t parent_len = slash ? (size_t)(slash - path) : 1;
-
-    if (slash) {
-        if (parent_len + 1 > dir_len) {
-            return 0;
-        }
-        memcpy(dir, path, parent_len);
-        dir[parent_len] = '\0';
-    } else {
-        if (dir_len < 2) {
-            return 0;
-        }
-        strcpy(dir, ".");
-    }
-
-    size_t base_len = strlen(base);
-    if (ends_with(base, ".fmu") || ends_with(base, ".so")) {
-        base_len -= 4;
-    }
-    if (base_len + 1 > model_len) {
-        return 0;
-    }
-    memcpy(model, base, base_len);
-    model[base_len] = '\0';
-    return 1;
-}
-
-static int resolve_shared_library(const char *fmu_path, char *so_path, size_t so_path_len, char *model, size_t model_len)
-{
-    if (ends_with(fmu_path, ".so")) {
-        char dir[1024];
-        if (!split_fmu_path(fmu_path, dir, sizeof(dir), model, model_len)) {
-            return 0;
-        }
-        if (strlen(fmu_path) + 1 > so_path_len) {
-            return 0;
-        }
-        strcpy(so_path, fmu_path);
-        return 1;
-    }
-
-    char dir[1024];
-    if (!split_fmu_path(fmu_path, dir, sizeof(dir), model, model_len)) {
-        return 0;
-    }
-
-    int written = snprintf(so_path, so_path_len, "%s/binaries/linux64/%s.so", dir, model);
-    return written > 0 && (size_t)written < so_path_len;
-}
-
 static void fmu_log_message(
     fmi3InstanceEnvironment instanceEnvironment,
     fmi3Status status,
     fmi3String category,
-    fmi3String message,
-    ...)
+    fmi3String message)
 {
     (void)instanceEnvironment;
     if (status >= fmi3Warning) {
@@ -498,12 +432,17 @@ static int get_values(fmi3ValueReference vr, double *values, size_t n_values)
     return 1;
 }
 
+static void fmu_backend_shutdown(void);
+
 static int fmu_backend_init(void)
 {
     double init_start = fmu_profile_enabled() ? wall_time_s() : 0.0;
-    const char *fmu_path = utils_get_arg("fmu", fmu_state.argc, fmu_state.argv);
-    const char *fmu_name = utils_get_arg("fmu_name", fmu_state.argc, fmu_state.argv);
-    if (fmu_path == NULL || fmu_path[0] == '\0') {
+    // The Python launcher resolves all metadata from the same FMU package.
+    const char *so_path = get_exact_arg("fmu");
+    const char *fmu_name = get_exact_arg("fmu_name");
+    const char *token = get_exact_arg("fmu_token");
+    const char *resources = get_exact_arg("fmu_resources");
+    if (so_path == NULL || so_path[0] == '\0') {
         fprintf(stderr, "FMU backend enabled but plugin argument fmu= is missing\n");
         return 0;
     }
@@ -511,10 +450,8 @@ static int fmu_backend_init(void)
         return 0;
     }
 
-    char so_path[2048];
-    char model[512];
-    if (!resolve_shared_library(fmu_path, so_path, sizeof(so_path), model, sizeof(model))) {
-        fprintf(stderr, "FMU backend could not resolve shared library for %s\n", fmu_path);
+    if (token == NULL || token[0] == '\0') {
+        fprintf(stderr, "FMU backend requires fmu_token= from modelDescription.xml\n");
         return 0;
     }
 
@@ -531,16 +468,14 @@ static int fmu_backend_init(void)
         !load_symbol((void **)&fmu_state.doStep, "fmi3DoStep") ||
         !load_symbol((void **)&fmu_state.getFloat64, "fmi3GetFloat64") ||
         !load_symbol((void **)&fmu_state.setFloat64, "fmi3SetFloat64")) {
-        return 0;
+        goto fail;
     }
     fmu_state.terminate = (fmi3Terminate_ft)dlsym(fmu_state.handle, "fmi3Terminate");
 
-    char token[640];
-    snprintf(token, sizeof(token), "%s-rumoca", model);
     fmu_state.instance = fmu_state.instantiateCoSimulation(
-        fmu_name ? fmu_name : model,
+        fmu_name ? fmu_name : "fastdyn",
         token,
-        "",
+        resources && resources[0] ? resources : NULL,
         0,
         0,
         0,
@@ -552,7 +487,7 @@ static int fmu_backend_init(void)
         NULL);
     if (fmu_state.instance == NULL) {
         fprintf(stderr, "FMU fmi3InstantiateCoSimulation failed for %s with token %s\n", so_path, token);
-        return 0;
+        goto fail;
     }
 
     if (fmu_state.enterInitializationMode(fmu_state.instance, 0, 0.0, 0.0, 0, 0.0) != fmi3OK ||
@@ -560,7 +495,7 @@ static int fmu_backend_init(void)
         !set_pwm_inputs() ||
         fmu_state.exitInitializationMode(fmu_state.instance) != fmi3OK) {
         fprintf(stderr, "FMU initialization failed for %s\n", so_path);
-        return 0;
+        goto fail;
     }
 
     fmu_state.time_s = 0.0;
@@ -574,12 +509,16 @@ static int fmu_backend_init(void)
         fmu_profile.last_report_wall_s = now;
     }
     return 1;
+
+fail:
+    fmu_backend_shutdown();
+    return 0;
 }
 
 static void fmu_backend_shutdown(void)
 {
     if (fmu_state.instance != NULL) {
-        if (fmu_state.terminate != NULL) {
+        if (fmu_state.initialized && fmu_state.terminate != NULL) {
             fmu_state.terminate(fmu_state.instance);
         }
         fmu_state.freeInstance(fmu_state.instance);
