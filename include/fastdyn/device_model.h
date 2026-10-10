@@ -59,7 +59,7 @@ typedef struct FdDevice {
     const char *name;       /* the device's name, e.g. "usart2" */
     const FdRange *ranges;  /* its address ranges; accesses arrive as absolute addresses */
     size_t range_count;
-    const int *irqs;        /* the interrupt numbers it is registered for */
+    const int *irqs;        /* its interrupts, as the CPU numbers them (Cortex-M: IRQn + 16) */
     size_t irq_count;
 } FdDevice;
 
@@ -87,7 +87,8 @@ typedef uint64_t (*FdModelRead)(void *opaque, hwaddr addr, unsigned size, uint64
 /** A guest write of `value` (`size` bytes) at absolute address `addr`. */
 typedef void (*FdModelWrite)(void *opaque, hwaddr addr, uint64_t value, unsigned size, uint64_t pc);
 
-/** The CPU took (interrupt) or returned from (serve) interrupt `irq`. */
+/** The CPU took (interrupt) or returned from (serve) interrupt `irq`, one of
+ * the device's `irqs` (Cortex-M exception number: IRQn + 16). */
 typedef void (*FdModelIrq)(void *opaque, int irq);
 
 /** The descriptor a model exports as `fastdyn_model`. Fill `abi` and `size`
