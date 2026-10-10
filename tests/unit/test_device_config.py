@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from fastdyn import toml_parser
 from fastdyn.fastdyn import Fastdyn, compile_device_routing
 
@@ -93,3 +95,15 @@ def test_builder_api_sets_config_directly():
 
     routed = machine.parsed_device["elder"]["usart2"]["config"]
     assert routed == {"pty": "usart2"} and routed is not uart.config
+
+
+def test_slave_connections_are_rejected_but_endpoints_are_kept():
+    handle = Fastdyn()
+    machine = handle.create_machine(machine_name="machine0", platform="STM32F429")
+    i2c = machine.add_device("i2c1")
+
+    i2c.add_connection({"type": "endpoint", "name": "sensor_feed", "script": "feed.py"})
+    with pytest.raises(ValueError, match=r"\[Device.i2c1\] connections of type 'slave' are no longer supported"):
+        i2c.add_connection({"type": "slave", "device": "bme280", "address": "0x76"})
+
+    assert [c["type"] for c in i2c.connections] == ["endpoint"]

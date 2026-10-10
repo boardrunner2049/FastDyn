@@ -607,6 +607,11 @@ class Device:
 
     def add_connection(self, conn_data: dict) -> None:
         if conn_data and isinstance(conn_data, dict):
+            if str(conn_data.get("type", "")).lower().strip() == "slave":
+                raise ValueError(
+                    f"[Device.{self.device_name}] connections of type 'slave' are no longer "
+                    f"supported; list bus slaves under [[Device.{self.device_name}.slaves]] instead"
+                )
             self.connections.append(conn_data)
 
     def add_slave(self, slave_data: dict):
@@ -789,7 +794,8 @@ def compile_device_routing(
         bucket["backend"] = _model_backend(model)
 
     # -----------------------------
-    # Pass 2: slaves and bus-attached connections.
+    # Pass 2: slaves for older models, which read them from the C side; kept
+    # until those models are ported (LibVIO models read config["slaves"]).
     # Endpoint connections are host-side helpers and are not forwarded to QEMU.
     # -----------------------------
     for dev_name, dev in devices.items():
@@ -819,54 +825,6 @@ def compile_device_routing(
                     s_cfg["is_scroll_path"] = False
 
                 slaves_out[getattr(slave, "device")] = s_cfg
-
-        for conn in getattr(dev, "connections", []) or []:
-            if not isinstance(conn, dict):
-                continue
-            if conn.get("enabled", True) is False:
-                continue
-            if str(conn.get("type", "")).lower().strip() != "slave":
-                continue
-
-            conn_models = conn.get("model")
-            if conn_models is None:
-                conn_models = [
-                    model for model, bucket in routing.items()
-                    if dev_name in bucket
-                ]
-            elif isinstance(conn_models, str):
-                conn_models = [conn_models]
-
-            for model in conn_models:
-                if include_models is not None and model not in include_models:
-                    continue
-                if model not in routing or dev_name not in routing[model]:
-                    continue
-
-                routing[model][dev_name].setdefault("slaves", {})
-                slaves_out = routing[model][dev_name]["slaves"]
-
-                meta_keys = {"type", "model", "enabled", "device_or_topic"}
-                s_cfg: Dict[str, Any] = {
-                    k: v for k, v in conn.items() if k not in meta_keys
-                }
-
-                device_scroll = conn.get("device_scroll")
-                if device_scroll:
-                    if check_scroll_paths and os.path.exists(device_scroll):
-                        s_cfg["scroll_path"] = device_scroll
-                        s_cfg["is_scroll_path"] = True
-                    else:
-                        s_cfg["is_scroll_path"] = False
-                else:
-                    s_cfg["is_scroll_path"] = False
-
-                slave_key = (
-                    conn.get("name")
-                    or conn.get("device_or_topic")
-                    or f"{dev_name}_conn_{len(slaves_out)}"
-                )
-                slaves_out[slave_key] = s_cfg
 
     # write to output dict (your current pattern)
     parsed_device.clear()
