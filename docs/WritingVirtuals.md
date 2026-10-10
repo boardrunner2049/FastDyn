@@ -271,6 +271,52 @@ region FastDyn routes to device models (`0x40000000`-`0x5FFFFFFF`,
 cheap, since they run for every access. While no observer is registered the
 check costs one branch per access.
 
+## Out-of-tree plugins
+
+A plugin can live in another project and still be a FastDyn plugin. Its folder
+has the layout of `virtuals/<name>/`, and the plugin's table points at it:
+
+```
+my_project/fastdyn_plugins/mmio_count/
+    host/preprocessor.py      # registers a plugin called "mmio_count"
+    runtime/mmio_count.c      # optional native half
+    runtime/mmio_count.so     # built from it (see below)
+```
+
+```toml
+[CPU.cpu0.plugins.mmio_count]
+enabled = true
+source = "../my_project/fastdyn_plugins/mmio_count"   # relative to this config file
+```
+
+* FastDyn loads `host/preprocessor.py` like a built-in preprocessor. It must
+  register a plugin with the table's name; `source` itself is not passed on
+  as a setting.
+* The native half uses the same SDK as built-in plugins (`fastdyn_runtime.h`)
+  and exports one descriptor instead of `VIRTUAL_PLUGIN`:
+
+  ```c
+  static int mmio_count_initialize(const VirtualContext *ctx) { ... }
+  FASTDYN_EXTERNAL_PLUGIN("mmio_count", mmio_count_initialize);
+  ```
+
+  Build it into `runtime/` with
+  `fastdyn build-model --pkg fastdyn runtime/mmio_count.c -o runtime/`
+  (outside a checkout, after `meson install`, `pkg-config fastdyn` provides
+  the headers and library).
+* FastDyn passes `runtime/*.so` to `libfastdyn.so` when the plugin is
+  enabled, and loads it after its built-in plugins. A library that cannot be
+  loaded, has no descriptor, was built for another plugin ABI, reuses a
+  loaded plugin's name, or fails to initialize stops the run with a message
+  naming it.
+* A missing folder, a folder without `host/preprocessor.py`, a preprocessor
+  that registers another name, or a built-in plugin's name is reported
+  against `[CPU.cpu0.plugins.<name>].source`.
+
+`tests/plugins/mmio_count/` is a complete example: its host half passes a
+setting to its native half through an artifact, and the native half counts
+MMIO accesses and translated blocks.
+
 ## 5. Configure and test it
 
 Once the native and Python registrations are in the build, a user configures a

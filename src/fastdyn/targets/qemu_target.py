@@ -677,6 +677,9 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
         f"twintrace_binary={replay_binary}",
         f"exact_budget_stop={_bool01(getattr(opts, 'exact_budget_stop', False))}",
     ]
+    # Native code of plugins loaded from a `source` folder.
+    if getattr(machine, "virtual_libraries", None):
+        plugin_kv.append("virtual_libraries=" + ":".join(str(lib) for lib in machine.virtual_libraries))
 
     fuzzing_schema = getattr(opts, "fuzzing_schema", None)
     if fuzzing_schema:

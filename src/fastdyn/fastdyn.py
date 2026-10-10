@@ -315,6 +315,8 @@ class CPU:
         self.twintrace = twintrace       #supported options are record, replay or None
         self.hardware_trace = hardware_trace    # hardware log needed in case of replay
         self.plugin_config: dict[str, dict] = {}
+        # Plugins loaded from a folder outside FastDyn (`source = "<dir>"`).
+        self.plugin_sources: dict[str, Path] = {}
         self.machine_obj = machine_obj
         self.exstng_config_path = exstng_config_path
 

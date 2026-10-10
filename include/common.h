@@ -85,7 +85,10 @@
 #define ARM_V7M_D15 41
 
 // Common types used by both core.c and virtuals.c
+#ifndef FASTDYN_CB_FUNC_T_DEFINED
+#define FASTDYN_CB_FUNC_T_DEFINED
 typedef void (*cb_func_t)(unsigned int cpu_index, void *userdata);
+#endif
 
 typedef struct {
     const char *name;

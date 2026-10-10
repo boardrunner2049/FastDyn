@@ -312,13 +312,24 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         if not isinstance(raw_plugins, dict):
             raise TypeError("[CPU.cpu0.plugins] must be a table")
         plugin_config: dict[str, dict] = {}
+        plugin_sources: dict[str, Path] = {}
         for plugin_name, plugin_settings in raw_plugins.items():
             if not isinstance(plugin_settings, dict):
                 raise TypeError(
                     f"[CPU.cpu0.plugins.{plugin_name}] must be a table"
                 )
-            plugin_config[str(plugin_name)] = dict(plugin_settings)
+            settings = dict(plugin_settings)
+            # `source` names a plugin folder outside FastDyn; FastDyn uses it
+            # to load the plugin and does not pass it on as a setting.
+            source = settings.pop("source", None)
+            if source is not None:
+                if not isinstance(source, str) or not source:
+                    raise TypeError(f"[CPU.cpu0.plugins.{plugin_name}].source must be a folder path")
+                plugin_sources[str(plugin_name)] = (
+                    Path(toml_config).expanduser().resolve().parent / source).resolve()
+            plugin_config[str(plugin_name)] = settings
         cpu_obj.plugin_config = plugin_config
+        cpu_obj.plugin_sources = plugin_sources
 
         #symbol resolution per cpu
 		#if curr_cpu.get("map_file") is not None:

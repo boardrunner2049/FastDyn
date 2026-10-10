@@ -681,6 +681,9 @@ int virtuals_init(int argc, char **argv) {
         /* Compiled-in virtual modules self-register through the public runtime SDK. */
 		if ((status = virtual_initialize_plugins()) < 0)
 				utils_warn("One or more runtime plugins failed to initialize");
+        /* Plugins from outside the tree were asked for explicitly (source = ...). */
+		if (virtual_load_external_plugins(utils_get_arg("virtual_libraries", argc, argv)) < 0)
+				utils_die("Could not load an out-of-tree plugin library (see the message above)");
 #if ENABLE_PHY
         // It is ok to conditonally initialize here since sim_time is only used when PHY is enabled
 		if ((status = shared_sim_time_init() < 0)) {

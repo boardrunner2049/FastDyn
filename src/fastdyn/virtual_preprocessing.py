@@ -15,6 +15,7 @@ import importlib
 import importlib.util
 import logging
 import os
+import re
 import sys
 import types
 
@@ -205,41 +206,96 @@ def _load_run_plugins() -> None:
         if utility_spec.loader is not None:
             utility_spec.loader.exec_module(utility_module)
     for source in sorted(virtuals_root.glob("*/host/preprocessor.py")):
-        package_name = f"_fastdyn_virtual_plugin_{source.parent.parent.name}"
-        module_name = f"{package_name}.host.preprocessor"
-        if module_name in sys.modules:
-            continue
-        # Make the feature directory a private package so its preprocessor
-        # can use normal relative imports for its own Python implementation.
-        package = sys.modules.get(package_name)
-        if package is None:
-            feature_dir = source.parent.parent
-            package_init = feature_dir / "__init__.py"
-            if package_init.is_file():
-                package_spec = importlib.util.spec_from_file_location(
-                    package_name, package_init,
-                    submodule_search_locations=[str(feature_dir)],
-                )
-                if package_spec is None or package_spec.loader is None:
-                    raise ImportError(f"cannot create FastDyn plugin package: {feature_dir}")
-                package = importlib.util.module_from_spec(package_spec)
-                sys.modules[package_name] = package
-                package_spec.loader.exec_module(package)
-            else:
-                # A feature needs only host/preprocessor.py. Give it a
-                # namespace package rather than executing that file twice as
-                # an ersatz package initializer.
-                package = types.ModuleType(package_name)
-                package.__path__ = [str(feature_dir)]
-                package.__package__ = package_name
-                sys.modules[package_name] = package
-        importlib.import_module(f"{package_name}.host")
-        spec = importlib.util.spec_from_file_location(module_name, source)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"cannot load FastDyn plugin preprocessor: {source}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        _load_plugin_folder(source.parent.parent,
+                            f"_fastdyn_virtual_plugin_{source.parent.parent.name}")
+
+
+def _load_plugin_folder(feature_dir: Path, package_name: str) -> None:
+    """Import ``<feature_dir>/host/preprocessor.py``, which registers itself."""
+    source = feature_dir / "host" / "preprocessor.py"
+    module_name = f"{package_name}.host.preprocessor"
+    if module_name in sys.modules:
+        return
+    # Make the feature directory a private package so its preprocessor
+    # can use normal relative imports for its own Python implementation.
+    package = sys.modules.get(package_name)
+    if package is None:
+        package_init = feature_dir / "__init__.py"
+        if package_init.is_file():
+            package_spec = importlib.util.spec_from_file_location(
+                package_name, package_init,
+                submodule_search_locations=[str(feature_dir)],
+            )
+            if package_spec is None or package_spec.loader is None:
+                raise ImportError(f"cannot create FastDyn plugin package: {feature_dir}")
+            package = importlib.util.module_from_spec(package_spec)
+            sys.modules[package_name] = package
+            package_spec.loader.exec_module(package)
+        else:
+            # A feature needs only host/preprocessor.py. Give it a
+            # namespace package rather than executing that file twice as
+            # an ersatz package initializer.
+            package = types.ModuleType(package_name)
+            package.__path__ = [str(feature_dir)]
+            package.__package__ = package_name
+            sys.modules[package_name] = package
+    importlib.import_module(f"{package_name}.host")
+    spec = importlib.util.spec_from_file_location(module_name, source)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load FastDyn plugin preprocessor: {source}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+
+# Plugins loaded from a `source = "<dir>"` folder, by plugin name.
+EXTERNAL_PLUGIN_SOURCES: dict[str, Path] = {}
+
+
+def load_external_plugin(name: str, source: str | Path) -> None:
+    """Load the plugin folder a ``[CPU.cpuN.plugins.<name>]`` table names with
+    ``source``. It has the built-in layout: ``host/preprocessor.py``, which
+    must register a plugin called ``name``, and optionally ``runtime/*.so``.
+    Loading the same folder again does nothing."""
+    where = f"[CPU.cpu0.plugins.{name}].source"
+    source = Path(source).expanduser().resolve()
+    loaded = EXTERNAL_PLUGIN_SOURCES.get(name)
+    if loaded is not None:
+        if loaded == source:
+            return
+        raise VirtualPreparationError(
+            f"{where}: plugin {name!r} is already loaded from {loaded}, not {source}")
+    if name in RUN_PREPROCESSORS or name in VIRTUAL_DEFINITIONS:
+        raise VirtualPreparationError(
+            f"{where}: {name!r} is a built-in FastDyn plugin; give the plugin another name")
+    preprocessor = source / "host" / "preprocessor.py"
+    if not source.is_dir():
+        raise VirtualPreparationError(f"{where}: no such folder: {source}")
+    if not preprocessor.is_file():
+        raise VirtualPreparationError(
+            f"{where}: {source} has no host/preprocessor.py (a plugin folder has the "
+            "layout of virtuals/<name>/)")
+    package_name = "_fastdyn_external_plugin_" + re.sub(r"\W", "_", name)
+    try:
+        _load_plugin_folder(source, package_name)
+    except VirtualPreparationError:
+        raise
+    except Exception as exc:
+        raise VirtualPreparationError(f"{where}: cannot load {preprocessor}: {exc}") from exc
+    if name not in RUN_PREPROCESSORS and name not in VIRTUAL_DEFINITIONS:
+        raise VirtualPreparationError(
+            f"{where}: {preprocessor} did not register a plugin named {name!r}")
+    EXTERNAL_PLUGIN_SOURCES[name] = source
+
+
+def _runtime_libraries(name: str, source: Path) -> list[Path]:
+    libraries = sorted((source / "runtime").glob("*.so"))
+    for library in libraries:
+        if "," in str(library) or ":" in str(library):
+            raise VirtualPreparationError(
+                f"[CPU.cpu0.plugins.{name}].source: {library} contains ',' or ':', "
+                "which cannot be passed to QEMU")
+    return libraries
 
 
 class CortexMIrqPreprocessor:
@@ -384,12 +440,21 @@ def prepare_run_preprocessors(machine: object, workdir: str | Path) -> None:
     artifacts: list[Path] = []
     cleanup: list[Callable[[], None]] = []
 
+    sources: dict[str, Path] = {}
+    for cpu in getattr(machine, "cpus", []):
+        for name, source in (getattr(cpu, "plugin_sources", {}) or {}).items():
+            load_external_plugin(name, source)
+            sources[name] = EXTERNAL_PLUGIN_SOURCES[name]
+    enabled_external: set[str] = set()
+
     try:
         for cpu in getattr(machine, "cpus", []):
             for definition in RUN_PREPROCESSORS.values():
                 context = _run_context_for_cpu(cpu, workdir_path, definition.name)
                 if not definition.enabled(context):
                     continue
+                if definition.name in sources:
+                    enabled_external.add(definition.name)
                 result = definition.prepare.prepare(context)
                 generated.setdefault(id(cpu), []).extend(
                     VirtualRule(virtual=virtual, origin=definition.name)
@@ -402,6 +467,15 @@ def prepare_run_preprocessors(machine: object, workdir: str | Path) -> None:
             close()
         raise
 
+    # Native code of out-of-tree plugins: run plugins when enabled, plugins
+    # that only define virtuals whenever their table names a source.
+    libraries: list[Path] = []
+    for name, source in sources.items():
+        if name in RUN_PREPROCESSORS and name not in enabled_external:
+            continue
+        libraries.extend(library for library in _runtime_libraries(name, source)
+                         if library not in libraries)
+    machine.virtual_libraries = libraries
     machine.generated_virtual_rules = generated
     machine.preprocessing_artifacts = artifacts
     machine.preprocessing_cleanup = cleanup

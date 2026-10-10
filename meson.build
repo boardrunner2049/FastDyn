@@ -25,7 +25,9 @@ local_include = include_directories('include')
 #glib support
 glib = dependency('glib-2.0', version: '>=2.56.0', required: true)
 cjson_dep = dependency('libcjson', required: true)
-deps = [glib, cjson_dep]
+# dlopen: device models and out-of-tree plugin libraries
+dl_dep = cc.find_library('dl', required: true)
+deps = [glib, cjson_dep, dl_dep]
 srcs = []
 
 #debugging FLAGS
@@ -234,16 +236,19 @@ fastdyn_target = shared_module(
   install_dir: get_option('libdir')
 )
 
-# --- What device models build against (`meson install`).
+# --- What device models and out-of-tree plugins build against (`meson install`).
 # <fastdyn/device_model.h> is the model interface, <fastdyn/fuzz_hooks.h>
-# the fuzzer hooks, and QEMU's <qemu/qemu-plugin.h> the host functions
-# models call; fastdyn.pc puts them on the include path. Models only link
-# against libfastdyn.so when they call the fuzzer hooks.
+# the fuzzer hooks, <fastdyn_runtime.h> (+ <fastdyn/arch/*.h>) the plugin
+# SDK, and QEMU's <qemu/qemu-plugin.h> the host functions; fastdyn.pc puts
+# them on the include path. Models link against libfastdyn.so only when they
+# call the fuzzer hooks; plugin libraries always do.
 install_headers(
   'include/fastdyn/device_model.h',
   'include/fastdyn/fuzz_hooks.h',
+  'include/fastdyn_runtime.h',
   subdir: 'fastdyn'
 )
+install_subdir('include/fastdyn/arch', install_dir: join_paths(get_option('includedir'), 'fastdyn'))
 install_headers(
   join_paths(QEMU_DIR, 'include', 'qemu', 'qemu-plugin.h'),
   subdir: join_paths('fastdyn', 'qemu')

@@ -1,5 +1,7 @@
 /* Generic runtime-plugin dispatcher and public SDK implementation. */
 #include <fastdyn_runtime.h>
+#include <dlfcn.h>
+#include <stdlib.h>
 
 #include <limits.h>
 #include <stdarg.h>
@@ -251,4 +253,87 @@ int virtual_initialize_plugins(void) {
         index++;
     }
     return failures ? -1 : 0;
+}
+
+static int runtime_plugin_count(void) {
+    int count = 0;
+    while (count < VIRTUAL_RUNTIME_MAX_PLUGINS && runtime_contexts[count].plugin_name) {
+        count++;
+    }
+    return count;
+}
+
+/* Load one out-of-tree plugin library; errors name the library. */
+static int load_external_plugin(const char *path) {
+    void *handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (!handle) {
+        fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins", "cannot load plugin library %s: %s",
+                    path, dlerror());
+        return -1;
+    }
+    const VirtualExternalPlugin *plugin = dlsym(handle, "fastdyn_external_plugin");
+    if (!plugin) {
+        fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins",
+                    "%s is not a FastDyn plugin (no fastdyn_external_plugin; see "
+                    "FASTDYN_EXTERNAL_PLUGIN in fastdyn_runtime.h)", path);
+        return -1;
+    }
+    if (plugin->abi != VIRTUAL_PLUGIN_ABI_VERSION || plugin->size < sizeof(VirtualExternalPlugin)) {
+        fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins",
+                    "%s was built for plugin ABI %u, but this FastDyn expects %d",
+                    path, (unsigned)plugin->abi, VIRTUAL_PLUGIN_ABI_VERSION);
+        return -1;
+    }
+    if (!plugin->name || !plugin->name[0] || !plugin->initialize) {
+        fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins", "%s: its descriptor has no name or initializer", path);
+        return -1;
+    }
+    /* A copy of libfastdyn.so other than the running one would have its own,
+     * unused state; the plugin must link against the library QEMU loaded. */
+    void *sdk = dlsym(handle, "virtual_register_callback");
+    if (sdk && sdk != (void *)virtual_register_callback) {
+        fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins",
+                    "%s is linked against a different libfastdyn.so than the one running", path);
+        return -1;
+    }
+    int index = runtime_plugin_count();
+    for (int i = 0; i < index; i++) {
+        if (strcmp(runtime_contexts[i].plugin_name, plugin->name) == 0) {
+            fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins", "%s: a plugin named '%s' is already loaded",
+                        path, plugin->name);
+            return -1;
+        }
+    }
+    if (index >= VIRTUAL_RUNTIME_MAX_PLUGINS) {
+        fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins", "too many runtime plugins");
+        return -1;
+    }
+    runtime_contexts[index].plugin_name = plugin->name;
+    if (plugin->initialize(&runtime_contexts[index]) < 0) {
+        fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins", "plugin '%s' (%s) failed to initialize",
+                    plugin->name, path);
+        return -1;
+    }
+    fastdyn_log(FD_LOG_LEVEL_INFO, "plugins", "loaded plugin '%s' from %s", plugin->name, path);
+    return 0;
+}
+
+int virtual_load_external_plugins(const char *paths) {
+    if (!paths || !paths[0]) {
+        return 0;
+    }
+    char *list = strdup(paths);
+    if (!list) {
+        return -1;
+    }
+    int status = 0;
+    char *saveptr = NULL;
+    for (char *path = strtok_r(list, ":", &saveptr); path; path = strtok_r(NULL, ":", &saveptr)) {
+        if (load_external_plugin(path) < 0) {
+            status = -1;
+            break;
+        }
+    }
+    free(list);
+    return status;
 }
