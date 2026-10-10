@@ -506,8 +506,13 @@ class Device:
         Supported inputs:
         - int: 53
         - str: "53", "0x35"  (numeric)
-        - str: "USART1_IRQn" (symbol; resolved via machine_obj.irq_map)
+        - str: "USART1" (the CMSIS-SVD interrupt name; resolved via machine_obj.irq_map)
         - [start, end]: inclusive range, where start/end can be int/str/symbol
+
+        Numbers are the interrupt numbers FastDyn reports when the CPU takes
+        an interrupt: on Cortex-M, exception numbers (device IRQ n is n + 16).
+        Symbolic names come from CMSIS-SVD as IRQ numbers, so 16 is added
+        for them on Cortex-M; numbers are used as written.
 
         Behavior:
         - self.irq_range is a flat list of ints
@@ -515,6 +520,18 @@ class Device:
         - add_irq([2, 4]) -> extends with [2,3,4]
         - avoids duplicates (keeps list clean), keeps sorted ascending
         """
+        def _exception_offset(name) -> int:
+            """CMSIS-SVD gives IRQ numbers; Cortex-M reports exception numbers (+16)."""
+            cpus = getattr(self.machine_obj, "cpus", None) or []
+            if not cpus:
+                raise RuntimeError(
+                    f"[Device.{self.device_name}] IRQ name {name!r}: add the CPU before the "
+                    "device's IRQs, so FastDyn knows how the CPU numbers interrupts"
+                )
+            cortex_m = all(str(c.arch).lower() == "arm" and str(c.machine).lower() == "cortexm"
+                           for c in cpus)
+            return 16 if cortex_m else 0
+
         def _resolve_one(x) -> int:
             # int directly
             if isinstance(x, int):
@@ -539,11 +556,11 @@ class Device:
 
                 # support both {name->num} and {num->name}
                 if s in irq_map and isinstance(irq_map[s], int):
-                    return int(irq_map[s])
+                    return int(irq_map[s]) + _exception_offset(s)
 
                 for k, v in irq_map.items():
                     if v == s and isinstance(k, int):
-                        return int(k)
+                        return int(k) + _exception_offset(s)
 
                 raise KeyError(f"IRQ symbol {s!r} not found in machine_obj.irq_map")
 
