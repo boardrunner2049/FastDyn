@@ -36,6 +36,10 @@ class RuntimeConfigError(RuntimeError):
     pass
 
 
+class HelperExitedError(RuntimeConfigError):
+    """A helper process exited with a non-zero status while FastDyn was running."""
+
+
 _ENV_PATTERN = re.compile(
     r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)(?::-(?P<default>[^}]*))?\}"
 )
@@ -714,7 +718,7 @@ class RuntimeProcessManager:
             return
         handle, exit_code = self._terminator_exit
         if exit_code != 0:
-            raise RuntimeConfigError(
+            raise HelperExitedError(
                 f"helper '{handle.process_config.name}' exited with status {exit_code}"
             )
 

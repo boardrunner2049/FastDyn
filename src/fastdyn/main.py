@@ -31,7 +31,7 @@ def _prepare_work_dir(work_dir, persist_work_dir):
 
 
 def _auto_build_fmu(config, fmu_name, skip_build):
-    # CLI adapter (used by loop and swarm): FMU problems become CLI errors.
+    # CLI adapter (used by swarm): FMU problems become CLI errors.
     try:
         runner.auto_build_fmu(config, fmu_name, skip_build, report=click.echo)
     except runner.RunError as exc:
@@ -748,7 +748,7 @@ def probe_run(config, work_dir, svd, persist_work_dir):
             break
 
 
-@cli.command('loop', help='Like run, but restarts automatically. On a clean exit the work directory is wiped; on a crash it is preserved (--persist-work-dir) so state can be inspected.')
+@cli.command('loop', help='Like run, but restarts automatically: after a clean exit with a fresh work directory, after QEMU exits with an error or a helper process dies with the work directory kept for inspection. Configuration and setup errors stop the loop.')
 @click.option('-c','--config',required = True, type= click.Path(resolve_path=True,exists=True),
                         help='The Path to the config file.',
                         metavar= 'PATH')
@@ -795,72 +795,36 @@ def probe_run(config, work_dir, svd, persist_work_dir):
     help='Do not start helper processes from [Rumoca] or [Run.processes].'
 )
 def loop(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu, no_run_processes):
-    if work_dir is None:
-        work_dir = "fastdyn_work"
-
-    svd_path = svd if svd is not None else paths.default_svd_dir()
-
-    # persist_work_dir controls whether the *current* iteration wipes the dir.
-    # After a clean exit we reset to False (fresh start).
-    # After a crash we keep it True (preserve state).
-    keep_dir = persist_work_dir
-    checked_fmu = False
-
+    # Restart only when a run failed (QEMU exited with an error, or a helper
+    # died mid-run), keeping the work dir for inspection. A clean exit starts
+    # the next iteration with a fresh work dir. Anything else is a setup or
+    # configuration problem that would fail again, so the loop stops.
+    persist = persist_work_dir
+    first = True
     while True:
-        if not keep_dir:
-            if os.path.exists(work_dir):
-                log.info(f"Deleting existing work directory at {os.path.abspath(work_dir)}")
-                shutil.rmtree(work_dir)
-            log.info(f"Creating work directory at {os.path.abspath(work_dir)}")
-            os.makedirs(work_dir)
-        else:
-            log.info(f"Running with existing work directory (crash recovery).")
-
-        runner.configure_measurement(config, work_dir)
-
         try:
-            with timing.phase("fastdyn.loop.iteration", config=config, work_dir=work_dir):
-                if not checked_fmu:
-                    with timing.phase("fastdyn.fmu_auto_build"):
-                        _auto_build_fmu(config, fmu, no_build_fmu)
-                    checked_fmu = True
-
-                with runtime_config.launch_from_config(config, work_dir, skip=no_run_processes) as process_manager:
-                    try:
-                        with timing.phase("fastdyn.parse_config"):
-                            fastdyn_handle = toml_parser.parser(
-                                work_dir,
-                                machine_name="machine0",
-                                toml_config=config,
-                                svd_path=svd_path,
-                                fmu_name=fmu,
-                            )
-
-                        if process_manager is not None:
-                            process_manager.start_terminator_watcher(
-                                lambda _handle, _exit_code: fastdyn_handle.shutdown()
-                            )
-
-                        try:
-                            for idx, machine in enumerate(fastdyn_handle.machines):
-                                with timing.phase(f"fastdyn.machine{idx}.run"):
-                                    fastdyn_handle.run(machine_name=f"machine{idx}",
-                                                       target="qemu",
-                                                       out_path=work_dir)
-                        finally:
-                            if process_manager is not None:
-                                process_manager.stop_terminator_watcher()
-                                process_manager.raise_for_terminator_failure()
-                        # Clean exit
-                        keep_dir = True
-                    except KeyboardInterrupt:
-                        log.info("Loop interrupted by user.")
-                        raise SystemExit(130)  # conventional exit status for SIGINT
-                    except Exception as e:
-                        log.error(f"Run crashed with exception: {e}. Restarting with work directory preserved.")
-                        keep_dir = True
-        except runtime_config.RuntimeConfigError as exc:
+            runner.run_config(
+                config,
+                work_dir,
+                svd=svd,
+                persist_work_dir=persist,
+                fmu=fmu,
+                build_fmu=first and not no_build_fmu,  # FMUs are built once
+                run_processes=not no_run_processes,
+                report=click.echo,
+                phase_name="fastdyn.loop.iteration",
+            )
+            log.info("Run finished; restarting with a fresh work directory.")
+            persist = False
+        except (qemu_target.QemuExitError, runtime_config.HelperExitedError) as exc:
+            log.error(f"Run failed: {exc}. Restarting with the work directory preserved.")
+            persist = True
+        except (runner.RunError, runtime_config.RuntimeConfigError, VirtualPreparationError) as exc:
             raise click.ClickException(str(exc)) from exc
+        except KeyboardInterrupt:
+            log.info("Loop interrupted by user.")
+            raise SystemExit(130)  # conventional exit status for SIGINT
+        first = False
 
 
 def _fastdyn_executable() -> str:
