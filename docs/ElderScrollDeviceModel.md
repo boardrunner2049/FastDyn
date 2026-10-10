@@ -51,6 +51,9 @@ const FdModel fastdyn_model = {
   54). Interrupt names from the CMSIS-SVD (`USART2`) are converted for you.
   This is separate from raising an interrupt, where models pass IRQn + 16 to
   `qemu_plugin_raise_irq`.
+* The emulator's host functions (`qemu_plugin_raise_irq`, timers, guest
+  memory and registers) are declared by `<fastdyn/device_model.h>`, which
+  includes QEMU's `<qemu/qemu-plugin.h>`; models do not include it themselves.
 * `host->log(level, dev->name, ...)` writes to the FastDyn log as
   `fastdyn.<device>|LEVEL|`; LibVIO's messages appear as `fastdyn.vio.*`.
 * Build models with `fastdyn build-model` (see [Running FastDyn](RunningFastDyn.md)).

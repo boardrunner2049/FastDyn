@@ -102,8 +102,8 @@ fastdyn build-model models/ -o build/models -r -j 8          # every .c under mo
 fastdyn build-model --name spi4 models/spi4.c models/spi4_dma.c -o build/models
 ```
 
-FastDyn adds its own headers (`<fastdyn/device_model.h>`, QEMU's
-`<qemu/qemu-plugin.h>`), LibVIO when `pkg-config vio` finds it (`--no-vio`
+FastDyn adds its own headers (`<fastdyn/device_model.h>`, which includes
+QEMU's `<qemu/qemu-plugin.h>`), LibVIO when `pkg-config vio` finds it (`--no-vio`
 to leave it out), and the model's folder and its `include/` directories.
 `--pkg NAME` adds another pkg-config package; `--pkg fastdyn` links the
 fuzzer hooks (`<fastdyn/fuzz_hooks.h>`). Models are compiled with

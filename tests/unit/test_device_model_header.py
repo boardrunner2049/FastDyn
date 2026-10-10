@@ -14,6 +14,17 @@ QEMU_INCLUDE = REPO / "third_party" / "common" / "qemu" / "include"
 
 pytestmark = pytest.mark.skipif(shutil.which("gcc") is None, reason="gcc not found")
 
+
+@pytest.fixture(scope="module")
+def qemu_flags():
+    """device_model.h includes QEMU's qemu-plugin.h, which needs glib."""
+    if shutil.which("pkg-config") is None or not QEMU_INCLUDE.is_dir():
+        pytest.skip("needs pkg-config and the QEMU submodule")
+    glib = subprocess.run(["pkg-config", "--cflags", "glib-2.0"], capture_output=True, text=True)
+    if glib.returncode != 0:
+        pytest.skip("glib-2.0 development files not found")
+    return [f"-I{QEMU_INCLUDE}", *glib.stdout.split()]
+
 MODEL = r"""
 #include <fastdyn/device_model.h>
 #include <stdlib.h>
@@ -113,9 +124,9 @@ def _gcc(tmp_path, source, *args, name="out", check=True):
     return out, result
 
 
-def test_a_descriptor_model_serves_two_devices(tmp_path):
-    model, _ = _gcc(tmp_path, MODEL, "-shared", "-fPIC", name="echo.so")
-    loader, _ = _gcc(tmp_path, LOADER, "-ldl", name="loader")
+def test_a_descriptor_model_serves_two_devices(tmp_path, qemu_flags):
+    model, _ = _gcc(tmp_path, MODEL, *qemu_flags, "-shared", "-fPIC", name="echo.so")
+    loader, _ = _gcc(tmp_path, LOADER, *qemu_flags, "-ldl", name="loader")
 
     result = subprocess.run([str(loader), str(model)], capture_output=True, text=True)
 
@@ -145,26 +156,34 @@ READ = "static uint64_t r(void *o, hwaddr addr, unsigned size, uint64_t pc)"
         ("static void i(const FdDevice *dev, const char *cfg, const FdHost *host)", "", READ, False),
     ],
 )
-def test_the_compiler_checks_signatures(tmp_path, init, init_body, read, compiles):
+def test_the_compiler_checks_signatures(tmp_path, qemu_flags, init, init_body, read, compiles):
     source = MINIMAL % {"init": init, "init_body": init_body, "read": read}
 
-    _, result = _gcc(tmp_path, source, "-fPIC", "-c", name="model.o", check=False)
+    _, result = _gcc(tmp_path, source, *qemu_flags, "-fPIC", "-c", name="model.o", check=False)
 
     assert (result.returncode == 0) is compiles, result.stderr
     if not compiles:
         assert "incompatible" in result.stderr
 
 
-def test_header_works_with_the_internal_and_log_headers(tmp_path):
-    if shutil.which("pkg-config") is None or not QEMU_INCLUDE.is_dir():
-        pytest.skip("needs pkg-config and the QEMU submodule")
-    glib = subprocess.run(["pkg-config", "--cflags", "glib-2.0"], capture_output=True, text=True)
-    if glib.returncode != 0:
-        pytest.skip("glib-2.0 development files not found")
+def test_header_works_with_the_internal_and_log_headers(tmp_path, qemu_flags):
     source = "#include <device.h>\n#include <fastdyn/log.h>\n#include <fastdyn/device_model.h>\n" \
              "static hwaddr h;\nint main(void) { return (int)h + FD_LOG_LEVEL_INFO - 20; }\n"
 
-    _gcc(tmp_path, source, f"-I{QEMU_INCLUDE}", *glib.stdout.split(), "-c", name="both.o")
+    _gcc(tmp_path, source, *qemu_flags, "-c", name="both.o")
+
+
+def test_the_host_functions_come_with_the_header(tmp_path, qemu_flags):
+    source = (
+        "#include <fastdyn/device_model.h>\n"
+        "static void tick(void *opaque) { (void)opaque; qemu_plugin_raise_irq(54, 0); }\n"
+        "uint64_t arm(void) {\n"
+        "    uint64_t t = qemu_plugin_timer_new_ns(tick, NULL);\n"
+        "    qemu_plugin_timer_alarm(t, (uint64_t)qemu_plugin_get_virtual_timer() + 1000);\n"
+        "    return t;\n"
+        "}\n"
+    )
+    _gcc(tmp_path, source, *qemu_flags, "-fPIC", "-c", name="host.o")
 
 
 def test_fuzz_hooks_header_compiles_on_its_own(tmp_path):

@@ -2,8 +2,8 @@
 
 One ``.c`` file is one model, named after the file (``usart2.c`` →
 ``usart2.so``); a model made of several files is given a name with
-:class:`Model`. FastDyn adds its own headers (``<fastdyn/device_model.h>``,
-QEMU's ``<qemu/qemu-plugin.h>``), LibVIO when ``pkg-config vio`` finds it,
+:class:`Model`. FastDyn adds its own headers (``<fastdyn/device_model.h>``, which
+includes QEMU's ``<qemu/qemu-plugin.h>``), LibVIO when ``pkg-config vio`` finds it,
 and the model's own folder and ``include/`` directories. Builds run in
 parallel and are incremental: a model is rebuilt only when a source or
 header it uses, or the compile command, changed. Nothing is written outside

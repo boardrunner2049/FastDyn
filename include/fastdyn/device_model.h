@@ -23,6 +23,11 @@
  * (e.g. USART2 and USART3). Keep all state in the struct init returns, never
  * in globals: it is passed back as `opaque` to every other callback.
  *
+ * This header also declares the emulator's host functions (interrupts,
+ * timers, guest memory and registers) by including QEMU's
+ * <qemu/qemu-plugin.h>, so a model includes only this header and, if it uses
+ * LibVIO, <vio/vio.h>.
+ *
  * Every struct here carries its size, so later versions can append fields,
  * host services and optional callbacks without breaking existing models.
  */
@@ -31,6 +36,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
+#include <qemu/qemu-plugin.h>
 
 #define FASTDYN_MODEL_ABI_VERSION 2
 
