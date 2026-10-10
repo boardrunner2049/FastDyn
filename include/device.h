@@ -56,6 +56,7 @@ typedef struct {
     int range_count;
     uint16_t *irqs;
     int irq_count;
+    char* config_json;   // the device's own config (a JSON object), passed to its model
     I2CDevices I2Cdevices;
     SPIDevices SPIdetails;
 } DeviceModels;

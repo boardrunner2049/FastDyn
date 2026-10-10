@@ -399,6 +399,8 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         #create a device
         device_handler = machine0.add_device(device)
         device_handler.description = device_info.get('description', '')
+        device_handler.config = {key: value for key, value in device_info.items()
+                                 if key not in FASTDYN_DEVICE_KEYS}
 
         #add the handlers info
         for handler in device_info.get('handlers'):

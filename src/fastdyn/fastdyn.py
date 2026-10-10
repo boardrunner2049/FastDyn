@@ -404,6 +404,12 @@ class Slave:
     params: Dict[str, Any] = field(default_factory=dict)
     device_scroll: Optional[str] = None # The path/identifier for the slave
 
+# [Device.<name>] keys FastDyn interprets itself. Every other key belongs to
+# the device's model and is passed to it unchanged as its config.
+FASTDYN_DEVICE_KEYS = frozenset({"handlers", "ranges", "irq", "description", "connections",
+                                 "read_priority"})
+
+
 class Device:
     def __init__(self, name, machine_obj):
         self.device_name = name
@@ -413,6 +419,9 @@ class Device:
         self.irq_range = []
         self.description: str = ""
         self.connections: list = []
+        # The model's own settings (e.g. "slaves" for LibVIO buses), passed to
+        # the model as a JSON object without interpretation.
+        self.config: Dict[str, Any] = {}
         #here just add ranges and validate them before running qemu (transformation step)
 
     def add_ranges(self, start, end=None, size=None):
@@ -745,6 +754,7 @@ def compile_device_routing(
 
             entry = bucket.setdefault(dev_name, {})
             entry["range"] = list(ranges)
+            entry["config"] = dict(getattr(dev, "config", None) or {})
 
             if irq:
                 entry["irq"] = irq

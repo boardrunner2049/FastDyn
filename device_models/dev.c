@@ -489,6 +489,7 @@ void dev_free_config(AppConfig* config) {
             free(device->scroll_path);
             free(device->irqs);
             free(device->ranges);
+            free(device->config_json);
         }
         free(section->devices);
     }
@@ -608,6 +609,12 @@ AppConfig* dev_parse_json_configs(const char* json_string) {
                     }
                 }
 
+                /* The model's own config, kept as JSON without interpreting it. */
+                cJSON* model_config = cJSON_GetObjectItemCaseSensitive(item, "config");
+                char* printed = cJSON_IsObject(model_config) ? cJSON_PrintUnformatted(model_config) : NULL;
+                current_device->config_json = strdup(printed ? printed : "{}");
+                cJSON_free(printed);
+
                 /* Peripheral-specific slave parsing unchanged */
                 cJSON* slaves_obj = cJSON_GetObjectItemCaseSensitive(item, "slaves");
                 if (cJSON_IsObject(slaves_obj)) {
@@ -714,6 +721,7 @@ void dev_print_config(const AppConfig* config) {
             printf("    -> Scroll: %s\n", d->scroll_path ? d->scroll_path : "N/A");
             printf("    -> Ranges: %d\n", d->range_count);
             printf("    -> IRQs: %d\n", d->irq_count);
+            printf("    -> Config: %s\n", d->config_json ? d->config_json : "{}");
             if (d->irq_count > 0) {
                 printf("    -> IRQ List:");
                 for (int x = 0; x < d->irq_count; x++) {
