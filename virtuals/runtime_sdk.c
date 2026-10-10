@@ -173,6 +173,30 @@ void virtual_register_irq_hook(const VirtualContext *ctx,
     core_register_irq_hook(entry, exit);
 }
 
+#define VIRTUAL_MAX_MMIO_OBSERVERS 16
+static VirtualMmioObserver mmio_observers[VIRTUAL_MAX_MMIO_OBSERVERS];
+int virtual_mmio_observer_count;
+
+int virtual_register_mmio_observer(const VirtualContext *ctx,
+                                   VirtualMmioObserver observer) {
+    if (!observer) {
+        return -1;
+    }
+    if (virtual_mmio_observer_count >= VIRTUAL_MAX_MMIO_OBSERVERS) {
+        virtual_log(ctx, VIRTUAL_LOG_ERROR, "too many MMIO observers (at most %d)",
+                    VIRTUAL_MAX_MMIO_OBSERVERS);
+        return -1;
+    }
+    mmio_observers[virtual_mmio_observer_count++] = observer;
+    return 0;
+}
+
+void virtual_dispatch_mmio(const VirtualMmioAccess *access) {
+    for (int i = 0; i < virtual_mmio_observer_count; i++) {
+        mmio_observers[i](access);
+    }
+}
+
 void virtual_register_tb_translation_hook(
     const VirtualContext *ctx, VirtualTbTranslationHook callback) {
     (void)ctx;

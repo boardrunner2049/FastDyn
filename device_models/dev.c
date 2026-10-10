@@ -4,6 +4,7 @@
 #include <device.h>
 #include <core.h>
 #include <probe.h>
+#include <virtuals/mmio_observer.h>
 #include "models.c"
 #include "cJSON.h"
 #include <stdio.h>
@@ -128,6 +129,7 @@ static int dev_write(char * handler, long unsigned int address, uint64_t value, 
                     sec, usec, dev_to_use->name, (unsigned)address, (unsigned)size, (int)(size * 2), value, (unsigned)pc);
         }
 #endif
+        virtual_notify_mmio(pc, address, value, size, true, true, lut != NULL);
         if (handler && (handler[0] == 'g')) {
             return 0;
         }
@@ -140,10 +142,12 @@ static int dev_write(char * handler, long unsigned int address, uint64_t value, 
                         sec, usec, (unsigned)address, (unsigned)size, (int)(size * 2), value, (unsigned)pc);
 #endif
         probe_check_unhandled_access(pc, address, 1);
+        virtual_notify_mmio(pc, address, value, size, true, false, false);
         return 1; // Continue internal operation
     }
 
     bool handled = (dev_to_use != NULL);
+    virtual_notify_mmio(pc, address, value, size, true, handled, true);
 // Filter out QEMU internals ('g') only and we dont filter ('v)
 //It is not always injecting double interrupts every ms
     if (handler && ((handler[0] == 'g') ||
@@ -237,6 +241,7 @@ static int dev_read(char * handler, long unsigned int address, uint64_t *buf, lo
         dev_debug("IO Access not handled");
         probe_check_unhandled_access(pc, address, 0);
     }
+    virtual_notify_mmio(pc, address, value, size, false, dev_to_use != NULL, lut != NULL);
 
     if (handler && ((handler[0] == 'g') ||
                     (dev_to_use != NULL && strcmp(handler, "nvic-default") == 0))) {

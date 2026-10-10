@@ -245,6 +245,32 @@ logger (`ctx.logger`), and generic cleanup callbacks returned in
 enabled = true
 ```
 
+### Observing MMIO accesses
+
+A native component can watch every MMIO access that FastDyn's device dispatch
+sees, for example to detect a firmware polling a status register:
+
+```c
+static void on_mmio(const VirtualMmioAccess *access) {
+    if (!access->handled) {
+        /* no device model claimed access->address */
+    }
+}
+
+static int example_initialize(const VirtualContext *ctx) {
+    return virtual_register_mmio_observer(ctx, on_mmio);
+}
+```
+
+The observer runs on the vCPU thread after the device model handled the
+access, for reads and writes, handled or not: `value` is the value written or
+returned (0 for an unhandled read), `handled` says whether a device model
+claimed the address, and `in_mmio_window` whether the address lies in a
+region FastDyn routes to device models (`0x40000000`-`0x5FFFFFFF`,
+`0xE0000000`-`0xEFFFFFFF`). Observers run in registration order; keep them
+cheap, since they run for every access. While no observer is registered the
+check costs one branch per access.
+
 ## 5. Configure and test it
 
 Once the native and Python registrations are in the build, a user configures a
