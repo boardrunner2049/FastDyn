@@ -542,6 +542,10 @@ class Device:
             # strings: numeric first, then symbol lookup
             if isinstance(x, str):
                 s = x.strip()
+                if ("-" in s or ":" in s) and not s.lstrip("-").isdigit():
+                    raise ValueError(
+                        f"[Device.{self.device_name}].irq: {x!r} is the old range syntax; write "
+                        "ranges as a list, e.g. irq = [[0, 100]] or irq = [[0, 20], [21, 25], 41]")
                 # numeric? (supports "53" and "0x35")
                 try:
                     return int(s, 0)

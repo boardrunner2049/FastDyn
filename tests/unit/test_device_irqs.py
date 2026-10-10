@@ -57,3 +57,14 @@ def test_an_irq_name_needs_the_cpu_first():
 
     device.add_irq(54)  # numbers never need the CPU
     assert device.irq_range == [54]
+
+
+@pytest.mark.parametrize("irq", ['"0-100"', '"0-20:21-25:41"', '["0-100"]', "[[1, 5], \"21-25\"]"])
+def test_the_old_string_range_syntax_is_rejected_clearly(tmp_path, irq):
+    config = tmp_path / "board.toml"
+    config.write_text(CONFIG.replace("irq = ['USART2', '0x2D', 15, ['TIM2', 'TIM3']]", f"irq = {irq}"),
+                      encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"\[Device.usart2\].irq.*old range syntax.*irq = \[\[0, 100\]\]"):
+        toml_parser.parser(str(tmp_path / "work"), "machine0", str(config),
+                           "third_party/common/cmsis-svd-data", load_fmu=False)

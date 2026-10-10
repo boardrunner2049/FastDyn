@@ -471,7 +471,13 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
 
         #add irqs if added by the user
         if device_info.get('irq') is not None:
-            for irq in device_info.get('irq'):
+            irqs = device_info.get('irq')
+            if isinstance(irqs, str):
+                # The old "0-20:21-25" syntax; iterating it would add characters.
+                raise ValueError(f"[Device.{device}].irq = {irqs!r} is the old range syntax; "
+                                 "write ranges as a list, e.g. irq = [[0, 100]] or "
+                                 "irq = [[0, 20], [21, 25], 41]")
+            for irq in irqs:
                 device_handler.add_irq(irq)
 
     return fastdyn_handle

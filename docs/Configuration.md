@@ -384,6 +384,13 @@ model = "classic"
 enabled = false
 ```
 
+`irq` lists the interrupts a device's models are told about, as the CPU
+reports them: on Cortex-M, exception numbers (device IRQ n is n + 16). Each
+entry is a number (`54`, `"0x36"`), a CMSIS-SVD interrupt name (`"USART2"`,
+converted for you), or an inclusive `[first, last]` range; for example
+`irq = [[0, 20], [21, 25], 41, "USART2"]`. The old string form
+`irq = "0-20:21-25"` is no longer accepted.
+
 ## Parallel Runs
 
 `fastdyn swarm` runs many isolated copies of one config. Each worker receives
