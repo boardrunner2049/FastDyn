@@ -4,6 +4,7 @@
 #include <utils.h>
 #include <core.h>
 
+#include <config.h>
 #include "../common/hw_session.h"
 
 #include <errno.h>
@@ -52,9 +53,13 @@ _Static_assert(sizeof(tt_hdr_t) == 20, "tt_hdr_t must be 20 bytes");
 _Static_assert(sizeof(tt_rec_t) == 40, "tt_rec_t must be 40 bytes");
 
 // -----------------------
-// Record mode: shared hw_session (see device_models/common/hw_session.h)
+// Record mode: shared hw_session (see device_models/common/hw_session.h).
+// Recording needs a probe, so it exists only in builds with libhw; replay
+// works in every build.
 // -----------------------
+#if ENABLE_LIBHW
 static hw_session_t *s_session;
+#endif
 
 // -----------------------
 // Replay mode: mapped tape
@@ -248,9 +253,11 @@ next_iter:
 
 static int twintrace_serve(int line)
 {
+#if ENABLE_LIBHW
     if (g_mode == TT_RECORD) {
         return hw_session_serve(s_session, line);
     }
+#endif
 
     if (g_mode != TT_REPLAY) return 0;
     if (twintrace_ignore_irq(line)) return 0;
@@ -315,6 +322,7 @@ static uint64_t twintrace_read(void *opaque, hwaddr address, unsigned size, uint
 {
     (void)opaque;
 
+#if ENABLE_LIBHW
     if (g_mode == TT_RECORD) {
         uint64_t value = 0;
         if (hw_session_read(s_session, address, size, &value, pc) != 0) {
@@ -322,6 +330,7 @@ static uint64_t twintrace_read(void *opaque, hwaddr address, unsigned size, uint
         }
         return value;
     }
+#endif
 
     // replay
     pthread_mutex_lock(&rep_mutex);
@@ -360,12 +369,14 @@ static void twintrace_write(void *opaque, hwaddr address, uint64_t value, unsign
 {
     (void)opaque;
 
+#if ENABLE_LIBHW
     if (g_mode == TT_RECORD) {
         if (hw_session_write(s_session, address, value, size, pc) != 0) {
             utils_die("HW Write Failed");
         }
         return;
     }
+#endif
 
     // replay
     pthread_mutex_lock(&rep_mutex);
@@ -447,9 +458,14 @@ static void* twintrace_init(ConfigSection* model_info)
             model_info->backend ? model_info->backend : "(null)");
 
     if (g_mode == TT_RECORD) {
+#if ENABLE_LIBHW
         // behave like passthrough; share the probe via hw_session
         s_session = hw_session_acquire(model_info->backend);
         if (!s_session) utils_die("HW connection failed");
+#else
+        utils_die("twintrace: recording needs a probe; rebuild FastDyn with libhw "
+                  "(make LIBHW=true, or meson -Denable_libhw=true). Replay works in this build.");
+#endif
     } else if (g_mode == TT_REPLAY) {
         if (!g_bin_path || !g_bin_path[0]) utils_die("twintrace_bin missing for replay");
         tt_replay_open(g_bin_path);

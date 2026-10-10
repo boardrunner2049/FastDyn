@@ -1,5 +1,4 @@
 #include <device.h>
-#include <hw.h>
 #include <utils.h>
 #include "device_config.h"
 #include <stdarg.h>

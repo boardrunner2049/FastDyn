@@ -145,9 +145,9 @@ Most features are off by default. Override at `make` time:
 
 | Flag                 | Default | Enables                                                                 |
 | -------------------- | ------- | ----------------------------------------------------------------------- |
-| `LIBHW`              | `true`  | Hardware passthrough via libhw                                          |
+| `LIBHW`              | `true`  | Talking to a board via libhw: passthrough and twintrace recording (elder and twintrace replay work without it) |
 | `LIBFUZZ`            | `true`  | LibAFL fuzzing harness                                                  |
-| `DEV`                | `true`  | Built-in device models                                                  |
+| `DEV`                | `true`  | Device models: classic, elder, twintrace (and passthrough with `LIBHW`) |
 | `DEBUG_PRINT`        | `true`  | Verbose plugin logging                                                  |
 | `LIBGZ`              | `false` | Gazebo / SITL physics integration                                       |
 | `LIBPY`              | `false` | Halucinator-mode Python callbacks                                       |

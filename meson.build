@@ -109,6 +109,11 @@ subdir('virtuals')
 ENABLE_LIBHW = get_option('enable_libhw')
 LIBHW_DIR = join_paths(meson.project_source_root(), get_option('libhw_path'))
 
+if ENABLE_LIBHW and not get_option('device_models')
+  warning('enable_libhw only affects the device models (passthrough, twintrace recording); ' +
+          'it has no effect without -Ddevice_models=true')
+endif
+
 if ENABLE_LIBHW
   libhw_dep = declare_dependency(
     compile_args: ['-I' + join_paths(LIBHW_DIR, 'include')],
@@ -194,14 +199,19 @@ if ENABLE_LIBDEV
   'device_models/classic/classic.c',
   )
 
-if ENABLE_LIBHW
+  # elder and twintrace (replay) are pure emulation; recording and
+  # passthrough talk to a probe and need libhw.
   srcs += files(
-  'device_models/common/hw_session.c',
-  'device_models/passthrough/passthrough.c',
   'device_models/elder/elder.c',
   'device_models/elder/device_config.c',
   'device_models/twintrace/twintrace.c',
   'device_models/elder/inih/ini.c'
+  )
+
+if ENABLE_LIBHW
+  srcs += files(
+  'device_models/common/hw_session.c',
+  'device_models/passthrough/passthrough.c',
   )
 endif
 

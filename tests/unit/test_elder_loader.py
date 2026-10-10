@@ -11,12 +11,10 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 QEMU_INCLUDE = REPO / "third_party" / "common" / "qemu" / "include"
-LIBHW_INCLUDE = REPO / "third_party" / "common" / "libhw" / "include"
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("gcc") is None or shutil.which("pkg-config") is None
-    or not QEMU_INCLUDE.is_dir() or not LIBHW_INCLUDE.is_dir(),
-    reason="needs gcc, pkg-config and the QEMU / libhw submodules",
+    shutil.which("gcc") is None or shutil.which("pkg-config") is None or not QEMU_INCLUDE.is_dir(),
+    reason="needs gcc, pkg-config and the QEMU submodule",
 )
 
 # An older model: <device>_init/_read/_write, no fastdyn_model.
@@ -120,7 +118,7 @@ int main(int argc, char **argv) {
 
 def _flags():
     glib = subprocess.run(["pkg-config", "--cflags", "glib-2.0"], capture_output=True, text=True, check=True)
-    return ["-std=gnu11", "-g", f"-I{REPO / 'include'}", f"-I{QEMU_INCLUDE}", f"-I{LIBHW_INCLUDE}",
+    return ["-std=gnu11", "-g", f"-I{REPO / 'include'}", f"-I{QEMU_INCLUDE}",
             f"-I{REPO / 'device_models' / 'elder'}", *glib.stdout.split()]
 
 
