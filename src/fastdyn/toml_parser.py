@@ -124,6 +124,29 @@ def _resolve_existing_config_path(config_path, value):
     return str((bases[-1] / path).resolve())
 
 
+def _config_relative(config_path, value):
+    """A file named in the configuration (firmware, trace, model library):
+    a relative path is looked up next to the configuration file first; if it
+    is not there, it stays relative to the current directory, as before."""
+    if not isinstance(value, str) or not value:
+        return value
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return value
+    candidate = Path(config_path).expanduser().resolve().parent / path
+    return str(candidate) if candidate.exists() else value
+
+
+def _slaves_config_relative(config_path, slaves):
+    """Slave entries with their device_scroll resolved like other model libraries."""
+    resolved = []
+    for slave in slaves:
+        if isinstance(slave, dict) and "device_scroll" in slave:
+            slave = {**slave, "device_scroll": _config_relative(config_path, slave["device_scroll"])}
+        resolved.append(slave)
+    return resolved
+
+
 def _format_icount_option(value):
     if value is None:
         return None
@@ -281,7 +304,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     for idx, cpu in enumerate(toml_parser.cpus_info):
         curr_cpu = toml_parser.cpus_info[cpu][0]
 
-        binary_path = curr_cpu.get('binary') or curr_cpu.get('drive_file') or ''
+        binary_path = _config_relative(toml_config, curr_cpu.get('binary')) or curr_cpu.get('drive_file') or ''
         cpu_obj = machine0.add_cpu(
                 arch=curr_cpu.get("arch", "arm"),
                 machine=curr_cpu.get("machine", "cortexm"),
@@ -289,7 +312,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
                 binary=binary_path,
                 init_nsvtor= curr_cpu.get("init_nsvtor", None),
                 twintrace = curr_cpu.get("twintrace", None),
-                hardware_trace = curr_cpu.get("hardware_trace", None),
+                hardware_trace = _config_relative(toml_config, curr_cpu.get("hardware_trace", None)),
                 exstng_config_path = _resolve_existing_config_path(
                     toml_config,
                     curr_cpu.get("existing_config_path", False),
@@ -412,6 +435,8 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         device_handler.description = device_info.get('description', '')
         device_handler.config = {key: value for key, value in device_info.items()
                                  if key not in FASTDYN_DEVICE_KEYS}
+        if isinstance(device_handler.config.get('slaves'), list):
+            device_handler.config['slaves'] = _slaves_config_relative(toml_config, device_handler.config['slaves'])
 
         #add the handlers info
         for handler in device_info.get('handlers'):
@@ -419,7 +444,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
                 name=handler['model'],
                 enabled=handler['enabled'],
                 args=handler.get('args', None),
-                scroll=handler.get('scroll',None),
+                scroll=_config_relative(toml_config, handler.get('scroll', None)),
                 type=handler.get('type', None)
             )
 
@@ -464,7 +489,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
             device_handler.add_connection(conn_entry)
 
         #add slaves in case of I2C and SPI
-        slaves_list = device_info.get('slaves', [])
+        slaves_list = _slaves_config_relative(toml_config, device_info.get('slaves', []))
         for slave_entry in slaves_list:
             # Passes the whole dict: {'device': 'BM2E80', 'address': '0x76', ...}
             device_handler.add_slave(slave_entry)

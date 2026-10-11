@@ -20,7 +20,11 @@ fastdyn run -c configs/copter462.toml
 
 ## Path And Environment Expansion
 
-Relative paths are resolved from the FastDyn repository root. Runtime helper
+The files a configuration names (the firmware `binary`, `hardware_trace`, a
+device model's `scroll` and a slave's `device_scroll`) are looked up next to
+the configuration file when given as relative paths, so an example folder
+with its configuration, firmware and models works from any directory; a path
+that is not there is taken relative to the current directory. Runtime helper
 strings support `${NAME:-default}` expansion, so a config can provide defaults
 while `fastdyn swarm` injects per-worker ports:
 
