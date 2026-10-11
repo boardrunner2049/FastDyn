@@ -68,7 +68,13 @@ fuzzing = false
 fuzzing_schema = "path/to/fuzzing-schema.json"
 edge_coverage = false
 print_command = false
+exit_timeout_ms = 5000
 ```
+
+When a run is stopped (Ctrl-C, a helper process ending, or a caller such as
+BoardRunner ending a timed run), QEMU gets SIGINT and exits normally, so
+plugins write their results (e.g. `bbl.txt`); it is killed only if it is still
+running after `exit_timeout_ms` (default 5000).
 
 To see valid architecture presets and the SVD-backed values accepted by
 `[Machine].platform`, use the CLI catalog:

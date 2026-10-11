@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import signal
+import time
 
 from ..utils import helper, twintrace
 from ..binary import binary_wrange
@@ -884,20 +885,56 @@ def start_execution(
     return ret
 
 
+def _pids_using_port(port):
+    try:
+        result = subprocess.check_output(["lsof", "-ti", f"tcp:{port}"])
+        pids = result.decode().strip().split("\n")
+        return [int(pid) for pid in pids if pid.strip()]
+    except Exception:
+        return []
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stop_qemu_process(port, timeout_ms=5000):
+    """Stop whatever is bound to the QEMU monitor TCP port, letting QEMU exit
+    normally: SIGINT first, so plugins write their results at exit (e.g.
+    bbl.txt), then SIGKILL for anything still running after ``timeout_ms``."""
+    pids = [pid for pid in _pids_using_port(port) if pid != os.getpid()]
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGINT)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    while any(_alive(pid) for pid in pids) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    survivors = [pid for pid in pids if _alive(pid)]
+    if survivors:
+        log.warning("QEMU did not exit within %d ms of SIGINT; killing it.", timeout_ms)
+    for pid in survivors:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if survivors and os.isatty(0):
+        subprocess.run(["stty", "sane"])
+
+
 def kill_qemu_process(port):
     """
     Best-effort kill whatever is bound to the QEMU monitor TCP port.
     Still not ideal, but at least it uses the configured port.
     """
-    def get_pids_using_port(p):
-        try:
-            result = subprocess.check_output(["lsof", "-ti", f"tcp:{p}"])
-            pids = result.decode().strip().split("\n")
-            return [int(pid) for pid in pids if pid.strip()]
-        except Exception:
-            return []
-
-    for pid in get_pids_using_port(port):
+    for pid in _pids_using_port(port):
         try:
             os.kill(pid, signal.SIGKILL)
             if os.isatty(0):

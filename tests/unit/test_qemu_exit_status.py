@@ -61,7 +61,7 @@ def test_requested_shutdown_is_not_a_failure(machine_runner, monkeypatch):
     def capture(h):
         nonlocal handle
         handle = h
-        monkeypatch.setattr(qemu_target, "kill_qemu_process", lambda **_: None)
+        monkeypatch.setattr(qemu_target, "stop_qemu_process", lambda *_a, **_k: None)
         monkeypatch.setattr(qemu_target, "start_execution", start_after_shutdown)
 
     assert machine_runner(["false"], before_run=capture) == -9
@@ -94,3 +94,44 @@ def test_ctrl_c_stops_qemu_and_propagates(monkeypatch):
 def test_signal_exit_is_described():
     error = QemuExitError("machine0", -11)
     assert "killed by signal 11" in str(error)
+
+
+def test_shutdown_lets_qemu_exit_before_killing_it(monkeypatch):
+    """SIGINT first (QEMU writes bbl.txt etc. at exit), SIGKILL only if it is still running."""
+    signals, alive = [], {111: True, 222: True}
+
+    def fake_kill(pid, sig):
+        if sig == 0:
+            if not alive.get(pid):
+                raise ProcessLookupError
+            return
+        signals.append((pid, sig))
+        if sig == qemu_target.signal.SIGINT and pid == 111:
+            alive[111] = False  # exits on SIGINT
+        if sig == qemu_target.signal.SIGKILL:
+            alive[pid] = False
+
+    monkeypatch.setattr(qemu_target, "_pids_using_port", lambda port: [111, 222])
+    monkeypatch.setattr(qemu_target.os, "kill", fake_kill)
+    monkeypatch.setattr(qemu_target.os, "isatty", lambda fd: False)
+
+    qemu_target.stop_qemu_process(5555, timeout_ms=200)
+
+    sigint, sigkill = qemu_target.signal.SIGINT, qemu_target.signal.SIGKILL
+    assert signals == [(111, sigint), (222, sigint), (222, sigkill)]
+
+
+def test_shutdown_does_not_kill_a_qemu_that_exits(monkeypatch):
+    signals = []
+    monkeypatch.setattr(qemu_target, "_pids_using_port", lambda port: [333])
+
+    def fake_kill(pid, sig):
+        if sig == 0:
+            raise ProcessLookupError  # gone after SIGINT
+        signals.append(sig)
+
+    monkeypatch.setattr(qemu_target.os, "kill", fake_kill)
+
+    qemu_target.stop_qemu_process(5555, timeout_ms=200)
+
+    assert signals == [qemu_target.signal.SIGINT]

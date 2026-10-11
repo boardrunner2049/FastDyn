@@ -87,11 +87,13 @@ class Fastdyn:
     def shutdown(self, machine_name=None):
         machines = [self.machines[machine_name]] if machine_name is not None else self.machines.values()
         for machine in machines:
-            # A stop requested here is not a QEMU failure (see run()).
+            # A stop requested here is not a QEMU failure (see run()). QEMU gets
+            # SIGINT, so it exits normally and plugins write their results,
+            # and is killed only if it is still running after exit_timeout_ms.
             machine.shutdown_requested = True
             port = getattr(machine.qemu_target_opts, "monitor_port", None)
             if port is not None:
-                qemu_target.kill_qemu_process(port=port)
+                qemu_target.stop_qemu_process(port, machine.qemu_target_opts.exit_timeout_ms)
 
 
 def _python_endpoints_for_machine(machine):
