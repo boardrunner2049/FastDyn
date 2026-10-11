@@ -75,6 +75,13 @@ print_command = false
 exit_timeout_ms = 5000
 ```
 
+`qmp_socket` is QEMU's control socket. Left at `/tmp/qmp.sock` (the default),
+each run gets its own, `<work_dir>/qmp.sock`; when that path is too long for a
+Unix socket (107 bytes), it goes to a short per-user folder instead,
+`fastdyn-<uid>/` under `$XDG_RUNTIME_DIR`, the temporary directory or `/tmp`.
+Set another path to connect to the socket yourself (e.g. a co-simulation
+master).
+
 When a run is stopped (Ctrl-C, a helper process ending, or a caller such as
 BoardRunner ending a timed run), QEMU gets SIGINT and exits normally, so
 plugins write their results (e.g. `bbl.txt`); it is killed only if it is still

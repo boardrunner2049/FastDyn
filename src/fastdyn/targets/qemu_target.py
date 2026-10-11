@@ -2,12 +2,14 @@
 One of the supported targets by Fastdyn: QEMU.
 """
 
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import signal
+import tempfile
 import time
 
 from ..utils import helper, twintrace
@@ -22,6 +24,35 @@ from ..virtual_preprocessing import (
     prepare_virtual_rules,
 )
 log = logging.getLogger(__name__)
+
+DEFAULT_QMP_SOCKET = "/tmp/qmp.sock"
+UNIX_SOCKET_PATH_MAX = 107  # sun_path holds 108 bytes, including the final NUL
+
+
+def run_qmp_socket(work_dir):
+    """The QMP socket of a run that keeps the default ``qmp_socket``.
+
+    It is ``<work_dir>/qmp.sock``, so parallel runs do not collide. When that
+    path is too long for a Unix socket, the socket goes to a short per-user
+    folder instead, named after the work directory: under ``$XDG_RUNTIME_DIR``,
+    the temporary directory or ``/tmp``, the first where it fits.
+    """
+    work_dir = os.path.abspath(work_dir)
+    path = os.path.join(work_dir, "qmp.sock")
+    if len(os.fsencode(path)) <= UNIX_SOCKET_PATH_MAX:
+        return path
+    name = f"qmp-{hashlib.sha1(os.fsencode(work_dir)).hexdigest()[:16]}.sock"
+    for base in (os.environ.get("XDG_RUNTIME_DIR"), tempfile.gettempdir(), "/tmp"):
+        if not base:
+            continue
+        folder = os.path.join(base, f"fastdyn-{os.getuid()}")
+        short = os.path.join(folder, name)
+        if len(os.fsencode(short)) <= UNIX_SOCKET_PATH_MAX:
+            os.makedirs(folder, mode=0o700, exist_ok=True)
+            log.info("QMP socket at %s (%s is too long for a Unix socket)", short, path)
+            return short
+    raise ValueError(f"no folder for a QMP socket short enough for a Unix socket; set qmp_socket in [Machine] "
+                     f"(the default {path} is too long)")
 fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 
@@ -382,11 +413,6 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     # ------------------------ Base QEMU command ------------------------
     cmd = [qemu_bin]
 
-    qmp_socket = opts.qmp_socket
-    # if user left default /tmp/qmp.sock, it will collide across runs; prefer per-run socket
-    if not qmp_socket or qmp_socket == "/tmp/qmp.sock":
-        qmp_socket = os.path.join(out_path, "qmp.sock")
-
     # Machine and RAM Size
     if main_mem_id:
         cpu_configs = ["-M", f"{cpu0.machine},memory-backend={main_mem_id}"]
@@ -438,8 +464,8 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     # QMP socket
     qmp_socket = opts.qmp_socket
     if qmp_socket:
-        if qmp_socket == "/tmp/qmp.sock":
-            qmp_socket = os.path.join(out_path, "qmp.sock")
+        if qmp_socket == DEFAULT_QMP_SOCKET:
+            qmp_socket = run_qmp_socket(out_path)
         cpu_configs.extend(["-qmp", f"unix:{qmp_socket},server,nowait"])
 
     # Icount / Logging / SMP
