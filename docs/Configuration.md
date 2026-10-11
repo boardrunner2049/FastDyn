@@ -30,7 +30,8 @@ while `fastdyn swarm` injects per-worker ports:
 
 Important injected environment variables are:
 
-- `FASTDYN_WORK_DIR`: current run work directory.
+- `FASTDYN_WORK_DIR`: current run work directory (the device models write the
+  MMIO trace `io.log` there).
 - `FASTDYN_CONFIG`: absolute config path.
 - `FASTDYN_MONITOR_PORT`: QEMU monitor TCP port.
 - `FASTDYN_MAVLINK_FIRMWARE_PORT`: firmware-facing MAVLink UDP port.

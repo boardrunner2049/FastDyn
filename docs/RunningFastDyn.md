@@ -57,6 +57,9 @@ same primary workflow in the interactive configuration-help menu.
 The work directory is the run record. Depending on the configuration, it
 contains:
 
+- `io.log`: the MMIO trace of the run (every peripheral read and write and
+  interrupt), when device models are enabled; BoardRunner compares it with
+  the hardware trace;
 - `virtuals/virtuals.txt` and `virtuals/modifiers.txt`: resolved runtime rules;
 - `run-artifacts/`: generated plugin data such as introspection schemas;
 - logs, QEMU output, RAM backing, and timing data;

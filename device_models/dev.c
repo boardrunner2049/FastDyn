@@ -7,7 +7,10 @@
 #include <virtuals/mmio_observer.h>
 #include "models.c"
 #include "cJSON.h"
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
+#include <string.h>
 
 extern twintrace_mode_t twintrace_mode;
 extern const char *twintrace_bin_path;
@@ -819,6 +822,27 @@ static inline AppConfig* dev_parse_models(const char *s, ModelEntry *entries, in
 	}
 }
 
+/* The MMIO trace goes to the run's work directory (FASTDYN_WORK_DIR, set by
+ * the frontend for every run), next to the run's other results; QEMU started
+ * by hand without it writes io.log in its current directory. */
+static FILE *dev_open_io_log(void) {
+	char path[PATH_MAX];
+	const char *work_dir = getenv("FASTDYN_WORK_DIR");
+	if (work_dir && work_dir[0]) {
+		if (snprintf(path, sizeof(path), "%s/io.log", work_dir) >= (int)sizeof(path)) {
+			utils_die("FASTDYN_WORK_DIR is too long for the io.log path");
+		}
+	} else {
+		snprintf(path, sizeof(path), "io.log");
+	}
+	FILE *f = fopen(path, "w");
+	if (!f) {
+		fprintf(stderr, "Cannot open the MMIO trace %s: %s\n", path, strerror(errno));
+		utils_die("Cannot open io.log");
+	}
+	return f;
+}
+
 int dev_init(int argc, char ** argv) {
 	char * dev_model_info = utils_get_arg("dev", argc, argv);
 
@@ -826,7 +850,7 @@ int dev_init(int argc, char ** argv) {
 		// Regisgter IRQ listener for logging
 	    core_register_irq_hook(dev_notify_irq, dev_irqret_hook);
 		qemu_plugin_unimp_export_device((void *)&importer);
-		io_logger = fopen("io.log", "w");
+		io_logger = dev_open_io_log();
 
 		if (start_ts.tv_sec == 0 && start_ts.tv_nsec == 0) {
 			    clock_gettime(CLOCK_MONOTONIC, &start_ts);
