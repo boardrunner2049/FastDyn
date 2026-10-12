@@ -53,4 +53,20 @@ void fuzz_register_input_callback(fuzz_callback_t cb);
 /** After the snapshot is restored for a new test case. */
 void fuzz_register_restore(fuzz_callback_t cb);
 
+/* --- Guest code hooks --- */
+
+/** Runs on the vCPU `cpu_index` before the hooked instruction executes;
+ *  `userdata` points to the hook's copy of its `args`. */
+typedef void (*fuzz_pc_hook_t)(unsigned int cpu_index, void *userdata);
+
+/**
+ * Call `cb` before every execution of the instruction at `pc`, for steering
+ * the firmware during a campaign (fuzz_get/set_register, fuzz_write_memory).
+ * `args` (NULL for none) is copied and handed to `cb` as `userdata`; when it
+ * starts with '*', `cb` may also change the program counter. Register hooks
+ * in the model's init, before the guest first executes `pc`. Returns false if
+ * `cb` is NULL or the hook table is full.
+ */
+bool fuzz_register_pc_hook(uint64_t pc, fuzz_pc_hook_t cb, const char *args);
+
 #endif /* FASTDYN_FUZZ_HOOKS_H */

@@ -190,9 +190,11 @@ def test_fuzz_hooks_header_compiles_on_its_own(tmp_path):
     source = (
         "#include <fastdyn/fuzz_hooks.h>\n"
         "static void on_input(void) {}\n"
+        "static void on_pc(unsigned int cpu, void *args) { (void)cpu; (void)args; }\n"
         "void model_setup(void) {\n"
         "    char buf[8];\n"
         "    fuzz_register_input_callback(on_input);\n"
+        "    if (!fuzz_register_pc_hook(0x080008d0u, on_pc, \"rx\")) return;\n"
         "    fuzz_set_data(buf, fuzz_get_data(buf, sizeof(buf)));\n"
         "    fuzz_request_sync(0x08000268u);\n"
         "}\n"
