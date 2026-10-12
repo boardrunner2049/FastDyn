@@ -20,7 +20,7 @@ export PATH=$PATH:/path/to/aflnet
 The fuzzing and coverage experiments of the BoardRunner paper (Table 8: the
 lwIP, MQTT, SD-card and Modbus targets, with their models, configurations,
 AFLNet seed corpora, launchers and reference basic-block counts) are in the
-[BoardRunner](https://github.com/PSecLab/BoardRunner) repository, under
+[BoardRunner](https://github.com/boardrunner2049/BoardRunner) repository, under
 `evaluation/fuzzing/`; its `README.md` and `EVALUATION.md` describe the runs.
 
 ## libAFL

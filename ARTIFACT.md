@@ -2,7 +2,7 @@
 
 The artifact of *BoardRunner: Automatic Firmware Rehosting Using
 High-Fidelity Compositional Device Models* is maintained in the BoardRunner
-repository, https://github.com/PSecLab/BoardRunner: its `ARTIFACT.md`
+repository, https://github.com/boardrunner2049/BoardRunner: its `ARTIFACT.md`
 maps every experiment of the paper to its folder and its published Docker
 image (https://hub.docker.com/u/pseclab).
 

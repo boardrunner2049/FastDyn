@@ -15,7 +15,7 @@ Options:
   --build-libhw         Build libhw (hardware-in-the-loop probe library) in the libhw root
   --qemu-root PATH      Patched QEMU checkout/workspace root (default: the third_party/common/qemu
                         submodule if initialized and built or --build-qemu is given, otherwise ../qemu)
-  --qemu-repo URL       Patched QEMU repository (default: https://github.com/Arslan8/qemu.git)
+  --qemu-repo URL       Patched QEMU repository (default: https://github.com/boardrunner2049/qemu.git)
   --qemu-ref REF        Patched QEMU ref/branch (default: fastdyn)
   --libhw-root PATH     libhw checkout/workspace root (default: the third_party/common/libhw
                         submodule if initialized and built or --build-libhw/--build-gazebo is given,
@@ -428,7 +428,7 @@ fastdyn_setup_main() {
   local python_bin="python3"
   local qemu_root="$repo_root/../qemu"
   local qemu_root_given="false"
-  local qemu_repo="${FASTDYN_QEMU_REPO:-https://github.com/Arslan8/qemu.git}"
+  local qemu_repo="${FASTDYN_QEMU_REPO:-https://github.com/boardrunner2049/qemu.git}"
   local qemu_ref="${FASTDYN_QEMU_REF:-fastdyn}"
   local libhw_root="$repo_root/../libhw"
   local libhw_root_given="false"

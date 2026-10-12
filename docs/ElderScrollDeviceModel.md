@@ -68,7 +68,7 @@ port it to the interface above.
 
 Learning a model from the I/O trace of a run on the board (capturing the trace,
 generating the model with an LLM, and verifying it against the trace) is
-[BoardRunner](https://github.com/PSecLab/BoardRunner)'s workflow; its README
+[BoardRunner](https://github.com/boardrunner2049/BoardRunner)'s workflow; its README
 describes it. The models it produces are elder models as described above.
 
 [Back to Main Page](FastDynDeviceModel.md)

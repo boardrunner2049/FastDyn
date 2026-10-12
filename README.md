@@ -195,14 +195,14 @@ the exact commands. To have setup clone/build them too, run:
 source ./setup.sh --build-qemu
 ```
 
-`setup.sh --build-qemu` fetches `https://github.com/Arslan8/qemu.git` at
+`setup.sh --build-qemu` fetches `https://github.com/boardrunner2049/qemu.git` at
 `fastdyn` by default and applies
 `patches/qemu-fastdyn-plugin-icount.patch`. Override the QEMU source when
 needed:
 
 ```bash
 source ./setup.sh --build-qemu \
-  --qemu-repo https://github.com/Arslan8/qemu.git \
+  --qemu-repo https://github.com/boardrunner2049/qemu.git \
   --qemu-ref fastdyn
 ```
 
@@ -451,7 +451,7 @@ sudo apt-get install -y libsundials-dev pkg-config
 ## LLM Integration
 
 Generating and repairing device models with an LLM is done by the tools built
-on FastDyn: [BoardRunner](https://github.com/PSecLab/BoardRunner)
+on FastDyn: [BoardRunner](https://github.com/boardrunner2049/BoardRunner)
 (`boardrunner llm`) and [PhantomSmith](https://github.com/PSecLab/PhantomSmith)
 (`phantomsmith repair`).
 

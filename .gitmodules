@@ -25,11 +25,11 @@
 	url = git@github.com:PSecLab/world.git
 [submodule "third_party/common/qemu"]
 	path = third_party/common/qemu
-	url = https://github.com/Arslan8/qemu.git
+	url = https://github.com/boardrunner2049/qemu.git
 	branch = fastdyn
 	shallow = true
 	ignore = dirty
 [submodule "third_party/common/libhw"]
 	path = third_party/common/libhw
-	url = git@github.com:PSecLab/libhw.git
+	url = https://github.com/boardrunner2049/libhw.git
 	shallow = true
