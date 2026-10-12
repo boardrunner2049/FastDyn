@@ -101,8 +101,6 @@ if ENABLE_AFLNET
   ]
 endif
 
-ENABLE_PROBE = get_option('enable_probe')
-
 ENABLE_PHY = get_option('enable_phy')
 
 subdir('virtuals')
@@ -149,7 +147,6 @@ configure_file(
     'ENABLE_LIBHW' : ENABLE_LIBHW ? 1 : 0,
     'ENABLE_LIBFUZZ' : ENABLE_LIBFUZZ ? 1 : 0,
     'ENABLE_AFLNET' : ENABLE_AFLNET ? 1 : 0,
-    'ENABLE_PROBE' : ENABLE_PROBE ? 1 : 0,
     'ENABLE_PHY' : ENABLE_PHY ? 1 : 0,
     'ENABLE_LIBPY' : ENABLE_LIBPY ? 1 : 0,
     'DEBUG_PRINT' : DEBUG_PRINT ? 1 : 0,
@@ -174,12 +171,6 @@ srcs += files(
   'utils/log.c',
   'virtuals/virtuals.c',
 )
-
-if ENABLE_PROBE
-srcs += files(
-  'virtuals/probe/probe.c',
-)
-endif
 
 if ENABLE_LIBPY
 srcs += files(

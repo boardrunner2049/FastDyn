@@ -3,7 +3,6 @@
 #include <utils.h>
 #include <device.h>
 #include <core.h>
-#include <probe.h>
 #include <virtuals/mmio_observer.h>
 #include "models.c"
 #include "cJSON.h"
@@ -144,7 +143,6 @@ static int dev_write(char * handler, long unsigned int address, uint64_t value, 
         utils_log_to_file(io_logger,"[%5ld.%06ld] IO Write Access NOT Handled (Unknown Region): \t address = 0x%08X, size = %u bytes, value = 0x%0*" PRIx64 ", pc=0x%08X \n",
                         sec, usec, (unsigned)address, (unsigned)size, (int)(size * 2), value, (unsigned)pc);
 #endif
-        probe_check_unhandled_access(pc, address, 1);
         virtual_notify_mmio(pc, address, value, size, true, false, false);
         return 1; // Continue internal operation
     }
@@ -153,12 +151,12 @@ static int dev_write(char * handler, long unsigned int address, uint64_t value, 
     virtual_notify_mmio(pc, address, value, size, true, handled, true);
 // Filter out QEMU internals ('g') only and we dont filter ('v)
 //It is not always injecting double interrupts every ms
+    // nvic-default is QEMU's RAZ/WI region for the unimplemented PPB
+    // (DWT, ITM, CoreDebug, ...): an access a model handled skips it
     if (handler && ((handler[0] == 'g') ||
                     (handled && strcmp(handler, "nvic-default") == 0))) {
-           probe_check_write(pc, address, value);
            return 0;
     }
-    probe_check_write(pc, address, value);
     // Continue internal operation
     return 1;
 }
@@ -242,17 +240,17 @@ static int dev_read(char * handler, long unsigned int address, uint64_t *buf, lo
             sec, usec, (uint64_t)address, size, (uint64_t)pc);
 #endif
         dev_debug("IO Access not handled");
-        probe_check_unhandled_access(pc, address, 0);
     }
     virtual_notify_mmio(pc, address, value, size, false, dev_to_use != NULL, lut != NULL);
 
+    // nvic-default is QEMU's RAZ/WI region for the unimplemented PPB
+    // (DWT, ITM, CoreDebug, ...): a value a model returned must not be
+    // overwritten by it
     if (handler && ((handler[0] == 'g') ||
                     (dev_to_use != NULL && strcmp(handler, "nvic-default") == 0))) {
-        probe_check_read(pc, address, value);
         return 0;
     }
 
-    probe_check_read(pc, address, value);
     // Continue internal operation
     return 1;
 }

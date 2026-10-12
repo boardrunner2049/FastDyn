@@ -145,11 +145,6 @@ class QemuTargetOpts:
         self.timer_irq_period_ns: Optional[int] = None
         self.print_command: bool = False
         self.reset_memory_files: bool = False
-        self.probe_run: bool = False
-        self.probe_faults: Optional[str] = None
-        self.probe_milestones: Optional[str] = None
-        self.probe_ignores: Optional[str] = None
-        self.probe_out_dir: Optional[str] = None
         self.print_command = False
         self.savestate_extra_ranges: list[tuple[int, int]] = []
 

@@ -26,7 +26,6 @@
 #include <python.h>
 #endif
 #include <virtuals.h>
-#include <probe.h>
 #include <fastdyn_runtime.h>
 // #include "ardupilot_virtuals.c"
 #if ENABLE_LIBGZ
@@ -696,8 +695,6 @@ int virtuals_init(int argc, char **argv) {
 		if ((status = fuzz_init(argc, argv)) < 0)
 				utils_warn("Fuzzer Failed");
 #endif
-		if ((status = probe_init(argc, argv)) < 0)
-				utils_warn("Probe Failed");
 	}
 
     return 0;

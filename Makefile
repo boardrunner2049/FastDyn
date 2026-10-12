@@ -26,7 +26,6 @@ LIBGZ        ?= false
 LIBHW        ?= false
 LIBFUZZ		 ?= false
 AFLNET 		 ?= false
-PROBE        ?= false
 DEV          ?= false
 DEBUG_PRINT  ?= false
 LIBPY        ?= false
@@ -51,7 +50,6 @@ setup: clean fetch
 	-Denable_libgz=$(LIBGZ) \
 	-Denable_libfuzz=$(LIBFUZZ) \
 	-Denable_aflnet=$(AFLNET) \
-	-Denable_probe=$(PROBE) \
 	-Ddevice_models=$(DEV) \
 	-DDEBUG_PRINT=$(DEBUG_PRINT) \
 	-Denable_libpy=$(LIBPY) \

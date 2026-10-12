@@ -729,17 +729,6 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
             raise ValueError(f"FMU value reference name cannot contain ',' or '=': {name!r}")
         plugin_kv.append(f"fmu_vr_{name}={int(value)}")
 
-    if opts.probe_run:
-        plugin_kv.append(f"probe_run={_bool01(opts.probe_run)}")
-    if opts.probe_faults:
-        plugin_kv.append(f"probe_faults={opts.probe_faults}")
-    if opts.probe_milestones:
-        plugin_kv.append(f"probe_milestones={opts.probe_milestones}")
-    if opts.probe_ignores:
-        plugin_kv.append(f"probe_ignores={opts.probe_ignores}")
-    if opts.probe_out_dir:
-        plugin_kv.append(f"probe_out_dir={opts.probe_out_dir}")
-
     timer_irq_period_ns = os.environ.get(
         "FASTDYN_TIMER_IRQ_PERIOD_NS",
         getattr(opts, "timer_irq_period_ns", None),

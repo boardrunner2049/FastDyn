@@ -9,7 +9,6 @@ option('aflnet_path', type: 'string', value: '../aflnet', description: 'Path to 
 option('enable_libhw', type: 'boolean', value: false, description: 'Enable libhw support')
 option('enable_libfuzz', type: 'boolean', value: false, description: 'Enable rust fuzzing support')
 option('enable_aflnet', type: 'boolean', value: false, description: 'Enable protocol fuzzing support')
-option('enable_probe', type: 'boolean', value: false, description: 'Enable probe runtime support')
 
 #Configuration Options
 option('device_models', type: 'boolean', value: false, description: 'Enable device models support')
