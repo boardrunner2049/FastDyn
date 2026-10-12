@@ -60,9 +60,9 @@ const FdModel fastdyn_model = {
   A wrong function signature is a compile error.
 
 FastDyn stops at startup if the descriptor is missing a required function or
-was built for another interface version. Older models that export
-`<device>_init/_read/_write` instead of `fastdyn_model` are still loaded the
-old way for now (they receive the whole elder section and every elder IRQ).
+was built for another interface version. A library without `fastdyn_model`
+(an older model exporting `<device>_init/_read/_write`) is refused at startup;
+port it to the interface above.
 
 ## Learning models from a hardware trace
 

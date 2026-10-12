@@ -17,16 +17,13 @@ pytestmark = pytest.mark.skipif(
     reason="needs gcc, pkg-config and the QEMU submodule",
 )
 
-# An older model: <device>_init/_read/_write, no fastdyn_model.
+# An old-style model (<device>_init/_read/_write, no fastdyn_model), which
+# elder no longer loads.
 LEGACY_MODEL = r"""
 #include <device.h>
-static int interrupts;
-void *legacy_init(ConfigSection *section) { (void)section; return &interrupts; }
-uint64_t legacy_read(void *opaque, hwaddr addr, unsigned size, uint64_t pc) {
-    return (addr & 0xFF) == 4 ? (uint64_t)*(int *)opaque : 0x55;
-}
-void legacy_write(void *opaque, hwaddr addr, uint64_t value, unsigned size, uint64_t pc) {}
-int legacy_interrupt(int irq) { interrupts++; return 0; }
+void *dev0_init(ConfigSection *section) { (void)section; return 0; }
+uint64_t dev0_read(void *opaque, hwaddr addr, unsigned size, uint64_t pc) { return 0; }
+void dev0_write(void *opaque, hwaddr addr, uint64_t value, unsigned size, uint64_t pc) {}
 """
 
 # Descriptor variants that elder must refuse.
@@ -85,11 +82,11 @@ int main(int argc, char **argv) {
     ConfigSection section = {.name = "elder", .overall_ranges = overall,
                              .overall_range_count = n, .devices = devs, .device_count = n};
     elder_model_def.init(&section);
-    if (n != 3) { puts("loaded"); return 0; }  /* the refusal cases stop before this */
+    if (n != 2) { puts("loaded"); return 0; }  /* the refusal cases stop before this */
 
-    /* echo_a 0x40000000-0x400000FF irq 20, echo_b 0x40001000-0x400010FF irq 21, legacy irq 22 */
-    CHECK(range_registrations == 3);
-    CHECK(irq_count == 3 && irq_registrations[0] == 20 && irq_registrations[2] == 22);
+    /* echo_a 0x40000000-0x400000FF irq 20, echo_b 0x40001000-0x400010FF irq 21 */
+    CHECK(range_registrations == 2);
+    CHECK(irq_count == 2 && irq_registrations[0] == 20 && irq_registrations[1] == 21);
 
     DeviceReadFunc rd = elder_model_def.read;
     DeviceWriteFunc wr = elder_model_def.write;
@@ -108,8 +105,6 @@ int main(int argc, char **argv) {
     CHECK(rd(NULL, 0x40000004, 4, 0) == 1);             /* echo_a: only its own IRQ 20 */
     CHECK(rd(NULL, 0x40001004, 4, 0) == 2);             /* echo_b: only its own IRQ 21 */
     CHECK(rd(NULL, 0x40000008, 4, 0) == 1 && rd(NULL, 0x40001008, 4, 0) == 0);
-    CHECK(rd(NULL, 0x40002000, 4, 0) == 0x55);          /* the older model still works ... */
-    CHECK(rd(NULL, 0x40002004, 4, 0) == 3);             /* ... and still hears every elder IRQ */
     puts("ok");
     return 0;
 }
@@ -151,14 +146,13 @@ def _run(harness, *devices):
     return subprocess.run([str(harness), *devices], capture_output=True, text=True)
 
 
-def test_one_model_serves_two_devices_next_to_an_older_model(built):
+def test_one_model_serves_two_devices(built):
     harness, libs = built
 
     result = _run(
         harness,
         f'echo_a|{libs["echo"]}|0x40000000|0x400000FF|20|{{"reset": 17}}',
         f'echo_b|{libs["echo"]}|0x40001000|0x400010FF|21|{{"reset": 34}}',
-        f'legacy|{libs["legacy"]}|0x40002000|0x400020FF|22|{{}}',
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -171,6 +165,7 @@ def test_one_model_serves_two_devices_next_to_an_older_model(built):
 @pytest.mark.parametrize(
     "model, config, message",
     [
+        ("legacy", "{}", "dev0: {lib} does not export fastdyn_model (see <fastdyn/device_model.h>)"),
         ("abi", "{}", "dev0: {lib} was built for model ABI 1, but this FastDyn expects 2"),
         ("noread", "{}", "dev0: fastdyn_model.read is not set ({lib})"),
         ("nullinit", "{}", "dev0: the model refused its configuration (init returned NULL; {lib})"),

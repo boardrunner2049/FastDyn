@@ -74,8 +74,7 @@ def test_paths_are_found_next_to_the_config(tmp_path, example):
     assert cpu.binary == str(example / "firmwares/app.elf")
     assert cpu.hardware_trace == str(example / "hardware_log/io.trace")
     assert device.handlers[0].scroll == str(example / "build/spi2_model.so")
-    assert device.slaves[0].device_scroll == str(example / "build/bme280_slave.so")
-    # the device settings handed to the model (and to LibVIO's bus) carry it too
+    # the device settings handed to the model (and to LibVIO's bus) carry it
     assert device.config["slaves"][0]["device_scroll"] == str(example / "build/bme280_slave.so")
     # a host endpoint's Python helper too
     assert device.connections[0]["name"] == str(example / "host/feed.py")

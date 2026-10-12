@@ -491,15 +491,9 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
                 end=r_end
             )
 
-        #add connections (host endpoints or bus-attached slaves)
+        #add connections (host endpoints)
         for conn_entry in device_info.get('connections', []):
             device_handler.add_connection(_endpoint_config_relative(toml_config, conn_entry))
-
-        #add slaves in case of I2C and SPI
-        slaves_list = _slaves_config_relative(toml_config, device_info.get('slaves', []))
-        for slave_entry in slaves_list:
-            # Passes the whole dict: {'device': 'BM2E80', 'address': '0x76', ...}
-            device_handler.add_slave(slave_entry)
 
         #add irqs if added by the user
         if device_info.get('irq') is not None:

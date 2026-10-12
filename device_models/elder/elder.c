@@ -10,11 +10,8 @@
 #define FD_LOG_SUBSYSTEM "elder"
 #include <fastdyn/log.h>
 
-/* Elder loads one device model library per configured device. A library
- * that exports `fastdyn_model` uses the interface in <fastdyn/device_model.h>
- * (ABI v2). Libraries without it are older models that export
- * <device>_init/_read/_write and get the whole elder section; that path is
- * kept until those models are ported. */
+/* Elder loads one device model library per configured device. The library
+ * exports `fastdyn_model`, the interface in <fastdyn/device_model.h>. */
 
 #define MAX_DEVICES 64  /* devices, and address ranges, elder serves */
 
@@ -23,12 +20,10 @@ typedef struct {
 
     void *handle;           // dlopen handle
 
-    // function pointers to device callbacks (older models), and the instance
-    // state for both kinds in model.opaque
-	DeviceModel model;
+    void *opaque;           // the model instance init returned
 
-    const FdModel *v2;      // the model's descriptor, NULL for older models
-    FdDevice info;          // what a v2 model is told about its device
+    const FdModel *v2;      // the model's descriptor
+    FdDevice info;          // what the model is told about its device
     FdRange *ranges;
     int *irqs;
 } device_model_t;
@@ -55,10 +50,7 @@ static uint64_t elder_read(void *opaque, hwaddr address, unsigned size, uint64_t
 	device_model_t *d = elder_find_device(address);
 	if (d) {
 		// Good case, my scroll worked
-		if (d->v2) {
-			return d->v2->read(d->model.opaque, address, size, pc);
-		}
-		return d->model.read(d->model.opaque, address, size, pc);
+		return d->v2->read(d->opaque, address, size, pc);
 	}
 	char err_buf[128];
 	snprintf(err_buf, sizeof(err_buf),
@@ -75,11 +67,7 @@ static void elder_write(void *opaque, hwaddr address, uint64_t value, unsigned s
 		return;
 	}
 	// Good case, my scroll worked
-	if (d->v2) {
-		d->v2->write(d->model.opaque, address, value, size, pc);
-	} else {
-		d->model.write(d->model.opaque, address, value, size, pc);
-	}
+	d->v2->write(d->opaque, address, value, size, pc);
 }
 
 /* Optional descriptor members are only read if the model was built with them. */
@@ -95,16 +83,12 @@ static int elder_device_has_irq(const device_model_t *d, int number) {
 	return 0;
 }
 
-/* v2 models only hear their own IRQs; older models hear every elder IRQ. */
+/* A model only hears its own IRQs. */
 static int elder_serve(int number) {
 	for (int i = 0; i < device_count; i++) {
 		device_model_t *d = &devices[i];
-		if (d->v2) {
-			if (ELDER_V2_HAS(d->v2, serve) && elder_device_has_irq(d, number)) {
-				d->v2->serve(d->model.opaque, number);
-			}
-		} else if (d->model.serve) {
-			d->model.serve(number);
+		if (ELDER_V2_HAS(d->v2, serve) && elder_device_has_irq(d, number)) {
+			d->v2->serve(d->opaque, number);
 		}
 	}
     return 0;
@@ -113,12 +97,8 @@ static int elder_serve(int number) {
 static int elder_interrupt(int number) {
 	for (int i = 0; i < device_count; i++) {
 		device_model_t *d = &devices[i];
-		if (d->v2) {
-			if (ELDER_V2_HAS(d->v2, interrupt) && elder_device_has_irq(d, number)) {
-				d->v2->interrupt(d->model.opaque, number);
-			}
-		} else if (d->model.interrupt) {
-			d->model.interrupt(number);
+		if (ELDER_V2_HAS(d->v2, interrupt) && elder_device_has_irq(d, number)) {
+			d->v2->interrupt(d->opaque, number);
 		}
 	}
     return 0;
@@ -217,35 +197,10 @@ static void elder_load_v2(device_model_t *d) {
 		.irq_count = (size_t)config->irq_count,
 	};
 
-	d->model.opaque = m->init(&d->info, config->config_json ? config->config_json : "{}", &elder_host);
-	if (!d->model.opaque) {
+	d->opaque = m->init(&d->info, config->config_json ? config->config_json : "{}", &elder_host);
+	if (!d->opaque) {
 		elder_die("%s: the model refused its configuration (init returned NULL; %s)", name, path);
 	}
-}
-
-static void elder_load_v1(device_model_t *d, ConfigSection *model_info) {
-	    char symbol[256];
-	    snprintf(symbol, sizeof(symbol), "%s_read", d->config->name);
-	    d->model.read = (DeviceReadFunc)dlsym(d->handle, symbol);
-	    if (!d->model.read) utils_die("Missing read");
-
-	    snprintf(symbol, sizeof(symbol), "%s_write", d->config->name);
-	    d->model.write = (DeviceWriteFunc)dlsym(d->handle, symbol);
-	    if (!d->model.write) utils_die("Missing write");
-
-	    snprintf(symbol, sizeof(symbol), "%s_init", d->config->name);
-	    d->model.init = (DeviceInit)dlsym(d->handle, symbol);
-	    if (!d->model.init) utils_die("Missing init");
-
-        // Optional callbacks for IRQs
-	    snprintf(symbol, sizeof(symbol), "%s_serve", d->config->name);
-	    d->model.serve = (DeviceIRQFunc)dlsym(d->handle, symbol);
-
-	    snprintf(symbol, sizeof(symbol), "%s_interrupt", d->config->name);
-	    d->model.interrupt = (DeviceIRQFunc)dlsym(d->handle, symbol);
-
-		/* Call init and store the returned state pointer as opaque. */
-		d->model.opaque = d->model.init(model_info);
 }
 
 static void* elder_init(ConfigSection* model_info) {
@@ -264,7 +219,6 @@ static void* elder_init(ConfigSection* model_info) {
 	for (int i=0; i < model_info->device_count; i++) {
 		device_model_t *d = &devices[i];
 		d->config = &model_info->devices[i];
-		d->model.name = d->config->name;
 		printf("Loading device [%s] from %s\n", d->config->name, d->config->scroll_path);
 
 	    d->handle = dlopen(d->config->scroll_path, RTLD_NOW);
@@ -275,11 +229,11 @@ static void* elder_init(ConfigSection* model_info) {
 		elder_route_vio_logs(d->handle);
 
 		d->v2 = (const FdModel *)dlsym(d->handle, FASTDYN_MODEL_SYMBOL);
-		if (d->v2) {
-			elder_load_v2(d);
-		} else {
-			elder_load_v1(d, model_info);
+		if (!d->v2) {
+			elder_die("%s: %s does not export %s (see <fastdyn/device_model.h>)",
+			          d->config->name, d->config->scroll_path, FASTDYN_MODEL_SYMBOL);
 		}
+		elder_load_v2(d);
 
         // Register IRQs for this device based on config
         if (d->config->irq_count > 0 && d->config->irqs) {

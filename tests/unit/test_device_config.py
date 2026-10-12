@@ -78,6 +78,7 @@ def test_routing_passes_config_to_each_enabled_handler(tmp_path):
     compile_device_routing(machine.devices, machine.parsed_device, models=machine.models)
 
     assert machine.parsed_device["elder"]["i2c1"]["config"] == {"baud": 9600, "slaves": SLAVES}
+    assert "slaves" not in machine.parsed_device["elder"]["i2c1"]  # only inside config
     assert machine.parsed_device["classic"]["rest"]["config"] == {}
     assert "i2c1" not in machine.parsed_device["classic"]  # its classic handler is disabled
 

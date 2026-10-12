@@ -507,10 +507,6 @@ void dev_free_config(AppConfig* config) {
  * @brief This function parses the main JSON configuration string to build a structured
  * representation of all device models and their settings.
  *
- * @note This function assumes that the `DeviceModels` struct has been updated
- * to include an `SPIdetails` member, similar to the existing `I2Cdevices` one,
- * to hold SPI slave configurations.
- *
  * @param json_string The raw JSON configuration as a string.
  * @return A pointer to a fully populated AppConfig struct, or NULL on failure.
  */
@@ -620,70 +616,6 @@ AppConfig* dev_parse_json_configs(const char* json_string) {
                 char* printed = cJSON_IsObject(model_config) ? cJSON_PrintUnformatted(model_config) : NULL;
                 current_device->config_json = strdup(printed ? printed : "{}");
                 cJSON_free(printed);
-
-                /* Peripheral-specific slave parsing unchanged */
-                cJSON* slaves_obj = cJSON_GetObjectItemCaseSensitive(item, "slaves");
-                if (cJSON_IsObject(slaves_obj)) {
-                    cJSON* slave_item = NULL;
-
-                    if (strstr(current_device->name, "i2c") != 0) {
-                        cJSON_ArrayForEach(slave_item, slaves_obj) {
-                            current_device->I2Cdevices.device_count++;
-                            current_device->I2Cdevices.i2cdevice =
-                                realloc(current_device->I2Cdevices.i2cdevice,
-                                        current_device->I2Cdevices.device_count * sizeof(I2CDevice));
-
-                            I2CDevice* current_slave =
-                                &current_device->I2Cdevices.i2cdevice[current_device->I2Cdevices.device_count - 1];
-                            memset(current_slave, 0, sizeof(I2CDevice));
-
-                            current_slave->slave_name = strdup(slave_item->string);
-
-                            cJSON* addr = cJSON_GetObjectItemCaseSensitive(slave_item, "address");
-                            if (cJSON_IsString(addr)) {
-                                current_slave->address = (int)strtol(addr->valuestring, NULL, 0);
-                            }
-
-                            cJSON* slave_scroll = cJSON_GetObjectItemCaseSensitive(slave_item, "scroll_path");
-                            if (cJSON_IsString(slave_scroll)) {
-                                current_slave->scroll_path = strdup(slave_scroll->valuestring);
-                            }
-
-                            cJSON* is_scroll = cJSON_GetObjectItemCaseSensitive(slave_item, "is_scroll_path");
-                            if (cJSON_IsBool(is_scroll)) {
-                                current_slave->_is_scroll = cJSON_IsTrue(is_scroll);
-                            }
-                        }
-                    } else if (strstr(current_device->name, "spi") != 0) {
-                        cJSON_ArrayForEach(slave_item, slaves_obj) {
-                            current_device->SPIdetails.slave_count++;
-                            current_device->SPIdetails.spi_slave =
-                                realloc(current_device->SPIdetails.spi_slave,
-                                        current_device->SPIdetails.slave_count * sizeof(SPISlaveDevice));
-
-                            SPISlaveDevice* current_spi_slave =
-                                &current_device->SPIdetails.spi_slave[current_device->SPIdetails.slave_count - 1];
-                            memset(current_spi_slave, 0, sizeof(SPISlaveDevice));
-
-                            current_spi_slave->slave_name = strdup(slave_item->string);
-
-                            cJSON* cs_id = cJSON_GetObjectItemCaseSensitive(slave_item, "cs_id");
-                            if (cJSON_IsNumber(cs_id)) {
-                                current_spi_slave->cs_id = cs_id->valueint;
-                            }
-
-                            cJSON* slave_scroll = cJSON_GetObjectItemCaseSensitive(slave_item, "scroll_path");
-                            if (cJSON_IsString(slave_scroll)) {
-                                current_spi_slave->scroll_path = strdup(slave_scroll->valuestring);
-                            }
-
-                            cJSON* is_scroll = cJSON_GetObjectItemCaseSensitive(slave_item, "is_scroll_path");
-                            if (cJSON_IsBool(is_scroll)) {
-                                current_spi_slave->is_scroll_path = cJSON_IsTrue(is_scroll);
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -742,32 +674,6 @@ void dev_print_config(const AppConfig* config) {
                     printf("       - 0x%08" PRIx64 "-0x%08" PRIx64 "\n",
                            d->ranges[r].start,
                            d->ranges[r].end);
-                }
-            }
-
-            // I2C Slaves
-            const I2CDevices* i2c_devs = &d->I2Cdevices;
-            if (i2c_devs->device_count > 0) {
-                printf("    -> I2C Slaves:\n");
-                for (int l = 0; l < i2c_devs->device_count; l++) {
-                    const I2CDevice* curr_i2c = &i2c_devs->i2cdevice[l];
-                    printf("       - Name: %s\n", curr_i2c->slave_name);
-                    printf("         -> Address: 0x%X\n", curr_i2c->address);
-                    printf("         -> Is Scroll: %s\n", curr_i2c->_is_scroll ? "true" : "false");
-                    printf("         -> Path: %s\n", curr_i2c->scroll_path ? curr_i2c->scroll_path : "N/A");
-                }
-            }
-
-            // SPI Slaves
-            const SPIDevices* spi_devs = &d->SPIdetails;
-            if (spi_devs->slave_count > 0) {
-                printf("    -> SPI Slaves:\n");
-                for (int m = 0; m < spi_devs->slave_count; m++) {
-                    const SPISlaveDevice* curr_spi = &spi_devs->spi_slave[m];
-                    printf("       - Name: %s\n", curr_spi->slave_name);
-                    printf("         -> CS ID: %d\n", curr_spi->cs_id);
-                    printf("         -> Is Scroll: %s\n", curr_spi->is_scroll_path ? "true" : "false");
-                    printf("         -> Path: %s\n", curr_spi->scroll_path ? curr_spi->scroll_path : "N/A");
                 }
             }
         }

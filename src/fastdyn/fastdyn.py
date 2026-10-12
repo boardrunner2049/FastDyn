@@ -2,7 +2,7 @@
 This package can be used independently as well to include as a tool.
 See configs/python_api/ for examples
 '''
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union, Sequence
@@ -354,13 +354,6 @@ class DeviceHandler:
     args: Optional[Any] = None           # could be str/list/dict depending on your parser
     scroll: Optional[str] = None         # path to .so (your example uses this for elder)
 
-@dataclass
-class Slave:
-    device: str                         # The device ID/name
-    model: list[str]                    # MUST be a list (e.g., ["elder"])
-    params: Dict[str, Any] = field(default_factory=dict)
-    device_scroll: Optional[str] = None # The path/identifier for the slave
-
 # [Device.<name>] keys FastDyn interprets itself. Every other key belongs to
 # the device's model and is passed to it unchanged as its config.
 FASTDYN_DEVICE_KEYS = frozenset({"handlers", "ranges", "irq", "description", "connections",
@@ -575,34 +568,6 @@ class Device:
                 )
             self.connections.append(conn_data)
 
-    def add_slave(self, slave_data: dict):
-            """
-            Expects a dictionary containing at least 'device' and 'model'.
-            All other keys (except 'device_scroll') are moved into 'params'.
-            """
-            if not hasattr(self, 'slaves') or self.slaves is None:
-                self.slaves = []
-
-            # 1. Extract metadata
-            device_id = slave_data.get('device')
-            models = slave_data.get('model', [])
-            scroll = slave_data.get('device_scroll')
-
-            # 2. Extract everything else into params
-            # This takes every key in the TOML entry EXCEPT the metadata ones
-            metadata_keys = {'device', 'model', 'device_scroll'}
-            params = {k: v for k, v in slave_data.items() if k not in metadata_keys}
-
-            # 3. Create and store the object
-            new_slave = Slave(
-                device=str(device_id),
-                model=list(models) if isinstance(models, list) else [models],
-                params=params,  # Now contains 'address', 'cs_id', etc.
-                device_scroll=scroll
-            )
-            self.slaves.append(new_slave)
-            return True
-
 class MemoryType(Enum):
     SRAM = "SRAM"
     MMIO = "MMIO"
@@ -661,7 +626,6 @@ class Memory:
 # This api transforms the DeviceSection to Fastdyn understandable device format
 # =============================================================================
 
-import os
 from typing import Any, Dict, Optional
 
 def compile_device_routing(
@@ -670,7 +634,6 @@ def compile_device_routing(
     *,
     models: Optional[Dict[str, Any]] = None,
     include_models: Optional[set[str]] = None,
-    check_scroll_paths: bool = True,
 ) -> bool:
     """
     Transform {dev_name: Device} into model-centric routing JSON and write it into parsed_device.
@@ -754,38 +717,7 @@ def compile_device_routing(
         bucket["overall"] = _dedup_preserve_order(bucket["overall"])
         bucket["backend"] = _model_backend(model)
 
-    # -----------------------------
-    # Pass 2: slaves for older models, which read them from the C side; kept
-    # until those models are ported (LibVIO models read config["slaves"]).
     # Endpoint connections are host-side helpers and are not forwarded to QEMU.
-    # -----------------------------
-    for dev_name, dev in devices.items():
-        slaves = getattr(dev, "slaves", None)
-        for slave in slaves or []:
-            for model in getattr(slave, "model", []) or []:
-                if include_models is not None and model not in include_models:
-                    continue
-
-                if model not in routing or dev_name not in routing[model]:
-                    continue
-
-                routing[model][dev_name].setdefault("slaves", {})
-                slaves_out = routing[model][dev_name]["slaves"]
-
-                params = getattr(slave, "params", {}) or {}
-                s_cfg: Dict[str, Any] = dict(params)
-
-                device_scroll = getattr(slave, "device_scroll", None)
-                if device_scroll:
-                    if check_scroll_paths and os.path.exists(device_scroll):
-                        s_cfg["scroll_path"] = device_scroll
-                        s_cfg["is_scroll_path"] = True
-                    else:
-                        s_cfg["is_scroll_path"] = False
-                else:
-                    s_cfg["is_scroll_path"] = False
-
-                slaves_out[getattr(slave, "device")] = s_cfg
 
     # write to output dict (your current pattern)
     parsed_device.clear()
