@@ -68,7 +68,7 @@ TOML must enable `fuzzing` and `coverage` and provide `fuzzing_schema` in its
 
 ### 1.2 Docker execution
 
-The repository includes a `Dockerfile` at the project root that produces a complete FastDyn environment (Ubuntu 24.04 base, patched QEMU, Ghidra 12.0.4, Gazebo Harmonic, Python venv, and the FastDyn plugin `libfastdyn.so`).
+The repository includes a `Dockerfile` at the project root that produces a complete FastDyn environment (Ubuntu 24.04 base, patched QEMU, Gazebo Harmonic, Python venv, and the FastDyn plugin `libfastdyn.so`).
 
 ```bash
 # From the workspace directory that contains FastDyn/, qemu/, libhw/
@@ -82,7 +82,7 @@ docker run --rm -v "$PWD/configs:/mnt/configs" fastdyn-env \
   fastdyn run -c /mnt/configs/<fuzzing-config.toml>
 ```
 
-The image entrypoint drops into `/workspace/FastDyn` with the Python venv activated. `fastdyn` is on `PATH`. `LD_LIBRARY_PATH` includes the libhw output directory; `GHIDRA_INSTALL_DIR` is set for the static-analysis frontend.
+The image entrypoint drops into `/workspace/FastDyn` with the Python venv activated. `fastdyn` is on `PATH`. `LD_LIBRARY_PATH` includes the libhw output directory.
 
 ### 1.3 Secondary subcommands (reference only)
 
@@ -362,7 +362,7 @@ From the workspace directory that contains FastDyn/, qemu/, libhw/:
 docker build -f FastDyn/Dockerfile -t fastdyn-env .
 ```
 
-The build runs `setup.sh --build-qemu --build-gazebo --skip-optifuzz` and then `make DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true`. The resulting image is self-contained: no host QEMU or Ghidra install is required.
+The build runs `setup.sh --build-qemu --build-gazebo --skip-optifuzz` and then `make DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true`. The resulting image is self-contained: no host QEMU install is required.
 
 ### 5.2 Verify the CLI is installed and visible
 

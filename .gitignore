@@ -9,8 +9,6 @@ Doxyfile.bak
 
 #Fastdyn work directories
 *fastdyn_work*
-*fastdyn_static_analysis*
-*fastdyn_recent_run*
 
 fastdyn-env
 build
@@ -18,19 +16,9 @@ build
 *bbl.txt
 .cflags
 .venv
-# API key and build configuration (contains local paths)
-.fastdyn.env
-
 # Local Codex workspace metadata
 .codex
 .codex/
-
-# Standalone BoardRunner SDK API test build trees
-boardrunner/boardrunner_sdk/build_api_tests/
-boardrunner/boardrunner_sdk/build_api_tests_standalone/
-
-# LLM outputs
-fastdyn_llm_history
 
 # Mavlink Logs
 *.tlog
@@ -40,6 +28,3 @@ fastdyn_llm_history
 
 # Local run output
 *.out
-
-# useful gate for the automatic ardurover rehosting to avoid pushing models
-/boardrunner/boardrunner_sdk/model/

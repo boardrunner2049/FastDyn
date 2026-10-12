@@ -197,7 +197,6 @@ if ENABLE_LIBDEV
   srcs += files(
   'device_models/elder/elder.c',
   'device_models/twintrace/twintrace.c',
-  'device_models/elder/inih/ini.c'
   )
 
 if ENABLE_LIBHW
@@ -206,9 +205,6 @@ if ENABLE_LIBHW
   'device_models/passthrough/passthrough.c',
   )
 endif
-
-  device_models_inc = include_directories('device_models/elder/inih/')
-  local_include = [local_include, device_models_inc]
 endif
 
 if ENABLE_LIBGZ or ENABLE_FLIGHT_CONTROLLERS

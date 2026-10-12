@@ -17,7 +17,6 @@ RUN apt-get update && apt-get install -y \
     ccache \
     cmake \
     ninja-build \
-    universal-ctags \
     curl \
     wget \
     lsb-release \
@@ -31,17 +30,11 @@ RUN apt-get update && apt-get install -y \
     libfdt-dev \
     libusb-1.0-0-dev \
     libstlink-dev \
-    unzip \
-    openjdk-21-jdk \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
-
-# Install Java 21 for Ghidra 12.0.4
-ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
-ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Install Gazebo Harmonic
 RUN curl https://packages.osrfoundation.org/gazebo.gpg --output /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg && \
@@ -53,20 +46,6 @@ WORKDIR /workspace
 # Copy everything from the parent directory into /workspace
 # This includes FastDyn, libhw, qemu, banquo, etc.
 COPY . /workspace
-
-# Clone ArduPilot source code for static analysis
-RUN mkdir -p source_code_ardupilot && \
-    git clone https://github.com/ArduPilot/ardupilot.git source_code_ardupilot/ardupilot && \
-    cd source_code_ardupilot/ardupilot && \
-    git submodule update --init && \
-    cd /workspace && \
-    mkdir -p firmware_build_ardupilot && \
-    cp -r source_code_ardupilot/ardupilot firmware_build_ardupilot/ardupilot
-
-# Download and install Ghidra next to FastDyn
-RUN wget https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.0.4_build/ghidra_12.0.4_PUBLIC_20260303.zip && \
-    unzip ghidra_12.0.4_PUBLIC_20260303.zip && \
-    rm ghidra_12.0.4_PUBLIC_20260303.zip
 
 WORKDIR /workspace/FastDyn
 
@@ -87,7 +66,6 @@ RUN /bin/bash -c "source fastdyn-env/bin/activate && make DEV=true LIBHW=true LI
 # Also add libhw to the library path so the fastdyn plugin can find it
 ENV PATH="/workspace/FastDyn/fastdyn-env/bin:${PATH}"
 ENV LD_LIBRARY_PATH="/workspace/libhw/out"
-ENV GHIDRA_INSTALL_DIR="/workspace/ghidra_12.0.4_PUBLIC"
 
 # Set default command to bash
 CMD ["/bin/bash"]

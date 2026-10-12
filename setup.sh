@@ -564,11 +564,6 @@ fastdyn_setup_main() {
     return 1
   fi
 
-  if ! command -v ctags >/dev/null 2>&1; then
-    echo "ctags was not found. Install universal-ctags or exuberant-ctags (e.g., sudo apt-get install universal-ctags)." >&2
-    return 1
-  fi
-
   "$python_bin" -m venv "$venv_path" || return
 
   local venv_python="$venv_path/bin/python"

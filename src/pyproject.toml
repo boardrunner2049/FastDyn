@@ -8,8 +8,8 @@ dynamic = ["version"]
 description = "FastDyn: QEMU-based firmware emulation and dynamic analysis engine"
 authors = [{ name = "Fastdyn Team", email = "fastdyn@pseclab.com" }]
 requires-python = ">=3.10"
-# Runtime dependencies are still installed from requirements.txt at the
-# repository root, which currently also lists tool-specific packages.
+# Runtime dependencies are installed from requirements.txt at the
+# repository root.
 
 [project.scripts]
 fastdyn = "fastdyn.main:cli"

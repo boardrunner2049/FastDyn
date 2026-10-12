@@ -23,7 +23,7 @@ After the build completes, launch the container interactively:
 docker run -it fastdyn-env
 ```
 
-You will drop into a bash shell inside `/workspace/FastDyn` with all dependencies built and the virtual environment already activated. All subsequent commands (fuzzing, trace analysis, etc.) should be run inside this container.
+You will drop into a bash shell inside `/workspace/FastDyn` with all dependencies built and the virtual environment already activated. All subsequent commands (runs, fuzzing, etc.) should be run inside this container.
 
 ## Quick Start: ArduCopter FMUv3 + MAVCesium
 
