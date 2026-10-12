@@ -182,3 +182,16 @@ compose = "vehicle.toml"
     build = fmu_build.resolve(config, repo_root=tmp_path)
     assert build.compose_config == tmp_path / "vehicle.toml"
     assert build.compose_table is None
+
+
+@pytest.mark.parametrize(("profile", "model", "source"), [
+    ("p0", "ConfiguredQuad", "quad.toml"),
+    ("p1", "ConfiguredQuadP1", "quad_p1.toml"),
+])
+def test_fire_p0_p1_configs_resolve(profile, model, source, monkeypatch):
+    monkeypatch.delenv("FASTDYN_FIRE_CONFIG", raising=False)
+    repo = Path(__file__).resolve().parents[2]
+    build = fmu_build.resolve(repo / f"configs/copter462_fire_{profile}.toml", repo_root=repo)
+    assert build.model == model
+    assert build.model_file.name == f"{model}.mo"
+    assert build.compose_config == repo / "third_party/courbet_deps/fire_modelica_models/configs" / source

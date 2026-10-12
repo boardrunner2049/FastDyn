@@ -25,7 +25,7 @@ def input_digest(build) -> str:
         paths.update(p for p in compiler_sources.rglob("*")
                      if p.is_file() and p.suffix in {".rs", ".jinja", ".toml"})
     digest = hashlib.sha256()
-    digest.update(json.dumps({"model": build.model, "compose_table": build.compose_table},
+    digest.update(json.dumps({"model": build.model, "compose_table": build.compose_table, "profile": "vio"},
                              sort_keys=True).encode())
     digest.update(os.environ.get("FASTDYN_MODELICA_LIBRARY", "default").encode())
     digest.update(str(build.model_file).encode())
@@ -45,7 +45,7 @@ def compose(build) -> Path:
         raise FmuConfigError(f"FIRE config not found: {build.compose_config}")
     command = ["cargo", "run", "--locked", "--manifest-path",
                str(root / "tools/fire-compose/Cargo.toml"), "--", "emit",
-               str(build.compose_config), "--profile", "fastdyn", "--output-dir",
+               str(build.compose_config), "--profile", "vio", "--output-dir",
                str(build.model_file.parent), "--library-root", str(root)]
     if build.compose_table is not None:
         command.extend(["--config-table", build.compose_table])
