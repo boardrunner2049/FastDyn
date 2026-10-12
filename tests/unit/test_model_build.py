@@ -112,6 +112,17 @@ def test_without_keep_going_no_new_build_starts_after_a_failure(models, tmp_path
     assert {s for n, s in _statuses(report).items() if n != "aaa_broken"} == {SKIPPED}
 
 
+def test_a_source_with_the_librarys_own_time_is_rebuilt(models, tmp_path):
+    """File times advance in coarse steps: an edit right after a build can carry
+    the library's exact time, and must not count as up to date."""
+    out = tmp_path / "out"
+    build_models([models / "uart.c"], out)
+    built = (out / "uart.so").stat().st_mtime_ns
+    os.utime(models / "uart.c", ns=(built, built))
+
+    assert _statuses(build_models([models / "uart.c"], out)) == {"uart": BUILT}
+
+
 def test_a_failed_rebuild_removes_the_old_library(models, tmp_path):
     out = tmp_path / "out"
     build_models([models / "uart.c"], out)

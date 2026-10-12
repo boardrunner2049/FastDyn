@@ -336,8 +336,10 @@ def _up_to_date(output: Path, depfile: Path, stamp: Path, command_hash: str) -> 
     try:
         if json.loads(stamp.read_text()).get("command") != command_hash:
             return False
-        built = output.stat().st_mtime
-        return all(Path(dep).stat().st_mtime <= built for dep in _read_depfile(depfile))
+        # File times advance in coarse steps, so a source saved right after a
+        # build can carry the library's own time: equal counts as changed.
+        built = output.stat().st_mtime_ns
+        return all(Path(dep).stat().st_mtime_ns < built for dep in _read_depfile(depfile))
     except (OSError, ValueError):
         return False
 
