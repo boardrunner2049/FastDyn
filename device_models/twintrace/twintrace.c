@@ -19,6 +19,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#define FD_LOG_SUBSYSTEM "twintrace"
+#include <fastdyn/log.h>
+
 // Your ConfigSection contains:
 //   twintrace_mode_t twintrace_mode;
 //   const char* twintrace_bin;
@@ -96,8 +99,8 @@ static bool twintrace_ignore_irq(int line)
 // Helpers
 // -----------------------
 static void die_sys(const char *msg, const char *path) {
-    fprintf(stderr, "[twintrace] %s (%s): %s\n",
-            msg, path ? path : "(null)", strerror(errno));
+    FD_LOG_ERROR("%s (%s): %s",
+                 msg, path ? path : "(null)", strerror(errno));
     utils_die("twintrace fatal");
 }
 
@@ -116,11 +119,11 @@ static void tt_abort(const char *why,
                      hwaddr addr, unsigned size, uint64_t pc, uint64_t val,
                      const tt_rec_t *exp)
 {
-    fprintf(stderr,
-        "\n[twintrace] %s\n"
+    FD_LOG_ERROR(
+        "%s\n"
         "  idx=%" PRIu64 " / %" PRIu64 "\n"
         "  got: addr=0x%08" PRIx64 " size=%u pc=0x%08" PRIx64 " val=0x%08" PRIx64 "\n"
-        "  exp: %s icount=%" PRIu64 " addr=0x%08" PRIx64 " size=%u pc=0x%08" PRIx64 " val=0x%08" PRIx64 "\n\n",
+        "  exp: %s icount=%" PRIu64 " addr=0x%08" PRIx64 " size=%u pc=0x%08" PRIx64 " val=0x%08" PRIx64,
         why,
         g_rep.idx, g_rep.hdr.count,
         (uint64_t)addr, size, pc, val,
@@ -137,11 +140,11 @@ static void tt_abort(const char *why,
 static void tt_abort_irq(const char *why, int line, const tt_rec_t *exp)
 {
     uint64_t icount = core_get_icount();
-    fprintf(stderr,
-        "\n[twintrace] %s\n"
+    FD_LOG_ERROR(
+        "%s\n"
         "  idx=%" PRIu64 " / %" PRIu64 "\n"
         "  got: irq=%d icount=%" PRIu64 "\n"
-        "  exp: %s icount=%" PRIu64 " irq=%" PRIu64 "\n\n",
+        "  exp: %s icount=%" PRIu64 " irq=%" PRIu64,
         why,
         g_rep.idx, g_rep.hdr.count,
         line, icount,
@@ -194,8 +197,8 @@ static void tt_replay_open(const char *path)
     g_rep.strict_pc = false;
     g_rep.strict_value_on_write = true;
 
-    fprintf(stderr, "[twintrace] replay loaded: %s (count=%" PRIu64 ")\n",
-            path, g_rep.hdr.count);
+    FD_LOG_INFO("replay loaded: %s (count=%" PRIu64 ")",
+                path, g_rep.hdr.count);
 }
 
 static void* replay_irq_thread_fn(void* arg)
@@ -452,8 +455,8 @@ static void* twintrace_init(ConfigSection* model_info)
     g_mode = model_info->twintrace_mode;
     g_bin_path = model_info->twintrace_bin;
 
-    fprintf(stderr, "[twintrace] mode=%d bin=%s backend=%s\n",
-            (int)g_mode,
+    FD_LOG_INFO("mode=%d bin=%s backend=%s",
+                (int)g_mode,
             g_bin_path ? g_bin_path : "(null)",
             model_info->backend ? model_info->backend : "(null)");
 
@@ -469,8 +472,9 @@ static void* twintrace_init(ConfigSection* model_info)
     } else if (g_mode == TT_REPLAY) {
         if (!g_bin_path || !g_bin_path[0]) utils_die("twintrace_bin missing for replay");
         tt_replay_open(g_bin_path);
-        if (pthread_create(&rep_irq_thread, NULL, replay_irq_thread_fn, NULL) != 0) {
-            perror("Failed to create replay IRQ thread");
+        int rc = pthread_create(&rep_irq_thread, NULL, replay_irq_thread_fn, NULL);
+        if (rc != 0) {
+            FD_LOG_ERROR("cannot create the replay IRQ thread: %s", strerror(rc));
             return NULL;
         }
     } else {

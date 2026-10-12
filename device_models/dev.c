@@ -11,6 +11,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#define FD_LOG_SUBSYSTEM "dev"
+#include <fastdyn/log.h>
+
 extern twintrace_mode_t twintrace_mode;
 extern const char *twintrace_bin_path;
 
@@ -239,7 +242,7 @@ static int dev_read(char * handler, long unsigned int address, uint64_t *buf, lo
             "[%5ld.%06ld] IO Read Access NOT Handled: \t address=0x%08" PRIx64 ", size=%u bytes, pc=0x%08" PRIx64 "\n",
             sec, usec, (uint64_t)address, size, (uint64_t)pc);
 #endif
-        dev_debug("IO Access not handled");
+        FD_LOG_DEBUG("IO access not handled");
     }
     virtual_notify_mmio(pc, address, value, size, false, dev_to_use != NULL, lut != NULL);
 
@@ -302,7 +305,7 @@ void dev_notify_irq(int number) {
 #ifdef DEV_LOGGER
 		utils_log_to_file(io_logger, "Skipping IRQ NUM %d handling as not registered by the user\n", number);
 #endif
-		printf("Skipping IRQ NUM %d handling as not registered by the user\n", number);
+		FD_LOG_DEBUG("Skipping IRQ NUM %d handling as not registered by the user", number);
 	}
 }
 
@@ -334,7 +337,7 @@ void dev_irqret_hook(int number) {
 #ifdef DEV_LOGGER
 		utils_log_to_file(io_logger, "Skipping IRQ NUM %d handling as not registered by the user\n", number);
 #endif
-		printf("Skipping IRQ NUM %d handling as not registered by the user\n", number);
+		FD_LOG_DEBUG("Skipping IRQ NUM %d handling as not registered by the user", number);
 	}
 }
 
@@ -377,7 +380,7 @@ void dev_register_device_model(hwaddr start, hwaddr end, DeviceModel *dev) {
 void dev_register_interrupt_device_model(int irq_num, DeviceModel *dev) {
     // For the passed interrupt number, register the device model
     if (irq_num < 0 || irq_num >= MAX_INTERRUPTS) {
-        printf("ERROR! IRQ NUM: %d not supported for the given device!\n", irq_num);
+        FD_LOG_ERROR("IRQ %d is not supported (at most %d)", irq_num, MAX_INTERRUPTS - 1);
 		utils_die("Reconfigure the device model\n");
     }
     if (!dev) return;
@@ -513,13 +516,13 @@ void dev_free_config(AppConfig* config) {
 AppConfig* dev_parse_json_configs(const char* json_string) {
     cJSON* root = cJSON_Parse(json_string);
     if (!root) {
-        fprintf(stderr, "JSON parse error: %s\n", cJSON_GetErrorPtr());
+        FD_LOG_ERROR("device configuration: JSON parse error at: %s", cJSON_GetErrorPtr());
         return NULL;
     }
 
     AppConfig* app_config = calloc(1, sizeof(AppConfig));
     if (!app_config) {
-        fprintf(stderr, "Failed to allocate memory for AppConfig\n");
+        FD_LOG_ERROR("out of memory parsing the device configuration");
         cJSON_Delete(root);
         return NULL;
     }
@@ -635,50 +638,54 @@ AppConfig* dev_parse_json_configs(const char* json_string) {
  */
 void dev_print_config(const AppConfig* config) {
     if (!config) {
-        printf("Configuration is NULL.\n");
+        FD_LOG_DEBUG("configuration is NULL");
         return;
     }
 
-    printf("--- Stored Configuration ---\n");
+    FD_LOG_DEBUG("--- Stored Configuration ---");
     for (int i = 0; i < config->section_count; i++) {
         const ConfigSection* s = &config->sections[i];
-        printf("\nSection: [%s] (Backend: %s)\n", s->name, s->backend ? s->backend : "null");
+        FD_LOG_DEBUG("Section: [%s] (Backend: %s)", s->name, s->backend ? s->backend : "null");
 
         if (s->overall_range_count > 0) {
-            printf("  Overall Ranges:\n");
+            FD_LOG_DEBUG("  Overall Ranges:");
             for (int k = 0; k < s->overall_range_count; k++) {
-                printf("    - 0x%08" PRIx64 "-0x%08" PRIx64 "\n",
-                       s->overall_ranges[k].start,
-                       s->overall_ranges[k].end);
+                FD_LOG_DEBUG("    - 0x%08" PRIx64 "-0x%08" PRIx64,
+                             s->overall_ranges[k].start,
+                             s->overall_ranges[k].end);
             }
         }
 
         for (int j = 0; j < s->device_count; j++) {
             const DeviceModels* d = &s->devices[j];
-            printf("  Device: %s\n", d->name);
-            printf("    -> Scroll: %s\n", d->scroll_path ? d->scroll_path : "N/A");
-            printf("    -> Ranges: %d\n", d->range_count);
-            printf("    -> IRQs: %d\n", d->irq_count);
-            printf("    -> Config: %s\n", d->config_json ? d->config_json : "{}");
+            FD_LOG_DEBUG("  Device: %s", d->name);
+            FD_LOG_DEBUG("    -> Scroll: %s", d->scroll_path ? d->scroll_path : "N/A");
+            FD_LOG_DEBUG("    -> Ranges: %d", d->range_count);
+            FD_LOG_DEBUG("    -> IRQs: %d", d->irq_count);
+            FD_LOG_DEBUG("    -> Config: %s", d->config_json ? d->config_json : "{}");
             if (d->irq_count > 0) {
-                printf("    -> IRQ List:");
-                for (int x = 0; x < d->irq_count; x++) {
-                    printf(" %u", (unsigned)d->irqs[x]);
+                char irq_list[4 * MAX_INTERRUPTS + 1];
+                size_t used = 0;
+                irq_list[0] = '\0';
+                for (int x = 0; x < d->irq_count && used < sizeof(irq_list); x++) {
+                    int n = snprintf(irq_list + used, sizeof(irq_list) - used, " %u", (unsigned)d->irqs[x]);
+                    if (n < 0) break;
+                    used += (size_t)n;
                 }
-                printf("\n");
+                FD_LOG_DEBUG("    -> IRQ List:%s", irq_list);
             }
 
             if (d->range_count > 0) {
-                printf("    -> Range List:\n");
+                FD_LOG_DEBUG("    -> Range List:");
                 for (int r = 0; r < d->range_count; r++) {
-                    printf("       - 0x%08" PRIx64 "-0x%08" PRIx64 "\n",
-                           d->ranges[r].start,
-                           d->ranges[r].end);
+                    FD_LOG_DEBUG("       - 0x%08" PRIx64 "-0x%08" PRIx64,
+                                 d->ranges[r].start,
+                                 d->ranges[r].end);
                 }
             }
         }
     }
-    printf("---------------------------\n");
+    FD_LOG_DEBUG("---------------------------");
 }
 
 
@@ -741,7 +748,7 @@ static FILE *dev_open_io_log(void) {
 	}
 	FILE *f = fopen(path, "w");
 	if (!f) {
-		fprintf(stderr, "Cannot open the MMIO trace %s: %s\n", path, strerror(errno));
+		FD_LOG_ERROR("cannot open the MMIO trace %s: %s", path, strerror(errno));
 		utils_die("Cannot open io.log");
 	}
 	return f;
@@ -765,9 +772,9 @@ int dev_init(int argc, char ** argv) {
 		for (int i = 0; i < current_config->section_count; i++) {
 				DeviceModel * current = find_device_model(entries[i].model);
 				if (!current) {
-                        fprintf(stderr, "Could not find model: '%s'. Available models:\n", entries[i].model);
+                        FD_LOG_ERROR("could not find model '%s'; available models:", entries[i].model);
                         for (int j = 0; j < num_devices; j++) {
-                            fprintf(stderr, " - %s\n", all_devices[j]->name);
+                            FD_LOG_ERROR("  - %s", all_devices[j]->name);
                         }
 						utils_die("Device Model not found.");
 				}

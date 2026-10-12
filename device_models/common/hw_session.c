@@ -27,6 +27,9 @@
 #include <string.h>
 #include <unistd.h>
 
+#define FD_LOG_SUBSYSTEM "hw_session"
+#include <fastdyn/log.h>
+
 #define HW_SESSION_MAX_BACKENDS  4
 #define HW_SESSION_NAME_MAX      32
 
@@ -73,7 +76,7 @@ static void *hw_session_poll_thread(void *arg)
 
         if (hw_board_halted(s->hw)) {
             for (int i = 0; i < DEV_DEBUG_REG_DUMP_COUNT; i++) {
-                dev_debug("Register%d: 0x%lx\n", i, hw_read_reg(s->hw, i));
+                FD_LOG_DEBUG("register %d: 0x%lx", i, hw_read_reg(s->hw, i));
             }
 
             int firing_line = (int)hw_read_reg(s->hw, R0);
@@ -85,8 +88,8 @@ static void *hw_session_poll_thread(void *arg)
                  * monitor BKPT). Resume the board so the monitor can
                  * start running, then back off briefly.
                  */
-                printf("hw_session[%s]: spurious halt (r0=%d), resuming\n",
-                       s->backend_name, firing_line);
+                FD_LOG_WARN("%s: spurious halt (r0=%d), resuming",
+                            s->backend_name, firing_line);
                 hw_board_run(s->hw);
                 pthread_mutex_unlock(&s->hw_mutex);
                 usleep(POLL_SPURIOUS_SLEEP_US);
@@ -95,8 +98,8 @@ static void *hw_session_poll_thread(void *arg)
 
             s->irq_pending = firing_line;
 
-            dev_debug("Register%d: 0x%lx\n", R0, hw_read_reg(s->hw, R0));
-            dev_debug("Register%d: 0x%lx\n", 15, hw_read_reg(s->hw, 15));
+            FD_LOG_DEBUG("register %d: 0x%lx", R0, hw_read_reg(s->hw, R0));
+            FD_LOG_DEBUG("register %d: 0x%lx", 15, hw_read_reg(s->hw, 15));
             pthread_mutex_unlock(&s->hw_mutex);
 
             qemu_plugin_raise_irq(firing_line + IRQ_QEMU_VECTOR_BASE, false);
@@ -155,7 +158,7 @@ static void registry_free_locked(struct hw_session *s)
 hw_session_t *hw_session_acquire(const char *backend)
 {
     if (!backend || !backend[0]) {
-        fprintf(stderr, "hw_session_acquire: NULL/empty backend name\n");
+        FD_LOG_ERROR("acquire: NULL/empty backend name");
         return NULL;
     }
 
@@ -170,17 +173,15 @@ hw_session_t *hw_session_acquire(const char *backend)
 
     s = registry_alloc_locked(backend);
     if (!s) {
-        fprintf(stderr,
-                "hw_session_acquire: registry full (max %d backends)\n",
-                HW_SESSION_MAX_BACKENDS);
+        FD_LOG_ERROR("acquire: registry full (max %d backends)",
+                     HW_SESSION_MAX_BACKENDS);
         pthread_mutex_unlock(&g_registry_mutex);
         return NULL;
     }
 
     s->hw = hw_connect(backend, NULL, 0);
     if (!s->hw) {
-        fprintf(stderr,
-                "hw_session_acquire: hw_connect(%s) failed\n", backend);
+        FD_LOG_ERROR("acquire: hw_connect(%s) failed", backend);
         registry_free_locked(s);
         pthread_mutex_unlock(&g_registry_mutex);
         return NULL;
@@ -188,9 +189,8 @@ hw_session_t *hw_session_acquire(const char *backend)
 
     if (pthread_create(&s->poll_thread, NULL,
                        hw_session_poll_thread, s) != 0) {
-        fprintf(stderr,
-                "hw_session_acquire: pthread_create failed: %s\n",
-                strerror(errno));
+        FD_LOG_ERROR("acquire: pthread_create failed: %s",
+                     strerror(errno));
         hw_close(s->hw);
         registry_free_locked(s);
         pthread_mutex_unlock(&g_registry_mutex);
@@ -233,9 +233,8 @@ int hw_session_read(hw_session_t *s, hwaddr addr, unsigned size,
             continue;
         }
 
-        fprintf(stderr,
-                "[hw_session:%s] HW Read FAILED: addr=0x%08lx size=%u "
-                "pc=0x%08lx irq_pending=%d halted=%d attempts=%d\n",
+        FD_LOG_ERROR("%s: HW read FAILED: addr=0x%08lx size=%u "
+                     "pc=0x%08lx irq_pending=%d halted=%d attempts=%d",
                 s->backend_name,
                 (unsigned long)addr, size, (unsigned long)pc,
                 s->irq_pending, halted, attempt);
@@ -268,10 +267,9 @@ int hw_session_write(hw_session_t *s, hwaddr addr, uint64_t value,
             continue;
         }
 
-        fprintf(stderr,
-                "[hw_session:%s] HW Write FAILED: addr=0x%08lx size=%u "
-                "val=0x%08lx pc=0x%08lx irq_pending=%d halted=%d "
-                "attempts=%d\n",
+        FD_LOG_ERROR("%s: HW write FAILED: addr=0x%08lx size=%u "
+                     "val=0x%08lx pc=0x%08lx irq_pending=%d halted=%d "
+                     "attempts=%d",
                 s->backend_name,
                 (unsigned long)addr, size, (unsigned long)value,
                 (unsigned long)pc, s->irq_pending, halted, attempt);

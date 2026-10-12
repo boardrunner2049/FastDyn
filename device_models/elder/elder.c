@@ -219,11 +219,11 @@ static void* elder_init(ConfigSection* model_info) {
 	for (int i=0; i < model_info->device_count; i++) {
 		device_model_t *d = &devices[i];
 		d->config = &model_info->devices[i];
-		printf("Loading device [%s] from %s\n", d->config->name, d->config->scroll_path);
+		FD_LOG_INFO("loading device [%s] from %s", d->config->name, d->config->scroll_path);
 
 	    d->handle = dlopen(d->config->scroll_path, RTLD_NOW);
 	    if (!d->handle) {
-	        fprintf(stderr, "dlopen failed: %s\n", dlerror());
+	        FD_LOG_ERROR("%s: dlopen failed: %s", d->config->name, dlerror());
 	        utils_die("dlopen error");
 	    }
 		elder_route_vio_logs(d->handle);
