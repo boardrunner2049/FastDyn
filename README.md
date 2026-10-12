@@ -1,29 +1,40 @@
-# FastDyn Plugins
+# FastDyn
 
-## Automatic Rehosting
+FastDyn runs microcontroller firmware in a patched QEMU and lets you shape the
+run from one TOML configuration: peripheral device models (written in C,
+replayed from a hardware trace, or passed through to a real board over a debug
+probe), virtual instructions and register/memory modifiers at chosen program
+counters, run plugins, co-simulated physics (FMI v3 FMUs, Gazebo), coverage and
+fuzzing. It is driven by the `fastdyn` command and a Python API.
 
-Automatic rehosting, including the ArduRover 4.6.2 reference target, is done
-by [PhantomSmith](https://github.com/PSecLab/PhantomSmith), which runs the
-firmware on FastDyn.
+Tools built on FastDyn live in their own repositories:
+
+- [LibVIO](https://github.com/boardrunner2049/LibVIO): the library device
+  models use for buses (SPI, I2C), DMA, signals and host I/O.
+- [BoardRunner](https://github.com/boardrunner2049/BoardRunner): learns device
+  models from a hardware trace with an LLM and verifies them.
+- [PhantomSmith](https://github.com/PSecLab/PhantomSmith): rehosts complete
+  firmware automatically, including the ArduRover 4.6.2 reference target.
+
+Contributions follow [docs/CodingConventions.md](docs/CodingConventions.md).
 
 ## Docker Build
 
-A fully containerized setup is available via Docker. The Dockerfile automatically configures the system dependencies, Rust, Gazebo Harmonic, QEMU, `libhw`, and the FastDyn plugin.
-
-To build the FastDyn environment using Docker, run this from the parent workspace directory (the directory containing `FastDyn/`, `qemu/`, `libhw/`, etc.):
-
-```bash
-cd ..  # Ensure you are in the workspace parent directory
-docker build -f FastDyn/Dockerfile -t fastdyn-env .
-```
-
-After the build completes, launch the container interactively:
+The Dockerfile builds FastDyn, its patched QEMU, libhw, the libFuzz fuzzer and
+the Gazebo/Courbet flight-controller backend from this checkout. Check out the
+submodules it builds from, then build from the repository root:
 
 ```bash
-docker run -it fastdyn-env
+git submodule update --init --depth 1 \
+    third_party/common/qemu third_party/common/libhw \
+    third_party/common/cmsis-svd-data \
+    third_party/courbet_deps/mavlink_headers \
+    third_party/courbet_deps/ardupilot_gazebo third_party/courbet_deps/SITL_Models
+docker build -t fastdyn .
+docker run -it fastdyn
 ```
 
-You will drop into a bash shell inside `/workspace/FastDyn` with all dependencies built and the virtual environment already activated. All subsequent commands (runs, fuzzing, etc.) should be run inside this container.
+The container starts in `/workspace/FastDyn` with the `fastdyn` command ready.
 
 ## Quick Start: ArduCopter FMUv3 + MAVCesium
 
@@ -67,8 +78,13 @@ For a directly runnable RTOS introspection demonstration using the bundled
 debug-symbol FreeRTOS ELF, see
 [`configs/introspection/freertos.toml`](configs/introspection/freertos.toml).
 
+- `docs/RunningFastDyn.md`: running a configuration, its outputs, logging, and
+  building device models with `fastdyn build-model`.
 - `docs/Configuration.md`: FastDyn TOML reference for QEMU, FMU, Rumoca,
   helper processes, profiling, and swarm options.
+- `docs/FastDynDeviceModel.md`: the device models (classic, passthrough,
+  elder, twintrace) and how a model library is written
+  (`docs/ElderScrollDeviceModel.md`).
 - `docs/VirtualsAndModifiers.md`: reference for PC-triggered virtual
   instructions and direct register/memory modifiers, including TOML syntax
   and the built-in virtual callback registry.
@@ -88,16 +104,21 @@ debug-symbol FreeRTOS ELF, see
   FMU/Gazebo backend notes.
 - `virtuals/fuzzer/libafl_phi/README.md`: OptiFuzz/CP-Explore usage with
   FMUv3, vehicle selection, dry-runs, swarm execution, and legacy Docker/Gazebo.
+- `docs/FastDyn_STR_Integration.md`: schema-driven fuzzing integration guide.
 - `tests/integration/README.md`: local integration smoke and mission tests.
+- `docs/CodingConventions.md`: how code, tests, docs and commits are written.
 
 ## Local Build
 
-FastDyn depends on two sibling repositories that you must build first:
+FastDyn builds against two dependencies pinned as submodules:
 
-- `qemu/` — the patched QEMU fork that hosts the FastDyn plugin
-- `libhw/` — the hardware-probe abstraction (ST-Link / OpenOCD / J-Link)
+- `third_party/common/qemu`: the patched QEMU fork that hosts the FastDyn
+  plugin
+- `third_party/common/libhw`: the hardware-probe library (ST-Link / OpenOCD /
+  J-Link), needed only to talk to a board
 
-Clone both as siblings of this repository (or anywhere — you'll point `make` at them via `qemu_path` / `libhw_path`).
+`make` uses them once they are built; `qemu_path=` / `libhw_path=` point it at
+other checkouts instead.
 
 ### 1. System dependencies
 
@@ -110,16 +131,26 @@ sudo apt-get install -y libsundials-dev
 
 ### 2. Build the QEMU fork and libhw
 
-Follow the build instructions in each sibling repo. At a minimum:
+`setup.sh` initialises both submodules, applies FastDyn's QEMU patch and builds
+them:
 
 ```bash
-# libhw → produces <libhw_path>/out/libhw.so
-cd <path/to>/libhw && make
+source ./setup.sh --build-qemu --build-libhw
+```
 
-# qemu (fork) → produces qemu-system-arm + plugin headers
-cd <path/to>/qemu
-git apply <path/to>/FastDyn/patches/qemu-fastdyn-plugin-icount.patch
-./configure --target-list=arm-softmmu --enable-plugins
+By hand, from the repository root:
+
+```bash
+git submodule update --init --depth 1 third_party/common/qemu third_party/common/libhw
+
+# libhw → third_party/common/libhw/out/libhw.so
+make -C third_party/common/libhw
+
+# qemu (fork) → qemu-system-arm + plugin headers
+cd third_party/common/qemu
+git apply ../../../patches/qemu-fastdyn-plugin-icount.patch
+mkdir build && cd build
+../configure --target-list=arm-softmmu --enable-plugins
 make qemu-system-arm
 ```
 
@@ -128,10 +159,11 @@ make qemu-system-arm
 From the FastDyn repository root:
 
 ```bash
-make qemu_path=<path/to>/qemu libhw_path=<path/to>/libhw
+make DEV=true LIBHW=true
 ```
 
-Defaults if you omit the flags: `qemu_path=../qemu`, `libhw_path=../libhw`.
+`make` uses the built submodules; pass `qemu_path=<path/to>/qemu` and
+`libhw_path=<path/to>/libhw` to build against other checkouts.
 
 The build produces `build/libfastdyn.so`.
 
@@ -161,7 +193,7 @@ Most features are off by default. Override at `make` time:
 Example:
 
 ```bash
-make qemu_path=<path/to>/qemu libhw_path=<path/to>/libhw LIBPY=true SUNDIALS=true
+make DEV=true LIBHW=true SUNDIALS=true
 ```
 
 ### 6. Optional: install for building device models elsewhere

@@ -71,8 +71,9 @@ TOML must enable `fuzzing` and `coverage` and provide `fuzzing_schema` in its
 The repository includes a `Dockerfile` at the project root that produces a complete FastDyn environment (Ubuntu 24.04 base, patched QEMU, Gazebo Harmonic, Python venv, and the FastDyn plugin `libfastdyn.so`).
 
 ```bash
-# From the workspace directory that contains FastDyn/, qemu/, libhw/
-docker build -f FastDyn/Dockerfile -t fastdyn-env .
+# From the FastDyn repository root, after checking out the submodules the
+# Dockerfile lists in its header
+docker build -t fastdyn-env .
 
 # Interactive container with the CLI on PATH
 docker run --rm -it fastdyn-env
@@ -82,7 +83,7 @@ docker run --rm -v "$PWD/configs:/mnt/configs" fastdyn-env \
   fastdyn run -c /mnt/configs/<fuzzing-config.toml>
 ```
 
-The image entrypoint drops into `/workspace/FastDyn` with the Python venv activated. `fastdyn` is on `PATH`. `LD_LIBRARY_PATH` includes the libhw output directory.
+The container starts in `/workspace/FastDyn` with the Python venv on `PATH`. `fastdyn` is on `PATH`. `LD_LIBRARY_PATH` includes the libhw output directory.
 
 ### 1.3 Secondary subcommands (reference only)
 
@@ -356,13 +357,15 @@ Fuzzer input ──> schema fields / streams ──> FastDyn injection hooks ─
 
 ### 5.1 Container build
 
-From the workspace directory that contains FastDyn/, qemu/, libhw/:
+From the FastDyn repository root, after checking out the submodules the
+Dockerfile lists in its header (QEMU, libhw, the SVD data and the
+Gazebo/Courbet dependencies):
 
 ```bash
-docker build -f FastDyn/Dockerfile -t fastdyn-env .
+docker build -t fastdyn-env .
 ```
 
-The build runs `setup.sh --build-qemu --build-gazebo --skip-optifuzz` and then `make DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true`. The resulting image is self-contained: no host QEMU install is required.
+The build applies FastDyn's QEMU patch and builds QEMU, libhw, the Gazebo/Courbet dependencies, the libFuzz library and FastDyn with the options of `make DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true`. The resulting image is self-contained: no host QEMU install is required.
 
 ### 5.2 Verify the CLI is installed and visible
 

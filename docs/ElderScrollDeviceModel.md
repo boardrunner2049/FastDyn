@@ -1,6 +1,11 @@
 # Elder Scroll Device Model
 
-The **elder scroll device model** builds on both the classic and passthrough models. It automates device model generation using **automata learning** and **machine learning**, enabling automatic creation of device models for firmware. This model is particularly useful for advanced firmware analysis and large-scale automation.
+The **elder scroll device model** serves each configured device from its own
+model library (its "scroll"), a shared library written in C. The models can be
+written by hand or generated, for example by
+[BoardRunner](https://github.com/boardrunner2049/BoardRunner), which learns them
+from a hardware trace, or by PhantomSmith; elder loads and runs them the same
+way.
 
 ## Writing a model for elder
 
