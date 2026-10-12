@@ -18,6 +18,7 @@
  */
 int isdigit(int c);
 #include <ctype.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <assert.h>
 #include <stdlib.h>
@@ -28,6 +29,9 @@ int isdigit(int c);
 
 #include <qemu/qemu-plugin.h>
 #include <stdio.h>
+
+#define FD_LOG_SUBSYSTEM "core"
+#include <fastdyn/log.h>
 #include <stdint.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -112,7 +116,7 @@ bool parse_entry(const char* token, LoggerEntry* entry) {
 void parse_logger(const char* line);
 void parse_logger(const char* line) {
     if (listCount >= MAX_LISTS) {
-        fprintf(stderr, "Too many lists!\n");
+        FD_LOG_ERROR("too many logger lists (at most %d)", MAX_LISTS);
         return;
     }
 
@@ -121,7 +125,7 @@ void parse_logger(const char* line) {
 
     char* lineCopy = strdup(line);
     if (!lineCopy) {
-        perror("strdup");
+        FD_LOG_ERROR("strdup: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -133,7 +137,7 @@ void parse_logger(const char* line) {
         if (parse_entry(token, &entry)) {
             list->entries[list->count++] = entry;
         } else {
-            fprintf(stderr, "Invalid entry: %s\n", token);
+            FD_LOG_ERROR("invalid logger entry: %s", token);
         }
 
         token = strtok(NULL, ",\n\r");
@@ -148,7 +152,7 @@ void load_logger_config(const char* filename);
 void load_logger_config(const char* filename) {
     FILE* file = fopen(filename, "r");
     if (!file) {
-        perror("fopen");
+        FD_LOG_ERROR("cannot open %s: %s", filename, strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -235,7 +239,7 @@ int parse_update_line(const char *line, UpdateEntry *entry) {
     // Target is [rX] or [xX] dereference
     token[strlen(token) - 1] = '\0'; // Remove trailing ']'
     if (token[1] != 'r' && token[1] != 'x') {
-        fprintf(stderr, "Invalid target deref syntax: %s\n", token);
+        FD_LOG_ERROR("invalid target dereference syntax: %s", token);
         return -1;
     }
     entry->type = TARGET_DEREF;
@@ -246,7 +250,7 @@ int parse_update_line(const char *line, UpdateEntry *entry) {
     entry->target.addr = strtoul(token, &endptr, 0);
     if (*endptr != '\0') return -1;
 	} else {
-    fprintf(stderr, "Invalid target: %s\n", token);
+    FD_LOG_ERROR("invalid target: %s", token);
     return -1;
 	}
 
@@ -285,7 +289,7 @@ int parse_update_line(const char *line, UpdateEntry *entry) {
         // Source is [rX] or [xX] dereference
         token[strlen(token) - 1] = '\0'; // strip trailing ']'
         if (token[1] != 'r' && token[1] != 'x') {
-            fprintf(stderr, "Invalid dereference syntax: %s\n", token);
+            FD_LOG_ERROR("invalid dereference syntax: %s", token);
             return -1;
         }
         entry->value_type = VALUE_DEREF;
@@ -306,7 +310,7 @@ int load_update_entries(const char *filename);
 int load_update_entries(const char *filename) {
     FILE *f = fopen(filename, "r");
     if (!f) {
-        perror("fopen");
+        FD_LOG_ERROR("cannot open %s: %s", filename, strerror(errno));
         return 0;
     }
 
@@ -317,7 +321,7 @@ int load_update_entries(const char *filename) {
         if (line[0] == '\0' || line[0] == '#') continue;
 
         if (update_entry_count >= MAX_ENTRIES) {
-            fprintf(stderr, "Too many entries (limit: %d)\n", MAX_ENTRIES);
+            FD_LOG_ERROR("too many update entries (at most %d)", MAX_ENTRIES);
             fclose(f);
             return 0;
         }
@@ -325,7 +329,7 @@ int load_update_entries(const char *filename) {
         if (parse_update_line(line, &update_entries[update_entry_count]) == 0) {
             update_entry_count++;
         } else {
-            fprintf(stderr, "Error parsing line: %s\n", line);
+            FD_LOG_ERROR("cannot parse line: %s", line);
         }
     }
 
@@ -357,7 +361,7 @@ AddressTuple * is_target_address(uintptr_t addr) {
 size_t read_tuples_from_file(const char *filename, AddressTuple *tuples, size_t max_tuples) {
     FILE *f = fopen(filename, "r");
     if (!f) {
-        perror("fopen");
+        FD_LOG_ERROR("cannot open %s: %s", filename, strerror(errno));
         exit(1);
     }
 
@@ -373,7 +377,7 @@ size_t read_tuples_from_file(const char *filename, AddressTuple *tuples, size_t 
 
 void print_tuples(AddressTuple *tuples, size_t count) {
     for (size_t i = 0; i < count; ++i) {
-        printf("Tuple %zu: %p -> %p\n", i,
+        FD_LOG_DEBUG("tuple %zu: %p -> %p", i,
                (void *)tuples[i].anchor,
                (void *)tuples[i].target);
     }
@@ -740,7 +744,7 @@ access_t *parse_access_file(const char *path, size_t *count)
 {
     FILE *f = fopen(path, "r");
     if (!f) {
-        perror("fopen");
+        FD_LOG_ERROR("cannot open %s: %s", path, strerror(errno));
         return NULL;
     }
 
@@ -824,7 +828,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         );
     }
 
-	DEBUG_LOG("->Virtual Clock: %llu \n", (unsigned long long)qemu_plugin_get_virtual_timer());
+	FD_LOG_TRACE("virtual clock: %llu", (unsigned long long)qemu_plugin_get_virtual_timer());
 
     for (i = 0; i < n; i++) {
         struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
@@ -845,9 +849,9 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         if (coverage) {
             if (i == 0) {
 #if DEBUG
-                    printf("Instrumenting: 0x%lx with %ld instructions.\n", qemu_plugin_insn_vaddr(insn), n);
+                    FD_LOG_TRACE("instrumenting 0x%lx with %ld instructions", qemu_plugin_insn_vaddr(insn), n);
                     for (int iter = 0; iter <n; iter++) {
-                            printf("	0x%lx \n", qemu_plugin_insn_vaddr(qemu_plugin_tb_get_insn(tb, iter)));
+                            FD_LOG_TRACE("  0x%lx", qemu_plugin_insn_vaddr(qemu_plugin_tb_get_insn(tb, iter)));
                     }
 #endif
                     fuzz_bbl_observe((uint32_t)qemu_plugin_insn_vaddr(insn), (uint32_t)n);
@@ -907,9 +911,9 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 		for (size_t match_idx = 0; match_idx < count; ++match_idx) {
 			UpdateEntry *e = matches[match_idx];
 
-			DEBUG_LOG("  Update Point: 0x%lx, ", e->update_point);
+			FD_LOG_TRACE("update point: 0x%lx", e->update_point);
 	        if (e->type == TARGET_REGISTER || e->type == TARGET_DEREF) {
-    	        DEBUG_LOG("Target: r%d, ", e->target.reg_num);
+    	        FD_LOG_TRACE("  target: r%d", e->target.reg_num);
 				qemu_plugin_u64 entry;
                 // In TCG frontend it is already set, if you want to modify it you will have to
                 // change CPSR.
@@ -920,7 +924,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                 unsigned long addr = e->target.addr;
                 if (addr > 0x40000000) // This covers standard ARMv7-M / ARMv8-M memory map
                 {
-                    fprintf(stderr, "Requested memory access at 0x%lx does not belong to code or RAM sections\n", addr);
+                    FD_LOG_WARN("requested memory access at 0x%lx does not belong to code or RAM sections", addr);
                     continue;
                 }
                 else
@@ -930,7 +934,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                     // change CPSR.
                     entry.offset = (size_t)(e->value.imm);
                     qemu_plugin_register_vcpu_insn_exec_inline_per_vcpu(insn, QEMU_PLUGIN_INLINE_UPDATE_MEM, entry, e->target.addr);
-                    DEBUG_LOG("Target: 0x%lx, ", e->target.addr);
+                    FD_LOG_TRACE("  target: 0x%lx", e->target.addr);
                 }
        		}
 
@@ -1032,7 +1036,7 @@ void core_register_exit_hook(void (*cb)(void))
 
 static void plugin_exit(qemu_plugin_id_t id, void *p)
 {
-	printf("FastDyn Exit.\n");
+	FD_LOG_INFO("FastDyn Exit.");
 	core_exit_dispatch();
 }
 
@@ -1138,7 +1142,7 @@ static void parse_twintrace_args(int argc, char **argv)
         } else if (!strcasecmp(tt, "false") || !strcasecmp(tt, "off") || !strcmp(tt, "0")) {
             twintrace_mode = TT_OFF;
         } else {
-            fprintf(stderr, "fastdyn: unknown twintrace mode: '%s'\n", tt);
+            FD_LOG_ERROR("unknown twintrace mode: '%s'", tt);
             utils_die("bad twintrace mode");
         }
     }
@@ -1207,7 +1211,7 @@ void parse_rules_file(const char *filename);
 void parse_rules_file(const char *filename) {
     FILE *f = fopen(filename, "r");
     if (!f) {
-        perror("Failed to open rules file");
+        FD_LOG_ERROR("cannot open rules file %s: %s", filename, strerror(errno));
         return;
     }
 
@@ -1222,18 +1226,18 @@ void parse_rules_file(const char *filename) {
 
         int n = sscanf(line, "%63s %63s %300[^\n]", addr_str, cb_name, args);
         if (n < 2) {
-            fprintf(stderr, "Invalid line in rules file: '%s'\n", line);
+            FD_LOG_ERROR("invalid line in rules file: '%s'", line);
             continue;
         }
 
         cb_func_t cb = lookup_callback(cb_name);
         if (!cb) {
-            fprintf(stderr, "Error: Callback '%s' not found in registry (line: '%s')\n", cb_name, line);
+            FD_LOG_ERROR("callback '%s' not found in registry (line: '%s')", cb_name, line);
             continue;
         }
 
         if (rules_count >= MAX_RULES) {
-            fprintf(stderr, "Max rules limit reached (%d), skipping rest\n", MAX_RULES);
+            FD_LOG_WARN("rules limit reached (%d), skipping the rest", MAX_RULES);
             break;
         }
 
@@ -1254,9 +1258,9 @@ void parse_rules_file(const char *filename) {
 }
 #if 0
 static void print_rules(void) {
-    printf("Parsed %zu rules:\n", rules_count);
+    FD_LOG_DEBUG("parsed %zu rules", rules_count);
     for (size_t i = 0; i < rules_count; i++) {
-        printf("Rule %zu: Addr=0x%llx, Func=%p, Args='%s'\n",
+        FD_LOG_DEBUG("rule %zu: addr=0x%llx, func=%p, args='%s'",
                i, rules[i].address, (void *)rules[i].func, rules[i].args);
     }
 }
@@ -1289,8 +1293,9 @@ static int core_parse_arguments(int argc, char ** argv) {
     if (!arg_is_disabled(filename) &&
         (strcasecmp(filename, "true") == 0 || strcmp(filename, "1") == 0)) {
         coverage = 1;
-        if (pthread_create(&thread, NULL, tracer, NULL) != 0) {
-            perror("Failed to create thread");
+        int rc = pthread_create(&thread, NULL, tracer, NULL);
+        if (rc != 0) {
+            FD_LOG_ERROR("cannot create the coverage tracer thread: %s", strerror(rc));
             exit(1);
         }
 
