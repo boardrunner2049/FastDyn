@@ -106,8 +106,11 @@ fastdyn build-model --name spi4 models/spi4.c models/spi4_dma.c -o build/models
 ```
 
 FastDyn adds its own headers (`<fastdyn/device_model.h>`, which includes
-QEMU's `<qemu/qemu-plugin.h>`), LibVIO when `pkg-config vio` finds it (`--no-vio`
-to leave it out), and the model's folder and its `include/` directories.
+QEMU's `<qemu/qemu-plugin.h>`), LibVIO (`--no-vio` to leave it out), and the
+model's folder and its `include/` directories. LibVIO comes from the pinned
+`third_party/common/libvio` submodule once `setup.sh --build-libvio` has built
+it into `out/libvio/`, otherwise from an installed LibVIO that `pkg-config vio`
+finds.
 `--pkg NAME` adds another pkg-config package; `--pkg fastdyn` links the
 fuzzer hooks (`<fastdyn/fuzz_hooks.h>`). Models are compiled with
 `-shared -fPIC -g -Werror=incompatible-pointer-types`, plus `$CFLAGS` and

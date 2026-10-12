@@ -236,9 +236,10 @@ class _Toolchain:
         libs: list[str] = []
         use_vio = False
         if vio:
-            if _pkg_config_exists("vio"):
-                cflags += _pkg_config("vio", "--cflags")
-                libs += _pkg_config("vio", "--libs") + _rpath("vio")
+            vio_env = _vio_pkg_config_env()
+            if _pkg_config_exists("vio", vio_env):
+                cflags += _pkg_config("vio", "--cflags", env=vio_env)
+                libs += _pkg_config("vio", "--libs", env=vio_env) + _rpath("vio", vio_env)
                 use_vio = True
             else:
                 log.debug("LibVIO not found by pkg-config (vio); building without it")
@@ -278,20 +279,36 @@ def _fastdyn_cflags() -> list[str]:
     )
 
 
-def _pkg_config_exists(package: str) -> bool:
+def _vio_pkg_config_env() -> Optional[dict[str, str]]:
+    """pkg-config's environment for LibVIO: the checkout's build of the
+    third_party/common/libvio submodule comes before an installed LibVIO."""
+    prefix = paths.libvio_prefix()
+    if prefix is None:
+        return None
+    pc_dirs = [str(d) for d in sorted(prefix.glob("lib*/pkgconfig")) + sorted(prefix.glob("lib/*/pkgconfig"))
+               if (d / "vio.pc").is_file()]
+    if not pc_dirs:
+        return None
+    log.debug("LibVIO: using the checkout's build in %s", prefix)
+    current = os.environ.get("PKG_CONFIG_PATH")
+    return {**os.environ, "PKG_CONFIG_PATH": os.pathsep.join(pc_dirs + ([current] if current else []))}
+
+
+def _pkg_config_exists(package: str, env: Optional[dict[str, str]] = None) -> bool:
     if shutil.which("pkg-config") is None:
         return False
-    return subprocess.run(["pkg-config", "--exists", package], capture_output=True).returncode == 0
+    return subprocess.run(["pkg-config", "--exists", package], capture_output=True, env=env).returncode == 0
 
 
-def _pkg_config(package: str, *args: str) -> list[str]:
-    result = subprocess.run(["pkg-config", *args, package], capture_output=True, text=True, check=True)
+def _pkg_config(package: str, *args: str, env: Optional[dict[str, str]] = None) -> list[str]:
+    result = subprocess.run(["pkg-config", *args, package], capture_output=True, text=True, check=True,
+                            env=env)
     return shlex.split(result.stdout)
 
 
-def _rpath(package: str) -> list[str]:
+def _rpath(package: str, env: Optional[dict[str, str]] = None) -> list[str]:
     """Let the model find the package's libraries at load time."""
-    libdir = _pkg_config(package, "--variable=libdir")
+    libdir = _pkg_config(package, "--variable=libdir", env=env)
     return [f"-Wl,-rpath,{os.path.normpath(libdir[0])}"] if libdir else []
 
 

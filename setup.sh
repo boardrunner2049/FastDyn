@@ -13,6 +13,8 @@ Options:
   --build-qemu          Clone/build the patched QEMU fork and FastDyn QEMU plugin
   --build-gazebo        Build legacy Gazebo/Courbet deps and FastDyn with LIBGZ/LIBHW
   --build-libhw         Build libhw (hardware-in-the-loop probe library) in the libhw root
+  --build-libvio        Build the third_party/common/libvio submodule into out/libvio, where
+                        fastdyn build-model finds it before an installed LibVIO
   --qemu-root PATH      Patched QEMU checkout/workspace root (default: the third_party/common/qemu
                         submodule if initialized and built or --build-qemu is given, otherwise ../qemu)
   --qemu-repo URL       Patched QEMU repository (default: https://github.com/boardrunner2049/qemu.git)
@@ -305,6 +307,20 @@ EOF
   done
 }
 
+fastdyn_setup_libvio_build() {
+  local repo_root="$1"
+  local source_dir="$repo_root/third_party/common/libvio"
+  local build_dir="$repo_root/out/libvio/build"
+  local prefix="$repo_root/out/libvio/install"
+
+  if [[ ! -f "$source_dir/CMakeLists.txt" ]]; then
+    git -C "$repo_root" submodule update --init --depth 1 third_party/common/libvio || return
+  fi
+  cmake -S "$source_dir" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DVIO_BUILD_TESTS=OFF || return
+  cmake --build "$build_dir" -j"$(fastdyn_setup_build_jobs)" || return
+  cmake --install "$build_dir" --prefix "$prefix" || return
+}
+
 fastdyn_setup_libhw_build() {
   local libhw_root="$1"
   local libhw_so="$libhw_root/out/libhw.so"
@@ -441,6 +457,7 @@ fastdyn_setup_main() {
   local build_qemu="false"
   local build_gazebo="false"
   local build_libhw="false"
+  local build_libvio="false"
   local setup_qemu_workspace="true"
   local upgrade_pip="true"
 
@@ -476,6 +493,10 @@ fastdyn_setup_main() {
         ;;
       --build-libhw)
         build_libhw="true"
+        shift
+        ;;
+      --build-libvio)
+        build_libvio="true"
         shift
         ;;
       --qemu-root)
@@ -603,6 +624,10 @@ fastdyn_setup_main() {
   if [[ "$build_libhw" == "true" ]]; then
     fastdyn_setup_libhw_build "$libhw_root" || return
     echo "libhw is ready: $libhw_root/out/libhw.so"
+  fi
+  if [[ "$build_libvio" == "true" ]]; then
+    fastdyn_setup_libvio_build "$repo_root" || return
+    echo "LibVIO is ready: $repo_root/out/libvio/install (fastdyn build-model uses it)"
   fi
   if [[ "$build_qemu" == "true" ]]; then
     fastdyn_setup_qemu_build "$repo_root" "$qemu_root" "$qemu_repo" "$qemu_ref" || return

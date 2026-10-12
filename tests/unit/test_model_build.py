@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from fastdyn import main, model_build
+from fastdyn import main, model_build, paths
 from fastdyn.model_build import BUILT, FAILED, SKIPPED, UP_TO_DATE, Model, ModelBuildError, build_models
 
 pytestmark = pytest.mark.skipif(shutil.which("cc") is None, reason="no C compiler")
@@ -34,11 +34,14 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
+_real_pkg_config_exists = model_build._pkg_config_exists
+
+
 @pytest.fixture(autouse=True)
 def _no_vio(monkeypatch):
     """Tests do not depend on whether LibVIO happens to be installed."""
-    real = model_build._pkg_config_exists
-    monkeypatch.setattr(model_build, "_pkg_config_exists", lambda pkg: pkg != "vio" and real(pkg))
+    monkeypatch.setattr(model_build, "_pkg_config_exists",
+                        lambda pkg, env=None: pkg != "vio" and _real_pkg_config_exists(pkg, env))
     for var in ("CC", "CFLAGS", "LDFLAGS"):
         monkeypatch.delenv(var, raising=False)
 
@@ -183,6 +186,27 @@ def test_missing_compiler_or_package_is_reported(models, tmp_path, monkeypatch):
     monkeypatch.setenv("CC", "no-such-compiler")
     with pytest.raises(ModelBuildError, match="C compiler not found"):
         build_models([models], tmp_path / "out")
+
+
+@pytest.mark.skipif(shutil.which("pkg-config") is None, reason="needs pkg-config")
+def test_the_checkouts_libvio_build_comes_before_an_installed_one(tmp_path, monkeypatch):
+    """setup.sh --build-libvio installs the submodule into out/libvio/install;
+    build-model takes LibVIO from there first."""
+    prefix = tmp_path / "out" / "libvio" / "install"
+    _write(prefix / "lib" / "pkgconfig" / "vio.pc", (
+        "prefix=${pcfiledir}/../..\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\n"
+        "Name: vio\nDescription: LibVIO\nVersion: 1.0.0\n"
+        "Cflags: -I${includedir}\nLibs: -L${libdir} -lvio\n"))
+    monkeypatch.setattr(model_build, "_pkg_config_exists", _real_pkg_config_exists)
+    monkeypatch.setattr(paths, "libvio_prefix", lambda: prefix)
+    monkeypatch.setenv("PKG_CONFIG_PATH", str(tmp_path / "elsewhere"))
+
+    toolchain = model_build._Toolchain.resolve(vio=True, pkgs=())
+
+    assert toolchain.vio
+    assert f"-I{prefix / 'include'}" in [os.path.normpath(f) if f.startswith("-I") else f
+                                          for f in toolchain.cflags]
+    assert f"-Wl,-rpath,{prefix / 'lib'}" in toolchain.libs
 
 
 def test_a_libvio_model_without_libvio_gets_a_hint(tmp_path):

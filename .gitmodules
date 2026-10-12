@@ -33,3 +33,7 @@
 	path = third_party/common/libhw
 	url = https://github.com/boardrunner2049/libhw.git
 	shallow = true
+[submodule "third_party/common/libvio"]
+	path = third_party/common/libvio
+	url = https://github.com/boardrunner2049/LibVIO.git
+	shallow = true

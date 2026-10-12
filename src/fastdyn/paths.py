@@ -9,6 +9,8 @@ from typing import Optional
 REPO_ROOT_ENV = "FASTDYN_REPO_ROOT"
 SVD_DIR_RELATIVE = "third_party/common/cmsis-svd-data"
 PLUGIN_LIBRARY_RELATIVE = "build/libfastdyn.so"
+# Where setup.sh --build-libvio installs the third_party/common/libvio submodule.
+LIBVIO_PREFIX_RELATIVE = "out/libvio/install"
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 
@@ -41,6 +43,14 @@ def default_svd_dir() -> str:
     """CMSIS-SVD data in the checkout, or the relative path used without one."""
     root = repo_root()
     return str(root / SVD_DIR_RELATIVE) if root is not None else SVD_DIR_RELATIVE
+
+
+def libvio_prefix() -> Optional[Path]:
+    """The checkout's LibVIO install (``setup.sh --build-libvio``), or None."""
+    root = repo_root()
+    if root is None or not (root / LIBVIO_PREFIX_RELATIVE).is_dir():
+        return None
+    return root / LIBVIO_PREFIX_RELATIVE
 
 
 def default_plugin_library() -> str:

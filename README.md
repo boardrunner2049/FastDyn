@@ -196,7 +196,20 @@ Example:
 make DEV=true LIBHW=true SUNDIALS=true
 ```
 
-### 6. Optional: install for building device models elsewhere
+### 6. Optional: LibVIO for device models
+
+Device models that use LibVIO (buses, DMA, signals, host I/O) are built with
+it by `fastdyn build-model`. LibVIO is pinned as the optional
+`third_party/common/libvio` submodule; this initialises and builds it into
+`out/libvio/`, where `build-model` looks first:
+
+```bash
+source ./setup.sh --build-libvio
+```
+
+An installed LibVIO found by `pkg-config vio` works too.
+
+### 7. Optional: install for building device models elsewhere
 
 `meson install` installs `libfastdyn.so`, the device model headers
 (`<fastdyn/device_model.h>`, `<fastdyn/fuzz_hooks.h>`), QEMU's
