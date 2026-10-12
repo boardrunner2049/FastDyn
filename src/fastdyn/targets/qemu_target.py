@@ -16,7 +16,6 @@ from ..utils import helper, twintrace
 from ..binary import binary_wrange
 import logging
 
-from .. import fastdyn_log as fastdyn_log_conf
 from .. import logs, profiling, timing
 from ..virtual_preprocessing import (
     VirtualRule,
@@ -53,7 +52,6 @@ def run_qmp_socket(work_dir):
             return short
     raise ValueError(f"no folder for a QMP socket short enough for a Unix socket; set qmp_socket in [Machine] "
                      f"(the default {path} is too long)")
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 
 def _dedup_preserve_order(items):
@@ -162,7 +160,7 @@ def _ensure_memory_backend_file(memory):
 
     if os.path.getsize(memory_file) != size_bytes:
         os.truncate(memory_file, size_bytes)
-        fastdyn_log.info(
+        log.info(
             f"Prepared QEMU memory backend {memory_file} with size {memory.memory_size}."
         )
 
@@ -373,7 +371,7 @@ def _reset_file_memory_backends(machine):
         except OSError as exc:
             raise RuntimeError(f"Unable to reset memory backend file {memory_file!r}: {exc}") from exc
 
-        fastdyn_log.info(f"Reset file-backed memory image: {memory_file}")
+        log.info(f"Reset file-backed memory image: {memory_file}")
 
 def build_qemu_cmd(machine, dev_config_path, out_path):
     """
@@ -389,7 +387,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     print_command = opts.print_command
     qemu_bin, qemu_source = resolve_qemu_binary(opts.qemu_path, cpu0.arch, cpu0.plugin_library)
     _ensure_executable(qemu_bin, "QEMU executable")
-    fastdyn_log.info(f"QEMU executable: {qemu_bin} (from {qemu_source})")
+    log.info(f"QEMU executable: {qemu_bin} (from {qemu_source})")
 
     # QEMU CLI is per-instance: we support SMP (homogeneous CPU model/binary/machine).
     for c in cpus[1:]:
@@ -611,7 +609,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     if twintrace_opt == "replay":
         #create a binary for faster parsing of hardware log for the replayer
         replay_binary = os.path.join(out_path, "replay_bin.ttbin")
-        fastdyn_log.info(replay_hardware_log)
+        log.info(replay_hardware_log)
 
         # Decide what to put in the .ttbin based on the TOML's replay-time
         # routing. Two replay modes the framework supports (per paper §RQ2,
@@ -771,12 +769,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
                 lines.append(arg)
                 idx += 1
         formatted_cmd = " \\\n  ".join(lines)
-        print("\n" + "=" * 80)
-        print("Running QEMU Command:")
-        print("=" * 80)
-        print(formatted_cmd)
-        print("=" * 80 + "\n")
-        fastdyn_log.info(f"Running following qemu command:\n{formatted_cmd}")
+        log.info(f"Running following qemu command:\n{formatted_cmd}")
     return cmd, gdb_cmd, launch_gdb, binary
 
 

@@ -236,8 +236,9 @@ artifact through FastDyn's generic native run-artifact API. The native
 component must not require a generated command-line option.
 
 For a run-wide module, FastDyn supplies only the settings from its TOML table,
-a namespaced artifact allocator (`ctx.plugin_artifact_path()`), a standard
-logger (`ctx.logger`), and generic cleanup callbacks returned in
+a namespaced artifact allocator (`ctx.plugin_artifact_path()`), a logger
+(`ctx.logger`, named `fastdyn.<plugin>` like its runtime's `virtual_log()`
+messages), and generic cleanup callbacks returned in
 `RunPrepareResult.cleanup`. Configure it with:
 
 ```toml

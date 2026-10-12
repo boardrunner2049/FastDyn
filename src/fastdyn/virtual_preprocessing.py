@@ -104,9 +104,9 @@ class RunContext:
 
     @property
     def logger(self) -> logging.Logger:
-        """Use FastDyn's normal logging hierarchy for module diagnostics."""
-        from .fastdyn_log import getFastdynLogger
-        return getFastdynLogger()
+        """The plugin's logger, ``fastdyn.<plugin>``, the name its runtime's
+        virtual_log() messages use."""
+        return logging.getLogger(f"fastdyn.{self.plugin_name}") if self.plugin_name else log
 
 
 @dataclass(frozen=True)

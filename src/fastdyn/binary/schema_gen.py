@@ -1,6 +1,9 @@
+import logging
 import os
 from elftools.elf.elffile import ELFFile
 from elftools.dwarf.dwarf_expr import DWARFExprParser
+
+log = logging.getLogger(__name__)
 
 # These match the FieldType enum in your C plugin exactly
 FIELD_UINT32 = 0
@@ -210,9 +213,9 @@ class SchemaGenerator:
                     name = die.attributes['DW_AT_name'].value.decode('utf-8')
                     found_structs.add(name)
 
-        fastdyn_log.info(f"[*] Found {len(found_structs)} unique structs in DWARF:")
+        log.info(f"[*] Found {len(found_structs)} unique structs in DWARF:")
         for name in sorted(found_structs):
-            fastdyn_log.info(f"  - {name}")
+            log.info(f"  - {name}")
 
     def _calculate_array_size(self, array_die):
         """Calculates total byte size of an array from its subrange."""

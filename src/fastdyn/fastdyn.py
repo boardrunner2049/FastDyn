@@ -18,9 +18,7 @@ from .utils import parse_config as parse_helper
 
 from .machine import VirtualInstruction
 
-from . import fastdyn_log as fastdyn_log_conf
 log = logging.getLogger(__name__)
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 #supported targets
 from .targets import qemu_target
@@ -220,10 +218,10 @@ class Machine:
     def add_cmsis_svd(self, cmsis_svd):
         platform = (self.platform or "").strip()
         if not platform or platform.lower() in ("intel", "x86", "x86_64", "base_generic", "pc", "q35", "riscv", "riscv32", "riscv64", "virt", "spike"):
-            fastdyn_log.info(f"Skipping CMSIS SVD resolution for non-ARM platform '{platform}'.")
+            log.info(f"Skipping CMSIS SVD resolution for non-ARM platform '{platform}'.")
             return
 
-        fastdyn_log.info("Parsing the passed path for the CMSIS SVD")
+        log.info("Parsing the passed path for the CMSIS SVD")
 
         try:
             svd_file, svd_key = parse_helper.resolve_svd(
@@ -234,22 +232,22 @@ class Machine:
             )
         except parse_helper.SvdResolutionError as e:
             if platform.lower().startswith("generic-"):
-                fastdyn_log.info(
+                log.info(
                     f"Skipping CMSIS SVD resolution for generic platform '{platform}'."
                 )
             else:
-                fastdyn_log.warning(
+                log.warning(
                     f"Could not resolve CMSIS SVD for platform '{platform}': {e}"
                 )
             return
 
-        fastdyn_log.info(f"Using SVD: {svd_file} (key='{svd_key}')")
+        log.info(f"Using SVD: {svd_file} (key='{svd_key}')")
         self.svd_file = svd_file
         self.svd_key = svd_key
         svd_device = parse_helper.get_svd_device(svd_file)
         self.svd_device = svd_device
 
-        fastdyn_log.info("Creating IRQ Map using the CMSIS SVD")
+        log.info("Creating IRQ Map using the CMSIS SVD")
         self.irq_map = parse_helper.create_svd_irq_map(svd_device)
         return True
 
@@ -299,7 +297,7 @@ class CPU:
         for item in items:
             ok, parsed = parse_helper.parse_vi(item)
             if not ok or parsed is None:
-                fastdyn_log.error("Unable to parse Virtual Instruction")
+                log.error("Unable to parse Virtual Instruction")
                 return False
 
             # Keep rules declarative until run preparation. This preserves the
@@ -321,13 +319,13 @@ class CPU:
         for item in items:
             ok, parsed = parse_helper.parse_mod(item)
             if not ok or parsed is None:
-                fastdyn_log.error("Unable to parse Instruction Modifier")
+                log.error("Unable to parse Instruction Modifier")
                 return False
 
             try:
                 resolved = parse_helper.resolve_mod(parsed, symbol_map=self.symbol_dict)
             except Exception as e:
-                fastdyn_log.error(f"Unable to resolve Instruction Modifier: {e}")
+                log.error(f"Unable to resolve Instruction Modifier: {e}")
                 return False
 
             out.append(parse_helper.mod_to_string(resolved))
@@ -337,13 +335,13 @@ class CPU:
 
     def update_cpu_param(self, param, val):
         if not hasattr(self, param):
-            fastdyn_log.error(f"Unknown CPUConfig field: {param}")
+            log.error(f"Unknown CPUConfig field: {param}")
             return False
         try:
             setattr(self, param, val)
             return True
         except (AttributeError, TypeError, ValueError) as e:
-            fastdyn_log.error(f"Unable to set '{param}' to {val!r}: {e}")
+            log.error(f"Unable to set '{param}' to {val!r}: {e}")
             return False
 
 @dataclass

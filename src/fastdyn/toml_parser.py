@@ -7,10 +7,8 @@ from pathlib import Path
 from fastdyn.fastdyn import *
 from . import fmu_build
 from . import paths
-from . import fastdyn_log as fastdyn_log_conf
 
 log = logging.getLogger(__name__)
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 
 def _env_int(name, default):
@@ -210,17 +208,17 @@ def load_toml_config(config_path):
         with open(config_path, "rb") as f:
             return tomli.load(f)
     except FileNotFoundError:
-        fastdyn_log.error(f"The file '{config_path}' was not found.")
+        log.error(f"The file '{config_path}' was not found.")
         raise
     except tomli.TOMLDecodeError as e:
-        fastdyn_log.error(f"Error: Failed to parse TOML file '{config_path}': {e}")
+        log.error(f"Error: Failed to parse TOML file '{config_path}': {e}")
         raise
 
 
 #parse a single toml per machine, use as many instances as you want in future to parse multiple machines
 def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu=True):
     #parse the toml configuration
-    fastdyn_log.info(f"Parsing Config file: {toml_config}")
+    log.info(f"Parsing Config file: {toml_config}")
 
     fastdyn_handle = Fastdyn()
 
@@ -393,7 +391,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     try:
         curr_mem = toml_parser.memory_info.pop('main')
     except:
-        fastdyn_log.error("Unable to retreive Main Memory")
+        log.error("Unable to retreive Main Memory")
         raise KeyError("Main Memory required with the name 'main' in the toml configuration")
 
     machine0.add_memory(memory_name='main',
@@ -465,7 +463,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         hw_enabled = [h.model for h in device_handler.handlers
                       if h.enabled and h.model in HW_BACKENDS]
         if len(hw_enabled) > 1:
-            fastdyn_log.error(
+            log.error(
                 f"[Device.{device}] enables multiple hardware-talking "
                 f"backends on the same range: {hw_enabled}. "
                 f"passthrough and twintrace both issue MMIO to the "

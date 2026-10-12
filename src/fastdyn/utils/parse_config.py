@@ -7,13 +7,11 @@ from . import helper
 from typing import Optional, Dict, Any, Iterable, Tuple, Union
 import os, sys
 import re
-from .. import fastdyn_log as fastdyn_log_conf
 from ..machine import Machine, CPUConfig, VirtualInstruction, InstructionModifier
 from cmsis_svd.parser import SVDParser
 
 
 log = logging.getLogger(__name__)
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 '''
 Helper functions for symbol parsing
@@ -293,7 +291,7 @@ def parse_vi(vi) -> Tuple[bool, Optional["VirtualInstruction"]]:
         return True, vi
 
     if not isinstance(vi, str):
-        fastdyn_log.error(f"Only string and VirtualInstruction format accepted (got {type(vi).__name__})")
+        log.error(f"Only string and VirtualInstruction format accepted (got {type(vi).__name__})")
         return False, None
 
     s = vi.strip()
@@ -302,7 +300,7 @@ def parse_vi(vi) -> Tuple[bool, Optional["VirtualInstruction"]]:
 
     parts = s.split()
     if len(parts) < 2:
-        fastdyn_log.error(f"Invalid VI line (need: '<at> <instruction> [args...]'): {vi!r}")
+        log.error(f"Invalid VI line (need: '<at> <instruction> [args...]'): {vi!r}")
         return False, None
 
     at_tok, instr = parts[0], parts[1]
@@ -540,11 +538,11 @@ def parse_mod(mod) -> Tuple[bool, Optional["InstructionModifier"]]:
             patch = str(mod.patch).strip()
             return True, InstructionModifier(at=mod.at, patch=patch)
         except Exception as e:
-            fastdyn_log.error(f"Unable to convert InstructionModifier-like object: {e}")
+            log.error(f"Unable to convert InstructionModifier-like object: {e}")
             return False, None
 
     if not isinstance(mod, str):
-        fastdyn_log.error(f"Only string and InstructionModifier format accepted (got {type(mod).__name__})")
+        log.error(f"Only string and InstructionModifier format accepted (got {type(mod).__name__})")
         return False, None
 
     s = mod.strip()
@@ -553,7 +551,7 @@ def parse_mod(mod) -> Tuple[bool, Optional["InstructionModifier"]]:
 
     parts = s.split()
     if len(parts) < 2:
-        fastdyn_log.error(f"Invalid modifier line (need: '<at> <patch...>'): {mod!r}")
+        log.error(f"Invalid modifier line (need: '<at> <patch...>'): {mod!r}")
         return False, None
 
     at_tok = parts[0]
