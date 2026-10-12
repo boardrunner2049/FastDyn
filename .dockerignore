@@ -7,7 +7,6 @@ fastdyn_work*
 fastdyn_llm_history*
 *.log
 hardware_log
-boardrunner/boardrunner_sdk/build
 virtuals/fuzzer/fastdyn_fuzz_lib/target
 **/.venv
 **/__pycache__

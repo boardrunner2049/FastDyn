@@ -1,6 +1,5 @@
 #include <device.h>
 #include <utils.h>
-#include "device_config.h"
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -16,6 +15,8 @@
  * (ABI v2). Libraries without it are older models that export
  * <device>_init/_read/_write and get the whole elder section; that path is
  * kept until those models are ported. */
+
+#define MAX_DEVICES 64  /* devices, and address ranges, elder serves */
 
 typedef struct {
     DeviceModels* config;  // Embed original config struct

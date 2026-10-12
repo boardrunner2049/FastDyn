@@ -1,4 +1,4 @@
-.PHONY: all clean docs setup build_boardrunner
+.PHONY: all clean docs setup
 
 # QEMU and libhw are pinned as submodules under third_party/common/. They are
 # used once they have been built (setup.sh --build-qemu builds the QEMU one);
@@ -31,7 +31,6 @@ DEV          ?= false
 DEBUG_PRINT  ?= false
 LIBPY        ?= false
 SUNDIALS     ?= false
-BOARD_RUNNER ?= false
 PHY			?= false
 FMU			?= false
 FLIGHT_CONTROLLERS ?= false
@@ -41,7 +40,7 @@ EFFECTIVE_PHY := $(if $(filter true,$(PHY) $(FMU) $(FLIGHT_CONTROLLERS) $(LIBGZ)
 all: setup
 	ninja -C build
 
-# Run meson configuration (after clean), and optionally copy libhw.so
+# Run meson configuration (after clean)
 setup: clean fetch
 	mkdir -p build
 	meson setup build \
@@ -61,17 +60,8 @@ setup: clean fetch
 	-Denable_fmu=$(FMU) \
 	-Denable_flight_controllers=$(FLIGHT_CONTROLLERS)
 
-	@if [ "$(BOARD_RUNNER)" = "true" ]; then \
-		$(MAKE) build_boardrunner; \
-	fi
 	@if [ "$(LIBFUZZ)" = "true" ]; then \
 		cd virtuals/fuzzer/fastdyn_fuzz_lib && cargo build --release; \
-	fi
-
-# Copy libhw.so into the build directory
-build_boardrunner:
-	@if [ "$(LIBHW)" = "true" ]; then \
-		cp $(libhw_path)/out/libhw.so build/; \
 	fi
 
 docs:

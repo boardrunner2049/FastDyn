@@ -332,7 +332,6 @@ def _build_qemu_env(qemu_cmd):
         if os.path.basename(plugin_dir) == "build":
             repo_root = os.path.dirname(plugin_dir)
             extra_paths.append(os.path.join(repo_root, "virtuals/fuzzer/fastdyn_fuzz_lib/target/release"))
-            extra_paths.append(os.path.join(repo_root, "device_models/postmartem/verifier"))
             extra_paths.append(os.path.join(repo_root, "out/deps/cjson/install/lib"))
             extra_paths.append(os.path.join(repo_root, "out/deps/cjson/install/lib64"))
 

@@ -205,7 +205,6 @@ if ENABLE_LIBDEV
   # passthrough talk to a probe and need libhw.
   srcs += files(
   'device_models/elder/elder.c',
-  'device_models/elder/device_config.c',
   'device_models/twintrace/twintrace.c',
   'device_models/elder/inih/ini.c'
   )

@@ -41,7 +41,7 @@ flowchart LR
 
 ## 1. CLI Interface
 
-**Entry point.** The installed command is `fastdyn` (also registered as `boardrunner`), declared in `setup.py` under `console_scripts` as `fastdyn = fastdyn.main:cli`. The implementation is in `src/fastdyn/main.py`.
+**Entry point.** The installed command is `fastdyn`, declared in `src/pyproject.toml` under `[project.scripts]` as `fastdyn = fastdyn.main:cli`. The implementation is in `src/fastdyn/main.py`.
 
 ```bash
 # Verify the installed interface
@@ -82,11 +82,11 @@ docker run --rm -v "$PWD/configs:/mnt/configs" fastdyn-env \
   fastdyn run -c /mnt/configs/<fuzzing-config.toml>
 ```
 
-The image entrypoint drops into `/workspace/FastDyn` with the Python venv activated. `fastdyn` and `boardrunner` are both on `PATH`. `LD_LIBRARY_PATH` includes the libhw output directory; `GHIDRA_INSTALL_DIR` is set for the static-analysis frontend.
+The image entrypoint drops into `/workspace/FastDyn` with the Python venv activated. `fastdyn` is on `PATH`. `LD_LIBRARY_PATH` includes the libhw output directory; `GHIDRA_INSTALL_DIR` is set for the static-analysis frontend.
 
 ### 1.3 Secondary subcommands (reference only)
 
-The CLI also exposes `loop`, `swarm`, `timing-summary`, and `harness` for orchestration and instrumentation, plus `verifier`, `fuzz`, and `generate` for hardware-mode workflows out of scope for this document. Run `fastdyn --help` for their signatures.
+The CLI also exposes `loop`, `swarm`, and `timing-summary` for orchestration and instrumentation, `build-model` for compiling device models, and `help` for browsing configuration choices. Run `fastdyn --help` for their signatures.
 
 ## 2. How FastDyn Consumes Models and Firmware Inputs
 
@@ -368,8 +368,8 @@ The build runs `setup.sh --build-qemu --build-gazebo --skip-optifuzz` and then `
 
 ```bash
 docker run --rm fastdyn-env fastdyn --help
-# Expected: click-based help listing build-model, fuzz, generate, help, llm,
-# loop, run, swarm, timing-summary, verifier.
+# Expected: click-based help listing build-model, help, loop, run, swarm,
+# timing-summary.
 ```
 
 ### 5.3 Fuzzing smoke test
@@ -421,30 +421,9 @@ cpu             = "cortex-m4"
 plugin_library  = "build/libfastdyn.so"
 binary          = "virtuals/physics/flight_controllers/courbet/bin/ardurover_v462"
 init_nsvtor     = "0x08004000"
-
-[Device.rcc]
-ranges = [["0x40023800", "0x40023c00"]]
-[[Device.rcc.handlers]]
-model   = "elder"
-enabled = true
-scroll  = "boardrunner/boardrunner_sdk/build/rcc.so"
-
-[Device.spi4]
-ranges = [["0x40013400", "0x40013800"]]
-[[Device.spi4.handlers]]
-model   = "elder"
-enabled = true
-scroll  = "boardrunner/boardrunner_sdk/build/spi4.so"
-
-[[Device.spi4.connections]]
-type          = "slave"
-name          = "icm20602_spi.c"
-cs_id         = 4
-bus           = "spi"
-device_scroll = "boardrunner/boardrunner_sdk/build/icm20602_spi.so"
 ```
 
-Additional peripheral blocks (GPIO A–I, PWR, SPI1 / SPI2, I2C1 / I2C2, USART2 / 3 / 6, UART4 / 7 / 8, DMA1 / DMA2, SysTick, DWT, Flash, SDIO, TIM1 / 2 / 4 / 5, RTC, IWDG, SCB, OTG_FS) follow the same pattern.
+Peripheral models are added as `[Device.<name>]` blocks whose `elder` handler names the model library in `scroll`; the Device Models section of `docs/Configuration.md` describes them.
 
 ---
 

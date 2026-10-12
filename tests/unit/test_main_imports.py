@@ -1,4 +1,5 @@
-"""fastdyn.main works without BoardRunner/PhantomSmith code or their dependencies.
+"""fastdyn.main works without the packages only BoardRunner and PhantomSmith
+need, and without loading the swarm command's module.
 
 Each test runs a fresh interpreter in which those packages cannot be
 imported, so nothing has to be uninstalled from the development venv.
@@ -13,10 +14,7 @@ BLOCKER = '''
 import importlib.abc
 import sys
 
-BLOCKED = (
-    "scipy", "openai", "ollama",
-    "fastdyn.verifier", "fastdyn.llm", "fastdyn.fuzzer", "fastdyn.swarm",
-)
+BLOCKED = ("scipy", "openai", "ollama", "fastdyn.swarm")
 
 
 class BlockFeaturePackages(importlib.abc.MetaPathFinder):
@@ -43,7 +41,7 @@ def test_core_and_feature_command_help_without_feature_packages():
     result = _run_blocked(
         "from click.testing import CliRunner\n"
         "from fastdyn import main\n"
-        "for command in ('run', 'loop', 'generate', 'verifier', 'llm', 'swarm'):\n"
+        "for command in ('run', 'loop', 'swarm'):\n"
         "    outcome = CliRunner().invoke(main.cli, [command, '--help'])\n"
         "    assert outcome.exit_code == 0, (command, outcome.output)\n"
     )

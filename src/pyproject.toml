@@ -13,8 +13,6 @@ requires-python = ">=3.10"
 
 [project.scripts]
 fastdyn = "fastdyn.main:cli"
-# Temporary alias, removed when BoardRunner ships its own command.
-boardrunner = "fastdyn.main:cli"
 
 [tool.setuptools.dynamic]
 version = { attr = "fastdyn.__version__" }

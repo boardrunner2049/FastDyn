@@ -9,12 +9,7 @@
 ```
 tests/unit/
   __init__.py
-  conftest.py               # Shared pytest fixtures
-  test_response_parser.py   # Tests for LLM response parsing
-  test_patch.py             # Tests for SEARCH/REPLACE patch application
-  test_llm_client.py        # Tests for LLM client (mocked, no real API calls)
-  test_evaluate_metrics.py  # Tests for --evaluate metrics (LLMCallMetrics, JSONL output)
-  test_ablation_flags.py    # Tests for --no-encoder, --no-vio, --no-rca ablation flags
+  test_config_paths.py      # Tests for files named in a configuration
   test_runtime_config.py    # Tests for FMU/Rumoca/helper process TOML parsing
   test_swarm.py             # Tests for per-worker swarm port and work-dir planning
 ```
@@ -28,12 +23,12 @@ PYTHONPATH=src pytest tests/unit/ -v
 
 Run a specific test file:
 ```bash
-PYTHONPATH=src pytest tests/unit/test_patch.py -v
+PYTHONPATH=src pytest tests/unit/test_config_paths.py -v
 ```
 
 Run a specific test function:
 ```bash
-PYTHONPATH=src pytest tests/unit/test_patch.py::test_single_patch_success -v
+PYTHONPATH=src pytest tests/unit/test_config_paths.py::test_absolute_paths_are_kept -v
 ```
 
 ## Conventions
@@ -44,14 +39,14 @@ PYTHONPATH=src pytest tests/unit/test_patch.py::test_single_patch_success -v
 - Test classes (optional): `TestClassName` when grouping related tests
 
 ### Fixtures
-- Shared fixtures live in `conftest.py`
+- Shared fixtures live in a `conftest.py`
 - Module-specific fixtures can live at the top of the test file
 - Use `@pytest.fixture` decorator, not manual setup/teardown
 
 ### Mocking
 - **Never make real API calls** in unit tests
 - Use `unittest.mock.patch` or `unittest.mock.MagicMock` for external dependencies
-- Mock at the boundary (e.g., mock the `openai.OpenAI` client, not internal functions)
+- Mock at the boundary (e.g., mock the QEMU process, not internal functions)
 
 ### Assertions
 - Use plain `assert` statements (pytest rewrites them for clear failure messages)
@@ -59,7 +54,7 @@ PYTHONPATH=src pytest tests/unit/test_patch.py::test_single_patch_success -v
 
 ### Test Data
 - Inline small test data directly in the test function
-- For larger fixtures (e.g., sample LLM responses), use multi-line strings or
+- For larger fixtures (e.g., sample configurations), use multi-line strings or
   files in a `testdata/` subdirectory
 
 ## Adding New Tests

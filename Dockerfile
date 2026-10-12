@@ -83,22 +83,6 @@ RUN /bin/bash -c "source ./setup.sh --build-qemu --build-gazebo --skip-optifuzz"
 # Build FastDyn
 RUN /bin/bash -c "source fastdyn-env/bin/activate && make PROBE=true DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true"
 
-# Point the boardrunner_sdk build config at the in-container header locations
-# so `fastdyn llm --compile` works out of the box (it reads this file directly).
-RUN sed -i \
-    -e 's|^FASTDYN_INCLUDE_DIR=.*|FASTDYN_INCLUDE_DIR=/workspace/FastDyn/include|' \
-    -e 's|^QEMU_INCLUDE_DIR=.*|QEMU_INCLUDE_DIR=/workspace/qemu/include|' \
-    boardrunner/boardrunner_sdk/build_config.env
-
-# Configure and pre-build the BoardRunner SDK so `boardrunner/boardrunner_sdk/build/`
-# is ready as soon as the container starts. Participants can drop new model .c files
-# into `boardrunner/boardrunner_sdk/model/` and rebuild with a single `cmake --build`.
-RUN /bin/bash -c "source fastdyn-env/bin/activate && \
-    cmake -S boardrunner/boardrunner_sdk -B boardrunner/boardrunner_sdk/build \
-        -DFASTDYN_INCLUDE_DIR=/workspace/FastDyn/include \
-        -DQEMU_INCLUDE_DIR=/workspace/qemu/include && \
-    cmake --build boardrunner/boardrunner_sdk/build -j"
-
 # Automatically activate the virtual environment for interactive shells
 # Also add libhw to the library path so the fastdyn plugin can find it
 ENV PATH="/workspace/FastDyn/fastdyn-env/bin:${PATH}"
