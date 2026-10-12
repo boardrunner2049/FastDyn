@@ -39,6 +39,9 @@ ranges = [["0x40003800", "0x40003BFF"]]
         device        = "bme280"
         cs_id         = 0
         device_scroll = "build/bme280_slave.so"
+    [[Device.spi2.connections]]
+        type = "endpoint"
+        name = "host/feed.py"
 """
 
 
@@ -46,7 +49,8 @@ ranges = [["0x40003800", "0x40003BFF"]]
 def example(tmp_path, monkeypatch):
     """An example folder with its files, and the current directory elsewhere."""
     folder = tmp_path / "examples" / "spi"
-    for name in ("firmwares/app.elf", "hardware_log/io.trace", "build/spi2_model.so", "build/bme280_slave.so"):
+    for name in ("firmwares/app.elf", "hardware_log/io.trace", "build/spi2_model.so", "build/bme280_slave.so",
+                 "host/feed.py"):
         (folder / name).parent.mkdir(parents=True, exist_ok=True)
         (folder / name).write_bytes(b"")
     (folder / "spi.toml").write_text(CONFIG, encoding="utf-8")
@@ -73,16 +77,20 @@ def test_paths_are_found_next_to_the_config(tmp_path, example):
     assert device.slaves[0].device_scroll == str(example / "build/bme280_slave.so")
     # the device settings handed to the model (and to LibVIO's bus) carry it too
     assert device.config["slaves"][0]["device_scroll"] == str(example / "build/bme280_slave.so")
+    # a host endpoint's Python helper too
+    assert device.connections[0]["name"] == str(example / "host/feed.py")
 
 
 def test_paths_not_next_to_the_config_stay_relative_to_the_current_directory(tmp_path, example):
     os.remove(example / "build" / "spi2_model.so")
     os.remove(example / "hardware_log" / "io.trace")  # e.g. a tape that a record run will write
+    os.remove(example / "host" / "feed.py")
 
     machine = _machine(tmp_path, example / "spi.toml")
 
     assert machine.devices["spi2"].handlers[0].scroll == "build/spi2_model.so"
     assert machine.cpus[0].hardware_trace == "hardware_log/io.trace"
+    assert machine.devices["spi2"].connections[0]["name"] == "host/feed.py"
 
 
 def test_absolute_paths_are_kept(tmp_path, example):

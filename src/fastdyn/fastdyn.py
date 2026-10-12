@@ -98,10 +98,6 @@ class Fastdyn:
 
 def _python_endpoints_for_machine(machine):
     endpoints = []
-    modeling_dir = Path(getattr(machine, "modeling_dir", "boardrunner/boardrunner_sdk/model")).expanduser()
-    if not modeling_dir.is_absolute():
-        modeling_dir = Path.cwd() / modeling_dir
-
     for dev_name, dev in machine.devices.items():
         for conn in getattr(dev, "connections", []) or []:
             if not isinstance(conn, dict):
@@ -115,9 +111,8 @@ def _python_endpoints_for_machine(machine):
             if not name.endswith(".py"):
                 continue
 
+            # The parser resolved it next to the configuration file when it is there.
             endpoint_path = Path(name).expanduser()
-            if not endpoint_path.is_absolute():
-                endpoint_path = modeling_dir / endpoint_path
             if endpoint_path.exists():
                 endpoints.append((str(endpoint_path), dev_name))
             else:
@@ -177,12 +172,6 @@ class Machine:
         self.svd_file: Optional[str] = None
         self.svd_key: Optional[str] = None
         self.svd_device = None
-        self.static_analysis_cache_dir: Optional[str] = None
-        self.static_analysis_macros: dict[str, Any] = {}
-        self.firmware_source_roots: list[str] = []
-        self.modeling_dir: str = "boardrunner/boardrunner_sdk/model"
-        self.milestones: list[str] = []
-        self.ignore_functions: list[str] = []
 
         self.parsed_device = {}            #internal to the machine for qemu understanding
         self.generated_virtual_rules: dict[int, list] = {}
@@ -226,37 +215,6 @@ class Machine:
         if name in self.models:
             raise ValueError(f"Model with name: {name} already initialized")
         self.models[name] = {"backend": backend}
-
-        return True
-
-    def add_rehosting_info(self, rehosting_info=None):
-        rehosting_info = rehosting_info or {}
-        rehosting_dirs = rehosting_info.get("directories", {}) or {}
-
-        firmware_source_roots = rehosting_dirs.get(
-            "firmware_source_roots",
-            rehosting_dirs.get(
-                "source_roots",
-                rehosting_dirs.get("source_code_dir"),
-            ),
-        )
-        if firmware_source_roots in (None, ""):
-            firmware_source_roots = []
-        elif not isinstance(firmware_source_roots, list):
-            firmware_source_roots = [firmware_source_roots]
-
-        self.static_analysis_cache_dir = rehosting_dirs.get(
-            "static_analysis_cache_dir",
-            "fastdyn_static",
-        )
-        self.firmware_source_roots = [str(path) for path in firmware_source_roots]
-
-        static_analysis_info = rehosting_info.get("static_analysis", {}) or {}
-        self.static_analysis_macros = static_analysis_info.get("macros", {}) or {}
-        self.modeling_dir = rehosting_dirs.get(
-            "modeling_dir",
-            self.modeling_dir,
-        )
 
         return True
 

@@ -43,7 +43,7 @@ def test_core_and_feature_command_help_without_feature_packages():
     result = _run_blocked(
         "from click.testing import CliRunner\n"
         "from fastdyn import main\n"
-        "for command in ('run', 'loop', 'generate', 'verifier', 'llm', 'swarm', 'probe-run'):\n"
+        "for command in ('run', 'loop', 'generate', 'verifier', 'llm', 'swarm'):\n"
         "    outcome = CliRunner().invoke(main.cli, [command, '--help'])\n"
         "    assert outcome.exit_code == 0, (command, outcome.output)\n"
     )

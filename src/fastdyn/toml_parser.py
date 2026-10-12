@@ -147,6 +147,16 @@ def _slaves_config_relative(config_path, slaves):
     return resolved
 
 
+def _endpoint_config_relative(config_path, conn):
+    """A host endpoint connection with a Python helper (``name`` ending in
+    ``.py``) resolved like other files named in the configuration."""
+    if (isinstance(conn, dict)
+            and str(conn.get("type", "")).lower().strip() == "endpoint"
+            and str(conn.get("name", "")).strip().endswith(".py")):
+        conn = {**conn, "name": _config_relative(config_path, str(conn["name"]).strip())}
+    return conn
+
+
 def _format_icount_option(value):
     if value is None:
         return None
@@ -221,7 +231,6 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     machine0 = fastdyn_handle.create_machine(machine_name=machine_name,
                                     platform=toml_parser.machine_info.get("platform")
                                     )
-    machine0.add_rehosting_info(toml_parser.rehosting_info)
 
     if load_fmu:
         try:
@@ -291,8 +300,6 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         toml_parser.machine_info.get("savestate_extra_ranges")
     )
 
-    machine0.ignore_functions = toml_parser.machine_info.get("ignore_functions", [])
-    machine0.milestones = toml_parser.machine_info.get("milestones", [])
     #add cmsis svd if Platform name provided by the user
     if toml_parser.machine_info.get("platform") is not None:
         machine0.add_cmsis_svd(cmsis_svd=svd_path)
@@ -486,7 +493,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
 
         #add connections (host endpoints or bus-attached slaves)
         for conn_entry in device_info.get('connections', []):
-            device_handler.add_connection(conn_entry)
+            device_handler.add_connection(_endpoint_config_relative(toml_config, conn_entry))
 
         #add slaves in case of I2C and SPI
         slaves_list = _slaves_config_relative(toml_config, device_info.get('slaves', []))
@@ -513,7 +520,6 @@ class TomlParser:
         self.parsed_config  = self.toml_parser(config_path)
         self.fastdyn_handle = fastdyn_handle
         self.machine_info   = self.parsed_config.get("Machine")
-        self.rehosting_info = self.parsed_config.get("Rehosting", {}) or {}
         self.cpus_info      = self.parsed_config.get("CPU")
         self.devices_info   = self.parsed_config.get("Device")
         self.memory_info    = self.parsed_config.get("Memory")

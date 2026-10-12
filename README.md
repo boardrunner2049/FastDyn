@@ -1,8 +1,10 @@
 # FastDyn Plugins
 
-## Automatic Rehosting of Ardupilot Ardurover v4.6.2
+## Automatic Rehosting
 
-Please access the detailed rehosting steps in the `docs/Ardurover_Rehosting.md`
+Automatic rehosting, including the ArduRover 4.6.2 reference target, is done
+by [PhantomSmith](https://github.com/PSecLab/PhantomSmith), which runs the
+firmware on FastDyn.
 
 ## Docker Build
 
