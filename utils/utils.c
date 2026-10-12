@@ -6,16 +6,13 @@
 
 #include <fastdyn/log.h>
 
-// Global log handle
-static FILE *fp;
-
 void utils_die(const char *msg) {
-    fprintf(stderr, "%s\n", msg);
+    FD_LOG_ERROR("%s", msg);
     exit(EXIT_FAILURE);
 }
 
 void utils_warn(const char *msg) {
-    fprintf(stderr, "%s\n", msg);
+    FD_LOG_WARN("%s", msg);
 }
 
 char * utils_get_arg(const char * key, int argc, char **argv) {
@@ -38,18 +35,12 @@ void utils_log_to_file(FILE *fp, const char *fmt, ...) {
 	fflush(fp);  // ensure log is flushed to disk
 }
 
-FILE *utils_log_fp(void) {
-    return fp;
-}
-
 int utils_init(int argc, char** argv) {
 	/* The frontend passes the log level as a Python logging number. */
 	const char *log_level = utils_get_arg("log_level", argc, argv);
 	if (log_level) {
 		fastdyn_log_set_level((int)strtol(log_level, NULL, 10));
 	}
-	fp = fopen("debug.log", "a");
-	if (!fp) return -1;
 	return 0;
 }
 

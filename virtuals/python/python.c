@@ -132,8 +132,8 @@ void fastdyn_callback(unsigned int cpu_index, void *udata) {
 
 	PyGILState_STATE gstate = PyGILState_Ensure();
 
-	DEBUG_LOG("fastdyn api called!\n");
-	DEBUG_LOG("input pc: %s\n",input);
+	DEBUG_LOG("fastdyn api called!");
+	DEBUG_LOG("input pc: %s",input);
 
 	//Build the arguments. -> PC Value passed by the user when registering the callback!
 	PyObject *fastdyn_callback_args = PyTuple_Pack(2, PyUnicode_FromString(input), PyLong_FromLong(peripheral_server_init));
@@ -183,7 +183,7 @@ uint32_t read_floating_reg(int reg);
 uint32_t read_floating_reg(int reg){
 	FloatConverter fc;
 	fc.i = qemu_get_register(reg);
-	DEBUG_LOG("Read_REG value %f\n", fc.f);
+	DEBUG_LOG("Read_REG value %f", fc.f);
 	return fc.f;
 }
 static PyObject *read_floating_reg_callback(PyObject *self, PyObject *args) {
@@ -205,7 +205,7 @@ void write_floating_reg(int reg, float val);
 void write_floating_reg(int reg, float val){
 	FloatConverter fc;
 	fc.f = val;
-	DEBUG_LOG("the value from c code is %f\n", fc.f);
+	DEBUG_LOG("the value from c code is %f", fc.f);
 	qemu_set_register(fc.i, reg);
 }
 static PyObject *write_floating_reg_callback(PyObject *self, PyObject *args) {

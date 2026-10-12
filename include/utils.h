@@ -5,20 +5,16 @@
 #include <stdlib.h>
 #include "device.h"
 
-#define DEBUG_FILE
+/* Diagnostics use <fastdyn/log.h>. DEBUG_LOG, kept for older code, logs at
+ * DEBUG as fastdyn.debug. fastdyn_log() is declared here rather than by
+ * including <fastdyn/log.h>, so this header does not set a file's log
+ * subsystem or pull in config.h. */
+void fastdyn_log(int level, const char *subsystem, const char *format, ...)
+    __attribute__((format(printf, 3, 4)));
+#define DEBUG_LOG(fmt, ...) fastdyn_log(10, "debug", fmt, ##__VA_ARGS__)
 
-
-#if DEBUG_PRINT
-  #define DEBUG_LOG(fmt, ...) \
-    printf(fmt "\n", ##__VA_ARGS__)
-#elif defined(DEBUG_FILE)
-  FILE *utils_log_fp(void);
-  void utils_log_to_file(FILE *fp, const char *fmt, ...);
-  #define DEBUG_LOG(fmt, ...) \
-    utils_log_to_file(utils_log_fp(), fmt "\n", ##__VA_ARGS__)
-#else
-  #define DEBUG_LOG(fmt, ...) ((void)0)
-#endif
+/* Writes trace data (io.log) to fp and flushes it. */
+void utils_log_to_file(FILE *fp, const char *fmt, ...);
 
 typedef struct {
     unsigned long start;

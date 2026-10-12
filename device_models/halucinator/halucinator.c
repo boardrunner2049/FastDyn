@@ -98,7 +98,7 @@ static int halucinator_interrupt(int number) {
 	time_t sec;
     long usec;
     dev_get_timestamp(&sec, &usec);
-	DEBUG_LOG("[%5ld.%06ld] Interrupt Taken: \t Vector = 0x%08X\n",
+	DEBUG_LOG("[%5ld.%06ld] Interrupt Taken: \t Vector = 0x%08X",
 			sec, usec, number);
 
 	if (!py_init) {
@@ -132,7 +132,7 @@ static int halucinator_serve(int number) {
 	time_t sec;
     long usec;
 	dev_get_timestamp(&sec, &usec);
-	DEBUG_LOG("[%5ld.%06ld] Interrupt Served: \t Vector = 0x%08X\n",
+	DEBUG_LOG("[%5ld.%06ld] Interrupt Served: \t Vector = 0x%08X",
 			sec, usec, number);
 
 	if (!py_init) {
