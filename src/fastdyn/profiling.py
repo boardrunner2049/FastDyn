@@ -11,9 +11,7 @@ import sys
 from typing import Sequence
 import logging
 
-from . import fastdyn_log as fastdyn_log_conf
 log = logging.getLogger(__name__)
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 
 _FALSE_VALUES = {"", "0", "false", "off", "no", "none", "disabled"}
@@ -52,14 +50,14 @@ def perf_mode() -> str:
         return "stat"
     if mode in {"stat", "record"}:
         return mode
-    fastdyn_log.error(f"unknown FASTDYN_PERF_MODE={raw!r}; perf disabled")
+    log.error(f"unknown FASTDYN_PERF_MODE={raw!r}; perf disabled")
     return "off"
 
 
 def _perf_usable() -> bool:
     perf = shutil.which("perf")
     if perf is None:
-        fastdyn_log.error("[profile] perf not found; QEMU perf profiling disabled")
+        log.error("[profile] perf not found; QEMU perf profiling disabled")
         return False
 
     try:
@@ -71,11 +69,11 @@ def _perf_usable() -> bool:
             check=False,
         )
     except Exception as exc:
-        fastdyn_log.error(f"[profile] perf probe failed ({exc}); QEMU perf profiling disabled")
+        log.error(f"[profile] perf probe failed ({exc}); QEMU perf profiling disabled")
         return False
 
     if result.returncode != 0:
-        fastdyn_log.error("[profile] perf is not permitted on this host; QEMU perf profiling disabled")
+        log.error("[profile] perf is not permitted on this host; QEMU perf profiling disabled")
         return False
     return True
 
@@ -98,7 +96,7 @@ def wrap_perf_command(command: Sequence[str], *, name: str, work_dir: str | Path
         if events:
             wrapped.extend(["-e", events])
         wrapped.extend(["--", *command])
-        fastdyn_log.info(
+        log.info(
             f"[profile] QEMU perf record: {out_file} "
             f"(inspect with: perf report -i {out_file})",
         )
@@ -109,7 +107,7 @@ def wrap_perf_command(command: Sequence[str], *, name: str, work_dir: str | Path
     if events:
         wrapped.extend(["-e", events])
     wrapped.extend(["--", *command])
-    fastdyn_log.info(f"[profile] QEMU perf stat: {out_file}")
+    log.info(f"[profile] QEMU perf stat: {out_file}")
     return wrapped
 
 
@@ -174,7 +172,7 @@ def wrap_python_profile_command(
         str(out_file),
         *cmd[script_idx:],
     ]
-    fastdyn_log.info(
+    log.info(
         f"[profile] Python cProfile for '{name}': {out_file} "
         f"(inspect with: python3 -m pstats {out_file})"
     )

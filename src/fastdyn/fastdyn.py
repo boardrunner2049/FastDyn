@@ -1,8 +1,8 @@
 '''
 This package can be used independently as well to include as a tool.
-See test/fastdyn_package/example.py
+See configs/python_api/ for examples
 '''
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union, Sequence
@@ -11,15 +11,14 @@ import subprocess
 import logging
 
 from .utils import helper
+from . import paths
 from . import timing
 
 from .utils import parse_config as parse_helper
 
 from .machine import VirtualInstruction
 
-from . import fastdyn_log as fastdyn_log_conf
 log = logging.getLogger(__name__)
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 #supported targets
 from .targets import qemu_target
@@ -35,7 +34,14 @@ class Fastdyn:
         return machine
 
     def run(self, target, machine_name, out_path=None):
+        """Run one machine; returns QEMU's exit code.
+
+        Raises ``qemu_target.QemuExitError`` when QEMU exits with a non-zero
+        code that was not requested through :meth:`shutdown`. A Ctrl-C stops
+        QEMU and propagates as ``KeyboardInterrupt``.
+        """
         machine = self.machines[machine_name]
+        machine.shutdown_requested = False
         if target.lower() == "qemu":
             # Firmware-wide modules prepare
             # declarative virtual rules and artifacts here.  The QEMU
@@ -60,7 +66,7 @@ class Fastdyn:
                     )
 
                 with timing.phase(f"{machine_name}.qemu_execution"):
-                    qemu_target.start_execution(
+                    exit_code = qemu_target.start_execution(
                         qemu_cmd,
                         launch_gdb,
                         gdb_cmd,
@@ -68,6 +74,9 @@ class Fastdyn:
                         python_endpoints=python_endpoints,
                         exit_timeout_ms=machine.qemu_target_opts.exit_timeout_ms,
                     )
+                    if exit_code and not machine.shutdown_requested:
+                        raise qemu_target.QemuExitError(machine_name, exit_code, out_path)
+                return exit_code
             finally:
                 for cleanup in reversed(getattr(machine, "preprocessing_cleanup", [])):
                     cleanup()
@@ -76,17 +85,17 @@ class Fastdyn:
     def shutdown(self, machine_name=None):
         machines = [self.machines[machine_name]] if machine_name is not None else self.machines.values()
         for machine in machines:
+            # A stop requested here is not a QEMU failure (see run()). QEMU gets
+            # SIGINT, so it exits normally and plugins write their results,
+            # and is killed only if it is still running after exit_timeout_ms.
+            machine.shutdown_requested = True
             port = getattr(machine.qemu_target_opts, "monitor_port", None)
             if port is not None:
-                qemu_target.kill_qemu_process(port=port)
+                qemu_target.stop_qemu_process(port, machine.qemu_target_opts.exit_timeout_ms)
 
 
 def _python_endpoints_for_machine(machine):
     endpoints = []
-    modeling_dir = Path(getattr(machine, "modeling_dir", "boardrunner/boardrunner_sdk/model")).expanduser()
-    if not modeling_dir.is_absolute():
-        modeling_dir = Path.cwd() / modeling_dir
-
     for dev_name, dev in machine.devices.items():
         for conn in getattr(dev, "connections", []) or []:
             if not isinstance(conn, dict):
@@ -100,9 +109,8 @@ def _python_endpoints_for_machine(machine):
             if not name.endswith(".py"):
                 continue
 
+            # The parser resolved it next to the configuration file when it is there.
             endpoint_path = Path(name).expanduser()
-            if not endpoint_path.is_absolute():
-                endpoint_path = modeling_dir / endpoint_path
             if endpoint_path.exists():
                 endpoints.append((str(endpoint_path), dev_name))
             else:
@@ -113,7 +121,7 @@ def _python_endpoints_for_machine(machine):
 class QemuTargetOpts:
     def __init__(self):
         #initialize with default values
-        self.qemu_path: str = "qemu-system-arm"
+        self.qemu_path: str = ""  # optional; resolved by qemu_target.resolve_qemu_binary
         self.finline: Optional[str] = None
         self.coverage: bool = False
         self.fuzzing: bool = False
@@ -135,11 +143,6 @@ class QemuTargetOpts:
         self.timer_irq_period_ns: Optional[int] = None
         self.print_command: bool = False
         self.reset_memory_files: bool = False
-        self.probe_run: bool = False
-        self.probe_faults: Optional[str] = None
-        self.probe_milestones: Optional[str] = None
-        self.probe_ignores: Optional[str] = None
-        self.probe_out_dir: Optional[str] = None
         self.print_command = False
         self.savestate_extra_ranges: list[tuple[int, int]] = []
 
@@ -162,12 +165,6 @@ class Machine:
         self.svd_file: Optional[str] = None
         self.svd_key: Optional[str] = None
         self.svd_device = None
-        self.static_analysis_cache_dir: Optional[str] = None
-        self.static_analysis_macros: dict[str, Any] = {}
-        self.firmware_source_roots: list[str] = []
-        self.modeling_dir: str = "boardrunner/boardrunner_sdk/model"
-        self.milestones: list[str] = []
-        self.ignore_functions: list[str] = []
 
         self.parsed_device = {}            #internal to the machine for qemu understanding
         self.generated_virtual_rules: dict[int, list] = {}
@@ -214,37 +211,6 @@ class Machine:
 
         return True
 
-    def add_rehosting_info(self, rehosting_info=None):
-        rehosting_info = rehosting_info or {}
-        rehosting_dirs = rehosting_info.get("directories", {}) or {}
-
-        firmware_source_roots = rehosting_dirs.get(
-            "firmware_source_roots",
-            rehosting_dirs.get(
-                "source_roots",
-                rehosting_dirs.get("source_code_dir"),
-            ),
-        )
-        if firmware_source_roots in (None, ""):
-            firmware_source_roots = []
-        elif not isinstance(firmware_source_roots, list):
-            firmware_source_roots = [firmware_source_roots]
-
-        self.static_analysis_cache_dir = rehosting_dirs.get(
-            "static_analysis_cache_dir",
-            "fastdyn_static",
-        )
-        self.firmware_source_roots = [str(path) for path in firmware_source_roots]
-
-        static_analysis_info = rehosting_info.get("static_analysis", {}) or {}
-        self.static_analysis_macros = static_analysis_info.get("macros", {}) or {}
-        self.modeling_dir = rehosting_dirs.get(
-            "modeling_dir",
-            self.modeling_dir,
-        )
-
-        return True
-
     #TODO: Update this
     def list_devices(self):
         pass
@@ -252,10 +218,10 @@ class Machine:
     def add_cmsis_svd(self, cmsis_svd):
         platform = (self.platform or "").strip()
         if not platform or platform.lower() in ("intel", "x86", "x86_64", "base_generic", "pc", "q35", "riscv", "riscv32", "riscv64", "virt", "spike"):
-            fastdyn_log.info(f"Skipping CMSIS SVD resolution for non-ARM platform '{platform}'.")
+            log.info(f"Skipping CMSIS SVD resolution for non-ARM platform '{platform}'.")
             return
 
-        fastdyn_log.info("Parsing the passed path for the CMSIS SVD")
+        log.info("Parsing the passed path for the CMSIS SVD")
 
         try:
             svd_file, svd_key = parse_helper.resolve_svd(
@@ -266,22 +232,22 @@ class Machine:
             )
         except parse_helper.SvdResolutionError as e:
             if platform.lower().startswith("generic-"):
-                fastdyn_log.info(
+                log.info(
                     f"Skipping CMSIS SVD resolution for generic platform '{platform}'."
                 )
             else:
-                fastdyn_log.warning(
+                log.warning(
                     f"Could not resolve CMSIS SVD for platform '{platform}': {e}"
                 )
             return
 
-        fastdyn_log.info(f"Using SVD: {svd_file} (key='{svd_key}')")
+        log.info(f"Using SVD: {svd_file} (key='{svd_key}')")
         self.svd_file = svd_file
         self.svd_key = svd_key
         svd_device = parse_helper.get_svd_device(svd_file)
         self.svd_device = svd_device
 
-        fastdyn_log.info("Creating IRQ Map using the CMSIS SVD")
+        log.info("Creating IRQ Map using the CMSIS SVD")
         self.irq_map = parse_helper.create_svd_irq_map(svd_device)
         return True
 
@@ -302,10 +268,12 @@ class CPU:
         self.twintrace = twintrace       #supported options are record, replay or None
         self.hardware_trace = hardware_trace    # hardware log needed in case of replay
         self.plugin_config: dict[str, dict] = {}
+        # Plugins loaded from a folder outside FastDyn (`source = "<dir>"`).
+        self.plugin_sources: dict[str, Path] = {}
         self.machine_obj = machine_obj
         self.exstng_config_path = exstng_config_path
 
-        self.plugin_library: Optional[str] = "build/libfastdyn.so"
+        self.plugin_library: Optional[str] = paths.default_plugin_library()
         self.monitor_elf: Optional[str] = None
 
         self.log_file: Optional[str] = "qemu.log"
@@ -329,7 +297,7 @@ class CPU:
         for item in items:
             ok, parsed = parse_helper.parse_vi(item)
             if not ok or parsed is None:
-                fastdyn_log.error("Unable to parse Virtual Instruction")
+                log.error("Unable to parse Virtual Instruction")
                 return False
 
             # Keep rules declarative until run preparation. This preserves the
@@ -351,13 +319,13 @@ class CPU:
         for item in items:
             ok, parsed = parse_helper.parse_mod(item)
             if not ok or parsed is None:
-                fastdyn_log.error("Unable to parse Instruction Modifier")
+                log.error("Unable to parse Instruction Modifier")
                 return False
 
             try:
                 resolved = parse_helper.resolve_mod(parsed, symbol_map=self.symbol_dict)
             except Exception as e:
-                fastdyn_log.error(f"Unable to resolve Instruction Modifier: {e}")
+                log.error(f"Unable to resolve Instruction Modifier: {e}")
                 return False
 
             out.append(parse_helper.mod_to_string(resolved))
@@ -367,13 +335,13 @@ class CPU:
 
     def update_cpu_param(self, param, val):
         if not hasattr(self, param):
-            fastdyn_log.error(f"Unknown CPUConfig field: {param}")
+            log.error(f"Unknown CPUConfig field: {param}")
             return False
         try:
             setattr(self, param, val)
             return True
         except (AttributeError, TypeError, ValueError) as e:
-            fastdyn_log.error(f"Unable to set '{param}' to {val!r}: {e}")
+            log.error(f"Unable to set '{param}' to {val!r}: {e}")
             return False
 
 @dataclass
@@ -384,12 +352,11 @@ class DeviceHandler:
     args: Optional[Any] = None           # could be str/list/dict depending on your parser
     scroll: Optional[str] = None         # path to .so (your example uses this for elder)
 
-@dataclass
-class Slave:
-    device: str                         # The device ID/name
-    model: list[str]                    # MUST be a list (e.g., ["elder"])
-    params: Dict[str, Any] = field(default_factory=dict)
-    device_scroll: Optional[str] = None # The path/identifier for the slave
+# [Device.<name>] keys FastDyn interprets itself. Every other key belongs to
+# the device's model and is passed to it unchanged as its config.
+FASTDYN_DEVICE_KEYS = frozenset({"handlers", "ranges", "irq", "description", "connections",
+                                 "read_priority"})
+
 
 class Device:
     def __init__(self, name, machine_obj):
@@ -400,6 +367,9 @@ class Device:
         self.irq_range = []
         self.description: str = ""
         self.connections: list = []
+        # The model's own settings (e.g. "slaves" for LibVIO buses), passed to
+        # the model as a JSON object without interpretation.
+        self.config: Dict[str, Any] = {}
         #here just add ranges and validate them before running qemu (transformation step)
 
     def add_ranges(self, start, end=None, size=None):
@@ -484,8 +454,13 @@ class Device:
         Supported inputs:
         - int: 53
         - str: "53", "0x35"  (numeric)
-        - str: "USART1_IRQn" (symbol; resolved via machine_obj.irq_map)
+        - str: "USART1" (the CMSIS-SVD interrupt name; resolved via machine_obj.irq_map)
         - [start, end]: inclusive range, where start/end can be int/str/symbol
+
+        Numbers are the interrupt numbers FastDyn reports when the CPU takes
+        an interrupt: on Cortex-M, exception numbers (device IRQ n is n + 16).
+        Symbolic names come from CMSIS-SVD as IRQ numbers, so 16 is added
+        for them on Cortex-M; numbers are used as written.
 
         Behavior:
         - self.irq_range is a flat list of ints
@@ -493,6 +468,18 @@ class Device:
         - add_irq([2, 4]) -> extends with [2,3,4]
         - avoids duplicates (keeps list clean), keeps sorted ascending
         """
+        def _exception_offset(name) -> int:
+            """CMSIS-SVD gives IRQ numbers; Cortex-M reports exception numbers (+16)."""
+            cpus = getattr(self.machine_obj, "cpus", None) or []
+            if not cpus:
+                raise RuntimeError(
+                    f"[Device.{self.device_name}] IRQ name {name!r}: add the CPU before the "
+                    "device's IRQs, so FastDyn knows how the CPU numbers interrupts"
+                )
+            cortex_m = all(str(c.arch).lower() == "arm" and str(c.machine).lower() == "cortexm"
+                           for c in cpus)
+            return 16 if cortex_m else 0
+
         def _resolve_one(x) -> int:
             # int directly
             if isinstance(x, int):
@@ -501,6 +488,10 @@ class Device:
             # strings: numeric first, then symbol lookup
             if isinstance(x, str):
                 s = x.strip()
+                if ("-" in s or ":" in s) and not s.lstrip("-").isdigit():
+                    raise ValueError(
+                        f"[Device.{self.device_name}].irq: {x!r} is the old range syntax; write "
+                        "ranges as a list, e.g. irq = [[0, 100]] or irq = [[0, 20], [21, 25], 41]")
                 # numeric? (supports "53" and "0x35")
                 try:
                     return int(s, 0)
@@ -517,11 +508,11 @@ class Device:
 
                 # support both {name->num} and {num->name}
                 if s in irq_map and isinstance(irq_map[s], int):
-                    return int(irq_map[s])
+                    return int(irq_map[s]) + _exception_offset(s)
 
                 for k, v in irq_map.items():
                     if v == s and isinstance(k, int):
-                        return int(k)
+                        return int(k) + _exception_offset(s)
 
                 raise KeyError(f"IRQ symbol {s!r} not found in machine_obj.irq_map")
 
@@ -568,35 +559,12 @@ class Device:
 
     def add_connection(self, conn_data: dict) -> None:
         if conn_data and isinstance(conn_data, dict):
+            if str(conn_data.get("type", "")).lower().strip() == "slave":
+                raise ValueError(
+                    f"[Device.{self.device_name}] connections of type 'slave' are no longer "
+                    f"supported; list bus slaves under [[Device.{self.device_name}.slaves]] instead"
+                )
             self.connections.append(conn_data)
-
-    def add_slave(self, slave_data: dict):
-            """
-            Expects a dictionary containing at least 'device' and 'model'.
-            All other keys (except 'device_scroll') are moved into 'params'.
-            """
-            if not hasattr(self, 'slaves') or self.slaves is None:
-                self.slaves = []
-
-            # 1. Extract metadata
-            device_id = slave_data.get('device')
-            models = slave_data.get('model', [])
-            scroll = slave_data.get('device_scroll')
-
-            # 2. Extract everything else into params
-            # This takes every key in the TOML entry EXCEPT the metadata ones
-            metadata_keys = {'device', 'model', 'device_scroll'}
-            params = {k: v for k, v in slave_data.items() if k not in metadata_keys}
-
-            # 3. Create and store the object
-            new_slave = Slave(
-                device=str(device_id),
-                model=list(models) if isinstance(models, list) else [models],
-                params=params,  # Now contains 'address', 'cs_id', etc.
-                device_scroll=scroll
-            )
-            self.slaves.append(new_slave)
-            return True
 
 class MemoryType(Enum):
     SRAM = "SRAM"
@@ -656,7 +624,6 @@ class Memory:
 # This api transforms the DeviceSection to Fastdyn understandable device format
 # =============================================================================
 
-import os
 from typing import Any, Dict, Optional
 
 def compile_device_routing(
@@ -665,7 +632,6 @@ def compile_device_routing(
     *,
     models: Optional[Dict[str, Any]] = None,
     include_models: Optional[set[str]] = None,
-    check_scroll_paths: bool = True,
 ) -> bool:
     """
     Transform {dev_name: Device} into model-centric routing JSON and write it into parsed_device.
@@ -732,6 +698,7 @@ def compile_device_routing(
 
             entry = bucket.setdefault(dev_name, {})
             entry["range"] = list(ranges)
+            entry["config"] = dict(getattr(dev, "config", None) or {})
 
             if irq:
                 entry["irq"] = irq
@@ -748,85 +715,7 @@ def compile_device_routing(
         bucket["overall"] = _dedup_preserve_order(bucket["overall"])
         bucket["backend"] = _model_backend(model)
 
-    # -----------------------------
-    # Pass 2: slaves and bus-attached connections.
     # Endpoint connections are host-side helpers and are not forwarded to QEMU.
-    # -----------------------------
-    for dev_name, dev in devices.items():
-        slaves = getattr(dev, "slaves", None)
-        for slave in slaves or []:
-            for model in getattr(slave, "model", []) or []:
-                if include_models is not None and model not in include_models:
-                    continue
-
-                if model not in routing or dev_name not in routing[model]:
-                    continue
-
-                routing[model][dev_name].setdefault("slaves", {})
-                slaves_out = routing[model][dev_name]["slaves"]
-
-                params = getattr(slave, "params", {}) or {}
-                s_cfg: Dict[str, Any] = dict(params)
-
-                device_scroll = getattr(slave, "device_scroll", None)
-                if device_scroll:
-                    if check_scroll_paths and os.path.exists(device_scroll):
-                        s_cfg["scroll_path"] = device_scroll
-                        s_cfg["is_scroll_path"] = True
-                    else:
-                        s_cfg["is_scroll_path"] = False
-                else:
-                    s_cfg["is_scroll_path"] = False
-
-                slaves_out[getattr(slave, "device")] = s_cfg
-
-        for conn in getattr(dev, "connections", []) or []:
-            if not isinstance(conn, dict):
-                continue
-            if conn.get("enabled", True) is False:
-                continue
-            if str(conn.get("type", "")).lower().strip() != "slave":
-                continue
-
-            conn_models = conn.get("model")
-            if conn_models is None:
-                conn_models = [
-                    model for model, bucket in routing.items()
-                    if dev_name in bucket
-                ]
-            elif isinstance(conn_models, str):
-                conn_models = [conn_models]
-
-            for model in conn_models:
-                if include_models is not None and model not in include_models:
-                    continue
-                if model not in routing or dev_name not in routing[model]:
-                    continue
-
-                routing[model][dev_name].setdefault("slaves", {})
-                slaves_out = routing[model][dev_name]["slaves"]
-
-                meta_keys = {"type", "model", "enabled", "device_or_topic"}
-                s_cfg: Dict[str, Any] = {
-                    k: v for k, v in conn.items() if k not in meta_keys
-                }
-
-                device_scroll = conn.get("device_scroll")
-                if device_scroll:
-                    if check_scroll_paths and os.path.exists(device_scroll):
-                        s_cfg["scroll_path"] = device_scroll
-                        s_cfg["is_scroll_path"] = True
-                    else:
-                        s_cfg["is_scroll_path"] = False
-                else:
-                    s_cfg["is_scroll_path"] = False
-
-                slave_key = (
-                    conn.get("name")
-                    or conn.get("device_or_topic")
-                    or f"{dev_name}_conn_{len(slaves_out)}"
-                )
-                slaves_out[slave_key] = s_cfg
 
     # write to output dict (your current pattern)
     parsed_device.clear()

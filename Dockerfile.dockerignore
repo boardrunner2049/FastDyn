@@ -1,0 +1,25 @@
+# Host state and build products; the image builds everything itself
+**/.git
+**/.venv
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+**/*.log
+**/fastdyn_work*
+fastdyn-env
+build
+build-*
+out
+virtuals/fuzzer/fastdyn_fuzz_lib/target
+third_party/common/qemu/build
+third_party/common/libhw/out
+third_party/courbet_deps/ardupilot_gazebo/build
+virtuals/physics/flight_controllers/courbet/gazebo/build
+virtuals/physics/physics_engines/gazebo/build
+
+# Submodules the image does not use: Rumoca and the Modelica models (FMU
+# generation), and the optional tools
+third_party/common/rumoca
+third_party/common/modelica_models
+tools/raw2elf
+tools/world

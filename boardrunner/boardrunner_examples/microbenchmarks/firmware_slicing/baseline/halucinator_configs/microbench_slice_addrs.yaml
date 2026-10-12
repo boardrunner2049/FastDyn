@@ -1,8 +1,0 @@
-architecture: ARMEL
-base_address: 0
-entry_point: 0
-symbols:
-  134218156: slice_probe   # 0x080001ac
-  134218170: bench_start   # 0x080001ba
-  134218184: bench_done    # 0x080001c8
-  134218198: main          # 0x080001d6

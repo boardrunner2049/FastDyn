@@ -1,7 +1,7 @@
 #QEMU DIR PATHS
-option('qemu_path', type: 'string', value: '../../qemu', description: 'Path to the QEMU')
+option('qemu_path', type: 'string', value: 'third_party/common/qemu', description: 'Path to the patched QEMU (relative paths are resolved against the source root)')
 #LIBHW DIR PATHS
-option('libhw_path', type: 'string', value: '../../../libhw', description: 'Path to LIBHW')
+option('libhw_path', type: 'string', value: 'third_party/common/libhw', description: 'Path to LIBHW (relative paths are resolved against the source root)')
 #AFLNET DIR PATHS
 option('aflnet_path', type: 'string', value: '../aflnet', description: 'Path to AFLNET')
 
@@ -9,7 +9,6 @@ option('aflnet_path', type: 'string', value: '../aflnet', description: 'Path to 
 option('enable_libhw', type: 'boolean', value: false, description: 'Enable libhw support')
 option('enable_libfuzz', type: 'boolean', value: false, description: 'Enable rust fuzzing support')
 option('enable_aflnet', type: 'boolean', value: false, description: 'Enable protocol fuzzing support')
-option('enable_probe', type: 'boolean', value: false, description: 'Enable probe runtime support')
 
 #Configuration Options
 option('device_models', type: 'boolean', value: false, description: 'Enable device models support')

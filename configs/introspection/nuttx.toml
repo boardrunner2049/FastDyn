@@ -1,7 +1,7 @@
 # Apache NuttX qemu-armv7a:nsh image using the committed debug-symbol fixture.
 [Machine]
 platform = "generic-armv7a"
-qemu_path = "../qemu/build/qemu-system-arm"
+# qemu_path = "../qemu/build/qemu-system-arm"  # optional: defaults to the QEMU FastDyn was built against
 display = "none"
 serial = "none"
 monitor_port = 0

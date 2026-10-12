@@ -4,4 +4,32 @@
 
 __author__ = """Fastdyn Team"""
 __email__ = 'fastdyn@pseclab.com'
-__version__ = '0.1.0'
+__version__ = '1.0.0'
+
+import logging
+
+# Library code never configures logging; programs call fastdyn.logs.configure().
+logging.getLogger("fastdyn").addHandler(logging.NullHandler())
+
+# Public entry points, imported on first use so `import fastdyn` stays light
+# (runner pulls in the FMU and helper-process machinery).
+_RUNNER_EXPORTS = ("run_config", "load", "Session", "RunResult", "RunError")
+_MODEL_BUILD_EXPORTS = ("build_models", "Model", "BuildReport")
+
+__all__ = [*_RUNNER_EXPORTS, *_MODEL_BUILD_EXPORTS]
+
+
+def __getattr__(name):
+    if name in _RUNNER_EXPORTS:
+        from . import runner
+
+        return getattr(runner, name)
+    if name in _MODEL_BUILD_EXPORTS:
+        from . import model_build
+
+        return getattr(model_build, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

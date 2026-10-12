@@ -2,25 +2,56 @@
 One of the supported targets by Fastdyn: QEMU.
 """
 
+import hashlib
+import json
 import os
 import re
 import shutil
 import subprocess
 import signal
+import tempfile
+import time
 
 from ..utils import helper, twintrace
 from ..binary import binary_wrange
 import logging
 
-from .. import fastdyn_log as fastdyn_log_conf
-from .. import profiling, timing
+from .. import logs, profiling, timing
 from ..virtual_preprocessing import (
     VirtualRule,
     prepare_run_preprocessors,
     prepare_virtual_rules,
 )
 log = logging.getLogger(__name__)
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
+
+DEFAULT_QMP_SOCKET = "/tmp/qmp.sock"
+UNIX_SOCKET_PATH_MAX = 107  # sun_path holds 108 bytes, including the final NUL
+
+
+def run_qmp_socket(work_dir):
+    """The QMP socket of a run that keeps the default ``qmp_socket``.
+
+    It is ``<work_dir>/qmp.sock``, so parallel runs do not collide. When that
+    path is too long for a Unix socket, the socket goes to a short per-user
+    folder instead, named after the work directory: under ``$XDG_RUNTIME_DIR``,
+    the temporary directory or ``/tmp``, the first where it fits.
+    """
+    work_dir = os.path.abspath(work_dir)
+    path = os.path.join(work_dir, "qmp.sock")
+    if len(os.fsencode(path)) <= UNIX_SOCKET_PATH_MAX:
+        return path
+    name = f"qmp-{hashlib.sha1(os.fsencode(work_dir)).hexdigest()[:16]}.sock"
+    for base in (os.environ.get("XDG_RUNTIME_DIR"), tempfile.gettempdir(), "/tmp"):
+        if not base:
+            continue
+        folder = os.path.join(base, f"fastdyn-{os.getuid()}")
+        short = os.path.join(folder, name)
+        if len(os.fsencode(short)) <= UNIX_SOCKET_PATH_MAX:
+            os.makedirs(folder, mode=0o700, exist_ok=True)
+            log.info("QMP socket at %s (%s is too long for a Unix socket)", short, path)
+            return short
+    raise ValueError(f"no folder for a QMP socket short enough for a Unix socket; set qmp_socket in [Machine] "
+                     f"(the default {path} is too long)")
 
 
 def _dedup_preserve_order(items):
@@ -129,7 +160,7 @@ def _ensure_memory_backend_file(memory):
 
     if os.path.getsize(memory_file) != size_bytes:
         os.truncate(memory_file, size_bytes)
-        fastdyn_log.info(
+        log.info(
             f"Prepared QEMU memory backend {memory_file} with size {memory.memory_size}."
         )
 
@@ -150,7 +181,74 @@ def _ensure_executable(executable, description):
     raise FileNotFoundError(
         f"{description} not found or not executable: {executable}\n"
         "Run `source ./setup.sh --build-qemu` or build the patched QEMU fork "
-        "at the path configured by [Machine].qemu_path."
+        "at the path configured by [Machine].qemu_path or $FASTDYN_QEMU."
+    )
+
+
+class QemuExitError(RuntimeError):
+    """QEMU exited with a non-zero status that FastDyn did not request."""
+
+    def __init__(self, machine_name, exit_code, work_dir=None):
+        self.machine_name = machine_name
+        self.exit_code = exit_code
+        self.work_dir = work_dir
+        reason = f"code {exit_code}"
+        if exit_code < 0:
+            reason += f" (killed by signal {-exit_code})"
+        message = f"QEMU for {machine_name} exited with {reason}"
+        if work_dir:
+            message += f"; see the QEMU output above and {os.path.join(work_dir, 'qemu.log')}"
+        super().__init__(message)
+
+
+QEMU_ENV_VAR = "FASTDYN_QEMU"
+BUILD_RECORD_NAME = "fastdyn_build.json"
+
+
+def resolve_qemu_binary(qemu_path, arch, plugin_library):
+    """Return ``(executable, source)`` for the QEMU used by a run.
+
+    Resolution order, first match wins:
+
+    1. ``[Machine].qemu_path`` from the configuration, when set;
+    2. the ``FASTDYN_QEMU`` environment variable;
+    3. the QEMU this FastDyn build was compiled against, read from
+       ``fastdyn_build.json`` next to the plugin library;
+    4. ``qemu-system-<target>`` on ``PATH``.
+    """
+    if qemu_path:
+        return qemu_path, "[Machine].qemu_path"
+    env_path = os.environ.get(QEMU_ENV_VAR)
+    if env_path:
+        return env_path, f"${QEMU_ENV_VAR}"
+
+    target = str(arch or "arm").lower()
+    executable = f"qemu-system-{target}"
+    tried = []
+    if plugin_library:
+        record = os.path.join(os.path.dirname(os.path.abspath(plugin_library)), BUILD_RECORD_NAME)
+        if os.path.isfile(record):
+            try:
+                with open(record, encoding="utf-8") as stream:
+                    qemu_dir = json.load(stream).get("qemu_dir")
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(f"Unable to read FastDyn build record {record}: {exc}") from exc
+            if qemu_dir:
+                candidate = os.path.join(qemu_dir, "build", executable)
+                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                    return candidate, f"build record {record}"
+                tried.append(candidate)
+        else:
+            tried.append(f"{record} (missing)")
+
+    on_path = shutil.which(executable)
+    if on_path:
+        return on_path, "PATH"
+    tried.append(f"{executable} on PATH")
+    raise FileNotFoundError(
+        "No QEMU executable found. Tried:\n  " + "\n  ".join(tried) + "\n"
+        f"Set [Machine].qemu_path or ${QEMU_ENV_VAR}, or build the QEMU this "
+        "FastDyn build points at (source ./setup.sh --build-qemu)."
     )
 def _abs_path(path, base=None):
     if path is None:
@@ -232,7 +330,6 @@ def _build_qemu_env(qemu_cmd):
         if os.path.basename(plugin_dir) == "build":
             repo_root = os.path.dirname(plugin_dir)
             extra_paths.append(os.path.join(repo_root, "virtuals/fuzzer/fastdyn_fuzz_lib/target/release"))
-            extra_paths.append(os.path.join(repo_root, "device_models/postmartem/verifier"))
             extra_paths.append(os.path.join(repo_root, "out/deps/cjson/install/lib"))
             extra_paths.append(os.path.join(repo_root, "out/deps/cjson/install/lib64"))
 
@@ -274,7 +371,7 @@ def _reset_file_memory_backends(machine):
         except OSError as exc:
             raise RuntimeError(f"Unable to reset memory backend file {memory_file!r}: {exc}") from exc
 
-        fastdyn_log.info(f"Reset file-backed memory image: {memory_file}")
+        log.info(f"Reset file-backed memory image: {memory_file}")
 
 def build_qemu_cmd(machine, dev_config_path, out_path):
     """
@@ -288,7 +385,9 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     cpu0 = cpus[0]
     opts = machine.qemu_target_opts
     print_command = opts.print_command
-    _ensure_executable(opts.qemu_path, "QEMU executable")
+    qemu_bin, qemu_source = resolve_qemu_binary(opts.qemu_path, cpu0.arch, cpu0.plugin_library)
+    _ensure_executable(qemu_bin, "QEMU executable")
+    log.info(f"QEMU executable: {qemu_bin} (from {qemu_source})")
 
     # QEMU CLI is per-instance: we support SMP (homogeneous CPU model/binary/machine).
     for c in cpus[1:]:
@@ -309,12 +408,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     _ensure_memory_backend_file(main_memory)
 
     # ------------------------ Base QEMU command ------------------------
-    cmd = [opts.qemu_path]
-
-    qmp_socket = opts.qmp_socket
-    # if user left default /tmp/qmp.sock, it will collide across runs; prefer per-run socket
-    if not qmp_socket or qmp_socket == "/tmp/qmp.sock":
-        qmp_socket = os.path.join(out_path, "qmp.sock")
+    cmd = [qemu_bin]
 
     # Machine and RAM Size
     if main_mem_id:
@@ -367,8 +461,8 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     # QMP socket
     qmp_socket = opts.qmp_socket
     if qmp_socket:
-        if qmp_socket == "/tmp/qmp.sock":
-            qmp_socket = os.path.join(out_path, "qmp.sock")
+        if qmp_socket == DEFAULT_QMP_SOCKET:
+            qmp_socket = run_qmp_socket(out_path)
         cpu_configs.extend(["-qmp", f"unix:{qmp_socket},server,nowait"])
 
     # Icount / Logging / SMP
@@ -515,7 +609,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     if twintrace_opt == "replay":
         #create a binary for faster parsing of hardware log for the replayer
         replay_binary = os.path.join(out_path, "replay_bin.ttbin")
-        fastdyn_log.info(replay_hardware_log)
+        log.info(replay_hardware_log)
 
         # Decide what to put in the .ttbin based on the TOML's replay-time
         # routing. Two replay modes the framework supports (per paper §RQ2,
@@ -597,6 +691,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
 
     plugin_kv = [
         f"{plugin_lib},dev={dev_config_path}",
+        f"log_level={logs.native_level()}",
         f"virtual={virtuals_path}",
         f"modifier={modifiers_path}",
         f"coverage={_bool01(opts.coverage)}",
@@ -606,6 +701,9 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
         f"twintrace_binary={replay_binary}",
         f"exact_budget_stop={_bool01(getattr(opts, 'exact_budget_stop', False))}",
     ]
+    # Native code of plugins loaded from a `source` folder.
+    if getattr(machine, "virtual_libraries", None):
+        plugin_kv.append("virtual_libraries=" + ":".join(str(lib) for lib in machine.virtual_libraries))
 
     fuzzing_schema = getattr(opts, "fuzzing_schema", None)
     if fuzzing_schema:
@@ -628,17 +726,6 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
         if "," in name or "=" in name:
             raise ValueError(f"FMU value reference name cannot contain ',' or '=': {name!r}")
         plugin_kv.append(f"fmu_vr_{name}={int(value)}")
-
-    if opts.probe_run:
-        plugin_kv.append(f"probe_run={_bool01(opts.probe_run)}")
-    if opts.probe_faults:
-        plugin_kv.append(f"probe_faults={opts.probe_faults}")
-    if opts.probe_milestones:
-        plugin_kv.append(f"probe_milestones={opts.probe_milestones}")
-    if opts.probe_ignores:
-        plugin_kv.append(f"probe_ignores={opts.probe_ignores}")
-    if opts.probe_out_dir:
-        plugin_kv.append(f"probe_out_dir={opts.probe_out_dir}")
 
     timer_irq_period_ns = os.environ.get(
         "FASTDYN_TIMER_IRQ_PERIOD_NS",
@@ -682,12 +769,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
                 lines.append(arg)
                 idx += 1
         formatted_cmd = " \\\n  ".join(lines)
-        print("\n" + "=" * 80)
-        print("Running QEMU Command:")
-        print("=" * 80)
-        print(formatted_cmd)
-        print("=" * 80 + "\n")
-        fastdyn_log.info(f"Running following qemu command:\n{formatted_cmd}")
+        log.info(f"Running following qemu command:\n{formatted_cmd}")
     return cmd, gdb_cmd, launch_gdb, binary
 
 
@@ -738,6 +820,10 @@ def start_execution(
 ):
     """
     Starts QEMU. If enabled, optionally launches a GDB terminal.
+
+    Returns QEMU's exit code. On Ctrl-C, QEMU is stopped (forcefully after
+    ``exit_timeout_ms``) and the KeyboardInterrupt is re-raised, so callers
+    such as ``fastdyn loop`` can stop instead of treating it as a clean exit.
     """
     if (
         isinstance(exit_timeout_ms, bool)
@@ -795,6 +881,7 @@ def start_execution(
                 kill_qemu_process(port)
             else:
                 qemu_proc.kill()
+        raise
     finally:
         for ep_proc in endpoint_procs:
             try:
@@ -802,21 +889,59 @@ def start_execution(
             except Exception:
                 pass
 
+    return ret
+
+
+def _pids_using_port(port):
+    try:
+        result = subprocess.check_output(["lsof", "-ti", f"tcp:{port}"])
+        pids = result.decode().strip().split("\n")
+        return [int(pid) for pid in pids if pid.strip()]
+    except Exception:
+        return []
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stop_qemu_process(port, timeout_ms=5000):
+    """Stop whatever is bound to the QEMU monitor TCP port, letting QEMU exit
+    normally: SIGINT first, so plugins write their results at exit (e.g.
+    bbl.txt), then SIGKILL for anything still running after ``timeout_ms``."""
+    pids = [pid for pid in _pids_using_port(port) if pid != os.getpid()]
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGINT)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    while any(_alive(pid) for pid in pids) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    survivors = [pid for pid in pids if _alive(pid)]
+    if survivors:
+        log.warning("QEMU did not exit within %d ms of SIGINT; killing it.", timeout_ms)
+    for pid in survivors:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if survivors and os.isatty(0):
+        subprocess.run(["stty", "sane"])
+
 
 def kill_qemu_process(port):
     """
     Best-effort kill whatever is bound to the QEMU monitor TCP port.
     Still not ideal, but at least it uses the configured port.
     """
-    def get_pids_using_port(p):
-        try:
-            result = subprocess.check_output(["lsof", "-ti", f"tcp:{p}"])
-            pids = result.decode().strip().split("\n")
-            return [int(pid) for pid in pids if pid.strip()]
-        except Exception:
-            return []
-
-    for pid in get_pids_using_port(port):
+    for pid in _pids_using_port(port):
         try:
             os.kill(pid, signal.SIGKILL)
             if os.isatty(0):

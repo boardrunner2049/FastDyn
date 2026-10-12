@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -6,12 +7,8 @@ from dataclasses import dataclass
 from elftools.elf.constants import P_FLAGS
 from elftools.elf.elffile import ELFFile
 
-try:
-    from .. import fastdyn_log as fastdyn_log_conf
-except ImportError:
-    from fastdyn import fastdyn_log as fastdyn_log_conf
+log = logging.getLogger(__name__)
 
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 # -------------------------------------------------------------------------------
 # This script takes a binary and outputs both all writable ranges and the
@@ -101,12 +98,12 @@ def collect_writable_segments(elf_path):
 
 def print_writable_segments(segments):
     if not segments:
-        fastdyn_log.info("[binary_wrange.py] No writable segments found.")
+        log.info("[binary_wrange.py] No writable segments found.")
         return
 
-    fastdyn_log.info("[binary_wrange.py] Writable segments:")
+    log.info("[binary_wrange.py] Writable segments:")
     for selection_id, segment in enumerate(segments):
-        fastdyn_log.info(
+        log.info(
             f"  [{selection_id}] segment {segment.index}: "
             f"{segment.segment_type} {_format_flags(segment.flags)} "
             f"{_format_range(segment.address, segment.memory_size)} "
@@ -114,15 +111,15 @@ def print_writable_segments(segments):
         )
 
         if segment.sections:
-            fastdyn_log.info("      sections:")
+            log.info("      sections:")
             for section in segment.sections:
-                fastdyn_log.info(
+                log.info(
                     f"        - {section.name} "
                     f"{_format_range(section.address, section.size)} "
                     f"size=0x{section.size:x} type={section.section_type}"
                 )
         else:
-            fastdyn_log.info("      sections: <none>")
+            log.info("      sections: <none>")
 
 
 def _parse_selection(selection, count):
@@ -171,7 +168,7 @@ def prompt_for_segments(segments):
                 f"valid segment expression: {exc}"
             ) from exc
 
-        fastdyn_log.info(
+        log.info(
             "[binary_wrange.py] Selecting writable segments from "
             "FASTDYN_SNAPSHOT_SEGMENTS=%r.",
             configured_selection,
@@ -183,7 +180,7 @@ def prompt_for_segments(segments):
     # before printing a prompt so wrapper scripts cannot spend their entire
     # timeout in input().
     if not sys.stdin.isatty():
-        fastdyn_log.info(
+        log.info(
             "[binary_wrange.py] Non-interactive stdin; including all "
             "writable segments. Set FASTDYN_SNAPSHOT_SEGMENTS to override."
         )
@@ -198,7 +195,7 @@ def prompt_for_segments(segments):
         try:
             selection = input(prompt)
         except EOFError:
-            fastdyn_log.info(
+            log.info(
                 "[binary_wrange.py] No input provided; including all segments."
             )
             return list(range(len(segments)))
@@ -206,7 +203,7 @@ def prompt_for_segments(segments):
         try:
             return _parse_selection(selection, len(segments))
         except ValueError as e:
-            fastdyn_log.info(f"[binary_wrange.py] Invalid selection: {e}")
+            log.info(f"[binary_wrange.py] Invalid selection: {e}")
 
 
 def write_segments(out_file, segments, indexes):
@@ -227,7 +224,7 @@ def run(selected_out_file, bin_path, all_out_file=None):
     selected_exists = os.path.exists(selected_out_file)
     all_exists = os.path.exists(all_out_file)
     if selected_exists and all_exists:
-        fastdyn_log.info(
+        log.info(
             "[binary_wrange.py] Skipping existing writable-range files: "
             f"{selected_out_file}, {all_out_file}"
         )
@@ -239,7 +236,7 @@ def run(selected_out_file, bin_path, all_out_file=None):
         if not all_exists:
             write_segments(all_out_file, segments, range(len(segments)))
         else:
-            fastdyn_log.info(
+            log.info(
                 f"[binary_wrange.py] Skipping existing output file: {all_out_file}"
             )
 
@@ -247,21 +244,21 @@ def run(selected_out_file, bin_path, all_out_file=None):
             selected_indexes = prompt_for_segments(segments)
             write_segments(selected_out_file, segments, selected_indexes)
         else:
-            fastdyn_log.info(
+            log.info(
                 f"[binary_wrange.py] Skipping existing output file: {selected_out_file}"
             )
     except Exception as e:
-        fastdyn_log.info(
+        log.info(
             "[binary_wrange.py] Couldn't write writable-range files "
             f"({selected_out_file}, {all_out_file}): {e}"
         )
 
 
 if __name__ == "__main__":
-    fastdyn_log_conf.setLogConfig()
+    from fastdyn import logs
+    logs.configure()
 
     if len(sys.argv) != 2:
-        print("Usage: python binary_wrange.py <firmware.elf>")
-        sys.exit(1)
+        sys.exit("Usage: python binary_wrange.py <firmware.elf>")
 
     run("fastdyn_work/bin-writable-ranges", sys.argv[1])

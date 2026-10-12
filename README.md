@@ -1,27 +1,40 @@
-# FastDyn Plugins
+# FastDyn
 
-## Automatic Rehosting of Ardupilot Ardurover v4.6.2
+FastDyn runs microcontroller firmware in a patched QEMU and lets you shape the
+run from one TOML configuration: peripheral device models (written in C,
+replayed from a hardware trace, or passed through to a real board over a debug
+probe), virtual instructions and register/memory modifiers at chosen program
+counters, run plugins, co-simulated physics (FMI v3 FMUs, Gazebo), coverage and
+fuzzing. It is driven by the `fastdyn` command and a Python API.
 
-Please access the detailed rehosting steps in the `docs/Ardurover_Rehosting.md`
+Tools built on FastDyn live in their own repositories:
+
+- [LibVIO](https://github.com/boardrunner2049/LibVIO): the library device
+  models use for buses (SPI, I2C), DMA, signals and host I/O.
+- [BoardRunner](https://github.com/boardrunner2049/BoardRunner): learns device
+  models from a hardware trace with an LLM and verifies them.
+- [PhantomSmith](https://github.com/PSecLab/PhantomSmith): rehosts complete
+  firmware automatically, including the ArduRover 4.6.2 reference target.
+
+Contributions follow [docs/CodingConventions.md](docs/CodingConventions.md).
 
 ## Docker Build
 
-A fully containerized setup is available via Docker. The Dockerfile automatically configures the system dependencies, Rust, Gazebo Harmonic, QEMU, `libhw`, and the FastDyn plugin.
-
-To build the FastDyn environment using Docker, run this from the parent workspace directory (the directory containing `FastDyn/`, `qemu/`, `libhw/`, etc.):
-
-```bash
-cd ..  # Ensure you are in the workspace parent directory
-docker build -f FastDyn/Dockerfile -t fastdyn-env .
-```
-
-After the build completes, launch the container interactively:
+The Dockerfile builds FastDyn, its patched QEMU, libhw, the libFuzz fuzzer and
+the Gazebo/Courbet flight-controller backend from this checkout. Check out the
+submodules it builds from, then build from the repository root:
 
 ```bash
-docker run -it fastdyn-env
+git submodule update --init --depth 1 \
+    third_party/common/qemu third_party/common/libhw \
+    third_party/common/cmsis-svd-data \
+    third_party/courbet_deps/mavlink_headers \
+    third_party/courbet_deps/ardupilot_gazebo third_party/courbet_deps/SITL_Models
+docker build -t fastdyn .
+docker run -it fastdyn
 ```
 
-You will drop into a bash shell inside `/workspace/FastDyn` with all dependencies built and the virtual environment already activated. All subsequent commands (fuzzing, trace analysis, etc.) should be run inside this container.
+The container starts in `/workspace/FastDyn` with the `fastdyn` command ready.
 
 ## Quick Start: ArduCopter FMUv3 + MAVCesium
 
@@ -65,8 +78,13 @@ For a directly runnable RTOS introspection demonstration using the bundled
 debug-symbol FreeRTOS ELF, see
 [`configs/introspection/freertos.toml`](configs/introspection/freertos.toml).
 
+- `docs/RunningFastDyn.md`: running a configuration, its outputs, logging, and
+  building device models with `fastdyn build-model`.
 - `docs/Configuration.md`: FastDyn TOML reference for QEMU, FMU, Rumoca,
   helper processes, profiling, and swarm options.
+- `docs/FastDynDeviceModel.md`: the device models (classic, passthrough,
+  elder, twintrace) and how a model library is written
+  (`docs/ElderScrollDeviceModel.md`).
 - `docs/VirtualsAndModifiers.md`: reference for PC-triggered virtual
   instructions and direct register/memory modifiers, including TOML syntax
   and the built-in virtual callback registry.
@@ -86,16 +104,21 @@ debug-symbol FreeRTOS ELF, see
   FMU/Gazebo backend notes.
 - `virtuals/fuzzer/libafl_phi/README.md`: OptiFuzz/CP-Explore usage with
   FMUv3, vehicle selection, dry-runs, swarm execution, and legacy Docker/Gazebo.
+- `docs/FastDyn_STR_Integration.md`: schema-driven fuzzing integration guide.
 - `tests/integration/README.md`: local integration smoke and mission tests.
+- `docs/CodingConventions.md`: how code, tests, docs and commits are written.
 
 ## Local Build
 
-FastDyn depends on two sibling repositories that you must build first:
+FastDyn builds against two dependencies pinned as submodules:
 
-- `qemu/` — the patched QEMU fork that hosts the FastDyn plugin
-- `libhw/` — the hardware-probe abstraction (ST-Link / OpenOCD / J-Link)
+- `third_party/common/qemu`: the patched QEMU fork that hosts the FastDyn
+  plugin
+- `third_party/common/libhw`: the hardware-probe library (ST-Link / OpenOCD /
+  J-Link), needed only to talk to a board
 
-Clone both as siblings of this repository (or anywhere — you'll point `make` at them via `qemu_path` / `libhw_path`).
+`make` uses them once they are built; `qemu_path=` / `libhw_path=` point it at
+other checkouts instead.
 
 ### 1. System dependencies
 
@@ -108,16 +131,26 @@ sudo apt-get install -y libsundials-dev
 
 ### 2. Build the QEMU fork and libhw
 
-Follow the build instructions in each sibling repo. At a minimum:
+`setup.sh` initialises both submodules, applies FastDyn's QEMU patch and builds
+them:
 
 ```bash
-# libhw → produces <libhw_path>/out/libhw.so
-cd <path/to>/libhw && make
+source ./setup.sh --build-qemu --build-libhw
+```
 
-# qemu (fork) → produces qemu-system-arm + plugin headers
-cd <path/to>/qemu
-git apply <path/to>/FastDyn/patches/qemu-fastdyn-plugin-icount.patch
-./configure --target-list=arm-softmmu --enable-plugins
+By hand, from the repository root:
+
+```bash
+git submodule update --init --depth 1 third_party/common/qemu third_party/common/libhw
+
+# libhw → third_party/common/libhw/out/libhw.so
+make -C third_party/common/libhw
+
+# qemu (fork) → qemu-system-arm + plugin headers
+cd third_party/common/qemu
+git apply ../../../patches/qemu-fastdyn-plugin-icount.patch
+mkdir build && cd build
+../configure --target-list=arm-softmmu --enable-plugins
 make qemu-system-arm
 ```
 
@@ -126,17 +159,18 @@ make qemu-system-arm
 From the FastDyn repository root:
 
 ```bash
-make qemu_path=<path/to>/qemu libhw_path=<path/to>/libhw
+make DEV=true LIBHW=true
 ```
 
-Defaults if you omit the flags: `qemu_path=../qemu`, `libhw_path=../libhw`.
+`make` uses the built submodules; pass `qemu_path=<path/to>/qemu` and
+`libhw_path=<path/to>/libhw` to build against other checkouts.
 
-The build produces `build/libfastdyn.so` and copies `libhw.so` next to it.
+The build produces `build/libfastdyn.so`.
 
 ### 4. Make `libfastdyn.so` discoverable at runtime
 
 ```bash
-export LD_LIBRARY_PATH=$PWD/build:$PWD/device_models/postmartem/verifier${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+export LD_LIBRARY_PATH=$PWD/build${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 ```
 
 ### 5. Optional Makefile flags
@@ -145,9 +179,9 @@ Most features are off by default. Override at `make` time:
 
 | Flag                 | Default | Enables                                                                 |
 | -------------------- | ------- | ----------------------------------------------------------------------- |
-| `LIBHW`              | `true`  | Hardware passthrough via libhw                                          |
+| `LIBHW`              | `true`  | Talking to a board via libhw: passthrough and twintrace recording (elder and twintrace replay work without it) |
 | `LIBFUZZ`            | `true`  | LibAFL fuzzing harness                                                  |
-| `DEV`                | `true`  | Built-in device models                                                  |
+| `DEV`                | `true`  | Device models: classic, elder, twintrace (and passthrough with `LIBHW`) |
 | `DEBUG_PRINT`        | `true`  | Verbose plugin logging                                                  |
 | `LIBGZ`              | `false` | Gazebo / SITL physics integration                                       |
 | `LIBPY`              | `false` | Halucinator-mode Python callbacks                                       |
@@ -155,12 +189,38 @@ Most features are off by default. Override at `make` time:
 | `PHY`                | `false` | Physics engine; auto-enabled by `LIBGZ`, `FMU`, or `FLIGHT_CONTROLLERS` |
 | `FMU`                | `false` | FMU (Functional Mockup Unit) support                                    |
 | `FLIGHT_CONTROLLERS` | `false` | ArduPilot / PX4 SITL adapters                                           |
-| `BOARD_RUNNER`       | `true`  | BoardRunner SDK build                                                   |
 
 Example:
 
 ```bash
-make qemu_path=<path/to>/qemu libhw_path=<path/to>/libhw LIBPY=true SUNDIALS=true
+make DEV=true LIBHW=true SUNDIALS=true
+```
+
+### 6. Optional: LibVIO for device models
+
+Device models that use LibVIO (buses, DMA, signals, host I/O) are built with
+it by `fastdyn build-model`. LibVIO is pinned as the optional
+`third_party/common/libvio` submodule; this initialises and builds it into
+`out/libvio/`, where `build-model` looks first:
+
+```bash
+source ./setup.sh --build-libvio
+```
+
+An installed LibVIO found by `pkg-config vio` works too.
+
+### 7. Optional: install for building device models elsewhere
+
+`meson install` installs `libfastdyn.so`, the device model headers
+(`<fastdyn/device_model.h>`, `<fastdyn/fuzz_hooks.h>`), QEMU's
+`<qemu/qemu-plugin.h>` and `fastdyn.pc`, so device models can be compiled
+outside this checkout with `pkg-config --cflags fastdyn` (add
+`pkg-config --libs fastdyn` only for models that call the fuzzer hooks):
+
+```bash
+meson configure build -Dprefix=$HOME/.local
+meson install -C build
+export PKG_CONFIG_PATH=$HOME/.local/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
 ```
 
 ## Install the Python CLI
@@ -180,14 +240,14 @@ the exact commands. To have setup clone/build them too, run:
 source ./setup.sh --build-qemu
 ```
 
-`setup.sh --build-qemu` fetches `https://github.com/Arslan8/qemu.git` at
+`setup.sh --build-qemu` fetches `https://github.com/boardrunner2049/qemu.git` at
 `fastdyn` by default and applies
 `patches/qemu-fastdyn-plugin-icount.patch`. Override the QEMU source when
 needed:
 
 ```bash
 source ./setup.sh --build-qemu \
-  --qemu-repo https://github.com/Arslan8/qemu.git \
+  --qemu-repo https://github.com/boardrunner2049/qemu.git \
   --qemu-ref fastdyn
 ```
 
@@ -201,7 +261,7 @@ To leave the venv later: `deactivate`.
 
 ## Run
 
-We recommend running every `fastdyn` / `boardrunner` command from the FastDyn repository root. The `cmsis-svd-data` submodule is auto-fetched into `third_party/common/cmsis-svd-data/` by `make` and resolved automatically when you pass `-b <board>`.
+We recommend running every `fastdyn` command from the FastDyn repository root. The `cmsis-svd-data` submodule is auto-fetched into `third_party/common/cmsis-svd-data/` by `make` and resolved automatically when you pass `-b <board>`.
 
 Configs may include an `[FMU]` table. When `[FMU] auto_build = true`,
 `fastdyn run -c <config>` builds the selected FMU when it is missing or stale,
@@ -435,117 +495,10 @@ sudo apt-get install -y libsundials-dev pkg-config
 
 ## LLM Integration
 
-FastDyn can send generated prompts directly to an LLM provider, process the
-response, and write or patch the device model automatically. OpenAI remains the
-default provider. Ollama can be used as an optional local HTTP backend.
-
-### Setup
-
-#### 1. Install Dependencies
-
-The `openai` and `python-dotenv` packages are required for the default OpenAI
-provider. They are included in
-`requirements.txt`, so running `./setup.sh` or `pip install -r requirements.txt`
-will install them.
-
-#### 2. Configure Your API Key for OpenAI
-
-Create a file at `~/.fastdyn.env` with your OpenAI API key:
-
-```bash
-echo 'OPENAI_API_KEY=sk-your-key-here' > ~/.fastdyn.env
-chmod 600 ~/.fastdyn.env
-```
-
-Alternatively, export the environment variable directly:
-
-```bash
-export OPENAI_API_KEY=sk-your-key-here
-```
-
-The tool checks the environment variable first, then falls back to `~/.fastdyn.env`.
-You can also specify a custom env file with `--env-file /path/to/.env`.
-
-Ollama does not require an API key.
-
-#### 3. Configure Build Paths (for `--compile`)
-
-If you want to use the `--compile` flag to automatically compile models, fill in
-the `boardrunner/boardrunner_sdk/build_config.env` file:
-
-```bash
-FASTDYN_INCLUDE_DIR=/path/to/FastDyn/include
-QEMU_INCLUDE_DIR=/path/to/qemu/include
-```
-
-### Usage
-
-```bash
-# Basic: send an initial prompt and extract the model
-boardrunner llm -d fastdyn_work_adc -o boardrunner/boardrunner_sdk/model/model.c
-
-# Use a specific model
-boardrunner llm -d fastdyn_work_adc -o model.c --model gpt-4.1
-
-# With compilation after extraction
-boardrunner llm -d fastdyn_work_adc -o boardrunner/boardrunner_sdk/model/model.c --compile
-
-# Revised prompt (patch mode) with retry
-boardrunner llm -d fastdyn_work -o boardrunner/boardrunner_sdk/model/model.c --max-retries 2
-
-# Disable the conversation-reset line for multi-turn context
-boardrunner llm -d fastdyn_work_adc -o model.c --no-stateless
-
-# Use Ollama through a local or SSH-forwarded HTTP endpoint
-boardrunner llm -d fastdyn_work_adc \
-  -o boardrunner/boardrunner_sdk/model/model.c \
-  --compile \
-  --model qwen3-coder-next \
-  --model-provider ollama \
-  --ollama-url http://127.0.0.1:11434 \
-  --evaluate
-```
-
-If Ollama runs on a remote GPU server, expose it locally before running
-FastDyn:
-
-```bash
-ssh -N -L 11434:127.0.0.1:11434 h100
-curl http://127.0.0.1:11434/api/tags
-```
-
-### Command Reference
-
-| Option                           | Default                       | Description                               |
-| -------------------------------- | ----------------------------- | ----------------------------------------- |
-| `-d` / `--work-dir`              | (required)                    | Work directory with prompt files          |
-| `-o` / `--output`                | (required)                    | Model .c file path                        |
-| `--model`                        | `gpt-4o`                      | Model name                                |
-| `--model-provider`               | `openai`                      | Provider backend: `openai` or `ollama`    |
-| `--env-file`                     | `~/.fastdyn.env`              | Path to .env file with API key            |
-| `--temperature`                  | `0.2`                         | Sampling temperature                      |
-| `--stateless` / `--no-stateless` | `--stateless`                 | Keep or strip the conversation reset line |
-| `--compile` / `--no-compile`     | `--no-compile`                | Compile model after writing               |
-| `--sdk-dir`                      | `boardrunner/boardrunner_sdk` | Path to boardrunner SDK                   |
-| `--max-retries`                  | `1`                           | Max retry attempts on failure             |
-| `--ollama-url`                   | `http://127.0.0.1:11434`      | Ollama server base URL                    |
-| `--ollama-num-ctx`               | `262144`                      | Ollama `num_ctx`; use `0` for default     |
-| `--ollama-timeout`               | `1800`                        | Ollama request timeout in seconds         |
-
-### How It Works
-
-1. **Initial prompt** (`initial_prompt.txt`): The tool sends the prompt to the
-   selected LLM provider, extracts the C code from the fenced code block in the
-   response, and writes it to the output file.
-
-2. **Revised prompt** (`revised_prompt.txt`): The tool sends the prompt to the
-   selected LLM provider, parses SEARCH/REPLACE blocks from the response, and
-   applies them as patches to the existing model file.
-
-3. **On failure**: If a patch fails or compilation fails, the tool prompts you to
-   send a follow-up request to the LLM with the error context for automatic correction.
-
-4. The raw LLM response is always saved to `<work_dir>/llm_response.txt` for auditing.
+Generating and repairing device models with an LLM is done by the tools built
+on FastDyn: [BoardRunner](https://github.com/boardrunner2049/BoardRunner)
+(`boardrunner llm`) and [PhantomSmith](https://github.com/PSecLab/PhantomSmith)
+(`phantomsmith repair`).
 
 ---
 
@@ -559,5 +512,5 @@ detailed instructions.
 pytest tests/unit/ -v
 
 # Run a specific test file
-pytest tests/unit/test_patch.py -v
+pytest tests/unit/test_config_paths.py -v
 ```

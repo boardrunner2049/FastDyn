@@ -10,129 +10,18 @@ fuzz.c is the core of the fuzzer, which is meant to act as a generic interface b
 
 To use the fuzzers, the path to the built fuzzing backend must be included in the relevant environment variables along with other FastDyn requirements, with the following as a reference at the time of writing:
 ```sh
-export LD_LIBRARY_PATH=/path/to/FastDyn/build:/path/to/FastDyn/device_models/postmartem/verifier:/path/to/FastDyn/virtuals/fuzzer/fastdyn_fuzz_lib/target/release
+export LD_LIBRARY_PATH=/path/to/FastDyn/build:/path/to/FastDyn/virtuals/fuzzer/fastdyn_fuzz_lib/target/release
 export PATH=/path/to/qemu/build:$PATH
 export PATH=$PATH:/path/to/aflnet
 ```
 
-## Reproduce the coverage targets
+## Reproducing the paper's coverage results
 
-The target-specific reproduction inputs live in
-[`reproducibility/`](reproducibility/): saved models, TOMLs, and AFLNet seed
-corpora.  The launchers below compile each model directly into the new result
-directory, so do not add a target to `boardrunner_sdk/CMakeLists.txt`.  Build
-the normal FastDyn/VIO variant once for the board and QEMU runs:
-
-```sh
-cd FastDyn
-ninja -C build
-cmake -S boardrunner/boardrunner_sdk -B boardrunner/boardrunner_sdk/build
-cmake --build boardrunner/boardrunner_sdk/build
-```
-
-Build the AFLNet variant for the fuzzing runs as described in the AFLNet build
-section below. The scripts also find sibling `qemu/build` and `aflnet`
-directories automatically.
-
-### Hardware preparation for passthrough runs
-
-Only the MQTT, lwIP, and SD-card **board** launchers use ST-LINK passthrough.
-Before any of those runs, flash an idle image to the real MCU—not the demo
-firmware.  QEMU executes the demo firmware; the attached MCU must remain idle
-so the two CPUs do not contend for the same peripherals.  One flashed F769
-idle image covers both the lwIP and SD-card runs.
-
-| Board run | Attached board | Idle image included in this tree | Optional source directory |
-| --- | --- | --- | --- |
-| MQTT | NUCLEO-H753ZI | `tests/idle_firmwares/prebuilt/idlefirmware_h7.axf` | `tests/idle_firmwares/NucleoH753zi/` |
-| lwIP and SD-card | STM32F769I-EVAL | `tests/idle_firmwares/prebuilt/idleloop_firmware_f4_f7.axf` | `tests/idle_firmwares/STM32F769i_eval/` |
-
-If building an image, follow the toolchain setup in
-[`tests/idle_firmwares/README.md`](../../tests/idle_firmwares/README.md),
-configure the selected board's `Makefile` paths, and build its
-`build/idlefirmware.axf`. Flash it with STM32CubeProgrammer or OpenOCD using
-the configuration for the **actual attached board**. Do not run
-`tests/idle_firmwares/flash_scripts/flash.sh` unchanged: it currently selects
-an STM32F469 Discovery OpenOCD configuration and is not a safe generic
-flasher for the H753 or F769. Reconnect/reset the board after a successful
-flash, then confirm that both the ST-LINK debug probe and its VCP are usable by
-the current user. The launchers auto-detect a sole VCP, or accept
-`--board-port /dev/ttyACM<N>`.
-
-For an OpenOCD installation with the standard target scripts, the following
-are the corresponding one-time flash commands (run from `FastDyn`). Replace a
-generic `interface/stlink.cfg` plus `target/...` pair with a board-specific
-OpenOCD board config if your installation provides one:
-
-```sh
-# NUCLEO-H753ZI, used by the MQTT board run
-openocd -f interface/stlink.cfg -f target/stm32h7x.cfg \
-  -c 'program tests/idle_firmwares/prebuilt/idlefirmware_h7.axf verify reset exit'
-
-# STM32F769I-EVAL, used by both lwIP and SD-card board runs
-openocd -f interface/stlink.cfg -f target/stm32f7x.cfg \
-  -c 'program tests/idle_firmwares/prebuilt/idleloop_firmware_f4_f7.axf verify reset exit'
-```
-
-The reproduced Modbus board launcher is PTY/Elder-only and needs no board or
-idle image.  If separately following the original F103 passthrough-capture
-guide, first flash `tests/idle_firmwares/prebuilt/idleloop_firmware_f1.axf`
-and follow its documented reset sequence.  AFLNet and QEMU-only runs never
-need a physical board.
-
-For the host-side portions, install `mosquitto`, `mosquitto-clients`, and
-`socat` for MQTT; `iproute2`, `iputils-ping`, `netcat`, and `curl` for lwIP;
-and `dosfstools` (`mkfs.fat`) for SD-card. The launchers check these commands
-before starting. The lwIP `tap0` commands and MQTT broker behavior are given
-in the target notes below.
-
-Run these from `FastDyn`.  Every fuzzing output directory must be new.
-
-```sh
-# Stateful fuzzing: no board is required.
-./virtuals/fuzzer/run_aflnet_coverage.sh lwip   /absolute/results/lwip-aflnet
-./virtuals/fuzzer/run_aflnet_coverage.sh mqtt   /absolute/results/mqtt-aflnet
-./virtuals/fuzzer/run_aflnet_coverage.sh modbus /absolute/results/modbus-aflnet
-
-# Non-fuzzing Elder/passthrough baselines.
-# MQTT needs the H753 board and a local Mosquitto installation.
-./virtuals/fuzzer/run_board_coverage.sh mqtt --board-port /dev/ttyACM0
-# lwIP and SD-card need the F769 board; lwIP also needs configured tap0.
-./virtuals/fuzzer/run_board_coverage.sh lwip   --board-port /dev/ttyACM0
-./virtuals/fuzzer/run_board_coverage.sh sdcard --board-port /dev/ttyACM0
-# Modbus is an Elder/PTTY run and needs no physical board.
-./virtuals/fuzzer/run_board_coverage.sh modbus
-
-# Cold QEMU-only baselines: no models, board, or passthrough.
-./virtuals/fuzzer/run_qemu_coverage.sh all
-```
-
-`--board-port` can be omitted when exactly one ST-LINK VCP is connected.  The
-lwIP `tap0` setup and the MQTT broker details are given in their short target
-notes below.  Each launcher writes and prints a `bbl.txt`; its final `SIGINT`
-is the script's intentional wall-clock cutoff, not an unexpected fuzzer
-timeout.
-
-The following are reference unique-basic-block counts for the checked-in
-models and corpora. AFLNet entries show the measured default-budget result
-followed by a modest longer-campaign planning target. Non-fuzzing values are
-the measured baseline runs. Small timing variation is normal for the fuzzing
-and hardware-assisted rows; the QEMU-only values are the measured cold-start
-baselines.
-
-| Launcher | Target | Reference BBL count |
-| --- | --- | ---: |
-| `run_aflnet_coverage.sh` | lwIP | 2,587 measured; ~2,600 longer-run target |
-|  | MQTT | 902 measured; ~920 longer-run target |
-|  | Modbus | 611 measured; ~620 longer-run target |
-| `run_board_coverage.sh` | MQTT | 869 |
-|  | lwIP | 1,814 |
-|  | SD-card | 1,393 |
-|  | Modbus | 521 |
-| `run_qemu_coverage.sh` | MQTT / lwIP / SD-card / Modbus | 196 / 124 / 103 / 123 |
-
-For a portable package-local entry point, use the equivalent commands in
-[`reproducibility/README.md`](reproducibility/README.md).
+The fuzzing and coverage experiments of the BoardRunner paper (Table 8: the
+lwIP, MQTT, SD-card and Modbus targets, with their models, configurations,
+AFLNet seed corpora, launchers and reference basic-block counts) are in the
+[BoardRunner](https://github.com/boardrunner2049/BoardRunner) repository, under
+`evaluation/fuzzing/`; its `README.md` and `EVALUATION.md` describe the runs.
 
 ## libAFL
 
@@ -177,14 +66,7 @@ AFLNET 		 ?= true
 ```
 
 
-### FastDyn stateful targets
-
-The reproducible target assets are deliberately self-contained under
-[`reproducibility/`](reproducibility/): models, TOML templates, saved corpora,
-and package-local launchers live there.  The compatibility launchers in this
-directory resolve every target-specific asset from that bundle and compile the
-needed model directly for the new run.  Consequently, target reproduction does
-not require adding a model target to `boardrunner_sdk/CMakeLists.txt`.
+### Stateful targets
 
 The FastDyn bridge sends one AFLNet request as one `fuzz_get_data()` message,
 collects every `fuzz_set_data()` response before the next sync, and restores the
@@ -192,15 +74,10 @@ firmware snapshot after the complete testcase. A seed file is therefore a raw,
 concatenated sequence of protocol messages; it does not contain an execution
 trace or schema encoding.
 
-These checked-in target setups use the modeled device boundary and require no
-hardware or passthrough fallback:
-
-| Target | AFLNet `-P` selector | AFLNet-only config | Initial corpus |
-| --- | --- | --- | --- |
-| lwIP Ethernet server | `ETHERNET` | `reproducibility/configs/aflnet/lwip.toml` | `reproducibility/seeds/lwip/` |
-| MQTT client over USART3 | `MQTT_CLIENT` | `reproducibility/configs/aflnet/mqtt.toml` | `reproducibility/seeds/mqtt/` |
-| FreeMODBUS RTU slave | `MODBUS` | `reproducibility/configs/aflnet/modbus.toml` | `reproducibility/seeds/modbus/` |
-
+The modified AFLNet adds three protocol selectors (`-P`), which FastDyn reads
+from `FASTDYN_AFLNET_PROTOCOL`. Initial seeds come from `FASTDYN_AFLNET_IN_DIR`
+(default `aflnet-in/` in the work directory); an existing output directory
+(`FASTDYN_AFLNET_OUT_DIR`, default `aflnet-out/`) resumes the campaign instead.
 `ETHERNET` splits raw Ethernet frames using ARP or IPv4 lengths and extracts
 ARP, TCP, UDP, ICMP, and other IPv4 response states. `MQTT_CLIENT` has a
 varint-aware MQTT splitter and treats emitted client packet types as states;
@@ -208,14 +85,7 @@ this is distinct from ordinary `MQTT`, where a network server emits broker
 responses. `MODBUS` splits CRC-bearing RTU request frames and derives states
 from normal, exception, malformed, and bad-CRC responses.
 
-The launchers load these saved raw corpus files directly; they do not generate
-seeds while starting a campaign. lwIP keeps its baseline and complementary
-`all`, `cgi`, `rto`, `ack`, and `reassembly` phase corpora under its directory,
-as well as the retained TCP-state, edge, and timer subsets used to maintain the
-broad corpus.
-
-Build one backend at a time.  The launchers compile and link their bundled
-models on demand, so no target-specific CMake build targets are needed:
+Build one backend at a time. The AFLNet variant of FastDyn:
 
 ```sh
 (cd aflnet && make libaflnet.a)
@@ -224,196 +94,12 @@ meson setup build-aflnet --reconfigure \
   -Denable_aflnet=true -Denable_libfuzz=false \
   -Daflnet_path=../aflnet
 ninja -C build-aflnet
-cd ..
-cmake -S FastDyn/boardrunner/boardrunner_sdk \
-  -B FastDyn/boardrunner/boardrunner_sdk/build-aflnet
-cmake --build FastDyn/boardrunner/boardrunner_sdk/build-aflnet
 ```
 
-`run_aflnet_coverage.sh` selects the protocol, model, and BBL-only timeout
-values for every target. It requires a new output directory. MQTT and Modbus
-start one campaign; lwIP runs six complementary clean-start phases that append
-to one `bbl.txt` file. That preserves setup and teardown coverage together with
-normal HTTP, CGI, TCP timer/retransmit, response-acknowledgement, and IPv4
-reassembly lifecycle paths.
-
-The launcher is non-interactive: it selects every writable firmware segment
-for the snapshot through `FASTDYN_SNAPSHOT_SEGMENTS=all`, so a first run cannot
-spend its fuzzing timeout at BoardRunner's range-selection prompt. Override it
-with an explicit index expression (for example `FASTDYN_SNAPSHOT_SEGMENTS=0,2-3`)
-only when deliberately narrowing snapshot state.
-
-```sh
-cd FastDyn
-./virtuals/fuzzer/run_aflnet_coverage.sh lwip /absolute/results/lwip
-wc -l /absolute/results/lwip/bbl.txt
-./virtuals/fuzzer/run_aflnet_coverage.sh mqtt /absolute/results/mqtt
-./virtuals/fuzzer/run_aflnet_coverage.sh modbus /absolute/results/modbus
-```
-
-MQTT runs for 25 seconds and Modbus for 100 seconds by default. The launcher
-then sends QEMU an expected `SIGINT`, prints that this is its own wall-clock
-cutoff rather than an AFLNet testcase timeout, and reports the final BBL count.
-Set `FASTDYN_AFLNET_RUN_SECONDS` to use another positive duration; do not wrap
-these two commands in a second `timeout` command. If an older wrapper does
-interrupt the launcher, it reports any BBL file QEMU has already persisted
-before exiting.
-
-The lwIP campaign defaults to 55 seconds for the baseline phase, 100 seconds
-for the broad corpus, and 60 seconds for each focused phase. It exits nonzero
-when the final union is not over 2,500 BBLs. To extend a run without mixing
-reports, choose a new output directory and set
-`FASTDYN_AFLNET_MAIN_SECONDS`, `FASTDYN_AFLNET_PHASE_SECONDS`, or
-`FASTDYN_AFLNET_BASELINE_SECONDS`. The timer/retransmit phase automatically
-uses a 30-second guest tick while all other phases use the 1-second tick.
-
-The script accepts `FASTDYN_BOARDRUNNER` when BoardRunner is not activated in
-`PATH`. It automatically finds sibling `qemu/build` and `aflnet` directories.
-It selects `ETHERNET`, `MQTT_CLIENT`, and `MODBUS` respectively. Set
-`FASTDYN_AFLNET_CORPUS` to an alternate seed directory to replace MQTT or
-Modbus's saved corpus, or lwIP's baseline phase corpus. The MQTT
-model enters fuzz input mode when `FASTDYN_AFLNET_PROTOCOL=MQTT_CLIENT`; it
-uses `fastdyn_work/model-snap.bin` when available but does not require that
-older baseline for an AFLNet campaign.
-
-### Non-fuzzing Modbus RTU coverage
-
-`run_board_coverage.sh modbus` reproduces the Nucleo-F103RB FreeMODBUS Elder
-workflow without AFLNet or a physical board. It builds the unchanged original
-BoardRunner USART2 model, creates `/tmp/usart1_pty` and `/tmp/host_modbus`,
-then runs the documented host bridge against the model. Its generated config
-re-pends USART2 after the firmware consumes `DR`; this run-only virtual lets
-the original model's PTY FIFO progress through an RTU frame without changing
-the model or firmware. The bridge's `core` profile exercises FC01/02/03/04/05/06/0F
-and deliberately leaves out FC16, the application-state sequence, and the
-intentional exception request. This reports approximately 521 basic blocks in
-the verified run.
-
-```sh
-cd FastDyn
-./virtuals/fuzzer/run_board_coverage.sh modbus
-```
-
-The final QEMU `SIGINT` is the launcher's expected wall-clock cutoff. Pass a
-new work directory or a longer budget when needed:
-
-```sh
-./virtuals/fuzzer/run_board_coverage.sh modbus \
-  --duration 25 --work-dir /absolute/results/f103-modbus-elder
-```
-
-### Hardware-assisted, non-fuzzing MQTT coverage
-
-`run_board_coverage.sh` is separate from the AFLNet launcher. It restores the
-documented NUCLEO-H753ZI MQTT elder-model flow with coverage enabled but no
-fuzzing: the saved USART3 model connects through a PTY and local Mosquitto,
-while all other peripherals use the attached board through ST-LINK passthrough.
-It publishes `on`, `off`, `on`, `off` to `stm32/cmd`, subscribes to
-`stm32/sensor`, and reports `bbl.txt` after its own expected timeout.
-
-```sh
-cd FastDyn
-./virtuals/fuzzer/run_board_coverage.sh mqtt
-```
-
-The script detects a unique ST-LINK VCP through `/dev/serial/by-id`. If more
-than one is available, require an explicit board selection:
-
-```sh
-./virtuals/fuzzer/run_board_coverage.sh mqtt \
-  --board-port /dev/ttyACM1 \
-  --work-dir /absolute/results/h753-mqtt-board
-```
-
-The VCP identifies the board, but MQTT elder mode uses the model PTY
-(`/tmp/usart1_pty`) rather than that serial device; BoardRunner's ST-LINK
-backend performs hardware passthrough. Install `mosquitto`,
-`mosquitto-clients`, `socat`, a C compiler, and GLib development headers.
-Use `--duration` (minimum 15 seconds), `--broker-host`, or `--broker-port` to
-adapt the local environment.
-
-### Hardware-assisted, non-fuzzing lwIP coverage
-
-The same launcher also runs the STM32F769I-EVAL lwIP HTTP-server demonstration
-without fuzzing. It builds the supplied TAP-capable Ethernet Elder model for
-the run and sends Ethernet traffic through `tap0`; all non-Ethernet
-peripherals remain on ST-LINK passthrough. The fixed, non-mutating traffic
-sequence is one ICMP echo, a TCP connection to port 80, `GET /index.html`,
-`GET /STM32F7xxLED.html`, and a missing-page request to cover the HTTP 404
-path. It does not invoke `/leds.cgi`.
-
-Create `tap0` once using the example's documented network:
-
-```sh
-sudo ip tuntap add dev tap0 mode tap user "$(whoami)"
-sudo ip addr add 192.168.8.1/24 dev tap0
-sudo ip link set dev tap0 up
-```
-
-Then run:
-
-```sh
-cd FastDyn
-./virtuals/fuzzer/run_board_coverage.sh lwip
-```
-
-If more than one ST-LINK VCP is attached, select the F769 explicitly. The
-default 65-second run produces approximately 1,800 blocks (1,814 in the
-verified run); a small timing variation is normal.
-
-```sh
-./virtuals/fuzzer/run_board_coverage.sh lwip \
-  --board-port /dev/ttyACM1 \
-  --work-dir /absolute/results/f769-lwip-board
-```
-
-### Hardware-assisted, non-fuzzing SD-card coverage
-
-The STM32F769I-EVAL FatFs demo is also available through the same launcher. It
-creates a fresh isolated 64 MiB FAT32 image, builds the saved SDMMC1 Elder
-model, and routes all non-SDMMC1 peripherals to ST-LINK passthrough. The
-normal demonstration creates, writes, and reads `STM32.TXT`; the launcher
-verifies that its expected contents were written to the image before reporting
-coverage. It does not stimulate SD-card insertion/removal interrupts.
-
-```sh
-cd FastDyn
-./virtuals/fuzzer/run_board_coverage.sh sdcard \
-  --board-port /dev/ttyACM1 \
-  --work-dir /absolute/results/f769-sdcard-board
-```
-
-The default 45-second run reached 1,393 blocks in the verified baseline run.
-The work directory retains the card image and logs; the temporary `sdcard.img`
-link required by the supplied model is removed automatically when the run ends.
-
-### QEMU-only, no-model coverage baseline
-
-`run_qemu_coverage.sh` is the third reproducibility launcher. It generates a
-minimal TOML for MQTT, lwIP, SD-card, and Modbus, then runs each firmware in
-QEMU and records its unique basic blocks. The TOML contains the firmware,
-Cortex-M CPU, coverage setting, and required RAM mapping—no peripheral models
-or handlers. FastDyn is loaded solely as the coverage collector.
-
-```sh
-cd FastDyn
-./virtuals/fuzzer/run_qemu_coverage.sh
-```
-
-The default is a one-second, launcher-owned wall-clock ceiling per image and
-writes one `bbl.txt` per target plus `summary.tsv` beneath a new
-`qemu-runs/qemu-coverage-*` directory.  A timeout is expected: it is the
-launcher's final `SIGINT`, not an AFLNet testcase timeout.  To inspect one
-firmware or adjust the common budget:
-
-```sh
-./virtuals/fuzzer/run_qemu_coverage.sh modbus --duration 20 \
-  --work-dir /absolute/results/modbus-qemu-only
-```
-
-This is a cold-start comparison baseline, not an application exercise.  With
-no device emulation or incoming traffic, its count should not be compared
-directly to the modeled, hardware-assisted, or fuzzing coverage numbers.
+A snapshot covers the firmware's writable segments. FastDyn asks which ones to
+include; unattended runs include all of them, and `FASTDYN_SNAPSHOT_SEGMENTS`
+(`all`, `none`, or an index expression such as `0,2-3`) selects them without
+asking.
 
 ## Generic Usage
 

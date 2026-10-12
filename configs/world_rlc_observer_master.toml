@@ -25,7 +25,7 @@
 
 [Machine]
 platform = "generic-cortexm"
-qemu_path = "qemu/build/qemu-system-arm"
+# qemu_path = "qemu/build/qemu-system-arm"  # optional: defaults to the QEMU FastDyn was built against
 display = "none"
 monitor_port = 0
 qmp_socket = "/tmp/fastdyn-observer-master.qmp"

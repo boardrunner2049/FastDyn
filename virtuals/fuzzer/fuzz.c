@@ -201,6 +201,10 @@ void fuzz_register_restore(fuzz_callback_t cb) {
     g_fuzz_restore_callback = cb;
 }
 
+bool fuzz_register_pc_hook(uint64_t pc, fuzz_pc_hook_t cb, const char *args) {
+    return core_register_virtual_rule(pc, cb, args);
+}
+
 // method could be better, but since we do this in a hook the firmware isn't executing and is safe
 static void fuzz_irq_entry(int irq) {
     core_cc_list.log_buf.buffer[(uint16_t)core_cc_list.log_buf.index / 4] = 0xFFFFFFFD;

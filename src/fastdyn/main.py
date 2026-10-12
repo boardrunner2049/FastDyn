@@ -3,99 +3,65 @@ Main file is responsible for kicking the qemu command.
 '''
 import logging
 import click
-import os, shutil
-import subprocess
+import shutil
 import json
-import signal
 import sys
+import textwrap
 from collections import defaultdict
 from pathlib import Path
 
-from . import fastdyn_log
+from . import logs
 from fastdyn.__init__ import __version__
 # from .machine import Machine, CPUConfig, VirtualInstruction, InstructionModifier
-from .verifier import verifier as verify             #contains the verification framework
-from .verifier import prompt_gen as pg           #Generates the prompt
-from .verifier import context_minimizer as cm   #Minimizes the context
-from . import toml_parser
-from . import fmu_build
 from . import runtime_config
-from . import swarm as swarm_runner
+from . import runner
 from . import timing
-from .fuzzer import fuzzer
 from .utils import parse_config as parse_helper
 from . import platform_browser
 from .virtual_preprocessing import VirtualPreparationError
-from fastdyn.binary.symmap import SymbolResolver
-from fastdyn.binary.symmap.providers.dwarf import DwarfProvider
 import fastdyn.targets.qemu_target as qemu_target
-from fastdyn.llm.handlers import llm_history_next
-from fastdyn.llm.compiler import CompilationError, compile_model
 log = logging.getLogger(__name__)
-fastdyn_log.setLogConfig()
-
-
-def _prepare_work_dir(work_dir, persist_work_dir):
-    if work_dir is not None:
-        if not os.path.isdir(work_dir):
-            log.warn(f"The output directory: {work_dir} passed by the user does not exist.")
-    else:
-        work_dir = "fastdyn_work"
-
-    if not persist_work_dir:
-        if os.path.exists(work_dir):
-            log.info(f"The output directory already exists at Path {os.path.abspath(work_dir)}. Deleting it!")
-            shutil.rmtree(work_dir)
-
-        log.info(f"Creating output directory at path: {os.path.abspath(work_dir)}")
-        os.makedirs(work_dir)
-    else:
-        log.info(f"Running with existing work directory.")
-
-    return work_dir
-
-
-def _configure_measurement(config, work_dir):
-    env = runtime_config.configure_run_environment(config, work_dir)
-    click.echo(f"FastDyn timing log: {env['FASTDYN_TIMING_FILE']}")
-    if env.get("FASTDYN_PYTHON_PROFILE") == "1" or env.get("FASTDYN_PERF_MODE") != "off":
-        click.echo(f"FastDyn profile output: {Path(work_dir).expanduser().resolve() / 'profiles'}")
-    return env
 
 
 def _auto_build_fmu(config, fmu_name, skip_build):
-    if skip_build:
-        return
+    # CLI adapter (used by swarm): FMU problems become CLI errors.
     try:
-        build = fmu_build.resolve(Path(config), fmu_name)
-    except fmu_build.NoFmuConfig:
-        return
-    except fmu_build.FmuConfigError as exc:
+        runner.auto_build_fmu(config, fmu_name, skip_build, report=click.echo)
+    except runner.RunError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if not build.auto_build:
-        return
-
-    try:
-        if not fmu_build.needs_build(build):
-            click.echo(f"FMU ready: {build.artifact_path}")
-            return
-        fmu_build.require_build_inputs(build)
-        click.echo(f"Building FMU '{build.name}' from {config}")
-        fmu_build.build_fmu(build, update_submodules_first=False)
-        if build.package:
-            click.echo(f"FMU ready: {build.fmu_path}")
+def _log_settings(verbose, quiet, log_levels):
+    """Turn -v/-q/--log-level into a default level and per-logger levels."""
+    if verbose and quiet:
+        raise click.UsageError("-v/--verbose and -q/--quiet cannot be combined.")
+    default = "DEBUG" if verbose else "WARNING" if quiet else None
+    overrides = {}
+    for option in log_levels:
+        name, separator, level = option.rpartition("=")
+        try:
+            logs.level_number(level)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc), param_hint="--log-level") from exc
+        if separator:
+            overrides[name] = level
         else:
-            click.echo(f"FMU source tree ready: {build.output}")
-    except fmu_build.FmuConfigError as exc:
-        raise click.ClickException(f"FMU auto-build setup is incomplete: {exc}") from exc
-    except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"FMU build failed: {exc}") from exc
+            default = level
+    return default, overrides
+
 
 @click.group()
 @click.version_option(prog_name="Fastdyn Framework",version=__version__)
-def cli():
-    log.info('****** Fastdyn Framework {0} *******'.format(__version__ ))
+@click.option('-v', '--verbose', is_flag=True, help='Show debug messages.')
+@click.option('-q', '--quiet', is_flag=True, help='Show only warnings and errors.')
+@click.option('--log-level', 'log_levels', multiple=True, metavar='[LOGGER=]LEVEL',
+              help='Set the log level, or one logger\'s level (e.g. fastdyn.targets=DEBUG). Repeatable. '
+                   'The default comes from FASTDYN_LOG_LEVEL, else INFO.')
+@click.option('--log-file', type=click.Path(dir_okay=False, writable=True), default=None,
+              help='Also write every log message (DEBUG and above) to this file.')
+def cli(verbose, quiet, log_levels, log_file):
+    default, overrides = _log_settings(verbose, quiet, log_levels)
+    logs.configure(level=default, levels=overrides, log_file=log_file)
+    log.debug('****** Fastdyn Framework {0} *******'.format(__version__ ))
 
 
 def _show_platform_selection(selected):
@@ -421,7 +387,7 @@ def run_help(browse):
     click.echo('Run FastDyn:')
     for entry in feature_browser.run_entries():
         click.echo(f'  {entry.name:<34} {entry.description}')
-        click.echo(f'    {entry.toml}')
+        click.echo(textwrap.indent(entry.toml, '    '))
     click.echo('\nBrowse interactively with: fastdyn help run --browse')
 
 
@@ -474,332 +440,25 @@ def run_help(browse):
 def run(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu,
         no_run_processes):
     try:
-        # Do this before _prepare_work_dir can replace an existing directory.
-        runtime_config.validate_config(config)
-    except (runtime_config.RuntimeConfigError, VirtualPreparationError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    work_dir = _prepare_work_dir(work_dir, persist_work_dir)
-    _configure_measurement(config, work_dir)
-
-    svd_path = svd if svd is not None else "third_party/common/cmsis-svd-data"
-    try:
-        with timing.phase("fastdyn.run.total", config=config, work_dir=work_dir):
-            with timing.phase("fastdyn.fmu_auto_build"):
-                _auto_build_fmu(config, fmu, no_build_fmu)
-
-            with runtime_config.launch_from_config(config, work_dir, skip=no_run_processes) as process_manager:
-                with timing.phase("fastdyn.parse_config"):
-                    fastdyn_handle = toml_parser.parser(
-                        work_dir,
-                        machine_name="machine0",
-                        toml_config=config,
-                        svd_path=svd_path,
-                        fmu_name=fmu,
-                    )
-
-                if process_manager is not None:
-                    process_manager.start_terminator_watcher(
-                        lambda _handle, _exit_code: fastdyn_handle.shutdown()
-                    )
-
-                try:
-                    for idx, machine in enumerate(fastdyn_handle.machines):
-                        with timing.phase(f"fastdyn.machine{idx}.run"):
-                            fastdyn_handle.run(
-                                machine_name=f"machine{idx}",
-                                target="qemu",
-                                out_path=work_dir,
-                            )
-                finally:
-                    if process_manager is not None:
-                        process_manager.stop_terminator_watcher()
-                        process_manager.raise_for_terminator_failure()
-    except (runtime_config.RuntimeConfigError, VirtualPreparationError) as exc:
-        raise click.ClickException(str(exc)) from exc
-
-
-def _resolve_probe_addresses(cache_dir, symbols_list):
-    """
-    Parses symbols.json once, returns addresses for the requested symbols.
-    Strips thumb bit (&= ~1).
-    """
-    symbols_path = os.path.join(cache_dir, "symbols.json")
-    if not os.path.exists(symbols_path) or not symbols_list:
-        return []
-
-    with open(symbols_path, "r") as f:
-        syms = json.load(f)
-
-    sym_dict = {sym.get("name", ""): sym.get("address") for sym in syms}
-    addrs = []
-    for sym_name in symbols_list:
-        if sym_name in sym_dict:
-            addr_val = sym_dict[sym_name]
-            if isinstance(addr_val, str):
-                addr = int(addr_val, 16) if addr_val.startswith("0x") else int(addr_val)
-            else:
-                addr = int(addr_val)
-            addr &= ~1
-            addrs.append(addr)
-    return addrs
-
-
-def _compile_model(sdk_dir):
-    try:
-        return compile_model(
-            sdk_dir,
-            fastdyn_include_dir=str(_repo_root() / "include"),
-            qemu_include_dir=str(_qemu_include_dir()),
+        runner.run_config(
+            config,
+            work_dir,
+            svd=svd,
+            persist_work_dir=persist_work_dir,
+            fmu=fmu,
+            build_fmu=not no_build_fmu,
+            run_processes=not no_run_processes,
+            report=click.echo,
         )
-    except CompilationError as e:
-        return False, str(e)
+    except (runner.RunError, runtime_config.RuntimeConfigError, VirtualPreparationError,
+            qemu_target.QemuExitError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    except KeyboardInterrupt:
+        log.info("Run interrupted by user.")
+        raise SystemExit(130)  # conventional exit status for SIGINT
 
 
-def _repo_root():
-    return Path(__file__).resolve().parents[2]
-
-
-def _qemu_include_dir():
-    qemu_root = _repo_root().parent / "qemu"
-    return qemu_root / "include"
-
-
-def _abs_repo_path(path):
-    path = Path(path).expanduser()
-    if path.is_absolute():
-        return path
-    return _repo_root() / path
-
-
-def _device_config_exists(config_path, device_name):
-    marker = f"[Device.{device_name}]"
-    try:
-        with open(config_path, "r") as f:
-            return any(line.strip() == marker for line in f)
-    except OSError:
-        return False
-
-
-def _iter_enabled_elder_scrolls(machine):
-    for dev in machine.devices.values():
-        for handler in getattr(dev, "handlers", []) or []:
-            if getattr(handler, "model", None) != "elder":
-                continue
-            if getattr(handler, "enabled", True) is False:
-                continue
-            scroll = getattr(handler, "scroll", None)
-            if scroll:
-                yield scroll
-
-
-def _compile_missing_boardrunner_models(machine):
-    missing = [
-        scroll for scroll in _iter_enabled_elder_scrolls(machine)
-        if not _abs_repo_path(scroll).exists()
-    ]
-    if not missing:
-        return True
-
-    sdk_dir = os.path.dirname(os.path.abspath(machine.modeling_dir))
-    success, out = _compile_model(sdk_dir)
-    if not success:
-        log.error(f"Compilation failed:\n{out}")
-        return False
-
-    still_missing = [
-        scroll for scroll in missing
-        if not _abs_repo_path(scroll).exists()
-    ]
-    if still_missing:
-        log.error(
-            "Compilation completed but these model libraries are still missing: %s",
-            ", ".join(still_missing),
-        )
-        return False
-
-    return True
-
-
-def _generate_peripheral_model(peri_found, config_path, modeling_dir):
-    p_name = peri_found["name"].lower()
-    p_base = peri_found["base_address"]
-    p_end = peri_found["end_address"]
-
-    sdk_dir = os.path.dirname(os.path.abspath(modeling_dir))
-
-    template_code = f"""#include <stdint.h>
-#include <device.h>
-
-void* {p_name}_init(ConfigSection* model_info) {{
-    return NULL;
-}}
-
-uint64_t {p_name}_read(void *opaque, uint64_t addr, unsigned size) {{
-    return 0;
-}}
-
-void {p_name}_write(void *opaque, uint64_t addr, uint64_t value, unsigned size) {{
-    return;
-}}
-"""
-    os.makedirs(modeling_dir, exist_ok=True)
-    model_file = os.path.join(modeling_dir, f"{p_name}.c")
-    if os.path.exists(model_file):
-        log.warning(f"Model file {model_file} already exists!")
-    else:
-        with open(model_file, "w") as f:
-            f.write(template_code)
-
-        log.info(f"Generated {model_file} for peripheral {p_name}")
-
-    if _device_config_exists(config_path, p_name):
-        log.info(f"Config already contains [Device.{p_name}], not appending a duplicate.")
-    else:
-        with open(config_path, "a") as f:
-            f.write(f"\n[Device.{p_name}]\n")
-            f.write(f"    ranges = [[\"{p_base}\", \"{p_end}\"]]\n")
-            f.write(f"    irq = [[1, 150]]\n")
-            f.write(f"    description = \"{peri_found['name']}\"\n")
-            f.write(f"    read_priority = \"elder\"\n")
-            f.write(f"    [[Device.{p_name}.handlers]]\n")
-            f.write(f"        model   = \"elder\"\n")
-            f.write(f"        enabled = true\n")
-            f.write(f"        scroll = \"boardrunner/boardrunner_sdk/build/{p_name}.so\"\n")
-            f.write(f"    [[Device.{p_name}.connections]]\n")
-            f.write(f"        type    = \"endpoint\"\n")
-            f.write(f"        name    = \"gazebo\"\n")
-            f.write(f"        enabled = false\n")
-
-        log.info(f"Appended {p_name} to config {config_path}")
-
-    success, out = _compile_model(sdk_dir)
-    if not success:
-        log.error(f"Compilation failed:\n{out}")
-        return False
-
-    log.info("Compilation successful, restarting QEMU...")
-    return True
-
-
-@cli.command('probe-run', help='Runs the firmware on QEMU in FastDyn probe mode using the passed config file.')
-@click.option('-c','--config',required=True, type=click.Path(resolve_path=True,exists=True),
-              help='The Path to the config file.', metavar='PATH')
-@click.option('-o','--work-dir',default="./fastdyn_work",metavar='PATH',
-              show_default=True, type=click.Path(resolve_path=True,writable=True),
-              help='Path to the work directory.')
-@click.option('-s', '--svd', type=click.Path(resolve_path=True, exists=True),
-              default=None, metavar='PATH', help='Optional path to an SVD file or directory.')
-@click.option('-p', '--persist-work-dir', is_flag=True, default=False,
-              help='Optional Flag to persist the existing work directory.')
-def probe_run(config, work_dir, svd, persist_work_dir):
-    work_dir = _prepare_work_dir(work_dir, persist_work_dir)
-    svd_path = svd if svd is not None else "third_party/common/cmsis-svd-data"
-
-    # Ensure libhw.so can be found by QEMU
-    hw_out_dir = "/scratch/Fastdyn/ardurover_rehosting_fastdyn/libhw/out"
-    if hw_out_dir not in os.environ.get("LD_LIBRARY_PATH", ""):
-        os.environ["LD_LIBRARY_PATH"] = hw_out_dir + os.pathsep + os.environ.get("LD_LIBRARY_PATH", "")
-
-    while True:
-        fastdyn_handle = toml_parser.parser(work_dir, machine_name="machine0", toml_config=config, svd_path=svd_path)
-
-        for idx, machine in enumerate(fastdyn_handle.machines.values()):
-            machine_name = machine.name or f"machine{idx}"
-            if not machine.cpus:
-                raise click.ClickException(f"{machine_name} has no CPU configured.")
-
-            from fastdyn.binary.static_analyze import build_static_analyze_config, validate_static_analyze_cache
-            analysis_cfg = build_static_analyze_config(
-                machine=machine,
-                cpu=machine.cpus[0],
-                config_path=config,
-                force=False,
-            )
-            valid, reason, cache_dir = validate_static_analyze_cache(analysis_cfg)
-            if not valid:
-                raise click.ClickException(f"probe-run requires a valid static cache. Reason: {reason}")
-
-            machine.qemu_target_opts.probe_run = True
-            machine.qemu_target_opts.probe_faults = os.path.join(cache_dir, "probe_faults.json")
-            machine.qemu_target_opts.probe_out_dir = os.path.abspath(work_dir)
-
-            # Resolve milestones
-            if machine.milestones:
-                milestone_addrs = _resolve_probe_addresses(cache_dir, machine.milestones)
-                if milestone_addrs:
-                    milestones_json = os.path.join(work_dir, "probe_milestones.json")
-                    with open(milestones_json, "w") as f:
-                        json.dump({"milestones": milestone_addrs}, f)
-                    machine.qemu_target_opts.probe_milestones = milestones_json
-
-            # Resolve ignore functions
-            if machine.ignore_functions:
-                ignore_addrs = _resolve_probe_addresses(cache_dir, machine.ignore_functions)
-                if ignore_addrs:
-                    ignores_json = os.path.join(work_dir, "probe_ignores.json")
-                    with open(ignores_json, "w") as f:
-                        json.dump({"ignores": ignore_addrs}, f)
-                    machine.qemu_target_opts.probe_ignores = ignores_json
-
-            if not _compile_missing_boardrunner_models(machine):
-                break
-
-            fastdyn_handle.run(machine_name=machine_name, target="qemu", out_path=work_dir)
-
-        result_path = os.path.join(work_dir, "probe_result.json")
-        if not os.path.exists(result_path):
-            break
-
-        with open(result_path, "r") as f:
-            result = json.load(f)
-
-        reason = result.get("exit_reason", "")
-        if not reason.startswith("unhandled_mmio"):
-            log.info(f"Exited probe-run loop due to: {reason}")
-            break
-
-        addr_str = result.get("extra_info", "0")
-        addr = int(addr_str, 16) if addr_str.startswith("0x") else int(addr_str)
-
-        svd_map_path = os.path.join(cache_dir, "svd_map.json")
-        with open(svd_map_path, "r") as f:
-            svd_map = json.load(f)
-
-        peri_found = None
-        for p in svd_map.get("peripherals", []):
-            base = int(p["base_address"], 16)
-            end = int(p["end_address"], 16)
-            if base <= addr < end:
-                peri_found = p
-                break
-
-        if not peri_found:
-            # Fallback for common ARM Cortex-M core peripherals missing from SVD
-            core_peripherals = [
-                {"name": "DWT", "base_address": "0xe0001000", "end_address": "0xe0002000"},
-                {"name": "ITM", "base_address": "0xe0000000", "end_address": "0xe0001000"},
-                {"name": "TPIU", "base_address": "0xe0040000", "end_address": "0xe0041000"},
-                {"name": "CoreDebug", "base_address": "0xe000edf0", "end_address": "0xe000ee00"},
-                {"name": "SysTick", "base_address": "0xe000e010", "end_address": "0xe000e020"},
-                {"name": "NVIC", "base_address": "0xe000e100", "end_address": "0xe000e500"},
-            ]
-            for p in core_peripherals:
-                base = int(p["base_address"], 16)
-                end = int(p["end_address"], 16)
-                if base <= addr < end:
-                    peri_found = p
-                    break
-
-        if not peri_found:
-            log.error(f"Address {addr_str} not found in any peripheral!")
-            break
-
-        success = _generate_peripheral_model(peri_found, config, machine.modeling_dir)
-        if not success:
-            break
-
-
-@cli.command('loop', help='Like run, but restarts automatically. On a clean exit the work directory is wiped; on a crash it is preserved (--persist-work-dir) so state can be inspected.')
+@cli.command('loop', help='Like run, but restarts automatically: after a clean exit with a fresh work directory, after QEMU exits with an error or a helper process dies with the work directory kept for inspection. Configuration and setup errors stop the loop.')
 @click.option('-c','--config',required = True, type= click.Path(resolve_path=True,exists=True),
                         help='The Path to the config file.',
                         metavar= 'PATH')
@@ -846,72 +505,36 @@ def probe_run(config, work_dir, svd, persist_work_dir):
     help='Do not start helper processes from [Rumoca] or [Run.processes].'
 )
 def loop(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu, no_run_processes):
-    if work_dir is None:
-        work_dir = "fastdyn_work"
-
-    svd_path = svd if svd is not None else "third_party/common/cmsis-svd-data"
-
-    # persist_work_dir controls whether the *current* iteration wipes the dir.
-    # After a clean exit we reset to False (fresh start).
-    # After a crash we keep it True (preserve state).
-    keep_dir = persist_work_dir
-    checked_fmu = False
-
+    # Restart only when a run failed (QEMU exited with an error, or a helper
+    # died mid-run), keeping the work dir for inspection. A clean exit starts
+    # the next iteration with a fresh work dir. Anything else is a setup or
+    # configuration problem that would fail again, so the loop stops.
+    persist = persist_work_dir
+    first = True
     while True:
-        if not keep_dir:
-            if os.path.exists(work_dir):
-                log.info(f"Deleting existing work directory at {os.path.abspath(work_dir)}")
-                shutil.rmtree(work_dir)
-            log.info(f"Creating work directory at {os.path.abspath(work_dir)}")
-            os.makedirs(work_dir)
-        else:
-            log.info(f"Running with existing work directory (crash recovery).")
-
-        _configure_measurement(config, work_dir)
-
         try:
-            with timing.phase("fastdyn.loop.iteration", config=config, work_dir=work_dir):
-                if not checked_fmu:
-                    with timing.phase("fastdyn.fmu_auto_build"):
-                        _auto_build_fmu(config, fmu, no_build_fmu)
-                    checked_fmu = True
-
-                with runtime_config.launch_from_config(config, work_dir, skip=no_run_processes) as process_manager:
-                    try:
-                        with timing.phase("fastdyn.parse_config"):
-                            fastdyn_handle = toml_parser.parser(
-                                work_dir,
-                                machine_name="machine0",
-                                toml_config=config,
-                                svd_path=svd_path,
-                                fmu_name=fmu,
-                            )
-
-                        if process_manager is not None:
-                            process_manager.start_terminator_watcher(
-                                lambda _handle, _exit_code: fastdyn_handle.shutdown()
-                            )
-
-                        try:
-                            for idx, machine in enumerate(fastdyn_handle.machines):
-                                with timing.phase(f"fastdyn.machine{idx}.run"):
-                                    fastdyn_handle.run(machine_name=f"machine{idx}",
-                                                       target="qemu",
-                                                       out_path=work_dir)
-                        finally:
-                            if process_manager is not None:
-                                process_manager.stop_terminator_watcher()
-                                process_manager.raise_for_terminator_failure()
-                        # Clean exit
-                        keep_dir = True
-                    except KeyboardInterrupt:
-                        log.info("Loop interrupted by user.")
-                        break
-                    except Exception as e:
-                        log.error(f"Run crashed with exception: {e}. Restarting with work directory preserved.")
-                        keep_dir = True
-        except runtime_config.RuntimeConfigError as exc:
+            runner.run_config(
+                config,
+                work_dir,
+                svd=svd,
+                persist_work_dir=persist,
+                fmu=fmu,
+                build_fmu=first and not no_build_fmu,  # FMUs are built once
+                run_processes=not no_run_processes,
+                report=click.echo,
+                phase_name="fastdyn.loop.iteration",
+            )
+            log.info("Run finished; restarting with a fresh work directory.")
+            persist = False
+        except (qemu_target.QemuExitError, runtime_config.HelperExitedError) as exc:
+            log.error(f"Run failed: {exc}. Restarting with the work directory preserved.")
+            persist = True
+        except (runner.RunError, runtime_config.RuntimeConfigError, VirtualPreparationError) as exc:
             raise click.ClickException(str(exc)) from exc
+        except KeyboardInterrupt:
+            log.info("Loop interrupted by user.")
+            raise SystemExit(130)  # conventional exit status for SIGINT
+        first = False
 
 
 def _fastdyn_executable() -> str:
@@ -972,6 +595,8 @@ def swarm(
     skip_port_check,
     dry_run,
 ):
+    # Feature-only import, kept here so other commands do not depend on swarm.
+    from . import swarm as swarm_runner
     runner = "loop" if use_loop else "run"
     jobs = instances if jobs is None else jobs
 
@@ -1040,6 +665,52 @@ def swarm(
         raise click.ClickException(f"{len(failed)} worker(s) failed: {details}")
 
 
+@cli.command('build-model', help='Compile device model sources into shared libraries (one per .c file).')
+@click.argument('sources', nargs=-1, required=True, type=click.Path(exists=True), metavar='PATH...')
+@click.option('-o', '--out-dir', required=True, type=click.Path(file_okay=False), metavar='DIR',
+              help='Where to write <name>.so.')
+@click.option('-r', '--recursive', is_flag=True, help='Build every .c file under the given folders.')
+@click.option('--name', metavar='NAME', help='Build the given files as one model called NAME.')
+@click.option('-j', '--jobs', type=click.IntRange(min=1), default=None, metavar='N',
+              help='Parallel builds (default: number of CPUs).')
+@click.option('-k', '--keep-going', is_flag=True, help='Keep building the other models after a failure.')
+@click.option('--exclude', multiple=True, metavar='PATTERN', help='Skip matching files (repeatable).')
+@click.option('--no-vio', is_flag=True, help='Build without LibVIO.')
+@click.option('--pkg', 'pkgs', multiple=True, metavar='NAME',
+              help='Add a pkg-config package (repeatable); "fastdyn" links the fuzzer hooks.')
+@click.option('--json', 'as_json', is_flag=True, help='Print a machine-readable report.')
+def build_model(sources, out_dir, recursive, name, jobs, keep_going, exclude, no_vio, pkgs, as_json):
+    # Imported here so other commands do not pay for it.
+    from . import model_build
+
+    try:
+        if name is not None:
+            inputs = model_build.find_models(sources, name=name)
+        else:
+            inputs = list(sources)
+        report = model_build.build_models(
+            inputs, out_dir, jobs=jobs, keep_going=keep_going, vio=not no_vio,
+            pkgs=pkgs, exclude=exclude, recursive=recursive,
+        )
+    except model_build.ModelBuildError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if as_json:
+        click.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        labels = {"built": "built", "up-to-date": "up to date", "failed": "FAILED", "skipped": "skipped"}
+        for result in report.results:
+            line = f"{labels[result.status]:<11} {result.name}"
+            if result.status in ("built", "up-to-date"):
+                line += f" -> {result.output}"
+            elif result.status == "failed":
+                line += f": {result.first_error}"
+            click.echo(line)
+        click.echo(report.summary())
+    if not report.ok:
+        raise SystemExit(1)
+
+
 @cli.command('timing-summary', help='Summarize a FastDyn timing JSONL file.')
 @click.argument('timing_file', type=click.Path(resolve_path=True, exists=True), metavar='PATH')
 @click.option('--top', default=30, show_default=True, type=int, help='Number of slowest phases to show.')
@@ -1076,1328 +747,5 @@ def timing_summary(timing_file, top):
         click.echo(f"{duration:9.3f}s  {process:<16}  {phase}{suffix}")
 
 
-@cli.command(
-    'generate',
-    help='Generates the LLM Prompt using the hardware log passed by the user. '
-         '[Disclaimer: Use this when generating a model for the first time]'
-)
-@click.option(
-    '-hw', '--hardware-log',
-    required=False,
-    type=click.Path(resolve_path=True, exists=True),
-    help='Path to the log file generated when running the firmware on hardware.',
-    metavar='PATH'
-)
-@click.option(
-    '-sm', '--slave-model',
-    is_flag=True,
-    help='Generate a slave model instead of the main model.'
-)
-@click.option(
-    '-rm', '--reference-model',
-    type=click.Path(resolve_path=True, exists=True),
-    help='Path to the reference model file.',
-    metavar='PATH'
-)
-@click.option(
-    '-fc', '--firmware-code',
-    type=click.Path(resolve_path=True, exists=True),
-    help='Path to the firmware source code for slave model.',
-    metavar='PATH'
-)
-@click.option(
-    '-b', '--board',
-    type=str,
-    required=True,
-    help='Name of the platform on which the firmware is running.'
-)
-@click.option(
-    '-p', '--peripheral',
-    type=str,
-    multiple=True,
-    required=True,
-    help='Name of the peripheral targeted for verification.'
-)
-@click.option(
-    '-mname', '--model-name',
-    type=str,
-    required=False,
-    help='Name of the generated model you want to pass to LLM.'
-)
-@click.option(
-    '--method',
-    default='ngram',
-    show_default=True,
-    type=click.Choice(['ngram', 'window', 'other'], case_sensitive=False),
-    help='Context minimization method.'
-)
-@click.option(
-    '--n',
-    type=int,
-    default=2,
-    show_default=True,
-    help='Value of n for n-gram method.'
-)
-@click.option(
-    '--isr-window',
-    type=int,
-    default=10000000,
-    show_default=True,
-    help='ISR window size.'
-)
-@click.option(
-    '-o', '--work-dir',
-    default="./fastdyn_work",
-    show_default=True,
-    metavar='PATH',
-    type=click.Path(resolve_path=True, writable=True),
-    help='Path to the work directory.'
-)
-@click.option(
-    '-s', '--svd',
-    type=click.Path(resolve_path=True, exists=True),
-    default=None,
-    metavar='PATH',
-    help='Optional path to an SVD file or directory.'
-)
-@click.option(
-    '-ms', '--model-source',
-    'model_sources',
-    type=str,
-    multiple=True,
-    required=False,
-    help='Peripheral(s) whose trace data is the primary source for the target model. '
-         'Required when --model-name does not match or contain any peripheral name. '
-         'Example: -ms DMA1 -ms DMAMUX1'
-)
-@click.option(
-    '--no-vio',
-    is_flag=True,
-    default=False,
-    help='Ablation mode: strip VIO API definitions from the generated prompt, '
-         'providing only base QEMU/FastDyn APIs (raw MMIO callbacks).'
-)
-@click.option(
-    '--no-encoder',
-    is_flag=True,
-    default=False,
-    help='Ablation mode: skip the Encoder (context minimizer). Feed the raw I/O trace '
-         'directly to the LLM prompt instead of the compact automaton.'
-)
-def generate(hardware_log, slave_model, reference_model, firmware_code, board, peripheral, model_name,
-             method, n, isr_window, work_dir, svd, model_sources, no_vio, no_encoder):
-    """Generates the LLM Prompt using the hardware log passed by the user."""
-    if slave_model:
-        if reference_model is None:
-            raise click.UsageError("--slave-model requires --reference-model.")
-        if firmware_code is None:
-            raise click.UsageError("--slave-model requires --firmware-code.")
-
-        if work_dir is not None:
-            if not os.path.isdir(work_dir):
-                log.warning(f"The output directory: {work_dir} passed by the user does not exist.")
-        else:
-            work_dir = "fastdyn_work"
-
-        #generate the prompt
-        peripheral_str = ", ".join(peripheral)
-        slave_type = "spi" if any("spi" in p.lower() for p in peripheral) else "i2c"
-        pg_path = pg.slave_model_gen(
-            peripheral_name=peripheral_str,
-            platform_name=board,
-            out_dir=work_dir,
-            slave_firmware_path=firmware_code,
-            reference_model_path=reference_model,
-            slave_type=slave_type
-        )
-
-    else:
-        if hardware_log is None:
-            raise click.UsageError("Generating the model required --hardware-log is required.")
-
-        if work_dir is not None:
-            if not os.path.isdir(work_dir):
-                log.warning(f"The output directory: {work_dir} passed by the user does not exist.")
-        else:
-            work_dir = "fastdyn_work"
-
-        if os.path.exists(work_dir):
-            log.info(f"The output directory already exists at Path {os.path.abspath(work_dir)}. Deleting it!")
-            shutil.rmtree(work_dir)
-
-        log.info(f"Creating output directory at path: {os.path.abspath(work_dir)}")
-
-        os.makedirs(work_dir)
-
-        #discover svd
-        svd_input = svd if svd is not None else "third_party/common/cmsis-svd-data"
-        platform = (board or "").strip()
-        if not platform and (svd is None):
-            raise click.UsageError(
-                f"Machine platform is required when CMSIS SVD file path is not explicitly given. "
-                "Pass --board explicitly."
-            )
-
-        if not platform and (svd_input and os.path.isdir(os.path.expanduser(svd_input))):
-            raise click.UsageError(
-                f"Machine platform is required when CMSIS SVD path points to a directory. "
-                "Pass --svd <file> explicitly"
-                "OR just Pass --board explicitly."
-            )
-
-        try:
-            svd_file, svd_key = parse_helper.resolve_svd(
-                platform_or_board=platform or "unused",
-                svd=svd_input,          # user explicitly passed it here
-                default_dir=None,       # no default in this path
-                auto_discover=False,    # don’t do repo search when user already gave a path
-            )
-        except parse_helper.SvdResolutionError as e:
-            raise click.ClickException(str(e)) from e
-
-        log.info(f"Using SVD: {svd_file} (key='{svd_key}')")
-        svd_device = parse_helper.get_svd_device(svd_file)
-
-        if no_encoder:
-            # Ablation A1: Skip the Encoder entirely. Generate prompt from raw I/O trace.
-            log.info("Ablation mode: --no-encoder enabled. Skipping Encoder, using raw I/O trace.")
-            from fastdyn.verifier.prompt_gen import generate_prompt_no_encoder
-            final_prompt = generate_prompt_no_encoder(
-                hardware_log=hardware_log,
-                peripheral_name=peripheral[0],
-                platform_name=platform,
-                no_vio=no_vio,
-                model_name=model_name,
-                model_sources=model_sources,
-            )
-            Path(work_dir).mkdir(parents=True, exist_ok=True)
-            output_path = Path(work_dir) / "initial_prompt.txt"
-            output_path.write_text(final_prompt + "\n", encoding="utf-8")
-            log.info(f"Ablation prompt (no encoder) written to {output_path}")
-        else:
-            #minimize the context -- since all the other peripherals are also part of the model, we dont need to do it multiple times
-            cm_path = cm.minimize_context(
-                out_dir=work_dir,
-                log_file=hardware_log,
-                platform=platform,
-                method=method,
-                peripheral=peripheral[0],
-                n=n,
-                svd_device=svd_device,
-                isr_window=isr_window,
-                cm_dir_name="out_cm"
-                )
-
-            #generate the prompt - we will generate a prompt such that it covers all the peripherals requested by the user
-            #TODO: Refactor and clean later
-            if len(peripheral) > 1:
-                for periph in peripheral:
-                    periph_path = os.path.join(cm_path, periph)
-                    if not os.path.exists(periph_path):
-                        log.error(f"Requested Peripheral {periph} does not exist!")
-                        sys.exit(1)
-
-                # Validate model_sources if explicitly provided
-                if model_sources:
-                    for ms in model_sources:
-                        if ms not in peripheral:
-                            log.error(
-                                f"--model-source '{ms}' is not in the peripheral list {list(peripheral)}. "
-                                f"Only peripherals passed with -p can be used as a model source."
-                            )
-                            sys.exit(1)
-
-                pg_path = pg.initial_prompt_gen_multiple_periphs(
-                    analysis_dir=cm_path,
-                    model_name=model_name,
-                    peripherals=peripheral,
-                    model_sources=model_sources or None,   # pass None so the function applies its heuristic
-                    out_dir=work_dir,
-                    no_vio=no_vio,
-                    user_obs=''
-                )
-            else:
-                pg_path = pg.initial_prompt_gen(
-                    analysis_dir=cm_path,
-                    peripheral=peripheral[0],
-                    out_dir=work_dir,
-                    no_vio=no_vio
-                )
-
-@cli.command(
-    'verifier',
-    help=(
-        'Verifies the model passed by the user for a given peripheral. '
-        'Generates a prompt in case of failure. '
-        '[Disclaimer: Use this when iterating a generated model for correction]'
-    )
-)
-@click.option(
-    '-hw', '--hardware-log',
-    required=True,
-    type=click.Path(resolve_path=True, exists=True),
-    help='Path to the log file generated when running the firmware on hardware.',
-    metavar='PATH'
-)
-@click.option(
-    '-em', '--emulation-log',
-    required=True,
-    type=click.Path(resolve_path=True, exists=True),
-    help='Path to the log file generated when running the firmware on the elder model using emulation.',
-    metavar='PATH'
-)
-@click.option(
-    '-d', '--device-model',
-    'device_models',
-    type=str,
-    multiple=True,
-    required=True,
-    help='Model name and path as NAME:PATH. '
-         'Example: -d ADC1:model.c -d DMA_with_DMAMUX1:model2.c'
-)
-@click.option(
-    '-b', '--board',
-    type=str,
-    required=True,
-    help='Name of the platform on which the firmware is running.'
-)
-@click.option(
-    '-p', '--peripheral',
-    type=str,
-    multiple=True,
-    required=True,
-    help='Name of the peripheral targeted for verification.'
-)
-@click.option(
-    '-mname', '--model-name',
-    'model_names',
-    type=str,
-    multiple=True,
-    required=True,
-    help='Name(s) of the model(s) being verified.'
-)
-@click.option(
-    '--method',
-    default='ngram',
-    show_default=True,
-    type=click.Choice(['ngram', 'window', 'other'], case_sensitive=False),
-    help='Context minimization method.'
-)
-@click.option(
-    '--n',
-    type=int,
-    default=2,
-    show_default=True,
-    help='Value of n for n-gram method.'
-)
-@click.option(
-    '--isr-window',
-    type=int,
-    default=10000000,
-    show_default=True,
-    help='ISR window size.'
-)
-@click.option(
-    '-o', '--work-dir',
-    default="./fastdyn_work",
-    show_default=True,
-    metavar='PATH',
-    type=click.Path(resolve_path=True, writable=True),
-    help='Path to the work directory.'
-)
-@click.option(
-    '-s', '--svd',
-    type=click.Path(resolve_path=True, exists=True),
-    default=None,
-    metavar='PATH',
-    help='Optional path to an SVD file or directory.'
-)
-@click.option(
-    '--no-rca',
-    is_flag=True,
-    default=False,
-    help='Ablation mode: on mismatch, generate a generic retry prompt instead of '
-         'the targeted RCA-based revised_prompt.txt.'
-)
-@click.option(
-    '--no-encoder',
-    is_flag=True,
-    default=False,
-    help='Ablation mode: on mismatch, generate a correction prompt using raw I/O '
-         'trace data instead of the Encoder\'s structured analysis.'
-)
-@click.option(
-    '--no-vio',
-    is_flag=True,
-    default=False,
-    help='Ablation mode: strip VIO API definitions from the correction prompt.'
-)
-@click.option(
-    '--no-verifier',
-    is_flag=True,
-    default=False,
-    help='Ablation mode: on mismatch, provide only the encoded hardware trace and '
-         'the broken model source code. No emulation trace feedback — the LLM must '
-         'self-diagnose by comparing its code against the hardware evidence.'
-)
-@click.option(
-    '--ms-map',
-    'ms_map',
-    type=str,
-    multiple=True,
-    metavar='MNAME=PERIPH1,PERIPH2,...',
-    help='Per-model source-peripheral mapping. Required for --no-rca and '
-         '--no-verifier in compositional (multi --mname) mode so each model '
-         'is corrected in isolation. Repeat once per --mname. '
-         'Example: --ms-map "ADC=ADC1,ADC2,ADC12_Common" --ms-map "DMA_with_DMAMUX1=DMA1,DMAMUX1"'
-)
-def verifier(hardware_log, emulation_log, device_models, model_names, board,
-             peripheral, method, n, isr_window, work_dir, svd,
-             no_rca, no_encoder, no_vio, no_verifier, ms_map):
-    """Verifies the model against hardware and emulation logs."""
-    log.info("Running Verifier")
-
-    # ── Work directory setup ─────────────────────────────────────────────────
-    if work_dir is not None:
-        if not os.path.isdir(work_dir):
-            log.warning(f"The output directory: {work_dir} passed by the user does not exist.")
-    else:
-        work_dir = "fastdyn_work"
-
-    if os.path.exists(work_dir):
-        log.info(f"The output directory already exists at Path {os.path.abspath(work_dir)}. Deleting it!")
-        shutil.rmtree(work_dir)
-
-    log.info(f"Creating output directory at path: {os.path.abspath(work_dir)}")
-    os.makedirs(work_dir)
-
-    # ── Parse --ms-map MNAME=PERIPH1,PERIPH2,... entries into a dict ─────────
-    model_sources_map = {}
-    for entry in ms_map:
-        if '=' not in entry:
-            log.error(
-                f"--ms-map '{entry}' must be in MNAME=PERIPH1,PERIPH2,... format.\n"
-                f"Example: --ms-map \"ADC=ADC1,ADC2,ADC12_Common\""
-            )
-            sys.exit(1)
-        mname, sources_csv = entry.split('=', 1)
-        mname = mname.strip()
-        sources = [s.strip() for s in sources_csv.split(',') if s.strip()]
-        if not sources:
-            log.error(f"--ms-map entry for '{mname}' has no peripherals listed.")
-            sys.exit(1)
-        model_sources_map[mname] = sources
-
-    # ── Parse and validate NAME:PATH device model entries ───────────────────
-    model_to_path = {}
-    for entry in device_models:
-        if ':' not in entry:
-            log.error(
-                f"--device-model '{entry}' must be in NAME:PATH format.\n"
-                f"Example: -d ADC1:boardrunner/model.c"
-            )
-            sys.exit(1)
-        name, path = entry.split(':', 1)
-        name, path = name.strip(), path.strip()
-        if not os.path.exists(path):
-            log.error(f"Model file for '{name}' not found: {path}")
-            sys.exit(1)
-        model_to_path[name] = path
-
-    for mname in model_names:
-        if mname not in model_to_path:
-            log.error(
-                f"No -d entry found for model '{mname}'.\n"
-                f"Add: -d {mname}:/path/to/model.c"
-            )
-            sys.exit(1)
-
-    # ── SVD discovery ────────────────────────────────────────────────────────
-    svd_input = svd if svd is not None else "third_party/common/cmsis-svd-data"
-    platform = (board or "").strip()
-
-    if not platform and (svd is None):
-        raise click.UsageError(
-            "Machine platform is required when CMSIS SVD file path is not explicitly given. "
-            "Pass --board explicitly."
-        )
-
-    if not platform and (svd_input and os.path.isdir(os.path.expanduser(svd_input))):
-        raise click.UsageError(
-            "Machine platform is required when CMSIS SVD path points to a directory. "
-            "Pass --svd <file> explicitly OR just Pass --board explicitly."
-        )
-
-    try:
-        svd_file, svd_key = parse_helper.resolve_svd(
-            platform_or_board=platform or "unused",
-            svd=svd_input,
-            default_dir=None,
-            auto_discover=False,
-        )
-    except parse_helper.SvdResolutionError as e:
-        raise click.ClickException(str(e)) from e
-
-    log.info(f"Using SVD: {svd_file} (key='{svd_key}')")
-    svd_device = parse_helper.get_svd_device(svd_file)
-
-    # ── Context minimization — hardware ──────────────────────────────────────
-    cm_path_hardware = cm.minimize_context(
-        out_dir=work_dir,
-        log_file=hardware_log,
-        platform=platform,
-        method=method,
-        peripheral=peripheral[0],
-        n=n,
-        svd_device=svd_device,
-        isr_window=isr_window,
-        cm_dir_name="out_cm"
-    )
-
-    for periph in peripheral:
-        periph_path = os.path.join(cm_path_hardware, periph)
-        if not os.path.exists(periph_path):
-            log.error(f"Requested peripheral '{periph}' not found in hardware context: {periph_path}")
-            sys.exit(1)
-
-    # ── Context minimization — emulation ─────────────────────────────────────
-    cm_path_emulation = cm.minimize_context(
-        out_dir=work_dir,
-        log_file=emulation_log,
-        platform=platform,
-        method=method,
-        peripheral=peripheral[0],
-        n=n,
-        svd_device=svd_device,
-        isr_window=isr_window,
-        cm_dir_name="emulation"
-    )
-
-    for periph in peripheral:
-        periph_path = os.path.join(cm_path_emulation, periph)
-        if not os.path.exists(periph_path):
-            log.warning(f"Requested peripheral '{periph}' not found in emulation context: {periph_path}. Emulation likely crashed early.")
-
-    # ── Verification and prompt generation ───────────────────────────────────
-    if len(peripheral) == 1:
-        not_match, diff_obj = verify.verify_automata(
-            automata1=cm_path_hardware,
-            automata2=cm_path_emulation,
-            peripheral=peripheral[0]
-        )
-
-        if not_match:
-            if no_verifier:
-                # Ablation: No Verifier feedback. The LLM receives the original
-                # encoder-based prompt (HW trace structured) + the broken model
-                # source code + generic "fix it". No emulation trace, no diffs,
-                # no runtime feedback at all — the LLM must self-diagnose.
-                log.warning("Log mismatch! --no-verifier: generating blind retry prompt.")
-
-                periph_dir = os.path.join(cm_path_hardware, peripheral[0])
-                if os.path.isdir(periph_dir):
-                    original_prompt = pg.generate_prompt(periph_dir)
-                else:
-                    original_prompt = ""
-                    log.warning("Could not find encoder output for --no-verifier fallback.")
-
-                model_source = ""
-                model_path = list(model_to_path.values())[0]
-                try:
-                    with open(model_path, "r", encoding="utf-8") as mf:
-                        model_source = mf.read()
-                except Exception as e:
-                    log.warning(f"Could not read model source for --no-verifier prompt: {e}")
-
-                generic_prompt = (
-                    original_prompt +
-                    "\n\n## Current Model (Failed Verification)\n"
-                    "The following model was generated but failed verification against the hardware trace.\n"
-                    "```c\n" + model_source + "\n```\n\n"
-                    "## Correction Required\n"
-                    "The model above does not correctly reproduce the hardware behavior shown in the trace data. "
-                    "Please analyze the hardware trace and the model source code, identify the bug, "
-                    "and generate a corrected model.\n"
-                )
-                prompt_path = os.path.join(work_dir, "initial_prompt.txt")
-                with open(prompt_path, "w", encoding="utf-8") as f:
-                    f.write(generic_prompt)
-                log.info("No-verifier retry prompt written to %s", prompt_path)
-            elif no_rca:
-                # Ablation A2: No RCA. The Verifier still runs and produces diffs
-                # (HW vs EM encoded traces compared). The LLM sees the Verifier's
-                # comparison data + broken model source + generic "fix it", but NOT
-                # RCA's targeted diagnostic narrative or SEARCH/REPLACE strategy.
-                # Written as initial_prompt.txt so LLM does full model regeneration.
-                log.warning("Log mismatch! --no-rca: generating prompt with Verifier diffs but no RCA analysis.")
-
-                pg_path = pg.iteration_prompt_gen(
-                    diff_obj=diff_obj,
-                    device_model_path=list(model_to_path.values())[0],
-                    peripheral=peripheral[0],
-                    out_dir=work_dir,
-                    no_vio=no_vio,
-                    no_rca=True,
-                )
-            elif no_encoder:
-                # Ablation A1 correction: use raw traces instead of structured
-                # encoder analysis, but keep the SEARCH/REPLACE correction strategy.
-                log.warning("Log mismatch! --no-encoder: generating correction prompt with raw traces.")
-
-                # Build peripheral address ranges from SVD for trace filtering
-                peripheral_ranges = []
-                for p in svd_device.peripherals:
-                    if p.name.upper() == peripheral[0].upper():
-                        size = 0x400
-                        if hasattr(p, 'address_block') and p.address_block:
-                            size = p.address_block.size
-                        peripheral_ranges.append((p.base_address, p.base_address + size))
-
-                pg_path = pg.iteration_prompt_gen(
-                    diff_obj=diff_obj,
-                    device_model_path=list(model_to_path.values())[0],
-                    peripheral=peripheral[0],
-                    out_dir=work_dir,
-                    no_encoder=True,
-                    hardware_log=hardware_log,
-                    emulation_log=emulation_log,
-                    peripheral_ranges=peripheral_ranges,
-                    no_vio=no_vio,
-                )
-            else:
-                log.warning("Log mismatch! Generating prompt.")
-                pg_path = pg.iteration_prompt_gen(
-                    diff_obj=diff_obj,
-                    device_model_path=list(model_to_path.values())[0],
-                    peripheral=peripheral[0],
-                    out_dir=work_dir,
-                    no_vio=no_vio,
-                )
-        else:
-            log.info("Both hardware log and emulation log matched!")
-
-    else:
-        pg_path = pg.iteration_prompt_gen_multiple_periph(
-            cm_path_hardware=cm_path_hardware,
-            cm_path_emulation=cm_path_emulation,
-            peripherals=peripheral,
-            model_names=model_names,
-            model_to_path=model_to_path,
-            out_dir=work_dir,
-            no_encoder=no_encoder,
-            no_rca=no_rca,
-            no_verifier=no_verifier,
-            no_vio=no_vio,
-            hardware_log=hardware_log,
-            emulation_log=emulation_log,
-            model_sources_map=model_sources_map or None,
-        )
-
-@cli.command(
-    'fuzz',
-    help='Performs the fuzzing using the hardware trace and toml configuration.'
-         'Takes the hardware trace to find the data registers and then uses toml configuration to run in the elder mode for fuzzing'
-)
-@click.option('-c','--config',required = True, type= click.Path(resolve_path=True,exists=True),
-                        help='The Path to the config file.',
-                        metavar= 'PATH')
-@click.option(
-    '-hw', '--hardware-log',
-    required=True,
-    type=click.Path(resolve_path=True, exists=True),
-    help='Path to the log file generated when running the firmware on hardware.',
-    metavar='PATH'
-)
-@click.option(
-    '-p', '--peripheral',
-    type=str,
-    required=True,
-    help='Name of the peripheral targeted for verification.'
-)
-@click.option(
-    '-b', '--board',
-    type=str,
-    required=True,
-    help='Name of the platform on which the firmware is running.'
-)
-@click.option(
-    '--method',
-    default='ngram',
-    show_default=True,
-    type=click.Choice(['ngram', 'window', 'other'], case_sensitive=False),
-    help='Context minimization method.'
-)
-@click.option(
-    '--n',
-    type=int,
-    default=2,
-    show_default=True,
-    help='Value of n for n-gram method.'
-)
-@click.option(
-    '--isr-window',
-    type=int,
-    default=10000000,
-    show_default=True,
-    help='ISR window size.'
-)
-@click.option(
-    '-o', '--work-dir',
-    default="./fastdyn_work",
-    show_default=True,
-    metavar='PATH',
-    type=click.Path(resolve_path=True, writable=True),
-    help='Path to the work directory.'
-)
-@click.option(
-    '-s', '--svd',
-    type=click.Path(resolve_path=True, exists=True),
-    default=None,
-    metavar='PATH',
-    help='Optional path to an SVD file or directory.'
-)
-def fuzz(config, hardware_log, peripheral, board, method, n, isr_window, work_dir, svd):
-    """Performs Fuzzing using the context minimizer for data register and then runs using the toml config"""
-
-    if work_dir is not None:
-        if not os.path.isdir(work_dir):
-            log.warning(f"The output directory: {work_dir} passed by the user does not exist.")
-    else:
-        work_dir = "fastdyn_work"
-
-    if os.path.exists(work_dir):
-        log.info(f"The output directory already exists at Path {os.path.abspath(work_dir)}. Deleting it!")
-        shutil.rmtree(work_dir)
-
-    log.info(f"Creating output directory at path: {os.path.abspath(work_dir)}")
-    os.makedirs(work_dir)
-
-    #minimize the context
-    cm_path = cm.minimize_context(
-        out_dir=work_dir,
-        log_file=hardware_log,
-        platform=board,
-        method=method,
-        peripheral=peripheral,
-        n=n,
-        isr_window=isr_window,
-        svd_path=svd_path,
-        cm_dir_name="out_cm"
-        )
-
-    #takes the peripheral and the minimized context path to find the entropy.txt and generate all the anchor virtual instructions
-    anchors_lst = fuzzer.generate_vi(
-        cm_path     = cm_path,
-        peripheral  = peripheral,
-    )
-
-    #It will parse the config and create a handle using fastdyn.py apis that has all the info about the machines and cpus listed in the toml
-    fastdyn_handle = toml_parser.parser(machine_name="machine0",toml_config=config, svd_path=svd_path)
-
-    #TODO: For initial verification of fuzzer, the cpu is hardcoded to be zero, update this once complete fuzzer is added
-    for machine in fastdyn_handle.machines:
-        curr_machine = fastdyn_handle.machines[machine]
-        for cpu in curr_machine.cpus:
-            cpu.add_virtual_instruction(anchors_lst)
-            fastdyn_log.info(f"Virtual Instructions for {cpu}: {cpu.virtuals}")
-
-    #run all the machines requested by the user
-    for idx, machine in enumerate(fastdyn_handle.machines):
-        fastdyn_handle.run(machine_name=f"machine{idx}",
-                           target="qemu",
-                           out_path=work_dir
-                           )
-
-
-@cli.command(
-    'llm',
-    help=(
-        'Sends a prompt from a work directory to an LLM provider and processes '
-        'the response. For initial_prompt.txt: extracts C code and writes the model. '
-        'For revised_prompt.txt: parses SEARCH/REPLACE blocks and patches the model.'
-    )
-)
-@click.option(
-    '-d', '--work-dir',
-    required=True,
-    type=click.Path(resolve_path=True, exists=True),
-    help='Path to the FastDyn work directory containing initial_prompt.txt or revised_prompt.txt.',
-    metavar='PATH'
-)
-@click.option(
-    '-o', '--output',
-    required=False,
-    multiple=True,
-    type=click.Path(resolve_path=True),
-    help=(
-        'Path to the model .c file(s). Can be specified multiple times. '
-        'If omitted, attempts to auto-detect from work_dir/analysis.json.'
-    ),
-    metavar='PATH'
-)
-@click.option(
-    '--model',
-    default='gpt-4o',
-    show_default=True,
-    type=str,
-    help='Model name to use.'
-)
-@click.option(
-    '--model-provider',
-    default='openai',
-    show_default=True,
-    type=click.Choice(['openai', 'ollama'], case_sensitive=False),
-    help='LLM provider backend.'
-)
-@click.option(
-    '--env-file',
-    default='~/.fastdyn.env',
-    show_default=True,
-    type=str,
-    help='Path to .env file containing OPENAI_API_KEY.'
-)
-@click.option(
-    '--temperature',
-    default=0.2,
-    show_default=True,
-    type=float,
-    help='Sampling temperature. For Ollama, the default is 0.1 unless this option is explicitly set.'
-)
-@click.option(
-    "--reasoning-effort",
-    type=click.Choice(["none", "minimal", "low", "medium", "high", "xhigh"]),
-    default=None,
-    help="Reasoning effort for supported gpt-5 and o-series models."
-)
-@click.option(
-    '--stateless/--no-stateless',
-    default=True,
-    show_default=True,
-    help='Keep (--stateless) or strip (--no-stateless) the conversation reset line in prompts.'
-)
-@click.option(
-    '--compile/--no-compile',
-    default=False,
-    show_default=True,
-    help='Compile the model after writing/patching using the boardrunner SDK.'
-)
-@click.option(
-    '--sdk-dir',
-    default='boardrunner/boardrunner_sdk',
-    show_default=True,
-    type=click.Path(resolve_path=True),
-    help='Path to the boardrunner SDK directory (for compilation).',
-    metavar='PATH'
-)
-@click.option(
-    '--max-retries',
-    default=1,
-    show_default=True,
-    type=int,
-    help='Maximum number of retry attempts on patch or compilation failure.'
-)
-@click.option(
-    '--evaluate/--no-evaluate',
-    default=False,
-    show_default=True,
-    help='Enable evaluation metrics logging. Writes per-call metrics to fastdyn_llm_history/metrics.jsonl.'
-)
-@click.option(
-    '--ollama-url',
-    default='http://127.0.0.1:11434',
-    show_default=True,
-    type=str,
-    help='Base URL for the Ollama HTTP server. Use SSH port forwarding for remote servers.'
-)
-@click.option(
-    '--ollama-num-ctx',
-    default=262144,
-    show_default=True,
-    type=int,
-    help='Ollama num_ctx option. Set to 0 to use the server/model default.'
-)
-@click.option(
-    '--ollama-timeout',
-    default=1800.0,
-    show_default=True,
-    type=float,
-    help='Timeout in seconds for non-streaming Ollama requests.'
-)
-@click.pass_context
-def llm(ctx, work_dir, output, model, model_provider, env_file, temperature,
-        reasoning_effort, stateless, compile, sdk_dir, max_retries, evaluate,
-        ollama_url, ollama_num_ctx, ollama_timeout):
-    """Sends a prompt to the selected LLM provider and processes the response."""
-    from fastdyn.llm.llm_client import LLMClient, LLMClientError, load_api_key
-    from fastdyn.llm.response_parser import (
-        extract_c_code, parse_search_replace_blocks, ParsingError
-    )
-    from fastdyn.llm.patch import (
-        apply_search_replace_patches, write_patched_file, write_model_file, PatchError
-    )
-
-    # -- Determine prompt type ------------------------------------------------
-    initial_prompt_path = os.path.join(work_dir, "initial_prompt.txt")
-    revised_prompt_path = os.path.join(work_dir, "revised_prompt.txt")
-    prompt_txt_path = os.path.join(work_dir, "prompt.txt")
-
-    if os.path.isfile(revised_prompt_path):
-        prompt_path = revised_prompt_path
-        prompt_type = "revised"
-        log.info("Found revised_prompt.txt -- using SEARCH/REPLACE patch mode")
-    elif os.path.isfile(initial_prompt_path):
-        prompt_path = initial_prompt_path
-        prompt_type = "initial"
-        log.info("Found initial_prompt.txt -- using full code extraction mode")
-    elif os.path.isfile(prompt_txt_path):
-        prompt_path = prompt_txt_path
-        # Detect routing-only prompts. Routed implementation prompts still use
-        # SEARCH/REPLACE, even when they were generated from routing.json.
-        _analysis_json = os.path.join(work_dir, "analysis.json")
-        _is_diagnostic = False
-        if os.path.isfile(_analysis_json):
-            import json as _json
-            with open(_analysis_json, "r") as _af:
-                _ad = _json.load(_af)
-            _is_diagnostic = (
-                _ad.get("prompt_kind") == "diagnostic"
-                and _ad.get("target_peripheral") is None
-                and not _ad.get("routing_used", False)
-            )
-        if _is_diagnostic:
-            prompt_type = "diagnostic"
-            log.info("Found prompt.txt with no target_peripheral -- using DIAGNOSTIC routing mode (JSON output only)")
-        else:
-            prompt_type = "revised"
-            log.info("Found prompt.txt -- using SEARCH/REPLACE patch mode")
-    else:
-        log.error(
-            "No prompt file found in %s. "
-            "Expected initial_prompt.txt, revised_prompt.txt, or prompt.txt.", work_dir
-        )
-        sys.exit(1)
-
-    # -- Auto-detect output if omitted ----------------------------------------
-    # In diagnostic mode (Mode B) there is no C file to write — the LLM emits
-    # JSON only, so --output is not required.
-    if prompt_type != "diagnostic":
-        if not output:
-            analysis_json = os.path.join(work_dir, "analysis.json")
-            if os.path.isfile(analysis_json):
-                import json
-                with open(analysis_json, "r") as f:
-                    analysis_data = json.load(f)
-                    target_model_file = analysis_data.get("target_model_file")
-                    if target_model_file:
-                        if isinstance(target_model_file, list):
-                            output = tuple(target_model_file)
-                            log.info("Auto-detected target model outputs: %s", ", ".join(target_model_file))
-                        else:
-                            output = (target_model_file,)
-                            log.info("Auto-detected target model output: %s", target_model_file)
-
-            if not output:
-                log.error("Error: --output PATH is required, but was omitted and could not be auto-detected from analysis.json.")
-                sys.exit(1)
-
-    # -- Read prompt ----------------------------------------------------------
-    with open(prompt_path, "r", encoding="utf-8") as f:
-        prompt_text = f.read()
-
-    if not prompt_text.strip():
-        log.error("Prompt file is empty: %s", prompt_path)
-        sys.exit(1)
-
-    log.info("Read prompt from %s (%d characters)", prompt_path, len(prompt_text))
-
-    # -- Persistent LLM history -----------------------------------------------
-    # Saved in fastdyn_llm_history/ next to the work directory, never deleted.
-    # Each invocation gets a new NNN prefix; retries within the same run get
-    # separate response files (NNN_response_1.txt, NNN_response_2.txt, ...).
-    history_dir = os.path.join(os.path.dirname(work_dir), "fastdyn_llm_history")
-    history_iter = llm_history_next(history_dir)
-    history_prefix = os.path.join(history_dir, f"{history_iter:03d}")
-    with open(f"{history_prefix}_prompt.txt", "w", encoding="utf-8") as f:
-        f.write(prompt_text)
-    log.info("LLM history prompt saved to %s_prompt.txt (iteration %d)", history_prefix, history_iter)
-
-    # -- Validate output file for revised prompts ----------------------------
-    if prompt_type == "revised":
-        for out_path in output:
-            if not os.path.isfile(out_path):
-                log.error(
-                    "Revised prompt mode requires an existing model file to patch. "
-                    "File not found: %s", out_path
-                )
-                sys.exit(1)
-
-    model_provider = model_provider.lower()
-
-    # -- Initialize LLM client ------------------------------------------------
-    try:
-        if model_provider == "ollama":
-            from fastdyn.llm.ollama_client import OllamaClient
-
-            if reasoning_effort and reasoning_effort != "none":
-                log.warning(
-                    "--reasoning-effort is ignored for --model-provider ollama. "
-                    "Use Ollama model configuration for reasoning controls."
-                )
-
-            temperature_source = None
-            if hasattr(ctx, "get_parameter_source"):
-                temperature_source = ctx.get_parameter_source("temperature")
-            ollama_temperature = 0.1 if str(temperature_source).endswith("DEFAULT") else temperature
-
-            client = OllamaClient(
-                model=model,
-                base_url=ollama_url,
-                temperature=ollama_temperature,
-                num_ctx=ollama_num_ctx or None,
-                timeout=ollama_timeout,
-            )
-        else:
-            api_key = load_api_key(env_file)
-            client = LLMClient(
-                api_key=api_key,
-                model=model,
-                temperature=temperature,
-                reasoning_effort=reasoning_effort,
-            )
-    except LLMClientError as e:
-        log.error(str(e))
-        sys.exit(1)
-
-    # -- Evaluation metrics setup -----------------------------------------------
-    metrics_path = None
-    if evaluate:
-        import json as _json
-        metrics_path = os.path.join(history_dir, "metrics.jsonl")
-        log.info("Evaluation mode enabled. Metrics will be written to %s", metrics_path)
-
-    def _write_metrics(metrics, attempt_num, call_type, extra=None):
-        """Append a metrics JSON line if --evaluate is enabled."""
-        if not evaluate or metrics is None:
-            return
-        entry = metrics.to_dict()
-        entry["iteration"] = history_iter
-        entry["attempt"] = attempt_num
-        entry["type"] = call_type
-        entry["model_provider"] = model_provider
-        entry["reasoning_effort"] = reasoning_effort
-        if extra:
-            entry.update(extra)
-        with open(metrics_path, "a", encoding="utf-8") as mf:
-            mf.write(_json.dumps(entry) + "\n")
-
-    # -- Send prompt and process response -------------------------------------
-    attempt = 0
-    max_attempts = 1 + max_retries
-    previous_response = None
-
-    while attempt < max_attempts:
-        attempt += 1
-        is_retry = attempt > 1
-
-        try:
-            if is_retry and previous_response:
-                log.info("Retry attempt %d/%d...", attempt - 1, max_retries)
-                response_text, call_metrics = client.send_followup_prompt(
-                    original_prompt=prompt_text,
-                    previous_response=previous_response,
-                    error_context=error_context,
-                    stateless=stateless,
-                )
-            else:
-                response_text, call_metrics = client.send_prompt(prompt_text, stateless=stateless)
-        except LLMClientError as e:
-            log.error("LLM request failed: %s", str(e))
-            sys.exit(1)
-
-        # Save raw response for debugging/auditing
-        response_path = os.path.join(work_dir, "llm_response.txt")
-        with open(response_path, "w", encoding="utf-8") as f:
-            f.write(response_text)
-        log.info("Raw LLM response saved to %s", response_path)
-
-        # Persist to history (one file per attempt so retries are all kept)
-        history_response_path = f"{history_prefix}_response_{attempt}.txt"
-        with open(history_response_path, "w", encoding="utf-8") as f:
-            f.write(response_text)
-        log.info("LLM history response saved to %s", history_response_path)
-
-        previous_response = response_text
-
-        # -- Process based on prompt type -------------------------------------
-        success = False
-        error_context = ""
-
-        from fastdyn.llm.handlers import (
-            handle_initial_prompt,
-            handle_revised_prompt,
-            handle_compilation,
-        )
-
-        if prompt_type == "diagnostic":
-            # Mode B: LLM is a pure router — parse the JSON routing block.
-            from fastdyn.llm.response_parser import extract_routing_json, RoutingParseError
-            try:
-                routing = extract_routing_json(response_text)
-                routing_path = os.path.join(work_dir, "routing.json")
-                import json
-                with open(routing_path, "w", encoding="utf-8") as f:
-                    json.dump(routing, f, indent=2)
-                log.info("Routing JSON written to %s", routing_path)
-                log.info("LLM routing decision: %s", routing.get("reasoning", "(no reasoning)"))
-
-                from fastdyn.llm.handlers import handle_routing
-                success, error_context = handle_routing(routing, work_dir)
-            except RoutingParseError as e:
-                error_context = f"Failed to parse routing JSON from LLM response: {e}"
-                log.error(error_context)
-
-        elif response_text.lstrip().startswith("VETO:"):
-            # Mode A VETO: parse the JSON routing block and surface it to the user.
-            from fastdyn.llm.response_parser import extract_routing_json, RoutingParseError
-            log.warning(
-                "\n================= VETO =================\n"
-                "The LLM has VETOED this request. Parsing routing JSON..."
-            )
-            try:
-                routing = extract_routing_json(response_text)
-                routing_path = os.path.join(work_dir, "routing.json")
-                import json
-                with open(routing_path, "w", encoding="utf-8") as f:
-                    json.dump(routing, f, indent=2)
-                log.warning(
-                    "Reasoning: %s\nRouting JSON written to %s\n"
-                    "========================================",
-                    routing.get("reasoning", "(no reasoning)"), routing_path
-                )
-
-                from fastdyn.llm.handlers import handle_routing
-                success, error_context = handle_routing(routing, work_dir)
-            except RoutingParseError as e:
-                log.warning("Could not parse routing JSON from VETO response: %s", e)
-                success, error_context = False, str(e)
-
-            # Exit either way because a VETO means the current generation path is dead
-            if not success:
-                sys.exit(1)
-            sys.exit(0)
-
-        elif prompt_type == "initial":
-            success, error_context = handle_initial_prompt(
-                response_text, output[0], work_dir
-            )
-        else:
-            success, error_context = handle_revised_prompt(
-                response_text, output, work_dir
-            )
-
-        if prompt_type == "diagnostic" and success:
-            _write_metrics(call_metrics, attempt, "routing", {"result": "success"})
-            log.info("LLM routing response processed successfully.")
-            break
-
-        if not success:
-            call_type = "followup" if is_retry else ("revision" if prompt_type == "revised" else "initial")
-            _write_metrics(call_metrics, attempt, call_type, {"result": "parse_fail"})
-            if attempt < max_attempts:
-                # Use builtin input() to avoid click.confirm TTY hangs
-                user_reply = input("Send a follow-up request to the LLM with error context? [Y/n]: ").strip().lower()
-                retry = (user_reply == "y" or user_reply == "")
-
-                if not retry:
-                    log.info("User chose not to retry. Exiting.")
-                    sys.exit(1)
-                continue
-            else:
-                log.error("All %d attempt(s) exhausted. Exiting.", max_attempts)
-                sys.exit(1)
-
-        # -- Optional compilation step ----------------------------------------
-        if compile:
-            compile_success, compile_error, is_setup_error = handle_compilation(sdk_dir)
-            if not compile_success:
-                call_type = "followup" if is_retry else ("revision" if prompt_type == "revised" else "initial")
-                _write_metrics(call_metrics, attempt, call_type, {"result": "compile_fail"})
-                if is_setup_error:
-                    log.error("Aborting LLM loop due to compilation setup error.")
-                    sys.exit(1)
-
-                error_context = compile_error
-                if attempt < max_attempts:
-                    # Use builtin input() to avoid click.confirm TTY hangs
-                    user_reply = input("Compilation failed. Send a follow-up request to the LLM? [Y/n]: ").strip().lower()
-                    retry = (user_reply == "y" or user_reply == "")
-
-                    if not retry:
-                        log.info("User chose not to retry. Exiting.")
-                        sys.exit(1)
-                    continue
-                else:
-                    log.error("All %d attempt(s) exhausted. Exiting.", max_attempts)
-                    sys.exit(1)
-
-        # If we reach here, everything succeeded
-        call_type = "followup" if is_retry else ("revision" if prompt_type == "revised" else "initial")
-        _write_metrics(call_metrics, attempt, call_type, {"result": "success"})
-        log.info("LLM processing completed successfully.")
-        break
-
-
-@cli.command(
-    'static-analyze',
-    help='Run static analysis on the binary.',
-)
-@click.option(
-    '-c', '--config', required=True,
-    type=click.Path(resolve_path=True, exists=True),
-    help='Path to the FastDyn TOML config file.',
-    metavar='PATH',
-)
-@click.option(
-    '--binary',
-    type=click.Path(resolve_path=True, exists=True),
-    default=None, metavar='PATH',
-    help='Override the binary path from the config.',
-)
-@click.option(
-    '-s', '--svd',
-    type=click.Path(resolve_path=True, exists=True),
-    default=None, metavar='PATH',
-    help='Override the SVD file or directory path.',
-)
-@click.option(
-    '--force',
-    is_flag=True, default=False,
-    help='Recompute artifacts even if a cache entry already exists.',
-)
-@click.option(
-    '--format',
-    type=click.Choice(['json']), default='json', show_default=True,
-    help='Output format (only json is supported currently).',
-)
-def static_analyze(config, binary, svd, force, format):
-    """Run static analysis on firmware and write artifacts to the cache dir."""
-    from fastdyn.binary.static_analyze import (
-        build_static_analyze_config,
-        run_static_analyze,
-    )
-
-    svd_path = svd if svd is not None else "third_party/common/cmsis-svd-data"
-
-    fastdyn_handle = toml_parser.parser(
-        "fastdyn_static",
-        machine_name="machine0",
-        toml_config=config,
-        svd_path=svd_path,
-        load_fmu=False,
-    )
-
-    machine = fastdyn_handle.machines.get("machine0")
-    if machine is None:
-        raise click.ClickException("Unable to create machine0 from the FastDyn config.")
-    if not machine.cpus:
-        raise click.ClickException("Static analysis requires at least one CPU in the FastDyn config.")
-
-    cpu0 = machine.cpus[0]
-    if binary is not None:
-        cpu0.binary = binary
-
-    analysis_cfg = build_static_analyze_config(
-        machine=machine,
-        cpu=cpu0,
-        config_path=config,
-        force=force,
-    )
-
-    run_static_analyze(analysis_cfg)
-
-
-@cli.command(
-    'trace-analyze',
-    help='Run trace analysis on execution and static artifacts.',
-)
-@click.option(
-    '-c', '--config', required=True,
-    type=click.Path(resolve_path=True, exists=True),
-    help='Path to the FastDyn TOML config file.',
-    metavar='PATH',
-)
-@click.option(
-    '-o', '--work-dir', default='./fastdyn_work',
-    type=click.Path(resolve_path=True, writable=True),
-    help='Path to the work directory where outputs are saved.',
-)
-@click.option(
-    '--latest-run-dir',
-    type=click.Path(resolve_path=True, exists=True),
-    default=None,
-    help='Path to the directory containing probe_result.json.',
-)
-@click.option(
-    '-s', '--svd',
-    type=click.Path(resolve_path=True, exists=True),
-    default=None, metavar='PATH',
-    help='Optional path to an SVD file or directory.',
-)
-@click.option(
-    '--io-log',
-    type=click.Path(resolve_path=True, exists=True),
-    default=None,
-    help='Optional explicit path override for io.log.',
-)
-@click.option(
-    '--out-prompt',
-    default='prompt.txt',
-    help='Filename for the output prompt.',
-)
-@click.option(
-    '--force',
-    is_flag=True, default=False,
-    help='Recompute trace analysis even if directory exists.',
-)
-@click.option(
-    '--routing-json',
-    type=click.Path(resolve_path=True, exists=False),
-    default=None,
-    help='Explicit path to routing JSON. Defaults to <work-dir>/routing.json',
-)
-@click.option(
-    '--force-routing',
-    is_flag=True, default=False,
-    help='Use routing even if handled: true.',
-)
-@click.option(
-    '--apply-routing',
-    is_flag=True, default=False,
-    help='Interactively materialize routing.json file/config recommendations before prompt generation.',
-)
-def trace_analyze(config, work_dir, latest_run_dir, svd, io_log, out_prompt, force, routing_json, force_routing, apply_routing):
-    from fastdyn.trace_analyzer.models import TraceAnalyzeRequest
-    from fastdyn.trace_analyzer.trace_analyze import run_trace_analysis
-    from pathlib import Path
-    
-    req = TraceAnalyzeRequest(
-        config_path=Path(config),
-        work_dir=Path(work_dir),
-        latest_run_dir=Path(latest_run_dir) if latest_run_dir else None,
-        out_prompt=out_prompt,
-        force=force,
-        routing_json=Path(routing_json) if routing_json else None,
-        force_routing=force_routing,
-        apply_routing=apply_routing,
-        svd_path=Path(svd) if svd else None,
-        io_log=Path(io_log) if io_log else None,
-    )
-    
-    try:
-        result = run_trace_analysis(req)
-    except Exception as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    log.info(f"Trace analysis completed. Prompt written to: {result.prompt_path}")
 if __name__ == "__main__":
     cli()

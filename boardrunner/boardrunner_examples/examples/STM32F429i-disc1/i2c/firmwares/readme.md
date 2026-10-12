@@ -1,2 +1,0 @@
-These firmwares are taken from the following repo, please refer here to get more info about how these work:
-[I2C_TwoBoards_ComPolling I2C Two Boards Communication Polling example](https://github.com/STMicroelectronics/STM32CubeF4/tree/master/Projects/STM32F429I-Discovery/Examples/I2C/I2C_TwoBoards_ComPolling)

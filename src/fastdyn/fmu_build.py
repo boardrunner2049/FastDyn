@@ -10,7 +10,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
 
-from . import timing
+from . import paths, timing
 
 try:
     import tomllib
@@ -108,7 +108,7 @@ def find_repo_root(config_path: Path | None = None) -> Path:
         for path in (start, *start.parents):
             if (path / ".git").exists() and (path / "third_party").exists():
                 return path
-    return Path.cwd().resolve()
+    return paths.repo_root() or Path.cwd().resolve()
 
 
 def repo_relative(path: Path, repo_root: Path) -> Path:

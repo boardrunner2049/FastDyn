@@ -12,10 +12,16 @@ Options:
   --python PYTHON       Python executable used to create the venv (default: python3)
   --build-qemu          Clone/build the patched QEMU fork and FastDyn QEMU plugin
   --build-gazebo        Build legacy Gazebo/Courbet deps and FastDyn with LIBGZ/LIBHW
-  --qemu-root PATH      Patched QEMU checkout/workspace root (default: ../qemu)
-  --qemu-repo URL       Patched QEMU repository (default: https://github.com/Arslan8/qemu.git)
+  --build-libhw         Build libhw (hardware-in-the-loop probe library) in the libhw root
+  --build-libvio        Build the third_party/common/libvio submodule into out/libvio, where
+                        fastdyn build-model finds it before an installed LibVIO
+  --qemu-root PATH      Patched QEMU checkout/workspace root (default: the third_party/common/qemu
+                        submodule if initialized and built or --build-qemu is given, otherwise ../qemu)
+  --qemu-repo URL       Patched QEMU repository (default: https://github.com/boardrunner2049/qemu.git)
   --qemu-ref REF        Patched QEMU ref/branch (default: fastdyn)
-  --libhw-root PATH     libhw checkout/workspace root (default: ../libhw)
+  --libhw-root PATH     libhw checkout/workspace root (default: the third_party/common/libhw
+                        submodule if initialized and built or --build-libhw/--build-gazebo is given,
+                        otherwise ../libhw)
   --optifuzz-root PATH  Banquo checkout root for OptiFuzz (default: ../banquo)
   --optifuzz-repo URL   Banquo repository (default: https://github.com/michaelprooney/banquo.git)
   --optifuzz-ref REF    Banquo ref/branch (default: banquo-parser-impl)
@@ -78,7 +84,7 @@ fastdyn_setup_qemu_hint() {
   local qemu_patch="$repo_root/patches/qemu-fastdyn-plugin-icount.patch"
 
   if [[ -x "$qemu_bin" ]]; then
-    if [[ -d "$qemu_root/.git" ]] &&
+    if [[ -e "$qemu_root/.git" ]] &&
        ! git -C "$qemu_root" apply --reverse --check "$qemu_patch" >/dev/null 2>&1; then
       cat >&2 <<EOF
 FastDyn patched QEMU exists, but the required icount/plugin compatibility patch
@@ -110,6 +116,15 @@ Build it with:
 EOF
 }
 
+# True when qemu_root is FastDyn's pinned QEMU submodule (third_party/common/qemu).
+fastdyn_setup_is_qemu_submodule() {
+  local repo_root="$1"
+  local qemu_root="$2"
+  local submodule="$repo_root/third_party/common/qemu"
+  [[ -d "$qemu_root" && -d "$submodule" ]] || return 1
+  [[ "$(cd "$qemu_root" && pwd -P)" == "$(cd "$submodule" && pwd -P)" ]]
+}
+
 fastdyn_setup_qemu_build() {
   local repo_root="$1"
   local qemu_root="$2"
@@ -117,7 +132,7 @@ fastdyn_setup_qemu_build() {
   local qemu_ref="$4"
   local qemu_bin="$qemu_root/build/qemu-system-arm"
 
-  if [[ -x "$qemu_bin" && -d "$qemu_root/.git" ]]; then
+  if [[ -x "$qemu_bin" && -e "$qemu_root/.git" ]]; then
     if fastdyn_setup_qemu_patch "$repo_root" "$qemu_root"; then
       echo "FastDyn patched QEMU is already built: $qemu_bin"
       return 0
@@ -132,13 +147,21 @@ fastdyn_setup_qemu_build() {
     return 0
   fi
 
-  mkdir -p "$qemu_root" || return
-  git -C "$qemu_root" init || return
-  git -C "$qemu_root" remote add origin "$qemu_repo" 2>/dev/null \
-    || git -C "$qemu_root" remote set-url origin "$qemu_repo" \
-    || return
-  git -C "$qemu_root" fetch origin "$qemu_ref" || return
-  git -C "$qemu_root" checkout -B fastdyn FETCH_HEAD || return
+  if fastdyn_setup_is_qemu_submodule "$repo_root" "$qemu_root"; then
+    # The pinned submodule is built at exactly the recorded commit; it is
+    # never re-fetched or moved to the branch tip.
+    if [[ ! -e "$qemu_root/.git" ]]; then
+      git -C "$repo_root" submodule update --init --depth 1 third_party/common/qemu || return
+    fi
+  else
+    mkdir -p "$qemu_root" || return
+    git -C "$qemu_root" init || return
+    git -C "$qemu_root" remote add origin "$qemu_repo" 2>/dev/null \
+      || git -C "$qemu_root" remote set-url origin "$qemu_repo" \
+      || return
+    git -C "$qemu_root" fetch origin "$qemu_ref" || return
+    git -C "$qemu_root" checkout -B fastdyn FETCH_HEAD || return
+  fi
   fastdyn_setup_qemu_patch "$repo_root" "$qemu_root"
   local patch_status=$?
   if [[ $patch_status -ne 0 && $patch_status -ne 2 ]]; then
@@ -284,6 +307,20 @@ EOF
   done
 }
 
+fastdyn_setup_libvio_build() {
+  local repo_root="$1"
+  local source_dir="$repo_root/third_party/common/libvio"
+  local build_dir="$repo_root/out/libvio/build"
+  local prefix="$repo_root/out/libvio/install"
+
+  if [[ ! -f "$source_dir/CMakeLists.txt" ]]; then
+    git -C "$repo_root" submodule update --init --depth 1 third_party/common/libvio || return
+  fi
+  cmake -S "$source_dir" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DVIO_BUILD_TESTS=OFF || return
+  cmake --build "$build_dir" -j"$(fastdyn_setup_build_jobs)" || return
+  cmake --install "$build_dir" --prefix "$prefix" || return
+}
+
 fastdyn_setup_libhw_build() {
   local libhw_root="$1"
   local libhw_so="$libhw_root/out/libhw.so"
@@ -291,7 +328,9 @@ fastdyn_setup_libhw_build() {
   if [[ ! -f "$libhw_root/Makefile" ]]; then
     cat >&2 <<EOF
 libhw checkout is missing or incomplete: $libhw_root
-Use --libhw-root to point at an existing checkout, or clone/build libhw there.
+Initialize the pinned submodule with:
+  git submodule update --init --depth 1 third_party/common/libhw
+or use --libhw-root to point at an existing checkout.
 EOF
     return 1
   fi
@@ -404,9 +443,11 @@ fastdyn_setup_main() {
   local venv_path="fastdyn-env"
   local python_bin="python3"
   local qemu_root="$repo_root/../qemu"
-  local qemu_repo="${FASTDYN_QEMU_REPO:-https://github.com/Arslan8/qemu.git}"
+  local qemu_root_given="false"
+  local qemu_repo="${FASTDYN_QEMU_REPO:-https://github.com/boardrunner2049/qemu.git}"
   local qemu_ref="${FASTDYN_QEMU_REF:-fastdyn}"
   local libhw_root="$repo_root/../libhw"
+  local libhw_root_given="false"
   local optifuzz_root="$repo_root/../banquo"
   local optifuzz_repo="${FASTDYN_OPTIFUZZ_BANQUO_REPO:-https://github.com/michaelprooney/banquo.git}"
   local optifuzz_ref="${FASTDYN_OPTIFUZZ_BANQUO_REF:-banquo-parser-impl}"
@@ -415,6 +456,8 @@ fastdyn_setup_main() {
   local setup_optifuzz="true"
   local build_qemu="false"
   local build_gazebo="false"
+  local build_libhw="false"
+  local build_libvio="false"
   local setup_qemu_workspace="true"
   local upgrade_pip="true"
 
@@ -448,8 +491,17 @@ fastdyn_setup_main() {
         build_gazebo="true"
         shift
         ;;
+      --build-libhw)
+        build_libhw="true"
+        shift
+        ;;
+      --build-libvio)
+        build_libvio="true"
+        shift
+        ;;
       --qemu-root)
         qemu_root="${2:?missing value for --qemu-root}"
+        qemu_root_given="true"
         shift 2
         ;;
       --qemu-repo)
@@ -462,6 +514,7 @@ fastdyn_setup_main() {
         ;;
       --libhw-root)
         libhw_root="${2:?missing value for --libhw-root}"
+        libhw_root_given="true"
         shift 2
         ;;
       --optifuzz-root)
@@ -500,6 +553,20 @@ fastdyn_setup_main() {
     esac
   done
 
+  # Use the pinned submodules (third_party/common/) when they are initialized
+  # and either already built or being built by this run; otherwise keep the
+  # sibling checkouts. An explicit --qemu-root / --libhw-root always wins.
+  local qemu_submodule="$repo_root/third_party/common/qemu"
+  if [[ "$qemu_root_given" != "true" && -e "$qemu_submodule/.git" ]] &&
+     [[ -x "$qemu_submodule/build/qemu-system-arm" || "$build_qemu" == "true" ]]; then
+    qemu_root="$qemu_submodule"
+  fi
+  local libhw_submodule="$repo_root/third_party/common/libhw"
+  if [[ "$libhw_root_given" != "true" && -e "$libhw_submodule/.git" ]] &&
+     [[ -f "$libhw_submodule/out/libhw.so" || "$build_libhw" == "true" || "$build_gazebo" == "true" ]]; then
+    libhw_root="$libhw_submodule"
+  fi
+
   if [[ "$venv_path" != /* ]]; then
     venv_path="$repo_root/$venv_path"
   fi
@@ -515,11 +582,6 @@ fastdyn_setup_main() {
 
   if ! command -v "$python_bin" >/dev/null 2>&1; then
     echo "$python_bin was not found. Install Python 3 with venv support." >&2
-    return 1
-  fi
-
-  if ! command -v ctags >/dev/null 2>&1; then
-    echo "ctags was not found. Install universal-ctags or exuberant-ctags (e.g., sudo apt-get install universal-ctags)." >&2
     return 1
   fi
 
@@ -559,6 +621,14 @@ fastdyn_setup_main() {
     git -C "$repo_root" submodule update --init "${submodules[@]}" || return
   fi
 
+  if [[ "$build_libhw" == "true" ]]; then
+    fastdyn_setup_libhw_build "$libhw_root" || return
+    echo "libhw is ready: $libhw_root/out/libhw.so"
+  fi
+  if [[ "$build_libvio" == "true" ]]; then
+    fastdyn_setup_libvio_build "$repo_root" || return
+    echo "LibVIO is ready: $repo_root/out/libvio/install (fastdyn build-model uses it)"
+  fi
   if [[ "$build_qemu" == "true" ]]; then
     fastdyn_setup_qemu_build "$repo_root" "$qemu_root" "$qemu_repo" "$qemu_ref" || return
     if [[ "$build_gazebo" != "true" ]]; then

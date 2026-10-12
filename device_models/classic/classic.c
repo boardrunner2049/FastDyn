@@ -3,6 +3,9 @@
 #include <pthread.h>
 #include <unistd.h>
 
+#define FD_LOG_SUBSYSTEM "classic"
+#include <fastdyn/log.h>
+
 static uint64_t classic_read(void *opaque, hwaddr address, unsigned size, uint64_t pc) {
     (void)opaque;
 
@@ -40,13 +43,13 @@ static void classic_write(void *opaque, hwaddr address, uint64_t value, unsigned
     (void)opaque;
 }
 static int classic_serve(int line) {
-	printf("Served Line: %d \n", line);
+	FD_LOG_DEBUG("served line: %d", line);
 	return 0;
 }
 
 static int classic_interrupt(int line) {
 		(void)line;
-		printf("Interrupt Line: %d \n", line);
+		FD_LOG_DEBUG("interrupt line: %d", line);
 		return 0;
 }
 
