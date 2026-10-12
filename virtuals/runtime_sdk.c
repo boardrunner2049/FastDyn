@@ -241,12 +241,12 @@ int virtual_initialize_plugins(void) {
             continue;
         }
         if (index >= VIRTUAL_RUNTIME_MAX_PLUGINS) {
-            fprintf(stderr, "fastdyn: too many runtime plugins\n");
+            fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins", "too many runtime plugins");
             return -1;
         }
         runtime_contexts[index].plugin_name = plugin->name;
         if (plugin->initialize(&runtime_contexts[index]) < 0) {
-            fprintf(stderr, "fastdyn: runtime plugin '%s' failed to initialize\n",
+            fastdyn_log(FD_LOG_LEVEL_ERROR, "plugins", "runtime plugin '%s' failed to initialize",
                     plugin->name);
             failures++;
         }
