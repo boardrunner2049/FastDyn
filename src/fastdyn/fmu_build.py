@@ -21,7 +21,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback.
 RUMOCA_REL = Path("third_party/common/rumoca")
 MODELS_REL = Path("third_party/common/modelica_models")
 SETUP_HINT = (
-    "Run `source ./setup.sh` from the FastDyn repository root "
+    "Run `source ./setup.sh --with-rumoca` from the FastDyn repository root "
     "to initialize the pinned Rumoca/modelica_models checkout."
 )
 REQUIRED_VALUE_REFERENCES = (

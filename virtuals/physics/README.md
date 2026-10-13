@@ -11,7 +11,7 @@ plane fuzzing.
 Use the repository root setup script:
 
 ```bash
-source ./setup.sh --build-qemu
+source ./setup.sh --build-qemu --with-rumoca
 ```
 
 Then run one of the maintained FMI v3 vehicle configs:
@@ -135,7 +135,7 @@ OptiFuzz/CP-Explore now defaults to the FMUv3 FastDyn backend for `copter`,
 `rover`, and `plane`.
 
 ```bash
-source ./setup.sh
+source ./setup.sh --build-qemu --with-rumoca
 cd virtuals/fuzzer/libafl_phi
 cargo run --bin baby_fuzzer
 ```
