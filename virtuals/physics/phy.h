@@ -69,6 +69,14 @@ typedef struct {
     uint8_t dist_msb;       // distance Q2 high byte
 } rplidar_sample_t;
 
+
+// trace
+typedef struct {
+    gps_data_t gps;
+    imu_batch_t imu_batch;
+} trace_t;
+
+
 /* Backend interface */
 typedef struct phy_backend {
 
@@ -77,6 +85,8 @@ typedef struct phy_backend {
 
     int  (*init)(void);
     void (*shutdown)(void);
+
+    int (*get_trace)(trace_t *trace);
 
     int (*get_imu_batch)(imu_batch_t *imu_batch);
 
@@ -121,6 +131,7 @@ phy_body_frame_t phy_get_imu_frame(void);
 int phy_init(int argc, char ** argv);
 // TODO: Allow user to specify the size of the IMU batch and implement buffering in the backend
 // Could be a pointer to an array of imu_batch_t structs, along with a size parameter
+int phy_get_trace(trace_t *trace);
 int phy_get_imu_batch(imu_batch_t *batch);
 int phy_get_mag_reading(vector3d_t *mag);
 int phy_get_navsat_reading(gps_data_t *gps_data);

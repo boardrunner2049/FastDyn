@@ -57,6 +57,17 @@ phy_body_frame_t phy_get_imu_frame(void)
     return active_backend != NULL ? active_backend->imu_frame : PHY_BODY_FRAME_FLU;
 }
 
+int phy_get_trace(trace_t *trace)
+{
+    if (trace == NULL ||
+        !phy_get_imu_batch(&(trace->imu_batch)) ||
+        !phy_get_navsat_reading(&(trace->gps))) {
+        return 0;
+    }
+
+    return 1;
+}
+
 int phy_get_imu_batch(imu_batch_t *imu_batch)
 {
     if (!active_backend || !active_backend->get_imu_batch) {

@@ -26,6 +26,9 @@
 #include <python.h>
 #endif
 #include <virtuals.h>
+#if ENABLE_PHY //TODO: should use ENABLE_PHY_TRACE plusarg - may not always want trace when doing runs not related to optifuzz
+#include "physics/fmu_trace/trace_csv.h"
+#endif
 #include <probe.h>
 #include "introspection/inspct.h"
 // #include "ardupilot_virtuals.c"
@@ -146,6 +149,19 @@ void kick_irq(void *opaque) {
         double target_time_s = (double)sim_time_ns / 1e9;
         if (!phy_advance_simulation(target_time_s)) {
             fprintf(stderr, "Failed to advance FMU simulation to %.6f s\n", target_time_s);
+        }
+    }
+    static bool has_logged_trace_time = false;
+    static uint64_t last_trace_time_ms = 0;
+    uint64_t sim_time_ms = (uint64_t)sim_time_ns / 1000000ULL;
+    if (!has_logged_trace_time || sim_time_ms != last_trace_time_ms) {
+        trace_t trace;
+        if (!phy_get_trace(&trace)) {
+            fprintf(stderr, "Failed to get trace data at %" PRIu64 " ms\n",
+                    sim_time_ms);
+        } else if (write_robustness_trace_csv(sim_time_ms, &trace)) {
+            last_trace_time_ms = sim_time_ms;
+            has_logged_trace_time = true;
         }
     }
 
@@ -672,7 +688,6 @@ int virtuals_init(int argc, char **argv, const char *schema_path) {
                     timer_period_arg, periodic_irq_period_ns);
         }
     }
-
 	// Initialize registry
 	status = virtuals_init_registry();
 
