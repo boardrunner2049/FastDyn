@@ -39,15 +39,16 @@ fastdyn_setup_cjson() {
     "$install_dir/lib"
     "$install_dir/lib64"
   )
-  local path
-  for path in "${pkg_paths[@]}"; do
-    if [[ -d "$path" ]]; then
-      export PKG_CONFIG_PATH="$path${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  # Not "path": in zsh that name is tied to PATH.
+  local dir
+  for dir in "${pkg_paths[@]}"; do
+    if [[ -d "$dir" ]]; then
+      export PKG_CONFIG_PATH="$dir${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     fi
   done
-  for path in "${lib_paths[@]}"; do
-    if [[ -d "$path" ]]; then
-      export LD_LIBRARY_PATH="$path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  for dir in "${lib_paths[@]}"; do
+    if [[ -d "$dir" ]]; then
+      export LD_LIBRARY_PATH="$dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     fi
   done
 
@@ -59,14 +60,16 @@ fastdyn_setup_cjson() {
 
 # The make arguments setup builds FastDyn with: device models, the physics
 # engine with the FMU and flight-controller backends, and libhw (passthrough,
-# twintrace recording) when it is built.
+# twintrace recording) when it is built. Sets the array
+# fastdyn_setup_make_args (an array rather than output to read back, which
+# works the same in bash and zsh).
 fastdyn_setup_plugin_make_args() {
   local qemu_root="$1"
   local libhw_root="$2"
 
-  printf '%s\n' "qemu_path=$qemu_root" DEV=true PHY=true FLIGHT_CONTROLLERS=true FMU=true
+  fastdyn_setup_make_args=("qemu_path=$qemu_root" DEV=true PHY=true FLIGHT_CONTROLLERS=true FMU=true)
   if [[ -f "$libhw_root/out/libhw.so" ]]; then
-    printf '%s\n' "libhw_path=$libhw_root" LIBHW=true
+    fastdyn_setup_make_args+=("libhw_path=$libhw_root" LIBHW=true)
   fi
 }
 
@@ -81,10 +84,9 @@ fastdyn_setup_plugin_build() {
     return 1
   fi
 
-  local make_args
-  mapfile -t make_args < <(fastdyn_setup_plugin_make_args "$qemu_root" "$libhw_root")
+  fastdyn_setup_plugin_make_args "$qemu_root" "$libhw_root"
   fastdyn_setup_cjson "$repo_root" || return
-  make -C "$repo_root" "${make_args[@]}" || return
+  make -C "$repo_root" "${fastdyn_setup_make_args[@]}" || return
 }
 
 fastdyn_setup_plugin_hint() {
@@ -98,11 +100,10 @@ fastdyn_setup_plugin_hint() {
     return 0
   fi
 
-  local make_args
-  mapfile -t make_args < <(fastdyn_setup_plugin_make_args "$qemu_root" "$libhw_root")
+  fastdyn_setup_plugin_make_args "$qemu_root" "$libhw_root"
   cat >&2 <<EOF
 FastDyn QEMU plugin is missing: $plugin
 Build it after patched QEMU is ready with:
-  make -C "$repo_root" ${make_args[*]}
+  make -C "$repo_root" ${fastdyn_setup_make_args[*]}
 EOF
 }

@@ -181,12 +181,23 @@ fastdyn_setup_main() {
     fi
   fi
 
-  local path_var
-  for path_var in venv_path qemu_root qemu_ws libhw_root optifuzz_root; do
-    if [[ "${!path_var}" != /* ]]; then
-      printf -v "$path_var" '%s' "$repo_root/${!path_var}"
-    fi
-  done
+  # Relative paths are relative to the checkout. (Written out per variable:
+  # setup.sh is also sourced from zsh, which has no ${!name} or printf -v.)
+  if [[ "$venv_path" != /* ]]; then
+    venv_path="$repo_root/$venv_path"
+  fi
+  if [[ "$qemu_root" != /* ]]; then
+    qemu_root="$repo_root/$qemu_root"
+  fi
+  if [[ "$qemu_ws" != /* ]]; then
+    qemu_ws="$repo_root/$qemu_ws"
+  fi
+  if [[ "$libhw_root" != /* ]]; then
+    libhw_root="$repo_root/$libhw_root"
+  fi
+  if [[ "$optifuzz_root" != /* ]]; then
+    optifuzz_root="$repo_root/$optifuzz_root"
+  fi
 
   fastdyn_setup_python "$repo_root" "$python_bin" "$venv_path" "$upgrade_pip" || return
 

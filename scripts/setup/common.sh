@@ -37,13 +37,13 @@ fastdyn_setup_same_dir() {
 # .git also works in copies without git metadata (e.g. Docker build contexts).
 fastdyn_setup_submodule_init() {
   local repo_root="$1"
-  local path="$2"
+  local submodule="$2"
   local marker="$3"
 
-  if [[ -f "$repo_root/$path/$marker" ]]; then
+  if [[ -f "$repo_root/$submodule/$marker" ]]; then
     return 0
   fi
-  git -C "$repo_root" submodule update --init --depth 1 "$path" || return
+  git -C "$repo_root" submodule update --init --depth 1 "$submodule" || return
 }
 
 # Pick the checkout a dependency (QEMU, libhw) is used from when no explicit
