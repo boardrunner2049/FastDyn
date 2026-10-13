@@ -15,6 +15,7 @@ SUNDIALS     ?= false
 BOARD_RUNNER ?= false
 PHY			?= false
 FMU			?= false
+TRACE ?= false
 FLIGHT_CONTROLLERS ?= false
 EFFECTIVE_PHY := $(if $(filter true,$(PHY) $(FMU) $(FLIGHT_CONTROLLERS) $(LIBGZ)),true,false)
 
@@ -40,7 +41,8 @@ setup: clean fetch
 	-Denable_sundials=$(SUNDIALS) \
 	-Denable_phy=$(EFFECTIVE_PHY) \
 	-Denable_fmu=$(FMU) \
-	-Denable_flight_controllers=$(FLIGHT_CONTROLLERS)
+	-Denable_flight_controllers=$(FLIGHT_CONTROLLERS) \
+	-Denable_trace=$(TRACE)
 
 	@if [ "$(BOARD_RUNNER)" = "true" ]; then \
 		$(MAKE) build_boardrunner; \

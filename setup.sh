@@ -211,6 +211,7 @@ fastdyn_setup_plugin_build() {
   local repo_root="$1"
   local qemu_root="$2"
   local qemu_bin="$qemu_root/build/qemu-system-arm"
+  local setup_optifuzz="$3" # true means we need to build with fmu3 trace options
 
   if [[ ! -x "$qemu_bin" ]]; then
     echo "cannot build FastDyn QEMU plugin because patched QEMU is missing: $qemu_bin" >&2
@@ -218,7 +219,7 @@ fastdyn_setup_plugin_build() {
   fi
 
   fastdyn_setup_cjson "$repo_root" || return
-  make -C "$repo_root" qemu_path="$qemu_root" PHY=true FLIGHT_CONTROLLERS=true FMU=true || return
+  make -C "$repo_root" qemu_path="$qemu_root" PHY=true FLIGHT_CONTROLLERS=true FMU=true TRACE="$setup_optifuzz" || return
 }
 
 fastdyn_setup_plugin_hint() {
@@ -562,7 +563,7 @@ fastdyn_setup_main() {
   if [[ "$build_qemu" == "true" ]]; then
     fastdyn_setup_qemu_build "$repo_root" "$qemu_root" "$qemu_repo" "$qemu_ref" || return
     if [[ "$build_gazebo" != "true" ]]; then
-      fastdyn_setup_plugin_build "$repo_root" "$qemu_root" || return
+      fastdyn_setup_plugin_build "$repo_root" "$qemu_root" "$setup_optifuzz" || return
     fi
   fi
   if [[ "$build_gazebo" == "true" ]]; then

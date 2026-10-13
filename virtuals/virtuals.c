@@ -26,7 +26,7 @@
 #include <python.h>
 #endif
 #include <virtuals.h>
-#if ENABLE_PHY //TODO: should use ENABLE_PHY_TRACE plusarg - may not always want trace when doing runs not related to optifuzz
+#if ENABLE_TRACE
 #include "physics/fmu_trace/trace_csv.h"
 #endif
 #include <probe.h>
@@ -151,6 +151,7 @@ void kick_irq(void *opaque) {
             fprintf(stderr, "Failed to advance FMU simulation to %.6f s\n", target_time_s);
         }
     }
+    #if ENABLE_TRACE
     static bool has_logged_trace_time = false;
     static uint64_t last_trace_time_ms = 0;
     uint64_t sim_time_ms = (uint64_t)sim_time_ns / 1000000ULL;
@@ -164,6 +165,7 @@ void kick_irq(void *opaque) {
             has_logged_trace_time = true;
         }
     }
+    #endif
 
     // Keep the legacy async catch-up path informed for other physics backends.
     atomic_store(last_sim_time_ns, sim_time_ns);

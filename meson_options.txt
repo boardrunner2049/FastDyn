@@ -25,3 +25,4 @@ option('enable_sundials', type: 'boolean', value: false, description: 'Enable SU
 option('enable_fmu', type: 'boolean', value: false, description: 'Enable FMU engine')
 option('enable_flight_controllers', type: 'boolean', value: false, description: 'Enable Flight controllers engine')
 option('enable_libgz', type: 'boolean', value: false, description: 'Enable gazebo lib support')
+option('enable_trace', type: 'boolean', value: false, description: 'Enable FMU based physics trace CSV output')
