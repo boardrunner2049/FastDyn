@@ -1,0 +1,186 @@
+# P2: VirtualIO.PwmInput -> ESC.AverageUnidirectional -> Motors.DynamicDCEquivalent -> QuadraticBlade + HubReaction -> common Multirotor.
+# Electromechanical drive with inductance, load feedback and coast; parameters are illustrative.
+# Current Rumoca FMI3 build limitations: third_party/courbet_deps/fire_modelica_models/docs/validation.md
+# ==============================================================================
+#                              Memory Configuration
+# ==============================================================================
+[Memory]
+
+[Memory.main]   # required: goes to -machine ... memory-backend=<id>
+id = "ram0"
+base_address = "0x20000000"
+memory_size  = "512M"
+memory_type  = "SRAM"
+backend      = "file"          # file | ram | memfd
+memory_file  = "../qemu/ws/my_m4_ram3"
+share        = true
+prealloc     = false
+
+[[Memory.ram1]]   # optional banks: go to -global cortexm-soc.ram_backendN / ram_baseaddrN
+id = "ram1"
+index = 1
+base_address = "0x30000000"
+memory_size  = "512K"
+memory_type  = "SRAM"
+backend      = "file"
+memory_file  = "../qemu/ws/my_m4_ram"
+share        = true
+prealloc     = false
+
+# ==============================================================================
+#                                CPU Configuration
+# ==============================================================================
+[Machine]
+platform = "STM32F427"
+# --- Debugging, Control, and Logging ---
+qemu_path = "../qemu/build/qemu-system-arm"
+enable_gdb = false
+stop_on_start = false
+launch_gdb = false
+monitor_port = 5555
+qmp_socket = "/tmp/qmp.sock"
+log_file = "qemu.log"
+log_options = "none"
+icount = { shift = 5, sleep = false, align = false }
+timer_irq_period_ns = 1000000 # 1 ms OS tick; keep this for board-fidelity runs.
+semihosting = true
+semihosting_config = "enable=on,target=native"
+coverage=false
+finline='None'
+print_command = false          #set to true if you want to print the final qemu on the terminal [Useful for debugging]
+
+[CPU]
+[[CPU.cpu0]]
+# --- Core Emulation & Plugin Settings ---
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m4"
+plugin_library = "build/libfastdyn.so"
+binary = "virtuals/physics/flight_controllers/courbet/bin/arducopter_v462"
+init_nsvtor = "0x08004000"
+twintrace = "None" #options are record, replay or None
+hardware_trace = 'hardware_log/io.log'   #useful in cases like replay to generate the replay binary
+existing_config_path = "virtuals/physics/flight_controllers/courbet/copter462/unlabeled_conf" #path to an existing config to use for this run. Useful for replaying with a different binary or for debugging.
+
+
+# --- Embedded CPU Behavior Configurations ---
+logger_content = """
+# --- Plugin Logger Configuration ---
+# level = DEBUG
+# output = stderr
+"""
+
+# ==============================================================================
+#                                FMU Configuration
+# ==============================================================================
+
+[FMU]
+active = "quad_p2"
+auto_build = true
+
+[FMU.models.quad_p2]
+model = "ConfiguredQuadP2"
+model_file = "out/fire/quad_p2/ConfiguredQuadP2.mo"
+source_roots = ["out/fire/quad_p2/sources"]
+output = "out/fmi3/ConfiguredQuadP2"
+compose = "third_party/courbet_deps/fire_modelica_models/configs/quad_p2.toml"
+build = true
+release = false
+
+# ==============================================================================
+#                             Runtime Helpers
+# ==============================================================================
+
+# Optional Rumoca lockstep/webviewer process. The ArduCopter FMUv3 mission uses
+# the FMU plant in the QEMU plugin and MAVCesium for the live web view; enable
+# this only when you also want a separate standalone Rumoca viewer.
+[Rumoca]
+enabled = false
+config = "third_party/common/rumoca/examples/quadrotor_sil/quadrotor_standby.toml"
+features = ["lockstep"]
+release = true
+background = true
+
+[Rumoca.webviewer]
+http_port = 8080
+ws_port = 8081
+scene = "third_party/common/rumoca/examples/quadrotor_sil/quadrotor_scene.js"
+debug = false
+
+# Helper processes that should run alongside QEMU.
+[Run]
+cwd = "."
+
+[Run.profiling]
+# Timing is low overhead and stays on for startup/mission phase measurement.
+timing = true
+timing_echo = true
+# cProfile wraps Python helpers and writes .cprofile files under work-dir/profiles.
+python = false
+# perf wraps the QEMU process when the host permits it. Use "record" for flamegraphs.
+perf = "off" # off | stat | record
+perf_frequency_hz = 99
+# FMU timing prints cumulative doStep and realtime-factor stats from the C backend.
+fmu = true
+
+[Run.processes.mavproxy]
+enabled = true
+quiet = true
+cwd = "virtuals/physics/flight_controllers/courbet/mavlink"
+env = { PYTHONPATH = "." }
+command = [
+    "mavproxy.py",
+    "--daemon",
+    "--master=udpout:127.0.0.1:${FASTDYN_MAVLINK_FIRMWARE_PORT:-14551}",
+    "--out=udpout:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-14552}",
+    "--load-module=fastdyn_cesium:{\"port\":${FASTDYN_MAVCESIUM_PORT:-5000}}",
+]
+ready_message = "MAVCesium web viewer: open http://127.0.0.1:${FASTDYN_MAVCESIUM_PORT:-5000}/mavcesium/"
+
+[Run.processes.mission]
+enabled = true
+start_delay_sec = 0
+terminate_run_on_exit = true
+command = [
+    "python3",
+    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_and_control.py",
+    "--connect",
+    "udpin:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-14552}",
+    "--monitor-sec",
+    "180",
+    "${FASTDYN_PARAM_FILE:-virtuals/physics/flight_controllers/courbet/mavlink/copter_init.param}",
+    "${FASTDYN_MISSION_FILE:-virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints}",
+]
+
+# ==============================================================================
+#                              Device Configuration
+# ==============================================================================
+
+# --- Model-Specific Configurations ---
+# Define the global arguments for each type of plugin device model here.
+
+[Device.Models.elder]
+    # The libhw backend is a global argument for the elder model.
+
+[Device.Models.passthrough]
+    backend = "stlink"
+
+[Device.Models.classic]
+    # The classic model has no global arguments.
+
+[Device.Models.twintrace]
+    backend = "stlink"
+    # The classic model has no global arguments.
+
+[Device.Models.unhandled]
+    # This model explicitly marks memory as unhandled.
+
+# --- Peripheral Definitions ---
+[Device.remaining_space]
+    ranges = [["0x40000000", "0x400107FF"],["0x40010C00", "0x40010FFF"], ["0x40011400", "0xE0000000"], ["0xE0000000", "0xEFFFFFFF"]]
+    irq = [['1','100']]
+    description = "Memory regions that will handled by passthrough and are not of interest for the modeling."
+
+    [[Device.remaining_space.handlers]]
+        model = "classic"
+        enabled = false

@@ -1,4 +1,4 @@
-# VirtualIO common PWM adapter: 1100..1900 us -> normalizedCommand -> target speed ratio.
+# P0: VirtualIO.PwmInput -> ESC.PassThrough -> Motors.FirstOrderSpeed -> QuadraticBlade -> common Multirotor.
 # ==============================================================================
 #                              Memory Configuration
 # ==============================================================================

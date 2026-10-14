@@ -1,4 +1,4 @@
-# VirtualIO common PWM adapter: 1100..1900 us -> normalizedCommand -> voltage modulation.
+# P1: VirtualIO.PwmInput -> ESC.AverageVoltage -> Motors.FirstOrderVoltageToSpeed -> QuadraticBlade -> common Multirotor.
 # P1 voltage-driven FIRE profile; copter462_fire_p0.toml preserves P0.
 # ==============================================================================
 #                              Memory Configuration

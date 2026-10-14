@@ -118,7 +118,7 @@ def check_fire_profile_fmi3_response(tmp_path, config_name, voltage_scale):
         for tick in range(steps):
             host.step(tick*dt, dt)
         motor = config['motor']
-        p1 = config.get('models', {}).get('rotor') == 'voltage_driven'
+        p1 = config.get('models', {}).get('motor') == 'first_order_voltage_to_speed'
         gain = motor['Kv'] if p1 else motor['omegaMax']
         tau = motor['tauOmega'] if p1 else motor['tau']
         expected = []
@@ -131,7 +131,7 @@ def check_fire_profile_fmi3_response(tmp_path, config_name, voltage_scale):
         for name in ('accel', 'gyro', 'gps', 'vel_ned', 'baro_altitude_m'):
             assert all(math.isfinite(v) for v in host.transfer(name))
         if p1:
-            assert abs(host.transfer('plant.dcVoltage')[0]-config['power']['dcVoltage'])<1e-9
+            assert abs(host.transfer('dcVoltage')[0]-config['power']['dcVoltage'])<1e-9
     finally:
         host.close()
 
