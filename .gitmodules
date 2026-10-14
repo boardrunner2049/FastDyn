@@ -19,10 +19,12 @@
 	url = https://github.com/cognipilot/modelica_models.git
 [submodule "tools/raw2elf"]
 	path = tools/raw2elf
-	url = git@github.com:PSecLab/raw2elf.git
+	url = https://github.com/PSecLab/raw2elf.git
+	update = none
 [submodule "tools/world"]
 	path = tools/world
 	url = git@github.com:PSecLab/world.git
+	update = none
 [submodule "third_party/common/qemu"]
 	path = third_party/common/qemu
 	url = https://github.com/boardrunner2049/qemu.git

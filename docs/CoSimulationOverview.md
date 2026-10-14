@@ -12,7 +12,9 @@ and [CoSimulationSlave.md](CoSimulationSlave.md).
 Modelica instead of writing C?**
 
 `tools/world` is a standalone FMI 3 Co-Simulation runtime with no dependency
-on firmware, emulators, or device abstractions. Its whole public contract is
+on firmware, emulators, or device abstractions. It is under development and
+not released yet: the submodule needs PSecLab access and is fetched only with
+`git submodule update --init --checkout tools/world`. Its whole public contract is
 absolute virtual time in nanoseconds plus typed accessors:
 
 ```c
