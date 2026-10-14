@@ -9,7 +9,7 @@ PROJECT ?= CRTC
 DEMO := Flash
 BUILD_DIR := build
 
-GCC_INSTALL ?= /scratch/Fastdyn/toolchains/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi/
+GCC_INSTALL ?= $(error set GCC_INSTALL to the unpacked arm-gnu-toolchain-13.3.rel1 directory, ending in /)
 GCC_INSTALL_INCLUDE = $(GCC_INSTALL)arm-none-eabi/include/
 CHECKED_C_INSTALL_INCLUDE ?=/data/checkedc/include
 GCC_INSTALL_LIB  ?= $(GCC_INSTALL)arm-none-eabi/lib/thumb/v7e-m+fp/hard/
@@ -82,7 +82,6 @@ bc: $(OBJ_FILES)
 	$(warning Files are $(OBJ_FILES))
 	llvm-link  -v $+ -o $(BUILD_DIR)/$(BIN).bc
 	llvm-dis $(BUILD_DIR)/$(BIN).bc
-#	~/projects/Pieces/partitioner/run.py /home/arslan/projects/LBC/FreeRTOS/FreeRTOS/Demo/CORTEX_M4F_STM32F407ZG-SK/pRules.json
 
 exec: build/idlefirmware.axf.bc $(BUILD_DIR)/startup.o #$(CC) -c -ffunction-sections -fdata-sections $(CFLAGS)  $+ -o $(@)
 	llc -filetype=obj build/idlefirmware.axf.bc

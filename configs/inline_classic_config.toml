@@ -19,12 +19,11 @@ init_nsvtor = "0x08000000"
 arch = "arm"
 machine = "cortexm"
 cpu = "cortex-m7"
-plugin_library = "/data/fastdyn/build/libfastdyn.so"
+plugin_library = "build/libfastdyn.so"
 monitor_elf = "../ws/monitor.elf" # The VMM-like monitor that runs with the target
 platform = "STM32F469"
-binary = "/data/fastdyn/device_models/server_firmwares/stm32f4/build/RTOSDemo.axf"
-qemu_path="/data/qemu/build/qemu-system-arm"
-finline="/data/fastdyn/staticiomapper"  #update with your custom one
+binary = "<path/to>/RTOSDemo.axf"
+finline="<path/to>/staticiomapper"  #update with your custom one
 
 # --- Debugging, Control, and Logging ---
 enable_gdb = true

@@ -44,10 +44,10 @@ else
 fi
 
 # TODO: Need to update before running on your system!!
-QEMU=/data/qemu/
-DYNFAST=/data/fastdyn/
+QEMU=${QEMU:?set QEMU to your QEMU checkout}
+DYNFAST=${DYNFAST:?set DYNFAST to your FastDyn checkout}
 #for Firmware just use absolute path
-FIRMWARE=/data/qemu/ws/RTOSDemo.axf
+FIRMWARE=${FIRMWARE:?set FIRMWARE to the firmware ELF (absolute path)}
 VECTOR=0x00000000
 
 # Our changes to hook dynfast execution

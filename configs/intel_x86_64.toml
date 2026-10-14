@@ -17,7 +17,7 @@ prealloc = false
 # ==============================================================================
 [Machine]
 platform = "Intel"
-qemu_path = "/data/qemu/build/qemu-system-x86_64"
+qemu_path = "<path/to>/qemu/build/qemu-system-x86_64"
 enable_gdb = true
 stop_on_start = true
 monitor_port = 5555
