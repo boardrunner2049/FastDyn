@@ -273,7 +273,7 @@ static void* udp_listener(void *arg) {
 
             send_sockfd_initialized = true;
 
-            printf(RED "[GCSReceiver]: Initialized send socket to GCS at %s:%d\n" RESET,
+            printf("[GCSReceiver]: Initialized send socket to GCS at %s:%d\n" RESET,
                    inet_ntoa(gcs_addr.sin_addr), ntohs(gcs_addr.sin_port));
         }
 

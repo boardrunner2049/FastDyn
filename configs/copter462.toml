@@ -78,7 +78,7 @@ auto_build = true
 [FMU.models.quadrotor]
 model = "FastDyn.Copter"
 model_file = "modelica/FastDyn/Copter.mo"
-source_roots = ["modelica", "third_party/common/modelica_models"]
+source_roots = ["third_party/common/modelica_models"]
 output = "out/fmi3/Copter"
 build = true
 release = false
