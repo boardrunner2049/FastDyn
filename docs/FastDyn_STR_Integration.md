@@ -1,51 +1,20 @@
-# FastDyn Rehosting and Fuzzing Integration Guide
+# FastDyn Fuzzing Integration Guide
 
 *FIRE FastDyn | STR Integration Documentation | Main branch (As-of-date 30 Aug 2026)*
 
-**Purpose.** This guide documents FastDyn's integration path for automatic rehosting and schema-driven fuzzing. It covers the CLI entry points and parameters, the multi-stage rehosting pipeline (currently: static analysis → probe run → trace analysis → LLM), the artifacts produced at each stage, the container build/run procedure, and FastDyn's role in the FIRE multi-fidelity workflow. Given a firmware ELF, its driver source tree, and a machine description (SVD + TOML), FastDyn can iteratively generate peripheral device models until the firmware reaches the required functionality. Once an input-processing path is rehosted, a JSON fuzzing schema can describe that path without a target-specific C harness, allowing the same rehosted firmware to be fuzzed.
+**Purpose.** This guide documents FastDyn's integration path for schema-driven fuzzing. It covers the CLI entry point and parameters, the inputs FastDyn consumes, the artifacts a campaign produces, the container build/run procedure, and FastDyn's role in the FIRE multi-fidelity workflow. Once an input-processing path of a firmware is rehosted, a JSON fuzzing schema can describe that path without a target-specific C harness, allowing the rehosted firmware to be fuzzed.
+
+Automatic rehosting (generating the peripheral models until the firmware reaches the required functionality) is done by [PhantomSmith](https://github.com/PSecLab/PhantomSmith), which drives FastDyn. Its integration guide, `docs/Rehosting_Integration.md` in the PhantomSmith repository, covers the rehosting steps, their artifacts, and what firmware content reaches the LLM.
 
 | STR requested information | Covered in |
 |---|---|
 | CLI parameters and usage | Section 1: `fastdyn` entry point, subcommand reference, invocation examples. |
-| How the tool consumes models, firmware, and fuzzing inputs | Section 2: static-analysis cache, `boardrunner_sdk` model layout, TOML conventions, and fuzzing schema. |
-| Workflow / integration example | Section 3: rehosting loop plus schema examples; Section 5 walk-through. |
+| How the tool consumes models, firmware, and fuzzing inputs | Section 2: TOML inputs and fuzzing schema. |
+| Workflow / integration example | Section 3: schema examples; Section 5 walk-through. |
 | FIRE toolchain relationship | Section 4: FastDyn's role in the multi-fidelity workflow, relationship to other FIRE tools, and schema-driven fuzzing integration. |
 | Docker build and smoke test | Section 5: container build, verification steps, expected artifacts, integration checklist. |
-| IP-sensitivity of LLM prompts | Section 6: transparent account of what firmware content is sent to the LLM. |
 
-> **Architecture status note.** FastDyn's LLM-driven rehost stage is under active development. The user-facing contract this document intends to keep stable is the **CLI-driven pipeline shape** (a small set of subcommands invoked from a container, driven by a single TOML per firmware, producing artifacts under a work directory) rather than the exact command names or stage boundaries. The **TOML configuration schema**, the **Docker build recipe**, the **static-analysis cache format**, and the **artifact categories listed in §5.4** are intended to remain consistent. The current pipeline exposes four subcommands (`static-analyze`, `probe-run`, `trace-analyze`, `llm`); future revisions may consolidate or rename stages — in particular, `trace-analyze` and `llm` may merge into a single execution step. Integration automation should pin a tested FastDyn revision and expect that command names, `llm`-side flags, and internal artifact files may change between revisions.
-
-## Integration workflows at a glance
-
-### Automatic rehosting
-
-```mermaid
-flowchart TD
-    inputs["Firmware ELF + SVD<br/>+ driver source"]
-    sa["fastdyn static-analyze"]
-    cache[("fastdyn_static_analysis/<br/>JSON cache")]
-    pr["fastdyn probe-run"]
-    run[("fastdyn_recent_run/<br/>probe_result.json<br/>qemu.log<br/>rtos_*.jsonl<br/>dev_config.json")]
-    ta["fastdyn trace-analyze"]
-    work[("fastdyn_work/<br/>prompt.txt<br/>analysis.json<br/>routing.json")]
-    llm["fastdyn llm"]
-    models[("boardrunner_sdk/model/*.c<br/>+ rebuilt .so scrolls")]
-
-    inputs --> sa
-    sa --> cache
-    cache --> pr
-    pr --> run
-    run --> ta
-    cache -.-> ta
-    ta --> work
-    work --> llm
-    llm --> models
-    models -.->|"next iteration"| pr
-```
-
-Each iteration of this loop either advances the firmware past a previously unhandled MMIO access, refines a peripheral model that returned wrong values, or emits a routing decision when the LLM determines that a different peripheral is at fault. The loop terminates when the firmware reaches a user-specified milestone (control loop, arming, first sensor read, etc.) without further MMIO faults. Schema-driven fuzzing is a subsequent activity.
-
-### Schema-driven fuzzing
+## Schema-driven fuzzing at a glance
 
 ```mermaid
 %%{init: {"themeVariables": {"edgeLabelBackground": "transparent"}, "themeCSS": ".edgeLabel, .edgeLabel div, .edgeLabel p { background: transparent !important; } .edgeLabel p { text-shadow: 0 0 1px rgba(0, 0, 0, 0.9); }"}}%%
@@ -68,96 +37,23 @@ flowchart LR
     class toml,schema configuration
 ```
 
-> **Scope note.** The automatic-rehosting portion of this document omits the hardware-trace (`twintrace`) record/replay flow and the `LIBHW=true` physical-hardware backend. The schema-driven fuzzer described here operates on rehosted firmware and does not require a hardware trace. The subcommand reference below flags options belonging to hardware-mode flows as *(hardware-mode; not used here)*.
+> **Scope note.** This document omits the hardware-trace (`twintrace`) record/replay flow and the `LIBHW=true` physical-hardware backend. The schema-driven fuzzer described here operates on rehosted firmware and does not require a hardware trace.
 
 ## 1. CLI Interface
 
-**Entry point.** The installed command is `fastdyn` (also registered as `boardrunner`), declared in `setup.py` under `console_scripts` as `fastdyn = fastdyn.main:cli`. The implementation is in `src/fastdyn/main.py`.
+**Entry point.** The installed command is `fastdyn`, declared in `src/pyproject.toml` under `[project.scripts]` as `fastdyn = fastdyn.main:cli`. The implementation is in `src/fastdyn/main.py`.
 
 ```bash
 # Verify the installed interface
 fastdyn --help
 
-# Discover subcommands
-fastdyn static-analyze --help
-fastdyn probe-run     --help
-fastdyn trace-analyze --help
-fastdyn llm           --help
+# Discover the run options
+fastdyn run --help
 ```
 
-FastDyn is driven by a single TOML per firmware/board pair (typically under `configs/`). The TOML defines the QEMU machine, memory backing, ELF path, plugin options, and the peripheral model routing table. Command-line flags are intentionally minimal; most behavior comes from the TOML so that the same configuration can be reused across `probe-run`, `trace-analyze`, and rerun automation.
+FastDyn is driven by a single TOML per firmware/board pair (typically under `configs/`). The TOML defines the QEMU machine, memory backing, ELF path, plugin options, and the peripheral model routing table. Command-line flags are intentionally minimal; most behavior comes from the TOML so that the same configuration can be reused across `run`, `loop`, `swarm`, and rerun automation.
 
-### 1.1 Automatic-rehosting and fuzzing subcommands
-
-The primary rehosting and fuzzing commands share the `-c/--config` flag and read from the same TOML. Output directories default to sensible sibling paths and can be overridden via `-o/--work-dir`. The flag tables below list the primary, stable options for each command; additional tuning flags are exposed by each subcommand's `--help` and are part of the current execution model that may evolve.
-
-#### 1.1.1 `fastdyn static-analyze`
-
-Builds the offline analysis cache from the ELF and SVD. Runs once per firmware; subsequent stages reuse the cache.
-
-| Flag | Type / Default | Purpose |
-|---|---|---|
-| `-c, --config` | path (required) | TOML configuration for the target board. |
-| `--binary` | path (override) | Overrides `[CPU.cpu0].binary`. Useful when swapping firmware variants against the same board TOML. |
-| `-s, --svd` | path (default: `third_party/common/cmsis-svd-data`) | SVD file or directory of SVDs. FastDyn selects by `[Machine].platform`. |
-| `--force` | flag | Recompute even if the cache directory is populated. |
-| `--format` | choice: `json` | Output format (only `json` currently). |
-
-Reads `[Rehosting.directories]` for `static_analysis_cache_dir` and `firmware_source_roots`, and reads `[Rehosting.static_analysis.macros]` for macro-extraction settings.
-
-#### 1.1.2 `fastdyn probe-run`
-
-Executes the firmware under QEMU with the FastDyn plugin loaded. On an unhandled MMIO access, the plugin captures the fault (address, PC, program state) and either records it into `probe_faults.json` (for later routing) or attempts an auto-generated stub model on-the-fly.
-
-| Flag | Type / Default | Purpose |
-|---|---|---|
-| `-c, --config` | path (required) | TOML configuration. |
-| `-o, --work-dir` | path (default: `./fastdyn_work`) | Output directory. |
-| `-s, --svd` | path (override) | SVD override for this run. |
-| `--run-gdb` | flag | Override `[Machine].enable_gdb`. When on, QEMU pauses at reset and exposes gdbstub on `localhost:1234`. |
-| `--rtos-introspect` | flag | Enable RTOS thread introspection using the schema produced by `static-analyze`. |
-
-Additional flags controlling work-dir persistence and RTOS-trace verbosity are documented in `fastdyn probe-run --help`.
-
-Preconditions: a valid static-analysis cache. If the cache is missing or stale, run `static-analyze --force` first.
-
-#### 1.1.3 `fastdyn trace-analyze`
-
-Consumes the probe-run artifacts plus the static-analysis cache, correlates them, and produces a structured LLM prompt plus a routing decision file. Deterministic — does not call the LLM.
-
-| Flag | Type / Default | Purpose |
-|---|---|---|
-| `-c, --config` | path (required) | TOML configuration. |
-| `-o, --work-dir` | path (default: `./fastdyn_work`) | Directory where the LLM prompt, analysis metadata, and per-analysis snapshot subdirectory are written. |
-| `--latest-run-dir` | path (default: auto-discover) | Path to the probe-run output directory (`fastdyn_recent_run/`). |
-| `-s, --svd` | path (override) | SVD override. |
-| `--force` | flag | Recompute even if analysis output already exists. |
-
-Additional flags controlling routing hand-offs between iterations and per-analysis prompt naming are documented in `fastdyn trace-analyze --help`; those are part of the current stage-based execution model and may evolve.
-
-Preconditions: `probe_result.json` from a completed probe-run and a valid static-analysis cache.
-
-#### 1.1.4 `fastdyn llm`
-
-Sends the prompt to the configured LLM provider (OpenAI or Ollama), parses the response, patches model files, and optionally recompiles.
-
-| Flag | Type / Default | Purpose |
-|---|---|---|
-| `-d, --work-dir` | path (required) | Directory containing the LLM prompt and optional analysis metadata. |
-| `-o, --output` | path (repeatable, optional) | Target model `.c` file(s) to patch. Auto-detected from analysis metadata when omitted. |
-| `--model` | str | Model name (e.g., `gpt-4o`, or an Ollama-hosted model tag). |
-| `--model-provider` | choice: `openai\|ollama` | Backend selection. |
-| `--env-file` | path (default: `~/.fastdyn.env`) | Loads `OPENAI_API_KEY` from this file. |
-| `--compile / --no-compile` | flag | Rebuild the affected model `.so` after applying the patch. |
-| `--sdk-dir` | path (default: `boardrunner/boardrunner_sdk`) | SDK root for compilation. |
-| `--evaluate / --no-evaluate` | flag | Append per-call metrics to the LLM history directory. |
-| `--ollama-url` | url | Ollama server endpoint. |
-
-Additional flags controlling sampling temperature, reasoning-effort, retry behavior, conversation state, and Ollama tuning parameters are documented in `fastdyn llm --help`; the set may evolve as the LLM stage's execution model matures.
-
-The `llm` subcommand accepts prompts produced by `trace-analyze` and writes patches, new files, or routing decisions back into the work directory. The set of response types and the iteration control mechanism are implementation details of the current execution model and may change in future revisions; the CLI shape and I/O contract remain stable.
-
-#### 1.1.5 `fastdyn run` for schema-driven fuzzing
+### 1.1 `fastdyn run` for schema-driven fuzzing
 
 Runs the firmware in QEMU using the selected TOML. For a fuzzing campaign, the
 TOML must enable `fuzzing` and `coverage` and provide `fuzzing_schema` in its
@@ -172,26 +68,26 @@ TOML must enable `fuzzing` and `coverage` and provide `fuzzing_schema` in its
 
 ### 1.2 Docker execution
 
-The repository includes a `Dockerfile` at the project root that produces a complete FastDyn environment (Ubuntu 24.04 base, patched QEMU, Ghidra 12.0.4, Gazebo Harmonic, Python venv, and the FastDyn plugin `libfastdyn.so`).
+The repository includes a `Dockerfile` at the project root that produces a complete FastDyn environment (Ubuntu 24.04 base, patched QEMU, Gazebo Harmonic, Python venv, and the FastDyn plugin `libfastdyn.so`).
 
 ```bash
-# From the workspace directory that contains FastDyn/, qemu/, libhw/
-docker build -f FastDyn/Dockerfile -t fastdyn-env .
+# From the FastDyn repository root, after checking out the submodules the
+# Dockerfile lists in its header
+docker build -t fastdyn-env .
 
 # Interactive container with the CLI on PATH
 docker run --rm -it fastdyn-env
 
 # Non-interactive one-shot invocation
 docker run --rm -v "$PWD/configs:/mnt/configs" fastdyn-env \
-  fastdyn static-analyze -c /mnt/configs/rover462.toml \
-  -s third_party/common/cmsis-svd-data --force
+  fastdyn run -c /mnt/configs/<fuzzing-config.toml>
 ```
 
-The image entrypoint drops into `/workspace/FastDyn` with the Python venv activated. `fastdyn` and `boardrunner` are both on `PATH`. `LD_LIBRARY_PATH` includes the libhw output directory; `GHIDRA_INSTALL_DIR` is set for the static-analysis frontend.
+The container starts in `/workspace/FastDyn` with the Python venv on `PATH`. `fastdyn` is on `PATH`. `LD_LIBRARY_PATH` includes the libhw output directory.
 
 ### 1.3 Secondary subcommands (reference only)
 
-The CLI also exposes `loop`, `swarm`, `timing-summary`, and `harness` for orchestration and instrumentation, plus `verifier`, `fuzz`, and `generate` for hardware-mode workflows out of scope for this document. Run `fastdyn --help` for their signatures.
+The CLI also exposes `loop`, `swarm`, and `timing-summary` for orchestration and instrumentation, `build-model` for compiling device models, and `help` for browsing configuration choices. Run `fastdyn --help` for their signatures.
 
 ## 2. How FastDyn Consumes Models and Firmware Inputs
 
@@ -199,55 +95,12 @@ The CLI also exposes `loop`, `swarm`, `timing-summary`, and `harness` for orches
 
 | Input | Provided as | Purpose |
 |---|---|---|
-| Firmware ELF | `[CPU.cpu0].binary` in TOML | The image QEMU executes and the static analyzer reads. |
+| Firmware ELF | `[CPU.cpu0].binary` in TOML | The image QEMU executes. |
 | Machine description | `[Machine]`, `[Memory]`, `[CPU]` in TOML | QEMU target selection, memory backing, timer / semihosting / GDB options. |
 | Peripheral routing table | `[Device.*]` in TOML | Which peripheral models handle which MMIO ranges, and which slave devices are attached to shared buses. |
 | MCU / SVD description | `-s/--svd` or default `third_party/common/cmsis-svd-data` | Maps MMIO addresses to peripheral and register names. |
-| Firmware driver source roots | `[Rehosting.directories].firmware_source_roots` | Provides ArduPilot-style HAL drivers for macro extraction and source context in prompts. |
-| Firmware build roots | `[Rehosting.directories].firmware_build_roots` | Provides compile-unit metadata (DWARF, preprocessed macros) when the source tree alone is insufficient. |
-| Modeling directory | `[Rehosting.directories].modeling_dir` | Where LLM-generated peripheral models live (`boardrunner/boardrunner_sdk/model/*.c`). |
 
-### 2.2 Static analysis cache layout
-
-After `fastdyn static-analyze`, the cache directory contains a stable set of JSON artifacts consumed by every downstream stage. The layout groups into five categories:
-
-| Category | Artifacts |
-|---|---|
-| Binary metadata | `binary.json`, `sections.json`, `segments.json` — ELF header, sections, load segments. |
-| Symbols and source | `symbols.json`, `functions.json`, `compile_units.json`, `source_map.json` — demangled symbols, function bounds, DWARF-driven source mapping. |
-| Peripheral map | `svd_map.json`, `svd_summary.json`, `vector_table.json`, `irq_handlers.json` — SVD-aligned peripheral / register maps plus Cortex-M vector table and IRQ handler symbols. |
-| RTOS introspection | `rtos_identity.json`, `rtos_symbols.json`, `rtos_schema.json`, `rtos_schema.txt` — RTOS type detection and event schema for the probe-run tracer. |
-| Static analysis | `callgraph.json`, `probe_faults.json`, `macro_context.json`, `macros/`, `constants.json`, `literal_pools.json`, `mmio_constants.json` — call graph, predicted MMIO fault sites, preprocessor macros, and constant pools. |
-
-### 2.3 Peripheral models — `boardrunner_sdk` layout
-
-Peripheral models live under `boardrunner/boardrunner_sdk/`. Each peripheral is represented by one C file in `model/*.c`; each file compiles to a same-named `.so` scroll in `boardrunner/boardrunner_sdk/build/`. The scrolls are loaded by the FastDyn plugin based on the TOML routing table.
-
-```
-boardrunner/boardrunner_sdk/
-├── boardrunner_vio/          shared VIO / API library (SPI, I2C, DMA, PTY, FIFO, signals)
-│   └── src/
-├── include/boardrunner/      public headers exposed to model writers
-│   ├── vio.h                 umbrella header
-│   ├── spi.h, i2c.h, dma.h, signals.h, pty.h, net.h, fifo.h, fileio.h
-├── model/                    one .c file per peripheral or slave
-│   ├── rcc.c, pwr.c, systick.c, dwt.c, flash.c
-│   ├── gpioa.c … gpioi.c
-│   ├── spi1.c, spi2.c, spi4.c, i2c1.c, i2c2.c
-│   ├── usart2.c, usart3.c, uart4.c, uart7.c, uart8.c, usart6.c
-│   ├── icm20602_spi.c, icm20948_spi.c, mpu9250_spi.c   (SPI slaves)
-│   ├── ms5611_spi1.c, ms5611_spi4.c, ramtron_fram_spi.c
-│   └── ap_iomcu_uart_endpoint.py                         (host-side endpoint helper)
-└── build/                    per-model .so artifacts (generated)
-```
-
-Each `[Device.<name>]` block in the TOML declares an MMIO range and points at one `.so` handler; optional `[[Device.<name>.connections]]` sub-blocks declare either **slaves** (real devices attached to the bus — routed to QEMU via the plugin) or **endpoints** (host-side backends only — informational, not forwarded). This lets a single `spi4.c` bus controller multiplex several slave device models (ICM20602, ICM20948, MS5611) on different chip-select lines.
-
-### 2.4 Iterative discovery loop
-
-`probe-run` does not require the modeling directory to be complete before it starts. When the firmware performs an MMIO access to a range that is either not covered by any `[Device.*]` block or handled by a stub, the FastDyn plugin captures the fault. The next stages (`trace-analyze` → `llm`) either fill in a new model file, update an existing one, or emit a routing decision that renames / relocates the responsibility. Progress across iterations is tracked by counting basic-block coverage of the firmware image and by the milestone symbol list in `[Machine].milestones`.
-
-### 2.5 Schema-driven fuzzing
+### 2.2 Schema-driven fuzzing
 
 Once rehosting has made an input-processing path reliable, FastDyn can fuzz it
 without a target-specific C harness. A JSON fuzzing schema describes where a
@@ -264,7 +117,7 @@ fuzzing_schema = "path/to/schema.json"
 
 The main schema sections are `flow`, `fields`, `streams`, and `hooks`.
 
-#### 2.5.1 Fuzzing loop
+#### 2.2.1 Fuzzing loop
 
 `flow` defines one repeatable test-case loop. **Snap** is immediately before
 the target consumes input: FastDyn restores the snapshot, obtains a fresh
@@ -281,7 +134,7 @@ are required.
 }
 ```
 
-#### 2.5.2 Fields, locations, and types
+#### 2.2.2 Fields, locations, and types
 
 Each field has a unique `name`, a `type`, and an output `size` in bytes. A
 field with a `location` is written directly to the target; a locationless
@@ -328,7 +181,7 @@ Set `fuzzable: true` on a length field when the campaign should also explore
 incorrect lengths. Checksums support `"crc16-modbus"` and
 `"crc16-mcrf4xx"`; place a checksum after the bytes it covers in a stream.
 
-#### 2.5.3 Streams and hooks
+#### 2.2.3 Streams and hooks
 
 A stream models input that firmware consumes incrementally, such as UART
 data. It has a destination location, an optional `chunk_size` (one byte by
@@ -350,29 +203,10 @@ snap. The property is named `fields`, but it may list fields and streams.
 ]
 ```
 
-## 3. Combining Stages: Rehosting and Fuzzing Workflow
+## 3. Fuzzing Examples After Rehosting
 
-The rehost pipeline's subcommands compose into a single deterministic loop. The following is the intended per-iteration sequence, plus how a caller reruns individual stages when they need to.
-
-### 3.1 First-iteration flow
-
-The concrete four-command sequence and its expected outputs are documented in §5.3 (rehost pipeline) and §5.4 (expected artifacts). After each pass, callers loop back to `probe-run`; coverage growth and milestone hits recorded in `analysis.json` are the intended per-iteration success signal.
-
-### 3.2 Rerunning individual stages
-
-Under the current execution model, callers rerun stages manually as described below. Future revisions may consolidate this into a more autonomous loop; the CLI invocations documented here will continue to work either way.
-
-Each stage is idempotent when re-invoked with `--force`:
-
-- Re-run `static-analyze --force` when the firmware ELF changes.
-- Re-run `probe-run` after any change to a model `.so`; the cache is unaffected.
-- Re-run `trace-analyze` when the LLM has produced a `routing.json` that needs to become the next prompt, or when the last probe-run produced different exit reasons.
-- Re-run `llm` when adjusting the model, provider, or other invocation parameters against the same prompt.
-
-### 3.3 Fuzzing examples after rehosting
-
-Fuzzing begins after the rehosting loop has made the selected input path
-repeatable. It is not another automatic-rehosting stage: use the rehosted
+Fuzzing begins after rehosting has made the selected input path
+repeatable. It is not an automatic-rehosting stage: use the rehosted
 firmware, select a parser interface, and supply a schema that represents that
 interface. The two common patterns are a framed stream and a pre-existing
 parser buffer.
@@ -523,83 +357,42 @@ Fuzzer input ──> schema fields / streams ──> FastDyn injection hooks ─
 
 ### 5.1 Container build
 
-From the workspace directory that contains FastDyn/, qemu/, libhw/:
+From the FastDyn repository root, after checking out the submodules the
+Dockerfile lists in its header (QEMU, libhw, the SVD data and the
+Gazebo/Courbet dependencies):
 
 ```bash
-docker build -f FastDyn/Dockerfile -t fastdyn-env .
+docker build -t fastdyn-env .
 ```
 
-The build runs `setup.sh --clone-qemu --build-qemu --build-gazebo --skip-optifuzz` and then `make PROBE=true DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true`. The resulting image is self-contained: no host QEMU or Ghidra install is required.
+The build applies FastDyn's QEMU patch and builds QEMU, libhw, the Gazebo/Courbet dependencies, the libFuzz library and FastDyn with the options of `make DEV=true LIBHW=true LIBGZ=true FLIGHT_CONTROLLERS=true DEBUG_PRINT=true LIBFUZZ=true`. The resulting image is self-contained: no host QEMU install is required.
 
 ### 5.2 Verify the CLI is installed and visible
 
 ```bash
 docker run --rm fastdyn-env fastdyn --help
-# Expected: click-based help listing static-analyze, probe-run, trace-analyze,
-# llm, run, loop, swarm, verifier, fuzz, timing-summary, harness, generate.
+# Expected: click-based help listing build-model, help, loop, run, swarm,
+# timing-summary.
 ```
 
-### 5.3 Run the rehost pipeline and fuzzing smoke test
-
-The delivered reference board is ArduRover 4.6.2 on CubeBlack (`configs/rover462.toml`). The firmware image is included at `virtuals/physics/flight_controllers/courbet/bin/ardurover_v462`.
-
-```bash
-# Step 1 — offline analysis
-fastdyn static-analyze \
-  -c configs/rover462.toml \
-  -s third_party/common/cmsis-svd-data \
-  --force
-
-# Step 2 — probe run (produces artifacts under fastdyn_recent_run/)
-fastdyn probe-run \
-  -c configs/rover462.toml \
-  -o fastdyn_recent_run \
-  --rtos-introspect
-
-# Step 3 — trace analysis (produces prompt.txt under fastdyn_work/)
-fastdyn trace-analyze \
-  -c configs/rover462.toml \
-  -o fastdyn_work \
-  --latest-run-dir fastdyn_recent_run
-
-# Step 4 — LLM stage (patches models and rebuilds .so scrolls)
-fastdyn llm \
-  -d fastdyn_work \
-  --compile \
-  --model gpt-4o \
-  --evaluate
-```
+### 5.3 Fuzzing smoke test
 
 After the selected input path has been rehosted, create or select a fuzzing
 configuration with `fuzzing = true`, `coverage = true`, and `fuzzing_schema`
 set in `[Machine]`. Start the campaign with:
 
 ```bash
-# Step 5 — schema-driven fuzzing
+# Schema-driven fuzzing
 fastdyn run -c <fuzzing-config.toml>
 
 # Continue a previous campaign with its existing corpus
 fastdyn run -c <fuzzing-config.toml> -p
 ```
 
-Additional tuning flags for each step (RTOS-trace verbosity and buffer limits, sampling temperature, reasoning-effort, retries) are available via each subcommand's `--help`; the values shown above are the minimum set needed to complete a smoke run.
-
 ### 5.4 Expected artifacts
 
 | Artifact | Purpose / expected content |
 |---|---|
-| `fastdyn_static_analysis/` | JSON cache of ELF metadata, DWARF, SVD map, RTOS schema, macro extraction, and probe-fault predictions. Reused by every subsequent stage. |
-| `fastdyn_recent_run/probe_result.json` | Exit reason, final PC, unique / total basic-block counts, retained BBL trace, RTOS summary, and (if applicable) the address of the unhandled MMIO fault. |
-| `fastdyn_recent_run/qemu.log` | Full QEMU emulation log with the plugin's memory / DMA trace lines interleaved. |
-| `fastdyn_recent_run/rtos_summary.json` | Thread table with priorities, states, and scheduled counts. |
-| `fastdyn_recent_run/rtos_recent_switches.jsonl` | Recent context switches in event mode. |
-| `fastdyn_recent_run/dev_config.json` | Fully materialized device / handler / slave table derived from the TOML. |
-| `fastdyn_work/prompt.txt` | The LLM prompt for this iteration. Contains loaded-peripheral summary, RTOS context, DMA / memory trace excerpts, execution-trace summary, source context, macros, and diagnostic instructions. |
-| `fastdyn_work/analysis.json` | Metadata for the prompt: analysis_id, run_id, prompt_kind, target_peripheral, exit_reason, config path, modeling dir. |
-| `fastdyn_work/routing.json` | (Iteration-produced) LLM routing decision when the pipeline cannot identify the fault peripheral. Consumed on the next `trace-analyze` iteration when routing is applied. |
-| `fastdyn_work/trace_analysis/<analysis_id>/` | Per-analysis snapshot: `prompt.txt`, `selected_source.c`, `selected_macros.json`, `io_context.json`, `exec_trace.json`, `analysis.json`. |
-| `fastdyn_llm_history/` | Persistent history: `NNN_prompt.txt`, `NNN_response_*.txt` per iteration, plus `metrics.jsonl` when `--evaluate` is used. |
-| `boardrunner/boardrunner_sdk/model/*.c`, `.../build/*.so` | Patched / newly created peripheral models and their compiled scrolls. |
 | `fastdyn_work/corpus/` | Interesting fuzzing inputs retained by the campaign. Preserve this directory with `fastdyn run -p` to continue from the prior corpus. |
 | `fastdyn_work/crashes/` | Inputs associated with crashes found during a fuzzing campaign. |
 | `fastdyn_work/stats.jsonl` | Fuzzing campaign progress and statistics. |
@@ -609,56 +402,13 @@ Additional tuning flags for each step (RTOS-trace verbosity and buffer limits, s
 ### 5.5 STR integration checklist
 
 - Verify that the FastDyn image builds successfully from the provided `Dockerfile` and that `fastdyn --help` runs inside the container.
-- Verify that a valid `.env` file (or environment variables) is available with `OPENAI_API_KEY` before invoking `fastdyn llm --model-provider openai`, or that a running Ollama endpoint is reachable at `--ollama-url` when using `--model-provider ollama`.
-- Run `static-analyze` against the reference `configs/rover462.toml` and confirm that `fastdyn_static_analysis/` contains the artifacts enumerated in §2.2.
-- Run one `probe-run` iteration and confirm that `probe_result.json` and `qemu.log` are produced, and that `rtos_summary.json` shows a non-zero thread count when RTOS introspection is enabled.
-- Run `trace-analyze` and confirm that `prompt.txt` and `analysis.json` are produced under both `fastdyn_work/` and `fastdyn_work/trace_analysis/<analysis_id>/`.
-- Run `fastdyn llm --evaluate` and confirm that a new `NNN_prompt.txt` / `NNN_response_1.txt` pair appears under `fastdyn_llm_history/` and that `metrics.jsonl` gets a new record.
-- Verify that any generated `boardrunner_sdk/model/*.c` compiles cleanly against `libboardrunner_vio.so` and that the resulting `.so` loads on the next `probe-run` without warnings.
-- Verify that repeated iterations of the rehost loop monotonically increase unique-basic-block coverage or advance the last-hit milestone recorded in `analysis.json`.
 - For a rehosted input path, enable `fuzzing` and `coverage` in the target TOML, supply a reviewed fuzzing schema, and confirm that generated input reaches the intended parser.
 
-## 6. Firmware-Content Transparency for LLM Prompts
-
-This section is an honest account of what firmware-derived content ends up in the prompt sent to the LLM, so that integrators whose firmware is IP-sensitive can make an informed decision.
-
-**Always included** (when the corresponding data is available in the static-analysis cache):
-
-- Source snippets from the driver source tree for functions touched by the execution trace, up to a bounded window per function (currently around 260 lines).
-- Function symbols in both mangled and demangled form, restricted to functions observed in the trace or explicitly requested by reference.
-- Preprocessor macro definitions transitively referenced by the selected source snippets (not the full build's macro closure).
-- MMIO register access log: addresses, register names resolved via SVD, values, PCs.
-- Compressed execution-trace summary (callgraph-collapsed, not raw PC sequence) plus CPU register snapshot at the point of interest.
-- The `[Device.<target>]` TOML section for the peripheral currently under analysis, so the LLM knows the MMIO range and connected slaves.
-- Board hardware summary table (loaded peripherals, ranges, descriptions, connection topology).
-
-**Conditionally included:**
-
-- RTOS context (thread names, priorities, states, recent context switches) only when RTOS introspection is enabled and the schema is present in the cache.
-- The current device-model source (the `.c` file being patched) only when the pipeline is targeting a known peripheral, not when it is asking the LLM for a routing decision on an unclassified fault.
-- The full text of a prior LLM routing decision, only when a subsequent `trace-analyze` iteration consumes it, and only in the specific analysis directory for that iteration.
-
-**Never included:**
-
-- Absolute host filesystem paths. All source paths are normalized to `source_root_relative` (e.g., `libraries/AP_HAL_ChibiOS/UARTDriver.cpp` rather than the full host path).
-- Git remote URL, branch, or commit hash of the firmware source.
-- TOML sections other than the target peripheral's own block.
-- Memory / register values from outside the observed trace window.
-- Environment variables, credentials, or `~/.fastdyn.env` contents.
-
-**No built-in redaction beyond the above.** There is currently no CLI flag to force a symbol-only prompt that omits source snippets, nor a heuristic to redact specific identifier names inside a selected snippet. Integrators whose firmware source cannot be disclosed to a third-party LLM should either run against a local Ollama endpoint (via `--model-provider ollama --ollama-url ...`), or gate FastDyn behind their own review of the material in `fastdyn_work/trace_analysis/<analysis_id>/prompt.txt` and `selected_source.c` before invoking `fastdyn llm`. Every prompt is persisted to `fastdyn_llm_history/NNN_prompt.txt` before the LLM call, so an out-of-band review or filter can be inserted at that point.
-
-## 7. Reference Configuration
+## 6. Reference Configuration
 
 The delivered reference board configuration is `configs/rover462.toml`, an ArduRover 4.6.2 on CubeBlack (STM32F427):
 
 ```toml
-[Rehosting.directories]
-static_analysis_cache_dir = "./fastdyn_static_analysis"
-firmware_source_roots     = ["/path/to/ardupilot"]
-firmware_build_roots      = ["/path/to/ardupilot_build"]
-modeling_dir              = "boardrunner/boardrunner_sdk/model"
-
 [Machine]
 platform    = "STM32F427"
 qemu_path   = "../qemu/build/qemu-system-arm"
@@ -674,30 +424,9 @@ cpu             = "cortex-m4"
 plugin_library  = "build/libfastdyn.so"
 binary          = "virtuals/physics/flight_controllers/courbet/bin/ardurover_v462"
 init_nsvtor     = "0x08004000"
-
-[Device.rcc]
-ranges = [["0x40023800", "0x40023c00"]]
-[[Device.rcc.handlers]]
-model   = "elder"
-enabled = true
-scroll  = "boardrunner/boardrunner_sdk/build/rcc.so"
-
-[Device.spi4]
-ranges = [["0x40013400", "0x40013800"]]
-[[Device.spi4.handlers]]
-model   = "elder"
-enabled = true
-scroll  = "boardrunner/boardrunner_sdk/build/spi4.so"
-
-[[Device.spi4.connections]]
-type          = "slave"
-name          = "icm20602_spi.c"
-cs_id         = 4
-bus           = "spi"
-device_scroll = "boardrunner/boardrunner_sdk/build/icm20602_spi.so"
 ```
 
-Additional peripheral blocks (GPIO A–I, PWR, SPI1 / SPI2, I2C1 / I2C2, USART2 / 3 / 6, UART4 / 7 / 8, DMA1 / DMA2, SysTick, DWT, Flash, SDIO, TIM1 / 2 / 4 / 5, RTC, IWDG, SCB, OTG_FS) follow the same pattern.
+Peripheral models are added as `[Device.<name>]` blocks whose `elder` handler names the model library in `scroll`; the Device Models section of `docs/Configuration.md` describes them.
 
 ---
 

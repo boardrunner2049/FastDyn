@@ -25,7 +25,6 @@ platform = "STM32F469"
 binary = "<path/to>/STM32F429I-DISC1/Blinky/Debug/Blinky.elf"
 
 # --- Debugging, Control, and Logging ---
-qemu_path = "/data/qemu/build/qemu-system-arm"
 enable_gdb = true
 stop_on_start = true
 launch_gdb = false
@@ -48,12 +47,12 @@ logger_content = """
 
 [[CPU.virtuals]]
 at = "0x8003940"
-instruction = “anchor”
+instruction = "anchor"
 args = ["/tmp/input_fastdyn:0x0"]
 
 [[CPU.virtuals]]
 at = "0x800395e"
-instruction = “assert”
+instruction = "assert"
 args = ["*0x8003940"]
 
 

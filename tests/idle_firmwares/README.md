@@ -33,7 +33,7 @@ arm-none-eabi-objdump -d <fw.axf> | grep -A3 '<EXTI15_10_IRQHandler>:' | grep -o
 sudo apt install -y clang llvm lld
 # GCC sysroot: https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz
 cd tests/idle_firmwares/<board dir>          # Nucleo_F103RB | STM32F429i_disc1 | STM32F769i_eval | NucleoH753zi
-# set GCC_INSTALL in the Makefile to the unpacked toolchain
+export GCC_INSTALL=<path/to>/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi/
 make bc && make exec                         # -> build/idlefirmware.axf
 ```
 

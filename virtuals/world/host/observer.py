@@ -120,7 +120,7 @@ def generate_artifacts(world_root: Path, world_toml: Path, out_dir: Path) -> Pat
     if not generator.is_file():
         raise VirtualPreparationError(
             f"world observer needs world_model's generator at {generator}. "
-            "Run: git submodule update --init tools/world"
+            "Run: git submodule update --init --checkout tools/world"
         )
     environment = dict(os.environ, WM_NO_FRONTEND_LAUNCH="1")
     result = subprocess.run(

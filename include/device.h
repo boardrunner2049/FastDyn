@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <qemu/qemu-plugin.h>
+#include <fastdyn/device_model.h>
 
 #ifdef ENABLE_DEV_DEBUG
     #define dev_debug(fmt, ...) printf(fmt, ##__VA_ARGS__)
@@ -18,35 +19,6 @@ typedef struct AddrRange {
     uint64_t end;   // inclusive
 } AddrRange;
 
-// I2C Model related info start
-typedef struct {
-    int address;      //address of current slave device
-    char* slave_name;   //name of current slave device
-    char* scroll_path;   //scroll of current slave device
-    bool _is_scroll;    //whether it's a share lib or built in qemu model
-} I2CDevice;
-
-typedef struct {
-    int device_count;
-    I2CDevice* i2cdevice;   //Dynamic array of all the attached slave devices
-} I2CDevices;
-
-//I2C Model related info end
-
-//SPI Model related info end
-typedef struct {
-    char* slave_name;
-    int cs_id;
-    char* scroll_path;
-    bool is_scroll_path;
-} SPISlaveDevice;
-
-typedef struct {
-    int slave_count;
-    SPISlaveDevice* spi_slave; // Dynamic array of SPI slaves
-} SPIDevices;
-// SPI Model Info End
-
 // Represents a single device model (e.g., "uart", "gpio_g")
 typedef struct {
     char* name;
@@ -55,8 +27,7 @@ typedef struct {
     int range_count;
     uint16_t *irqs;
     int irq_count;
-    I2CDevices I2Cdevices;
-    SPIDevices SPIdetails;
+    char* config_json;   // the device's own config (a JSON object), passed to its model
 } DeviceModels;
 
 typedef enum {
@@ -86,7 +57,6 @@ typedef struct {
 } AppConfig;
 
 
-typedef unsigned long hwaddr;
 
 /**
  * @brief Function pointer for a device write operation.

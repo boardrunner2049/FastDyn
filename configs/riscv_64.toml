@@ -17,7 +17,7 @@ prealloc = false
 # ==============================================================================
 [Machine]
 platform = "RISCV"
-qemu_path = "/data/qemu/build/qemu-system-riscv64"
+qemu_path = "<path/to>/qemu/build/qemu-system-riscv64"
 enable_gdb = true
 stop_on_start = true
 monitor_port = 5555
@@ -34,7 +34,7 @@ semihosting = false
 arch = "riscv64"
 machine = "virt"
 cpu = "rv64"
-binary = "/data/baremetal/riscv/kernel.elf"
+binary = "<path/to>/kernel.elf"
 plugin_library = "build/libfastdyn.so"
 
 [[CPU.cpu0.modifiers]]

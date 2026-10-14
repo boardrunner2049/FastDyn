@@ -45,7 +45,7 @@ runtime string lookup. All public time is `uint64_t` nanoseconds, and
 (`tools/world/src/world.c:320`).
 
 What it does not provide is the larger half of a device model. Consider
-`boardrunner/boardrunner_examples/examples/STM32F429i-disc1/adc_with_dma/generated_model/adc_model.c`:
+BoardRunner's `examples/stm32f429i_disc1/hybrid/ADC_with_DMA/generated_models/adc_model.c`:
 of roughly 150 lines, the physical content is one assignment
 (`s->dr = 0x0AAA;`). The remainder is register offsets, bitfield semantics
 (`ADON`, `CONT`, `SWSTART`, `EOC`, `EOCIE`), conversion timing, the DMA

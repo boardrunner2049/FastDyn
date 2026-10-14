@@ -5,6 +5,9 @@
 #include <python.h>
 #include <Python.h>
 
+#define FD_LOG_SUBSYSTEM "halucinator"
+#include <fastdyn/log.h>
+
 // Global current device model
 static struct timespec start_ts;
 
@@ -40,7 +43,7 @@ static uint64_t halucinator_read(void *opaque, hwaddr req_address, unsigned req_
 			ret_val = PyLong_AsUnsignedLongLong(device_model_return_val);
 		} else {
 			// Unexpected type
-			printf("Error:: Expected uint64_t return type!!");
+			FD_LOG_ERROR("the Python model returned a non-integer; expected uint64_t");
 			PyErr_Print();
 			Py_DECREF(device_model_return_val);
 			exit(1);
@@ -49,7 +52,7 @@ static uint64_t halucinator_read(void *opaque, hwaddr req_address, unsigned req_
 		Py_DECREF(device_model_return_val);  // safe to DECREF after extracting value
 	} else {
 		// NULL return value (Python error)
-		printf("Error:: Expected uint64_t return type!!");
+		FD_LOG_ERROR("the Python model returned no value; expected uint64_t");
 		PyErr_Print();
 		exit(1);
 	}
@@ -95,7 +98,7 @@ static int halucinator_interrupt(int number) {
 	time_t sec;
     long usec;
     dev_get_timestamp(&sec, &usec);
-	DEBUG_LOG("[%5ld.%06ld] Interrupt Taken: \t Vector = 0x%08X\n",
+	DEBUG_LOG("[%5ld.%06ld] Interrupt Taken: \t Vector = 0x%08X",
 			sec, usec, number);
 
 	if (!py_init) {
@@ -129,7 +132,7 @@ static int halucinator_serve(int number) {
 	time_t sec;
     long usec;
 	dev_get_timestamp(&sec, &usec);
-	DEBUG_LOG("[%5ld.%06ld] Interrupt Served: \t Vector = 0x%08X\n",
+	DEBUG_LOG("[%5ld.%06ld] Interrupt Served: \t Vector = 0x%08X",
 			sec, usec, number);
 
 	if (!py_init) {
@@ -182,7 +185,7 @@ int halucinator_init(char *argument) {
     for (int i = 0; i < n; i++) {
         HalucinatorState *state = malloc(sizeof(HalucinatorState));
 
-		if (!state) { perror("malloc"); exit(1); }
+		if (!state) { FD_LOG_ERROR("out of memory"); exit(1); }
 
         state->start = ranges[i].start;
         state->end   = ranges[i].end;

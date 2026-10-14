@@ -26,7 +26,6 @@
 #include <python.h>
 #endif
 #include <virtuals.h>
-#include <probe.h>
 #include <fastdyn_runtime.h>
 // #include "ardupilot_virtuals.c"
 #if ENABLE_LIBGZ
@@ -54,6 +53,9 @@ static uint64_t periodic_irq_period_ns = 1000000ULL;
 
 #include <virtuals/virt_fuzz.h>
 #include <virtuals/phy.h>
+
+#define FD_LOG_SUBSYSTEM "virtuals"
+#include <fastdyn/log.h>
 
 #define VIRTUALS_MAX_COUNT 256
 
@@ -98,7 +100,7 @@ cb_func_t lookup_callback(const char *name) {
 
 // Timer callback
 static void my_timer_callback(void *opaque) {
-    printf("Virtual Clock: %li\n", qemu_plugin_get_virtual_timer());
+    FD_LOG_DEBUG("virtual clock: %li", qemu_plugin_get_virtual_timer());
 }
 
 // Virtual instruction functions
@@ -142,7 +144,7 @@ void kick_irq(void *opaque) {
     if (phy_backend_is("fmu")) {
         double target_time_s = (double)sim_time_ns / 1e9;
         if (!phy_advance_simulation(target_time_s)) {
-            fprintf(stderr, "Failed to advance FMU simulation to %.6f s\n", target_time_s);
+            FD_LOG_ERROR("cannot advance the FMU simulation to %.6f s", target_time_s);
         }
     }
 
@@ -193,12 +195,12 @@ void raise_periodic_irq(unsigned int cpu_index, void *udata) {
         if (errno == 0 && parsed_period > 0) {
             period_ns = parsed_period;
         } else {
-            fprintf(stderr, "Invalid periodic IRQ period '%s'; using %" PRIu64 " ns\n",
-                    end, period_ns);
+            FD_LOG_WARN("invalid periodic IRQ period '%s'; using %" PRIu64 " ns",
+                        end, period_ns);
         }
     }
 
-    printf("Periodic IRQ %u every %" PRIu64 " ns\n", irq_num, period_ns);
+    FD_LOG_INFO("periodic IRQ %u every %" PRIu64 " ns", irq_num, period_ns);
     qemu_plugin_timer_new_period_ns(kick_irq, (void *)&irq_num, period_ns);
     // create thread that raises irq every 1 ms
     // pthread_t periodic_irq_thread;
@@ -218,6 +220,9 @@ void pulseirq(unsigned int cpu_index, void *udata) {
     qemu_plugin_pulse_irq(num);
 }
 
+/* updatemem's read dump, debug_log, printreg and the [BENCH] lines are the
+ * output these virtual instructions exist for, so they go to stdout (tools
+ * parse the [BENCH] lines from there); diagnostics use FD_LOG. */
 void updatemem(unsigned int cpu_index, void *udata) {
     const char *input = (const char *) udata;
     MemAccess mem;
@@ -243,7 +248,7 @@ unsigned char get_random_byte(void) {
     //This will make things linux specific, but lot of hardcoded things.
     FILE *fp = fopen("/dev/urandom", "rb");
     if (!fp) {
-        perror("fopen /dev/urandom");
+        FD_LOG_ERROR("cannot open /dev/urandom: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -252,7 +257,7 @@ unsigned char get_random_byte(void) {
     fclose(fp);
 
     if (result != 1) {
-        fprintf(stderr, "Failed to read from /dev/urandom\n");
+        FD_LOG_ERROR("cannot read from /dev/urandom");
         exit(EXIT_FAILURE);
     }
 
@@ -263,7 +268,7 @@ uint32_t get_random_word(void) {
     //This will make things linux specific, but lot of hardcoded things.
     FILE *fp = fopen("/dev/urandom", "rb");
     if (!fp) {
-        perror("fopen /dev/urandom");
+        FD_LOG_ERROR("cannot open /dev/urandom: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -272,7 +277,7 @@ uint32_t get_random_word(void) {
     fclose(fp);
 
     if (result != 1) {
-        fprintf(stderr, "Failed to read from /dev/urandom\n");
+        FD_LOG_ERROR("cannot read from /dev/urandom");
         exit(EXIT_FAILURE);
     }
 
@@ -299,7 +304,7 @@ void randstate(unsigned int cpu_index, void *udata) {
         }
         free(addrs);
     } else {
-        printf("Failed to parse addresses.\n");
+        FD_LOG_ERROR("cannot parse the addresses");
     }
 }
 
@@ -334,7 +339,7 @@ void benchmark_end(unsigned int cpu_index, void *udata) {
     clock_gettime(CLOCK_MONOTONIC, &end_ts);
 
     if (!g_bench_started) {
-        fprintf(stderr, "[BENCH] benchmark_end called before benchmark_start\n");
+        FD_LOG_ERROR("benchmark_end called before benchmark_start");
         return;
     }
 
@@ -478,7 +483,7 @@ int parse_update_mem_arg(const char *input, MemAccess *out) {
         byte_str = strtok(NULL, ",");
     }
 
-    if (i != out->length) { printf("Invalid Argument \n"); free(temp); return -1;}
+    if (i != out->length) { FD_LOG_ERROR("updatemem: expected %u bytes, got %u", (unsigned)out->length, (unsigned)i); free(temp); return -1;}
 
     free(temp);
     return 0; // success
@@ -489,7 +494,7 @@ AddrFilePair parse_addr_file(const char *input) {
 
     const char *colon = strchr(input, ':');
     if (!colon) {
-        fprintf(stderr, "Invalid format: no ':' found.\n");
+        FD_LOG_ERROR("invalid format, no ':' in '%s'", input);
         return result;
     }
 
@@ -498,7 +503,7 @@ AddrFilePair parse_addr_file(const char *input) {
     size_t addr_len = colon - input;
 
     if (addr_len >= sizeof(addr_str)) {
-        fprintf(stderr, "Address string too long.\n");
+        FD_LOG_ERROR("address too long in '%s'", input);
         return result;
     }
 
@@ -511,7 +516,7 @@ AddrFilePair parse_addr_file(const char *input) {
     const char *filename = colon + 1;
 
     if (strlen(filename) >= MAX_FILENAME_LEN) {
-        fprintf(stderr, "Filename too long. Truncated.\n");
+        FD_LOG_WARN("file name too long, truncated: %s", filename);
         strncpy(result.filename, filename, MAX_FILENAME_LEN - 1);
         result.filename[MAX_FILENAME_LEN - 1] = '\0'; // Null-terminate
     } else {
@@ -524,20 +529,20 @@ AddrFilePair parse_addr_file(const char *input) {
 void* read_file(const char *filename, size_t *length) {
     FILE *file = fopen(filename, "rb");
     if (!file) {
-        perror("Error opening file");
+        FD_LOG_ERROR("cannot open %s: %s", filename, strerror(errno));
         return NULL;
     }
 
     // Seek to end to find file size
     if (fseek(file, 0, SEEK_END) != 0) {
-        perror("Error seeking file");
+        FD_LOG_ERROR("cannot seek in %s: %s", filename, strerror(errno));
         fclose(file);
         return NULL;
     }
 
     long file_size = ftell(file);
     if (file_size < 0) {
-        perror("Error telling file position");
+        FD_LOG_ERROR("cannot get the size of %s: %s", filename, strerror(errno));
         fclose(file);
         return NULL;
     }
@@ -546,7 +551,7 @@ void* read_file(const char *filename, size_t *length) {
     // Allocate buffer
     void *buffer = malloc(file_size);
     if (!buffer) {
-        perror("Memory allocation failed");
+        FD_LOG_ERROR("out of memory reading %s", filename);
         fclose(file);
         return NULL;
     }
@@ -554,7 +559,7 @@ void* read_file(const char *filename, size_t *length) {
     // Read entire file into buffer
     size_t read_size = fread(buffer, 1, file_size, file);
     if (read_size != file_size) {
-        perror("Error reading file");
+        FD_LOG_ERROR("cannot read %s: %s", filename, strerror(errno));
         free(buffer);
         fclose(file);
         return NULL;
@@ -592,14 +597,14 @@ bool parse_file_entry(const char* line, FileEntry* entry) {
 void dump_log_buffer_to_file(const AddressList* list, const char* filename) {
     FILE* file = fopen(filename, "wb");
     if (!file) {
-        perror("fopen");
+        FD_LOG_ERROR("cannot open %s: %s", filename, strerror(errno));
         return;
     }
 
     // Write the entire buffer
     size_t written = fwrite(list->log_buf.buffer, sizeof(uint32_t), (LOG_BUFFER_SIZE/sizeof(uint32_t)), file);
     if (written != LOG_BUFFER_SIZE) {
-        fprintf(stderr, "Warning: Only wrote %zu words out of %u\n", written, LOG_BUFFER_SIZE);
+        FD_LOG_WARN("only wrote %zu words out of %u to %s", written, LOG_BUFFER_SIZE, filename);
     }
 
     fclose(file);
@@ -633,14 +638,14 @@ int virtual_register(const char *name, cb_func_t func) {
     // 1. Check if we're updating an existing entry
     for (int i = 0; i < registry_count; i++) {
         if (strcmp(cb_registry[i].name, name) == 0) {
-			fprintf(stderr, "Registry Error: Entry '%s' already exists.\n", name);
+			FD_LOG_ERROR("virtual instruction '%s' is already registered", name);
             return -1; // Registration rejected
         }
     }
 
     // 2. Check for capacity (leaving room for a trailing sentinel)
     if (registry_count >= VIRTUALS_MAX_COUNT - 1) {
-        fprintf(stderr, "Error: VIRTUALS_MAX_COUNT reached\n");
+        FD_LOG_ERROR("too many virtual instructions (at most %d)", VIRTUALS_MAX_COUNT - 1);
         return -1;
     }
 
@@ -665,8 +670,8 @@ int virtuals_init(int argc, char **argv) {
         if (errno == 0 && parsed_period > 0) {
             periodic_irq_period_ns = parsed_period;
         } else {
-            fprintf(stderr, "Invalid timer_irq_period_ns '%s'; using %" PRIu64 " ns\n",
-                    timer_period_arg, periodic_irq_period_ns);
+            FD_LOG_WARN("invalid timer_irq_period_ns '%s'; using %" PRIu64 " ns",
+                        timer_period_arg, periodic_irq_period_ns);
         }
     }
 
@@ -681,6 +686,9 @@ int virtuals_init(int argc, char **argv) {
         /* Compiled-in virtual modules self-register through the public runtime SDK. */
 		if ((status = virtual_initialize_plugins()) < 0)
 				utils_warn("One or more runtime plugins failed to initialize");
+        /* Plugins from outside the tree were asked for explicitly (source = ...). */
+		if (virtual_load_external_plugins(utils_get_arg("virtual_libraries", argc, argv)) < 0)
+				utils_die("Could not load an out-of-tree plugin library (see the message above)");
 #if ENABLE_PHY
         // It is ok to conditonally initialize here since sim_time is only used when PHY is enabled
 		if ((status = shared_sim_time_init() < 0)) {
@@ -694,8 +702,6 @@ int virtuals_init(int argc, char **argv) {
 		if ((status = fuzz_init(argc, argv)) < 0)
 				utils_warn("Fuzzer Failed");
 #endif
-		if ((status = probe_init(argc, argv)) < 0)
-				utils_warn("Probe Failed");
 	}
 
     return 0;

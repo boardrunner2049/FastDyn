@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import logging
 import re
 import struct
 from pathlib import Path
 
-from .. import fastdyn_log as fastdyn_log_conf
+log = logging.getLogger(__name__)
 
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 # Matches all:
 #   address = 0x..., size = 4 bytes, value = 0x..., pc=0x...
@@ -157,14 +157,14 @@ def convert(in_path, out_path, *, only_model=None,
         fout.write(HDR_STRUCT.pack(MAGIC, VERSION, RECORD_SIZE, count))
 
     if only_model:
-        fastdyn_log.info(f"[+] Filter:  model == [{only_model}]")
+        log.info(f"[+] Filter:  model == [{only_model}]")
     if target_ranges is not None:
         ranges_str = ", ".join(f"0x{s:x}-0x{e:x}" for s, e in target_ranges)
-        fastdyn_log.info(f"[+] Filter:  addr in [{ranges_str}]")
+        log.info(f"[+] Filter:  addr in [{ranges_str}]")
     if target_irqs is not None:
         irqs_str = ", ".join(str(i) for i in sorted(target_irqs_set))
-        fastdyn_log.info(f"[+] Filter:  irq in [{irqs_str}]")
-    fastdyn_log.info(f"[+] Wrote:   {count} records (from {matched} parsed lines)")
+        log.info(f"[+] Filter:  irq in [{irqs_str}]")
+    log.info(f"[+] Wrote:   {count} records (from {matched} parsed lines)")
     # print(f"[+] Wrote:   {count} records")
     # print(f"[+] Skipped: {skipped} non-matching lines")
     # print(f"[+] Record size: {RECORD_SIZE} bytes")
@@ -176,7 +176,7 @@ def replay_binary_verifier(replay_binary):
 
     with open(replay_binary,"rb") as f:
         magic, ver, rsz, count = HDR.unpack(f.read(HDR.size))
-        fastdyn_log.info(f"[+] Replay tape: magic={magic!r} version={ver} record_size={rsz} records={count}")
+        log.info(f"[+] Replay tape: magic={magic!r} version={ver} record_size={rsz} records={count}")
         for i in range(5):
             icount, pc, addr, value, size, typ = REC.unpack(f.read(REC.size))
             if typ == 0:
@@ -189,7 +189,7 @@ def replay_binary_verifier(replay_binary):
                 tname = "IRQ_SERVED"
             else:
                 tname = f"UNK({typ})"
-            fastdyn_log.info(f"    #{i}: icount={icount} pc={pc:#x} addr={addr:#x} value={value:#x} size={size} {tname}")
+            log.info(f"    #{i}: icount={icount} pc={pc:#x} addr={addr:#x} value={value:#x} size={size} {tname}")
 
 
 def main():

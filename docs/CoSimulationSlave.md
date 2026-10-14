@@ -48,7 +48,7 @@ ninja -C build qemu-system-arm
 
 # 2. world_model and the RLC demonstration FMU.
 cd <path/to>/FastDyn
-git submodule update --init tools/world
+git submodule update --init --checkout tools/world
 python3 -m venv tools/world/venv
 tools/world/venv/bin/pip install -e tools/world
 cmake -S tools/world -B tools/world/build -DWM_BUILD_TESTS=ON

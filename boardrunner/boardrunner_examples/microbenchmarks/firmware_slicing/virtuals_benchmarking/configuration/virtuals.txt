@@ -1,3 +1,0 @@
-0x80001ba benchmark_start
-0x80001c8 benchmark_end slice_virtual
-0x80001ac bench_tick

@@ -79,7 +79,8 @@ fastdyn help machine
 ```
 
 Choose **headless QEMU** and copy the returned `[Machine]` settings, then
-adjust `qemu_path` if your patched QEMU build lives elsewhere. The starter
+set `qemu_path` only if you want a QEMU other than the one FastDyn was built
+against (it is optional; see [Configuration](Configuration.md#machine)). The starter
 already contains a conservative headless choice, so this step mainly makes the
 available runtime controls discoverable.
 

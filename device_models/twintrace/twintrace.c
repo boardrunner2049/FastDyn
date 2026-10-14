@@ -4,6 +4,7 @@
 #include <utils.h>
 #include <core.h>
 
+#include <config.h>
 #include "../common/hw_session.h"
 
 #include <errno.h>
@@ -17,6 +18,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+
+#define FD_LOG_SUBSYSTEM "twintrace"
+#include <fastdyn/log.h>
 
 // Your ConfigSection contains:
 //   twintrace_mode_t twintrace_mode;
@@ -52,9 +56,13 @@ _Static_assert(sizeof(tt_hdr_t) == 20, "tt_hdr_t must be 20 bytes");
 _Static_assert(sizeof(tt_rec_t) == 40, "tt_rec_t must be 40 bytes");
 
 // -----------------------
-// Record mode: shared hw_session (see device_models/common/hw_session.h)
+// Record mode: shared hw_session (see device_models/common/hw_session.h).
+// Recording needs a probe, so it exists only in builds with libhw; replay
+// works in every build.
 // -----------------------
+#if ENABLE_LIBHW
 static hw_session_t *s_session;
+#endif
 
 // -----------------------
 // Replay mode: mapped tape
@@ -91,8 +99,8 @@ static bool twintrace_ignore_irq(int line)
 // Helpers
 // -----------------------
 static void die_sys(const char *msg, const char *path) {
-    fprintf(stderr, "[twintrace] %s (%s): %s\n",
-            msg, path ? path : "(null)", strerror(errno));
+    FD_LOG_ERROR("%s (%s): %s",
+                 msg, path ? path : "(null)", strerror(errno));
     utils_die("twintrace fatal");
 }
 
@@ -111,11 +119,11 @@ static void tt_abort(const char *why,
                      hwaddr addr, unsigned size, uint64_t pc, uint64_t val,
                      const tt_rec_t *exp)
 {
-    fprintf(stderr,
-        "\n[twintrace] %s\n"
+    FD_LOG_ERROR(
+        "%s\n"
         "  idx=%" PRIu64 " / %" PRIu64 "\n"
         "  got: addr=0x%08" PRIx64 " size=%u pc=0x%08" PRIx64 " val=0x%08" PRIx64 "\n"
-        "  exp: %s icount=%" PRIu64 " addr=0x%08" PRIx64 " size=%u pc=0x%08" PRIx64 " val=0x%08" PRIx64 "\n\n",
+        "  exp: %s icount=%" PRIu64 " addr=0x%08" PRIx64 " size=%u pc=0x%08" PRIx64 " val=0x%08" PRIx64,
         why,
         g_rep.idx, g_rep.hdr.count,
         (uint64_t)addr, size, pc, val,
@@ -132,11 +140,11 @@ static void tt_abort(const char *why,
 static void tt_abort_irq(const char *why, int line, const tt_rec_t *exp)
 {
     uint64_t icount = core_get_icount();
-    fprintf(stderr,
-        "\n[twintrace] %s\n"
+    FD_LOG_ERROR(
+        "%s\n"
         "  idx=%" PRIu64 " / %" PRIu64 "\n"
         "  got: irq=%d icount=%" PRIu64 "\n"
-        "  exp: %s icount=%" PRIu64 " irq=%" PRIu64 "\n\n",
+        "  exp: %s icount=%" PRIu64 " irq=%" PRIu64,
         why,
         g_rep.idx, g_rep.hdr.count,
         line, icount,
@@ -189,8 +197,8 @@ static void tt_replay_open(const char *path)
     g_rep.strict_pc = false;
     g_rep.strict_value_on_write = true;
 
-    fprintf(stderr, "[twintrace] replay loaded: %s (count=%" PRIu64 ")\n",
-            path, g_rep.hdr.count);
+    FD_LOG_INFO("replay loaded: %s (count=%" PRIu64 ")",
+                path, g_rep.hdr.count);
 }
 
 static void* replay_irq_thread_fn(void* arg)
@@ -248,9 +256,11 @@ next_iter:
 
 static int twintrace_serve(int line)
 {
+#if ENABLE_LIBHW
     if (g_mode == TT_RECORD) {
         return hw_session_serve(s_session, line);
     }
+#endif
 
     if (g_mode != TT_REPLAY) return 0;
     if (twintrace_ignore_irq(line)) return 0;
@@ -315,6 +325,7 @@ static uint64_t twintrace_read(void *opaque, hwaddr address, unsigned size, uint
 {
     (void)opaque;
 
+#if ENABLE_LIBHW
     if (g_mode == TT_RECORD) {
         uint64_t value = 0;
         if (hw_session_read(s_session, address, size, &value, pc) != 0) {
@@ -322,6 +333,7 @@ static uint64_t twintrace_read(void *opaque, hwaddr address, unsigned size, uint
         }
         return value;
     }
+#endif
 
     // replay
     pthread_mutex_lock(&rep_mutex);
@@ -360,12 +372,14 @@ static void twintrace_write(void *opaque, hwaddr address, uint64_t value, unsign
 {
     (void)opaque;
 
+#if ENABLE_LIBHW
     if (g_mode == TT_RECORD) {
         if (hw_session_write(s_session, address, value, size, pc) != 0) {
             utils_die("HW Write Failed");
         }
         return;
     }
+#endif
 
     // replay
     pthread_mutex_lock(&rep_mutex);
@@ -441,20 +455,26 @@ static void* twintrace_init(ConfigSection* model_info)
     g_mode = model_info->twintrace_mode;
     g_bin_path = model_info->twintrace_bin;
 
-    fprintf(stderr, "[twintrace] mode=%d bin=%s backend=%s\n",
-            (int)g_mode,
+    FD_LOG_INFO("mode=%d bin=%s backend=%s",
+                (int)g_mode,
             g_bin_path ? g_bin_path : "(null)",
             model_info->backend ? model_info->backend : "(null)");
 
     if (g_mode == TT_RECORD) {
+#if ENABLE_LIBHW
         // behave like passthrough; share the probe via hw_session
         s_session = hw_session_acquire(model_info->backend);
         if (!s_session) utils_die("HW connection failed");
+#else
+        utils_die("twintrace: recording needs a probe; rebuild FastDyn with libhw "
+                  "(make LIBHW=true, or meson -Denable_libhw=true). Replay works in this build.");
+#endif
     } else if (g_mode == TT_REPLAY) {
         if (!g_bin_path || !g_bin_path[0]) utils_die("twintrace_bin missing for replay");
         tt_replay_open(g_bin_path);
-        if (pthread_create(&rep_irq_thread, NULL, replay_irq_thread_fn, NULL) != 0) {
-            perror("Failed to create replay IRQ thread");
+        int rc = pthread_create(&rep_irq_thread, NULL, replay_irq_thread_fn, NULL);
+        if (rc != 0) {
+            FD_LOG_ERROR("cannot create the replay IRQ thread: %s", strerror(rc));
             return NULL;
         }
     } else {

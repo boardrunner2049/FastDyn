@@ -3,10 +3,16 @@
 #include <utils.h>
 #include <device.h>
 #include <core.h>
-#include <probe.h>
+#include <virtuals/mmio_observer.h>
 #include "models.c"
 #include "cJSON.h"
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
+#include <string.h>
+
+#define FD_LOG_SUBSYSTEM "dev"
+#include <fastdyn/log.h>
 
 extern twintrace_mode_t twintrace_mode;
 extern const char *twintrace_bin_path;
@@ -128,6 +134,7 @@ static int dev_write(char * handler, long unsigned int address, uint64_t value, 
                     sec, usec, dev_to_use->name, (unsigned)address, (unsigned)size, (int)(size * 2), value, (unsigned)pc);
         }
 #endif
+        virtual_notify_mmio(pc, address, value, size, true, true, lut != NULL);
         if (handler && (handler[0] == 'g')) {
             return 0;
         }
@@ -139,19 +146,20 @@ static int dev_write(char * handler, long unsigned int address, uint64_t value, 
         utils_log_to_file(io_logger,"[%5ld.%06ld] IO Write Access NOT Handled (Unknown Region): \t address = 0x%08X, size = %u bytes, value = 0x%0*" PRIx64 ", pc=0x%08X \n",
                         sec, usec, (unsigned)address, (unsigned)size, (int)(size * 2), value, (unsigned)pc);
 #endif
-        probe_check_unhandled_access(pc, address, 1);
+        virtual_notify_mmio(pc, address, value, size, true, false, false);
         return 1; // Continue internal operation
     }
 
     bool handled = (dev_to_use != NULL);
+    virtual_notify_mmio(pc, address, value, size, true, handled, true);
 // Filter out QEMU internals ('g') only and we dont filter ('v)
 //It is not always injecting double interrupts every ms
+    // nvic-default is QEMU's RAZ/WI region for the unimplemented PPB
+    // (DWT, ITM, CoreDebug, ...): an access a model handled skips it
     if (handler && ((handler[0] == 'g') ||
                     (handled && strcmp(handler, "nvic-default") == 0))) {
-           probe_check_write(pc, address, value);
            return 0;
     }
-    probe_check_write(pc, address, value);
     // Continue internal operation
     return 1;
 }
@@ -234,17 +242,18 @@ static int dev_read(char * handler, long unsigned int address, uint64_t *buf, lo
             "[%5ld.%06ld] IO Read Access NOT Handled: \t address=0x%08" PRIx64 ", size=%u bytes, pc=0x%08" PRIx64 "\n",
             sec, usec, (uint64_t)address, size, (uint64_t)pc);
 #endif
-        dev_debug("IO Access not handled");
-        probe_check_unhandled_access(pc, address, 0);
+        FD_LOG_DEBUG("IO access not handled");
     }
+    virtual_notify_mmio(pc, address, value, size, false, dev_to_use != NULL, lut != NULL);
 
+    // nvic-default is QEMU's RAZ/WI region for the unimplemented PPB
+    // (DWT, ITM, CoreDebug, ...): a value a model returned must not be
+    // overwritten by it
     if (handler && ((handler[0] == 'g') ||
                     (dev_to_use != NULL && strcmp(handler, "nvic-default") == 0))) {
-        probe_check_read(pc, address, value);
         return 0;
     }
 
-    probe_check_read(pc, address, value);
     // Continue internal operation
     return 1;
 }
@@ -296,7 +305,7 @@ void dev_notify_irq(int number) {
 #ifdef DEV_LOGGER
 		utils_log_to_file(io_logger, "Skipping IRQ NUM %d handling as not registered by the user\n", number);
 #endif
-		printf("Skipping IRQ NUM %d handling as not registered by the user\n", number);
+		FD_LOG_DEBUG("Skipping IRQ NUM %d handling as not registered by the user", number);
 	}
 }
 
@@ -328,7 +337,7 @@ void dev_irqret_hook(int number) {
 #ifdef DEV_LOGGER
 		utils_log_to_file(io_logger, "Skipping IRQ NUM %d handling as not registered by the user\n", number);
 #endif
-		printf("Skipping IRQ NUM %d handling as not registered by the user\n", number);
+		FD_LOG_DEBUG("Skipping IRQ NUM %d handling as not registered by the user", number);
 	}
 }
 
@@ -371,7 +380,7 @@ void dev_register_device_model(hwaddr start, hwaddr end, DeviceModel *dev) {
 void dev_register_interrupt_device_model(int irq_num, DeviceModel *dev) {
     // For the passed interrupt number, register the device model
     if (irq_num < 0 || irq_num >= MAX_INTERRUPTS) {
-        printf("ERROR! IRQ NUM: %d not supported for the given device!\n", irq_num);
+        FD_LOG_ERROR("IRQ %d is not supported (at most %d)", irq_num, MAX_INTERRUPTS - 1);
 		utils_die("Reconfigure the device model\n");
     }
     if (!dev) return;
@@ -489,6 +498,7 @@ void dev_free_config(AppConfig* config) {
             free(device->scroll_path);
             free(device->irqs);
             free(device->ranges);
+            free(device->config_json);
         }
         free(section->devices);
     }
@@ -500,23 +510,19 @@ void dev_free_config(AppConfig* config) {
  * @brief This function parses the main JSON configuration string to build a structured
  * representation of all device models and their settings.
  *
- * @note This function assumes that the `DeviceModels` struct has been updated
- * to include an `SPIdetails` member, similar to the existing `I2Cdevices` one,
- * to hold SPI slave configurations.
- *
  * @param json_string The raw JSON configuration as a string.
  * @return A pointer to a fully populated AppConfig struct, or NULL on failure.
  */
 AppConfig* dev_parse_json_configs(const char* json_string) {
     cJSON* root = cJSON_Parse(json_string);
     if (!root) {
-        fprintf(stderr, "JSON parse error: %s\n", cJSON_GetErrorPtr());
+        FD_LOG_ERROR("device configuration: JSON parse error at: %s", cJSON_GetErrorPtr());
         return NULL;
     }
 
     AppConfig* app_config = calloc(1, sizeof(AppConfig));
     if (!app_config) {
-        fprintf(stderr, "Failed to allocate memory for AppConfig\n");
+        FD_LOG_ERROR("out of memory parsing the device configuration");
         cJSON_Delete(root);
         return NULL;
     }
@@ -608,69 +614,11 @@ AppConfig* dev_parse_json_configs(const char* json_string) {
                     }
                 }
 
-                /* Peripheral-specific slave parsing unchanged */
-                cJSON* slaves_obj = cJSON_GetObjectItemCaseSensitive(item, "slaves");
-                if (cJSON_IsObject(slaves_obj)) {
-                    cJSON* slave_item = NULL;
-
-                    if (strstr(current_device->name, "i2c") != 0) {
-                        cJSON_ArrayForEach(slave_item, slaves_obj) {
-                            current_device->I2Cdevices.device_count++;
-                            current_device->I2Cdevices.i2cdevice =
-                                realloc(current_device->I2Cdevices.i2cdevice,
-                                        current_device->I2Cdevices.device_count * sizeof(I2CDevice));
-
-                            I2CDevice* current_slave =
-                                &current_device->I2Cdevices.i2cdevice[current_device->I2Cdevices.device_count - 1];
-                            memset(current_slave, 0, sizeof(I2CDevice));
-
-                            current_slave->slave_name = strdup(slave_item->string);
-
-                            cJSON* addr = cJSON_GetObjectItemCaseSensitive(slave_item, "address");
-                            if (cJSON_IsString(addr)) {
-                                current_slave->address = (int)strtol(addr->valuestring, NULL, 0);
-                            }
-
-                            cJSON* slave_scroll = cJSON_GetObjectItemCaseSensitive(slave_item, "scroll_path");
-                            if (cJSON_IsString(slave_scroll)) {
-                                current_slave->scroll_path = strdup(slave_scroll->valuestring);
-                            }
-
-                            cJSON* is_scroll = cJSON_GetObjectItemCaseSensitive(slave_item, "is_scroll_path");
-                            if (cJSON_IsBool(is_scroll)) {
-                                current_slave->_is_scroll = cJSON_IsTrue(is_scroll);
-                            }
-                        }
-                    } else if (strstr(current_device->name, "spi") != 0) {
-                        cJSON_ArrayForEach(slave_item, slaves_obj) {
-                            current_device->SPIdetails.slave_count++;
-                            current_device->SPIdetails.spi_slave =
-                                realloc(current_device->SPIdetails.spi_slave,
-                                        current_device->SPIdetails.slave_count * sizeof(SPISlaveDevice));
-
-                            SPISlaveDevice* current_spi_slave =
-                                &current_device->SPIdetails.spi_slave[current_device->SPIdetails.slave_count - 1];
-                            memset(current_spi_slave, 0, sizeof(SPISlaveDevice));
-
-                            current_spi_slave->slave_name = strdup(slave_item->string);
-
-                            cJSON* cs_id = cJSON_GetObjectItemCaseSensitive(slave_item, "cs_id");
-                            if (cJSON_IsNumber(cs_id)) {
-                                current_spi_slave->cs_id = cs_id->valueint;
-                            }
-
-                            cJSON* slave_scroll = cJSON_GetObjectItemCaseSensitive(slave_item, "scroll_path");
-                            if (cJSON_IsString(slave_scroll)) {
-                                current_spi_slave->scroll_path = strdup(slave_scroll->valuestring);
-                            }
-
-                            cJSON* is_scroll = cJSON_GetObjectItemCaseSensitive(slave_item, "is_scroll_path");
-                            if (cJSON_IsBool(is_scroll)) {
-                                current_spi_slave->is_scroll_path = cJSON_IsTrue(is_scroll);
-                            }
-                        }
-                    }
-                }
+                /* The model's own config, kept as JSON without interpreting it. */
+                cJSON* model_config = cJSON_GetObjectItemCaseSensitive(item, "config");
+                char* printed = cJSON_IsObject(model_config) ? cJSON_PrintUnformatted(model_config) : NULL;
+                current_device->config_json = strdup(printed ? printed : "{}");
+                cJSON_free(printed);
             }
         }
     }
@@ -690,75 +638,54 @@ AppConfig* dev_parse_json_configs(const char* json_string) {
  */
 void dev_print_config(const AppConfig* config) {
     if (!config) {
-        printf("Configuration is NULL.\n");
+        FD_LOG_DEBUG("configuration is NULL");
         return;
     }
 
-    printf("--- Stored Configuration ---\n");
+    FD_LOG_DEBUG("--- Stored Configuration ---");
     for (int i = 0; i < config->section_count; i++) {
         const ConfigSection* s = &config->sections[i];
-        printf("\nSection: [%s] (Backend: %s)\n", s->name, s->backend ? s->backend : "null");
+        FD_LOG_DEBUG("Section: [%s] (Backend: %s)", s->name, s->backend ? s->backend : "null");
 
         if (s->overall_range_count > 0) {
-            printf("  Overall Ranges:\n");
+            FD_LOG_DEBUG("  Overall Ranges:");
             for (int k = 0; k < s->overall_range_count; k++) {
-                printf("    - 0x%08" PRIx64 "-0x%08" PRIx64 "\n",
-                       s->overall_ranges[k].start,
-                       s->overall_ranges[k].end);
+                FD_LOG_DEBUG("    - 0x%08" PRIx64 "-0x%08" PRIx64,
+                             s->overall_ranges[k].start,
+                             s->overall_ranges[k].end);
             }
         }
 
         for (int j = 0; j < s->device_count; j++) {
             const DeviceModels* d = &s->devices[j];
-            printf("  Device: %s\n", d->name);
-            printf("    -> Scroll: %s\n", d->scroll_path ? d->scroll_path : "N/A");
-            printf("    -> Ranges: %d\n", d->range_count);
-            printf("    -> IRQs: %d\n", d->irq_count);
+            FD_LOG_DEBUG("  Device: %s", d->name);
+            FD_LOG_DEBUG("    -> Scroll: %s", d->scroll_path ? d->scroll_path : "N/A");
+            FD_LOG_DEBUG("    -> Ranges: %d", d->range_count);
+            FD_LOG_DEBUG("    -> IRQs: %d", d->irq_count);
+            FD_LOG_DEBUG("    -> Config: %s", d->config_json ? d->config_json : "{}");
             if (d->irq_count > 0) {
-                printf("    -> IRQ List:");
-                for (int x = 0; x < d->irq_count; x++) {
-                    printf(" %u", (unsigned)d->irqs[x]);
+                char irq_list[4 * MAX_INTERRUPTS + 1];
+                size_t used = 0;
+                irq_list[0] = '\0';
+                for (int x = 0; x < d->irq_count && used < sizeof(irq_list); x++) {
+                    int n = snprintf(irq_list + used, sizeof(irq_list) - used, " %u", (unsigned)d->irqs[x]);
+                    if (n < 0) break;
+                    used += (size_t)n;
                 }
-                printf("\n");
+                FD_LOG_DEBUG("    -> IRQ List:%s", irq_list);
             }
 
             if (d->range_count > 0) {
-                printf("    -> Range List:\n");
+                FD_LOG_DEBUG("    -> Range List:");
                 for (int r = 0; r < d->range_count; r++) {
-                    printf("       - 0x%08" PRIx64 "-0x%08" PRIx64 "\n",
-                           d->ranges[r].start,
-                           d->ranges[r].end);
-                }
-            }
-
-            // I2C Slaves
-            const I2CDevices* i2c_devs = &d->I2Cdevices;
-            if (i2c_devs->device_count > 0) {
-                printf("    -> I2C Slaves:\n");
-                for (int l = 0; l < i2c_devs->device_count; l++) {
-                    const I2CDevice* curr_i2c = &i2c_devs->i2cdevice[l];
-                    printf("       - Name: %s\n", curr_i2c->slave_name);
-                    printf("         -> Address: 0x%X\n", curr_i2c->address);
-                    printf("         -> Is Scroll: %s\n", curr_i2c->_is_scroll ? "true" : "false");
-                    printf("         -> Path: %s\n", curr_i2c->scroll_path ? curr_i2c->scroll_path : "N/A");
-                }
-            }
-
-            // SPI Slaves
-            const SPIDevices* spi_devs = &d->SPIdetails;
-            if (spi_devs->slave_count > 0) {
-                printf("    -> SPI Slaves:\n");
-                for (int m = 0; m < spi_devs->slave_count; m++) {
-                    const SPISlaveDevice* curr_spi = &spi_devs->spi_slave[m];
-                    printf("       - Name: %s\n", curr_spi->slave_name);
-                    printf("         -> CS ID: %d\n", curr_spi->cs_id);
-                    printf("         -> Is Scroll: %s\n", curr_spi->is_scroll_path ? "true" : "false");
-                    printf("         -> Path: %s\n", curr_spi->scroll_path ? curr_spi->scroll_path : "N/A");
+                    FD_LOG_DEBUG("       - 0x%08" PRIx64 "-0x%08" PRIx64,
+                                 d->ranges[r].start,
+                                 d->ranges[r].end);
                 }
             }
         }
     }
-    printf("---------------------------\n");
+    FD_LOG_DEBUG("---------------------------");
 }
 
 
@@ -806,6 +733,27 @@ static inline AppConfig* dev_parse_models(const char *s, ModelEntry *entries, in
 	}
 }
 
+/* The MMIO trace goes to the run's work directory (FASTDYN_WORK_DIR, set by
+ * the frontend for every run), next to the run's other results; QEMU started
+ * by hand without it writes io.log in its current directory. */
+static FILE *dev_open_io_log(void) {
+	char path[PATH_MAX];
+	const char *work_dir = getenv("FASTDYN_WORK_DIR");
+	if (work_dir && work_dir[0]) {
+		if (snprintf(path, sizeof(path), "%s/io.log", work_dir) >= (int)sizeof(path)) {
+			utils_die("FASTDYN_WORK_DIR is too long for the io.log path");
+		}
+	} else {
+		snprintf(path, sizeof(path), "io.log");
+	}
+	FILE *f = fopen(path, "w");
+	if (!f) {
+		FD_LOG_ERROR("cannot open the MMIO trace %s: %s", path, strerror(errno));
+		utils_die("Cannot open io.log");
+	}
+	return f;
+}
+
 int dev_init(int argc, char ** argv) {
 	char * dev_model_info = utils_get_arg("dev", argc, argv);
 
@@ -813,7 +761,7 @@ int dev_init(int argc, char ** argv) {
 		// Regisgter IRQ listener for logging
 	    core_register_irq_hook(dev_notify_irq, dev_irqret_hook);
 		qemu_plugin_unimp_export_device((void *)&importer);
-		io_logger = fopen("io.log", "w");
+		io_logger = dev_open_io_log();
 
 		if (start_ts.tv_sec == 0 && start_ts.tv_nsec == 0) {
 			    clock_gettime(CLOCK_MONOTONIC, &start_ts);
@@ -824,9 +772,9 @@ int dev_init(int argc, char ** argv) {
 		for (int i = 0; i < current_config->section_count; i++) {
 				DeviceModel * current = find_device_model(entries[i].model);
 				if (!current) {
-                        fprintf(stderr, "Could not find model: '%s'. Available models:\n", entries[i].model);
+                        FD_LOG_ERROR("could not find model '%s'; available models:", entries[i].model);
                         for (int j = 0; j < num_devices; j++) {
-                            fprintf(stderr, " - %s\n", all_devices[j]->name);
+                            FD_LOG_ERROR("  - %s", all_devices[j]->name);
                         }
 						utils_die("Device Model not found.");
 				}

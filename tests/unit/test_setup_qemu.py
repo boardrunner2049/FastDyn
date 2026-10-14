@@ -199,6 +199,28 @@ def test_patch_failure_stops_build_even_with_existing_binary(source_repo, patch_
     assert binary.read_text() == "existing binary\n"
 
 
+def test_build_initializes_pinned_submodule_without_advancing_ref(source_repo, patch_repo):
+    relative = "third_party/common/qemu"
+    target = patch_repo / relative
+    git(patch_repo, "init")
+    git(patch_repo, "-c", "protocol.file.allow=always", "submodule", "add", str(source_repo), relative)
+    pinned = git(target, "rev-parse", "HEAD")
+    git(patch_repo, "submodule", "deinit", "-f", relative)
+    (source_repo / "local-change").write_text("new upstream commit\n")
+    git(source_repo, "add", ".")
+    git(source_repo, "-c", "user.name=Setup Test", "-c", "user.email=setup@example.test",
+        "-c", "commit.gpgsign=false", "commit", "-m", "Advance upstream")
+
+    assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, target))
+
+    assert git(target, "rev-parse", "HEAD") == pinned
+    assert (target / "build/qemu-system-arm").read_text() == "patched\noriginal\n"
+    (target / "local-change").write_text("local submodule edit\n")
+    assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, target))
+    assert git(target, "rev-parse", "HEAD") == pinned
+    assert (target / "build/qemu-system-arm").read_text() == "patched\nlocal submodule edit\n"
+
+
 @pytest.mark.parametrize(
     "options,expected",
     [
@@ -226,7 +248,7 @@ fastdyn_setup_qemu_clone() { echo clone >> "$SETUP_CALLS"; }
 fastdyn_setup_qemu_build() { echo build >> "$SETUP_CALLS"; }
 fastdyn_setup_plugin_build() { echo plugin >> "$SETUP_CALLS"; }
 fastdyn_setup_gazebo_plugin_build() { echo gazebo >> "$SETUP_CALLS"; }
-fastdyn_setup_main "$@"
+fastdyn_setup_main "$fastdyn_setup_repo_root" "$@"
 '''
     result = subprocess.run(
         [

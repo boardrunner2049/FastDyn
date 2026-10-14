@@ -1,0 +1,26 @@
+FastDyn
+Copyright 2026 PSecLab
+
+FastDyn's own source code is licensed under the Apache License 2.0; see
+LICENSE. The repository also carries third-party files that keep their own
+licenses:
+
+* virtuals/physics/flight_controllers/courbet/bin/: ArduPilot firmware
+  (ArduCopter, ArduPlane, ArduRover, ArduSub), GPL-3.0. Built from
+  https://github.com/ArduPilot/ardupilot at the commit each binary reports:
+  1ebd4d99 (4.6.2), 712b9bc2 (Rover 4.2.2), 30257f01 (Sub 4.5.7),
+  60955121 (Rover 4.7.0-dev). st_drone_fcu_f401.elf is
+  STMicroelectronics' STEVAL-FCU001V1 firmware, under ST's license.
+* tests/binaries/ and tests/raw/: RTOS test images built from their
+  upstream projects and examples, under those projects' licenses:
+  ChibiOS (GPL-3.0), FreeRTOS (MIT), NuttX (Apache-2.0), RT-Thread
+  (Apache-2.0), Eclipse ThreadX (MIT) and Zephyr (Apache-2.0).
+* tests/idle_firmwares/: startup and linker files from STMicroelectronics
+  (under ST's license) and build files from Analog Devices / Maxim
+  Integrated (Apache-2.0). The prebuilt images also contain their vendor
+  libraries.
+* patches/qemu-fastdyn-plugin-icount.patch: a change to QEMU,
+  GPL-2.0-or-later.
+
+The submodules under third_party/ and tools/ are separate projects under
+their own licenses.

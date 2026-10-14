@@ -14,13 +14,17 @@ The maintained vehicle examples are:
 Run a config with:
 
 ```bash
-source ./setup.sh --clone-qemu --build-qemu
+source ./setup.sh --build-qemu --with-rumoca
 fastdyn run -c configs/copter462.toml
 ```
 
 ## Path And Environment Expansion
 
-Relative paths are resolved from the FastDyn repository root. Runtime helper
+The files a configuration names (the firmware `binary`, `hardware_trace`, a
+device model's `scroll` and a slave's `device_scroll`) are looked up next to
+the configuration file when given as relative paths, so an example folder
+with its configuration, firmware and models works from any directory; a path
+that is not there is taken relative to the current directory. Runtime helper
 strings support `${NAME:-default}` expansion, so a config can provide defaults
 while `fastdyn swarm` injects per-worker ports:
 
@@ -30,7 +34,8 @@ while `fastdyn swarm` injects per-worker ports:
 
 Important injected environment variables are:
 
-- `FASTDYN_WORK_DIR`: current run work directory.
+- `FASTDYN_WORK_DIR`: current run work directory (the device models write the
+  MMIO trace `io.log` there).
 - `FASTDYN_CONFIG`: absolute config path.
 - `FASTDYN_MONITOR_PORT`: QEMU monitor TCP port.
 - `FASTDYN_MAVLINK_FIRMWARE_PORT`: firmware-facing MAVLink UDP port.
@@ -44,10 +49,16 @@ Important injected environment variables are:
 
 `[Machine]` controls QEMU and global board timing.
 
+`qemu_path` is optional. When it is not set, FastDyn uses, in order:
+the `FASTDYN_QEMU` environment variable; the QEMU this FastDyn build was
+compiled against (recorded in `build/fastdyn_build.json` next to
+`libfastdyn.so`, normally the `third_party/common/qemu` submodule); then
+`qemu-system-<arch>` on `PATH`. Set it only to use a different QEMU.
+
 ```toml
 [Machine]
 platform = "STM32F427"
-qemu_path = "../qemu/build/qemu-system-arm"
+# qemu_path = "../qemu/build/qemu-system-arm"   # optional, see above
 monitor_port = 5555
 qmp_socket = "/tmp/qmp.sock"
 log_file = "qemu.log"
@@ -61,7 +72,20 @@ fuzzing = false
 fuzzing_schema = "path/to/fuzzing-schema.json"
 edge_coverage = false
 print_command = false
+exit_timeout_ms = 5000
 ```
+
+`qmp_socket` is QEMU's control socket. Left at `/tmp/qmp.sock` (the default),
+each run gets its own, `<work_dir>/qmp.sock`; when that path is too long for a
+Unix socket (107 bytes), it goes to a short per-user folder instead,
+`fastdyn-<uid>/` under `$XDG_RUNTIME_DIR`, the temporary directory or `/tmp`.
+Set another path to connect to the socket yourself (e.g. a co-simulation
+master).
+
+When a run is stopped (Ctrl-C, a helper process ending, or a caller such as
+BoardRunner ending a timed run), QEMU gets SIGINT and exits normally, so
+plugins write their results (e.g. `bbl.txt`); it is killed only if it is still
+running after `exit_timeout_ms` (default 5000).
 
 To see valid architecture presets and the SVD-backed values accepted by
 `[Machine].platform`, use the CLI catalog:
@@ -391,6 +415,13 @@ description = "Peripheral ranges not modeled by a specific handler."
 model = "classic"
 enabled = false
 ```
+
+`irq` lists the interrupts a device's models are told about, as the CPU
+reports them: on Cortex-M, exception numbers (device IRQ n is n + 16). Each
+entry is a number (`54`, `"0x36"`), a CMSIS-SVD interrupt name (`"USART2"`,
+converted for you), or an inclusive `[first, last]` range; for example
+`irq = [[0, 20], [21, 25], 41, "USART2"]`. The old string form
+`irq = "0-20:21-25"` is no longer accepted.
 
 ## Parallel Runs
 

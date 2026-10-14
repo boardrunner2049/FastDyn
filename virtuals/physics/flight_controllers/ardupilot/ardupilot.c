@@ -20,6 +20,7 @@
 #include <stdatomic.h>
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "rplidara2.h"
@@ -1577,7 +1578,8 @@ int32_t read(int fd, void *buf, uint32_t count);
 int32_t write(int fd, const void *buf, uint32_t count);
 int fsync(int fd);
 
-Should be opening these all under a single directory like flight_logs/
+Files are opened under <work dir>/flight_logs/ ($FASTDYN_WORK_DIR, or
+fastdyn_work/ when it is unset), keeping the firmware's own subdirectories.
 
 All virtuals should be called like this:
 
@@ -1588,6 +1590,36 @@ All virtuals should be called like this:
 <address/symbol> ap_fs_fsync *
 */
 
+static void ap_fs_log_path(const char *fname, char *path, size_t size)
+{
+    const char *work_dir = getenv("FASTDYN_WORK_DIR");
+    if (!work_dir || !work_dir[0])
+    {
+        work_dir = "fastdyn_work";
+    }
+    while (*fname == '/')
+    {
+        fname++;
+    }
+    int n = snprintf(path, size, "%s/flight_logs/%s", work_dir, fname);
+    if (n < 0 || (size_t)n >= size)
+    {
+        path[0] = '\0'; // too long: open() fails and the firmware gets -1
+        return;
+    }
+
+    // Create the parent directories (the work dir, flight_logs/, APM/LOGS/, ...).
+    for (char *p = path + 1; *p; p++)
+    {
+        if (*p == '/')
+        {
+            *p = '\0';
+            mkdir(path, 0777);
+            *p = '/';
+        }
+    }
+}
+
 void ap_fs_open(unsigned int cpu_index, void *udata)
 {
     uint32_t fname_ptr = (uint32_t)qemu_get_register(ARM_V7M_R1);
@@ -1596,12 +1628,10 @@ void ap_fs_open(unsigned int cpu_index, void *udata)
 
     char fname[256];
     memset(fname, 0, sizeof(fname));
-    qemu_plugin_read_memory(fname_ptr, (uint8_t *)fname, sizeof(fname));
+    qemu_plugin_read_memory(fname_ptr, (uint8_t *)fname, sizeof(fname) - 1);
 
-    // printf("Opening file: /root/rooney/FastDyn/courbet/flight_logs/%s\n", fname);
-
-    char path[256];
-    snprintf(path, sizeof(path) + 59, "/home/mhcho/ws/courbet_project/FastDyn/courbet/flight_logs/%s", fname);
+    char path[4096];
+    ap_fs_log_path(fname, path, sizeof(path));
 
     int fd = open(path, O_RDWR | O_CREAT, 0666);
     mark_open_flight_log_fd(fd);

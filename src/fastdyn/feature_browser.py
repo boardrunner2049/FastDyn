@@ -59,8 +59,8 @@ _DEVICE_MODELS = (
 
 
 _MACHINE_SETTINGS = (
-    FeatureEntry("Machine setting", "headless QEMU", "Set QEMU path and disable graphical/serial frontends.",
-                 '[Machine]\nqemu_path = "qemu/build/qemu-system-arm"\ndisplay = "none"\nserial = "none"\nmonitor_port = 0\nqmp_socket = "/tmp/fastdyn.qmp"\nlog_options = "none"',
+    FeatureEntry("Machine setting", "headless QEMU", "Disable graphical/serial frontends; qemu_path is optional (defaults to the QEMU FastDyn was built against).",
+                 '[Machine]\n# qemu_path = "path/to/qemu-system-arm"  # optional\ndisplay = "none"\nserial = "none"\nmonitor_port = 0\nqmp_socket = "/tmp/fastdyn.qmp"\nlog_options = "none"',
                  "docs/Configuration.md"),
     FeatureEntry("Machine setting", "instruction-counted time", "Use deterministic instruction-counted virtual time.",
                  '[Machine]\nicount = { shift = 5, sleep = false, align = false }\ntimer_irq_period_ns = 1000000',
@@ -106,6 +106,22 @@ _RUN_GUIDE = (
                  "docs/RunningFastDyn.md"),
     FeatureEntry("Execution command", "use an explicit SVD catalog", "Resolve a board platform against a specific CMSIS-SVD file or catalog.",
                  "fastdyn run -c configs/target.toml -s third_party/common/cmsis-svd-data",
+                 "docs/RunningFastDyn.md"),
+    FeatureEntry("Execution command", "control logging", "Show fewer or more log messages, for everything or one area, and save them to a file.",
+                 "fastdyn -q run -c configs/target.toml                      # warnings and errors only\n"
+                 "fastdyn -v run -c configs/target.toml                      # include debug messages\n"
+                 "fastdyn --log-level fastdyn.targets=DEBUG run -c configs/target.toml\n"
+                 "fastdyn --log-level fastdyn.native=ERROR run -c configs/target.toml  # QEMU plugin: errors only\n"
+                 "fastdyn --log-file fastdyn_work/fastdyn.log run -c configs/target.toml",
+                 "docs/RunningFastDyn.md"),
+    FeatureEntry("Execution command", "use a plugin from another project", "Load a FastDyn plugin from a folder outside FastDyn (same layout as virtuals/<name>/).",
+                 '[CPU.cpu0.plugins.mmio_count]\nenabled = true\nsource = "../my_project/fastdyn_plugins/mmio_count"   # relative to this config',
+                 "docs/WritingVirtuals.md"),
+    FeatureEntry("Execution command", "build device models", "Compile device model sources (one .so per .c file) for the elder handler; only changed models are rebuilt.",
+                 "fastdyn build-model models/usart2.c -o build/models              # one file\n"
+                 "fastdyn build-model models/ -o build/models -r -j 8              # a whole tree, in parallel\n"
+                 "fastdyn build-model --name spi4 models/spi4.c models/spi4_dma.c -o build/models\n"
+                 "fastdyn build-model models/ -o build/models --keep-going --json  # report every failure",
                  "docs/RunningFastDyn.md"),
 )
 

@@ -6,10 +6,9 @@ from pathlib import Path
 
 from fastdyn.fastdyn import *
 from . import fmu_build, fmu_runtime
-from . import fastdyn_log as fastdyn_log_conf
+from . import paths
 
 log = logging.getLogger(__name__)
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
 
 
 def _env_int(name, default):
@@ -123,6 +122,39 @@ def _resolve_existing_config_path(config_path, value):
     return str((bases[-1] / path).resolve())
 
 
+def _config_relative(config_path, value):
+    """A file named in the configuration (firmware, trace, model library):
+    a relative path is looked up next to the configuration file first; if it
+    is not there, it stays relative to the current directory, as before."""
+    if not isinstance(value, str) or not value:
+        return value
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return value
+    candidate = Path(config_path).expanduser().resolve().parent / path
+    return str(candidate) if candidate.exists() else value
+
+
+def _slaves_config_relative(config_path, slaves):
+    """Slave entries with their device_scroll resolved like other model libraries."""
+    resolved = []
+    for slave in slaves:
+        if isinstance(slave, dict) and "device_scroll" in slave:
+            slave = {**slave, "device_scroll": _config_relative(config_path, slave["device_scroll"])}
+        resolved.append(slave)
+    return resolved
+
+
+def _endpoint_config_relative(config_path, conn):
+    """A host endpoint connection with a Python helper (``name`` ending in
+    ``.py``) resolved like other files named in the configuration."""
+    if (isinstance(conn, dict)
+            and str(conn.get("type", "")).lower().strip() == "endpoint"
+            and str(conn.get("name", "")).strip().endswith(".py")):
+        conn = {**conn, "name": _config_relative(config_path, str(conn["name"]).strip())}
+    return conn
+
+
 def _format_icount_option(value):
     if value is None:
         return None
@@ -176,17 +208,17 @@ def load_toml_config(config_path):
         with open(config_path, "rb") as f:
             return tomli.load(f)
     except FileNotFoundError:
-        fastdyn_log.error(f"The file '{config_path}' was not found.")
+        log.error(f"The file '{config_path}' was not found.")
         raise
     except tomli.TOMLDecodeError as e:
-        fastdyn_log.error(f"Error: Failed to parse TOML file '{config_path}': {e}")
+        log.error(f"Error: Failed to parse TOML file '{config_path}': {e}")
         raise
 
 
 #parse a single toml per machine, use as many instances as you want in future to parse multiple machines
 def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu=True):
     #parse the toml configuration
-    fastdyn_log.info(f"Parsing Config file: {toml_config}")
+    log.info(f"Parsing Config file: {toml_config}")
 
     fastdyn_handle = Fastdyn()
 
@@ -197,7 +229,6 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     machine0 = fastdyn_handle.create_machine(machine_name=machine_name,
                                     platform=toml_parser.machine_info.get("platform")
                                     )
-    machine0.add_rehosting_info(toml_parser.rehosting_info)
 
     if load_fmu:
         try:
@@ -215,7 +246,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     # additional machine params if set by the user related to qemu target
     q = machine0.qemu_target_opts
 
-    q.qemu_path          = toml_parser.machine_info.get("qemu_path", "qemu-system-arm")
+    q.qemu_path          = toml_parser.machine_info.get("qemu_path", "")  # optional; see qemu_target.resolve_qemu_binary
 
     q.enable_gdb         = toml_parser.machine_info.get("enable_gdb", False)
     q.stop_on_start      = toml_parser.machine_info.get("stop_on_start", False)
@@ -270,8 +301,6 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         toml_parser.machine_info.get("savestate_extra_ranges")
     )
 
-    machine0.ignore_functions = toml_parser.machine_info.get("ignore_functions", [])
-    machine0.milestones = toml_parser.machine_info.get("milestones", [])
     #add cmsis svd if Platform name provided by the user
     if toml_parser.machine_info.get("platform") is not None:
         machine0.add_cmsis_svd(cmsis_svd=svd_path)
@@ -283,7 +312,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     for idx, cpu in enumerate(toml_parser.cpus_info):
         curr_cpu = toml_parser.cpus_info[cpu][0]
 
-        binary_path = curr_cpu.get('binary') or curr_cpu.get('drive_file') or ''
+        binary_path = _config_relative(toml_config, curr_cpu.get('binary')) or curr_cpu.get('drive_file') or ''
         cpu_obj = machine0.add_cpu(
                 arch=curr_cpu.get("arch", "arm"),
                 machine=curr_cpu.get("machine", "cortexm"),
@@ -291,7 +320,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
                 binary=binary_path,
                 init_nsvtor= curr_cpu.get("init_nsvtor", None),
                 twintrace = curr_cpu.get("twintrace", None),
-                hardware_trace = curr_cpu.get("hardware_trace", None),
+                hardware_trace = _config_relative(toml_config, curr_cpu.get("hardware_trace", None)),
                 exstng_config_path = _resolve_existing_config_path(
                     toml_config,
                     curr_cpu.get("existing_config_path", False),
@@ -302,7 +331,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         cpu_obj.drive_file     =   curr_cpu.get('drive_file', None)
         cpu_obj.drive_format   =   curr_cpu.get('drive_format', 'raw')
         cpu_obj.bios           =   curr_cpu.get('bios', None) or toml_parser.machine_info.get("bios", None)
-        cpu_obj.plugin_library  =   curr_cpu.get('plugin_library', 'build/libfastdyn.so')
+        cpu_obj.plugin_library  =   curr_cpu.get('plugin_library', paths.default_plugin_library())
         cpu_obj.monitor_elf     =   curr_cpu.get('monitor_elf', '../ws/monitor.elf')
         cpu_obj.log_file        =   toml_parser.machine_info.get("log_file", curr_cpu.get("log_file", cpu_obj.log_file))
         cpu_obj.log_options     =   toml_parser.machine_info.get("log_options", curr_cpu.get("log_options", cpu_obj.log_options))
@@ -314,13 +343,24 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         if not isinstance(raw_plugins, dict):
             raise TypeError("[CPU.cpu0.plugins] must be a table")
         plugin_config: dict[str, dict] = {}
+        plugin_sources: dict[str, Path] = {}
         for plugin_name, plugin_settings in raw_plugins.items():
             if not isinstance(plugin_settings, dict):
                 raise TypeError(
                     f"[CPU.cpu0.plugins.{plugin_name}] must be a table"
                 )
-            plugin_config[str(plugin_name)] = dict(plugin_settings)
+            settings = dict(plugin_settings)
+            # `source` names a plugin folder outside FastDyn; FastDyn uses it
+            # to load the plugin and does not pass it on as a setting.
+            source = settings.pop("source", None)
+            if source is not None:
+                if not isinstance(source, str) or not source:
+                    raise TypeError(f"[CPU.cpu0.plugins.{plugin_name}].source must be a folder path")
+                plugin_sources[str(plugin_name)] = (
+                    Path(toml_config).expanduser().resolve().parent / source).resolve()
+            plugin_config[str(plugin_name)] = settings
         cpu_obj.plugin_config = plugin_config
+        cpu_obj.plugin_sources = plugin_sources
 
         #symbol resolution per cpu
 		#if curr_cpu.get("map_file") is not None:
@@ -354,7 +394,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     try:
         curr_mem = toml_parser.memory_info.pop('main')
     except:
-        fastdyn_log.error("Unable to retreive Main Memory")
+        log.error("Unable to retreive Main Memory")
         raise KeyError("Main Memory required with the name 'main' in the toml configuration")
 
     machine0.add_memory(memory_name='main',
@@ -401,6 +441,10 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         #create a device
         device_handler = machine0.add_device(device)
         device_handler.description = device_info.get('description', '')
+        device_handler.config = {key: value for key, value in device_info.items()
+                                 if key not in FASTDYN_DEVICE_KEYS}
+        if isinstance(device_handler.config.get('slaves'), list):
+            device_handler.config['slaves'] = _slaves_config_relative(toml_config, device_handler.config['slaves'])
 
         #add the handlers info
         for handler in device_info.get('handlers'):
@@ -408,7 +452,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
                 name=handler['model'],
                 enabled=handler['enabled'],
                 args=handler.get('args', None),
-                scroll=handler.get('scroll',None),
+                scroll=_config_relative(toml_config, handler.get('scroll', None)),
                 type=handler.get('type', None)
             )
 
@@ -422,7 +466,7 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         hw_enabled = [h.model for h in device_handler.handlers
                       if h.enabled and h.model in HW_BACKENDS]
         if len(hw_enabled) > 1:
-            fastdyn_log.error(
+            log.error(
                 f"[Device.{device}] enables multiple hardware-talking "
                 f"backends on the same range: {hw_enabled}. "
                 f"passthrough and twintrace both issue MMIO to the "
@@ -448,19 +492,19 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
                 end=r_end
             )
 
-        #add connections (host endpoints or bus-attached slaves)
+        #add connections (host endpoints)
         for conn_entry in device_info.get('connections', []):
-            device_handler.add_connection(conn_entry)
-
-        #add slaves in case of I2C and SPI
-        slaves_list = device_info.get('slaves', [])
-        for slave_entry in slaves_list:
-            # Passes the whole dict: {'device': 'BM2E80', 'address': '0x76', ...}
-            device_handler.add_slave(slave_entry)
+            device_handler.add_connection(_endpoint_config_relative(toml_config, conn_entry))
 
         #add irqs if added by the user
         if device_info.get('irq') is not None:
-            for irq in device_info.get('irq'):
+            irqs = device_info.get('irq')
+            if isinstance(irqs, str):
+                # The old "0-20:21-25" syntax; iterating it would add characters.
+                raise ValueError(f"[Device.{device}].irq = {irqs!r} is the old range syntax; "
+                                 "write ranges as a list, e.g. irq = [[0, 100]] or "
+                                 "irq = [[0, 20], [21, 25], 41]")
+            for irq in irqs:
                 device_handler.add_irq(irq)
 
     return fastdyn_handle
@@ -471,7 +515,6 @@ class TomlParser:
         self.parsed_config  = self.toml_parser(config_path)
         self.fastdyn_handle = fastdyn_handle
         self.machine_info   = self.parsed_config.get("Machine")
-        self.rehosting_info = self.parsed_config.get("Rehosting", {}) or {}
         self.cpus_info      = self.parsed_config.get("CPU")
         self.devices_info   = self.parsed_config.get("Device")
         self.memory_info    = self.parsed_config.get("Memory")

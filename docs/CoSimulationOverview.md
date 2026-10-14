@@ -12,7 +12,9 @@ and [CoSimulationSlave.md](CoSimulationSlave.md).
 Modelica instead of writing C?**
 
 `tools/world` is a standalone FMI 3 Co-Simulation runtime with no dependency
-on firmware, emulators, or device abstractions. Its whole public contract is
+on firmware, emulators, or device abstractions. It is under development and
+not released yet: the submodule needs PSecLab access and is fetched only with
+`git submodule update --init --checkout tools/world`. Its whole public contract is
 absolute virtual time in nanoseconds plus typed accessors:
 
 ```c
@@ -31,7 +33,7 @@ and where it does not reach.
 
 The proportion is visible in an existing hand-written model. Of roughly 141
 lines in
-`boardrunner/boardrunner_examples/examples/STM32F429i-disc1/adc_with_dma/generated_model/adc_model.c`,
+BoardRunner's `examples/stm32f429i_disc1/hybrid/ADC_with_DMA/generated_models/adc_model.c`,
 the physical content is a single assignment (`s->dr = 0x0AAA;`). The rest is
 register offsets, bitfield semantics, conversion timing, the DMA request, and
 interrupt gating.

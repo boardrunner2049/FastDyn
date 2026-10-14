@@ -7,243 +7,11 @@ from . import helper
 from typing import Optional, Dict, Any, Iterable, Tuple, Union
 import os, sys
 import re
-from .. import fastdyn_log as fastdyn_log_conf
-from ..machine import Machine, CPUConfig, VirtualInstruction, InstructionModifier, DeviceSection, DeviceModelDefaults, DeviceConfig, DeviceHandler, SlaveDevice
-from .database import bus_rules
-from .database.bus_rules import BUS_RULES
+from ..machine import Machine, CPUConfig, VirtualInstruction, InstructionModifier
 from cmsis_svd.parser import SVDParser
 
 
 log = logging.getLogger(__name__)
-fastdyn_log = fastdyn_log_conf.getFastdynLogger()
-
-def validate_slave_params(
-    *,
-    parent_device: str,
-    slave_device: str,
-    params: Dict[str, Any],
-) -> None:
-    """
-    Validates slave.params based on bus rules.
-
-    Bus selection:
-      1) params["bus"] if present
-      2) inferred from parent device name (i2c1/spi2/etc)
-      3) if no bus, skip validation (or you can choose to error)
-    """
-    bus = params.get("bus")
-    if bus is not None:
-        bus = str(bus).lower()
-    else:
-        bus = bus_rules.infer_bus_from_parent(parent_device)
-
-    if not bus:
-        # choose one:
-        # - return (no validation)
-        # - or raise to force explicit bus in config
-        raise ValueError(
-            f"[Device.{parent_device}] slave '{slave_device}': unknown bus '{bus}'"
-        )
-
-    rules = BUS_RULES.get(bus)
-    if rules is None:
-        raise ValueError(
-            f"[Device.{parent_device}] slave '{slave_device}': unknown bus '{bus}'"
-        )
-
-    missing = [k for k in rules["required"] if params.get(k) in (None, "")]
-    if missing:
-        raise ValueError(
-            f"[Device.{parent_device}] slave '{slave_device}' bus='{bus}' missing required keys: {missing}"
-        )
-
-def parse_devices_info(toml_config: Dict[str, Any]) -> "DeviceSection":
-    """
-    Parse the full [Device] TOML section into the canonical DeviceSection schema.
-
-    Explicit-field handler strategy:
-      - DeviceHandler has first-class fields: model, enabled, type, args, scroll
-      - We do NOT store handler keys into a params dict.
-
-    Unknown per-device keys go into DeviceConfig.params.
-    Unknown per-slave keys go into SlaveDevice.params.
-    """
-    if not isinstance(toml_config, dict):
-        raise TypeError(f"parse_devices_info expected dict, got {type(toml_config)}")
-
-    device_root = toml_config.get("Device", {}) or {}
-    if not isinstance(device_root, dict):
-        raise TypeError(f"[Device] must be a table/dict, got {type(device_root)}")
-
-    out = DeviceSection()
-
-    # ----------------------------
-    # Parse [Device.Models.*]
-    # ----------------------------
-    models_tbl = device_root.get("Models", {}) or {}
-    if models_tbl:
-        if not isinstance(models_tbl, dict):
-            raise TypeError(f"[Device.Models] must be a table/dict, got {type(models_tbl)}")
-
-        for model_name, model_data in models_tbl.items():
-            # allow empty models like [Device.Models.elder] with no keys
-            if model_data is None:
-                model_data = {}
-            if not isinstance(model_data, dict):
-                # if someone wrote a scalar accidentally, store it in a single key
-                model_data = {"value": model_data}
-
-            out.models[str(model_name)] = DeviceModelDefaults(params=dict(model_data))
-
-    # ----------------------------
-    # Parse each [Device.<dev>]
-    # ----------------------------
-    reserved_top_keys = {"Models"}
-
-    for dev_name, dev_data in device_root.items():
-        if dev_name in reserved_top_keys:
-            continue
-        if not isinstance(dev_data, dict):
-            # ignore non-tables defensively
-            continue
-
-        cfg = DeviceConfig()
-
-        # Known keys (dedicated fields)
-        if "description" in dev_data:
-            cfg.description = dev_data.get("description") or ""
-
-        if "irq" in dev_data:
-            cfg.irq = dev_data.get("irq")
-
-        if "ranges" in dev_data:
-            ranges = dev_data.get("ranges") or []
-            if not isinstance(ranges, list):
-                raise TypeError(f"[Device.{dev_name}].ranges must be a list, got {type(ranges)}")
-            cfg.ranges = [str(r) for r in ranges]
-
-        if "scroll_config" in dev_data:
-            cfg.scroll_config = dev_data.get("scroll_config")
-
-        # ----------------------------
-        # Handlers: [[Device.<dev>.handlers]]
-        # ----------------------------
-        handlers = dev_data.get("handlers", []) or []
-        if handlers:
-            if not isinstance(handlers, list):
-                raise TypeError(f"[Device.{dev_name}].handlers must be an array, got {type(handlers)}")
-
-            for h in handlers:
-                if not isinstance(h, dict):
-                    raise TypeError(
-                        f"Each [[Device.{dev_name}.handlers]] entry must be a table/dict, got {type(h)}"
-                    )
-
-                model = h.get("model")
-                if not model:
-                    raise ValueError(f"Missing 'model' in [[Device.{dev_name}.handlers]]")
-
-                enabled = h.get("enabled", True)
-                if enabled is None:
-                    enabled = True  # optional -> default enabled
-
-                handler_obj = DeviceHandler(
-                    model=str(model),
-                    enabled=bool(enabled),
-                    type=None if h.get("type") is None else str(h.get("type")),
-                    args=h.get("args"),
-                    scroll=None if h.get("scroll") is None else str(h.get("scroll")),
-                )
-
-                # Optional guardrails (helpful errors early)
-                if handler_obj.enabled:
-                    if handler_obj.model == "qemu" and handler_obj.type is None:
-                        log.warning(f"[Device.{dev_name}] enabled qemu handler is missing 'type'")
-                    if handler_obj.model == "elder" and handler_obj.scroll is None:
-                        log.warning(f"[Device.{dev_name}] enabled elder handler is missing 'scroll'")
-
-                cfg.handlers.append(handler_obj)
-
-            # Reject configs that enable more than one hardware-talking
-            # backend on the same device range. passthrough and twintrace
-            # both forward MMIO to the probe, so enabling both means every
-            # firmware write becomes two probe writes to the same address
-            # (corrupts clear-on-write registers, FIFO data registers,
-            # etc.). Pick exactly one.
-            HW_BACKENDS = {"passthrough", "twintrace"}
-            hw_enabled = [h.model for h in cfg.handlers
-                          if h.enabled and h.model in HW_BACKENDS]
-            if len(hw_enabled) > 1:
-                raise ValueError(
-                    f"[Device.{dev_name}] enables multiple hardware-talking "
-                    f"backends on the same range: {hw_enabled}. "
-                    f"passthrough and twintrace both issue MMIO to the "
-                    f"physical probe; enabling both duplicates every write. "
-                    f"Set 'enabled = false' on all but one."
-                )
-
-        # ----------------------------
-        # Slaves: [[Device.<dev>.slaves]]
-        # ----------------------------
-        slaves = dev_data.get("slaves", []) or []
-        if slaves:
-            if not isinstance(slaves, list):
-                raise TypeError(f"[Device.{dev_name}].slaves must be an array, got {type(slaves)}")
-
-            for s in slaves:
-                if not isinstance(s, dict):
-                    raise TypeError(
-                        f"Each [[Device.{dev_name}.slaves]] entry must be a table/dict, got {type(s)}"
-                    )
-
-                slave_dev = s.get("device")
-                if not slave_dev:
-                    raise ValueError(f"Missing 'device' in [[Device.{dev_name}.slaves]]")
-
-                model_list = s.get("model", []) or []
-                if isinstance(model_list, str):
-                    model_list = [model_list]
-                if not isinstance(model_list, list):
-                    raise TypeError(
-                        f"[[Device.{dev_name}.slaves]].model must be a list (or string), got {type(model_list)}"
-                    )
-
-                cs_id = s.get("cs_id")
-                address = s.get("address")
-                device_scroll = s.get("device_scroll")
-
-                # Everything else goes into params
-                slave_params = {
-                    k: v
-                    for k, v in s.items()
-                    if k not in {"device", "model", "device_scroll"}
-                }
-
-                validate_slave_params(
-                    parent_device=str(dev_name),
-                    slave_device=str(slave_dev),
-                    params=slave_params,
-                )
-
-                cfg.slaves.append(
-                    SlaveDevice(
-                        device=str(slave_dev),
-                        model=[str(m) for m in model_list],
-                        device_scroll=None if device_scroll is None else str(device_scroll),
-                        params=slave_params,
-                    )
-                )
-
-        # ----------------------------
-        # Any other per-device keys -> cfg.params
-        # ----------------------------
-        known_device_keys = {"description", "irq", "ranges", "scroll_config", "handlers", "slaves"}
-        extra_params = {k: v for k, v in dev_data.items() if k not in known_device_keys}
-        cfg.params.update(extra_params)
-
-        out.devices[str(dev_name)] = cfg
-
-    return out
 
 '''
 Helper functions for symbol parsing
@@ -523,7 +291,7 @@ def parse_vi(vi) -> Tuple[bool, Optional["VirtualInstruction"]]:
         return True, vi
 
     if not isinstance(vi, str):
-        fastdyn_log.error(f"Only string and VirtualInstruction format accepted (got {type(vi).__name__})")
+        log.error(f"Only string and VirtualInstruction format accepted (got {type(vi).__name__})")
         return False, None
 
     s = vi.strip()
@@ -532,7 +300,7 @@ def parse_vi(vi) -> Tuple[bool, Optional["VirtualInstruction"]]:
 
     parts = s.split()
     if len(parts) < 2:
-        fastdyn_log.error(f"Invalid VI line (need: '<at> <instruction> [args...]'): {vi!r}")
+        log.error(f"Invalid VI line (need: '<at> <instruction> [args...]'): {vi!r}")
         return False, None
 
     at_tok, instr = parts[0], parts[1]
@@ -770,11 +538,11 @@ def parse_mod(mod) -> Tuple[bool, Optional["InstructionModifier"]]:
             patch = str(mod.patch).strip()
             return True, InstructionModifier(at=mod.at, patch=patch)
         except Exception as e:
-            fastdyn_log.error(f"Unable to convert InstructionModifier-like object: {e}")
+            log.error(f"Unable to convert InstructionModifier-like object: {e}")
             return False, None
 
     if not isinstance(mod, str):
-        fastdyn_log.error(f"Only string and InstructionModifier format accepted (got {type(mod).__name__})")
+        log.error(f"Only string and InstructionModifier format accepted (got {type(mod).__name__})")
         return False, None
 
     s = mod.strip()
@@ -783,7 +551,7 @@ def parse_mod(mod) -> Tuple[bool, Optional["InstructionModifier"]]:
 
     parts = s.split()
     if len(parts) < 2:
-        fastdyn_log.error(f"Invalid modifier line (need: '<at> <patch...>'): {mod!r}")
+        log.error(f"Invalid modifier line (need: '<at> <patch...>'): {mod!r}")
         return False, None
 
     at_tok = parts[0]

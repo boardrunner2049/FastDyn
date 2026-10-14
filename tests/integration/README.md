@@ -4,7 +4,7 @@ The integration tests exercise the maintained FastDyn/Courbet/Rumoca FMI v3
 vehicle path. Run them from the FastDyn repository root after setup:
 
 ```bash
-source ./setup.sh --clone-qemu --build-qemu
+source ./setup.sh --build-qemu --with-rumoca
 ```
 
 ## Vehicle Launch Smoke

@@ -1,9 +1,9 @@
 #include <config.h>
 #if ENABLE_LIBHW
 	extern DeviceModel passthrough_model_def;
-	extern DeviceModel elder_model_def;
-	extern DeviceModel twintrace_model_def;
 #endif
+extern DeviceModel elder_model_def;
+extern DeviceModel twintrace_model_def;
 extern DeviceModel classic_model_def;
 #if ENABLE_LIBPY
 extern DeviceModel halucinator_model_def;
@@ -13,9 +13,9 @@ extern DeviceModel halucinator_model_def;
 static DeviceModel *all_devices[] = {
 	#if ENABLE_LIBHW
 		&passthrough_model_def,
-		&elder_model_def,
-		&twintrace_model_def,
 	#endif
+	&elder_model_def,
+	&twintrace_model_def,
 	&classic_model_def,
 	#if ENABLE_LIBPY
 	&halucinator_model_def,

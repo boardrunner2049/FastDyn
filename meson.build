@@ -1,7 +1,7 @@
 project(
   'fastdyn',
   'c',
-  version: '0.1.0',
+  version: '1.0.0',
   meson_version: '>=0.61.2'
 )
 cc = meson.get_compiler('c')
@@ -11,12 +11,13 @@ cc = meson.get_compiler('c')
 add_project_arguments('-Wno-address-of-packed-member', language : 'c')
 
 
-QEMU_DIR = get_option('qemu_path')
-qemu_include = include_directories(
-  join_paths(QEMU_DIR, 'include')
-)
+# External include folders (QEMU, libhw) may live inside the source tree as
+# submodules (third_party/common/), and meson rejects include_directories()
+# on absolute in-tree paths. They are therefore passed as plain -I flags.
+QEMU_DIR = join_paths(meson.project_source_root(), get_option('qemu_path'))
+qemu_dep = declare_dependency(compile_args: ['-I' + join_paths(QEMU_DIR, 'include')])
 # --- Project include dir
-include_dirs = [include_directories('include'), qemu_include, include_directories('build')]
+include_dirs = [include_directories('include'), include_directories('build')]
 
 # --- Project include dir
 local_include = include_directories('include')
@@ -24,7 +25,9 @@ local_include = include_directories('include')
 #glib support
 glib = dependency('glib-2.0', version: '>=2.56.0', required: true)
 cjson_dep = dependency('libcjson', required: true)
-deps = [glib, cjson_dep]
+# dlopen: device models and out-of-tree plugin libraries
+dl_dep = cc.find_library('dl', required: true)
+deps = [glib, cjson_dep, dl_dep]
 srcs = []
 
 #debugging FLAGS
@@ -98,21 +101,22 @@ if ENABLE_AFLNET
   ]
 endif
 
-ENABLE_PROBE = get_option('enable_probe')
-
 ENABLE_PHY = get_option('enable_phy')
 
 subdir('virtuals')
 
 #subdir('virtuals')
 ENABLE_LIBHW = get_option('enable_libhw')
-LIBHW_DIR = get_option('libhw_path')
+LIBHW_DIR = join_paths(meson.project_source_root(), get_option('libhw_path'))
+
+if ENABLE_LIBHW and not get_option('device_models')
+  warning('enable_libhw only affects the device models (passthrough, twintrace recording); ' +
+          'it has no effect without -Ddevice_models=true')
+endif
 
 if ENABLE_LIBHW
-  libhw_inc = include_directories(join_paths(LIBHW_DIR, 'include'))
-
   libhw_dep = declare_dependency(
-    include_directories: libhw_inc,
+    compile_args: ['-I' + join_paths(LIBHW_DIR, 'include')],
     link_args: [
       '-L' + join_paths(LIBHW_DIR, 'out'),
       '-Wl,-rpath,' + join_paths(LIBHW_DIR, 'out'),
@@ -125,6 +129,14 @@ if ENABLE_LIBHW
 endif
 
 
+# Record which QEMU this build was compiled against. The frontend reads it
+# (next to libfastdyn.so) when a config does not set [Machine].qemu_path.
+configure_file(
+  input : 'fastdyn_build.json.in',
+  output : 'fastdyn_build.json',
+  configuration : {'QEMU_DIR' : QEMU_DIR},
+)
+
 #Based on the configurations, generate config.h
 ENABLE_LIBDEV = get_option('device_models')
 configure_file(
@@ -135,7 +147,6 @@ configure_file(
     'ENABLE_LIBHW' : ENABLE_LIBHW ? 1 : 0,
     'ENABLE_LIBFUZZ' : ENABLE_LIBFUZZ ? 1 : 0,
     'ENABLE_AFLNET' : ENABLE_AFLNET ? 1 : 0,
-    'ENABLE_PROBE' : ENABLE_PROBE ? 1 : 0,
     'ENABLE_PHY' : ENABLE_PHY ? 1 : 0,
     'ENABLE_LIBPY' : ENABLE_LIBPY ? 1 : 0,
     'DEBUG_PRINT' : DEBUG_PRINT ? 1 : 0,
@@ -147,11 +158,6 @@ configure_file(
 #config_inc = include_directories(meson.current_build_dir())
 
 
-QEMU_DIR = get_option('qemu_path')
-qemu_include = include_directories(
-  join_paths(QEMU_DIR, 'include')
-)
-
 # Find BFD and libiberty
 # bfd_dep = cc.find_library('bfd', required: true)
 
@@ -162,14 +168,9 @@ qemu_include = include_directories(
 srcs += files(
   'core/core.c',
   'utils/utils.c',
+  'utils/log.c',
   'virtuals/virtuals.c',
 )
-
-if ENABLE_PROBE
-srcs += files(
-  'virtuals/probe/probe.c',
-)
-endif
 
 if ENABLE_LIBPY
 srcs += files(
@@ -191,19 +192,19 @@ if ENABLE_LIBDEV
   'device_models/classic/classic.c',
   )
 
+  # elder and twintrace (replay) are pure emulation; recording and
+  # passthrough talk to a probe and need libhw.
+  srcs += files(
+  'device_models/elder/elder.c',
+  'device_models/twintrace/twintrace.c',
+  )
+
 if ENABLE_LIBHW
   srcs += files(
   'device_models/common/hw_session.c',
   'device_models/passthrough/passthrough.c',
-  'device_models/elder/elder.c',
-  'device_models/elder/device_config.c',
-  'device_models/twintrace/twintrace.c',
-  'device_models/elder/inih/ini.c'
   )
 endif
-
-  device_models_inc = include_directories('device_models/elder/inih/')
-  local_include = [local_include, device_models_inc]
 endif
 
 if ENABLE_LIBGZ or ENABLE_FLIGHT_CONTROLLERS
@@ -215,7 +216,36 @@ endif
 fastdyn_target = shared_module(
   'fastdyn',
   srcs,
-  include_directories: [qemu_include, local_include],
-  dependencies: deps,
-  install: false
+  include_directories: local_include,
+  dependencies: deps + [qemu_dep],
+  install: true,
+  install_dir: get_option('libdir')
+)
+
+# --- What device models and out-of-tree plugins build against (`meson install`).
+# <fastdyn/device_model.h> is the model interface, <fastdyn/fuzz_hooks.h>
+# the fuzzer hooks, <fastdyn_runtime.h> (+ <fastdyn/arch/*.h>) the plugin
+# SDK, and QEMU's <qemu/qemu-plugin.h> the host functions; fastdyn.pc puts
+# them on the include path. Models link against libfastdyn.so only when they
+# call the fuzzer hooks; plugin libraries always do.
+install_headers(
+  'include/fastdyn/device_model.h',
+  'include/fastdyn/fuzz_hooks.h',
+  'include/fastdyn_runtime.h',
+  subdir: 'fastdyn'
+)
+install_subdir('include/fastdyn/arch', install_dir: join_paths(get_option('includedir'), 'fastdyn'))
+install_headers(
+  join_paths(QEMU_DIR, 'include', 'qemu', 'qemu-plugin.h'),
+  subdir: join_paths('fastdyn', 'qemu')
+)
+pkgconfig = import('pkgconfig')
+pkgconfig.generate(
+  name: 'fastdyn',
+  description: 'FastDyn device model interface and QEMU plugin',
+  version: meson.project_version(),
+  subdirs: ['.', 'fastdyn'],
+  requires_private: ['glib-2.0'],
+  libraries: ['-L${libdir}', '-lfastdyn'],
+  variables: ['model_abi=2']
 )

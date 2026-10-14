@@ -8,7 +8,7 @@ The maintained default path is no longer a manual Gazebo launch. Use the
 repository root `setup.sh` and the FastDyn TOML configs:
 
 ```bash
-source ./setup.sh --clone-qemu --build-qemu
+source ./setup.sh --build-qemu --with-rumoca
 fastdyn run -c configs/copter462.toml
 ```
 
