@@ -146,3 +146,9 @@ pytest tests/unit/ -v
 
 Integration and mission smoke tests are described in
 `tests/integration/README.md`.
+
+## License
+
+FastDyn is licensed under the [Apache License 2.0](LICENSE). Copyright 2026
+PSecLab. The bundled third-party firmware and files keep their own licenses;
+see [NOTICE](NOTICE).
