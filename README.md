@@ -69,19 +69,51 @@ recording). Re-running it reuses what is already built; in a new shell,
 
 After changing FastDyn's C code, rebuild with `ninja -C build`.
 
-### 3. Check it works
-
-```bash
-fastdyn --help
-fastdyn run -c configs/introspection/freertos.toml -o fastdyn-introspection-demo
-```
-
-The second command runs a bundled FreeRTOS firmware and opens the RTOS
-activity monitor at `http://127.0.0.1:8765/`; stop it with Ctrl-C.
-
 [docs/Building.md](docs/Building.md) has the rest: every `setup.sh` option,
 building by hand, the `make` flags, LibVIO for device models, installing for
 model builds elsewhere, SUNDIALS, Gazebo and Rumoca.
+
+## Minimal example
+
+[`configs/minimal.toml`](configs/minimal.toml) runs a bundled FreeRTOS
+firmware and changes it at chosen program counters, without touching the
+binary. The file lists the memory, machine, CPU and device settings with a
+comment on what each one does; these are its hooks (it also starts the timer
+at `main()`):
+
+```toml
+[[CPU.cpu0.modifiers]]            # before main() calls vStartLEDFlashTasks(1): r0 = 3
+at = "0x0800397e"
+patch = "r0 <- 3"
+
+[[CPU.cpu0.virtuals]]             # inside vStartLEDFlashTasks(): print the argument it got
+at = "0x080068b0"
+instruction = "printreg"
+args = ["0"]
+
+[[CPU.cpu0.virtuals]]             # when the scheduler starts: print the time and stop
+at = "0x08001940"
+instruction = "benchmark_end"
+args = ["minimal"]
+```
+
+```console
+$ fastdyn -q run -c configs/minimal.toml
+Current CPU type: cortex-m3-arm-cpu
+Reg 0:0x00000003
+[BENCH][minimal] elapsed_ns=3355151 elapsed_us=3355.151 elapsed_s=0.003355151
+```
+
+The function received 3, not the 1 the firmware passes, and the run ends by
+itself. A modifier patches registers or memory at a PC and a virtual instruction
+runs a FastDyn action there ([docs/VirtualsAndModifiers.md](docs/VirtualsAndModifiers.md)).
+
+A larger example, the same firmware with RTOS introspection and a live
+activity monitor at `http://127.0.0.1:8765/` (stop it with Ctrl-C):
+
+```bash
+fastdyn run -c configs/introspection/freertos.toml -o fastdyn-introspection-demo
+```
 
 ## Running FastDyn
 
