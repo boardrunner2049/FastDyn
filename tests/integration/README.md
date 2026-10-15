@@ -65,7 +65,12 @@ QMP, work, and RAM-backing paths.
 
 ## CI
 
-`.github/workflows/courbet-mission.yml` runs the setup script, builds the
+`.github/workflows/ci.yml` (FastDyn CI) runs on every push to `main` and every
+pull request: the README build, `pytest tests/unit`, `configs/minimal.toml`
+and `run_bundled_freertos_introspection_smoke.sh`.
+
+`.github/workflows/courbet-mission.yml` is started by hand (Actions > Courbet
+Mission > Run workflow). It runs the setup script, builds the
 renamed Modelica vehicle models through Rumoca FMI v3, checks OptiFuzz dry-run
 wiring for copter/rover/plane, checks two-worker swarm dry-runs, launches real
 two-worker swarms for all three vehicles, and runs the full ArduCopter mission.

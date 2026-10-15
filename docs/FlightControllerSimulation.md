@@ -193,7 +193,7 @@ without launching QEMU:
 fastdyn swarm -c configs/copter462.toml -n 20 -o out/swarm/copter --dry-run
 ```
 
-CI launches real two-worker swarms for ArduCopter, ArduRover, and ArduPlane
+The Courbet Mission workflow launches real two-worker swarms for ArduCopter, ArduRover, and ArduPlane
 long enough to verify both workers load the FMU backend, use the 1 ms board
 tick, and print independent MAVCesium URLs:
 
@@ -208,8 +208,9 @@ or shared RAM files because those create nondeterministic coupling.
 
 ## CI
 
-GitHub Actions runs the same high-fidelity path in
-`.github/workflows/courbet-mission.yml`: setup, patched QEMU build, Rumoca FMI
+The Courbet Mission workflow, `.github/workflows/courbet-mission.yml`, runs
+the same high-fidelity path on GitHub Actions when started by hand (Actions >
+Courbet Mission > Run workflow): setup, patched QEMU build, Rumoca FMI
 v3 FMU generation, FastDyn plugin build, OptiFuzz FMUv3 dry-runs for copter,
 rover, and plane, OptiFuzz two-worker swarm dry-runs for all three vehicles,
 MAVCesium helper startup, real two-worker swarm launch smokes for all three

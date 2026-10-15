@@ -3,7 +3,7 @@
 FastDyn runs firmware from a single TOML file. The file describes the QEMU
 machine, memory backing, firmware image, FastDyn plugin settings, optional FMI
 v3 plants, runtime helper processes, and profiling options. The same TOML is
-used by `fastdyn run`, `fastdyn loop`, CI smoke tests, and `fastdyn swarm`.
+used by `fastdyn run`, `fastdyn loop`, the smoke tests, and `fastdyn swarm`.
 
 The maintained vehicle examples are:
 
@@ -432,5 +432,5 @@ Use `--dry-run` to inspect the assigned ports without launching QEMU:
 fastdyn swarm -c configs/copter462.toml -n 20 -o out/swarm/copter --dry-run
 ```
 
-The CI smoke tests run two-worker swarms for copter, rover, and plane to confirm
+The Courbet Mission workflow's smoke tests run two-worker swarms for copter, rover, and plane to confirm
 FMU loading, board timing, MAVCesium URL generation, and port isolation.
