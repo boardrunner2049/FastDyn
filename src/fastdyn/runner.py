@@ -44,8 +44,6 @@ def prepare_work_dir(work_dir: Optional[str], persist_work_dir: bool) -> str:
     """Create the work directory, replacing an existing one unless it is persisted."""
     if work_dir is None:
         work_dir = DEFAULT_WORK_DIR
-    elif not os.path.isdir(work_dir):
-        log.warning(f"The output directory: {work_dir} passed by the user does not exist.")
 
     if not persist_work_dir:
         if os.path.exists(work_dir):

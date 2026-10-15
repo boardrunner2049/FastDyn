@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <utils.h>
+#define FD_LOG_SUBSYSTEM "physics"
+#include <fastdyn/log.h>
 #include "physics_engines/stub/stub.h"
 #if ENABLE_LIBGZ
 #include "physics_engines/gazebo/gazebo.h"
@@ -139,7 +141,7 @@ int phy_init(int argc, char **argv) {
 #endif
 
 #if ENABLE_FLIGHT_CONTROLLERS
-    printf("Initializing flight controllers\n");
+    FD_LOG_DEBUG("initializing flight controllers");
     fc_init(argc, argv);
 #endif
 

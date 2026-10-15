@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <fastdyn_runtime.h>
 
 #define TRACE_MAX_FUNCTIONS 4096
@@ -278,6 +279,9 @@ static int function_tracer_runtime_init(const VirtualContext *ctx) {
     char path[4096];
     runtime_context = ctx;
     if (virtual_register_callback(ctx, "function_tracer", function_tracer) != 0) return -1;
+    /* No manifest: the run does not use the tracer. */
+    if (virtual_artifact_path(ctx, "functions.tsv", path, sizeof(path)) != 0) return -1;
+    if (access(path, F_OK) != 0) return 0;
     if (load_functions(ctx) != 0 || load_arguments(ctx) != 0) {
         virtual_log(ctx, VIRTUAL_LOG_WARN, "no function-trace manifests were available");
         return 0;
