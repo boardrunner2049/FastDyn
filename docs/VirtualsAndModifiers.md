@@ -43,9 +43,9 @@ under `<work-dir>/virtuals/`:
 
 `at` is the PC of the guest instruction that triggers the entry. Numeric
 addresses may be decimal or hexadecimal. In the TOML form, `args` is an array
-of argument tokens; FastDyn joins those tokens with spaces before passing the
-resulting text to the selected virtual. Existing `virtuals.txt` and
-`modifiers.txt` files may also be supplied through
+of argument tokens (optional, empty when left out); FastDyn joins those tokens
+with spaces before passing the resulting text to the selected virtual.
+Existing `virtuals.txt` and `modifiers.txt` files may also be supplied through
 `existing_config_path`.
 
 ## What happens at the trigger PC

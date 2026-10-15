@@ -82,8 +82,38 @@ def _savestate_extra_ranges(value):
     return ranges
 
 
+class ConfigError(ValueError):
+    """The configuration is missing a required setting."""
+
+
+def _required(table, key, where):
+    """Return ``table[key]``, or fail with the table and key named."""
+    if key not in table:
+        raise ConfigError(f"{where} needs '{key}'")
+    return table[key]
+
+
+def _memory_settings(memory_name, memory_info):
+    """A memory bank's settings, with the defaults filled in.
+
+    Only ``memory_size`` is required. ``id`` defaults to the bank's name,
+    ``memory_type`` to SRAM, ``backend`` to file and ``share`` to true; a
+    file-backed bank without ``memory_file`` gets one in the work directory
+    when the run starts.
+    """
+    where = f"[Memory.{memory_name}]"
+    return {
+        "memory_id": memory_info.get("id", memory_name),
+        "memory_start": memory_info.get("base_address", None),
+        "memory_size": _required(memory_info, "memory_size", where),
+        "memory_type": memory_info.get("memory_type", "SRAM"),
+        "backend": memory_info.get("backend", "file"),
+        "share": memory_info.get("share", True),
+    }
+
+
 def _memory_file_for(machine_name, memory_name, memory_info):
-    memory_file = memory_info["memory_file"]
+    memory_file = memory_info.get("memory_file")
     memory_dir = os.environ.get("FASTDYN_QEMU_MEMORY_DIR")
     if not memory_dir:
         return memory_file
@@ -369,9 +399,9 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         if curr_cpu.get("virtuals"):
             for value in curr_cpu.get("virtuals"):
                 curr_vi = VirtualInstruction(
-                    at=value['at'],
-                    instruction=value['instruction'],
-                    args=value['args']
+                    at=_required(value, 'at', '[[CPU.virtuals]]'),
+                    instruction=_required(value, 'instruction', '[[CPU.virtuals]]'),
+                    args=value.get('args', [])
                 )
                 cpu_obj.add_virtual_instruction(curr_vi)
 
@@ -379,8 +409,8 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         if curr_cpu.get("modifiers"):
             for value in curr_cpu.get("modifiers"):
                 curr_modifier = InstructionModifier(
-                    at=value['at'],
-                    patch=value['patch']
+                    at=_required(value, 'at', '[[CPU.modifiers]]'),
+                    patch=_required(value, 'patch', '[[CPU.modifiers]]')
                 )
                 cpu_obj.add_modifier(curr_modifier)
 
@@ -395,45 +425,39 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         raise KeyError("Main Memory required with the name 'main' in the toml configuration")
 
     machine0.add_memory(memory_name='main',
-                        memory_id = curr_mem['id'],
-                        memory_start = curr_mem.get('base_address', None),
-                        memory_size=curr_mem['memory_size'],
-                        memory_type=curr_mem['memory_type'],
-                        backend      = curr_mem['backend'],          # file | ram | memfd
                         memory_file=_memory_file_for(machine_name, "main", curr_mem),
-                        share = curr_mem['share'],
+                        **_memory_settings("main", curr_mem),
                         )
 
     #add additional memories added by the user in the toml config
     for memory in toml_parser.memory_info:
         curr_mem = toml_parser.memory_info.get(memory)[0]
         machine0.add_memory(memory_name=memory,
-                            memory_id = curr_mem['id'],
-                            memory_start = curr_mem.get('base_address', None),
-                            memory_size=curr_mem['memory_size'],
-                            memory_type=curr_mem['memory_type'],
-                            backend      = curr_mem['backend'],          # file | ram | memfd
                             memory_file=_memory_file_for(machine_name, memory, curr_mem),
-                            share = curr_mem['share'],
+                            **_memory_settings(memory, curr_mem),
                             )
 
     #add devices information
 
+    # [Device] and its Models table are optional: a run without peripheral
+    # models has neither.
+    devices_info = toml_parser.devices_info or {}
+    models_info = devices_info.pop('Models', None) or {}
+
     #get the available models for the user
-    for model in toml_parser.devices_info.get('Models'):
+    for model in models_info:
         #parse device specific info
-        model_info = toml_parser.devices_info.get('Models')[model]
+        model_info = models_info[model]
         backend = model_info.get('backend')
         #add model and its info to the devices
         machine0.add_model(
             name=model,
             backend=backend
         )
-    toml_parser.devices_info.pop('Models')
 
     #add devices added by the user
-    for device in toml_parser.devices_info:
-        device_info = toml_parser.devices_info[device]
+    for device in devices_info:
+        device_info = devices_info[device]
 
         #create a device
         device_handler = machine0.add_device(device)
