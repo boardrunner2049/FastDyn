@@ -18,6 +18,10 @@ const RUN_SERVICES_DIR: &str = "../../physics/flight_controllers/courbet/gazebo"
 const MAV_C2_DIR: &str = "../../physics/flight_controllers/courbet/mavlink";
 const FASTDYN_DIR: &str = "../../..";
 
+fn execution_id() -> String {
+    env::var("EXECUTION").unwrap_or_else(|_| "0".to_string())
+}
+
 fn fastdyn_dir() -> PathBuf {
     let default_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(FASTDYN_DIR);
     let root = env::var("FASTDYN_ROOT")
@@ -37,7 +41,7 @@ fn optifuzz_backend(cps_name: &str) -> String {
 }
 
 fn execution_work_dir() -> PathBuf {
-    let execution = env::var("EXECUTION").unwrap_or_else(|_| "0".to_string());
+    let execution = execution_id();
     let fastdyn_root = fastdyn_dir();
     let root = env::var("FASTDYN_OPTIFUZZ_WORK_ROOT")
         .map(PathBuf::from)
@@ -114,6 +118,18 @@ fn execute_fmuv3_mission(
 ) -> ExitKind {
     let work_dir = execution_work_dir();
     let mutation_path = write_mutations(input, &work_dir);
+    let trace_log_dir = PathBuf::from(crate::TRACE_LOG_PATH);
+    let trace_log_dir = if trace_log_dir.is_absolute() {
+        trace_log_dir
+    } else {
+        env::current_dir()
+            .expect("failed to determine fuzzer working directory")
+            .join(trace_log_dir)
+    };
+    let trace_csv_path = trace_log_dir.join(format!("trace_{}.csv", execution_id()));
+    if let Some(parent) = trace_csv_path.parent() {
+        fs::create_dir_all(parent).expect("failed to create OptiFuzz trace directory");
+    }
     let config = env_or_default(
         "FASTDYN_OPTIFUZZ_CONFIG",
         &format!("configs/{}462.toml", cps_name),
@@ -164,7 +180,8 @@ fn execute_fmuv3_mission(
         .env("FASTDYN_QEMU_MEMORY_DIR", work_dir.join("qemu-memory"))
         .env("FASTDYN_COVERAGE", &coverage_enabled)
         .env("FASTDYN_COVERAGE_FILE", work_dir.join("cvg.bin"))
-        .env("FASTDYN_BBL_FILE", work_dir.join("bbl.txt"));
+        .env("FASTDYN_BBL_FILE", work_dir.join("bbl.txt"))
+        .env("FASTDYN_TRACE_FILE", &trace_csv_path);
         //.env("PATH", child_path);
 
     if !mission_file_name.is_empty() {

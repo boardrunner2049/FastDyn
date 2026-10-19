@@ -3,22 +3,28 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-//TODO : make this passed in from optifuzz (or user?)
-#define ROBUSTNESS_TRACE_CSV_PATH \
-    "/root/fastdyn-work/FastDyn/virtuals/fuzzer/libafl_phi/robustness_logs/robustness_1.csv"
+#define TRACE_CSV_ENV "FASTDYN_TRACE_FILE"
 
 static FILE *robustness_trace_csv = NULL;
 static bool robustness_trace_csv_init_attempted = false;
+static bool robustness_trace_csv_disabled = false;
 
 static int init_robustness_trace_csv(void)
 {
     if (robustness_trace_csv_init_attempted) {
-        return robustness_trace_csv != NULL;
+        return robustness_trace_csv != NULL || robustness_trace_csv_disabled;
     }
     robustness_trace_csv_init_attempted = true;
 
-    robustness_trace_csv = fopen(ROBUSTNESS_TRACE_CSV_PATH, "w");
+    const char *path = getenv(TRACE_CSV_ENV);
+    if (path == NULL || path[0] == '\0') {
+        robustness_trace_csv_disabled = true;
+        return 1;
+    }
+
+    robustness_trace_csv = fopen(path, "w");
     if (robustness_trace_csv == NULL) {
         perror("Failed to open robustness trace CSV");
         return 0;
@@ -52,6 +58,9 @@ int write_robustness_trace_csv(uint64_t sim_time_ms, const trace_t *trace)
 {
     if (trace == NULL || !init_robustness_trace_csv()) {
         return 0;
+    }
+    if (robustness_trace_csv_disabled) {
+        return 1;
     }
 
     const gps_data_t *gps = &trace->gps;

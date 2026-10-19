@@ -153,7 +153,7 @@ const MAP_SIZE: usize = 65536; // same as AFL, make sure the definition of this 
 #[no_mangle]
 pub static mut CVG: [u8; MAP_SIZE] = [0; MAP_SIZE];
 
-const TRACE_LOG_PATH: &str = "./trace_logs";
+pub(crate) const TRACE_LOG_PATH: &str = "./trace_logs";
 const ROBUSTNESS_LOG_PATH: &str = "./robustness_logs";
 const CRASH_LOG_PATH: &str = "./crashes";
 const CORPUS_LOG_PATH: &str = "./corpus";
