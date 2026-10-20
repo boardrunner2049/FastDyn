@@ -1,0 +1,3 @@
+# Optional runtime for the PX4 Simulator MAVLink / FMI 3 BIL adapter.
+fmpy==0.3.32
+pymavlink>=2.4.49
