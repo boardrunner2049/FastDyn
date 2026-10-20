@@ -3,7 +3,7 @@
 FastDyn runs firmware from a single TOML file. The file describes the QEMU
 machine, memory backing, firmware image, FastDyn plugin settings, optional FMI
 v3 plants, runtime helper processes, and profiling options. The same TOML is
-used by `fastdyn run`, `fastdyn loop`, CI smoke tests, and `fastdyn swarm`.
+used by `fastdyn run`, `fastdyn loop`, the smoke tests, and `fastdyn swarm`.
 
 The maintained vehicle examples are:
 
@@ -132,6 +132,12 @@ the path used for faster-than-realtime campaigns.
 
 Memory banks map to QEMU `memory-backend-*` objects. Swarm runs override the RAM
 file directory per worker, so workers do not share memory.
+
+Only `memory_size` is required (and `base_address` where the RAM is not at
+0). `id` defaults to the bank's name, `memory_type` to `"SRAM"`, `backend` to
+`"file"` and `share` to `true`. A file-backed bank without `memory_file` gets
+`<work dir>/<id>.ram`. `backend = "ram"` or `"memfd"` keeps the RAM without a
+backing file.
 
 ```toml
 [Memory]
@@ -398,7 +404,8 @@ you have identified bottlenecks.
 
 `[Device.Models]` registers handler types, and `[Device.<name>]` assigns
 address ranges to handlers. This is the traditional FastDyn peripheral model
-configuration and is still used alongside the FMU physics backend.
+configuration and is still used alongside the FMU physics backend. A run
+without peripheral models leaves out `[Device]` entirely.
 
 ```toml
 [Device.Models.classic]
@@ -439,5 +446,5 @@ Use `--dry-run` to inspect the assigned ports without launching QEMU:
 fastdyn swarm -c configs/copter462.toml -n 20 -o out/swarm/copter --dry-run
 ```
 
-The CI smoke tests run two-worker swarms for copter, rover, and plane to confirm
+The Courbet Mission workflow's smoke tests run two-worker swarms for copter, rover, and plane to confirm
 FMU loading, board timing, MAVCesium URL generation, and port isolation.

@@ -1,11 +1,9 @@
 name: Courbet Mission
 
+# Manual only (Actions > Courbet Mission > Run workflow): the full ArduPilot
+# simulation path is slow and needs Gazebo. FastDyn CI (ci.yml) runs on every
+# push and pull request.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - rumoca_fmuv3
   workflow_dispatch:
 
 jobs:

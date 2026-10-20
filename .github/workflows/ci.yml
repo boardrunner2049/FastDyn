@@ -1,0 +1,49 @@
+name: FastDyn CI
+
+# Builds FastDyn the way the README does, runs the unit tests, the README's
+# minimal example and the bundled FreeRTOS introspection smoke test.
+# No board, network service or API key is needed.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out FastDyn
+        uses: actions/checkout@v4
+
+      - name: Install system packages (README, step 1)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake git meson ninja-build pkg-config python3-venv \
+            libglib2.0-dev libcjson-dev libpixman-1-dev libfdt-dev zlib1g-dev flex bison
+
+      - name: Set up and build (README, step 2)
+        run: source ./setup.sh --build-qemu
+
+      - name: Unit tests
+        run: |
+          source fastdyn-env/bin/activate
+          python -m pytest -q tests/unit
+
+      - name: Minimal example (configs/minimal.toml)
+        run: |
+          set -o pipefail
+          source fastdyn-env/bin/activate
+          timeout 120 fastdyn -q run -c configs/minimal.toml | tee minimal.out
+          grep -q '^Reg 0:0x00000003$' minimal.out
+          grep -q '^\[BENCH\]\[minimal\] elapsed_ns=' minimal.out
+
+      - name: Bundled FreeRTOS introspection smoke test
+        env:
+          FASTDYN_QEMU_BIN: ${{ github.workspace }}/third_party/common/qemu/build/qemu-system-arm
+        run: tests/integration/run_bundled_freertos_introspection_smoke.sh

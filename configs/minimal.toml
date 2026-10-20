@@ -1,66 +1,81 @@
+# Minimal FastDyn run: the bundled FreeRTOS firmware with one modifier and
+# three virtual instructions. Run from the FastDyn checkout:
+#
+#   fastdyn -q run -c configs/minimal.toml
+#
+# main() calls vStartLEDFlashTasks(1); the modifier changes the argument to 3,
+# printreg shows the value the function received, and benchmark_end stops the
+# run when the scheduler starts. Addresses are from
+# `arm-none-eabi-nm tests/sample_binaries/RTOS/RTOSDemo.axf`.
+#
+# Every table below lists the settings you can change; docs/Configuration.md
+# is the full reference and `fastdyn help` prints snippets for each feature.
+
 # ==============================================================================
 #                              Memory Configuration
 # ==============================================================================
+# Each bank becomes a QEMU memory backend. Only memory_size (and base_address)
+# is required; the rest shows the defaults you can override.
 [Memory]
 
-[Memory.main]   # required: goes to -machine ... memory-backend=<id>
-id = "ram0"
-base_address = "0x20000000"
-memory_size  = "512M"
-memory_type  = "SRAM"
-backend      = "file"          # file | ram | memfd
-memory_file  = "/dev/shm/my_m4_ram3"
-share        = true
+[Memory.main]   # required: the machine's main RAM
+id = "ram0"                    # QEMU object id (default: the bank's name)
+base_address = "0x20000000"    # where the RAM is mapped
+memory_size  = "512M"          # size, with K/M/G suffix
+memory_type  = "SRAM"          # default "SRAM"
+backend      = "file"          # file | ram | memfd (ram/memfd: no backing file)
+memory_file  = "/tmp/fastdyn-minimal-ram0.ram"   # file backend only (default: <work dir>/<id>.ram)
+share        = true            # map the file shared, so other tools can read the RAM
 prealloc     = false
 
-[[Memory.ram1]]   # optional banks: go to -global cortexm-soc.ram_backendN / ram_baseaddrN
+[[Memory.ram1]]   # optional extra banks: -global cortexm-soc.ram_backendN / ram_baseaddrN
 id = "ram1"
 index = 1
 base_address = "0x30000000"
 memory_size  = "512K"
 memory_type  = "SRAM"
 backend      = "file"
-memory_file  = "/dev/shm/my_m4_ram"
+memory_file  = "/tmp/fastdyn-minimal-ram1.ram"
 share        = true
 prealloc     = false
 
 # ==============================================================================
-#                                CPU Configuration
+#                              Machine Configuration
 # ==============================================================================
 [Machine]
-platform = "STM32F429"
-# --- Debugging, Control, and Logging ---
+platform = "generic-cortexm"   # or a chip name such as "STM32F429" to load its SVD peripherals
 # qemu_path = "qemu/build/qemu-system-arm"  # optional: defaults to the QEMU FastDyn was built against
-enable_gdb = true
-stop_on_start = true
-launch_gdb = false
-monitor_port = 5555
-qmp_socket = "/tmp/qmp.sock"
-log_file = "qemu.log"
-log_options = "in_asm,op"
-semihosting = true
-semihosting_config = "enable=on,target=native"
-coverage=false
-finline='None'
-print_command = true          #set to true if you want to print the final qemu on the terminal [Useful for debugging]
 
+# --- Debugging, Control, and Logging ---
+enable_gdb = false             # true: start QEMU's GDB server on port 1234
+stop_on_start = false          # true: wait at the first instruction until GDB continues
+launch_gdb = false             # true: also open gdb-multiarch attached to it
+monitor_port = 5555            # QEMU monitor (telnet) port; 0 turns it off
+qmp_socket = "/tmp/fastdyn-minimal.qmp"   # QMP control socket (default: <work dir>/qmp.sock)
+log_file = "qemu.log"          # QEMU log, in the work directory
+log_options = "none"           # QEMU -d items, e.g. "in_asm,op" (large logs) or "none"
+semihosting = true             # let the firmware print and exit through semihosting
+semihosting_config = "enable=on,target=native"
+coverage = false               # true: record basic-block coverage
+finline = 'None'               # path to a static inline-I/O mapping, or 'None'
+print_command = false          # true: print the full QEMU command line
+
+# ==============================================================================
+#                                CPU Configuration
+# ==============================================================================
 [CPU]
 [[CPU.cpu0]]
 # --- Core Emulation & Plugin Settings ---
 arch = "arm"
 machine = "cortexm"
-cpu = "cortex-m3"
+cpu = "cortex-m3"              # QEMU CPU model, e.g. cortex-m4, cortex-m7
 plugin_library = "build/libfastdyn.so"
-monitor_elf = "../ws/monitor.elf" # The VMM-like monitor that runs with the target
-binary = "tests/sample_binaries/RTOS/RTOSDemo.axf"
-init_nsvtor = "0x08000000"
-twintrace = "None" #options are record, replay or None
-hardware_trace = 'hardware_log/io.log'   #useful in cases like replay to generate the replay binary
-existing_config_path  = false #'/path/to/dir containing virtuals.txt and modifiers.txt' add your existing virtuals.txt here, will traverse through to find the virtuals.txt and modifiers.txt
-
-[CPU.cpu0.plugins.introspection]
-enabled = true
-
+# monitor_elf = "../ws/monitor.elf"  # optional VMM-like monitor that runs with the target
+binary = "tests/sample_binaries/RTOS/RTOSDemo.axf"   # the firmware ELF
+init_nsvtor = "0x08000000"     # vector table address the CPU starts from
+twintrace = "None"             # record | replay | None (hardware-trace record/replay)
+hardware_trace = 'hardware_log/io.log'   # the trace twintrace records to or replays from
+existing_config_path = false   # or a directory with ready-made virtuals.txt and modifiers.txt
 
 # --- Embedded CPU Behavior Configurations ---
 logger_content = """
@@ -69,30 +84,58 @@ logger_content = """
 # output = stderr
 """
 
+# --- Run plugins: [CPU.cpu0.plugins.<name>], listed by `fastdyn help virtuals` ---
+[CPU.cpu0.plugins.introspection]
+enabled = false                # true: detect the RTOS and record its tasks and context switches
+
+# --- Virtual instructions and modifiers (docs/VirtualsAndModifiers.md) ---
+# A virtual instruction runs a FastDyn action when the CPU reaches `at`;
+# a modifier patches registers or memory there. `fastdyn help virtuals`
+# lists the actions (printreg, debug_log, raiseirq, updatemem, ...).
+
+[[CPU.cpu0.virtuals]]             # main(): start the timer
+at = "0x08003972"
+instruction = "benchmark_start"
+
+[[CPU.cpu0.modifiers]]            # before `bl vStartLEDFlashTasks`: r0 = 3 instead of 1
+at = "0x0800397e"
+patch = "r0 <- 3"
+
+[[CPU.cpu0.virtuals]]             # vStartLEDFlashTasks(): print r0, the argument it got
+at = "0x080068b0"
+instruction = "printreg"
+args = ["0"]
+
+[[CPU.cpu0.virtuals]]             # vTaskStartScheduler(): print the time and stop
+at = "0x08001940"
+instruction = "benchmark_end"
+args = ["minimal"]
+
 # ==============================================================================
 #                              Device Configuration
 # ==============================================================================
-
 # --- Model-Specific Configurations ---
-# Define the global arguments for each type of plugin device model here.
+# The handler types a device can use, with their global arguments
+# (docs/FastDynDeviceModel.md).
 
 [Device.Models.elder]
-    # The libhw backend is a global argument for the elder model.
+    # C device models built with `fastdyn build-model`.
 
 [Device.Models.passthrough]
-    backend = "stlink"
+    backend = "stlink"         # forwards accesses to a real board through libhw
 
 [Device.Models.classic]
     # The classic model has no global arguments.
 
 [Device.Models.twintrace]
-    backend = "stlink"
-    # The classic model has no global arguments.
+    backend = "stlink"         # records or replays a hardware trace
 
 [Device.Models.unhandled]
     # This model explicitly marks memory as unhandled.
 
 # --- Peripheral Definitions ---
+# [Device.<name>]: address ranges, IRQs and the handler that serves them.
+# This firmware needs no peripheral, so the handler is disabled.
 [Device.remaining_space]
     ranges = [["0x40000000", "0x400107FF"],["0x40010C00", "0x40010FFF"], ["0x40011400", "0xE0000000"], ["0xE0000000", "0xEFFFFFFF"]]
     irq = [['1','100']]

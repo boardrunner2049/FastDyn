@@ -122,6 +122,25 @@ def _memory_backend_is_file(memory):
     return backend_name == "FILE"
 
 
+def _memory_backend_object(memory, share_flag):
+    """The QEMU ``memory-backend-*`` object for a memory bank."""
+    backend = getattr(memory, "memory_backend", None)
+    backend_name = getattr(backend, "name", str(backend)).lower()
+    base = f"id={memory.memory_id},size={memory.memory_size},share={share_flag}"
+    if backend_name == "file":
+        return f"memory-backend-file,{base},mem-path={memory.memory_file}"
+    if backend_name in ("ram", "memfd"):
+        return f"memory-backend-{backend_name},{base}"
+    raise ValueError(f"Memory {memory.memory_name!r} has an unknown backend {backend!r}.")
+
+
+def _default_memory_files(machine, work_dir):
+    """Give file-backed banks without a memory_file one in the work directory."""
+    for memory in (machine.memories or {}).values():
+        if _memory_backend_is_file(memory) and not getattr(memory, "memory_file", None):
+            memory.memory_file = os.path.join(os.path.abspath(work_dir or "."), f"{memory.memory_id}.ram")
+
+
 def _has_nonzero_memory_start(memory):
     """Whether a memory start address requires a FastDyn QEMU global.
 
@@ -564,11 +583,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
     memory_config = []
 
     # main memory object
-    main_mem_args = [
-        "-object",
-        f"memory-backend-file,id={main_memory.memory_id},mem-path={main_memory.memory_file},"
-        f"size={main_memory.memory_size},share={share_flag}",
-    ]
+    main_mem_args = ["-object", _memory_backend_object(main_memory, share_flag)]
     # ram_baseaddr* is a FastDyn generic Cortex-M SoC property. Board models
     # (for example Zephyr's lm3s6965evb target) own their fixed RAM mapping
     # and reject that synthetic global option.
@@ -586,10 +601,7 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
         m = memories[key]
         share_flag = "on" if getattr(m, "memory_share", True) else "off"
         _ensure_memory_backend_file(m)
-        extra_mem_args = [
-            "-object",
-            f"memory-backend-file,id={m.memory_id},mem-path={m.memory_file},size={m.memory_size},share={share_flag}",
-        ]
+        extra_mem_args = ["-object", _memory_backend_object(m, share_flag)]
         if is_generic_cortexm and _has_nonzero_memory_start(m):
             extra_mem_args.extend([
                 "-global",
@@ -804,6 +816,7 @@ def setup_qemu(machine, work_dir=None):
     Prepares output dir, writes device config, returns QEMU and GDB commands.
     """
     with timing.phase("qemu.setup"):
+        _default_memory_files(machine, work_dir)
         _reset_file_memory_backends(machine)
         with timing.phase("qemu.write_device_config"):
             dev_config_path = helper.write_dev_config_json(output_dir=work_dir, data=machine.parsed_device)

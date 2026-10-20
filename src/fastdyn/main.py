@@ -15,6 +15,7 @@ from fastdyn.__init__ import __version__
 # from .machine import Machine, CPUConfig, VirtualInstruction, InstructionModifier
 from . import runtime_config
 from . import runner
+from .toml_parser import ConfigError
 from . import timing
 from .utils import parse_config as parse_helper
 from . import platform_browser
@@ -451,7 +452,7 @@ def run(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu,
             report=click.echo,
         )
     except (runner.RunError, runtime_config.RuntimeConfigError, VirtualPreparationError,
-            qemu_target.QemuExitError) as exc:
+            ConfigError, qemu_target.QemuExitError) as exc:
         raise click.ClickException(str(exc)) from exc
     except KeyboardInterrupt:
         log.info("Run interrupted by user.")
@@ -529,7 +530,8 @@ def loop(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu, n
         except (qemu_target.QemuExitError, runtime_config.HelperExitedError) as exc:
             log.error(f"Run failed: {exc}. Restarting with the work directory preserved.")
             persist = True
-        except (runner.RunError, runtime_config.RuntimeConfigError, VirtualPreparationError) as exc:
+        except (runner.RunError, runtime_config.RuntimeConfigError, VirtualPreparationError,
+                ConfigError) as exc:
             raise click.ClickException(str(exc)) from exc
         except KeyboardInterrupt:
             log.info("Loop interrupted by user.")
