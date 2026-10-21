@@ -32,6 +32,7 @@ use banquo::predicate::FormulaError;
 use banquo::{evaluate, predicate, EvaluationError, Formula, Predicate, Trace};
 
 use crate::cpexp_state::{HasLatestRobustness, HasOptimizer};
+use crate::trace_parser::parse_trace_log;
 
 /// Path to the text file containing STL-style formulas, one per line.
 /// Lines starting with `#` and blank lines are ignored.
@@ -342,6 +343,17 @@ where
 
     fn post_exec(&mut self, state: &mut S, _input: &I, _exit_kind: &ExitKind) -> Result<(), Error> {
         if optifuzz_backend_is_fmuv3() {
+            // parse the trace log generated for this (get max, min, avg values?)
+            // compare max and min againt banquo STL formulas
+            // return robustness
+            
+            let trace_dir = Path::new(&self.trace_log_dir);
+            let trace_log_path = format!(
+                "{}/trace_{}.csv",
+                self.trace_log_dir,
+                state.executions()
+            );
+            let trace_stats = parse_trace_log(&trace_log_path).unwrap();
             let robustness = match _exit_kind {
                 ExitKind::Ok => 1.0,
                 ExitKind::Crash | ExitKind::Timeout => -1.0,

@@ -11,6 +11,7 @@ mod phi_feedback;
 mod phi_objective;
 mod phi_observer;
 mod phi_stage;
+mod trace_parser;
 
 use std::env;
 #[cfg(windows)]
