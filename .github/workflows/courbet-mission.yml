@@ -64,7 +64,10 @@ jobs:
         env:
           FASTDYN_QEMU_REF: fastdyn
         run: |
-          source ./setup.sh --build-qemu
+          source ./setup.sh --clone-qemu --build-qemu --with-rumoca
+
+      - name: Prepare FMI3 source package dependencies
+        run: python3 utils/setup_fire_toolchain.py
 
       - name: Check OptiFuzz FMUv3 runner
         run: |

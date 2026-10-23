@@ -44,7 +44,7 @@ RUN curl https://packages.osrfoundation.org/gazebo.gpg --output /usr/share/keyri
 WORKDIR /root
 
 # Clone all repos
-RUN git clone https://github.com/Arslan8/qemu.git
+RUN git clone https://github.com/boardrunner2049/qemu.git
 RUN git clone https://github.com/michaelprooney/banquo.git
 RUN git clone https://github.com/ArduPilot/ardupilot_gazebo.git
 RUN git clone https://github.com/michaelprooney/SITL_Models.git

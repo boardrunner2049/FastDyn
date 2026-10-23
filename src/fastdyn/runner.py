@@ -83,7 +83,6 @@ def auto_build_fmu(config, fmu_name: Optional[str], skip_build: bool, report: Re
         if not fmu_build.needs_build(build):
             report(f"FMU ready: {build.artifact_path}")
             return
-        fmu_build.require_build_inputs(build)
         report(f"Building FMU '{build.name}' from {config}")
         fmu_build.build_fmu(build, update_submodules_first=False)
         if build.package:

@@ -13,6 +13,7 @@ Create/update the FastDyn Python environment and local runtime workspace.
 Options:
   --venv PATH           Virtual environment path (default: fastdyn-env)
   --python PYTHON       Python executable used to create the venv (default: python3)
+  --clone-qemu          Download missing QEMU sources without building; preserve existing checkouts
   --build-qemu          Build the patched QEMU and the FastDyn QEMU plugin (with device models,
                         the FMU/flight-controller physics, and libhw when it is built)
   --build-gazebo        Build legacy Gazebo/Courbet deps and FastDyn with LIBGZ/LIBHW
@@ -22,9 +23,9 @@ Options:
   --qemu-root PATH      Patched QEMU checkout/workspace root (default: the pinned
                         third_party/common/qemu submodule, checked out by --build-qemu; an
                         already-built ../qemu is used when the submodule is not checked out)
-  --qemu-repo URL       Patched QEMU repository, for a --qemu-root that is not the submodule
+  --qemu-repo URL       Repository for --clone-qemu with a --qemu-root outside the submodule
                         (default: https://github.com/boardrunner2049/qemu.git)
-  --qemu-ref REF        Patched QEMU ref/branch, likewise (default: fastdyn)
+  --qemu-ref REF        Ref/branch for --clone-qemu, likewise (default: fastdyn)
   --libhw-root PATH     libhw checkout root (default: the pinned third_party/common/libhw
                         submodule, checked out by --build-libhw/--build-gazebo; an already-built
                         ../libhw is used when the submodule is not checked out)
@@ -41,6 +42,8 @@ Options:
 
 When sourced, this script activates the virtual environment after setup.
 When executed, it prints the activation command.
+For a new external --qemu-root, use --clone-qemu --build-qemu together.
+The default pinned QEMU submodule is initialized by either option.
 USAGE
 }
 
@@ -60,6 +63,7 @@ fastdyn_setup_main() {
   local update_submodules="true"
   local build_rumoca="false"
   local setup_optifuzz="true"
+  local clone_qemu="false"
   local build_qemu="false"
   local build_gazebo="false"
   local build_libhw="false"
@@ -87,6 +91,10 @@ fastdyn_setup_main() {
         ;;
       --skip-rumoca)
         build_rumoca="false"
+        shift
+        ;;
+      --clone-qemu)
+        clone_qemu="true"
         shift
         ;;
       --build-qemu)
@@ -199,6 +207,11 @@ fastdyn_setup_main() {
     optifuzz_root="$repo_root/$optifuzz_root"
   fi
 
+  if [[ "$build_qemu" == "true" && "$clone_qemu" != "true" ]] &&
+     ! fastdyn_setup_same_dir "$qemu_root" "$repo_root/third_party/common/qemu"; then
+    fastdyn_setup_qemu_require_source "$repo_root" "$qemu_root" || return
+  fi
+
   fastdyn_setup_python "$repo_root" "$python_bin" "$venv_path" "$upgrade_pip" || return
 
   if [[ "$update_submodules" == "true" ]]; then
@@ -213,8 +226,15 @@ fastdyn_setup_main() {
     fastdyn_setup_libvio_build "$repo_root" || return
     echo "LibVIO is ready: $repo_root/out/libvio/install (fastdyn build-model uses it)"
   fi
+  if [[ "$clone_qemu" == "true" ]]; then
+    if fastdyn_setup_same_dir "$qemu_root" "$repo_root/third_party/common/qemu"; then
+      fastdyn_setup_submodule_init "$repo_root" third_party/common/qemu configure || return
+    else
+      fastdyn_setup_qemu_clone "$qemu_root" "$qemu_repo" "$qemu_ref" || return
+    fi
+  fi
   if [[ "$build_qemu" == "true" ]]; then
-    fastdyn_setup_qemu_build "$repo_root" "$qemu_root" "$qemu_repo" "$qemu_ref" || return
+    fastdyn_setup_qemu_build "$repo_root" "$qemu_root" || return
     if [[ "$build_gazebo" != "true" ]]; then
       fastdyn_setup_plugin_build "$repo_root" "$qemu_root" "$libhw_root" || return
     fi

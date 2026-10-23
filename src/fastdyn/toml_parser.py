@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from fastdyn.fastdyn import *
-from . import fmu_build
+from . import fmu_build, fmu_runtime
 from . import paths
 
 log = logging.getLogger(__name__)
@@ -263,10 +263,13 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     if load_fmu:
         try:
             fmu = fmu_build.resolve(Path(toml_config), fmu_name)
+            runtime = fmu_runtime.prepare_runtime(fmu, Path(out_dir or "fastdyn_work"))
             machine0.fmu_name = fmu.name
-            machine0.fmu_path = str(fmu.fmu_path if fmu.package else fmu.output)
+            machine0.fmu_path = str(runtime.library_path)
+            machine0.fmu_token = runtime.instantiation_token
+            machine0.fmu_resources = runtime.resource_path
             machine0.fmu_parameters = fmu.parameters or {}
-            machine0.fmu_value_references = fmu_build.value_references(fmu)
+            machine0.fmu_value_references = runtime.value_references
         except fmu_build.NoFmuConfig:
             pass
 

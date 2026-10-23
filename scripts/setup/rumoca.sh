@@ -12,5 +12,7 @@ fastdyn_setup_rumoca_build() {
     echo "Rumoca submodule is missing. Rerun without --skip-submodules, or use --skip-rumoca." >&2
     return 1
   fi
-  (cd "$repo_root/third_party/common/rumoca" && cargo build -p rumoca --features lockstep --release) || return
+  # The pinned Rumoca enables FMU packaging and the viewer by default;
+  # its former "lockstep" Cargo feature no longer exists.
+  (cd "$repo_root/third_party/common/rumoca" && cargo build -p rumoca --release) || return
 }

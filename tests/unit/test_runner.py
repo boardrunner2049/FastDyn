@@ -118,6 +118,46 @@ def test_auto_build_fmu_errors_become_run_errors(monkeypatch):
     runner.auto_build_fmu("cfg.toml", None, skip_build=True)  # skipping never resolves
 
 
+def test_auto_build_composes_missing_model_before_validating_sources(tmp_path, monkeypatch):
+    from fastdyn import physics_composition
+
+    config = tmp_path / "vehicle.toml"
+    config.write_text('[FMU.physics]\nmodel_name = "Generated"\n')
+    output = tmp_path / "generated"
+    build = fmu_build.FmuBuild(
+        name="quad", model="Generated", model_file=output / "Generated.mo",
+        source_root=output, extra_source_roots=(), output=output,
+        repo_root=tmp_path, package=False, auto_build=True,
+        compose_config=config, config_path=config,
+    )
+    build.rumoca_dir.mkdir(parents=True)
+    (build.rumoca_dir / "Cargo.toml").write_text("[workspace]\n")
+
+    def compose(selected):
+        selected.model_file.parent.mkdir(parents=True)
+        selected.model_file.write_text("model Generated end Generated;\n")
+
+    def compile_model(command, **_kwargs):
+        if "--help" in command:
+            return subprocess.CompletedProcess(command, 0, stdout="--build")
+        assert build.model_file.is_file()
+        build.artifact_path.write_text("<fmiModelDescription/>\n")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(fmu_build, "resolve", lambda *_args: build)
+    monkeypatch.setattr(fmu_build.shutil, "which", lambda _name: "/test/cargo")
+    monkeypatch.setattr(physics_composition, "compose", compose)
+    monkeypatch.setattr(physics_composition, "stage_msl", lambda _build: None)
+    monkeypatch.setattr(physics_composition, "record_compilation", lambda *_args: None)
+    monkeypatch.setattr(fmu_build.subprocess, "run", compile_model)
+
+    runner.auto_build_fmu(config, None, skip_build=False)
+
+    assert build.model_file.is_file()
+    assert build.artifact_path.is_file()
+    assert not fmu_build.needs_build(build)
+
+
 def test_package_reexports_are_lazy():
     code = (
         "import sys, fastdyn\n"

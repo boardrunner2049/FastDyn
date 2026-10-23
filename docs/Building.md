@@ -39,6 +39,7 @@ Courbet assets), and creates the QEMU RAM backing files. Build options add:
 
 | Option | Builds |
 | --- | --- |
+| `--clone-qemu` | Download missing QEMU sources without patching or compiling; preserve existing checkouts |
 | `--build-qemu` | The patched QEMU, then FastDyn (`build/libfastdyn.so`) with device models (`DEV`), the physics engine with the FMU and flight-controller backends, and libhw (`LIBHW`) when libhw is built |
 | `--build-libhw` | libhw (`out/libhw.so` in the libhw checkout) |
 | `--build-libvio` | LibVIO into `out/libvio/install`, where `fastdyn build-model` looks first |
@@ -47,7 +48,8 @@ Courbet assets), and creates the QEMU RAM backing files. Build options add:
 
 Sourcing it activates the environment; in a new shell, run
 `source fastdyn-env/bin/activate`. Re-running it is safe: finished builds are
-reused. `source ./setup.sh --help` lists every option.
+reused; QEMU runs an incremental build so local source edits are included.
+`source ./setup.sh --help` lists every option.
 
 Which QEMU and libhw checkout setup uses, unless `--qemu-root` /
 `--libhw-root` names one:
@@ -58,10 +60,24 @@ Which QEMU and libhw checkout setup uses, unless `--qemu-root` /
    working without a rebuild; setup says when it uses one;
 3. otherwise the pinned submodule, which the build option checks out.
 
-The pinned QEMU submodule is built at exactly the recorded commit. For a
-`--qemu-root` that is not the submodule, setup clones `--qemu-repo` at
-`--qemu-ref` (default `https://github.com/boardrunner2049/qemu.git`,
-`fastdyn`).
+A missing pinned QEMU submodule is initialized at its recorded commit by
+`--clone-qemu` or `--build-qemu`. Existing QEMU source checkouts retain their
+remote, branch and local changes; builds never fetch or switch refs.
+
+For a new external `--qemu-root`, use `--clone-qemu` to download `--qemu-repo`
+at `--qemu-ref` (default `https://github.com/boardrunner2049/qemu.git`,
+`fastdyn`). `--build-qemu` on its own requires existing external sources:
+
+```bash
+# Download only; existing checkouts are left in place.
+source ./setup.sh --clone-qemu --qemu-root ../qemu
+
+# Patch and incrementally build those sources, then build FastDyn.
+source ./setup.sh --build-qemu --qemu-root ../qemu
+```
+
+Combine both options for a first-time external checkout and build. Both
+options also perform the normal Python/environment setup.
 
 The QEMU RAM backing files go to `../qemu/ws/`, where the Courbet configs name
 them, or to `<qemu-root>/ws/` with `--qemu-root`.

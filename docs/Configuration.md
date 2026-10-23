@@ -233,6 +233,20 @@ In QEMU's TCG translation generator (`update_reg`), target registers map to spec
 
 `[FMU]` lets FastDyn build and load Rumoca FMI v3 models directly from Modelica.
 The generated FMU is used by the C physics backend in the QEMU plugin.
+
+At startup, FastDyn extracts the selected `.fmu` into an isolated directory
+under the run's work directory. It reads the Co-Simulation `modelIdentifier`,
+`instantiationToken`, and variable references from that package's
+`modelDescription.xml`, then loads `binaries/<platform>/<modelIdentifier>.so`.
+UUID-based names require no configuration changes after re-exporting a model.
+Unpacked build trees are also supported if they contain a compiled binary;
+source-only exports must be compiled before running.
+
+The native plugin receives the resolved `.so` path in `fmu=`, the XML token in
+`fmu_token=`, and an optional resource directory in `fmu_resources=`. These
+arguments are generated automatically by `fastdyn run`. If FMU initialization
+fails, QEMU exits before starting the periodic simulation ticks.
+
 Keep the Modelica model name vehicle-oriented, such as
 `FastDyn.Copter`; the FMU is the generated artifact format, not
 part of the model identity. FastDyn vehicle models should define the
