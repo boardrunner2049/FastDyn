@@ -1,4 +1,4 @@
-./qemu-system-arm --plugin ../../FastDyn/build/libfastdyn.so,dev=classic:0x40000000-0x5FFFFFFF,virtual=../../FastDyn/virtuals/physics/flight_controllers/courbet/plane462/unlabeled_conf/virtuals.txt,modifier=../../FastDyn/virtuals/physics/flight_controllers/courbet/plane462/unlabeled_conf/modifiers.txt,symbols=../../FastDyn/virtuals/physics/flight_controllers/courbet/bin/arduplane_v462,optifuzz=1,coverage=1 \
+./qemu-system-arm --plugin ../../FastDyn/build/libfastdyn.so,dev=classic:0x40000000-0x5FFFFFFF,virtual=../../FastDyn/virtuals/physics/flight_controllers/courbet/ardupilot/plane462/unlabeled_conf/virtuals.txt,modifier=../../FastDyn/virtuals/physics/flight_controllers/courbet/ardupilot/plane462/unlabeled_conf/modifiers.txt,symbols=../../FastDyn/virtuals/physics/flight_controllers/courbet/bin/arduplane_v462,optifuzz=1,coverage=1 \
     -d op,in_asm -D qemu.log -machine cortexm,memory-backend=ram0 \
     -monitor telnet:127.0.0.1:5555,server,nowait \
     -gdb tcp::1235 \

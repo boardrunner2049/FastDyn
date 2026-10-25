@@ -182,7 +182,7 @@ binary = "virtuals/physics/flight_controllers/courbet/bin/arducopter_v462"
 init_nsvtor = "0x08004000"
 twintrace = "None"
 hardware_trace = "hardware_log/io.log"
-existing_config_path = "virtuals/physics/flight_controllers/courbet/copter462/unlabeled_conf"
+existing_config_path = "virtuals/physics/flight_controllers/courbet/ardupilot/copter462/unlabeled_conf"
 ```
 
 Run modules use FastDyn's generic per-CPU plugin configuration namespace:
@@ -315,6 +315,36 @@ scene = "third_party/common/rumoca/examples/quadrotor_sil/quadrotor_scene.js"
 When enabled, FastDyn prints a local viewer URL such as
 `http://127.0.0.1:8080`.
 
+## Console Bridge Initialization
+
+The PX4 FMUv6C profile initializes its modules automatically through the console
+bridge when running `fastdyn run`. Select the NSH command file in `[Run]`:
+
+```toml
+[Run]
+bridge_boot = "virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/boot.nsh"
+```
+
+Relative paths are resolved from the FastDyn repository root. The runner checks
+that the selected file exists before replacing the work directory and passes its
+absolute path to QEMU as `FASTDYN_BRIDGE_BOOT` for the execution session only.
+An existing environment value overrides the TOML (relative environment paths
+use the caller's working directory). An explicitly empty value disables boot:
+
+```bash
+FASTDYN_BRIDGE_BOOT= fastdyn run -c configs/px4_fmu_v6c_fire_p2.toml --no-run-processes
+```
+
+This initializes guest modules through the existing bridge; it does not arm the
+vehicle or start a mission. It remains active with `--no-run-processes` because
+it is independent of host helpers. `[Run.env]` continues to configure helper
+environments, not QEMU. Profiles without `bridge_boot` keep their current behavior.
+The PX4 config also enables a separate mission helper that normally arms and flies
+the uploaded mission, plus MAVProxy/MAVCesium. Use `--no-run-processes` to run only
+guest initialization and the TELEM1/UDP bridge. See the
+[PX4 profile guide](../virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/README.md)
+for UART mapping, ports, arming behavior and integration checks.
+
 ## Runtime Helpers
 
 `[Run]` and `[Run.processes.<name>]` start helper processes next to QEMU. The
@@ -346,7 +376,7 @@ background = true
 terminate_run_on_exit = true
 command = [
     "python3",
-    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_and_control.py",
+    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_control_ardupilot.py",
     "--connect",
     "udpin:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-14552}",
     "--monitor-sec",

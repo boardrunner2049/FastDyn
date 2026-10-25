@@ -1,0 +1,11 @@
+# ArduCopter 4.6.2 / the supplied ChibiOS ARM ELF.
+schema_version = 1
+firmware = "ardupilot"
+elf = "../../bin/arducopter_v462"
+labeled_conf = "labeled_conf"
+output_dir = "unlabeled_conf"
+
+[validation]
+# This legacy profile contains literal instruction addresses. Review those
+# hooks against a rebuilt ELF before updating this digest and regenerating.
+elf_sha256 = "3fc6ee14e94f5f8b4133b06747145a8e40c7755940b9f87fdab1ad4323c0aa8c"

@@ -87,4 +87,10 @@ _ZNK17AP_InertialSensor23accel_calibrated_ok_allEv r15 r14
 0x803db02 r1 5000
 _ZNK11AP_Airspeed7enabledEh r0 0
 _ZNK11AP_Airspeed7enabledEh r15 r14
-
+# Preserve the banner, TX-space and throttle-check overrides from the active configuration.
+_ZN11GCS_MAVLINK11send_bannerEv r0 0
+_ZN11GCS_MAVLINK11send_bannerEv r15 r14
+_ZNK11GCS_MAVLINK7txspaceEv r0 4000
+_ZNK11GCS_MAVLINK7txspaceEv r15 r14
+_ZNK16AP_Arming_Copter27rc_throttle_failsafe_checksEb r0 1
+_ZNK16AP_Arming_Copter27rc_throttle_failsafe_checksEb r15 r14

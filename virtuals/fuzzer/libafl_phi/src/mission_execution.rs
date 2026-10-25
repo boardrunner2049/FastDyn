@@ -201,7 +201,7 @@ fn execute_fmuv3_mission(
     1. Apply inputs
     2. Start Courbet services
         - run_and_attach_services.sh
-        - mav_command_and_control.py
+        - mav_command_control_ardupilot.py
         - fd_rover.sh
     3. Monitor for end states and return an ExitKind accordingly:
         - Mission complete (Mavlink C2 exits without error) = ExitKind::Ok

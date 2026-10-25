@@ -677,6 +677,12 @@ static int fmu_get_altimeter_reading(double *altitude)
     return 1;
 }
 
+static int fmu_get_barometer_reading(barometer_t *barometer)
+{
+    return get_values(fmu_state.vr.baro_pressure_pa, &barometer->pressure_pa, 1) &&
+           get_values(fmu_state.vr.baro_temperature_c, &barometer->temperature_c, 1);
+}
+
 static int fmu_get_lidar_samples(rplidar_sample_t *samples, size_t num_samples)
 {
     (void)samples;
@@ -702,5 +708,6 @@ phy_backend_t fmu_backend = {
     .set_servo_pwm = fmu_set_servo_pwm,
     .advance_simulation = fmu_advance_simulation,
     .get_altimeter_reading = fmu_get_altimeter_reading,
+    .get_barometer_reading = fmu_get_barometer_reading,
     .get_lidar_samples = fmu_get_lidar_samples,
 };

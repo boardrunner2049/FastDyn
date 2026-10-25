@@ -1,0 +1,4 @@
+# PX4 overrides for mav_command_control_px4.py, one NAME VALUE pair per line.
+# The FMUv6C boot.nsh already sets the airframe and simulation parameters.
+# This file intentionally has no overrides; add parameters for your PX4 build.
+# The helper queries each parameter type and uses PX4 bytewise INT32/REAL32 encoding.

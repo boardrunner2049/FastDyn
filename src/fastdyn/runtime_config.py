@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import logging
@@ -14,7 +15,6 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Callable, Iterator
 import logging
 
 try:
@@ -171,8 +171,9 @@ def _load_toml(path: Path) -> dict[str, object]:
 
 
 def validate_config(config_path: str | Path) -> None:
-    """Validate TOML syntax before a command changes its work directory."""
-    _load_toml(Path(config_path).expanduser().resolve())
+    """Validate TOML and the boot script before replacing the work directory."""
+    path = Path(config_path).expanduser().resolve()
+    _bridge_boot_value(path, _load_toml(path))
 
 
 def _as_table(value: object, label: str) -> dict[str, object]:
@@ -510,6 +511,47 @@ def _profiling_env(run_table: dict[str, object], work_dir: str | Path) -> dict[s
     }
 
 
+def _bridge_boot_value(config_path: Path, data: dict[str, object]) -> str | None:
+    run_table = _as_table(data.get("Run"), "[Run]")
+    if "bridge_boot" not in run_table:
+        return None
+    configured = _as_str(run_table["bridge_boot"], "[Run].bridge_boot")
+    # An explicit empty environment value means shell-only, even with a default
+    # in the TOML. Shell overrides remain relative to the caller's directory.
+    override = os.environ.get("FASTDYN_BRIDGE_BOOT")
+    selected = configured if override is None else override
+    if not selected:
+        return ""
+    base = fmu_build.find_repo_root(config_path) if override is None else Path.cwd()
+    path = _repo_path(selected, base).resolve()
+    if not path.is_file():
+        raise RuntimeConfigError(f"Bridge boot script not found: {path}")
+    return str(path)
+
+
+@contextmanager
+def bridge_boot_environment(config_path: str | Path) -> Generator[None, None, None]:
+    """Apply the configured console boot script only for this execution session."""
+    path = Path(config_path).expanduser().resolve()
+    selected = _bridge_boot_value(path, _load_toml(path))
+    if selected is None:
+        yield
+        return
+    previous = os.environ.get("FASTDYN_BRIDGE_BOOT")
+    os.environ["FASTDYN_BRIDGE_BOOT"] = selected
+    if selected:
+        log.info("Bridge boot script: %s", selected)
+    else:
+        log.info("Bridge automatic initialization disabled; opening console only.")
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("FASTDYN_BRIDGE_BOOT", None)
+        else:
+            os.environ["FASTDYN_BRIDGE_BOOT"] = previous
+
+
 def configure_run_environment(config_path: str | Path, work_dir: str | Path) -> dict[str, str]:
     config_path = Path(config_path).expanduser().resolve()
     work_dir_path = Path(work_dir).expanduser().resolve()
@@ -723,7 +765,7 @@ def launch_from_config(
     config_path: str | Path,
     work_dir: str | Path,
     skip: bool = False,
-) -> Iterator[RuntimeProcessManager | None]:
+) -> Generator[RuntimeProcessManager | None, None, None]:
     if skip:
         yield None
         return

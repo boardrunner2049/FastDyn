@@ -112,9 +112,12 @@ class Session:
         machine starts, so callers can change machines without a new TOML.
         """
         results = []
-        with runtime_config.launch_from_config(
-            self.config, self.work_dir, skip=not self.run_processes
-        ) as process_manager:
+        with (
+            runtime_config.bridge_boot_environment(self.config),
+            runtime_config.launch_from_config(
+                self.config, self.work_dir, skip=not self.run_processes
+            ) as process_manager,
+        ):
             with timing.phase("fastdyn.parse_config"):
                 handle = toml_parser.parser(
                     self.work_dir,

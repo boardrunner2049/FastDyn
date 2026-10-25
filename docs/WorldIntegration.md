@@ -73,7 +73,7 @@ registers and memory. Firmware-specific.
 The FMU backend is a `phy_backend_t`, not a `DeviceModel`. Nothing under
 `virtuals/` calls `dev_register_device_model`. The ArduCopter configuration is
 26 virtuals and 95 modifiers over raw addresses
-(`virtuals/physics/flight_controllers/courbet/copter462/unlabeled_conf/`):
+(`virtuals/physics/flight_controllers/courbet/ardupilot/copter462/unlabeled_conf/`):
 
 ```text
 0x8139f90 ins_block_read *

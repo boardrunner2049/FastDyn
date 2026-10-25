@@ -198,3 +198,45 @@ command = ["sh", "-c", "printf '%s\\n%s\\n' \\"$FASTDYN_CONFIG\\" \\"$FASTDYN_WO
         str(config.resolve()),
         str(work_dir.resolve()),
     ]
+
+
+def test_bridge_boot_resolves_repository_relative_path(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.delenv("FASTDYN_BRIDGE_BOOT", raising=False)
+    monkeypatch.setenv("FASTDYN_REPO_ROOT", str(tmp_path))
+    boot = tmp_path / "boot.nsh"
+    boot.write_text("ver all\n")
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    config = write_config(configs / "px4.toml", '[Run]\nbridge_boot = "boot.nsh"\n')
+    unrelated = tmp_path / "elsewhere"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+
+    runtime_config.validate_config(config)
+    with runtime_config.bridge_boot_environment(config):
+        assert os.environ["FASTDYN_BRIDGE_BOOT"] == str(boot)
+    assert "FASTDYN_BRIDGE_BOOT" not in os.environ
+
+
+@pytest.mark.parametrize("override", ["custom.nsh", ""])
+def test_bridge_boot_environment_override_and_shell_mode(tmp_path, monkeypatch, override):
+    import os
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("FASTDYN_BRIDGE_BOOT", override)
+    (tmp_path / "custom.nsh").write_text("ver all\n")
+    config = write_config(tmp_path / "px4.toml", '[Run]\nbridge_boot = "not-used.nsh"\n')
+
+    runtime_config.validate_config(config)
+    with runtime_config.bridge_boot_environment(config):
+        assert os.environ["FASTDYN_BRIDGE_BOOT"] == (str(tmp_path / override) if override else "")
+    assert os.environ["FASTDYN_BRIDGE_BOOT"] == override
+
+
+def test_bridge_boot_rejects_nonstring_setting(tmp_path, monkeypatch):
+    monkeypatch.delenv("FASTDYN_BRIDGE_BOOT", raising=False)
+    config = write_config(tmp_path / "px4.toml", '[Run]\nbridge_boot = true\n')
+    with pytest.raises(runtime_config.RuntimeConfigError, match="bridge_boot.*string"):
+        runtime_config.validate_config(config)

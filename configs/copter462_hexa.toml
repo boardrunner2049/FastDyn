@@ -57,7 +57,7 @@ binary = "virtuals/physics/flight_controllers/courbet/bin/arducopter_v462"
 init_nsvtor = "0x08004000"
 twintrace = "None" #options are record, replay or None
 hardware_trace = 'hardware_log/io.log'   #useful in cases like replay to generate the replay binary
-existing_config_path = "virtuals/physics/flight_controllers/courbet/copter462/unlabeled_conf" #path to an existing config to use for this run. Useful for replaying with a different binary or for debugging.
+existing_config_path = "virtuals/physics/flight_controllers/courbet/ardupilot/copter462/unlabeled_conf" #path to an existing config to use for this run. Useful for replaying with a different binary or for debugging.
 
 
 # --- Embedded CPU Behavior Configurations ---
@@ -175,7 +175,7 @@ start_delay_sec = 0
 terminate_run_on_exit = true
 command = [
     "python3",
-    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_and_control.py",
+    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_control_ardupilot.py",
     "--connect",
     "udpin:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-14552}",
     "--monitor-sec",

@@ -1,30 +1,30 @@
-0x8005308 start_advancing_sim 
+0x8005308 start_advancing_sim
 0x8102d84 storage_read_block *
 0x8102e24 storage_write_block *
 0x816aa4c hrt_micros64 *
 0x810311c micros32 *
 0x814ff2c adc_voltage *
 0x814ff34 adc_voltage *
-0x8152a78 write_channel 
+0x8152a78 write_channel
 0x8135868 ins_block_read *
 0x803d56c compass_configure *
 0x8042768 compass_read_block *
 0x816c56c chibiOS_tick_handler *
-0x80a00b4 create_gcs_mavlink_backend 
-0x809ab28 gcs_send_text 
-0x809aae0 gcs_send_text 
+0x80a00b4 create_gcs_mavlink_backend
+0x809ab28 gcs_send_text
+0x809aae0 gcs_send_text
 0x80a2654 gcs_send_banner_once *
 0x8054d14 gcs_read *
 0x8054d34 uart_bytes_available *
 0x809be48 gcs_send_mavlink_message *
 0x816c67a raise_periodic_irq 66
-0x8047726 gps_get_type_mavlink 
+0x8047726 gps_get_type_mavlink
 0x80cc600 ap_fs_read *
 0x80cc588 ap_fs_open *
 0x80cc648 ap_fs_fsync *
 0x80cc624 ap_fs_write *
 0x80cc5e4 ap_fs_close *
 0x8010fa8 ignore_cpu_failsafe_disarm *
-0x802bd5c read_mag_when_published
-0x815d96c read_gyro_when_published 
-0x815da08 read_imu_when_published 
+0x815d96c read_gyro_when_published
+0x815da08 read_imu_when_published
+0x8040dd0 read_mag_when_published
