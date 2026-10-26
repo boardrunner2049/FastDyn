@@ -1,0 +1,13 @@
+# ARM/NuttX profile. A leading * in the argument enables PC-changing callbacks.
+nx_start start_advancing_sim
+hrt_absolute_time hrt_micros64 *
+# Advance FMU before pending TIM8 CC3 IRQ 62, then run guest HRT callouts.
+hrt_init raise_periodic_irq 62,1000000
+up_putc bridge_console_putc *
+uart_write bridge_console_write *
+stm32_serial_dma_poll bridge_console_poll *g_usart3priv,uart_recvchars,g_uart7priv
+up_dma_rxavailable bridge_console_available *
+up_rxavailable bridge_console_available *
+up_dma_receive bridge_console_receive *
+up_receive bridge_console_receive *
+_ZN4uORB10DeviceNode7publishEPK12orb_metadataPvPKv bridge_px4_uorb

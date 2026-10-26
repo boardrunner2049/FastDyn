@@ -122,6 +122,12 @@ int phy_get_altimeter_reading(double *altitude)
     return active_backend->get_altimeter_reading(altitude);
 }
 
+int phy_get_barometer_reading(barometer_t *barometer)
+{
+    return active_backend && active_backend->get_barometer_reading
+        ? active_backend->get_barometer_reading(barometer) : 0;
+}
+
 int phy_get_lidar_samples(rplidar_sample_t *samples, size_t num_samples)
 {
     if (!active_backend || !active_backend->get_lidar_samples) {

@@ -1,0 +1,35 @@
+# Board initialization bypasses for the generic Cortex-M machine.
+# Keep NuttX, px4_platform_init, uORB and the real HRT callout queue running.
+stm32_clockconfig r0 0
+stm32_clockconfig r15 r14
+stm32_lowsetup r0 0
+stm32_lowsetup r15 r14
+up_setup r0 0
+up_setup r15 r14
+up_dma_setup r0 0
+up_dma_setup r15 r14
+stm32_pwr_initbkp r0 0
+stm32_pwr_initbkp r15 r14
+board_determine_hw_info r0 -19
+board_determine_hw_info r15 r14
+px4_platform_i2c_init r0 0
+px4_platform_i2c_init r15 r14
+board_hardfault_init r0 0
+board_hardfault_init r15 r14
+stm32_sdio_initialize r0 -19
+stm32_sdio_initialize r15 r14
+px4_platform_configure r0 0
+px4_platform_configure r15 r14
+# Inject TIM8 CC3IF after the status read; execute the real callout handler.
+hrt_tim_isr+0x10 r1 8
+# 168 MHz QEMU system clock / 1 kHz NuttX SysTick - 1.
+up_timer_initialize+0xc r3 167999
+arm_usbinitialize r0 0
+arm_usbinitialize r15 r14
+up_dma_rxint r15 r14
+up_rxint r15 r14
+# Host boot.nsh replaces the hardware-only ROMFS rcS startup sequence.
+nsh_initscript r0 0
+nsh_initscript r15 r14
+# No persistent parameter storage is emulated in this profile.
+_ZN13ParamAutosave7requestEv r15 r14

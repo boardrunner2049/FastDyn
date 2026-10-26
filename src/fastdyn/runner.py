@@ -83,7 +83,6 @@ def auto_build_fmu(config, fmu_name: Optional[str], skip_build: bool, report: Re
         if not fmu_build.needs_build(build):
             report(f"FMU ready: {build.artifact_path}")
             return
-        fmu_build.require_build_inputs(build)
         report(f"Building FMU '{build.name}' from {config}")
         fmu_build.build_fmu(build, update_submodules_first=False)
         if build.package:
@@ -113,9 +112,12 @@ class Session:
         machine starts, so callers can change machines without a new TOML.
         """
         results = []
-        with runtime_config.launch_from_config(
-            self.config, self.work_dir, skip=not self.run_processes
-        ) as process_manager:
+        with (
+            runtime_config.bridge_boot_environment(self.config),
+            runtime_config.launch_from_config(
+                self.config, self.work_dir, skip=not self.run_processes
+            ) as process_manager,
+        ):
             with timing.phase("fastdyn.parse_config"):
                 handle = toml_parser.parser(
                     self.work_dir,

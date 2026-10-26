@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +93,7 @@ examples:
         action="store_true",
         help="Do not initialize or update pinned submodules before running Rumoca",
     )
+    arg_parser.add_argument("--compose-only", action="store_true", help="Validate and emit FIRE Modelica without compiling an FMU")
     return arg_parser
 
 
@@ -107,12 +109,18 @@ def main() -> int:
     )
     try:
         build = fmu_build.resolve(args.config, args.fmu, overrides, repo_root=ROOT)
+        if args.compose_only:
+            if build.compose_config is None:
+                raise fmu_build.FmuConfigError("--compose-only requires an FMU physics table or compose path")
+            from fastdyn.physics_composition import compose
+            print(f"Generated manifest: {compose(build)}")
+            return 0
         print(
-            f"Generating FMI 3.0 target for {build.name!r} with pinned Rumoca...",
+            f"Generating FMI 3.0 target for {build.name!r} with Rumoca at {build.rumoca_dir}...",
             flush=True,
         )
         fmu_build.build_fmu(build, update_submodules_first=not args.skip_submodules)
-    except (fmu_build.FmuConfigError, OSError) as exc:
+    except (fmu_build.FmuConfigError, OSError, subprocess.CalledProcessError) as exc:
         raise SystemExit(str(exc)) from exc
 
     print()

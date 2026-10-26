@@ -28,3 +28,6 @@ build
 
 # Local run output
 *.out
+
+# Local documentation
+/docs/local/

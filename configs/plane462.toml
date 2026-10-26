@@ -58,7 +58,7 @@ binary = "virtuals/physics/flight_controllers/courbet/bin/arduplane_v462"
 init_nsvtor = "0x08004000"
 twintrace = "None" #options are record, replay or None
 hardware_trace = 'hardware_log/io.log'   #useful in cases like replay to generate the replay binary
-existing_config_path = "virtuals/physics/flight_controllers/courbet/plane462/unlabeled_conf"
+existing_config_path = "virtuals/physics/flight_controllers/courbet/ardupilot/plane462/unlabeled_conf"
 
 
 # --- Embedded CPU Behavior Configurations ---

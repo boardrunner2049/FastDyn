@@ -1,0 +1,20 @@
+# PX4 v1.17.0-rc2 / FMUv6C, using the current NuttX/uORB C adapter.
+# Paths are relative to this file. QEMU/FMU settings remain in configs/*.toml.
+schema_version = 1
+firmware = "px4"
+elf = "../../bin/px4_fmu-v6c_default.elf"
+labeled_conf = "labeled_conf"
+output_dir = "unlabeled_conf"
+
+[validation.symbol_addresses]
+_vectors = 0x08020000
+
+# TIM8_SR read into R1, immediately before the hrt_tim_isr+0x10 modifier.
+[[validation.instructions]]
+at = "hrt_tim_isr+0xc"
+bytes = "d2f81014"
+
+# Store SysTick reload, whose R3 value is replaced by the modifier.
+[[validation.instructions]]
+at = "up_timer_initialize+0xc"
+bytes = "6361"

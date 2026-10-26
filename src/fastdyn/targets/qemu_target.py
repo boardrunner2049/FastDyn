@@ -726,10 +726,13 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
             f"savestate_extra_ranges={savestate_extra_ranges_path}"
         )
 
-    if getattr(machine, "fmu_path", None):
-        plugin_kv.append(f"fmu={machine.fmu_path}")
-    if getattr(machine, "fmu_name", None):
-        plugin_kv.append(f"fmu_name={machine.fmu_name}")
+    for key, attribute in (("fmu", "fmu_path"), ("fmu_name", "fmu_name"),
+                           ("fmu_token", "fmu_token"), ("fmu_resources", "fmu_resources")):
+        value = getattr(machine, attribute, None)
+        if value is not None:
+            if "," in value or "\0" in value:
+                raise ValueError(f"FMU plugin argument {key} cannot contain a comma or NUL")
+            plugin_kv.append(f"{key}={value}")
     for name, value in sorted(getattr(machine, "fmu_parameters", {}).items()):
         if "," in name or "=" in name:
             raise ValueError(f"FMU parameter name cannot contain ',' or '=': {name!r}")

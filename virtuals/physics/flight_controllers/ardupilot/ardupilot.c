@@ -1,7 +1,9 @@
 /**
- * @brief Reusable virtuals for ArduRover
+ * @brief Firmware-to-physics bridge virtuals for autopilots.
  *
- * This file implements the common virtual functions used by ArduRover.
+ * The historical filename is retained. Clock/transport/physics operations are
+ * shared; entry-point callbacks must respect each firmware ABI and sensor
+ * representation. Existing ArduPilot callbacks keep their ABI.
  *
  * @file FastDyn/virtuals/ardurover_virtuals.c
  * @author Michael Rooney
@@ -23,6 +25,8 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <errno.h>
+#include <poll.h>
 #include "rplidara2.h"
 
 #define PROFILE_INS_READS 0
@@ -2023,9 +2027,362 @@ void proximity_set_type_param(unsigned int cpu_index, void *udata)
     qemu_plugin_write_memory(zero_index_params_addr, &lidar_type, sizeof(uint8_t));
 }
 
+
+/* NuttX UART ABI adapter. The FMUv6C profile validates these structure
+ * offsets against its ELF DWARF before generating bindings. */
+static uint32_t console_dev, telemetry_dev;
+static int telemetry_socket = -1;
+static struct sockaddr_in telemetry_peer;
+static bool telemetry_peer_known;
+static unsigned char telemetry_rx[65536];
+static size_t telemetry_head, telemetry_tail;
+
+/* Raw serial bytes, not a second MAVLink implementation. The guest's mavlink
+ * module owns framing, parameters, mission storage and command handling. Bind
+ * only when TELEM1 is opened; an incoming GCS heartbeat discovers the peer. */
+static void bridge_telemetry_open(void)
+{
+    if (telemetry_socket >= 0) return;
+    const char *value = getenv("FASTDYN_MAVLINK_FIRMWARE_PORT");
+    char *end = NULL;
+    long port = value && *value ? strtol(value, &end, 10) : 14551;
+    if (port < 1 || port > 65535 || (end && *end)) {
+        fprintf(stderr, "PX4 UART bridge: invalid FASTDYN_MAVLINK_FIRMWARE_PORT\n");
+        exit(EXIT_FAILURE);
+    }
+    telemetry_socket = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    struct sockaddr_in local = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = htonl(INADDR_LOOPBACK),
+        .sin_port = htons((uint16_t)port),
+    };
+    if (telemetry_socket < 0 || bind(telemetry_socket, (struct sockaddr *)&local, sizeof(local)) < 0) {
+        perror("PX4 UART bridge: bind");
+        exit(EXIT_FAILURE);
+    }
+    fprintf(stderr, "PX4 UART bridge: TELEM1 <-> UDP 127.0.0.1:%ld\n", port);
+}
+
+static void bridge_telemetry_poll(void)
+{
+    uint8_t opened = 0;
+    if (!telemetry_dev || qemu_plugin_read_memory(telemetry_dev, &opened, 1) != 0 || !opened) return;
+    bridge_telemetry_open();
+    if (telemetry_tail < telemetry_head) return;
+    struct sockaddr_in peer;
+    socklen_t size = sizeof(peer);
+    ssize_t count = recvfrom(telemetry_socket, telemetry_rx, sizeof(telemetry_rx), 0,
+                             (struct sockaddr *)&peer, &size);
+    if (count < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return;
+        perror("PX4 UART bridge: recvfrom");
+        exit(EXIT_FAILURE);
+    }
+    if (!count) return;
+    if (!telemetry_peer_known || peer.sin_port != telemetry_peer.sin_port) {
+        fprintf(stderr, "PX4 UART bridge: GCS peer 127.0.0.1:%u\n", ntohs(peer.sin_port));
+    }
+    telemetry_peer = peer;
+    telemetry_peer_known = true;
+    telemetry_head = (size_t)count;
+    telemetry_tail = 0;
+}
+
+static unsigned char console_rx[1024];
+static size_t console_head, console_tail;
+static bool console_prompt_ready;
+static size_t console_prompt_match;
+
+static void bridge_observe_console(const unsigned char *buf, size_t count)
+{
+    const char prompt[] = "nsh> ";
+    for (size_t i = 0; i < count; ++i) {
+        if (buf[i] == prompt[console_prompt_match]) {
+            if (++console_prompt_match == sizeof(prompt) - 1) {
+                console_prompt_ready = true;
+                console_prompt_match = 0;
+            }
+        } else {
+            console_prompt_match = buf[i] == prompt[0] ? 1 : 0;
+        }
+    }
+}
+
+static void bridge_return(uint32_t value)
+{
+    qemu_set_register(value, ARM_V7M_R0);
+    qemu_set_register(qemu_get_register(ARM_V7M_LR), ARM_V7M_PC);
+}
+
+static void bridge_console_putc(unsigned int cpu_index, void *udata)
+{
+    uint32_t ch = qemu_get_register(ARM_V7M_R0);
+    putchar((unsigned char)ch);
+    fflush(stdout);
+    bridge_return(ch);
+}
+
+static void bridge_console_write(unsigned int cpu_index, void *udata)
+{
+    uint32_t file = qemu_get_register(ARM_V7M_R0), inode = 0, dev = 0;
+    uint8_t isconsole = 0;
+    if (qemu_plugin_read_memory(file + 8, (uint8_t *)&inode, 4) != 0 ||
+        qemu_plugin_read_memory(inode + 20, (uint8_t *)&dev, 4) != 0 ||
+        qemu_plugin_read_memory(dev + 4, &isconsole, 1) != 0 || (!isconsole && dev != telemetry_dev)) {
+        bridge_return((uint32_t)-ENODEV);
+        return;
+    }
+    uint32_t ptr = qemu_get_register(ARM_V7M_R1);
+    uint32_t count = qemu_get_register(ARM_V7M_R2);
+    uint32_t done = 0;
+    unsigned char buf[512];
+    if (count > 1024 * 1024 || (uint64_t)ptr + count > UINT32_MAX) {
+        bridge_return((uint32_t)-EINVAL);
+        return;
+    }
+    while (done < count) {
+        size_t n = count - done;
+        if (n > sizeof(buf)) n = sizeof(buf);
+        if (qemu_plugin_read_memory(ptr + done, buf, n) != 0) {
+            bridge_return(done ? done : (uint32_t)-EFAULT);
+            return;
+        }
+        if (isconsole) {
+            bridge_observe_console(buf, n);
+            done += fwrite(buf, 1, n, stdout);
+            if (ferror(stdout)) break;
+        } else {
+            bridge_telemetry_open();
+            // Before the first inbound heartbeat, serial TX has no UDP peer.
+            ssize_t sent = telemetry_peer_known ? sendto(telemetry_socket, buf, n, 0,
+                (struct sockaddr *)&telemetry_peer, sizeof(telemetry_peer)) : (ssize_t)n;
+            if (sent < 0) {
+                bridge_return(done ? done : (uint32_t)-errno);
+                return;
+            }
+            done += (uint32_t)sent;
+        }
+    }
+    fflush(stdout);
+    bridge_return(done);
+}
+
+/* Enter the guest's real UART receive routine from its HRT DMA poll callback.
+ * uart_recvchars wakes blocked NuttX readers using the guest's own semaphores.
+ * This avoids spinning uart_read or blocking the host QEMU thread on stdin. */
+static void bridge_console_poll(unsigned int cpu_index, void *udata)
+{
+    uint32_t receive;
+    if (!udata || sscanf((const char *)udata + 1, "%x,%x,%x", &console_dev, &receive, &telemetry_dev) != 3) {
+        bridge_return(0);
+        return;
+    }
+    uint8_t opened = 0;
+    qemu_plugin_read_memory(console_dev, &opened, 1);
+    if (opened && console_head == console_tail) {
+        static bool boot_checked;
+        static FILE *boot;
+        if (!boot_checked) {
+            const char *path = getenv("FASTDYN_BRIDGE_BOOT");
+            if (path && *path) {
+                boot = fopen(path, "r");
+                if (!boot) { perror(path); exit(EXIT_FAILURE); }
+            }
+            boot_checked = true;
+        }
+        if (boot && console_prompt_ready) {
+            char line[128];
+            while (fgets(line, sizeof(line), boot)) {
+                if (line[0] == '#' || line[0] == '\n') continue;
+                if (!strchr(line, '\n')) {
+                    fprintf(stderr, "bridge boot command exceeds 126 characters or lacks newline\n");
+                    exit(EXIT_FAILURE);
+                }
+                console_head = strlen(line);
+                console_tail = 0;
+                memcpy(console_rx, line, console_head);
+                console_prompt_ready = false;
+                break;
+            }
+            if (feof(boot)) { fclose(boot); boot = NULL; }
+        }
+        if (boot || console_tail < console_head) goto deliver;
+        struct pollfd fd = {.fd = STDIN_FILENO, .events = POLLIN};
+        if (poll(&fd, 1, 0) > 0 && (fd.revents & POLLIN)) {
+            ssize_t count = read(STDIN_FILENO, console_rx, sizeof(console_rx));
+            if (count > 0) { console_head = count; console_tail = 0; }
+        }
+    }
+deliver:
+    bridge_telemetry_poll();
+    if (opened && console_tail < console_head) {
+        qemu_set_register(console_dev, ARM_V7M_R0);
+        qemu_set_register(receive | 1, ARM_V7M_PC);
+    } else if (telemetry_tail < telemetry_head) {
+        qemu_set_register(telemetry_dev, ARM_V7M_R0);
+        qemu_set_register(receive | 1, ARM_V7M_PC);
+    } else {
+        bridge_return(0);
+    }
+}
+
+static void bridge_console_available(unsigned int cpu_index, void *udata)
+{
+    uint32_t dev = qemu_get_register(ARM_V7M_R0);
+    bridge_return((dev == console_dev && console_tail < console_head) ||
+                  (dev == telemetry_dev && telemetry_tail < telemetry_head));
+}
+
+static void bridge_console_receive(unsigned int cpu_index, void *udata)
+{
+    uint32_t status = 0;
+    qemu_plugin_write_memory(qemu_get_register(ARM_V7M_R1), (uint8_t *)&status, sizeof(status));
+    uint32_t ch = 0;
+    if (qemu_get_register(ARM_V7M_R0) == console_dev && console_tail < console_head)
+        ch = console_rx[console_tail++];
+    else if (qemu_get_register(ARM_V7M_R0) == telemetry_dev && telemetry_tail < telemetry_head)
+        ch = telemetry_rx[telemetry_tail++];
+    bridge_return(ch);
+}
+
+/* PX4 uORB ABI adapter, using the guest's real broker and work queues.
+ * The board profile starts the firmware's simulation sensor publishers; this
+ * callback replaces their samples with the active FMU measurements before
+ * uORB copies them. It does not skip DeviceNode::publish.
+ * Byte offsets are checked against ELF DWARF by Courbet's
+ * prepare_execution_configuration.py and profiles/px4 adapter. */
+static void bridge_read(uint32_t address, void *value, size_t size)
+{
+    if (qemu_plugin_read_memory(address, value, size) != 0) {
+        fprintf(stderr, "PX4 bridge: cannot read guest memory at %#x\n", address);
+        exit(EXIT_FAILURE);
+    }
+}
+
+static void bridge_write(uint32_t address, const void *value, size_t size)
+{
+    if (qemu_plugin_write_memory(address, (uint8_t *)value, size) != 0) {
+        fprintf(stderr, "PX4 bridge: cannot write guest memory at %#x\n", address);
+        exit(EXIT_FAILURE);
+    }
+}
+
+static void bridge_px4_uorb(unsigned int cpu_index, void *udata)
+{
+    enum { ACCEL, GYRO, MAG, BARO, GPS, MOTORS, TOPIC_COUNT };
+    static const char *names[TOPIC_COUNT] = {
+        "sensor_accel", "sensor_gyro", "sensor_mag", "sensor_baro",
+        "sensor_gps", "actuator_outputs_sim"
+    };
+    static uint64_t samples[TOPIC_COUNT];
+    static uint32_t metadata[TOPIC_COUNT];
+    uint32_t meta = qemu_get_register(ARM_V7M_R0);
+    uint32_t data = qemu_get_register(ARM_V7M_R2);
+    if (!data) return;
+    int topic;
+    for (topic = 0; topic < TOPIC_COUNT; ++topic)
+        if (metadata[topic] == meta) break;
+    if (topic == TOPIC_COUNT) {
+        uint32_t name_ptr;
+        char name[48] = {0};
+        bridge_read(meta, &name_ptr, 4);
+        bridge_read(name_ptr, name, sizeof(name) - 1);
+        for (topic = 0; topic < TOPIC_COUNT; ++topic)
+            if (strcmp(name, names[topic]) == 0) { metadata[topic] = meta; break; }
+    }
+    if (topic == TOPIC_COUNT) return;
+    if (!phy_backend_is("fmu") || phy_get_imu_frame() != PHY_BODY_FRAME_FRD) {
+        fprintf(stderr, "PX4 profile requires an FMU with FRD sensor outputs\n");
+        exit(EXIT_FAILURE);
+    }
+    /* Tiny deterministic sensor dither prevents PX4's repeated-identical-value
+     * detector from rejecting a perfectly static, noise-free FMU measurement.
+     * This is part of this adapter's sensor model, not a disabled health check. */
+    /* Alternating +/- samples cancel exactly in VehicleIMU's trapezoidal
+     * integration, making the voted gyro stale again. A deterministic hashed
+     * sequence survives integration without a bias or a disabled validator. */
+    uint32_t noise = (uint32_t)(samples[topic] + 1);
+    noise ^= noise >> 16;
+    noise *= 0x7feb352dU;
+    noise ^= noise >> 15;
+    noise *= 0x846ca68bU;
+    noise ^= noise >> 16;
+    float dither = (noise >> 8) * (2.f / 16777215.f) - 1.f;
+    bool ok = false;
+    if (topic == ACCEL || topic == GYRO) {
+        imu_batch_t batch;
+        ok = phy_get_imu_batch(&batch);
+        if (ok) {
+            vector3f_t value = topic == ACCEL ? batch.imu[0].accel_body : batch.imu[0].gyro;
+            float xyz[3] = {value.x, value.y, value.z};
+            float scale = topic == ACCEL ? 1.e-4f : 1.e-5f;
+            for (int i = 0; i < 3; ++i) xyz[i] += dither * scale;
+            bridge_write(data + 20, xyz, sizeof(xyz));
+        }
+    } else if (topic == MAG) {
+        vector3d_t value;
+        ok = phy_get_mag_reading(&value);
+        if (ok) {
+            float xyz[3] = {value.x + dither * 1.e-5f, value.y + dither * 1.e-5f,
+                            value.z + dither * 1.e-5f}; /* gauss, FRD */
+            bridge_write(data + 20, xyz, sizeof(xyz));
+        }
+    } else if (topic == BARO) {
+        barometer_t value;
+        ok = phy_get_barometer_reading(&value);
+        if (ok) {
+            float values[2] = {value.pressure_pa + dither * 0.1f, value.temperature_c};
+            bridge_write(data + 20, values, sizeof(values));
+        }
+    } else if (topic == GPS) {
+        gps_data_t gps;
+        ok = phy_get_navsat_reading(&gps);
+        if (ok) {
+            /* The plant has no geoid model: MSL and ellipsoid altitude coincide. */
+            double position[4] = {gps.lat, gps.lon, gps.alt, gps.alt};
+            float velocity[5] = {hypot(gps.vel_n, gps.vel_e), gps.vel_n, gps.vel_e,
+                                 gps.vel_d, atan2(gps.vel_e, gps.vel_n)};
+            float heading = NAN; /* no dual-antenna yaw measurement */
+            bridge_write(data + 16, position, sizeof(position));
+            bridge_write(data + 92, velocity, sizeof(velocity));
+            bridge_write(data + 120, &heading, sizeof(heading));
+        }
+    } else if (topic == MOTORS) {
+        uint32_t count;
+        float outputs[4];
+        bridge_read(data + 8, &count, sizeof(count));
+        bridge_read(data + 12, outputs, sizeof(outputs));
+        ok = true;
+        /* PX4 Quad-X: front right, rear left, front left, rear right.
+         * Same channel order as quad_p2.toml; normalized duty -> plant PWM range. */
+        for (int i = 0; i < 4; ++i) {
+            int pwm = 1000; /* missing/nonfinite output means stopped */
+            if (i < count && isfinite(outputs[i]))
+                pwm = lroundf(1100.f + 800.f * fminf(1.f, fmaxf(0.f, outputs[i])));
+            ok = phy_set_servo_pwm(i, pwm) && ok;
+        }
+    }
+    if (!ok) {
+        fprintf(stderr, "PX4 bridge: physics exchange failed for %s\n", names[topic]);
+        exit(EXIT_FAILURE);
+    }
+    if (++samples[topic] == 1) {
+        printf("PX4 FMU bridge: %s connected\n", names[topic]);
+        fflush(stdout);
+    }
+}
+
 int ardupilot_init_virtuals(int argc, char **argv)
 {
     int status = 0;
+
+    virtual_register("bridge_px4_uorb", bridge_px4_uorb);
+    virtual_register("bridge_console_putc", bridge_console_putc);
+    virtual_register("bridge_console_write", bridge_console_write);
+
+    virtual_register("bridge_console_poll", bridge_console_poll);
+    virtual_register("bridge_console_available", bridge_console_available);
+    virtual_register("bridge_console_receive", bridge_console_receive);
 
     // advancing sim
     virtual_register("start_advancing_sim", start_advancing_sim);

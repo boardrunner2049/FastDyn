@@ -1,0 +1,11 @@
+0x8023834 start_advancing_sim
+0x817a6a4 hrt_micros64 *
+0x817a8e8 raise_periodic_irq 62,1000000
+0x80211b4 bridge_console_putc *
+0x8022c44 bridge_console_write *
+0x802115c bridge_console_poll *0x240003a0,0x802325c,0x240000e8
+0x802102c bridge_console_available *
+0x80208da bridge_console_available *
+0x8020eec bridge_console_receive *
+0x8020880 bridge_console_receive *
+0x817f2bc bridge_px4_uorb

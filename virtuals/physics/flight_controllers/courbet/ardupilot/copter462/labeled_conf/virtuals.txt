@@ -13,12 +13,12 @@ stGetCounter chibiOS_tick_handler *
 _ZN3GCS26create_gcs_mavlink_backendER22GCS_MAVLINK_ParametersRN6AP_HAL10UARTDriverE create_gcs_mavlink_backend
 _ZN3GCS9send_textE12MAV_SEVERITYPKcz gcs_send_text
 _ZN3GCS10send_textvE12MAV_SEVERITYPKcSt9__va_list gcs_send_text
-_ZN11GCS_MAVLINK11send_bannerEv gcs_send_banner_once *
+# Banner suppression is in modifiers.txt, matching the active Copter configuration.
 _ZN6AP_HAL10UARTDriver4readEv gcs_read *
 _ZN6AP_HAL10UARTDriver9availableEv uart_bytes_available *
 _mav_finalize_message_chan_send gcs_send_mavlink_message *
 0x81721d2 raise_periodic_irq 66
-0x80427fe gps_get_type_mavlink
+0x80427fe gps_get_type_mavlink copter
 _ZN13AP_Filesystem4readEiPvm ap_fs_read *
 _ZN13AP_Filesystem4openEPKcib ap_fs_open *
 _ZN13AP_Filesystem5fsyncEi ap_fs_fsync *

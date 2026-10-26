@@ -1,10 +1,10 @@
-./qemu-system-arm --plugin ../../FastDyn/build/libfastdyn.so,dev=classic:0x40000000-0x5FFFFFFF,virtual=../../FastDyn/courbet/copter462/unlabeled_conf/virtuals.txt,modifier=../../FastDyn/courbet/copter462/unlabeled_conf/modifiers.txt,symbols=../../FastDyn/courbet/bin/arducopter_v462 \
+./qemu-system-arm --plugin ../../FastDyn/build/libfastdyn.so,dev=classic:0x40000000-0x5FFFFFFF,virtual=../../FastDyn/virtuals/physics/flight_controllers/courbet/ardupilot/copter462/unlabeled_conf/virtuals.txt,modifier=../../FastDyn/virtuals/physics/flight_controllers/courbet/ardupilot/copter462/unlabeled_conf/modifiers.txt,symbols=../../FastDyn/virtuals/physics/flight_controllers/courbet/bin/arducopter_v462 \
     -d op,in_asm -D qemu.log -machine cortexm,memory-backend=ram0 \
     -monitor telnet:127.0.0.1:5555,server,nowait -S \
     -gdb tcp::1235 \
     -semihosting --semihosting-config enable=on,target=native \
     -qmp unix:/tmp/qmp-sock,server,nowait \
-    -device loader,file=../../FastDyn/courbet/bin/arducopter_v462,addr=0x08004000 \
+    -device loader,file=../../FastDyn/virtuals/physics/flight_controllers/courbet/bin/arducopter_v462,addr=0x08004000 \
     -serial stdio -nographic \
     -object memory-backend-file,id=ram0,mem-path=../ws/memory/my_m4_ram3,size=512M,share=on \
     -global cortexm-soc.ram_baseaddr0=0x20000000 -cpu cortex-m4 \

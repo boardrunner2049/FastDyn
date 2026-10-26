@@ -155,6 +155,8 @@ class Machine:
         self.models = {}
         self.fmu_name: Optional[str] = None
         self.fmu_path: Optional[str] = None
+        self.fmu_token: Optional[str] = None
+        self.fmu_resources: Optional[str] = None
         self.fmu_parameters: Dict[str, float] = {}
         self.fmu_value_references: Dict[str, int] = {}
         self.platform = platform_name

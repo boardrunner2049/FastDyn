@@ -182,7 +182,7 @@ binary = "virtuals/physics/flight_controllers/courbet/bin/arducopter_v462"
 init_nsvtor = "0x08004000"
 twintrace = "None"
 hardware_trace = "hardware_log/io.log"
-existing_config_path = "virtuals/physics/flight_controllers/courbet/copter462/unlabeled_conf"
+existing_config_path = "virtuals/physics/flight_controllers/courbet/ardupilot/copter462/unlabeled_conf"
 ```
 
 Run modules use FastDyn's generic per-CPU plugin configuration namespace:
@@ -233,6 +233,20 @@ In QEMU's TCG translation generator (`update_reg`), target registers map to spec
 
 `[FMU]` lets FastDyn build and load Rumoca FMI v3 models directly from Modelica.
 The generated FMU is used by the C physics backend in the QEMU plugin.
+
+At startup, FastDyn extracts the selected `.fmu` into an isolated directory
+under the run's work directory. It reads the Co-Simulation `modelIdentifier`,
+`instantiationToken`, and variable references from that package's
+`modelDescription.xml`, then loads `binaries/<platform>/<modelIdentifier>.so`.
+UUID-based names require no configuration changes after re-exporting a model.
+Unpacked build trees are also supported if they contain a compiled binary;
+source-only exports must be compiled before running.
+
+The native plugin receives the resolved `.so` path in `fmu=`, the XML token in
+`fmu_token=`, and an optional resource directory in `fmu_resources=`. These
+arguments are generated automatically by `fastdyn run`. If FMU initialization
+fails, QEMU exits before starting the periodic simulation ticks.
+
 Keep the Modelica model name vehicle-oriented, such as
 `FastDyn.Copter`; the FMU is the generated artifact format, not
 part of the model identity. FastDyn vehicle models should define the
@@ -301,6 +315,36 @@ scene = "third_party/common/rumoca/examples/quadrotor_sil/quadrotor_scene.js"
 When enabled, FastDyn prints a local viewer URL such as
 `http://127.0.0.1:8080`.
 
+## Console Bridge Initialization
+
+The PX4 FMUv6C profile initializes its modules automatically through the console
+bridge when running `fastdyn run`. Select the NSH command file in `[Run]`:
+
+```toml
+[Run]
+bridge_boot = "virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/boot.nsh"
+```
+
+Relative paths are resolved from the FastDyn repository root. The runner checks
+that the selected file exists before replacing the work directory and passes its
+absolute path to QEMU as `FASTDYN_BRIDGE_BOOT` for the execution session only.
+An existing environment value overrides the TOML (relative environment paths
+use the caller's working directory). An explicitly empty value disables boot:
+
+```bash
+FASTDYN_BRIDGE_BOOT= fastdyn run -c configs/px4_fmu_v6c_fire_p2.toml --no-run-processes
+```
+
+This initializes guest modules through the existing bridge; it does not arm the
+vehicle or start a mission. It remains active with `--no-run-processes` because
+it is independent of host helpers. `[Run.env]` continues to configure helper
+environments, not QEMU. Profiles without `bridge_boot` keep their current behavior.
+The PX4 config also enables a separate mission helper that normally arms and flies
+the uploaded mission, plus MAVProxy/MAVCesium. Use `--no-run-processes` to run only
+guest initialization and the TELEM1/UDP bridge. See the
+[PX4 profile guide](../virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/README.md)
+for UART mapping, ports, arming behavior and integration checks.
+
 ## Runtime Helpers
 
 `[Run]` and `[Run.processes.<name>]` start helper processes next to QEMU. The
@@ -332,7 +376,7 @@ background = true
 terminate_run_on_exit = true
 command = [
     "python3",
-    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_and_control.py",
+    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_control_ardupilot.py",
     "--connect",
     "udpin:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-14552}",
     "--monitor-sec",

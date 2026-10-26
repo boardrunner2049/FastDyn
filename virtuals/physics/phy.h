@@ -69,6 +69,11 @@ typedef struct {
     uint8_t dist_msb;       // distance Q2 high byte
 } rplidar_sample_t;
 
+typedef struct {
+    double pressure_pa;
+    double temperature_c;
+} barometer_t;
+
 /* Backend interface */
 typedef struct phy_backend {
 
@@ -93,6 +98,8 @@ typedef struct phy_backend {
     int (*get_altimeter_reading)(double *altitude);
 
     int (*get_lidar_samples)(rplidar_sample_t *samples, size_t num_samples);
+
+    int (*get_barometer_reading)(barometer_t *barometer);
 
 } phy_backend_t;
 
@@ -128,6 +135,7 @@ int phy_set_servo_pwm(int channel, int pwm);
 int phy_advance_simulation(double run_until_time);
 int phy_get_joint_state(double *motor_0_pos, double *motor_2_pos);
 int phy_get_altimeter_reading(double *altitude);
+int phy_get_barometer_reading(barometer_t *barometer);
 int phy_get_lidar_samples(rplidar_sample_t *samples, size_t num_samples);
 
 #endif /* PHY_H */

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import click
 import pytest
@@ -48,6 +48,7 @@ def events(monkeypatch):
         recorded.append("helpers_stop")
 
     monkeypatch.setattr(runner.runtime_config, "launch_from_config", fake_launch)
+    monkeypatch.setattr(runner.runtime_config, "bridge_boot_environment", lambda _c: nullcontext())
     monkeypatch.setattr(runner.fmu_build, "resolve", lambda *_a: (_ for _ in ()).throw(fmu_build.NoFmuConfig("none")))
 
     def fake_parser(*_args, **_kwargs):
@@ -118,6 +119,46 @@ def test_auto_build_fmu_errors_become_run_errors(monkeypatch):
     runner.auto_build_fmu("cfg.toml", None, skip_build=True)  # skipping never resolves
 
 
+def test_auto_build_composes_missing_model_before_validating_sources(tmp_path, monkeypatch):
+    from fastdyn import physics_composition
+
+    config = tmp_path / "vehicle.toml"
+    config.write_text('[FMU.physics]\nmodel_name = "Generated"\n')
+    output = tmp_path / "generated"
+    build = fmu_build.FmuBuild(
+        name="quad", model="Generated", model_file=output / "Generated.mo",
+        source_root=output, extra_source_roots=(), output=output,
+        repo_root=tmp_path, package=False, auto_build=True,
+        compose_config=config, config_path=config,
+    )
+    build.rumoca_dir.mkdir(parents=True)
+    (build.rumoca_dir / "Cargo.toml").write_text("[workspace]\n")
+
+    def compose(selected):
+        selected.model_file.parent.mkdir(parents=True)
+        selected.model_file.write_text("model Generated end Generated;\n")
+
+    def compile_model(command, **_kwargs):
+        if "--help" in command:
+            return subprocess.CompletedProcess(command, 0, stdout="--build")
+        assert build.model_file.is_file()
+        build.artifact_path.write_text("<fmiModelDescription/>\n")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(fmu_build, "resolve", lambda *_args: build)
+    monkeypatch.setattr(fmu_build.shutil, "which", lambda _name: "/test/cargo")
+    monkeypatch.setattr(physics_composition, "compose", compose)
+    monkeypatch.setattr(physics_composition, "stage_msl", lambda _build: None)
+    monkeypatch.setattr(physics_composition, "record_compilation", lambda *_args: None)
+    monkeypatch.setattr(fmu_build.subprocess, "run", compile_model)
+
+    runner.auto_build_fmu(config, None, skip_build=False)
+
+    assert build.model_file.is_file()
+    assert build.artifact_path.is_file()
+    assert not fmu_build.needs_build(build)
+
+
 def test_package_reexports_are_lazy():
     code = (
         "import sys, fastdyn\n"
@@ -165,3 +206,45 @@ def test_cli_run_reports_errors(monkeypatch, tmp_path, error, exit_code):
     assert result.exit_code == exit_code
     if exit_code == 1:
         assert "FMU build failed" in result.output
+
+
+def test_boot_environment_reaches_qemu_without_helpers_and_is_restored(tmp_path, monkeypatch):
+    import os
+    from fastdyn.targets import qemu_target
+
+    monkeypatch.delenv("FASTDYN_BRIDGE_BOOT", raising=False)
+    boot = tmp_path / "boot.nsh"
+    boot.write_text("echo READY\n")
+    config = tmp_path / "px4.toml"
+    config.write_text(f'[Run]\nbridge_boot = "{boot}"\n')
+    observed = []
+
+    class BootHandle(FakeHandle):
+        def run(self, machine_name, target, out_path):
+            observed.append(qemu_target._build_qemu_env(["qemu-system-arm"]).get("FASTDYN_BRIDGE_BOOT"))
+            raise RuntimeError("QEMU stopped")
+
+    monkeypatch.setattr(runner.toml_parser, "parser", lambda *_a, **_k: BootHandle([]))
+    with pytest.raises(RuntimeError, match="QEMU stopped"):
+        runner.run_config(config, str(tmp_path / "work"), build_fmu=False, run_processes=False)
+    assert observed == [str(boot)]
+    assert "FASTDYN_BRIDGE_BOOT" not in os.environ
+
+    # A subsequent run in the same Python process must not inherit PX4's boot.
+    config.write_text("[Run]\n")
+    with pytest.raises(RuntimeError, match="QEMU stopped"):
+        runner.run_config(config, str(tmp_path / "work2"), build_fmu=False, run_processes=False)
+    assert observed == [str(boot), None]
+
+
+def test_missing_boot_is_reported_before_replacing_work_dir(tmp_path, monkeypatch):
+    monkeypatch.delenv("FASTDYN_BRIDGE_BOOT", raising=False)
+    config = tmp_path / "px4.toml"
+    config.write_text(f'[Run]\nbridge_boot = "{tmp_path / "missing.nsh"}"\n')
+    work = tmp_path / "work"
+    work.mkdir()
+    marker = work / "keep.txt"
+    marker.write_text("keep")
+    with pytest.raises(runner.runtime_config.RuntimeConfigError, match="boot script not found"):
+        runner.run_config(config, str(work), build_fmu=False, run_processes=False)
+    assert marker.read_text() == "keep"

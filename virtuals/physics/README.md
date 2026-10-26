@@ -85,7 +85,8 @@ Important files:
 - `copter_mission.waypoints`
 - `rover_rectangle.txt`
 - `plane_circle_point.txt`
-- `mav_command_and_control.py`
+- `mav_command_control_ardupilot.py`
+- `mav_command_control_px4.py` (requires an existing PX4 MAVLink endpoint)
 - `mav_health_check.py`
 - `fastdyn_cesium.py`
 

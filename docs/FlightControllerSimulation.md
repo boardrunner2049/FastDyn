@@ -123,7 +123,7 @@ start_delay_sec = 0
 terminate_run_on_exit = true
 command = [
     "python3",
-    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_and_control.py",
+    "virtuals/physics/flight_controllers/courbet/mavlink/mav_command_control_ardupilot.py",
     "--connect",
     "udpin:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-14552}",
     "--monitor-sec",
