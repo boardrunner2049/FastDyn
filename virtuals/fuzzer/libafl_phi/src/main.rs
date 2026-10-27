@@ -39,7 +39,11 @@ use libafl::{
     fuzzer::{Fuzzer, StdFuzzer},
     generators::RandPrintablesGenerator,
     inputs::{BytesInput, HasTargetBytes},
-    mutators::{havoc_mutations::havoc_mutations, scheduled::HavocScheduledMutator},
+    mutators::{ mutations::{BitFlipMutator, ByteFlipMutator, ByteIncMutator, ByteDecMutator,
+                            ByteNegMutator, ByteRandMutator, ByteAddMutator, WordAddMutator,
+                            DwordAddMutator, QwordAddMutator, ByteInterestingMutator, WordInterestingMutator,
+                            DwordInterestingMutator, BytesSwapMutator, CrossoverInsertMutator, CrossoverReplaceMutator}, 
+                scheduled::HavocScheduledMutator},
     observers::StdMapObserver,
     schedulers::QueueScheduler,
     stages::{mutational::StdMutationalStage, AflStatsStage, CalibrationStage},
@@ -461,7 +465,28 @@ pub fn main() {
         .unwrap();
 
     // Setup a mutational stage with a basic bytes mutator
-    let mutator = HavocScheduledMutator::new(havoc_mutations());
+
+    let custom_mutations = tuple_list!(
+        BitFlipMutator::new(),
+        ByteFlipMutator::new(),
+        ByteIncMutator::new(),
+        ByteDecMutator::new(),
+        ByteNegMutator::new(),
+        ByteRandMutator::new(),
+        ByteAddMutator::new(),
+        WordAddMutator::new(),
+        DwordAddMutator::new(),
+        QwordAddMutator::new(),
+        ByteInterestingMutator::new(),
+        WordInterestingMutator::new(),
+        DwordInterestingMutator::new(),
+        BytesSwapMutator::new(),
+        CrossoverInsertMutator::new(),
+        CrossoverReplaceMutator::new(),
+    );
+
+
+    let mutator = HavocScheduledMutator::new(custom_mutations);
 
     let mut stages = tuple_list!(
         PhiStage::new(EXECUTIONS_PER_PHI_STAGE),
