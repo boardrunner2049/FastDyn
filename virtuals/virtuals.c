@@ -153,12 +153,12 @@ void kick_irq(void *opaque) {
     }
     #if ENABLE_TRACE
     static bool has_logged_trace_time = false;
-    static uint64_t last_trace_time_ms = 0;
-    uint64_t sim_time_ms = (uint64_t)sim_time_ns / 1000000ULL;
+    static double last_trace_time_ms = 0;
+    double sim_time_ms = (double)sim_time_ns / 1000000ULL;
     if (!has_logged_trace_time || sim_time_ms != last_trace_time_ms) {
         trace_t trace;
         if (!phy_get_trace(&trace)) {
-            fprintf(stderr, "Failed to get trace data at %" PRIu64 " ms\n",
+            fprintf(stderr, "Failed to get trace data at %.17g ms\n",
                     sim_time_ms);
         } else if (write_robustness_trace_csv(sim_time_ms, &trace)) {
             last_trace_time_ms = sim_time_ms;

@@ -5,6 +5,6 @@
 
 #include "../phy.h"
 
-int write_robustness_trace_csv(uint64_t sim_time_ms, const trace_t *trace);
+int write_robustness_trace_csv(double sim_time_ms, const trace_t *trace);
 
 #endif

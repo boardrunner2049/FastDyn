@@ -170,6 +170,36 @@ fn create_contest_trace(mut csv_reader: csv::Reader<std::fs::File>) -> Trace<Has
     trace
 }
 
+fn create_contest_trace2(mut csv_reader: csv::Reader<std::fs::File>) -> Trace<HashMap<String, f64>> {
+    let headers = csv_reader.headers().cloned().unwrap();
+    let mut trace: Trace<HashMap<String, f64>> = Trace::new();
+    for result in csv_reader.records()
+    {
+        let record = result.unwrap();
+        let mut row_map = HashMap::new();
+        let mut timestamp: Option<f64> = None; 
+
+        for i in 0..record.len()
+        {
+            let header_name = &headers[i];
+            let cell_value_str = &record[i];
+            if let Ok(value) = cell_value_str.parse::<f64>() {
+                row_map.insert(header_name.to_string(), value);
+                if i == 0 {
+                    timestamp = Some(value);
+                }
+            }
+        }
+        if timestamp.is_some() {
+            trace.insert(timestamp.unwrap(), row_map);
+        }
+        else{
+            panic!("Error: Failed to parse a valid timestamp for index 0 in this row.");
+        }
+    }
+    trace
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct PhysicalObserver {
     name: Cow<'static, str>,
@@ -353,16 +383,34 @@ where
                 self.trace_log_dir,
                 state.executions()
             );
-            let trace_stats = parse_trace_log(&trace_log_path).unwrap();
-            let robustness = match _exit_kind {
-                ExitKind::Ok => 1.0,
-                ExitKind::Crash | ExitKind::Timeout => -1.0,
-                _ => 0.0,
-            };
-            self.latest_robustness_vec.clear();
-            self.latest_robustness_vec.push(robustness);
-            state.set_latest_robustness(robustness);
+            //let trace_stats = parse_trace_log(&trace_log_path).unwrap();
 
+            let csv_reader_status = csv::ReaderBuilder::new()
+                .has_headers(true)
+                .from_path(&trace_log_path);
+
+            if csv_reader_status.is_err() {
+                println!(
+                    "Warning: Failed to open trace log file for parsing {}",
+                    state.executions()
+                );
+                // TODO: should return an error or something???  - should always be able to open
+                println!("Skipping physical observation...");
+                return Ok(());
+            }
+
+            let mut csv_reader = csv_reader_status.unwrap();
+            //let headers = csv_reader.headers()?.clone();
+            // TODO: using a Vector here instead of BTreeMap is more efficient when inserting (since we know dataset is chronological)
+            let mut trace: Trace<HashMap<String, f64>> = create_contest_trace2(csv_reader);
+            self.latest_robustness_vec.clear();
+
+            // trace is created, now I need to feed into Banquo to eval STL formulas
+            // should get robustness for each formula
+            //self.latest_robustness_vec
+            //    .push(evaluate(&trace, &contest_formula).unwrap());
+
+            
             let log_dir = Path::new(&self.robustness_log_dir);
             create_dir_all(log_dir).expect("Unable to create robustness log directory");
             let robustness_log_path = format!(
@@ -376,9 +424,48 @@ where
                 .create(true)
                 .open(&robustness_log_path)
                 .expect("Unable to create robustness log file");
-            writeln!(file, "FMUv3ExitKind,{}", robustness).unwrap();
+
+            for (idx, formula) in self.formulas.iter().enumerate() {
+                let metrics = formula
+                    .evaluate(&trace)
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "Error evaluating STL formula #{} from '{}': {}",
+                            idx + 1,
+                            STL_FORMULAS_PATH,
+                            e
+                        )
+                    });
+
+                // Reduce the per-time-step metrics to a single robustness value by
+                // taking the minimum over the trace, matching the classic STL
+                // robustness semantics.
+                let robustness = metrics
+                    .iter()
+                    .fold(f64::INFINITY, |acc, (t, v)| {
+                        let _ = t; // ignore time, only robustness value matters
+                        if *v < acc { *v } else { acc }
+                    });
+                self.latest_robustness_vec.push(robustness);
+
+                writeln!(file, "Formula{}={}, robustness={},", idx, formula.debug_source().unwrap(), robustness).unwrap(); 
+            }
+
+            // Get minimum robustness value of the OPTIMIZED formulas, and put it in the state to tell the optimizer
+            let mut min_optimized_robustness: f64 = f64::INFINITY;
+            for opt in self.optimized_formula_indices.iter() {
+                let current_robustness = self.latest_robustness_vec[*opt];
+                if current_robustness < min_optimized_robustness {
+                    min_optimized_robustness = current_robustness;
+                }
+            }
+            writeln!(file, "min robustness={}", min_optimized_robustness).unwrap(); 
+            state.set_latest_robustness(min_optimized_robustness);
+
             return Ok(());
         }
+
+
 
         if self.recorder_process.is_none() {
             // The recorder process should NOT be none...

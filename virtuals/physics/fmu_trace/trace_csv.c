@@ -30,15 +30,22 @@ static int init_robustness_trace_csv(void)
         return 0;
     }
 
+    // header declaration (uses same names as STL formulas)
+    //if (fprintf(robustness_trace_csv,
+    //            "sim_time_ms,gps_lat,gps_lon,gps_alt,gps_vel_n,gps_vel_e,gps_vel_d,"
+    //            "gps_sec,gps_nsec,gps_yaw_deg") < 0) {
+    //    goto write_error;
+    //}
     if (fprintf(robustness_trace_csv,
-                "sim_time_ms,gps_lat,gps_lon,gps_alt,gps_vel_n,gps_vel_e,gps_vel_d,"
+                "sim_time,lat,lon,z,gps_vel_n,gps_vel_e,gps_vel_d,"
                 "gps_sec,gps_nsec,gps_yaw_deg") < 0) {
         goto write_error;
     }
     if (fprintf(robustness_trace_csv,
-                ",imu_%d_accel_x,imu_%d_accel_y,imu_%d_accel_z,"
-                "imu_%d_gyro_x,imu_%d_gyro_y,imu_%d_gyro_z",
-                0, 0, 0, 0, 0, 0) < 0) {
+                // translational accelerations
+                ",x_accel,y_accel,z_accel,"
+                // angular velocities
+                "roll_rate,pitch_rate,yaw_rate") < 0) { // role rate is rate of rotating about x axis
         goto write_error;
     }
     if (fputc('\n', robustness_trace_csv) == EOF ||
@@ -54,7 +61,7 @@ write_error:
     return 0;
 }
 
-int write_robustness_trace_csv(uint64_t sim_time_ms, const trace_t *trace)
+int write_robustness_trace_csv(double sim_time_ms, const trace_t *trace)
 {
     if (trace == NULL || !init_robustness_trace_csv()) {
         return 0;
@@ -65,7 +72,7 @@ int write_robustness_trace_csv(uint64_t sim_time_ms, const trace_t *trace)
 
     const gps_data_t *gps = &trace->gps;
     if (fprintf(robustness_trace_csv,
-                "%" PRIu64 ",%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,"
+                "%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,"
                 "%" PRIu64 ",%" PRIu32 ",%.9g",
                 sim_time_ms, gps->lat, gps->lon, gps->alt,
                 gps->vel_n, gps->vel_e, gps->vel_d, gps->sec, gps->nsec,
