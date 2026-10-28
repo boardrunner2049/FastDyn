@@ -1,5 +1,7 @@
 #include <errno.h>
+#include <float.h>
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,6 +27,11 @@ static char *copy_string(const cJSON *value)
 struct RawOptions {
     bool has_constant;
     uint8_t *constant;
+    uint8_t *values;
+    size_t value_count;
+    bool has_range;
+    double range_min;
+    double range_max;
 };
 
 static void write_unsigned_le(uint64_t value, uint8_t *out, size_t size)
@@ -162,15 +169,9 @@ static uint16_t float_to_half(float value)
     return sign | (uint16_t)(exponent << 10U) | (uint16_t)rounded;
 }
 
-static bool raw_parse_float_constant(const cJSON *constant,
-                                     const struct Field *field, uint8_t *out)
+static bool raw_write_float(long double number, const struct Field *field,
+                            uint8_t *out)
 {
-    double number;
-
-    if (!cJSON_IsNumber(constant)) {
-        return false;
-    }
-    number = constant->valuedouble;
     if (field->size == 2U) {
         write_unsigned_le(float_to_half((float)number), out, field->size);
         return true;
@@ -187,11 +188,18 @@ static bool raw_parse_float_constant(const cJSON *constant,
         union {
             double value;
             uint64_t bits;
-        } converted = { .value = number };
+        } converted = { .value = (double)number };
         write_unsigned_le(converted.bits, out, field->size);
         return true;
     }
     return false;
+}
+
+static bool raw_parse_float_constant(const cJSON *constant,
+                                     const struct Field *field, uint8_t *out)
+{
+    return cJSON_IsNumber(constant) &&
+           raw_write_float(constant->valuedouble, field, out);
 }
 
 static void raw_free_options(struct Field *field)
@@ -200,15 +208,97 @@ static void raw_free_options(struct Field *field)
 
     if (options != NULL) {
         free(options->constant);
+        free(options->values);
         free(options);
         field->options = NULL;
     }
+}
+
+static bool raw_parse_integer_values(const cJSON *values, struct Field *field,
+                                     struct RawOptions *parsed)
+{
+    const cJSON *value;
+    int count;
+    size_t value_size;
+    size_t index = 0;
+
+    if ((strcmp(field->type, "int") != 0 && strcmp(field->type, "uint") != 0) ||
+        field->size == 0 || !cJSON_IsArray(values) ||
+        (count = cJSON_GetArraySize(values)) <= 0 || count > UINT8_MAX) {
+        return false;
+    }
+    value_size = field->size;
+    if ((size_t)count > SIZE_MAX / value_size) {
+        return false;
+    }
+    parsed->values = calloc((size_t)count, value_size);
+    if (parsed->values == NULL) {
+        return false;
+    }
+    cJSON_ArrayForEach(value, values) {
+        if (!raw_parse_integer_constant(value, field,
+                                        parsed->values + index * value_size)) {
+            free(parsed->values);
+            parsed->values = NULL;
+            return false;
+        }
+        index++;
+    }
+    parsed->value_count = (size_t)count;
+    return true;
+}
+
+static bool raw_parse_range(const cJSON *range, const struct Field *field,
+                            struct RawOptions *parsed)
+{
+    const cJSON *minimum;
+    const cJSON *maximum;
+    uint8_t encoded[sizeof(uint64_t)];
+
+    if (!cJSON_IsArray(range) || cJSON_GetArraySize(range) != 2) {
+        return false;
+    }
+    minimum = cJSON_GetArrayItem(range, 0);
+    maximum = cJSON_GetArrayItem(range, 1);
+    if (!cJSON_IsNumber(minimum) || !cJSON_IsNumber(maximum) ||
+        !isfinite(minimum->valuedouble) || !isfinite(maximum->valuedouble) ||
+        minimum->valuedouble > maximum->valuedouble) {
+        return false;
+    }
+    if (strcmp(field->type, "float") == 0) {
+        double limit;
+
+        if (field->size == 2U) {
+            limit = 65504.0;
+        } else if (field->size == 4U) {
+            limit = FLT_MAX;
+        } else if (field->size == 8U) {
+            limit = DBL_MAX;
+        } else {
+            return false;
+        }
+        if (minimum->valuedouble < -limit || maximum->valuedouble > limit) {
+            return false;
+        }
+    } else if ((strcmp(field->type, "int") != 0 &&
+                strcmp(field->type, "uint") != 0) ||
+               field->size == 0 || field->size > sizeof(encoded) ||
+               !raw_parse_integer_constant(minimum, field, encoded) ||
+               !raw_parse_integer_constant(maximum, field, encoded)) {
+        return false;
+    }
+    parsed->has_range = true;
+    parsed->range_min = minimum->valuedouble;
+    parsed->range_max = maximum->valuedouble;
+    return true;
 }
 
 static bool raw_parse_options(const cJSON *options, struct Field *field)
 {
     const cJSON *value;
     const cJSON *constant = NULL;
+    const cJSON *values = NULL;
+    const cJSON *range = NULL;
     struct RawOptions *parsed;
 
     if (options == NULL) {
@@ -218,18 +308,44 @@ static bool raw_parse_options(const cJSON *options, struct Field *field)
         return false;
     }
     cJSON_ArrayForEach(value, options) {
-        if (value->string == NULL || strcmp(value->string, "constant") != 0 ||
-            constant != NULL) {
+        if (value->string == NULL) {
             return false;
         }
-        constant = value;
+        if (strcmp(value->string, "constant") == 0 && constant == NULL) {
+            constant = value;
+        } else if (strcmp(value->string, "values") == 0 && values == NULL) {
+            values = value;
+        } else if (strcmp(value->string, "range") == 0 && range == NULL) {
+            range = value;
+        } else {
+            return false;
+        }
     }
-    if (constant == NULL) {
+    if (constant == NULL && values == NULL && range == NULL) {
         return true;
+    }
+    if ((constant != NULL) + (values != NULL) + (range != NULL) != 1) {
+        return false;
     }
     parsed = calloc(1, sizeof(*parsed));
     if (parsed == NULL) {
         return false;
+    }
+    if (range != NULL) {
+        if (!raw_parse_range(range, field, parsed)) {
+            free(parsed);
+            return false;
+        }
+        field->options = parsed;
+        return true;
+    }
+    if (values != NULL) {
+        if (!raw_parse_integer_values(values, field, parsed)) {
+            free(parsed);
+            return false;
+        }
+        field->options = parsed;
+        return true;
     }
     parsed->constant = calloc(field->size == 0 ? 1U : field->size,
                               sizeof(*parsed->constant));
@@ -268,7 +384,68 @@ static size_t raw_expected(const struct Field *field)
 {
     const struct RawOptions *options = field->options;
 
-    return options != NULL && options->has_constant ? 0 : field->size;
+    if (options != NULL && options->has_constant) {
+        return 0;
+    }
+    /* One selector byte chooses among the bounded set. */
+    if (options != NULL && options->value_count != 0) {
+        return 1;
+    }
+    return field->size;
+}
+
+static bool raw_generate_range(const struct Field *field, uint8_t *out)
+{
+    const struct RawOptions *options = field->options;
+    uint8_t bytes[sizeof(uint64_t)];
+    uint64_t raw = 0;
+    uint64_t source_max = UINT64_MAX >>
+                          ((sizeof(uint64_t) - field->size) * CHAR_BIT);
+    size_t offset = 0;
+    size_t i;
+
+    if (!schema_field_input_read(field, &offset, bytes, field->size)) {
+        return false;
+    }
+    for (i = 0; i < field->size; i++) {
+        raw |= (uint64_t)bytes[i] << (i * CHAR_BIT);
+    }
+    if (strcmp(field->type, "float") == 0) {
+        long double minimum = options->range_min;
+        long double maximum = options->range_max;
+        long double value;
+
+        if (raw == 0 || minimum == maximum) {
+            value = minimum;
+        } else if (raw == source_max) {
+            value = maximum;
+        } else {
+            long double fraction = (long double)raw / source_max;
+
+            /* Weighted interpolation also handles opposite-sign bounds whose
+             * difference would overflow the output floating-point format. */
+            value = (1.0L - fraction) * minimum + fraction * maximum;
+            if (value < minimum) {
+                value = minimum;
+            }
+            if (value > maximum) {
+                value = maximum;
+            }
+        }
+        return raw_write_float(value, field, out);
+    }
+    {
+        int64_t minimum = (int64_t)options->range_min;
+        uint64_t span = (uint64_t)((int64_t)options->range_max - minimum);
+        /* The product needs up to 118 bits with the accepted JSON bounds.
+         * The odd source maximum means exact halfway ties cannot occur. */
+        uint64_t scaled = (uint64_t)(((unsigned __int128)raw * span +
+                                     source_max / 2U) / source_max);
+
+        write_unsigned_le((uint64_t)(minimum + (int64_t)scaled), out,
+                          field->size);
+    }
+    return true;
 }
 
 static bool raw_generate(const struct Field *field, uint8_t *out,
@@ -280,8 +457,23 @@ static bool raw_generate(const struct Field *field, uint8_t *out,
     if (out_size != field->size) {
         return false;
     }
+    if (options != NULL && options->has_range) {
+        return raw_generate_range(field, out);
+    }
     if (options != NULL && options->has_constant) {
         memcpy(out, options->constant, out_size);
+        return true;
+    }
+    if (options != NULL && options->value_count != 0) {
+        uint8_t selector;
+
+        if (!schema_field_input_read(field, &offset, &selector,
+                                     sizeof(selector))) {
+            return false;
+        }
+        memcpy(out, options->values +
+                    ((size_t)selector % options->value_count) * field->size,
+               out_size);
         return true;
     }
     return schema_field_input_read(field, &offset, out, out_size);

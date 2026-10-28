@@ -133,6 +133,23 @@ for the next iteration; the redirected instruction must be safe to skip.
 Function epilogues are a common choice when the redirect updates `r15` before
 the epilogue executes.
 
+`state` and `snap` points may also specify `resume`. This is useful for a
+state-only trampoline located immediately before the real fuzz boundary: the
+state is restored at the trampoline and execution is redirected to `snap`, so
+the schema injects its fields before the target executes an input-consuming
+instruction.
+
+A `state` or `snap` point may additionally specify `return_address`. This
+sets the target link register before its optional `resume` redirect. It lets a
+schema call a small target accessor and return directly into a normal target
+method without embedding an instance pointer in the schema.
+
+For the short setup path before the first snapshot, `flow.setup` accepts fixed
+`at`/`register`/`value` writes. It is appropriate for returning a fixed status
+and skipping an unavailable target-side call; it is not fuzz input. For
+example, a write to register 15 redirects execution after the call while the
+other writes supply that call's result.
+
 ```toml
 [Machine]
 coverage = true
@@ -143,7 +160,7 @@ fuzzing_schema = "path/to/schema.json"
 ```json
 {
   "flow": {
-    "state": { "at": "0x08001000" },
+    "state": { "at": "0x08001000", "resume": "0x08002000" },
     "snap":  { "at": "0x08002000" },
     "sync":  [{ "at": "0x08002080", "resume": "0x08002000" }]
   },
@@ -199,9 +216,9 @@ The supported types are `int`, `uint`, `float`, `data`, `length`, and
 | `length` | Encodes the combined size of named fields. It is computed by default and can optionally be fuzzed. |
 | `checksum` | A computed checksum over named fields and/or bytes already emitted by named streams. |
 
-The first four types copy their next `size` input bytes unchanged. Direct
-fields write those bytes to their resolved location; streams emit them one at a
-time. Their distinction is retained in the loaded schema for type-aware
+Without options, the first four types copy their next `size` input bytes
+unchanged. Direct fields write those bytes to their resolved location; streams
+emit them one at a time. Their distinction is retained in the loaded schema for type-aware
 analysis; no host-endian conversion or numeric normalization is performed by
 the generic writer.
 
@@ -225,6 +242,39 @@ when `size` is 2, 4, or 8 respectively. A `data` constant is an exact array of
   ]
 }
 ```
+
+`int` and `uint` can instead use `options.values`, a nonempty list of at most
+255 representable integers. It consumes one fuzz-input byte and selects one
+list entry by modulo, which is useful for a curated set of protocol message
+IDs without allowing arbitrary dispatcher values:
+
+```json
+{ "name": "message_id", "type": "uint", "size": 3,
+  "options": { "values": [22, 77] } }
+```
+
+`int`, `uint`, and `float` also support `options.range`, mutually exclusive
+with `constant` and `values`:
+
+```json
+{ "name": "temperature", "type": "float", "size": 4,
+  "options": { "range": [0, 50] } }
+```
+
+This reserves the usual `size` input bytes and interprets them as an unsigned
+little-endian integer `x` for every numeric type. It maps the full source range
+linearly into the inclusive output range using
+`min + x / (2^(8 * size) - 1) * (max - min)`. Integer outputs round to the
+nearest integer; floats use ordinary IEEE-754 encoding. Thus four zero bytes
+produce float32 `0.0`, four `FF` bytes produce `50.0`, and `00 00 00 80`
+produces approximately `25.0`.
+
+Integer widths may be 1–8 bytes; integral bounds must fit the field and the
+existing exact JSON-number limit of ±9007199254740991. Float widths are 2, 4,
+or 8 bytes, with finite bounds inside the format's numeric limits. Decimal
+bounds may round slightly on encoding. Equal bounds still consume `size`
+bytes, and short inputs are zero-padded before normalization. See the
+[schema reference](schema/README.md#range-on-numeric-types) for the full rules.
 
 A `length` field requires `fields` and `byte_order` in `options`. `fields` is
 an array of names whose declared output sizes are added together. A `length`

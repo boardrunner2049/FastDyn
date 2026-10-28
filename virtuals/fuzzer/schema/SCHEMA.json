@@ -76,6 +76,33 @@
       }
     },
     {
+      "name": "ranged_uint",
+      "location": "0x20000024",
+      "type": "uint",
+      "size": 4,
+      "options": {
+        "range": [0, 100]
+      }
+    },
+    {
+      "name": "ranged_int",
+      "location": "0x20000028",
+      "type": "int",
+      "size": 2,
+      "options": {
+        "range": [-50, 50]
+      }
+    },
+    {
+      "name": "ranged_float",
+      "location": "0x2000002C",
+      "type": "float",
+      "size": 4,
+      "options": {
+        "range": [-0.5, 50.5]
+      }
+    },
+    {
       "name": "reused_direct_data",
       "location": "r6 + (4 * 8) / 2 - 1",
       "type": "data",

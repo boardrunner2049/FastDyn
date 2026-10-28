@@ -34,7 +34,7 @@ use libafl::{
     mutators::{havoc_mutations::havoc_mutations, scheduled::HavocScheduledMutator},
     observers::StdMapObserver,
     schedulers::QueueScheduler,
-    stages::{mutational::StdMutationalStage, AflStatsStage, CalibrationStage},
+    stages::{mutational::StdMutationalStage, AflStatsStage, CalibrationStage, Restartable, Stage},
     state::{HasCorpus, HasExecutions, StdState},
     BloomInputFilter, StdFuzzerBuilder,
 };
@@ -47,8 +47,20 @@ static CURRENT_INPUT_LEN: AtomicUsize = AtomicUsize::new(0);
 static NEXT_INPUT_EPOCH: AtomicU64 = AtomicU64::new(1);
 static PUBLISHED_INPUT_EPOCH: AtomicU64 = AtomicU64::new(0);
 static COMPLETED_INPUT_EPOCH: AtomicU64 = AtomicU64::new(0);
-static BACKEND_READY_FOR_INPUT: AtomicBool = AtomicBool::new(false);
+static BACKEND_WAITING_EPOCH: AtomicU64 = AtomicU64::new(0);
 static INTERESTING_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+// These counters deliberately live outside LibAFL state. They remain visible
+// while QEMU is blocked at the sync callback and identify which half of the
+// producer/consumer handshake stopped making progress.
+static FUZZ_CYCLES: AtomicU64 = AtomicU64::new(0);
+static EXECUTOR_RUNS: AtomicU64 = AtomicU64::new(0);
+static BACKEND_WAIT_CALLS: AtomicU64 = AtomicU64::new(0);
+static BACKEND_DELIVERIES: AtomicU64 = AtomicU64::new(0);
+static BACKEND_COMPLETIONS: AtomicU64 = AtomicU64::new(0);
+static BACKEND_WAITING_FOR_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+const PROGRESS_LOG_INTERVAL: Duration = Duration::from_secs(30);
 
 lazy_static::lazy_static! {
     static ref FUZZ_THREAD: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
@@ -108,14 +120,72 @@ fn clear_input() {
     CURRENT_INPUT_LEN.store(0, Ordering::Relaxed);
 }
 
+fn log_progress(context: &str) {
+    eprintln!(
+        "[fastdyn-progress] {context}: bloom_filter=disabled fuzz_cycles={} executor_runs={} backend_waits={} deliveries={} completions={} waiting_for_epoch={} published_epoch={} completed_epoch={}",
+        FUZZ_CYCLES.load(Ordering::Relaxed),
+        EXECUTOR_RUNS.load(Ordering::Relaxed),
+        BACKEND_WAIT_CALLS.load(Ordering::Relaxed),
+        BACKEND_DELIVERIES.load(Ordering::Relaxed),
+        BACKEND_COMPLETIONS.load(Ordering::Relaxed),
+        BACKEND_WAITING_FOR_EPOCH.load(Ordering::Acquire),
+        PUBLISHED_INPUT_EPOCH.load(Ordering::Acquire),
+        COMPLETED_INPUT_EPOCH.load(Ordering::Acquire),
+    );
+}
+
+/// Runs after mutation once per selected corpus entry.
+struct ProgressStage {
+    last_report: Instant,
+    completed_cycles: u64,
+}
+
+impl ProgressStage {
+    fn new() -> Self {
+        Self {
+            last_report: Instant::now(),
+            completed_cycles: 0,
+        }
+    }
+}
+
+impl<E, EM, S, Z> Stage<E, EM, S, Z> for ProgressStage {
+    fn perform(
+        &mut self,
+        _fuzzer: &mut Z,
+        _executor: &mut E,
+        _state: &mut S,
+        _manager: &mut EM,
+    ) -> Result<(), libafl::Error> {
+        self.completed_cycles += 1;
+        FUZZ_CYCLES.store(self.completed_cycles, Ordering::Relaxed);
+        if self.last_report.elapsed() >= PROGRESS_LOG_INTERVAL {
+            log_progress(&format!("completed_fuzz_cycles={}", self.completed_cycles));
+            self.last_report = Instant::now();
+        }
+        Ok(())
+    }
+}
+
+impl<S> Restartable<S> for ProgressStage {
+    fn should_restart(&mut self, _state: &mut S) -> Result<bool, libafl::Error> {
+        Ok(true)
+    }
+
+    fn clear_progress(&mut self, _state: &mut S) -> Result<(), libafl::Error> {
+        Ok(())
+    }
+}
+
 fn wait_until_complete(epoch: u64) -> Result<(), ()> {
     const SPIN_ITERS: usize = 10_000;
-    let timeout = Duration::from_secs(5);
+    let timeout = initial_input_wait_timeout();
     let start_time = Instant::now();
     let mut spins = 0;
 
     while COMPLETED_INPUT_EPOCH.load(Ordering::Acquire) < epoch {
         if start_time.elapsed() > timeout {
+            log_progress("target_completion_timeout");
             return Err(());
         }
 
@@ -130,14 +200,32 @@ fn wait_until_complete(epoch: u64) -> Result<(), ()> {
     Ok(())
 }
 
-fn wait_until_backend_ready() -> Result<(), ()> {
+fn initial_input_wait_timeout() -> Duration {
+    const DEFAULT_SECONDS: u64 = 5;
+
+    match std::env::var("FASTDYN_INPUT_WAIT_TIMEOUT_SECONDS") {
+        Ok(value) => match value.parse::<u64>() {
+            Ok(seconds) if seconds > 0 => Duration::from_secs(seconds),
+            _ => {
+                eprintln!(
+                    "Ignoring FASTDYN_INPUT_WAIT_TIMEOUT_SECONDS={value:?}; expected a positive integer"
+                );
+                Duration::from_secs(DEFAULT_SECONDS)
+            }
+        },
+        Err(_) => Duration::from_secs(DEFAULT_SECONDS),
+    }
+}
+
+fn wait_until_backend_ready(epoch: u64) -> Result<(), ()> {
     const SPIN_ITERS: usize = 10_000;
-    let timeout = Duration::from_secs(5);
+    let timeout = initial_input_wait_timeout();
     let start_time = Instant::now();
     let mut spins = 0;
 
-    while !BACKEND_READY_FOR_INPUT.load(Ordering::Acquire) {
+    while BACKEND_WAITING_EPOCH.load(Ordering::Acquire) < epoch {
         if start_time.elapsed() > timeout {
+            log_progress("backend_ready_timeout");
             return Err(());
         }
 
@@ -187,6 +275,10 @@ where
     let target = input.target_bytes();
     let buf = target.as_slice();
     let epoch = NEXT_INPUT_EPOCH.fetch_add(1, Ordering::Relaxed);
+
+    if wait_until_backend_ready(epoch).is_err() {
+        return ASSERT_TIMEOUT;
+    }
 
     unsafe {
         fuzz_trace_reset();
@@ -333,7 +425,9 @@ pub extern "C" fn fuzz_libafl_wait_next(
     data: *mut *const u8,
     len: *mut usize,
 ) -> u64 {
-    BACKEND_READY_FOR_INPUT.store(true, Ordering::Release);
+    BACKEND_WAIT_CALLS.fetch_add(1, Ordering::Relaxed);
+    BACKEND_WAITING_FOR_EPOCH.store(after_epoch.saturating_add(1), Ordering::Release);
+    BACKEND_WAITING_EPOCH.store(after_epoch.saturating_add(1), Ordering::Release);
     spin_wait_until(|| PUBLISHED_INPUT_EPOCH.load(Ordering::Acquire) > after_epoch);
 
     let epoch = PUBLISHED_INPUT_EPOCH.load(Ordering::Acquire);
@@ -349,11 +443,13 @@ pub extern "C" fn fuzz_libafl_wait_next(
         *len = input_len;
     }
 
+    BACKEND_DELIVERIES.fetch_add(1, Ordering::Relaxed);
     epoch
 }
 
 #[no_mangle]
 pub extern "C" fn fuzz_libafl_complete(epoch: u64) {
+    BACKEND_COMPLETIONS.fetch_add(1, Ordering::Relaxed);
     COMPLETED_INPUT_EPOCH.fetch_max(epoch, Ordering::AcqRel);
 }
 
@@ -388,7 +484,7 @@ impl<S> FastDynExecutor<S> {
             return;
         }
 
-        if wait_until_backend_ready().is_err() {
+        if wait_until_backend_ready(NEXT_INPUT_EPOCH.load(Ordering::Acquire)).is_err() {
             eprintln!(
                 "Timed out waiting for the backend before tracing the initial corpus. Exiting."
             );
@@ -445,12 +541,20 @@ where
         // performs another target round-trip and can perturb the fuzzing
         // handshake independently of the normal input execution.
 
+        EXECUTOR_RUNS.fetch_add(1, Ordering::Relaxed);
+
         // We need to keep track of the exec count.
         *state.executions_mut() += 1;
 
         let target = input.target_bytes();
         let buf = target.as_slice();
         let epoch = NEXT_INPUT_EPOCH.fetch_add(1, Ordering::Relaxed);
+
+        if wait_until_backend_ready(epoch).is_err() {
+            log_timeout_input(buf);
+            self.crashed = true;
+            return Ok(ExitKind::Timeout);
+        }
 
         publish_input(epoch, buf);
         let wait_result = wait_until_complete(epoch);
@@ -510,8 +614,8 @@ pub fn fuzzer_thread_main() {
         Ordering::Relaxed,
     );
 
-    //let mut corpus = OnDiskCorpus::<BytesInput>::new(corpus_path.clone()).unwrap();
-    let mut corpus = InMemoryCorpus::new();
+    let mut corpus = OnDiskCorpus::<BytesInput>::new(corpus_path.clone()).unwrap();
+    //let mut corpus = InMemoryCorpus::new();
     let crash_corpus = OnDiskCorpus::<BytesInput>::new(crashes_path.clone()).unwrap();
 
     let mut initial_corpus_paths = std::fs::read_dir(&corpus_path)
@@ -573,10 +677,10 @@ pub fn fuzzer_thread_main() {
     #[cfg(not(feature = "bloom_input_filter"))]
     let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
     #[cfg(feature = "bloom_input_filter")]
-    let filter = BloomInputFilter::new(10_000_000, 0.001);
+    //let filter = BloomInputFilter::new(10_000_000, 0.001);
     #[cfg(feature = "bloom_input_filter")]
     let mut fuzzer = StdFuzzerBuilder::new()
-        .input_filter(filter)
+        //.input_filter(filter)
         .scheduler(scheduler)
         .feedback(feedback)
         .objective(objective)
@@ -605,8 +709,11 @@ pub fn fuzzer_thread_main() {
     let mut stages = tuple_list!(
         calibration_stage,
         StdMutationalStage::new(havoc_mutator),
+        ProgressStage::new(),
         stats_stage,
     );
+
+    log_progress("fuzzer_started");
 
     loop {
         if STOP_FLAG.load(Ordering::SeqCst) {
@@ -626,7 +733,13 @@ pub fn fuzzer_thread_main() {
 #[no_mangle]
 pub extern "C" fn fuzz_libAFL_init() -> u32 {
     STOP_FLAG.store(false, Ordering::SeqCst);
-    BACKEND_READY_FOR_INPUT.store(false, Ordering::Release);
+    BACKEND_WAITING_EPOCH.store(0, Ordering::Release);
+    FUZZ_CYCLES.store(0, Ordering::Release);
+    EXECUTOR_RUNS.store(0, Ordering::Release);
+    BACKEND_WAIT_CALLS.store(0, Ordering::Release);
+    BACKEND_DELIVERIES.store(0, Ordering::Release);
+    BACKEND_COMPLETIONS.store(0, Ordering::Release);
+    BACKEND_WAITING_FOR_EPOCH.store(0, Ordering::Release);
 
     let handle = std::thread::spawn(move || {
         fuzzer_thread_main();
