@@ -42,7 +42,7 @@ use libafl::{
     mutators::{ mutations::{BitFlipMutator, ByteFlipMutator, ByteIncMutator, ByteDecMutator,
                             ByteNegMutator, ByteRandMutator, ByteAddMutator, WordAddMutator,
                             DwordAddMutator, QwordAddMutator, ByteInterestingMutator, WordInterestingMutator,
-                            DwordInterestingMutator, BytesSwapMutator, CrossoverInsertMutator, CrossoverReplaceMutator}, 
+                            DwordInterestingMutator, BytesSwapMutator, CrossoverReplaceMutator}, 
                 scheduled::HavocScheduledMutator},
     observers::StdMapObserver,
     schedulers::QueueScheduler,
@@ -481,7 +481,6 @@ pub fn main() {
         WordInterestingMutator::new(),
         DwordInterestingMutator::new(),
         BytesSwapMutator::new(),
-        CrossoverInsertMutator::new(),
         CrossoverReplaceMutator::new(),
     );
 

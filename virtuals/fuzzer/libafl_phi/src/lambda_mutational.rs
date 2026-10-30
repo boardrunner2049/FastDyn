@@ -276,6 +276,11 @@ where
         */
         let num = self.iterations(state)?;
         println!("\tnum iterations: {}", num);
+
+
+        let param_bounds = state.input_library().get_param_input().clone();
+
+
         let mut testcase = state.current_testcase_mut()?;
 
         // println!("Got testcase: {:?}", testcase);
@@ -297,54 +302,66 @@ where
                 continue;
             }
 
-            let (untransformed, post) = input.try_transform_into(state)?;
+            // create mutated input variable
+            let (mutated_input, post) = input.try_transform_into(state)?;
 
-            let mutated_param_bytes = untransformed.param_bytes();
+
+            let mutated_param_bytes = mutated_input.param_bytes().as_ref();
+            let mut params_f64: Vec<f64> = Vec::new();
+            let mut params_bytes: Vec<u8> = Vec::new();
+            let int_range: u32 = 0xFFFFFFFF;
+            // loop through each parameters range
+            // treat every 4 bytes in mutated_param_bytes as a u32 and determine where this value falls between 0 and u32 MAX
+            // map the location int falls if the scale is changed to bounds of parameter
+            // convert this float that corresponds to above location back to le bytes so it can be used as input
+            for (i, param_bound) in param_bounds.iter().enumerate() {
+                let param_increment = param_bound.get_increment();
+                let param_min = param_bound.get_range().0;
+                let param_max = param_bound.get_range().1;
+                // param_range is adjusted by half the increment on each side so min and max values have just as good a chance of being 
+                // selected as any other value - prevents bias toward non-maximum values when rounding to nearest increment
+                let adjusted_min = param_min - param_increment / 2.0;
+                let adjusted_max = param_max + param_increment / 2.0;
+                let adjusted_range = adjusted_max - adjusted_min;
+
+                let int_value = mutated_param_bytes.get(i*4..i*4+4)
+                    .ok_or_else(|| Error::illegal_argument("Data is too short"))?
+                    .try_into()
+                    .map(u32::from_le_bytes)
+                    .map_err(|e| Error::illegal_argument(format!("Conversion failed: {e}")))?;
+
+                let raw = adjusted_min + (adjusted_range * (int_value as f64)) / (int_range as f64);
+                let param_value_rounded = param_min + ((raw - param_min) / param_increment).round() * param_increment;
+                let param_value_clamped = param_value_rounded.clamp(param_min, param_max);
+                // convert scaled float back to bytes
+                let param_f32 = param_value_clamped as f32;
+                for byte in param_f32.to_le_bytes().iter() {
+                    params_bytes.push(*byte);
+                }
+                // reconvert f32 back to f64 because the f32 version is the what FasyDyn gets
+                // thus we should report it back to optimizer (which takes f64)
+                let param_f64 = param_f32 as f64;
+                params_f64.push(param_f64);
+            }
+
+
 
             // Ask optimizer for environment params + set it in the mutated input
             let asked_values = state.ask_optimizer();
             let env_string = TargetInput::opt_ask_to_env_string(&asked_values, state.input_library());
-            let mut new_input = untransformed.clone();
-            new_input.set_env_config(env_string);
-
-            // println!("Mutated input: {:?}", new_input);
-
-            let (_, corpus_id) =
-                fuzzer.evaluate_filtered(state, executor, manager, &new_input)?;
-
-            // Tell the optimizer as best as we can...
-            // It will not be super accurate since the bytes are randomly mutated
-            // We will try to report as many parameter values as we can. If there aren't enough
-            // converted f64 values, we'll just pad with the minimum value of each parameter.
-            let params_as_f32s = TargetInput::bytes_to_f32_vec(untransformed.param_bytes());
-            let mut params_as_f64s: Vec<f64> = params_as_f32s.iter().map(|&x| x as f64).collect();
-
-            // Figure out what we need to do based on the size of params_as_f64s...
-            if params_as_f64s.len() > asked_values.len() {
-                // Truncate
-                params_as_f64s.truncate(asked_values.len());
-            } else if params_as_f64s.len() < asked_values.len() {
-                // Pad with minimum values
-                let input_lib = state.input_library();
-                let param_info_vec = input_lib.get_param_input();
-                let first_missing_param_index = params_as_f64s.len();
-                for i in first_missing_param_index..param_info_vec.len() {
-                    let param_range = param_info_vec[i].get_range();
-                    params_as_f64s.push(param_range.0); // push min value as placeholder
-                }
-            }
-
-            // Now, append the environmental values from asked_values
-            for i in params_as_f64s.len()..asked_values.len() {
-                params_as_f64s.push(asked_values[i]);
-            }
-
-            // Debug prints just to make sure I'm doing this right
-            // println!("Original asked values: {:?}", asked_values);
-            // println!("Params as f64s: {:?}", params_as_f64s);
-            // println!("Do the lengths match? {}", params_as_f64s.len() == asked_values.len());
             
-            let tell_array: Array1<f64> = Array1::from(params_as_f64s);
+            // create mutated input with fuzzed params and optimizer retreieved envs
+            let mut mutated_input_float_aligned = mutated_input.clone();
+            mutated_input_float_aligned.set_param_bytes(params_bytes);
+            mutated_input_float_aligned.set_env_config(env_string);
+
+            // run FastDyn with mutated input
+            let (_, corpus_id) =
+                fuzzer.evaluate_filtered(state, executor, manager, &mutated_input_float_aligned)?;
+
+
+            // tell optimizer about result of run
+            let tell_array: Array1<f64> = Array1::from(params_f64);
             state.tell_optimizer(&tell_array, state.latest_robustness());
 
             start_timer!(state);
