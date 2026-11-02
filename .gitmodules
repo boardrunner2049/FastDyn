@@ -13,7 +13,7 @@
 	url = https://github.com/cmsis-svd/cmsis-svd-data.git
 [submodule "third_party/common/rumoca"]
 	path = third_party/common/rumoca
-	url = https://github.com/mhcho1994/rumoca.git
+	url = https://github.com/boardrunner2049/rumoca.git
 	branch = rumoca-bitcode-v1
 [submodule "third_party/common/modelica_models"]
 	path = third_party/common/modelica_models
