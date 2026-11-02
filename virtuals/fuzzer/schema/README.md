@@ -71,6 +71,25 @@ per-input state. `sync` is a non-empty array; every entry ends processing for
 the current input and writes its required `resume` address to the program
 counter before the next iteration.
 
+`state` and `snap` may include `resume` and `return_address`; these write the
+program counter and link register respectively at the flow point. This lets a
+schema call a target accessor and return into a normal target method without
+embedding a runtime object address.
+
+An optional `setup` array gives fixed pre-snapshot register writes:
+
+```json
+"setup": [
+  { "at": "0x08001234", "register": 0, "value": 1 },
+  { "at": "0x08001234", "register": 15, "value": "0x08001238" }
+]
+```
+
+Each entry is installed as a FastDyn modifier at `at`; it consumes no fuzz
+input. This is useful to supply a known result and skip an unavailable
+peripheral call while allowing the target to create the eventual receiver call
+frame. Use register 15 for the ARM program counter.
+
 Flow and hook addresses must all be distinct.
 
 ## Top-level `fields`
@@ -138,8 +157,8 @@ size, and generate its output bytes. The current registry is:
 
 | Type | Output | Expected fuzz bytes |
 | --- | --- | --- |
-| `int` | Signed integer bytes. | `size`, or 0 with `constant`. |
-| `uint` | Unsigned integer bytes. | `size`, or 0 with `constant`. |
+| `int` | Signed integer bytes. | `size` (also with `range`), 1 with `values`, or 0 with `constant`. |
+| `uint` | Unsigned integer bytes. | `size` (also with `range`), 1 with `values`, or 0 with `constant`. |
 | `float` | Floating-point bytes. | `size`, or 0 with `constant`. |
 | `data` | Arbitrary byte array. | `size`, or 0 with `constant`. |
 | `length` | Computed or conditionally fuzzed byte count. | 0, or `size + 1` when `fuzzable` is true. |
@@ -152,7 +171,9 @@ values.
 
 ### `constant` on raw types
 
-`int`, `uint`, `float`, and `data` accept exactly one raw-type option:
+`int`, `uint`, `float`, and `data` accept `constant`. Numeric types can instead
+use `range`, and integer types can instead use `values`. These options are
+mutually exclusive:
 
 ```json
 "options": { "constant": value }
@@ -173,6 +194,43 @@ For example, a fixed Marvelmind prefix can be expressed as:
 { "name": "header", "type": "data", "size": 2,
   "options": { "constant": [255, 71] } }
 ```
+
+### `range` on numeric types
+
+`int`, `uint`, and `float` accept an inclusive pair of finite JSON numbers:
+
+```json
+{ "name": "temperature", "type": "float", "size": 4,
+  "options": { "range": [0, 50] } }
+```
+
+A ranged field still consumes exactly `size` fuzz bytes. Interpret those bytes
+as an unsigned little-endian integer `x`, even for signed or floating-point
+output. With `M = 2^(8 * size) - 1`, generate
+`min + (x / M) * (max - min)`. Integer results are rounded to the nearest
+integer; floating-point results are encoded normally as little-endian IEEE-754.
+For the example above, `00 00 00 00` produces `0.0`, `FF FF FF FF` produces
+`50.0`, and `00 00 00 80` produces approximately `25.0`.
+
+Integer sizes may be 1 through 8 bytes, including packed widths. Bounds must
+be integral, fit the output type and width, and lie within
+`[-9007199254740991, 9007199254740991]`, the same exact JSON-number limit as
+integer constants. Unsigned bounds must be non-negative. Float sizes must be
+2, 4, or 8 bytes, with bounds inside that format's finite numeric limits.
+Decimal bounds need not be exactly representable; final encoding may round
+slightly outside the written interval.
+
+The lower bound must not exceed the upper bound. Equal bounds are allowed and
+still consume `size` bytes. Short inputs retain ordinary zero-padding before
+normalization. Other types and zero-sized ranged fields are rejected.
+Normalization occurs during ordinary field materialization, so direct writes,
+hooks, streams, and checksums share the same cached output for each iteration.
+
+### `values` on integer types
+
+`int` and `uint` accept a non-empty `values` array of at most 255 representable
+integer constants. It consumes one selector byte and chooses entry
+`selector % count`, regardless of the field's output size.
 
 ### `length`
 

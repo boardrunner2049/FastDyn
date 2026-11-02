@@ -552,6 +552,21 @@ done:
     return ok;
 }
 
+bool schema_resolve_field_location(struct Field *field)
+{
+    if (field == NULL || field->location_text == NULL) {
+        return false;
+    }
+    if (field->location_resolved) {
+        return true;
+    }
+    if (!generic_parse_expression(field->location_text, &field->location)) {
+        return false;
+    }
+    field->location_resolved = true;
+    return true;
+}
+
 bool schema_resolve_locations(void)
 {
     size_t i;
@@ -561,10 +576,9 @@ bool schema_resolve_locations(void)
         if (fields[i]->location_text == NULL) {
             continue;
         }
-        if (!generic_parse_expression(fields[i]->location_text, &fields[i]->location)) {
+        if (!schema_resolve_field_location(fields[i])) {
             return false;
         }
-        fields[i]->location_resolved = true;
     }
     locations_resolved = true;
     return true;

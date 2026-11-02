@@ -898,6 +898,22 @@ static void fuzz_advance_time(unsigned int cpu_index, void *udata)
     qemu_set_register(fuzz_virtual_time_ms, ARM_V7M_R0);
 }
 
+static void fuzz_virtual_millis(unsigned int cpu_index, void *udata)
+{
+    uint32_t return_pc;
+
+    fuzz_advance_time(cpu_index, udata);
+    if (!fuzz_snap_initialized) {
+        return;
+    }
+
+    return_pc = qemu_get_register(ARM_V7M_LR);
+    if ((return_pc & 1U) == 0) {
+        return;
+    }
+    qemu_set_register(return_pc & ~1U, ARM_V7M_PC);
+}
+
 static void fuzz_sync_point(unsigned int cpu_index, void *udata);
 
 void fuzz_request_sync(uint32_t resume_pc)
@@ -1158,6 +1174,7 @@ int fuzz_init(int argc, char **argv) {
     virtual_register("fuzz_snap_sync_point", fuzz_snap_sync_point);
     virtual_register("fuzz_state_point", fuzz_state_point);
     virtual_register("fuzz_sync_point", fuzz_sync_point);
+    virtual_register("fuzz_virtual_millis", fuzz_virtual_millis);
 
     // This is where the stateless injection harness should go
     generic_configure(argc, argv);

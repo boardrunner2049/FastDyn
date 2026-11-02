@@ -111,6 +111,10 @@ struct SchemaHook {
 struct SchemaFlowPoint {
     bool present;
     uint64_t at;
+    bool has_resume;
+    uint64_t resume;
+    bool has_return_address;
+    uint64_t return_address;
 };
 
 struct SchemaFlowSyncPoint {
@@ -118,11 +122,19 @@ struct SchemaFlowSyncPoint {
     uint64_t resume;
 };
 
+struct SchemaFlowSetupUpdate {
+    uint64_t at;
+    int reg;
+    uint64_t value;
+};
+
 struct SchemaFlow {
     struct SchemaFlowPoint state;
     struct SchemaFlowPoint snap;
     struct SchemaFlowSyncPoint *sync_points;
     size_t sync_point_count;
+    struct SchemaFlowSetupUpdate *setup_updates;
+    size_t setup_update_count;
 };
 
 /* Compatibility entry points used by fuzz.c. Configuration is parsed early so
@@ -147,6 +159,7 @@ const uint8_t *schema_input_bytes(void);
 
 /* Snapshot and injection lifecycle. */
 bool schema_resolve_locations(void);
+bool schema_resolve_field_location(struct Field *field);
 bool schema_begin_iteration(void);
 void schema_end_iteration(void);
 bool schema_inject_field(struct Field *field);

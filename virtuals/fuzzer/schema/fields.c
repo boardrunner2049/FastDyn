@@ -163,8 +163,14 @@ bool schema_inject_field(struct Field *field)
     bool ok;
 
     if (field == NULL || field->injected || field->handler == NULL ||
-        field->handler->generate == NULL || !field->location_resolved) {
+        field->handler->generate == NULL) {
         return field != NULL && field->injected;
+    }
+    if (field->hook_index != SIZE_MAX) {
+        field->location_resolved = false;
+    }
+    if (!field->location_resolved && !schema_resolve_field_location(field)) {
+        return false;
     }
     ok = schema_field_materialize(field, &data, &size) &&
          size == field->size && write_location(&field->location, data, size);
