@@ -212,4 +212,4 @@ def test_fire_p0_p1_configs_resolve(profile, model, source, monkeypatch):
     build = fmu_build.resolve(repo / f"configs/copter462_fire_{profile}.toml", repo_root=repo)
     assert build.model == model
     assert build.model_file.name == f"{model}.mo"
-    assert build.compose_config == repo / "third_party/courbet_deps/fire_modelica_models/configs" / source
+    assert build.compose_config == repo / "third_party/courbet_deps/ModelicaCPSLibrary/configs" / source

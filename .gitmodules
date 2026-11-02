@@ -41,5 +41,5 @@
 	url = https://github.com/boardrunner2049/LibVIO.git
 	shallow = true
 [submodule "third_party/courbet_deps/fire_modelica_models"]
-	path = third_party/courbet_deps/fire_modelica_models
-	url = https://github.com/mhcho1994/FIRE_Modelica_Models.git
+	path = third_party/courbet_deps/ModelicaCPSLibrary
+	url = https://github.com/boardrunner2049/ModelicaCPSLibrary.git

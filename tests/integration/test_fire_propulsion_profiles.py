@@ -82,7 +82,7 @@ class Fmi3Probe:
 
 def check_fire_profile_fmi3_response(tmp_path, config_name, voltage_scale):
     repo = Path(__file__).resolve().parents[2]
-    fire = repo / 'third_party/courbet_deps/fire_modelica_models'
+    fire = repo / 'third_party/courbet_deps/ModelicaCPSLibrary'
     raw = (fire / 'configs' / config_name).read_text()
     if voltage_scale != 1:
         raw = raw.replace('dcVoltage = 16.0', f'dcVoltage = {16*voltage_scale}')
@@ -97,7 +97,7 @@ def check_fire_profile_fmi3_response(tmp_path, config_name, voltage_scale):
     build_fmu(build, update_submodules_first=False)
     manifest = json.loads(build.model_file.with_suffix('.manifest.json').read_text())
     assert manifest['profile'] == 'vio'
-    assert manifest['input_adapter']['class'] == 'fire_modelica_models.Adapters.VirtualIO.PwmInput'
+    assert manifest['input_adapter']['class'] == 'ModelicaCPSLibrary.Adapters.VirtualIO.PwmInput'
     assert manifest['input_adapter']['output_contract'] == 'normalized_pwm_command_v1'
     runtime = prepare_runtime(build, tmp_path/'runtime')
     description = ET.parse(runtime.library_path.parents[2]/'modelDescription.xml').getroot()
