@@ -98,6 +98,11 @@ int virtual_write_memory(const VirtualContext *ctx,
 void virtual_raise_irq(const VirtualContext *ctx, int irq,
                                bool level);
 
+/* Send one PWM actuator value to the configured physics backend. This is the
+ * public runtime-plugin equivalent of a flight-controller output virtual; it
+ * returns nonzero when the active backend accepted the value. */
+int virtual_set_actuator_pwm(const VirtualContext *ctx, int channel, int pwm);
+
 /* Runtime instrumentation registration. */
 void virtual_register_irq_hook(const VirtualContext *ctx,
                                        VirtualIrqCallback entry,

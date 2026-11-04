@@ -80,6 +80,7 @@ callbacks.
 | `virtual_register_callback(ctx, name, callback)` | Register a callback name consumed by generated or user virtual rules. |
 | `virtual_artifact_path(ctx, relative, out, size)` | Resolve a safe path below `run-artifacts/<plugin-name>/`. Absolute paths and traversal are rejected. |
 | `virtual_register_exit(ctx, callback)` | Write results or release runtime state when QEMU exits. |
+| `virtual_set_actuator_pwm(ctx, channel, pwm)` | Send a PWM actuator value to the configured physics backend. |
 | `virtual_log(ctx, level, format, ...)` | Emit a flushed, plugin-qualified runtime diagnostic. Levels are `VIRTUAL_LOG_DEBUG`, `VIRTUAL_LOG_INFO`, `VIRTUAL_LOG_WARN`, and `VIRTUAL_LOG_ERROR`. |
 | `virtual_wait_for_trace_drain(ctx)` | Wait until FastDyn's inline trace logger has consumed its current records. Only needed when a result depends on coverage/trace output. |
 

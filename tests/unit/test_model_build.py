@@ -188,6 +188,18 @@ def test_missing_compiler_or_package_is_reported(models, tmp_path, monkeypatch):
         build_models([models], tmp_path / "out")
 
 
+def test_qemu_headers_can_come_from_checkout_qemu_link(tmp_path, monkeypatch):
+    """A checkout made with the historical qemu/ sibling link remains an SDK."""
+    root = tmp_path / "fastdyn"
+    _write(root / "include" / "fastdyn" / "device_model.h", "")
+    _write(root / "qemu" / "include" / "qemu" / "qemu-plugin.h", "")
+    monkeypatch.setattr(paths, "repo_root", lambda: root)
+
+    flags = model_build._fastdyn_cflags()
+
+    assert f"-I{root / 'qemu' / 'include'}" in flags
+
+
 @pytest.mark.skipif(shutil.which("pkg-config") is None, reason="needs pkg-config")
 def test_the_checkouts_libvio_build_comes_before_an_installed_one(tmp_path, monkeypatch):
     """setup.sh --build-libvio installs the submodule into out/libvio/install;
