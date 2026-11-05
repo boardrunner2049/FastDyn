@@ -1,7 +1,10 @@
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-import re
+try:
+    from .coverage_helpers import load_coverage_growth
+except ImportError:  # Direct script execution.
+    from coverage_helpers import load_coverage_growth
 
 # ============================
 # Global customization options
@@ -26,30 +29,7 @@ DEFAULT_STYLE = {
 # ============================
 
 def parse_unique_blocks(log_path):
-    pattern = re.compile(r"\[TB\]\s+Unique blocks\s*=\s*(\d+)\s+at time\s+(\d+)")
-    result = {}
-    seen_counts = set()
-
-    with open(log_path, "r", errors="ignore") as f:
-        for line in f:
-            m = pattern.search(line)
-            if not m:
-                continue
-
-            count = int(m.group(1))
-            time_ms = int(m.group(2))
-
-            if count not in seen_counts:
-                seen_counts.add(count)
-                result[count] = time_ms
-
-    # Normalize so first timestamp = 0
-    if result:
-        first_time = min(result.values())
-        for c in result:
-            result[c] -= first_time
-
-    return result
+    return load_coverage_growth(log_path)
 
 # ============================
 # Multi‑plot overlay function

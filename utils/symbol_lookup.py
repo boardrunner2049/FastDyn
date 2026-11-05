@@ -1,23 +1,14 @@
 #!/usr/bin/env python3
 import sys
-from elftools.elf.elffile import ELFFile
+from fastdyn.host import AnalysisSession
 
 def load_symbols_from_elf(filename):
     symbols = {}
-    with open(filename, "rb") as f:
-        elf = ELFFile(f)
-        # Look through all sections to find symbol tables
-        for section in elf.iter_sections():
-            if not isinstance(section, type(elf.get_section_by_name('.symtab'))):
-                continue
-            for symbol in section.iter_symbols():
-                # Skip symbols with no address
-                if symbol.entry.st_value == 0:
-                    continue
-                addr = f"0x{symbol.entry.st_value-1:08x}"
-                name = symbol.name
-                if name:  # store only named symbols
-                    symbols[int(addr, 16)] = name
+    session = AnalysisSession.open(filename, architecture="arm", instruction_mode="thumb-mclass")
+    for symbol in session.symbols.all():
+        # Function code pointers are normalized by the target-aware service;
+        # data objects, including odd-address objects, retain their raw address.
+        symbols.setdefault(symbol.code_address, symbol.name)
     return symbols
 
 def repl(symbols):

@@ -15,7 +15,7 @@ from math import ceil
 
 from elftools.dwarf.die import DIE
 from elftools.elf.elffile import ELFFile
-from elftools.elf.sections import SymbolTableSection
+from fastdyn.host import DwarfQueries
 
 from fastdyn.machine import VirtualInstruction
 from fastdyn.virtual_preprocessing import (
@@ -111,14 +111,8 @@ def _byte_size(die: DIE | None, default: int = 0) -> int:
     return int(attribute.value) if attribute else default
 
 
-def _member_offset(die: DIE) -> int | None:
-    attribute = die.attributes.get("DW_AT_data_member_location")
-    if not attribute or not isinstance(attribute.value, int):
-        return None
-    return int(attribute.value)
-
-
-def _type_info(die: DIE | None, pointer_size: int, depth: int = 0) -> TypeInfo:
+def _type_info(die: DIE | None, pointer_size: int, queries: DwarfQueries,
+               depth: int = 0) -> TypeInfo:
     """Return a bounded printable view of a DWARF type.
 
     We intentionally keep only scalar direct fields of an aggregate.  The
@@ -153,9 +147,9 @@ def _type_info(die: DIE | None, pointer_size: int, depth: int = 0) -> TypeInfo:
         for child in die.iter_children():
             if child.tag != "DW_TAG_member" or len(fields) >= MAX_FIELDS:
                 continue
-            offset = _member_offset(child)
+            offset = queries.constant_member_offset(child)
             field_name = _name(child)
-            field_type = _type_info(_type_die(child), pointer_size, depth + 1)
+            field_type = _type_info(_type_die(child), pointer_size, queries, depth + 1)
             if offset is None or not field_name or field_type.kind not in {"int", "uint", "bool", "float", "pointer"}:
                 continue
             fields.append(Field(field_name, offset, field_type.kind, field_type.size, field_type.signed))
@@ -165,11 +159,13 @@ def _type_info(die: DIE | None, pointer_size: int, depth: int = 0) -> TypeInfo:
     return TypeInfo(size=_byte_size(die))
 
 
-def _dwarf_subprograms(elf: ELFFile, architecture: str) -> dict[int, list[tuple[str, tuple[TypeInfo, ...], tuple[str, ...]]]]:
+def _dwarf_subprograms(elf: ELFFile, architecture: str,
+                       queries: DwarfQueries | None = None) -> dict[int, list[tuple[str, tuple[TypeInfo, ...], tuple[str, ...]]]]:
     if not elf.has_dwarf_info():
         return {}
     result: dict[int, list[tuple[str, tuple[TypeInfo, ...], tuple[str, ...]]]] = {}
     pointer_size = 8 if elf.elfclass == 64 else 4
+    queries = queries or DwarfQueries(elf)
     for cu in elf.get_dwarf_info().iter_CUs():
         for die in cu.iter_DIEs():
             if die.tag != "DW_TAG_subprogram":
@@ -185,7 +181,7 @@ def _dwarf_subprograms(elf: ELFFile, architecture: str) -> dict[int, list[tuple[
             for child in die.iter_children():
                 if child.tag != "DW_TAG_formal_parameter" or len(types) >= MAX_ARGUMENTS:
                     continue
-                types.append(_type_info(_type_die(child), pointer_size))
+                types.append(_type_info(_type_die(child), pointer_size, queries))
                 names.append(_name(child) or f"arg{len(names)}")
             result.setdefault(address, []).append((function_name, tuple(types), tuple(names)))
     return result
@@ -194,23 +190,14 @@ def _dwarf_subprograms(elf: ELFFile, architecture: str) -> dict[int, list[tuple[
 def _symbol_entries(ctx: RunContext) -> tuple[list[tuple[int, str]], dict[int, list[tuple[str, tuple[TypeInfo, ...], tuple[str, ...]]]], int]:
     entries: dict[int, str] = {}
     try:
-        with ctx.binary.open("rb") as stream:
-            elf = ELFFile(stream)
-            dwarf = _dwarf_subprograms(elf, ctx.architecture)
-            for section in elf.iter_sections():
-                if not isinstance(section, SymbolTableSection):
-                    continue
-                for symbol in section.iter_symbols():
-                    if symbol.entry.st_info.type != "STT_FUNC" or not symbol.name:
-                        continue
-                    if symbol.entry.st_shndx == "SHN_UNDEF" or not symbol.entry.st_value:
-                        continue
-                    address = int(symbol.entry.st_value)
-                    if ctx.architecture.lower().startswith("arm"):
-                        address &= ~1
-                    if address:
-                        entries.setdefault(address, symbol.name)
-            return sorted(entries.items()), dwarf, 8 if elf.elfclass == 64 else 4
+        elf = ctx.analysis.elf
+        dwarf = _dwarf_subprograms(
+            elf, ctx.architecture,
+            ctx.analysis.dwarf if elf.has_dwarf_info() else None,
+        )
+        for symbol in ctx.analysis.symbols.all(kind="function"):
+            entries.setdefault(symbol.code_address, symbol.name)
+        return sorted(entries.items()), dwarf, elf.elfclass // 8
     except OSError as exc:
         raise VirtualPreparationError(
             f"function_tracer cannot read firmware ELF {ctx.binary}: {exc}"

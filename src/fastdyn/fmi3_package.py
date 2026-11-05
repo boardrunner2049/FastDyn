@@ -2,10 +2,10 @@
 from pathlib import Path
 import os
 import platform
-import re
 import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
+from .fmu_metadata import parse_model_description
 
 
 def _source_files(root: Path, identifier: str) -> list[Path]:
@@ -42,10 +42,9 @@ def package_sources(build) -> None:
     description = root / 'modelDescription.xml'
     if not description.is_file():
         raise FmuConfigError(f'Rumoca source FMU metadata missing: {description}')
-    metadata = ET.parse(description).getroot()
-    cs = metadata.find('CoSimulation')
-    identifier = cs.get('modelIdentifier', '') if cs is not None else ''
-    if not re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*', identifier):
+    metadata = parse_model_description(description.read_bytes())
+    identifier = metadata.model_identifier or ''
+    if not identifier:
         raise FmuConfigError('FMI3 source package has no valid CoSimulation modelIdentifier')
     headers = build.repo_root / 'out/toolchains/fmi3/headers'
     if not (headers / 'fmi3Functions.h').is_file():

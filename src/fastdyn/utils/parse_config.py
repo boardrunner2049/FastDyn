@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import tomli
+from fastdyn.host import SymbolNotFoundError, resolve_address
 import sys
 
 from . import helper
@@ -423,12 +424,13 @@ def resolve_vi(vi: "VirtualInstruction",
         if is_numberish(t):
             return t  # keep formatting as provided
 
-        sym, off = parse_symbol_offset(t)
-        if sym in symbol_map:
-            base = normalize_map_value(symbol_map[sym])
-            if thumb_fix and (base & 1):
-                base -= 1
-            return hex(base + off)
+        adjusted = {name: (value - 1 if thumb_fix and value & 1 else value)
+                    for name, raw in symbol_map.items()
+                    for value in (normalize_map_value(raw),)}
+        try:
+            return hex(resolve_address(t, adjusted))
+        except SymbolNotFoundError:
+            pass
 
         return None
 
@@ -449,13 +451,16 @@ def resolve_vi(vi: "VirtualInstruction",
         if is_numberish(at_tok):
             resolved_at = to_int(at_tok)
         else:
-            sym, off = parse_symbol_offset(at_tok)
-            if sym not in symbol_map:
-                raise KeyError(f"Unresolved VI.at symbol: {sym!r} (from {str(vi.at)!r})")
-            base = normalize_map_value(symbol_map[sym])
-            if base & 1:  # thumb bit fix
-                base -= 1
-            resolved_at = base + off
+            adjusted = {name: (value - 1 if value & 1 else value)
+                        for name, raw in symbol_map.items()
+                        for value in (normalize_map_value(raw),)}
+            try:
+                resolved_at = resolve_address(at_tok, adjusted)
+            except SymbolNotFoundError as exc:
+                sym, _off = parse_symbol_offset(at_tok)
+                raise KeyError(
+                    f"Unresolved VI.at symbol: {sym!r} (from {str(vi.at)!r})"
+                ) from exc
 
     # --- resolve args ---
     resolved_args = []
@@ -617,13 +622,16 @@ def resolve_mod(mod: "InstructionModifier", *, symbol_map: Dict[str, Any]) -> "I
         if is_numberish(at_tok):
             resolved_at = to_int(at_tok)
         else:
-            sym, off = parse_symbol_offset(at_tok)
-            if sym not in symbol_map:
-                raise KeyError(f"Unresolved modifier.at symbol: {sym!r} (from {at_tok!r})")
-            base = normalize_map_value(symbol_map[sym])
-            if base & 1:
-                base -= 1
-            resolved_at = base + off
+            adjusted = {name: (value - 1 if value & 1 else value)
+                        for name, raw in symbol_map.items()
+                        for value in (normalize_map_value(raw),)}
+            try:
+                resolved_at = resolve_address(at_tok, adjusted)
+            except SymbolNotFoundError as exc:
+                sym, _off = parse_symbol_offset(at_tok)
+                raise KeyError(
+                    f"Unresolved modifier.at symbol: {sym!r} (from {at_tok!r})"
+                ) from exc
 
     # --- resolve patch ---
     patch = (mod.patch or "").strip()
@@ -655,10 +663,11 @@ def resolve_mod(mod: "InstructionModifier", *, symbol_map: Dict[str, Any]) -> "I
         return InstructionModifier(at=resolved_at, patch=new_patch)
 
     # symbol resolve (supports sym+/-offset)
-    sym, off = parse_symbol_offset(rhs_s)
-    if sym in symbol_map:
-        base = normalize_map_value(symbol_map[sym])
-        rhs = hex(base + off)
+    normalized = {name: normalize_map_value(raw) for name, raw in symbol_map.items()}
+    try:
+        rhs = hex(resolve_address(rhs_s, normalized))
+    except SymbolNotFoundError:
+        pass
 
     parts = [lhs] + ([op] if op else []) + [rhs] + rest_toks
     new_patch = " ".join([p for p in parts if p]).strip()

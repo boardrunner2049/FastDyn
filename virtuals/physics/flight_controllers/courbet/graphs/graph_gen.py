@@ -1,7 +1,13 @@
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-import re
+try:
+    from utils.coverage_helpers import load_coverage_growth
+except ModuleNotFoundError:  # Direct execution from this directory.
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[5]))
+    from utils.coverage_helpers import load_coverage_growth
 
 # ============================
 # Global customization options
@@ -63,32 +69,7 @@ def plot_block_growth(block_dict):
 def parse_unique_blocks(log_path):
     # Regex for lines like:
     # [TB] Unique blocks = 1763 at time 511508035
-    pattern = re.compile(r"\[TB\]\s+Unique blocks\s*=\s*(\d+)\s+at time\s+(\d+)")
-
-    result = {}          # count -> time_ms
-    seen_counts = set()  # to ensure we only record the first time a count appears
-
-    with open(log_path, "r", errors="ignore") as f:
-        for line in f:
-            m = pattern.search(line)
-            if not m:
-                continue
-
-            count = int(m.group(1))
-            time_ms = int(m.group(2))
-
-            # Only record the first time we see this count
-            if count not in seen_counts:
-                seen_counts.add(count)
-                result[count] = time_ms
-
-    # Normalize so the first block count corresponds to time 0
-    if result:
-        first_time = min(result.values())
-        for c in result:
-            result[c] -= first_time
-
-    return result
+    return load_coverage_growth(log_path)
 
 # Example usage:py
 # d = parse_unique_blocks("/data/Code/rehosting/FastDyn/fdyn-out-lwip")

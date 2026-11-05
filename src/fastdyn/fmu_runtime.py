@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import platform
-import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
 from .fmu_build import FmuBuild, FmuConfigError, value_references
+from .fmu_metadata import parse_model_description
 
 
 @dataclass(frozen=True)
@@ -46,16 +46,15 @@ def prepare_runtime(build: FmuBuild, work_dir: Path) -> FmuRuntime:
     description = root / "modelDescription.xml"
     try:
         xml = description.read_bytes()
-        metadata = ET.fromstring(xml)
+        metadata = parse_model_description(xml)
     except (OSError, ET.ParseError) as exc:
         raise FmuConfigError(f"Cannot read FMU metadata {description}: {exc}") from exc
-    if metadata.get("fmiVersion", "").split(".")[0] != "3":
+    if metadata.fmi_version.split(".")[0] != "3":
         raise FmuConfigError(f"FMU requires FMI 3: {description}")
-    cs = metadata.find("CoSimulation")
-    identifier = cs.get("modelIdentifier", "") if cs is not None else ""
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", identifier):
+    identifier = metadata.model_identifier or ""
+    if not identifier:
         raise FmuConfigError(f"FMU has no valid CoSimulation modelIdentifier: {description}")
-    token = metadata.get("instantiationToken", "")
+    token = metadata.instantiation_token or ""
     if not token:
         raise FmuConfigError(f"FMU has no instantiationToken: {description}")
 

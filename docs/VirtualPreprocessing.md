@@ -14,6 +14,8 @@ There are two separate extension points:
 The public API is [`fastdyn.virtual_preprocessing`](../src/fastdyn/virtual_preprocessing.py).
 For a start-to-finish contributor recipe, including the native C callback and
 test workflow, see [WritingVirtuals.md](WritingVirtuals.md).
+For reusable firmware facts available through `ctx.analysis`, see the
+[Host Analysis Runtime Guide](HostAnalysisRuntimeGuide.md).
 
 ## Execution pipeline
 

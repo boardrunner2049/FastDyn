@@ -3,8 +3,6 @@ from fastdyn.binary.schema_gen import *
 from fastdyn import fastdyn_log as fastdyn_log_conf
 import struct
 import logging
-import pathlib
-from elftools.elf.elffile import ELFFile
 
 log = logging.getLogger(__name__)
 fastdyn_log = fastdyn_log_conf.getFastdynLogger()
@@ -32,7 +30,8 @@ class ChibiOSIntrospector(RTOSIntrospector, rtos_name="ChibiOS"):
         #   - ch_os_instance  : per-core OS instance (os_instance_t)
         #   - ch_ready_list   : ready list wrapper (ready_list_t)
         #   - ch_priority_queue : priority queue node/header
-        generator = SchemaGenerator(self.binary)
+        generator = (SchemaGenerator(self.binary, analysis=self.analysis)
+                     if self.analysis is not None else SchemaGenerator(self.binary))
         target_structs = [
             "ch_thread",
             "ch_system",
@@ -46,22 +45,17 @@ class ChibiOSIntrospector(RTOSIntrospector, rtos_name="ChibiOS"):
         for sym_name in ["ch_system", "ch_debug"]:
             sym = self.symbols.get(sym_name)
             address = None
-            if sym is None:
-                with open(self.binary, "rb") as elf_file:
-                    elf = ELFFile(elf_file)
-                    for section in elf.iter_sections():
-                        if section.name == ".symtab":
-                            for symbol in section.iter_symbols():
-                                if symbol.name == sym_name:
-                                    address = symbol.entry.st_value
-                                    break
+            if sym is None and self.analysis is not None:
+                matches = self.analysis.symbols.find(sym_name, kind="object")
+                if len({item.address for item in matches}) == 1:
+                    address = matches[0].address
             else:
                 address = sym.address
 
             if address is None:
                 log.warning("[ChibiOSIntrospector] Missing symbol '%s' in binary", sym_name)
                 continue
-            symbols_to_export[sym_name] = address & ~1 if address & 1 else address
+            symbols_to_export[sym_name] = address
 
         # Write the schema for fastdyn
         schema_content = generator.generate_schema(target_structs, symbols_to_export)

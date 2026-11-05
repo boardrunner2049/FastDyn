@@ -23,7 +23,8 @@ class FreeRTOSIntrospector(RTOSIntrospector, rtos_name="FreeRTOS"):
 
         # TODO: remove hardcoding requirements, i think the registeration function can return which symbols/structs need to be exported.
         # Pass the structs you know you'll need for this RTOS
-        generator = SchemaGenerator(self.binary)
+        generator = (SchemaGenerator(self.binary, analysis=self.analysis)
+                     if self.analysis is not None else SchemaGenerator(self.binary))
         target_structs = [
             "tskTaskControlBlock",
             "xLIST",

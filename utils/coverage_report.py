@@ -17,8 +17,11 @@ Usage:
 
 import re
 import argparse
-import bisect
 import os
+try:
+    from .coverage_helpers import expand_blocks, load_disassembly_pcs, load_executed_blocks
+except ImportError:  # Direct script execution.
+    from coverage_helpers import expand_blocks, load_disassembly_pcs, load_executed_blocks
 
 
 # ---------------------------------------------------------------------------
@@ -29,38 +32,12 @@ _INSN_RE = re.compile(r"^(\s*)([0-9a-fA-F]+)(:\s.*)")
 
 def parse_disasm_pcs(dis_path):
     """Return a sorted list of every instruction PC in the disassembly."""
-    pcs = []
-    with open(dis_path, "r", errors="replace") as f:
-        for line in f:
-            m = _INSN_RE.match(line)
-            if m:
-                pcs.append(int(m.group(2), 16) & ~1)
-    return sorted(pcs)
+    return load_disassembly_pcs(dis_path)
 
 
 # ---------------------------------------------------------------------------
 # 2.  Trace parser  (format: <block_pc_hex>\t<insn_count>\t<timestamp>)
 # ---------------------------------------------------------------------------
-
-def load_executed_blocks(trace_path):
-    """Return {block_pc: insn_count} from the trace file."""
-    blocks = {}
-    with open(trace_path, "r", errors="replace") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split("\t")
-            if len(parts) < 2:
-                continue
-            try:
-                pc    = int(parts[0], 16) & ~1
-                count = int(parts[1])
-                blocks[pc] = count
-            except ValueError:
-                continue
-    return blocks
-
 
 # ---------------------------------------------------------------------------
 # 3.  Block expansion
@@ -68,15 +45,10 @@ def load_executed_blocks(trace_path):
 
 def expand_executed(blocks, disasm_pcs):
     """Expand each executed block into the full set of instruction PCs."""
-    executed = set()
-    for block_pc, block_len in blocks.items():
-        idx = bisect.bisect_left(disasm_pcs, block_pc)
-        if idx >= len(disasm_pcs) or disasm_pcs[idx] != block_pc:
-            print(f"Warning: block PC 0x{block_pc:x} not found in disassembly, skipping.")
-            continue
-        for i in range(idx, min(idx + block_len, len(disasm_pcs))):
-            executed.add(disasm_pcs[i])
-    return executed
+    return expand_blocks(
+        blocks, disasm_pcs,
+        missing=lambda pc: print(f"Warning: block PC 0x{pc:x} not found in disassembly, skipping."),
+    )
 
 
 # ---------------------------------------------------------------------------
