@@ -197,6 +197,8 @@ For a new PX4 ELF:
 
 The maintained commands are documented in
 `virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/README.md`.
+Results from applying this exact configuration to PX4 v1.13.3 through v1.17.0 are recorded in
+`virtuals/physics/flight_controllers/courbet/px4/version_sweep/README.md`.
 
 ## Core FastDyn change record
 
