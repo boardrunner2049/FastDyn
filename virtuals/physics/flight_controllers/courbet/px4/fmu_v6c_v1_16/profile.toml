@@ -1,0 +1,17 @@
+# PX4 v1.16.2 / FMUv6C, using the v1.15-v1.16 floating-point GPS adapter.
+schema_version = 1
+firmware = "px4"
+elf = "../../bin/px4_fmu-v6c_v1.16.2.elf"
+labeled_conf = "labeled_conf"
+output_dir = "unlabeled_conf"
+
+[validation.symbol_addresses]
+_vectors = 0x08020000
+
+[[validation.instructions]]
+at = "hrt_tim_isr+0xc"
+bytes = "d2f81014"
+
+[[validation.instructions]]
+at = "up_timer_initialize+0xc"
+bytes = "6361"

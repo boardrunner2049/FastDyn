@@ -9,8 +9,14 @@ import tempfile
 import time
 
 COURBET = Path(__file__).resolve().parents[1]
-PROFILE = COURBET / 'px4/fmu_v6c'
 ROOT = COURBET.parents[3]
+VERSION_PROFILES = {
+    '1.13.3': ('fmu_v6c_v1_13', 'px4_fmu-v6c_v1.13.3.elf'),
+    '1.14.4': ('fmu_v6c_v1_14', 'px4_fmu-v6c_v1.14.4.elf'),
+    '1.15.4': ('fmu_v6c_v1_15', 'px4_fmu-v6c_v1.15.4.elf'),
+    '1.16.2': ('fmu_v6c_v1_16', 'px4_fmu-v6c_v1.16.2.elf'),
+    '1.17.0': ('fmu_v6c', 'px4_fmu-v6c_default.elf'),
+}
 BRIDGE_TOPICS = ('sensor_accel', 'sensor_gyro', 'sensor_baro', 'sensor_mag',
                  'sensor_gps', 'actuator_outputs_sim')
 COMMANDS = """sleep 3
@@ -29,23 +35,25 @@ echo FASTDYN_PX4_SMOKE_OK
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60)
+    parser.add_argument('--version', choices=VERSION_PROFILES, default='1.17.0')
     parser.add_argument('--auto-boot', action='store_true',
-                        help='Check direct fastdyn run with the TOML boot default and no environment override')
+                        help='Check the TOML boot default without an environment override')
     args = parser.parse_args()
+    profile_name, _ = VERSION_PROFILES[args.version]
+    profile = COURBET / 'px4' / profile_name
     (ROOT / 'out').mkdir(exist_ok=True)
     artifacts = Path(tempfile.mkdtemp(prefix='px4-smoke-', dir=ROOT / 'out'))
     logfile = artifacts / 'console.log'
     env = dict(os.environ, FASTDYN_DEBUG_PWM='1')
     if args.auto_boot:
         env.pop('FASTDYN_BRIDGE_BOOT', None)
-        command = [str(ROOT / 'fastdyn-env/bin/fastdyn'), 'run', '-c',
-                   'configs/px4_fmu_v6c_fire_p2.toml']
+        command = [str(profile / 'run.sh')]
         marker = 'FASTDYN_PX4_READY'
     else:
         boot = artifacts / 'smoke.nsh'
-        boot.write_text((PROFILE / 'boot.nsh').read_text() + COMMANDS)
+        boot.write_text((profile / 'boot.nsh').read_text() + COMMANDS)
         env['FASTDYN_BRIDGE_BOOT'] = str(boot)
-        command = [str(PROFILE / 'run.sh')]
+        command = [str(profile / 'run.sh')]
         marker = 'FASTDYN_PX4_SMOKE_OK'
     completed = False
     with logfile.open('w') as log:
@@ -58,7 +66,8 @@ def main():
             while time.monotonic() < deadline and proc.poll() is None:
                 output = logfile.read_text(errors='replace')
                 if (f'\n{marker}\n' in output and
-                        all(f'PX4 FMU bridge: {topic} connected' in output for topic in BRIDGE_TOPICS)):
+                        all(f'PX4 FMU bridge: {topic} connected' in output
+                            for topic in BRIDGE_TOPICS)):
                     completed = True
                     break
                 time.sleep(0.1)
@@ -74,8 +83,11 @@ def main():
     required = ['OS: NuttX', 'HW arch: PX4_FMU_V6C',
                 'FMU timing: init_wall=' if args.auto_boot else 'FMU timing: sim=']
     if not args.auto_boot:
-        required += ['FMU PWM input: channel=0 pwm=1180', 'latitude_deg: 40.414929',
-                     'longitude_deg: -86.932387']
+        required += ['FMU PWM input: channel=0 pwm=1180']
+        if args.version in ('1.13.3', '1.14.4'):
+            required += ['lat: 404149290', 'lon: -869323870']
+        else:
+            required += ['latitude_deg: 40.414929', 'longitude_deg: -86.932387']
     required += ['PX4 FMU bridge: ' + topic + ' connected' for topic in BRIDGE_TOPICS]
     missing = [value for value in required if value not in output]
     active = output.find('FMU PWM input: channel=0 pwm=1180')
@@ -87,9 +99,11 @@ def main():
         raise SystemExit(f'PX4 smoke FAILED: completed={completed}, missing={missing}, '
                          f'errors={errors}, motor_stopped={stopped >= 0}')
     if args.auto_boot:
-        print('PASS: direct fastdyn run, TOML auto-initialization, six FMU bridge topics')
+        print(f'PASS: PX4 v{args.version} direct run, TOML auto-initialization, '
+              'six FMU bridge topics')
     else:
-        print('PASS: ARM/NuttX boot, six FMU bridge topics, motor 1100 -> 1180 -> 1100')
+        print(f'PASS: PX4 v{args.version} ARM/NuttX boot, six FMU bridge topics, '
+              'motor 1100 -> 1180 -> 1100')
 
 
 if __name__ == '__main__':

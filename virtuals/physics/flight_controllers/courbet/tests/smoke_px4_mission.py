@@ -15,9 +15,19 @@ from tornado.httpclient import AsyncHTTPClient, HTTPClientError
 from tornado.websocket import websocket_connect
 
 ROOT = Path(__file__).resolve().parents[5]
+COURBET = ROOT / 'virtuals/physics/flight_controllers/courbet'
+VERSION_PROFILES = {
+    '1.13.3': ('fmu_v6c_v1_13', 'px4_fmu-v6c_v1.13.3.elf'),
+    '1.14.4': ('fmu_v6c_v1_14', 'px4_fmu-v6c_v1.14.4.elf'),
+    '1.15.4': ('fmu_v6c_v1_15', 'px4_fmu-v6c_v1.15.4.elf'),
+    '1.16.2': ('fmu_v6c_v1_16', 'px4_fmu-v6c_v1.16.2.elf'),
+    '1.17.0': ('fmu_v6c', 'px4_fmu-v6c_default.elf'),
+}
 
 
 async def run(args):
+    profile_name, _ = VERSION_PROFILES[args.version]
+    profile = COURBET / 'px4' / profile_name
     (ROOT / 'out').mkdir(exist_ok=True)
     artifacts = Path(tempfile.mkdtemp(prefix='px4-mission-', dir=ROOT / 'out'))
     logfile = artifacts / 'console.log'
@@ -38,8 +48,8 @@ async def run(args):
     http_ok = False
     client = AsyncHTTPClient()
     with logfile.open('w') as log, (artifacts / 'viewer.jsonl').open('w') as messages:
-        proc = subprocess.Popen([str(ROOT / 'fastdyn-env/bin/fastdyn'), 'run', '-c',
-            'configs/px4_fmu_v6c_fire_p2.toml', '--no-build-fmu', '-o', str(artifacts / 'run')],
+        proc = subprocess.Popen([str(profile / 'run.sh'), '--no-build-fmu',
+            '-o', str(artifacts / 'run')],
             cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log,
             stderr=subprocess.STDOUT, start_new_session=True)
         try:
@@ -49,8 +59,8 @@ async def run(args):
                     try:
                         response = await client.fetch(viewer, request_timeout=1)
                         http_ok = response.code == 200
-                        connection = await websocket_connect(viewer.replace('http:', 'ws:') + 'websocket/',
-                                                             connect_timeout=1)
+                        websocket = viewer.replace('http:', 'ws:') + 'websocket/'
+                        connection = await websocket_connect(websocket, connect_timeout=1)
                     except (OSError, TimeoutError, HTTPClientError):
                         await asyncio.sleep(0.2)
                         continue
@@ -91,7 +101,8 @@ async def run(args):
     if positions:
         first = positions[0]
         distance = max(math.hypot((p['lat'] - first['lat']) * 1e-7 * 111319.5,
-            (p['lon'] - first['lon']) * 1e-7 * 111319.5 * math.cos(math.radians(first['lat'] * 1e-7)))
+            (p['lon'] - first['lon']) * 1e-7 * 111319.5
+            * math.cos(math.radians(first['lat'] * 1e-7)))
             for p in positions)
     required = ['FASTDYN_PX4_READY\n', 'PX4 UART bridge: GCS peer',
                 'PX4 system=1 component=1', 'upload accepted: 5 items',
@@ -104,14 +115,17 @@ async def run(args):
                    missing=missing)
     (artifacts / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     print(json.dumps(summary, indent=2))
-    if proc.returncode != 0 or missing or not http_ok or altitude < 10 or distance < 5 or attitudes < 50:
+    if (proc.returncode != 0 or missing or not http_ok or altitude < 10
+            or distance < 5 or attitudes < 50):
         raise SystemExit(f'PX4 mission smoke FAILED: {logfile}')
-    print('PASS: real PX4 UART/UDP, typed parameters, mission, normal arming, flight, landing, viewer HTTP/WebSocket')
+    print('PASS: real PX4 UART/UDP, typed parameters, mission, normal arming, flight, '
+          'landing, viewer HTTP/WebSocket')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=240)
+    parser.add_argument('--version', choices=VERSION_PROFILES, default='1.17.0')
     parser.add_argument('--base-port', type=int, default=19551,
                         help='Three ports: firmware UDP, GCS UDP, viewer TCP')
     args = parser.parse_args()

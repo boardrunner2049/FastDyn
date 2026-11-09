@@ -8,4 +8,4 @@
 0x80208da bridge_console_available *
 0x8020eec bridge_console_receive *
 0x8020880 bridge_console_receive *
-0x817f36c bridge_px4_uorb
+0x817f36c bridge_px4_uorb gps_f64_v17

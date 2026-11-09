@@ -11,6 +11,14 @@ SITL 경계를 펌웨어 슬라이싱으로 옮길 때의 설계, 캘리브레�
 타이밍, ABI, 재현성 문제는
 [`docs/PX4FirmwareSlicing.md`](../../../../../../docs/PX4FirmwareSlicing.md)에 기록한다.
 
+이 디렉터리는 최신 기본 프로파일이다. 같은 FMUv6C/P2 설정의 버전별 프로파일은
+`fmu_v6c_v1_13`(v1.13.3), `fmu_v6c_v1_14`(v1.14.4),
+`fmu_v6c_v1_15`(v1.15.4), `fmu_v6c_v1_16`(v1.16.2)이다. 다섯 버전 모두
+정적 검증, 부트, 센서 5종과 모터 출력 브리지를 통과했다. 공통 자동 미션은
+v1.15.4-v1.17.0에서 통과하며 v1.13.3/v1.14.4의 비행 제한은
+[`version_sweep/README.md`](../version_sweep/README.md)에 기록한다. v1.12 이전에는
+FMUv6C 보드 타깃이 없으므로 더 이전 버전은 다른 Pixhawk 보드 프로파일이 필요하다.
+
 ## 실행
 
 FastDyn 디렉터리에서 준비된 ELF 주소 설정과 플러그인을 사용해 실행한다:
@@ -43,6 +51,16 @@ ELF의 심볼·DWARF ABI·명령어를 검사하고 `unlabeled_conf`를 다시 �
 `fastdyn-env/bin`을 사용한다. 필요하면 `FASTDYN_PYTHON`, `FASTDYN_CLI`로
 경로를 지정한다. GDB의 Python 지원과 pyelftools가 필요하다.
 이미 FMU를 빌드했다면 실행 인자에 `--no-build-fmu`를 추가할 수 있다.
+
+이전 버전도 같은 방식으로 해당 래퍼를 실행한다. 래퍼는 기본 TOML에서 펌웨어,
+생성된 훅 설정, 부트 파일만 바꾼 임시 TOML을 만들며 공통 머신/물리 설정은 복제하지 않는다.
+
+```bash
+./virtuals/physics/flight_controllers/courbet/px4/fmu_v6c_v1_13/run.sh
+./virtuals/physics/flight_controllers/courbet/px4/fmu_v6c_v1_14/run.sh
+./virtuals/physics/flight_controllers/courbet/px4/fmu_v6c_v1_15/run.sh
+./virtuals/physics/flight_controllers/courbet/px4/fmu_v6c_v1_16/run.sh
+```
 
 모듈을 자동 시작하지 않고 NuttX 콘솔만 열려면 빈 환경 변수로 기본값을 덮어쓴다:
 
@@ -233,6 +251,11 @@ fastdyn-env/bin/python virtuals/physics/flight_controllers/courbet/tests/smoke_p
 fastdyn-env/bin/python virtuals/physics/flight_controllers/courbet/tests/smoke_px4_fmu_v6c.py
 fastdyn-env/bin/python virtuals/physics/flight_controllers/courbet/tests/smoke_px4_mission.py
 ```
+
+스모크와 미션 스크립트는 `--version 1.13.3`부터 `--version 1.17.0`까지 받는다.
+버전별 펌웨어 슬라이싱 스모크는 모두 통과해야 한다. 미션 회귀 통과 대상은 현재
+v1.15.4, v1.16.2, v1.17.0이며 v1.13.3/v1.14.4는 버전 스윕 문서의 알려진
+estimator 비행 제한을 재현한다.
 
 첫 검사는 ArduPlane/PX4 주소 생성, 경로 해석, 누락·중복 심볼, ABI·명령어 변경,
 ELF 해시 검사, CFI 플래그 및 실패 시 기존 출력 보존을 검사한다. `--auto-boot` 검사는

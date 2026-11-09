@@ -10,4 +10,4 @@ up_dma_rxavailable bridge_console_available *
 up_rxavailable bridge_console_available *
 up_dma_receive bridge_console_receive *
 up_receive bridge_console_receive *
-_ZN4uORB10DeviceNode7publishEPK12orb_metadataPvPKv bridge_px4_uorb
+_ZN4uORB10DeviceNode7publishEPK12orb_metadataPvPKv bridge_px4_uorb gps_f64_v17

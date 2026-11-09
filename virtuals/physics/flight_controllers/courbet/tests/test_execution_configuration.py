@@ -18,6 +18,17 @@ from profiles import px4
 
 PX4_PROFILE = COURBET / 'px4/fmu_v6c'
 PX4_ELF = COURBET / 'bin/px4_fmu-v6c_default.elf'
+PX4_VERSION_PROFILES = {
+    'v1.13.3': (COURBET / 'px4/fmu_v6c_v1_13', COURBET / 'bin/px4_fmu-v6c_v1.13.3.elf',
+                'gps_i32_v13'),
+    'v1.14.4': (COURBET / 'px4/fmu_v6c_v1_14', COURBET / 'bin/px4_fmu-v6c_v1.14.4.elf',
+                'gps_i32_v14'),
+    'v1.15.4': (COURBET / 'px4/fmu_v6c_v1_15', COURBET / 'bin/px4_fmu-v6c_v1.15.4.elf',
+                'gps_f64_v15'),
+    'v1.16.2': (COURBET / 'px4/fmu_v6c_v1_16', COURBET / 'bin/px4_fmu-v6c_v1.16.2.elf',
+                'gps_f64_v15'),
+    'v1.17.0': (PX4_PROFILE, PX4_ELF, 'gps_f64_v17'),
+}
 PLANE_PROFILE = COURBET / 'ardupilot/plane462'
 PLANE_ELF = COURBET / 'bin/arduplane_v462'
 COPTER_PROFILE = COURBET / 'ardupilot/copter462'
@@ -50,6 +61,31 @@ class ConfigurationTestCase(unittest.TestCase):
     def assert_previous_outputs(self, output):
         for path in output.iterdir():
             self.assertEqual(path.read_text(), 'previous output\n')
+
+
+class PX4RuntimeConfigurationTests(ConfigurationTestCase):
+    def test_derives_version_paths_without_changing_shared_machine_or_plant(self):
+        base = COURBET.parents[3] / 'configs/px4_fmu_v6c_fire_p2.toml'
+        output = self.root / 'runtime.toml'
+        elf = self.root / 'firmware.elf'
+        execution_config = self.root / 'bindings'
+        boot = self.root / 'boot.nsh'
+        result = subprocess.run([
+            sys.executable, str(COURBET / 'px4/prepare_runtime_configuration.py'),
+            '--base', str(base), '--output', str(output), '--elf', str(elf),
+            '--execution-config', str(execution_config), '--boot', str(boot),
+        ], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = base.read_text()
+        for key, old, new in (
+                ('binary', 'virtuals/physics/flight_controllers/courbet/bin/'
+                           'px4_fmu-v6c_default.elf', elf),
+                ('existing_config_path', 'virtuals/physics/flight_controllers/courbet/'
+                                         'px4/fmu_v6c/unlabeled_conf', execution_config),
+                ('bridge_boot', 'virtuals/physics/flight_controllers/courbet/'
+                                'px4/fmu_v6c/boot.nsh', boot)):
+            expected = expected.replace(f'{key} = "{old}"', f'{key} = "{new.resolve()}"')
+        self.assertEqual(output.read_text(), expected)
 
 
 @unittest.skipUnless(PLANE_ELF.exists(), 'ArduPlane ELF not installed')
@@ -165,7 +201,7 @@ class PX4Tests(ConfigurationTestCase):
         generated = (output / 'virtuals.txt').read_text()
         poll = next(line for line in generated.splitlines() if 'bridge_console_poll' in line)
         self.assertRegex(poll, r'0x[0-9a-f]+ bridge_console_poll \*0x[0-9a-f]+,0x[0-9a-f]+,0x[0-9a-f]+$')
-        self.assertIn('bridge_px4_uorb', generated)
+        self.assertIn('bridge_px4_uorb gps_f64_v17', generated)
         self.assertIn('0x817a850 r1 8\n', (output / 'modifiers.txt').read_text())
 
     def test_regeneration_matches_active_configuration(self):
@@ -218,6 +254,34 @@ class PX4Tests(ConfigurationTestCase):
             with self.assertRaisesRegex(ValueError, 'firmware ABI mismatch'):
                 self.generate()
         self.assert_previous_outputs(output)
+
+    def test_missing_px4_gps_adapter_is_rejected(self):
+        source = self.root / 'labeled_conf/virtuals.txt'
+        source.write_text(source.read_text().replace(' gps_f64_v17', ''))
+        with self.assertRaisesRegex(ValueError, 'requires a GPS ABI argument'):
+            self.generate()
+
+    def test_mismatched_px4_gps_adapter_is_rejected(self):
+        source = self.root / 'labeled_conf/virtuals.txt'
+        source.write_text(source.read_text().replace('gps_f64_v17', 'gps_f64_v15'))
+        with self.assertRaisesRegex(ValueError, 'firmware ABI mismatch'):
+            self.generate()
+
+
+@unittest.skipUnless(all(elf.exists() for _, elf, _ in PX4_VERSION_PROFILES.values())
+                     and (shutil.which('gdb-multiarch') or shutil.which('arm-none-eabi-gdb')),
+                     'PX4 version-sweep ELFs and GDB required')
+class PX4VersionProfilesTests(ConfigurationTestCase):
+    def test_all_supported_profiles_regenerate_checked_configuration(self):
+        for version, (profile, _, adapter) in PX4_VERSION_PROFILES.items():
+            with self.subTest(version=version):
+                output = prepare_execution_configuration(
+                    profile, output_dir=self.root / version)
+                for name in ('virtuals.txt', 'modifiers.txt', 'firmware.sha256'):
+                    self.assertEqual((output / name).read_bytes(),
+                                     (profile / 'unlabeled_conf' / name).read_bytes(), name)
+                self.assertIn(f'bridge_px4_uorb {adapter}',
+                              (output / 'virtuals.txt').read_text())
 
 
 if __name__ == '__main__':

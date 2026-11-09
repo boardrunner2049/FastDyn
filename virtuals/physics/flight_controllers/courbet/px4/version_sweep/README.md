@@ -1,137 +1,134 @@
 # PX4 FMUv6C Version Sweep
 
-This sweep tests whether the maintained PX4 v1.17.0 firmware-slicing configuration can be
-reused unchanged with older PX4 flight releases. It was performed on 2026-11-09 using the
-latest stable patch tag found in each PX4 minor line that contains the
-`px4_fmu-v6c_default` target.
+FastDyn maintains five PX4 FMUv6C firmware-slicing configurations, one for the latest stable
+patch in each PX4 minor release from v1.13 through v1.17. The sweep was performed on
+2026-11-09. Every profile runs an unmodified ARM/NuttX ELF built from the named official tag;
+none of these targets is host-native SITL.
 
-The result is intentionally conservative: only v1.17.0 passes the unchanged configuration.
-Older releases are not claimed to be impossible to slice, but they need version-specific,
-reviewed profiles or bridge adapters. A failed validation gate is not bypassed to obtain a
-runtime result.
+Support has two deliberately separate levels:
 
-## Fixed slicing configuration
+- **Firmware-slicing support** means the ELF passes symbol, vector, instruction, and DWARF
+  validation, boots NuttX/PX4, connects all six FMU topics, reports sensors, and drives a
+  motor through the plant.
+- **Closed-loop flight support** additionally means the common autonomous mission completes
+  takeoff, horizontal waypoints, landing, and disarm while MAVCesium receives position and
+  attitude data.
 
-Every tag was tested against the same files used by the maintained target:
+All five configurations have firmware-slicing support. PX4 v1.15.4 through v1.17.0 also have
+closed-loop flight support. PX4 v1.13.3 and v1.14.4 expose a repeatable in-flight estimator
+limitation described below; they must not be represented as mission-qualified.
 
-- `../fmu_v6c/profile.toml`;
-- `../fmu_v6c/labeled_conf/virtuals.txt`;
-- `../fmu_v6c/labeled_conf/modifiers.txt`.
+## Supported configurations
 
-The profile keeps the same board-initialization bypasses, uORB sensor/actuator boundary,
-TIM8 HRT interrupt injection, NuttX SysTick modifier, console bridge, and ABI expectations.
-Only the input ELF and temporary output directory changed:
-
-```sh
-PYTHONPATH="$PWD/src" python3 \
-  virtuals/physics/flight_controllers/courbet/prepare_execution_configuration.py \
-  --profile virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/profile.toml \
-  --elf "$PX4_ELF" \
-  --output-dir "$TEMP_OUTPUT"
-```
-
-The generated output was kept outside the repository. No failing release replaced the
-checked-in v1.17.0 firmware or generated bindings.
-
-## Results
-
-| PX4 release | Source commit | ARM build | Unchanged slicing validation | Runtime |
+| PX4 release | Source commit | Profile | GPS adapter | Runtime result |
 | --- | --- | --- | --- | --- |
-| `v1.17.0` | `d6f12ad1c4f70ad3230afd7d86e971421e02fef4` | Pass, GCC 13.2.1 | Pass | Pass: boot, motor output, automatic boot, and closed-loop mission |
-| `v1.16.2` | `54f0455ffcd755534539a7cf33a09a20bf71d29d` | Pass, GCC 13.2.1 | Fail: `sensor_gps_s` ABI | Not run; ABI gate failed |
-| `v1.15.4` | `99c40407ffd7ac184e2d7b4b293f36f10fe561ef` | Pass, GCC 13.2.1 | Fail: `sensor_gps_s` ABI | Not run; ABI gate failed |
-| `v1.14.4` | `1555f2bd2229544c43966ab5f94879c41d8e1e01` | Pass with GCC 10.2.1; GCC 13.2.1 fails | Fail: HRT instruction contract | Not run; instruction gate failed |
-| `v1.13.3` | `1c8ab2a0d7db2d14a6f320ebd8766b5ffaea28fa` | Pass with CMake 3.24.3 and GCC 10.2.1 | Fail: HRT instruction contract | Not run; instruction gate failed |
+| `v1.13.3` | `1c8ab2a0d7db2d14a6f320ebd8766b5ffaea28fa` | `fmu_v6c_v1_13` | scaled integer v1.13 | Boot/sensor/motor pass; mission limitation |
+| `v1.14.4` | `1555f2bd2229544c43966ab5f94879c41d8e1e01` | `fmu_v6c_v1_14` | scaled integer v1.14 | Boot/sensor/motor pass; mission limitation |
+| `v1.15.4` | `99c40407ffd7ac184e2d7b4b293f36f10fe561ef` | `fmu_v6c_v1_15` | floating point v1.15/v1.16 | Full mission pass |
+| `v1.16.2` | `54f0455ffcd755534539a7cf33a09a20bf71d29d` | `fmu_v6c_v1_16` | floating point v1.15/v1.16 | Full mission pass |
+| `v1.17.0` | `d6f12ad1c4f70ad3230afd7d86e971421e02fef4` | `fmu_v6c` | floating point v1.17 | Full mission pass |
 
-All successful build products were unstripped 32-bit ARM EABI5 ELFs with DWARF information.
-Their local evidence digests are:
+The checked-in unstripped ELFs retain symbols and DWARF needed by the configuration generator:
 
 | PX4 release | ELF bytes | ELF SHA-256 |
 | --- | ---: | --- |
-| `v1.17.0` | 45,192,908 | `e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010` |
-| `v1.16.2` | 45,040,204 | `7b3b228423251cb541c89ef5fe78ab54fa1301d7867cc325dc826f5763932e3c` |
-| `v1.15.4` | 43,889,328 | `c573588b9e837d60c214c5275441cbe0c1c072b6d92dd193ff3c3331ccc9ab26` |
-| `v1.14.4` | 44,206,064 | `3b750a854e49b9c43e3aac6ef6c9418c8ccbcb8f3eec61511214df191ff23651` |
 | `v1.13.3` | 40,047,140 | `13a586afee26bc1eddb2f79b358b37fc6a4f51742022a624957c6fd59e63c225` |
+| `v1.14.4` | 44,206,064 | `3b750a854e49b9c43e3aac6ef6c9418c8ccbcb8f3eec61511214df191ff23651` |
+| `v1.15.4` | 43,889,328 | `c573588b9e837d60c214c5275441cbe0c1c072b6d92dd193ff3c3331ccc9ab26` |
+| `v1.16.2` | 45,040,204 | `7b3b228423251cb541c89ef5fe78ab54fa1301d7867cc325dc826f5763932e3c` |
+| `v1.17.0` | 45,192,908 | `e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010` |
 
-The older ELFs are evidence artifacts only and are not checked into FastDyn.
+Run a version with its wrapper, for example:
 
-## Issues by flight release
-
-### v1.17.0
-
-This is the baseline and the only release that clears symbol, vector, instruction, and DWARF
-ABI validation without changing the slicing configuration. Its runtime checks are documented
-in `../../../../../../docs/PX4FirmwareSlicing.md` and `../fmu_v6c/README.md`.
-
-The build environment still needs `setuptools<81`, because PX4's DroneCAN generator imports
-the removed `pkg_resources` API.
-
-### v1.16.2
-
-The first hard failure is the bridge ABI check:
-
-```text
-('sensor_gps_s', 'size', 144, 152)
+```bash
+virtuals/physics/flight_controllers/courbet/px4/fmu_v6c_v1_13/run.sh
+virtuals/physics/flight_controllers/courbet/px4/fmu_v6c_v1_16/run.sh
+virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/run.sh
 ```
 
-The injected position and velocity fields retain the v1.17 offsets, but `heading` is at byte
-116 rather than byte 120. v1.17 adds `system_error` at byte 116 and later adds authentication
-state, growing the structure to 152 bytes. Reusing the v1.17 bridge would therefore write the
-heading into the wrong field.
+The wrapper validates that version's bindings, builds the shared plugin, derives a temporary
+runtime TOML from `configs/px4_fmu_v6c_fire_p2.toml`, and runs the same FMUv6C machine and P2
+plant. It does not duplicate the maintained machine configuration.
 
-A shallow NuttX submodule clone also omitted the release tags required by
-`px_update_git_header.py` and failed with an `IndexError`. Fetching the NuttX tags restored
-the build. A reproducible source checkout must retain those tags, not only the pinned commit.
+## Why the sweep stops at v1.13
 
-### v1.15.4
+The cutoff is a board-target boundary, not an arbitrary software cutoff. Official PX4 tags
+`v1.12.3`, `v1.11.3`, `v1.10.2`, and `v1.9.2` do not contain `boards/px4/fmu-v6c`, so they
+cannot build `px4_fmu-v6c_default`. FMUv6C first appears in the v1.13 release line.
 
-This release has the same 144-byte GPS layout and byte-116 heading field as v1.16.2, so it
-fails the same ABI gate.
+Going further back is possible only as a new sweep over a different Pixhawk board target. It
+would need its own firmware ELF, memory map, vector address, hardware-init slices, UART choice,
+interrupt hooks, instruction signatures, and ABI validation. Re-labeling an older FMUv5 or
+FMUv4 build as this FMUv6C configuration would not be valid version support.
 
-CMake also reports a missing Python `symforce` module while probing optional functionality.
-That probe is nonfatal for `px4_fmu-v6c_default`; the firmware build completes and reaches the
-independent ABI failure. It should not be confused with the slicing rejection.
-
-### v1.14.4
-
-The current profile expects a TIM8 status-register read into `R1` at
-`hrt_tim_isr+0x0c`, immediately before the modifier at `hrt_tim_isr+0x10`. v1.14.4 has a
-different instruction and register sequence: its status read begins at `+0x0a`, uses `R2`,
-and its `+0x10` instruction writes the complemented status value. The generator stops with:
-
-```text
-hrt_tim_isr+0xc changed: review the instruction hook before regenerating
-```
-
-Applying the current modifier anyway would corrupt a live register rather than inject the
-TIM8 `CC3IF` bit. This requires a separately reviewed modifier and instruction signature.
-
-The v1.14.4 NuttX/UAVCAN code also fails under GCC 13.2.1 because an inline IRQ assembly path
-triggers `primask is used uninitialized`, promoted to an error by `-Werror`. The release-era
-GNU Arm Embedded 10.2.1 toolchain builds it successfully.
-
-Manual DWARF inspection reveals a second incompatibility behind the instruction gate:
-`sensor_gps_s` is 128 bytes, uses scaled integer `lat`, `lon`, `alt`, and `alt_ellipsoid`
-fields, and places `heading` at byte 100. The current bridge expects double-precision degrees
-and metres plus a byte-120 heading field.
+## Version-specific challenges
 
 ### v1.13.3
 
-This release shares the incompatible v1.14 HRT instruction shape, so it fails the same
-instruction-signature gate. Its GPS ABI is older again: the structure is 112 bytes, position
-and altitude are scaled integers, velocity starts at byte 68, and heading is at byte 92.
+- The HRT ISR reads TIM8 status into `R2` at `hrt_tim_isr+0x0a`; the modifier belongs at
+  `+0x0e`. Applying the v1.15+ `R1`/`+0x10` hook would corrupt a live register.
+- `sensor_gps_s` is 112 bytes. Latitude, longitude, and altitudes are scaled `int32_t` values;
+  velocity starts at byte 68 and heading is at byte 92.
+- PX4 still uses the monolithic `sih` module. The later `simulator_sih` plus separate
+  `sensor_*_sim` boot sequence does not exist, so this release has a distinct `boot.nsh`.
+- The control allocator defaults off. `SYS_CTRL_ALLOC=1` is required so HIL motor outputs use
+  the same normalized contract as the later profiles.
+- The old USB worker dereferences the absent emulated endpoint, and its local parameter
+  autosave worker attempts unsupported flash export. The profile slices those two workers;
+  console/MAVLink remain real, and parameter persistence remains explicitly out of scope.
+- The source requires GNU Arm Embedded 10.2.1. It also requires CMake 3.24.3: CMake 3.28's
+  host `LINUX` variable makes this old build define both Linux and NuttX paths and attempt to
+  include `linux/spi/spidev.h`.
+- Firmware boot, automatic boot, all six bridge topics, scaled-integer GPS, and the motor
+  `1100 -> 1180 -> 1100` smoke pass. In the common mission it takes off and moves, then reports
+  `Compass needs calibration - Land now!` and does not complete the mission. The retained
+  profile does not suppress that estimator result.
 
-There is also a host-CMake compatibility problem. With CMake 3.28.3, PX4's old
-`if(LINUX)` board test sees CMake's host `LINUX` variable and defines both `__PX4_LINUX` and
-`__PX4_NUTTX` for the ARM target. The GPS driver then tries to include the host-only
-`linux/spi/spidev.h`, which is unavailable to the cross compiler. Configuring the unchanged
-PX4 source with CMake 3.24.3 and GCC 10.2.1 produces the expected NuttX-only build.
+### v1.14.4
+
+- It shares the v1.13 HRT instruction/register shape but has a distinct 128-byte GPS ABI:
+  position begins at byte 28, velocity at byte 76, and heading at byte 100.
+- GNU Arm Embedded 13.2.1 fails an old NuttX inline-assembly warning promoted by `-Werror`;
+  GNU Arm Embedded 10.2.1 builds the official source successfully.
+- The later split simulation publishers are present, so this release shares the v1.15+
+  boot sequence.
+- Firmware boot, automatic boot, all six bridge topics, scaled-integer GPS, and the motor
+  smoke pass. The common mission reaches its first horizontal waypoint, then reports
+  `Navigation failure! Land and recalibrate sensors`, enters failsafe, lands, and disarms.
+  The final mission item is not reached.
+- Two plausible compatibility adjustments were tested and rejected: normalizing the old
+  Quad-X arm-position parameters to the v1.15 values, and forcing the old EKF2 heading-only
+  magnetometer mode. Neither completed the mission, so neither workaround is retained.
+
+### v1.15.4
+
+- The HRT hook changes to the v1.15+ `R1`/`+0x10` form.
+- `sensor_gps_s` changes from scaled integers to double-precision degrees/metres, is 144
+  bytes, and places heading at byte 116.
+- An optional CMake probe reports missing Python `symforce`; it is nonfatal for the FMUv6C
+  firmware target and must not be confused with a slicing failure.
+- The full common mission passes: 227 position samples, 253 attitude samples, 15.16 m maximum
+  relative altitude, 13.25 m maximum horizontal distance, landing, and disarm.
+
+### v1.16.2
+
+- It shares the v1.15 GPS and HRT adapters.
+- A shallow NuttX checkout omits tags used by `px_update_git_header.py` and causes an
+  `IndexError`; the pinned submodule checkout must include its tags.
+- The full common mission passes: 231 position samples, 248 attitude samples, 15.13 m maximum
+  relative altitude, 13.22 m maximum horizontal distance, landing, and disarm.
+
+### v1.17.0
+
+- `sensor_gps_s` grows to 152 bytes. Heading moves from byte 116 to byte 120 after the added
+  status fields, so the v1.15/v1.16 adapter is intentionally rejected for this ELF.
+- PX4's DroneCAN generator imports `pkg_resources`; the build environment needs
+  `setuptools<81`.
+- Static validation, boot/motor smoke, direct automatic boot, and the common mission pass.
 
 ## ABI progression
 
-The GPS changes explain why firmware slicing cannot treat a uORB boundary as a stable wire
-protocol:
+The uORB boundary is an in-process C++ ABI, not a stable wire protocol:
 
 | Release | `sensor_gps_s` size | Position representation | Velocity offset | Heading offset |
 | --- | ---: | --- | ---: | ---: |
@@ -141,31 +138,40 @@ protocol:
 | `v1.16.2` | 144 | double degrees/metres | 92 | 116 |
 | `v1.17.0` | 152 | double degrees/metres | 92 | 120 |
 
-The UART ABI used by the console bridge remains 156 bytes with `open_count` at byte 0 and
-`isconsole` at byte 4 across v1.13.3-v1.16.2. The accelerometer ABI remains 48 bytes with
-`x` at byte 20, and `actuator_outputs_s` remains 80 bytes. Those stable subsets do not make
-the complete adapter safe when either the GPS ABI or interrupt contract fails.
+The console UART ABI, accel/gyro/mag/baro subsets, and actuator-output subset remain stable
+across these five ELFs. Each GPS adapter name is nevertheless explicit in `virtuals.txt`, and
+the generator validates the selected layout against that ELF's DWARF. A missing or mismatched
+adapter fails generation before checked-in bindings are replaced.
 
-## Implications for future support
+## Verification commands
 
-Supporting these releases while preserving the SITL-equivalent boundary requires explicit
-version adapters:
+```bash
+fastdyn-env/bin/python \
+  virtuals/physics/flight_controllers/courbet/tests/test_execution_configuration.py
 
-1. Split GPS encoding between the v1.13-v1.14 scaled-integer layout, the v1.15-v1.16
-   double-precision layout, and the v1.17 layout.
-2. Define and independently validate an HRT modifier for the v1.13-v1.14 instruction shape.
-3. Pin a compatible build toolchain per release, including CMake for v1.13 and GNU Arm GCC
-   for v1.13-v1.14.
-4. Run the full boot, motor, automatic-boot, and mission suite for each adapter after all
-   static gates pass.
+for version in 1.13.3 1.14.4 1.15.4 1.16.2 1.17.0; do
+  fastdyn-env/bin/python \
+    virtuals/physics/flight_controllers/courbet/tests/smoke_px4_fmu_v6c.py \
+    --version "$version"
+  fastdyn-env/bin/python \
+    virtuals/physics/flight_controllers/courbet/tests/smoke_px4_fmu_v6c.py \
+    --version "$version" --auto-boot
+done
+```
 
-Creating a permissive ABI check or weakening the instruction signature would hide exactly the
-version drift that this sweep is intended to expose.
+Run `smoke_px4_mission.py --version VERSION` only when evaluating the stronger flight level.
+At this sweep revision it passes for `1.15.4`, `1.16.2`, and `1.17.0`; the v1.13/v1.14
+failures above are expected open limitations, not passing regressions.
 
-## Core FastDyn change record
+## Change ownership and justification
 
-This sweep makes no change to FastDyn core, the configuration schema, runtime SDK, or the
-maintained slicing configuration. It adds this evidence record only. That is deliberate:
-toolchain compatibility, PX4 uORB layouts, and version-specific HRT hooks belong to explicit
-PX4 target profiles. Adding silent compatibility behavior to core would make an unsafe older
-ELF appear supported without a separately validated adapter.
+No file under `core/`, `include/`, or `src/fastdyn/`, no TOML schema, and no generic runtime
+API changes for this sweep. The shared Courbet C flight-controller plugin gains explicit GPS
+encoders because the actual PX4 uORB ABI changes representation and offsets across releases.
+Keeping that selection in the target adapter preserves the firmware boundary and prevents a
+wrong ELF/profile pairing from silently corrupting guest memory.
+
+The common version runner and temporary-TOML generator also remain under `courbet/px4`.
+Environment expansion was not added to FastDyn's generic path parser merely for this workflow.
+Toolchain rules, HRT hooks, module boot policy, and generated bindings live in separate target
+profiles because they are firmware-version facts, not FastDyn core behavior.

@@ -129,7 +129,7 @@ device models. Start with [docs/RunningFastDyn.md](docs/RunningFastDyn.md) and
 
 - ArduPilot vehicles with FMI v3 physics, MAVCesium, and parallel campaigns
   (`fastdyn swarm`): [docs/FlightControllerSimulation.md](docs/FlightControllerSimulation.md)
-- PX4 FMUv6C ARM/NuttX firmware slicing:
+- Five PX4 FMUv6C ARM/NuttX firmware-slicing configurations (v1.13.3-v1.17.0):
   [docs/PX4FirmwareSlicing.md](docs/PX4FirmwareSlicing.md)
 - Fuzzing (LibAFL/AFLNet, OptiFuzz): [docs/Fuzzing.md](docs/Fuzzing.md)
 

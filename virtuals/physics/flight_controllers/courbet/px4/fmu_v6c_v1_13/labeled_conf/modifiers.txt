@@ -1,0 +1,37 @@
+# Board initialization bypasses for the generic Cortex-M machine.
+# Keep NuttX, px4_platform_init, uORB and the real HRT callout queue running.
+stm32_clockconfig r0 0
+stm32_clockconfig r15 r14
+stm32_lowsetup r0 0
+stm32_lowsetup r15 r14
+up_setup r0 0
+up_setup r15 r14
+up_dma_setup r0 0
+up_dma_setup r15 r14
+stm32_pwr_initbkp r0 0
+stm32_pwr_initbkp r15 r14
+board_determine_hw_info r0 -19
+board_determine_hw_info r15 r14
+board_hardfault_init r0 0
+board_hardfault_init r15 r14
+stm32_sdio_initialize r0 -19
+stm32_sdio_initialize r15 r14
+px4_platform_configure r0 0
+px4_platform_configure r15 r14
+# v1.13-v1.14 use R2 for TIM8_SR; inject CC3IF before status clearing.
+hrt_tim_isr+0xe r2 8
+# 168 MHz QEMU system clock / 1 kHz NuttX SysTick - 1.
+up_timer_initialize+0xc r3 167999
+arm_usbinitialize r0 0
+arm_usbinitialize r15 r14
+# These releases do not tolerate an absent USB-device controller in their
+# CDC/ACM worker. The profile uses USART3/UART7, so skip only the USB poll.
+_ZL17mavlink_usb_checkPv r15 r14
+up_dma_rxint r15 r14
+up_rxint r15 r14
+# Host boot.nsh replaces the hardware-only ROMFS rcS startup sequence.
+nsh_initscript r0 0
+nsh_initscript r15 r14
+# v1.13-v1.14 use this local worker instead of the later ParamAutosave class.
+# Persistent parameter storage is not modeled by this profile.
+_ZL14param_autosavev r15 r14

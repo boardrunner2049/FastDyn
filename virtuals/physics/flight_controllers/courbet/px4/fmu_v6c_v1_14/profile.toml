@@ -1,0 +1,18 @@
+# PX4 v1.14.4 / FMUv6C, using the v1.14 integer-GPS adapter.
+schema_version = 1
+firmware = "px4"
+elf = "../../bin/px4_fmu-v6c_v1.14.4.elf"
+labeled_conf = "labeled_conf"
+output_dir = "unlabeled_conf"
+
+[validation.symbol_addresses]
+_vectors = 0x08020000
+
+# v1.14 reads TIM8_SR into R2 before the hrt_tim_isr+0xe modifier.
+[[validation.instructions]]
+at = "hrt_tim_isr+0xa"
+bytes = "d3f81024"
+
+[[validation.instructions]]
+at = "up_timer_initialize+0xc"
+bytes = "6361"

@@ -28,6 +28,11 @@ fastdyn-env/bin/python virtuals/physics/flight_controllers/courbet/prepare_execu
   --profile virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/profile.toml
 ```
 
+The PX4 version sweep also supplies `fmu_v6c_v1_13`, `fmu_v6c_v1_14`,
+`fmu_v6c_v1_15`, and `fmu_v6c_v1_16`. Each has an executable `run.sh`; all use the
+same FMUv6C machine and P2 plant while selecting validated version-specific firmware,
+hooks, boot policy, and GPS ABI.
+
 `--profile` also accepts the directory containing `profile.toml`. Paths inside
 that file are relative to the file; `--elf` and `--output-dir` overrides are
 relative to the caller's working directory. Use `--output-dir /tmp/px4-conf`
@@ -54,13 +59,15 @@ courbet/
 │       ├── profile.toml
 │       ├── labeled_conf/
 │       └── unlabeled_conf/
-└── px4/fmu_v6c/
-    ├── profile.toml
-    ├── labeled_conf/
-    ├── unlabeled_conf/
-    ├── boot.nsh
-    ├── run.sh
-    └── README.md
+└── px4/
+    ├── run_profile.sh
+    ├── prepare_runtime_configuration.py
+    ├── version_sweep/README.md
+    ├── fmu_v6c/                 # PX4 v1.17.0 default
+    ├── fmu_v6c_v1_13/
+    ├── fmu_v6c_v1_14/
+    ├── fmu_v6c_v1_15/
+    └── fmu_v6c_v1_16/
 ```
 
 `profile.toml` selects `firmware = "ardupilot"` or `"px4"`, the input ELF,
@@ -111,6 +118,8 @@ PX4 run instructions and integration checks are in
 [px4/fmu_v6c/README.md](px4/fmu_v6c/README.md). The SITL-to-firmware boundary,
 fidelity limits, and version-upgrade rationale are recorded in
 [the PX4 firmware-slicing guide](../../../../docs/PX4FirmwareSlicing.md).
+The exact v1.13.3-v1.17.0 support levels and challenges are in the
+[version-sweep record](px4/version_sweep/README.md).
 
 ## Maintained Vehicle Configs
 

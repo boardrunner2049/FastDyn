@@ -2269,6 +2269,62 @@ static void bridge_write(uint32_t address, const void *value, size_t size)
     }
 }
 
+enum Px4GpsLayout {
+    PX4_GPS_I32_V13,
+    PX4_GPS_I32_V14,
+    PX4_GPS_F64_V15,
+    PX4_GPS_F64_V17,
+};
+
+static enum Px4GpsLayout bridge_px4_gps_layout(const void *udata) {
+    const char *name = udata;
+    if (name && strcmp(name, "gps_i32_v13") == 0) {
+        return PX4_GPS_I32_V13;
+    }
+    if (name && strcmp(name, "gps_i32_v14") == 0) {
+        return PX4_GPS_I32_V14;
+    }
+    if (name && strcmp(name, "gps_f64_v15") == 0) {
+        return PX4_GPS_F64_V15;
+    }
+    if (name && strcmp(name, "gps_f64_v17") == 0) {
+        return PX4_GPS_F64_V17;
+    }
+    fprintf(stderr, "PX4 bridge: unsupported GPS ABI argument\n");
+    exit(EXIT_FAILURE);
+}
+
+static void bridge_px4_gps(
+    uint32_t data, const gps_data_t *gps, enum Px4GpsLayout layout) {
+    uint32_t position_offset;
+    uint32_t velocity_offset;
+    uint32_t heading_offset;
+    if (layout == PX4_GPS_I32_V13 || layout == PX4_GPS_I32_V14) {
+        int32_t position[4] = {
+            (int32_t)llround(gps->lat * 1.e7),
+            (int32_t)llround(gps->lon * 1.e7),
+            (int32_t)llround(gps->alt * 1.e3),
+            (int32_t)llround(gps->alt * 1.e3),
+        };
+        position_offset = layout == PX4_GPS_I32_V13 ? 20 : 28;
+        velocity_offset = layout == PX4_GPS_I32_V13 ? 68 : 76;
+        heading_offset = layout == PX4_GPS_I32_V13 ? 92 : 100;
+        bridge_write(data + position_offset, position, sizeof(position));
+    } else {
+        /* The plant has no geoid model: MSL and ellipsoid altitude coincide. */
+        double position[4] = {gps->lat, gps->lon, gps->alt, gps->alt};
+        position_offset = 16;
+        velocity_offset = 92;
+        heading_offset = layout == PX4_GPS_F64_V15 ? 116 : 120;
+        bridge_write(data + position_offset, position, sizeof(position));
+    }
+    float velocity[5] = {hypot(gps->vel_n, gps->vel_e), gps->vel_n, gps->vel_e,
+                         gps->vel_d, atan2(gps->vel_e, gps->vel_n)};
+    float heading = NAN; /* no dual-antenna yaw measurement */
+    bridge_write(data + velocity_offset, velocity, sizeof(velocity));
+    bridge_write(data + heading_offset, &heading, sizeof(heading));
+}
+
 static void bridge_px4_uorb(unsigned int cpu_index, void *udata)
 {
     enum { ACCEL, GYRO, MAG, BARO, GPS, MOTORS, TOPIC_COUNT };
@@ -2340,14 +2396,7 @@ static void bridge_px4_uorb(unsigned int cpu_index, void *udata)
         gps_data_t gps;
         ok = phy_get_navsat_reading(&gps);
         if (ok) {
-            /* The plant has no geoid model: MSL and ellipsoid altitude coincide. */
-            double position[4] = {gps.lat, gps.lon, gps.alt, gps.alt};
-            float velocity[5] = {hypot(gps.vel_n, gps.vel_e), gps.vel_n, gps.vel_e,
-                                 gps.vel_d, atan2(gps.vel_e, gps.vel_n)};
-            float heading = NAN; /* no dual-antenna yaw measurement */
-            bridge_write(data + 16, position, sizeof(position));
-            bridge_write(data + 92, velocity, sizeof(velocity));
-            bridge_write(data + 120, &heading, sizeof(heading));
+            bridge_px4_gps(data, &gps, bridge_px4_gps_layout(udata));
         }
     } else if (topic == MOTORS) {
         uint32_t count;

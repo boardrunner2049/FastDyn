@@ -1,0 +1,1 @@
+../fmu_v6c/boot.nsh

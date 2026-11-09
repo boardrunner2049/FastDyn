@@ -8,7 +8,7 @@ uORB, sensor processing, EKF2, commander, navigation, and controllers continue t
 The target is real Pixhawk-target firmware on an emulated board. It is neither host-native
 PX4 SITL nor a register-complete STM32H743/Pixhawk 6C hardware model.
 
-## Pinned firmware
+## Pinned default firmware
 
 The maintained target is the newest stable PX4 release available when this profile was
 updated:
@@ -35,6 +35,27 @@ boundary for this profile.
 PX4's DroneCAN generator still imports `pkg_resources`. With contemporary Python packaging,
 the isolated PX4 build environment must pin `setuptools<81` in addition to installing
 `Tools/setup/requirements.txt`.
+
+## Version support
+
+The same FMUv6C machine and P2 plant have explicit profiles for the latest stable patch in
+five PX4 minor lines:
+
+| PX4 release | Profile directory | Verified level |
+| --- | --- | --- |
+| `v1.13.3` | `fmu_v6c_v1_13` | Static validation, boot, sensors, and motor output |
+| `v1.14.4` | `fmu_v6c_v1_14` | Static validation, boot, sensors, and motor output |
+| `v1.15.4` | `fmu_v6c_v1_15` | Full autonomous mission |
+| `v1.16.2` | `fmu_v6c_v1_16` | Full autonomous mission |
+| `v1.17.0` | `fmu_v6c` | Full autonomous mission; maintained default |
+
+The v1.13/v1.14 profiles are useful, supported firmware slices but are not described as
+mission-qualified: lateral flight triggers the estimator limitations recorded in the
+[version-sweep README](../virtuals/physics/flight_controllers/courbet/px4/version_sweep/README.md).
+
+FMUv6C first exists in PX4 v1.13. Official v1.12.3 and older stable trees do not contain the
+`px4_fmu-v6c_default` target. Extending the sweep earlier therefore requires a separate board
+profile and hardware-slicing review; it is not another version of this FMUv6C configuration.
 
 ## Why PR #52 is a reference, not an integration
 
@@ -107,20 +128,26 @@ The bridge uses PX4 uORB units, not MAVLink wire units:
 - magnetic field: gauss;
 - barometric pressure: Pa;
 - temperature: degrees Celsius;
-- GPS latitude/longitude: degrees;
-- GPS altitude: metres;
+- GPS latitude/longitude: degrees in the plant, encoded as scaled `int32_t` for v1.13/v1.14
+  and stored as doubles for v1.15+;
+- GPS altitude: metres in the plant, encoded as millimetres for v1.13/v1.14 and stored as
+  doubles for v1.15+;
 - GPS velocity: NED m/s;
 - actuator output: normalized, then mapped to the plant's PWM range.
 
 PR #52 converts pressure to hPa and GPS values to scaled integers because MAVLink requires
-those encodings. Applying those conversions at the uORB boundary would be incorrect. Every
-guest field offset used by the bridge is checked against ELF DWARF before hooks are generated.
+those encodings. At the firmware boundary the correct representation depends on that PX4
+release's in-process uORB ABI. Every selected structure size and guest field offset is checked
+against ELF DWARF before hooks are generated; a v1.17 profile cannot silently use the v1.15
+GPS adapter.
 
 ### 4. Time, rates, and sample age
 
 PR #52 is paced by host wall time. The firmware path instead advances the FMU from QEMU virtual
 time, services PX4's HRT callout queue through TIM8 IRQ 62, and runs NuttX SysTick separately.
-Host throughput may change without changing guest-visible time.
+PX4 v1.13/v1.14 use a different HRT instruction and register location than v1.15+, and each
+profile validates its own instruction bytes before installing the modifier. Host throughput
+may change without changing guest-visible time.
 
 Sensor rates are owned by the PX4 simulation publishers and work queues. The hook changes
 sample contents, not their publication schedule or timestamps. A future publisher change can
@@ -196,17 +223,24 @@ For a new PX4 ELF:
 6. Run the closed-loop mission smoke test before making flight-behavior claims.
 
 The maintained commands are documented in
-`virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/README.md`.
-Results from applying this exact configuration to PX4 v1.13.3 through v1.17.0 are recorded in
+`virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/README.md`. The smoke programs accept
+`--version 1.13.3` through `--version 1.17.0`. Results and every version-specific challenge are
+recorded in
 `virtuals/physics/flight_controllers/courbet/px4/version_sweep/README.md`.
 
 ## Core FastDyn change record
 
-This v1.17.0 upgrade makes no change to `core/`, `include/`, `src/fastdyn/`, the TOML schema,
+The v1.13-v1.17 sweep makes no change to `core/`, `include/`, `src/fastdyn/`, the TOML schema,
 or the generic runtime SDK. The existing virtual/modifier mechanism, physics API, runner, and
-ELF analysis API already provide the required capability. Changes are intentionally limited
-to the bundled PX4 firmware, target profile/generated bindings, target tests, notices, and
-documentation.
+ELF analysis API already provide the required capability. Changes are limited to bundled PX4
+firmware, target profiles/generated bindings, the shared Courbet flight-controller adapter,
+target tests, and documentation.
+
+The shared adapter change is required because `sensor_gps_s` changes from two different
+scaled-integer layouts to two floating-point layouts over these releases. The profile names
+the encoder explicitly and DWARF validates it, which is safer than guessing by structure size
+at runtime. The common runner derives a temporary version-specific TOML instead of adding
+PX4-only path substitution to FastDyn core.
 
 Avoiding a core change is deliberate: PX4-specific boot policy, uORB ABI, sensor semantics,
 and board bypasses belong to the Courbet firmware adapter. Moving them into core would violate
