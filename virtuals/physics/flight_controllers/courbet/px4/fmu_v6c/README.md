@@ -1,9 +1,15 @@
 # PX4 FMUv6C + QEMU + FastDyn P2
 
-사용자가 제공한 `courbet/bin/px4_fmu-v6c_default.elf`를 Cortex-M7에서 실행하는
-ARM/NuttX 프로파일이다. 호스트용 PX4 SITL 실행 파일로 대체하지 않는다.
-확인한 ELF의 PX4 커밋은 `0b6e4687defb353a34201951809efd3f0040a9ba`
-(`v1.17.0-rc2`)이며, 실행 시 `ver all`에서도 이 값이 출력된다.
+`courbet/bin/px4_fmu-v6c_default.elf`를 Cortex-M7에서 실행하는 ARM/NuttX
+프로파일이다. 호스트용 PX4 SITL 실행 파일로 대체하지 않는다. ELF는
+공식 PX4 `v1.17.0` 안정 태그의 `d6f12ad1c4f70ad3230afd7d86e971421e02fef4`
+커밋에서 `px4_fmu-v6c_default`로 빌드했다. 실행 시 `ver all`에서도 이
+버전과 커밋을 확인할 수 있다. 체크인된 ELF의 SHA-256은
+`e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010`이다.
+
+SITL 경계를 펌웨어 슬라이싱으로 옮길 때의 설계, 캘리브레이션, 프레임,
+타이밍, ABI, 재현성 문제는
+[`docs/PX4FirmwareSlicing.md`](../../../../../../docs/PX4FirmwareSlicing.md)에 기록한다.
 
 ## 실행
 

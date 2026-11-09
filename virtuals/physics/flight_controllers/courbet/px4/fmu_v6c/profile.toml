@@ -1,4 +1,4 @@
-# PX4 v1.17.0-rc2 / FMUv6C, using the current NuttX/uORB C adapter.
+# PX4 v1.17.0 / FMUv6C, using the current NuttX/uORB C adapter.
 # Paths are relative to this file. QEMU/FMU settings remain in configs/*.toml.
 schema_version = 1
 firmware = "px4"

@@ -166,7 +166,13 @@ class PX4Tests(ConfigurationTestCase):
         poll = next(line for line in generated.splitlines() if 'bridge_console_poll' in line)
         self.assertRegex(poll, r'0x[0-9a-f]+ bridge_console_poll \*0x[0-9a-f]+,0x[0-9a-f]+,0x[0-9a-f]+$')
         self.assertIn('bridge_px4_uorb', generated)
-        self.assertIn('0x817a7a0 r1 8\n', (output / 'modifiers.txt').read_text())
+        self.assertIn('0x817a850 r1 8\n', (output / 'modifiers.txt').read_text())
+
+    def test_regeneration_matches_active_configuration(self):
+        output = self.generate()
+        for name in ('virtuals.txt', 'modifiers.txt', 'firmware.sha256'):
+            self.assertEqual((output / name).read_bytes(),
+                             (PX4_PROFILE / 'unlabeled_conf' / name).read_bytes(), name)
 
     def test_missing_control_flow_marker_is_restored_for_console_poll(self):
         source = self.root / 'labeled_conf/virtuals.txt'

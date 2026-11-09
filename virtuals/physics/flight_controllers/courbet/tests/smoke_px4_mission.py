@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import time
 
-from tornado.httpclient import AsyncHTTPClient
+from tornado.httpclient import AsyncHTTPClient, HTTPClientError
 from tornado.websocket import websocket_connect
 
 ROOT = Path(__file__).resolve().parents[5]
@@ -51,7 +51,7 @@ async def run(args):
                         http_ok = response.code == 200
                         connection = await websocket_connect(viewer.replace('http:', 'ws:') + 'websocket/',
                                                              connect_timeout=1)
-                    except (OSError, TimeoutError):
+                    except (OSError, TimeoutError, HTTPClientError):
                         await asyncio.sleep(0.2)
                         continue
                 if pending is None:

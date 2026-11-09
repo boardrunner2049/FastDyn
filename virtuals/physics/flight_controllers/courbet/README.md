@@ -108,7 +108,9 @@ fastdyn-env/bin/python virtuals/physics/flight_controllers/courbet/tests/test_ex
 ```
 
 PX4 run instructions and integration checks are in
-[px4/fmu_v6c/README.md](px4/fmu_v6c/README.md).
+[px4/fmu_v6c/README.md](px4/fmu_v6c/README.md). The SITL-to-firmware boundary,
+fidelity limits, and version-upgrade rationale are recorded in
+[the PX4 firmware-slicing guide](../../../../docs/PX4FirmwareSlicing.md).
 
 ## Maintained Vehicle Configs
 

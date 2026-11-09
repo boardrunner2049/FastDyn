@@ -129,6 +129,8 @@ device models. Start with [docs/RunningFastDyn.md](docs/RunningFastDyn.md) and
 
 - ArduPilot vehicles with FMI v3 physics, MAVCesium, and parallel campaigns
   (`fastdyn swarm`): [docs/FlightControllerSimulation.md](docs/FlightControllerSimulation.md)
+- PX4 FMUv6C ARM/NuttX firmware slicing:
+  [docs/PX4FirmwareSlicing.md](docs/PX4FirmwareSlicing.md)
 - Fuzzing (LibAFL/AFLNet, OptiFuzz): [docs/Fuzzing.md](docs/Fuzzing.md)
 
 ## Documentation Map
@@ -163,6 +165,8 @@ device models. Start with [docs/RunningFastDyn.md](docs/RunningFastDyn.md) and
   FMUv3, vehicle selection, dry-runs, swarm execution, and legacy Docker/Gazebo.
 - `docs/FlightControllerSimulation.md`: ArduCopter/Rover/Plane with FMI v3
   physics, MAVCesium, helper processes, profiling, `fastdyn swarm`, CI.
+- `docs/PX4FirmwareSlicing.md`: PX4 SITL-to-firmware boundary mapping, pinned
+  FMUv6C firmware, fidelity limits, validation, and core-change rationale.
 - `docs/Fuzzing.md`: the fuzzing workflows (LibAFL/AFLNet, OptiFuzz).
 - `docs/FastDyn_STR_Integration.md`: schema-driven fuzzing integration guide.
 - `tests/integration/README.md`: local integration smoke and mission tests.
