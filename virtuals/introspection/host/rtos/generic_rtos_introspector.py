@@ -96,7 +96,8 @@ class _SchemaEventIntrospector(RTOSIntrospector):
         for hook in epilogue_hooks:
             self.register_epilogue_hook(hook)
 
-        generator = SchemaGenerator(self.binary)
+        generator = (SchemaGenerator(self.binary, analysis=self.analysis)
+                     if self.analysis is not None else SchemaGenerator(self.binary))
         exported_symbols = {
             name: self.symbols[name].address
             for name in self.spec.symbols

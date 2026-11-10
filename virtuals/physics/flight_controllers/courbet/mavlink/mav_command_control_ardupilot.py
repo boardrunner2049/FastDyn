@@ -69,6 +69,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--no-arm", action="store_true", help="Upload mission but do not arm")
     parser.add_argument(
+        "--rc-flight",
+        action="store_true",
+        help="Fly a short STABILIZE-mode RC throttle profile instead of relying on AUTO",
+    )
+    parser.add_argument(
         "--force-arm",
         dest="force_arm",
         action="store_true",
@@ -374,6 +379,30 @@ def request_arm(mav: mavutil.mavfile, *, force: bool) -> None:
     )
 
 
+def set_home_to_current_location(mav: mavutil.mavfile) -> None:
+    """Set home after EKF alignment so AUTO has a relative-position origin."""
+    print("[mission] setting home to current fused location", flush=True)
+    mav.mav.command_long_send(
+        mav.target_system,
+        mav.target_component,
+        mavutil.mavlink.MAV_CMD_DO_SET_HOME,
+        0,
+        1,  # use current location
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
+    ack = wait_ack(mav, mavutil.mavlink.MAV_CMD_DO_SET_HOME, timeout=10.0)
+    if ack is None:
+        raise RuntimeError("timed out setting home location")
+    if int(ack.result) != mavutil.mavlink.MAV_RESULT_ACCEPTED:
+        raise RuntimeError(f"set-home rejected with result={ack.result}")
+    print("[mission] home location accepted", flush=True)
+
+
 def handle_runtime_message(
     mav: mavutil.mavfile,
     msg: object,
@@ -414,10 +443,25 @@ def handle_runtime_message(
                 if "EKF3 IMU0 is using GPS" in text and not state.get("gps_fusing"):
                     state["gps_fusing"] = True
                     timing.mark("mission.gps_fusing", echo=True)
+                if "EKF3 IMU0 origin set" in text:
+                    state["origin_set"] = True
+                if "EKF3 IMU0 tilt alignment complete" in text:
+                    state["tilt_aligned"] = True
+                if "EKF3 IMU0 MAG0 initial yaw alignment complete" in text:
+                    state["yaw_aligned"] = True
     elif msg_type == "GLOBAL_POSITION_INT":
         rel_alt_m = msg.relative_alt / 1000.0
         if state is not None:
             state["rel_alt_m"] = rel_alt_m
+            # INT32_MAX is ArduPilot's unavailable-position sentinel.  A sane
+            # global coordinate here proves that the estimator, not merely the
+            # GPS driver, has accepted the position source.
+            state["position_valid"] = (
+                int(getattr(msg, "lat", 0)) != 0
+                and int(getattr(msg, "lon", 0)) != 0
+                and abs(int(getattr(msg, "alt", 2147483647))) < 100000000
+                and abs(int(getattr(msg, "relative_alt", 2147483647))) < 100000000
+            )
             now = time.monotonic()
             last_print_at = float(state.get("last_rel_alt_print_at", 0.0) or 0.0)
             last_print_alt = state.get("last_rel_alt_print_m")
@@ -427,6 +471,14 @@ def handle_runtime_message(
                 or abs(rel_alt_m - float(last_print_alt)) >= 1.0
             ):
                 print(f"[mission] rel_alt={rel_alt_m:.1f}m", flush=True)
+                print(
+                    "[mission] global_position "
+                    f"lat={int(getattr(msg, 'lat', 0))} "
+                    f"lon={int(getattr(msg, 'lon', 0))} "
+                    f"alt_mm={int(getattr(msg, 'alt', 0))} "
+                    f"relative_alt_mm={int(getattr(msg, 'relative_alt', 0))}",
+                    flush=True,
+                )
                 state["last_rel_alt_print_at"] = now
                 state["last_rel_alt_print_m"] = rel_alt_m
         else:
@@ -482,6 +534,12 @@ def ensure_armed_and_started(
     if timeout <= 0:
         raise ValueError("arm timeout must be positive")
 
+    # AUTO requires a fused position.  Force-arming first can leave EKF3 with
+    # an origin but no usable global position, so establish fusion while the
+    # vehicle is still disarmed.
+    wait_for_gps_fusion(mav, count, gps_fusion_timeout)
+    set_home_to_current_location(mav)
+
     print(f"[mission] ensuring armed state in {arm_mode}", flush=True)
     state: dict[str, object] = {"armed": False, "last_seq": -1}
     deadline = time.monotonic() + timeout
@@ -534,7 +592,6 @@ def ensure_armed_and_started(
     else:
         raise RuntimeError(f"timed out arming after {timeout:g}s")
 
-    wait_for_gps_fusion(mav, count, gps_fusion_timeout)
     wait_for_mode(mav, mode, count, mode_timeout)
     mav.mav.mission_set_current_send(
         mav.target_system,
@@ -562,7 +619,14 @@ def ensure_armed_and_started(
 
 def wait_for_gps_fusion(mav: mavutil.mavfile, count: int, timeout: float) -> None:
     print(f"[mission] waiting up to {timeout:g}s for EKF GPS fusion", flush=True)
-    state: dict[str, object] = {"last_seq": -1, "gps_fusing": False}
+    state: dict[str, object] = {
+        "last_seq": -1,
+        "gps_fusing": False,
+        "position_valid": False,
+        "origin_set": False,
+        "tilt_aligned": False,
+        "yaw_aligned": False,
+    }
     deadline = time.monotonic() + timeout
 
     while time.monotonic() < deadline:
@@ -570,8 +634,14 @@ def wait_for_gps_fusion(mav: mavutil.mavfile, count: int, timeout: float) -> Non
         if msg is None:
             continue
         handle_runtime_message(mav, msg, count=count, state=state)
-        if state.get("gps_fusing"):
-            print("[mission] EKF GPS fusion confirmed", flush=True)
+        fully_aligned = (
+            state.get("origin_set")
+            and state.get("tilt_aligned")
+            and state.get("yaw_aligned")
+            and state.get("position_valid")
+        )
+        if state.get("gps_fusing") or fully_aligned:
+            print("[mission] EKF GPS fusion and global position confirmed", flush=True)
             timing.mark("mission.gps_fusion_confirmed", echo=True)
             return
 
@@ -625,6 +695,41 @@ def monitor(mav: mavutil.mavfile, count: int, duration: float, *, exit_on_comple
     print("[mission] monitor timeout reached", flush=True)
 
 
+def run_rc_flight(mav: mavutil.mavfile, duration_s: float = 14.0) -> None:
+    """Exercise the real controller/ESC/plant path with a bounded RC flight."""
+    print("[mission] starting STABILIZE RC takeoff/landing profile", flush=True)
+    start_boot_ms = None
+    last_boot_ms = None
+    while start_boot_ms is None or (last_boot_ms - start_boot_ms) < duration_s * 1000:
+        msg = mav.recv_match(blocking=True, timeout=1.0)
+        if msg is None:
+            continue
+        handle_runtime_message(mav, msg)
+        if msg.get_type() != "GLOBAL_POSITION_INT":
+            continue
+        last_boot_ms = int(msg.time_boot_ms)
+        if start_boot_ms is None:
+            start_boot_ms = last_boot_ms
+        elapsed_s = (last_boot_ms - start_boot_ms) / 1000.0
+        if elapsed_s < 2.0:
+            throttle = 1800
+        elif elapsed_s < 5.0:
+            throttle = 1600
+        else:
+            throttle = 1100
+        mav.mav.rc_channels_override_send(
+            mav.target_system, mav.target_component,
+            1500, 1500, throttle, 1500,
+            0, 0, 0, 0,
+        )
+    mav.mav.rc_channels_override_send(
+        mav.target_system, mav.target_component,
+        1500, 1500, 1000, 1500,
+        0, 0, 0, 0,
+    )
+    print("[mission] RC flight profile complete", flush=True)
+
+
 def main() -> int:
     args = parse_args()
     require_file(args.param_file)
@@ -652,6 +757,8 @@ def main() -> int:
                     args.gps_fusion_timeout,
                     args.force_arm,
                 )
+                if args.rc_flight:
+                    run_rc_flight(mav)
         else:
             with timing.phase("mission.set_mode"):
                 set_mode(mav, args.mode)

@@ -168,6 +168,15 @@ void virtual_raise_irq(const VirtualContext *ctx, int irq,
     qemu_plugin_raise_irq(irq, level);
 }
 
+/* Physics is optional in a FastDyn build. A weak reference keeps the runtime
+ * SDK loadable in builds without the physics backend. */
+extern int phy_set_servo_pwm(int channel, int pwm) __attribute__((weak));
+
+int virtual_set_actuator_pwm(const VirtualContext *ctx, int channel, int pwm) {
+    (void)ctx;
+    return phy_set_servo_pwm ? phy_set_servo_pwm(channel, pwm) : 0;
+}
+
 void virtual_register_irq_hook(const VirtualContext *ctx,
                                        VirtualIrqCallback entry,
                                        VirtualIrqCallback exit) {

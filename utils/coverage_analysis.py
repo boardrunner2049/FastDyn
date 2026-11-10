@@ -4,7 +4,12 @@ import sys
 import re
 import argparse
 from collections import defaultdict
-import bisect
+try:
+    from .coverage_helpers import (disassembly_pcs, expand_blocks,
+                                   load_executed_blocks as _load_executed_blocks)
+except ImportError:  # Direct script execution.
+    from coverage_helpers import (disassembly_pcs, expand_blocks,
+                                  load_executed_blocks as _load_executed_blocks)
 
 # ------------------------------------------------------------
 # Helpers
@@ -30,29 +35,14 @@ def remap_path(path):
 # ------------------------------------------------------------
 
 def load_executed_blocks(path):
-    blocks = {}
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split("\t")
-            pc = int(parts[0], 16)
-            count = int(parts[1])
-            blocks[pc] = count
-    return blocks
+    return _load_executed_blocks(path, strict=True)
 
 # ------------------------------------------------------------
 # Parse disassembly into ordered list of PCs
 # ------------------------------------------------------------
 
 def parse_disasm_pcs(disasm_text):
-    pcs = []
-    for line in disasm_text.splitlines():
-        m = re.match(r"\s*([0-9a-fA-F]+):", line)
-        if m:
-            pcs.append(int(m.group(1), 16))
-    return pcs
+    return disassembly_pcs(disasm_text.splitlines())
 
 # ------------------------------------------------------------
 # Expand executed blocks into full instruction PCs
@@ -60,20 +50,9 @@ def parse_disasm_pcs(disasm_text):
 
 # disasm_pcs must be a sorted list of all pcs in the binary
 def expand_executed(blocks, disasm_pcs):
-    executed = set()
-
-    for block_pc in blocks:
-        block_len = blocks[block_pc]
-        idx = bisect.bisect_left(disasm_pcs, block_pc)
-        if not disasm_pcs[idx] == block_pc:
-            print("Error, block_pc not in disassembled pcs, make sure the list is sorted.")
-            exit()
-
-        # Could extend past array, but in that case something else must be wrong, and will at least let us know
-        for i in range(idx, idx + block_len):
-            executed.add(disasm_pcs[i])
-
-    return executed
+    return expand_blocks(blocks, disasm_pcs, strict_bounds=True,
+                         missing=lambda _pc: (_ for _ in ()).throw(
+                             ValueError("block_pc not in disassembled pcs")))
 
 
 # ------------------------------------------------------------

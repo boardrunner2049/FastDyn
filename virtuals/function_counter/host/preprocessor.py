@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from fnmatch import fnmatchcase
 
-from elftools.elf.elffile import ELFFile
-from elftools.elf.sections import SymbolTableSection
-
 from fastdyn.machine import VirtualInstruction
 from fastdyn.virtual_preprocessing import (
     ConfigurationHelp,
@@ -38,21 +35,8 @@ def _function_entries(ctx: RunContext) -> list[tuple[int, str]]:
     """Return one stable, executable entry point for each ELF function."""
     entries: dict[int, str] = {}
     try:
-        with ctx.binary.open("rb") as stream:
-            elf = ELFFile(stream)
-            for section in elf.iter_sections():
-                if not isinstance(section, SymbolTableSection):
-                    continue
-                for symbol in section.iter_symbols():
-                    if symbol.entry.st_info.type != "STT_FUNC" or not symbol.name:
-                        continue
-                    if symbol.entry.st_shndx == "SHN_UNDEF" or not symbol.entry.st_value:
-                        continue
-                    address = int(symbol.entry.st_value)
-                    if ctx.architecture.lower().startswith("arm"):
-                        address &= ~1  # ELF Thumb symbols carry the mode bit.
-                    if address:
-                        entries.setdefault(address, symbol.name)
+        for symbol in ctx.analysis.symbols.all(kind="function"):
+            entries.setdefault(symbol.code_address, symbol.name)
     except OSError as exc:
         raise VirtualPreparationError(
             f"function_counter cannot read firmware ELF {ctx.binary}: {exc}"

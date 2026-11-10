@@ -5,9 +5,6 @@ model Copter
   parameter Real ixx = 0.02601237985 "Gazebo gs_drone equivalent inertia xx [kg*m^2]";
   parameter Real iyy = 0.02590943825 "Gazebo gs_drone equivalent inertia yy [kg*m^2]";
   parameter Real izz = 0.045571756801 "Gazebo gs_drone equivalent inertia zz [kg*m^2]";
-  // Scalar entries remain configurable through FastDyn's FMU parameter table.
-  parameter Real inertia[3,3] = diagonal({ixx, iyy, izz})
-    "Inertia about the CG in body FLU [kg*m^2]";
   parameter Real Ct = 8.54858e-6 "Thrust coefficient [N/(rad/s)^2]";
   parameter Real Cm = 0.016 "Rotor torque/thrust ratio [m]";
   parameter Real arm_length = 0.215 "Arm length [m] (430 mm motor-to-motor wheelbase)";
@@ -33,7 +30,9 @@ model Copter
     external_moment_b = {0, 0, 0},
     ground_z = 0.0,
     vehicle_mass = mass,
-    J = inertia,
+    // Keep this explicit: the pinned Rumoca release currently emits invalid
+    // C identifiers for a parameter matrix initialized with diagonal().
+    J = {{ixx, 0, 0}, {0, iyy, 0}, {0, 0, izz}},
     gravity = 9.8,
     mag_world_enu = earth_mag_enu,
     Ct = Ct,
@@ -114,7 +113,12 @@ equation
 
   accel = {plant.accel[1], -plant.accel[2], -plant.accel[3]} + accel_bias;
   gyro = {plant.gyro[1], -plant.gyro[2], -plant.gyro[3]} + gyro_bias;
-  mean_motor_load = sum(plant.omega_m .* plant.omega_m) /
+  // Scalar expansion avoids an invalid pointer multiplication emitted by the
+  // pinned Rumoca release for sum(array .* array).
+  mean_motor_load = (plant.omega_m[1] * plant.omega_m[1] +
+                     plant.omega_m[2] * plant.omega_m[2] +
+                     plant.omega_m[3] * plant.omega_m[3] +
+                     plant.omega_m[4] * plant.omega_m[4]) /
     (4.0 * max(1.0, omega_max * omega_max));
   estimated_current_a = max(0.0,
     current_idle_a + current_per_motor_load_a * mean_motor_load);

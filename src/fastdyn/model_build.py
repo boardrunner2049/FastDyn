@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 BASE_FLAGS = ("-shared", "-fPIC", "-g", "-Werror=incompatible-pointer-types")
 STATE_DIR = ".fastdyn-build"  # depfiles and stamps, inside the output directory
-QEMU_INCLUDE_RELATIVE = "third_party/common/qemu/include"
+QEMU_INCLUDE_RELATIVES = ("third_party/common/qemu/include", "qemu/include")
 
 BUILT, UP_TO_DATE, FAILED, SKIPPED = "built", "up-to-date", "failed", "skipped"
 
@@ -265,9 +265,19 @@ def _fastdyn_cflags() -> list[str]:
     root = paths.repo_root()
     if root is not None and (root / "include" / "fastdyn" / "device_model.h").is_file():
         flags = [f"-I{root / 'include'}"]
-        qemu_include = root / QEMU_INCLUDE_RELATIVE
-        if qemu_include.is_dir():
-            flags.append(f"-I{qemu_include}")
+        qemu_include = next(
+            (root / relative for relative in QEMU_INCLUDE_RELATIVES
+             if (root / relative / "qemu" / "qemu-plugin.h").is_file()),
+            None,
+        )
+        if qemu_include is None:
+            locations = ", ".join(str(root / path) for path in QEMU_INCLUDE_RELATIVES)
+            raise ModelBuildError(
+                "QEMU plugin headers not found for the FastDyn model SDK; tried "
+                f"{locations}. Initialize third_party/common/qemu or provide the "
+                "checkout's qemu/ link."
+            )
+        flags.append(f"-I{qemu_include}")
         if _pkg_config_exists("glib-2.0"):  # qemu-plugin.h includes <glib.h>
             flags += _pkg_config("glib-2.0", "--cflags")
         return flags

@@ -1,7 +1,7 @@
 import logging
 import os
 from elftools.elf.elffile import ELFFile
-from elftools.dwarf.dwarf_expr import DWARFExprParser
+from fastdyn.host import constant_member_offset
 
 log = logging.getLogger(__name__)
 
@@ -14,13 +14,17 @@ FIELD_STRING_INLINE = 4
 FIELD_STRING_PTR = 5
 
 class SchemaGenerator:
-    def __init__(self, binary_path):
+    def __init__(self, binary_path, analysis=None):
         self.binary_path = binary_path
-        with open(binary_path, 'rb') as f:
-            elf = ELFFile(f)
-            if not elf.has_dwarf_info():
-                raise ValueError("[!] Target binary does not contain DWARF debug symbols.")
-            self.dwarf = elf.get_dwarf_info()
+        self._queries = analysis.dwarf if analysis is not None else None
+        if self._queries is not None:
+            self.dwarf = self._queries._dwarf
+        else:
+            with open(binary_path, 'rb') as f:
+                elf = ELFFile(f)
+                if not elf.has_dwarf_info():
+                    raise ValueError("[!] Target binary does not contain DWARF debug symbols.")
+                self.dwarf = elf.get_dwarf_info()
 
         # Cache DIEs by their offset for fast type lookups
         self.die_cache = self._build_die_cache()
@@ -28,9 +32,10 @@ class SchemaGenerator:
     def _build_die_cache(self):
         """Indexes all DIEs to easily follow DW_AT_type references."""
         cache = {}
-        for cu in self.dwarf.iter_CUs():
-            for die in cu.iter_DIEs():
-                cache[die.offset] = die
+        dies = (self._queries.dies() if self._queries is not None
+                else (die for cu in self.dwarf.iter_CUs() for die in cu.iter_DIEs()))
+        for die in dies:
+            cache[die.offset] = die
         return cache
 
     def generate_schema(self, target_structs, target_symbols):
@@ -148,18 +153,10 @@ class SchemaGenerator:
         if isinstance(value, int):
             return value
 
-        operations = DWARFExprParser(self.dwarf.structs).parse_expr(value)
-        if len(operations) == 1 and operations[0].op_name in {
-            "DW_OP_plus_uconst",
-            "DW_OP_constu",
-            "DW_OP_consts",
-        }:
-            return int(operations[0].args[0])
-
-        raise ValueError(
-            "Unsupported non-constant DWARF member location: "
-            f"{operations!r}"
-        )
+        offset = constant_member_offset(self.dwarf, value)
+        if offset is not None:
+            return offset
+        raise ValueError("Unsupported non-constant DWARF member location")
 
     def _get_base_type(self, die):
         """Follows DW_AT_type chains through typedefs/const/volatile to find the actual type."""

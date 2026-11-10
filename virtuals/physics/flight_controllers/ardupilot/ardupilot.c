@@ -1348,6 +1348,7 @@ void uart_write(unsigned int cpu_index, void *udata)
         free(buffer);
     }
 end:
+    ;
     uint32_t lr = qemu_get_register(ARM_V7M_LR);
     qemu_set_register(lr, ARM_V7M_PC);
 }
@@ -1386,6 +1387,7 @@ void lidar_read(unsigned int cpu_index, void *udata)
     free(buffer);
 
 end:
+    ;
     uint32_t lr = qemu_get_register(ARM_V7M_LR);
     qemu_set_register(lr, ARM_V7M_PC);
 }

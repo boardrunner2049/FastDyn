@@ -33,7 +33,7 @@ def identify_rtos(symbols):
     return rtos
 
 
-def _add_elf_symbol_table_symbols(binary, symbols):
+def _add_elf_symbol_table_symbols(binary, symbols, analysis=None):
     """Fill DWARF gaps from the ELF symbol table without replacing DWARF data.
 
     Production RTOS builds frequently keep scheduler globals in a different
@@ -41,6 +41,17 @@ def _add_elf_symbol_table_symbols(binary, symbols):
     DWARF provider intentionally ignores those ambiguous expressions, while
     the linked ELF symbol table still has an unambiguous address.
     """
+    if analysis is not None:
+        entries = analysis.symbols.all()
+        for symbol in entries:
+            if symbol.name in symbols:
+                continue
+            symbols[symbol.name] = SymbolInfo(
+                name=symbol.name, address=symbol.code_address, size=symbol.size,
+                kind="function" if symbol.kind == "function" else "variable",
+                provider=symbol.provider, confidence=0.9,
+            )
+        return symbols
     with open(binary, "rb") as elf_file:
         elf = ELFFile(elf_file)
         for section in elf.iter_sections():
@@ -49,18 +60,12 @@ def _add_elf_symbol_table_symbols(binary, symbols):
             for symbol in section.iter_symbols():
                 name = symbol.name
                 address = int(symbol.entry.st_value)
-                if not name or address == 0 or name in symbols:
+                if not name or symbol.entry.st_shndx == "SHN_UNDEF" or name in symbols:
                     continue
                 symbol_type = symbol.entry.st_info.type
                 kind = "function" if symbol_type == "STT_FUNC" else "variable"
-                symbols[name] = SymbolInfo(
-                    name=name,
-                    address=address,
-                    size=int(symbol.entry.st_size) or None,
-                    kind=kind,
-                    provider="elf-symbol-table",
-                    confidence=0.9,
-                )
+                symbols[name] = SymbolInfo(name, address, int(symbol.entry.st_size) or None,
+                                           kind, "elf-symbol-table", 0.9)
     return symbols
 
 def _load_local_introspectors():
@@ -87,7 +92,7 @@ def supported_rtos() -> frozenset[str]:
     return frozenset(RTOSIntrospector._registry)
 
 
-def introspect_rtos(binary, *, architecture="", machine="", cpu=""):
+def introspect_rtos(binary, *, architecture="", machine="", cpu="", analysis=None):
     """Inspect an ELF and return schema plus internal hook rules.
 
     This function deliberately does not mutate a FastDyn CPU object. The
@@ -95,8 +100,8 @@ def introspect_rtos(binary, *, architecture="", machine="", cpu=""):
     """
     # TODO: Add some sort of persistent storage for symbols between runs
     # Use a hash of the binary and the symbols to determine if we need to re-resolve the symbols
-    resolver = SymbolResolver([DwarfProvider()])
-    syms = _add_elf_symbol_table_symbols(binary, resolver.resolve(binary))
+    resolver = SymbolResolver([DwarfProvider(session=analysis)])
+    syms = _add_elf_symbol_table_symbols(binary, resolver.resolve(binary), analysis)
     for key, value in syms.items():
         if key in ["ch_system", "ch_debug"]:
             fastdyn_log.info(f"Found {key}: {value}")
@@ -116,7 +121,7 @@ def introspect_rtos(binary, *, architecture="", machine="", cpu=""):
     # Dynamically instantiate the correct introspector!
     introspector = RTOSIntrospector.create(
         rtos_name, None, syms, binary,
-        architecture=architecture, machine=machine, cpu=cpu,
+        architecture=architecture, machine=machine, cpu=cpu, analysis=analysis,
     )
     # Fire up the OS-specific hooks
     schema_contents = introspector.setup_hooks()

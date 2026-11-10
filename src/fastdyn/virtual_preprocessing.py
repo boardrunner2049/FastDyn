@@ -22,6 +22,7 @@ import types
 from . import paths
 from .machine import VirtualInstruction
 from .utils import parse_config as parse_helper
+from .host import AnalysisSession, AnalysisSessionPool
 
 
 log = logging.getLogger(__name__)
@@ -52,6 +53,14 @@ class VirtualContext:
     symbols: Mapping[str, int] = field(default_factory=dict)
     irq_map: Mapping[str, int] = field(default_factory=dict)
     capabilities: frozenset[str] = frozenset()
+    _analysis: AnalysisSession | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def analysis(self) -> AnalysisSession:
+        """Lazy firmware services shared by this preparation run."""
+        if self._analysis is None:
+            raise VirtualPreparationError("firmware analysis is unavailable in this context")
+        return self._analysis
 
     def resolve_symbol(self, name: str) -> int:
         try:
@@ -85,6 +94,14 @@ class RunContext:
     capabilities: frozenset[str] = frozenset()
     plugin_name: str = ""
     settings: Mapping[str, object] = field(default_factory=dict)
+    _analysis: AnalysisSession | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def analysis(self) -> AnalysisSession:
+        """Lazy firmware services shared by all preprocessors for this CPU."""
+        if self._analysis is None:
+            raise VirtualPreparationError("firmware analysis is unavailable in this context")
+        return self._analysis
 
     def artifact_path(self, relative_path: str) -> Path:
         candidate = Path(relative_path)
@@ -383,7 +400,24 @@ _register_builtin_virtuals()
 _load_run_plugins()
 
 
-def _context_for_cpu(cpu: object, workdir: Path, trigger_pc: int) -> VirtualContext:
+def _instruction_mode_for_cpu(cpu: object) -> str:
+    architecture = str(getattr(cpu, "arch")).lower()
+    machine = str(getattr(cpu, "machine")).lower()
+    if architecture == "arm" and machine == "cortexm":
+        return "thumb-mclass"
+    return "default"
+
+
+def _analysis_for_cpu(cpu: object, pool: AnalysisSessionPool) -> AnalysisSession:
+    return pool.get(
+        Path(str(getattr(cpu, "binary"))).expanduser(),
+        architecture=str(getattr(cpu, "arch")),
+        instruction_mode=_instruction_mode_for_cpu(cpu),
+    )
+
+
+def _context_for_cpu(cpu: object, workdir: Path, trigger_pc: int,
+                     pool: AnalysisSessionPool) -> VirtualContext:
     machine_obj = getattr(cpu, "machine_obj")
     return VirtualContext(
         binary=Path(str(getattr(cpu, "binary"))).expanduser(),
@@ -395,10 +429,12 @@ def _context_for_cpu(cpu: object, workdir: Path, trigger_pc: int) -> VirtualCont
         symbols=dict(getattr(cpu, "symbol_dict", {}) or {}),
         irq_map=dict(getattr(machine_obj, "irq_map", {}) or {}),
         capabilities=_capabilities_for_cpu(cpu),
+        _analysis=_analysis_for_cpu(cpu, pool),
     )
 
 
-def _run_context_for_cpu(cpu: object, workdir: Path, plugin_name: str) -> RunContext:
+def _run_context_for_cpu(cpu: object, workdir: Path, plugin_name: str,
+                         pool: AnalysisSessionPool) -> RunContext:
     machine_obj = getattr(cpu, "machine_obj")
     return RunContext(
         binary=Path(str(getattr(cpu, "binary"))).expanduser(),
@@ -413,6 +449,7 @@ def _run_context_for_cpu(cpu: object, workdir: Path, plugin_name: str) -> RunCon
         settings=dict(
             (getattr(cpu, "plugin_config", {}) or {}).get(plugin_name, {})
         ),
+        _analysis=_analysis_for_cpu(cpu, pool),
     )
 
 
@@ -439,6 +476,7 @@ def prepare_run_preprocessors(machine: object, workdir: str | Path) -> None:
     generated: dict[int, list[VirtualRule]] = {}
     artifacts: list[Path] = []
     cleanup: list[Callable[[], None]] = []
+    analysis_pool = AnalysisSessionPool()
 
     sources: dict[str, Path] = {}
     for cpu in getattr(machine, "cpus", []):
@@ -450,7 +488,7 @@ def prepare_run_preprocessors(machine: object, workdir: str | Path) -> None:
     try:
         for cpu in getattr(machine, "cpus", []):
             for definition in RUN_PREPROCESSORS.values():
-                context = _run_context_for_cpu(cpu, workdir_path, definition.name)
+                context = _run_context_for_cpu(cpu, workdir_path, definition.name, analysis_pool)
                 if not definition.enabled(context):
                     continue
                 if definition.name in sources:
@@ -465,6 +503,7 @@ def prepare_run_preprocessors(machine: object, workdir: str | Path) -> None:
     except Exception:
         for close in reversed(cleanup):
             close()
+        analysis_pool.close()
         raise
 
     # Native code of out-of-tree plugins: run plugins when enabled, plugins
@@ -478,6 +517,10 @@ def prepare_run_preprocessors(machine: object, workdir: str | Path) -> None:
     machine.virtual_libraries = libraries
     machine.generated_virtual_rules = generated
     machine.preprocessing_artifacts = artifacts
+    # Keep analysis available while virtual rules are prepared. Existing run
+    # cleanup closes plugin resources first and the shared immutable sessions last.
+    cleanup.insert(0, analysis_pool.close)
+    machine._analysis_pool = analysis_pool
     machine.preprocessing_cleanup = cleanup
     machine.preprocessing_prepared = True
 
@@ -558,7 +601,15 @@ def prepare_virtual_rules(
                 )
             args = _generic_args(cpu, parsed)
         else:
-            context = _context_for_cpu(cpu, workdir_path, trigger.at)
+            pool = getattr(getattr(cpu, "machine_obj"), "_analysis_pool", None)
+            if pool is None:
+                pool = AnalysisSessionPool()
+                machine_obj = getattr(cpu, "machine_obj")
+                machine_obj._analysis_pool = pool
+                if not hasattr(machine_obj, "preprocessing_cleanup"):
+                    machine_obj.preprocessing_cleanup = []
+                machine_obj.preprocessing_cleanup.insert(0, pool.close)
+            context = _context_for_cpu(cpu, workdir_path, trigger.at, pool)
             missing = definition.requires - context.capabilities
             if missing:
                 raise VirtualPreparationError(

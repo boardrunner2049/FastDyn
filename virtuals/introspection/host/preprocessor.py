@@ -28,6 +28,7 @@ class IntrospectionRunPreprocessor:
             architecture=ctx.architecture,
             machine=ctx.machine,
             cpu=ctx.cpu,
+            analysis=ctx.analysis,
         )
         schema_path = ctx.plugin_artifact_path("schema.txt")
         schema_path.write_text(plan.schema, encoding="utf-8")

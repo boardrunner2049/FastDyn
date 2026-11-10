@@ -516,7 +516,8 @@ def value_references(build: FmuBuild, *, xml: bytes | None = None) -> dict[str, 
     """Read named FMI value references from the generated modelDescription.xml."""
 
     try:
-        root = ET.fromstring(_model_description_xml(build) if xml is None else xml)
+        from .fmu_metadata import parse_model_description
+        metadata = parse_model_description(_model_description_xml(build) if xml is None else xml)
     except ET.ParseError as exc:
         raise FmuConfigError(f"invalid FMU modelDescription.xml for {build.name}: {exc}") from exc
 
@@ -525,24 +526,14 @@ def value_references(build: FmuBuild, *, xml: bytes | None = None) -> dict[str, 
     requested.update((build.parameters or {}).keys())
 
     refs: dict[str, int] = {}
-    for element in root.iter():
-        if element.tag.rsplit("}", 1)[-1] != "Float64":
-            continue
-        name = element.attrib.get("name")
-        raw_vr = element.attrib.get("valueReference")
-        if name in requested and raw_vr is not None:
-            if name in OPTIONAL_VALUE_REFERENCES:
-                dimensions = element.findall('Dimension')
-                if len(dimensions) != 1 or dimensions[0].get('start') != str(
-                    OPTIONAL_VALUE_REFERENCES[name]
-                ):
-                    raise FmuConfigError(f"FMU diagnostic {name!r} has an incompatible shape")
-            try:
-                refs[name] = int(raw_vr)
-            except ValueError as exc:
-                raise FmuConfigError(
-                    f"FMU variable {name!r} has invalid valueReference {raw_vr!r}"
-                ) from exc
+    for variable in metadata.variables:
+        if variable.name in requested and variable.value_reference is None:
+            raise FmuConfigError(
+                f"FMU variable {variable.name!r} has an invalid or missing valueReference"
+            )
+    for name, reference in metadata.value_references().items():
+        if name in requested:
+            refs[name] = reference
 
     missing = [name for name in REQUIRED_VALUE_REFERENCES if name not in refs]
     if missing:

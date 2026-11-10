@@ -22,6 +22,7 @@ from elftools.elf.constants import P_FLAGS
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
 from fastdyn.utils import parse_config
+from fastdyn.host import RTOS_HINT_MARKERS
 
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -32,14 +33,6 @@ _RAM_RANGES = (
 )
 _VECTOR_SECTION_NAMES = (".isr_vector", ".vector_table", ".vectors")
 _VECTOR_SYMBOL_NAMES = ("__vector_table", "g_pfnVectors", "_vectors", "_vector_table")
-_RTOS_SYMBOLS = {
-    "FreeRTOS": ("xTaskCreate", "vTaskStartScheduler", "pxCurrentTCB"),
-    "Zephyr": ("z_arm_pendsv", "z_riscv_switch", "z_current"),
-    "NuttX": ("nx_start", "nxsched_switch_context", "g_running_tasks"),
-    "ChibiOS": ("chSysInit", "chThdCreate", "chThdGetSelfX"),
-    "ThreadX": ("tx_kernel_enter", "_tx_thread_current_ptr"),
-    "RT-Thread": ("rt_thread_startup", "rt_current_thread"),
-}
 @dataclass(frozen=True)
 class LoadSegment:
     """One ELF PT_LOAD range expressed in target addresses."""
@@ -249,7 +242,7 @@ def _is_ram_address(value: int) -> bool:
 def _detect_rtos(symbols: set[str]) -> str | None:
     scores = {
         name: sum(symbol in symbols for symbol in markers)
-        for name, markers in _RTOS_SYMBOLS.items()
+        for name, markers in RTOS_HINT_MARKERS.items()
     }
     best_name, best_score = max(scores.items(), key=lambda item: item[1], default=("", 0))
     return best_name if best_score else None

@@ -11,9 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from elftools.elf.elffile import ELFFile
-from elftools.elf.sections import SymbolTableSection
-
+from fastdyn.host import AmbiguousSymbolError, SymbolNotFoundError
 from fastdyn.machine import VirtualInstruction
 from fastdyn.virtual_preprocessing import (
     ConfigurationHelp,
@@ -45,34 +43,18 @@ _ARM_REGISTERS = {f"r{index}": index for index in range(13)}
 _ARM_REGISTERS.update({"sp": 13, "lr": 14, "pc": 15})
 
 
-def _elf_symbols(ctx: RunContext) -> dict[str, int]:
+def _elf_symbols(ctx: RunContext):
     """Read the firmware's symbol table.
 
     FastDyn's generic symbol map is not populated on this path, so a plugin
     that accepts symbolic trigger names resolves them from the ELF itself.
     """
-    symbols: dict[str, int] = {}
-    thumb = ctx.architecture.lower().startswith("arm")
     try:
-        with ctx.binary.open("rb") as stream:
-            elf = ELFFile(stream)
-            for section in elf.iter_sections():
-                if not isinstance(section, SymbolTableSection):
-                    continue
-                for symbol in section.iter_symbols():
-                    if not symbol.name or symbol.entry.st_shndx == "SHN_UNDEF":
-                        continue
-                    address = int(symbol.entry.st_value)
-                    if not address:
-                        continue
-                    if thumb and symbol.entry.st_info.type == "STT_FUNC":
-                        address &= ~1  # ELF Thumb symbols carry the mode bit.
-                    symbols.setdefault(symbol.name, address)
+        return ctx.analysis.symbols
     except OSError as exc:
         raise VirtualPreparationError(
             f"world cannot read firmware ELF {ctx.binary}: {exc}"
         ) from exc
-    return symbols
 
 
 def _resolve_trigger(at: object, symbols, index: int) -> int:
@@ -91,11 +73,11 @@ def _resolve_trigger(at: object, symbols, index: int) -> int:
         pass
     table = symbols()
     try:
-        return table[token]
-    except KeyError:
-        near = ", ".join(sorted(table)[:8]) or "none"
+        return table.lookup(token).code_address
+    except (SymbolNotFoundError, AmbiguousSymbolError) as error:
+        near = ", ".join(sorted({item.name for item in table.all()})[:8]) or "none"
         raise VirtualPreparationError(
-            f"world pin trigger {token!r} is not a symbol in the firmware ELF. "
+            f"world pin trigger {token!r} cannot be resolved uniquely: {error}. "
             f"Known symbols include: {near}"
         ) from None
 
@@ -372,11 +354,12 @@ class WorldRunPreprocessor:
                 "[[CPU.cpu0.plugins.world.pins]] must be an array of tables"
             )
 
-        cached: dict[str, int] = {}
+        cached = None
 
-        def symbols() -> dict[str, int]:
-            if not cached:
-                cached.update(_elf_symbols(ctx))
+        def symbols():
+            nonlocal cached
+            if cached is None:
+                cached = _elf_symbols(ctx)
             return cached
 
         virtuals: list[VirtualInstruction] = []
