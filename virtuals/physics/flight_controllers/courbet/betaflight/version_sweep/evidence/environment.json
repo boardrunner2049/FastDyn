@@ -1,0 +1,23 @@
+{
+  "capture_scope": "Environment after initial six qualifying runs; FastDyn has uncommitted integration changes.",
+  "host": {
+    "system": "Linux",
+    "release": "6.8.0-147-generic",
+    "machine": "x86_64",
+    "processor": "x86_64"
+  },
+  "fastdyn_commit": "f9666d7f518c373e89831d8e14a6371a27fe6436",
+  "qemu_commit": "99b54836ded8dc3271eba52deee7453efc0a13b9",
+  "modelica_models_commit": "c6cf47f5cbd0bb4dc77d16d19a685e534487d0da",
+  "files": {
+    "out/fmi3/Copter/FastDyn_Copter.fmu": "d9f37218bd8aba0aa4dfa6ba1d1cb9078a5d83d45911e4f784fa12c9dd173bb9",
+    "virtuals/physics/flight_controllers/betaflight/betaflight.c": "ee7e8efb973538da6c8f4528ca52ae796bb9e5a7a86ba3f3ec887b3d0357e504",
+    "virtuals/physics/flight_controllers/betaflight/hardware.c": "f9235d56c97d88e36d8f75b5a952d10b6eb3911211f9abb5dc6766454f0e4f01"
+  },
+  "toolchain_archives": {
+    "gcc-arm-none-eabi-9-2019-q4-major-x86_64-linux.tar.bz2": "bcd840f839d5bf49279638e9f67890b2ef3a7c9c7a9b25271e83ec4ff41d177a",
+    "gcc-arm-none-eabi-9-2020-q2-update-x86_64-linux.tar.bz2": "5adc2ee03904571c2de79d5cfc0f7fe2a5c5f54f44da5b645c17ee57b217f11f",
+    "gcc-arm-none-eabi-10.3-2021.10-x86_64-linux.tar.bz2": "97dbb4f019ad1650b732faffcc881689cedc14e2b7ee863d390e0a41ef16c9a3"
+  },
+  "native_plugin_sha256": "61ab094623e962be8cb1306da8f701248fff9f10c0b312aa38f40afc12af3458"
+}

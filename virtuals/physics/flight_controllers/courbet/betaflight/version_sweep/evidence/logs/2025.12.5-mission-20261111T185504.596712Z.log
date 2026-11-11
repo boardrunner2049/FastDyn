@@ -1,0 +1,2 @@
+[ci] starting Betaflight F405 mission: config=out/betaflight/version-sweep/2025.12.5/runtime.toml log=out/betaflight/version-sweep/2025.12.5/mission.log
+[ci] Betaflight mission passed: waypoints=3/3 max_alt=15.0m landing_distance=0.10m final_alt=0.00m

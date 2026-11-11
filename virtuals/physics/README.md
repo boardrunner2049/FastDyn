@@ -20,17 +20,34 @@ Then run one of the maintained FMI v3 vehicle configs:
 fastdyn run -c configs/copter462.toml
 fastdyn run -c configs/rover462.toml
 fastdyn run -c configs/plane462.toml
+fastdyn run -c configs/betaflight_f405.toml
 ```
 
 The configs:
 
 - build the selected FMU from `third_party/common/modelica_models` with Rumoca
   when it is missing or stale,
-- run the real ArduPilot firmware image in QEMU,
+- run the selected ArduPilot or Betaflight firmware image in QEMU,
 - drive QEMU with instruction-counted simulation time,
 - publish a 1 ms board tick to the firmware,
 - start MAVProxy with the FastDyn MAVCesium adapter, and
 - for ArduCopter, upload and fly the KLAF/Purdue mission by default.
+
+The Betaflight F405 config selects MATEKF405CTR with physical MPU6000 SPI and
+BMP280 I2C sensor drivers. It runs a host RC pilot in ANGLE mode against the same
+`FastDyn.Copter` FMU. It flies a 30 m rectangle at 15 m, returns, lands, disarms,
+and stops the session. Its viewer is `http://127.0.0.1:15500/mavcesium/`; private
+UDP defaults are 15551 (firmware), 15552 (MAVProxy mission link) and 15560 (MSP).
+See [the Betaflight target](flight_controllers/courbet/betaflight/matekf405ctr/README.md)
+for configuration, runtime hooks and limits. Its flight plan is executed by
+the host helper through RC overrides; the supplied firmware's onboard flight-plan
+feature is disabled.
+
+The Betaflight viewer provides an offline ground/runway scene, quadcopter,
+planned route, flight trail and replay. It stays available for 120 s after
+landing with the simulation paused. Set `FASTDYN_BF_VIEW_SECONDS=0` for immediate
+exit, or choose a longer inspection window. Through SSH, forward TCP 15500 from
+your local computer to server loopback 15500 before opening the viewer URL.
 
 FastDyn prints the web viewer URL during startup:
 
@@ -171,6 +188,7 @@ Run the same scripts locally after setup:
 tests/integration/courbet_fmu_vehicle_smoke.sh
 tests/integration/courbet_swarm_smoke.sh
 tests/integration/courbet_mission_smoke.sh
+tests/integration/betaflight_f405_smoke.sh
 ```
 
 ## Backend Interface

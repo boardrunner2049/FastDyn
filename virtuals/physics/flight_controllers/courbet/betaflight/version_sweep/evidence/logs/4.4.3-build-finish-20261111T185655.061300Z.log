@@ -1,0 +1,7 @@
+make: Entering directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.4.3'
+/usr/bin/make -j /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.4.3/debugbin/betaflight_4.4.3_STM32F405.hex
+make[1]: Entering directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.4.3'
+make[1]: warning: -j0 forced in submake: resetting jobserver mode.
+Creating HEX /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.4.3/debugbin/betaflight_4.4.3_STM32F405.hex 
+make[1]: Leaving directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.4.3'
+make: Leaving directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.4.3'

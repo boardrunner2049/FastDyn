@@ -1,0 +1,157 @@
+make: Entering directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.4.3'
+/usr/bin/make -j ./obj/betaflight_4.4.3_STM32F405.hex
+make[1]: Entering directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.4.3'
+make[1]: warning: -j0 forced in submake: resetting jobserver mode.
+rm -f ./obj/main/STM32F405/.efhash_*
+EF HASH -> ./obj/main/STM32F405/.efhash_d41d8cd98f00b204e9800998ecf8427e
+%% startup_stm32f40xx.s 
+%% (debug) ./src/main/startup/system_stm32f4xx.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_mpu.c 
+%% (debug) ./src/main/drivers/adc_stm32f4xx.c 
+%% (debug) ./src/main/drivers/bus_i2c_stm32f4xx.c 
+%% (debug) ./src/main/drivers/bus_spi_stdperiph.c 
+%% (debug) ./src/main/drivers/dma_stm32f4xx.c 
+%% (debug) ./src/main/drivers/dshot_bitbang.c 
+%% (debug) ./src/main/drivers/dshot_bitbang_decode.c 
+%% (debug) ./src/main/drivers/dshot_bitbang_stdperiph.c 
+%% (debug) ./src/main/drivers/inverter.c 
+%% (debug) ./src/main/drivers/light_ws2811strip_stdperiph.c 
+%% (debug) ./src/main/drivers/transponder_ir_io_stdperiph.c 
+%% (debug) ./src/main/drivers/pwm_output_dshot.c 
+%% (debug) ./src/main/drivers/pwm_output_dshot_shared.c 
+%% (debug) ./src/main/drivers/serial_uart_stdperiph.c 
+%% (debug) ./src/main/drivers/serial_uart_stm32f4xx.c 
+%% (debug) ./src/main/drivers/system_stm32f4xx.c 
+%% (debug) ./src/main/drivers/timer_stm32f4xx.c 
+%% (debug) ./src/main/drivers/persistent.c 
+%% (debug) ./src/main/drivers/sdio_f4xx.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_fake.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_mpu3050.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_mpu6050.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_mpu6500.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_bmi160.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_bmi270.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_icm20649.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_icm20689.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_icm426xx.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_l3gd20.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_lsm6dso_init.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_lsm6dso.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_mpu6500.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_mpu6000.c 
+%% (debug) ./src/main/drivers/accgyro/accgyro_spi_mpu9250.c 
+%% (debug) ./src/main/drivers/accgyro/gyro_sync.c 
+%% (debug) lib/main/BoschSensortec/BMI270-Sensor-API/bmi270_maximum_fifo.c 
+%% (debug) ./src/main/drivers/barometer/barometer_2smpb_02b.c 
+%% (debug) ./src/main/drivers/barometer/barometer_bmp085.c 
+%% (debug) ./src/main/drivers/barometer/barometer_bmp280.c 
+%% (debug) ./src/main/drivers/barometer/barometer_bmp388.c 
+%% (debug) ./src/main/drivers/barometer/barometer_dps310.c 
+%% (debug) ./src/main/drivers/barometer/barometer_fake.c 
+%% (debug) ./src/main/drivers/barometer/barometer_lps.c 
+%% (debug) ./src/main/drivers/barometer/barometer_ms5611.c 
+%% (debug) ./src/main/drivers/barometer/barometer_qmp6988.c 
+%% (debug) ./src/main/drivers/compass/compass_ak8963.c 
+%% (debug) ./src/main/drivers/compass/compass_ak8975.c 
+%% (debug) ./src/main/drivers/compass/compass_fake.c 
+%% (debug) ./src/main/drivers/compass/compass_hmc5883l.c 
+%% (debug) ./src/main/drivers/compass/compass_lis3mdl.c 
+%% (debug) ./src/main/drivers/compass/compass_mpu925x_ak8963.c 
+%% (debug) ./src/main/drivers/compass/compass_qmc5883l.c 
+%% (debug) ./src/main/drivers/max7456.c 
+%% (debug) ./src/main/drivers/vtx_rtc6705.c 
+%% (debug) ./src/main/drivers/vtx_rtc6705_soft_spi.c 
+%% (debug) ./src/main/rx/cc2500_common.c 
+%% (debug) ./src/main/rx/cc2500_frsky_shared.c 
+%% (debug) ./src/main/rx/cc2500_frsky_d.c 
+%% (debug) ./src/main/rx/cc2500_frsky_x.c 
+%% (debug) ./src/main/rx/cc2500_sfhss.c 
+%% (debug) ./src/main/rx/cc2500_redpine.c 
+%% (debug) ./src/main/rx/a7105_flysky.c 
+%% (debug) ./src/main/rx/cyrf6936_spektrum.c 
+%% (debug) ./src/main/drivers/rx/expresslrs_driver.c 
+%% (debug) ./src/main/rx/expresslrs.c 
+%% (debug) ./src/main/rx/expresslrs_common.c 
+%% (debug) ./src/main/rx/expresslrs_telemetry.c 
+%% (debug) ./src/main/drivers/rx/rx_cc2500.c 
+%% (debug) ./src/main/drivers/rx/rx_a7105.c 
+%% (debug) ./src/main/drivers/rx/rx_cyrf6936.c 
+%% (debug) ./src/main/drivers/rx/rx_sx127x.c 
+%% (debug) ./src/main/drivers/rx/rx_sx1280.c 
+%% arm_bitreversal2.S 
+%% (debug) ./src/main/drivers/flash.c 
+%% (debug) ./src/main/drivers/flash_m25p16.c 
+%% (debug) ./src/main/drivers/flash_w25n01g.c 
+%% (debug) ./src/main/drivers/flash_w25m.c 
+%% (debug) ./src/main/drivers/flash_w25q128fv.c 
+%% (debug) ./src/main/io/flashfs.c 
+%% (debug) ./src/main/drivers/usb_msc_common.c 
+%% (debug) ./src/main/drivers/usb_msc_f4xx.c 
+%% (debug) ./src/main/msc/usbd_msc_desc.c 
+%% (debug) ./src/main/msc/usbd_storage.c 
+%% (debug) ./src/main/msc/usbd_storage_sd_spi.c 
+%% (debug) ./src/main/msc/usbd_storage_sdio.c 
+%% (debug) ./src/main/msc/usbd_storage_emfat.c 
+%% (debug) ./src/main/msc/emfat.c 
+%% (debug) ./src/main/msc/emfat_file.c 
+%% (debug) ./src/main/build/build_config.c 
+%% (debug) ./src/main/build/debug.c 
+%% (debug) ./src/main/build/debug_pin.c 
+%% (debug) ./src/main/build/version.c 
+%% (debug) ./src/main/target/STM32F405/target.c 
+%% (debug) ./src/main/main.c 
+%% (debug) ./src/main/pg/adc.c 
+%% (debug) ./src/main/pg/beeper.c 
+%% (debug) ./src/main/pg/beeper_dev.c 
+%% (debug) ./src/main/pg/board.c 
+%% (debug) ./src/main/pg/bus_i2c.c 
+%% (debug) ./src/main/pg/bus_quadspi.c 
+%% (debug) ./src/main/pg/bus_spi.c 
+%% (debug) ./src/main/pg/dashboard.c 
+%% (debug) ./src/main/pg/displayport_profiles.c 
+%% (debug) ./src/main/pg/dyn_notch.c 
+%% (debug) ./src/main/pg/flash.c 
+%% (debug) ./src/main/pg/gps.c 
+%% (debug) ./src/main/pg/gps_rescue.c 
+%% (debug) ./src/main/pg/gyrodev.c 
+%% (debug) ./src/main/pg/max7456.c 
+%% (debug) ./src/main/pg/mco.c 
+%% (debug) ./src/main/pg/motor.c 
+%% (debug) ./src/main/pg/msp.c 
+%% (debug) ./src/main/pg/pg.c 
+%% (debug) ./src/main/pg/pin_pull_up_down.c 
+%% (debug) ./src/main/pg/pinio.c 
+%% (debug) ./src/main/pg/piniobox.c 
+%% (debug) ./src/main/pg/rcdevice.c 
+%% (debug) ./src/main/pg/rpm_filter.c 
+%% (debug) ./src/main/pg/rx.c 
+%% (debug) ./src/main/pg/rx_pwm.c 
+%% (debug) ./src/main/pg/rx_spi.c 
+%% (debug) ./src/main/pg/rx_spi_cc2500.c 
+%% (debug) ./src/main/pg/rx_spi_expresslrs.c 
+%% (debug) ./src/main/pg/scheduler.c 
+%% (debug) ./src/main/pg/sdcard.c 
+%% (debug) ./src/main/pg/sdio.c 
+%% (debug) ./src/main/pg/serial_uart.c 
+%% (debug) ./src/main/pg/stats.c 
+%% (debug) ./src/main/pg/timerio.c 
+%% (debug) ./src/main/pg/timerup.c 
+%% (debug) ./src/main/pg/usb.c 
+%% (debug) ./src/main/pg/vcd.c 
+%% (debug) ./src/main/pg/vtx_io.c 
+%% (debug) ./src/main/pg/vtx_table.c 
+%% (debug) ./src/main/common/bitarray.c 
+%% (debug) ./src/main/common/colorconversion.c 
+%% (debug) ./src/main/common/encoding.c 
+%% (debug) ./src/main/common/crc.c 
+./src/main/drivers/flash_m25p16.c: In function 'm25p16_readStatus':
+./src/main/drivers/flash_m25p16.c:163:12: error: 'status' may be used uninitialized in this function [-Werror=maybe-uninitialized]
+  163 |     return status;
+      |            ^~~~~~
+cc1: all warnings being treated as errors
+make[1]: *** [Makefile:404: obj/main/STM32F405/drivers/flash_m25p16.o] Error 1
+make[1]: *** Waiting for unfinished jobs....
+%% (debug) ./src/main/common/explog_approx.c 
+make[1]: Leaving directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.4.3'
+make: *** [Makefile:529: hex] Error 2
+make: Leaving directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.4.3'

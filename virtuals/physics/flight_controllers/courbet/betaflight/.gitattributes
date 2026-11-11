@@ -1,0 +1,5 @@
+# Retain compiler/console evidence verbatim while collapsing generated review data.
+version_sweep/*/evidence/** linguist-generated=true -whitespace
+version_sweep/evidence/** linguist-generated=true -whitespace
+version_sweep/*/board-*.h -whitespace
+matekf405ctr/reference_flight/flight.json linguist-generated=true

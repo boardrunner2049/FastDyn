@@ -1,0 +1,83 @@
+ELF SHA-256: d571ed03e1ae69ee2677d85722e85ad22cbb3d517f1b1bb2a8273ffcebbff590
+
+Compile command reconstruction (dry-run; no rebuild):
+/opt/st/stm32cubeide_1.19.0/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.linux64_1.0.0.202410170706/tools/bin/arm-none-eabi-gcc -c -o /scratch/Fastdyn/rehosting_projects/betaflight-sweep/2026.6.2/obj/main/STM32F405_MATEKF405CTR/drivers/accgyro/accgyro_spi_mpu6000.o -mthumb -mcpu=cortex-m4 -march=armv7e-m -mfloat-abi=hard -mfpu=fpv4-sp-d16 -I./src/main -I/scratch/Fastdyn/rehosting_projects/betaflight-sweep/2026.6.2/src/config/configs/MTKS/MATEKF405CTR -I./src/platform/STM32 -I./src/platform/STM32/include -I./src/platform/STM32/startup -I./lib/main/STM32F4/Drivers/STM32F4xx_StdPeriph_Driver/inc -I./lib/main/STM32_USB_OTG_Driver/inc -I./lib/main/STM32_USB_Device_Library/Core/inc -I./lib/main/STM32_USB_Device_Library/Class/cdc/inc -I./lib/main/STM32_USB_Device_Library/Class/hid/inc -I./lib/main/STM32_USB_Device_Library/Class/hid_cdc_wrapper/inc -I./lib/main/STM32_USB_Device_Library/Class/msc/inc -I./lib/main/CMSIS/Core/Include -I./lib/main/STM32F4/Drivers/CMSIS/Device/ST/STM32F4xx -I./src/platform/STM32/vcpf4 -I./src/platform/common/stm32 -I./lib/main/MAVLink -I./src/platform/STM32/target/STM32F405 -I./lib/main/FatFS -I./lib/main/CMSIS/DSP/Include -I./lib/main/google/olc -ggdb2 -gdwarf-5 -DDEBUG -std=gnu17 -Wall -Wextra -Werror -Wunsafe-loop-optimizations -Wdouble-promotion -Wold-style-definition -ffunction-sections -fdata-sections -fno-common -DSTM32F4 -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx -DSTM32F405xx -DHSE_VALUE=8000000 -DARM_MATH_MATRIX_CHECK -DARM_MATH_ROUNDING -D__FPU_PRESENT=1 -DUNALIGNED_SUPPORT_DISABLE -DARM_MATH_CM4 -DTARGET_FLASH_SIZE=1024 -DHSE_VALUE=8000000 -D_GNU_SOURCE -DSTM32F405 -DSTM32F405 -DSTM32 -DSTM32F4 -DUSE_CONFIG '-D__FORKNAME__="betaflight"' '-D__TARGET__="STM32F405"' '-D__MCU_NAME__="STM32F405xx"' '-D__REVISION__="e0b7bb01b"' '-D__FC_VERSION__="2026.6.2"' '-D__CONFIG_REVISION__="3a406c5"' -pipe -MMD -MP -Og ./src/main/drivers/accgyro/accgyro_spi_mpu6000.c
+
+Preprocessor audit: physical MPU6000/BMP280 present; virtual gyro/acc/baro/mag/GPS and SIMULATOR_BUILD absent.
+Other relevant defines (current-meter estimator is stock, inactive with meter source NONE):
+#define USE_SPEKTRUM_VIRTUAL_RSSI 
+#define ENABLE_SIMULATOR_IMU_SYNC 0
+#define USE_VIRTUAL_CURRENT_METER 
+#define ENABLE_SIMULATOR_GYROPID_SYNC 0
+#define ENABLE_SIMULATOR 0
+#define ENABLE_SIMULATOR_MULTITHREAD 0
+#define PG_CURRENT_SENSOR_VIRTUAL_CONFIG 257
+
+Driver symbols:
+080096e8 T mpuGyroRead
+08009734 T mpuAccReadSPI
+080097f4 T mpuGyroReadSPI
+08009a46 T mpuGyroReadRegister
+0800b49e T spiSequenceStart
+0806337e T spiSequence
+08063aec T mpu6000SpiDetect
+08063bf4 t bmp280CompensatePressure
+08063d84 t bmp280Calculate
+08063e28 T bmp280Detect
+
+ELF Header:
+  Magic:   7f 45 4c 46 01 01 01 00 00 00 00 00 00 00 00 00 
+  Class:                             ELF32
+  Data:                              2's complement, little endian
+  Version:                           1 (current)
+  OS/ABI:                            UNIX - System V
+  ABI Version:                       0
+  Type:                              EXEC (Executable file)
+  Machine:                           ARM
+  Version:                           0x1
+  Entry point address:               0x8009141
+  Start of program headers:          52 (bytes into file)
+  Start of section headers:          4653536 (bytes into file)
+  Flags:                             0x5000400, Version5 EABI, hard-float ABI
+  Size of this header:               52 (bytes)
+  Size of program headers:           32 (bytes)
+  Number of program headers:         7
+  Size of section headers:           40 (bytes)
+  Number of section headers:         27
+  Section header string table index: 26
+
+Program Headers:
+  Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+  LOAD           0x001000 0x20000000 0x08000000 0x00188 0x00188 R   0x1000
+  LOAD           0x002000 0x08008000 0x08008000 0x79c1c 0x79c1c R E 0x1000
+  LOAD           0x07c188 0x20000188 0x08081c1c 0x01a84 0x01a84 RW  0x1000
+  LOAD           0x07e000 0x10000000 0x080836a0 0x00004 0x00004 RW  0x1000
+  LOAD           0x000c10 0x20001c10 0x080836a0 0x00000 0x136d8 RW  0x1000
+  LOAD           0x000004 0x10000004 0x080836a4 0x00000 0x02c2c RW  0x1000
+  LOAD           0x000c30 0x10002c30 0x10002c30 0x00000 0x00800 RW  0x1000
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     .isr_vector 
+   01     .text .ARM .pg_registry .pg_resetdata 
+   02     .data 
+   03     .fastram_data 
+   04     .bss 
+   05     .fastram_bss 
+   06     ._user_heap_stack 
+Attribute Section: aeabi
+File Attributes
+  Tag_CPU_name: "Cortex-M4"
+  Tag_CPU_arch: v7E-M
+  Tag_CPU_arch_profile: Microcontroller
+  Tag_THUMB_ISA_use: Thumb-2
+  Tag_FP_arch: VFPv4-D16
+  Tag_ABI_PCS_wchar_t: 4
+  Tag_ABI_FP_denormal: Needed
+  Tag_ABI_FP_exceptions: Needed
+  Tag_ABI_FP_number_model: IEEE 754
+  Tag_ABI_align_needed: 8-byte
+  Tag_ABI_enum_size: small
+  Tag_ABI_HardFP_use: SP only
+  Tag_ABI_VFP_args: VFP registers
+  Tag_CPU_unaligned_access: v6

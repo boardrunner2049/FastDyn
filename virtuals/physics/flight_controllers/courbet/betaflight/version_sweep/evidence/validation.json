@@ -1,0 +1,34 @@
+{
+  "final_check_utc": "2026-11-11T19:26:54.785578+00:00",
+  "focused_unit_tests": {
+    "passed": 67,
+    "failed": 0,
+    "command": "fastdyn-env/bin/python -m pytest -q tests/unit/test_betaflight_hardware.py tests/unit/test_betaflight_mission.py tests/unit/test_betaflight_sweep.py tests/unit/test_betaflight_replay.py tests/unit/test_betaflight_flight_view.py tests/unit/test_betaflight_video.py"
+  },
+  "strict_profiles_passed": [
+    "2026.6.2",
+    "2025.12.5",
+    "4.5.5",
+    "4.4.3",
+    "4.3.2",
+    "4.2.11"
+  ],
+  "postchange_run_script": {
+    "version": "2026.6.2",
+    "passed": true,
+    "wall_seconds": 73.017
+  },
+  "baseline_development_smoke": {
+    "passed": true,
+    "elf_sha256": "235afa1124b43784bebed4aa14afb883c7cb16e4fece853d771015888df5ecb7",
+    "waypoints": "3/3",
+    "max_altitude_m": 15.0,
+    "landing_distance_m": 0.1,
+    "log": "baseline-regression.log"
+  },
+  "build_script_checks": [
+    "2026.6.2",
+    "4.4.3"
+  ],
+  "note": "Reproduction checks and documentation completion are after initial qualification and are not included in the initial per-version rehosting windows."
+}

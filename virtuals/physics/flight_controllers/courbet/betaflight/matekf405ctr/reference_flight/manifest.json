@@ -1,0 +1,158 @@
+{
+  "format": "fastdyn.betaflight.reference-flight",
+  "schema_version": 1,
+  "title": "MATEKF405CTR hardware sensor reference flight",
+  "created_at_utc": "2026-11-10T22:49:35.211571+00:00",
+  "recording": {
+    "file": "flight.json",
+    "sha256": "f9ac166a8b76e4fa9e4e7c6b7eb708f0ae7862c12fc102d2c332e3d6ae3abaf2",
+    "samples": 418,
+    "duration_seconds": 69.12593756988645,
+    "position_source": "firmware MAVLink GLOBAL_POSITION_INT",
+    "units": {
+      "t": "wall seconds since first recorded position",
+      "lat_lon": "degrees",
+      "alt": "metres WGS84 in this plant",
+      "attitude": "radians",
+      "speed_climb": "metres/second"
+    }
+  },
+  "runtime": {
+    "file": "runtime.toml",
+    "sha256": "c8b725f888587e04f71082c95b68a6733c0ff5a78d103b3f5443c07f83dd4932",
+    "original_config_path": "configs/betaflight_f405.toml"
+  },
+  "mission": {
+    "altitude_m": 15.0,
+    "waypoints_ne_m": [
+      [
+        30.0,
+        0.0
+      ],
+      [
+        30.0,
+        30.0
+      ],
+      [
+        0.0,
+        30.0
+      ]
+    ],
+    "home_lat_lon_alt": [
+      40.414929,
+      -86.932387,
+      149.09
+    ]
+  },
+  "result": {
+    "waypoints_reached": 3,
+    "planned_waypoints": 3,
+    "max_relative_altitude_m": 15.049999999999983,
+    "final_relative_altitude_m": 0.0,
+    "final_horizontal_distance_m": 0.0687122525182579,
+    "armed_at_completion": false
+  },
+  "provenance": {
+    "captured_at_utc": "2026-11-10T22:49:35.210609+00:00",
+    "config_path": "configs/betaflight_f405.toml",
+    "components": [
+      {
+        "role": "runtime_config",
+        "path": "configs/betaflight_f405.toml",
+        "sha256": "c8b725f888587e04f71082c95b68a6733c0ff5a78d103b3f5443c07f83dd4932"
+      },
+      {
+        "role": "firmware",
+        "path": "virtuals/physics/flight_controllers/courbet/betaflight/matekf405ctr/bin/betaflight_STM32F405_MATEKF405CTR.elf",
+        "sha256": "235afa1124b43784bebed4aa14afb883c7cb16e4fece853d771015888df5ecb7"
+      },
+      {
+        "role": "profile",
+        "path": "virtuals/physics/flight_controllers/courbet/betaflight/matekf405ctr/profile.toml",
+        "sha256": "ec14ffb6c081fab9047799321580f48a60ab5395e55015eccef8f07bd7932811"
+      },
+      {
+        "role": "sensor_rules",
+        "path": "virtuals/physics/flight_controllers/courbet/betaflight/matekf405ctr/labeled_conf/virtuals.txt",
+        "sha256": "70ffdd33a649fd42ce27d0491e6262557c7d6926a388bbb2cc7bd7075ed06e25"
+      },
+      {
+        "role": "hardware_substitutions",
+        "path": "virtuals/physics/flight_controllers/courbet/betaflight/matekf405ctr/labeled_conf/modifiers.txt",
+        "sha256": "c948d1f4eb98122cce14627f9393d0f873d16e12444f4c8de8fc7d02d57716df"
+      },
+      {
+        "role": "adapter_source",
+        "path": "virtuals/physics/flight_controllers/betaflight/betaflight.c",
+        "sha256": "3b1e439e0c570d994f17d4300274f70e6d425c684fe8bae885b3cf12804c10ab"
+      },
+      {
+        "role": "adapter_source",
+        "path": "virtuals/physics/flight_controllers/betaflight/hardware.c",
+        "sha256": "b9bea0b1bd46a5e4c569dc8e424d6a7cdb45f87edc09e5d15b95e6e9f90f3260"
+      },
+      {
+        "role": "adapter_source",
+        "path": "virtuals/physics/flight_controllers/courbet/mavlink/mav_mission_betaflight.py",
+        "sha256": "1baeb2efbed1d765d2ff3bfa129cb48de886df103acfd4d38b9c4e4e853ded28"
+      },
+      {
+        "role": "adapter_source",
+        "path": "virtuals/physics/flight_controllers/courbet/profiles/betaflight/__init__.py",
+        "sha256": "f0514567160e097cadc3d04ad40990189aac318683608a47c092df03f744b8b0"
+      },
+      {
+        "role": "physics_source",
+        "path": "modelica/FastDyn/Copter.mo",
+        "sha256": "06e345d8d5a714a6cde94f0744365d1d5c38954423a0fdd068cf6a9e111d7f87"
+      }
+    ],
+    "checkouts_at_capture": {
+      "fastdyn": {
+        "commit": "f9666d7f518c373e89831d8e14a6371a27fe6436",
+        "tracked_changes": true
+      },
+      "betaflight": {
+        "commit": "5ce286c9676348494224837959b1bf742041279f",
+        "tracked_changes": false
+      },
+      "board_configs": {
+        "commit": "cacb3a06d7d90abd9c71255318ee95a59fa333f7",
+        "tracked_changes": false
+      },
+      "modelica_models": {
+        "commit": "c6cf47f5cbd0bb4dc77d16d19a685e534487d0da",
+        "tracked_changes": false
+      }
+    },
+    "physics": {
+      "model": "FastDyn.Copter",
+      "parameters": {
+        "lat0": 40.414929,
+        "lon0": -86.932387,
+        "ground_alt_wgs84": 149.0,
+        "pwm_min": 1100.0,
+        "pwm_max": 1900.0,
+        "omega_max": 1300.0,
+        "mass": 2.5644001,
+        "ixx": 0.02601237985,
+        "iyy": 0.02590943825,
+        "izz": 0.045571756801,
+        "Ct": 8.54858e-06,
+        "Cm": 0.016,
+        "Cn_r": -0.1
+      }
+    },
+    "timing": {
+      "firmware": "QEMU instruction-counted virtual time",
+      "host_pilot": "monotonic wall time; mission reruns are not bit-for-bit deterministic"
+    },
+    "captured_during_run": false,
+    "observed_slicing_rules_match": true
+  },
+  "reproduction": {
+    "visual_replay": "serve the saved flight samples; QEMU and the FMU are not started",
+    "mission_rerun": "run the saved configuration and route with validated firmware/source components",
+    "determinism": "host RC scheduling uses wall time; a rerun need not reproduce the same trajectory exactly"
+  }
+}

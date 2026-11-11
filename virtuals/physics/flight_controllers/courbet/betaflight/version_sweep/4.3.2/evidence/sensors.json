@@ -1,0 +1,7 @@
+{
+  "mpu_reads": 806135,
+  "bmp_reads": 3582,
+  "min_pressure_pa": 99345.0,
+  "max_pressure_pa": 99546.6,
+  "peak_gyro_dps": 66.4
+}

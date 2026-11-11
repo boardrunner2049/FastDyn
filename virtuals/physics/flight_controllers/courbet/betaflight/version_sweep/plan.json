@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "survey_started_utc": "2026-11-11T18:34:44Z",
+  "baseline": "2026.12.0 development / 5ce286c9676348494224837959b1bf742041279f",
+  "sensor_combination": "STM32F405 / MPU6000 SPI1 CW270 / BMP280 I2C1",
+  "versions": [
+    {"tag": "2026.6.2", "commit": "e0b7bb01b17b21351057e9ead2d1ab39dd44fa16", "config_commit": "3a406c5c30c20d7c3bc7dd5ed547cca961baf0a9", "board": "MATEKF405CTR", "gcc": "13.3.1"},
+    {"tag": "2025.12.5", "commit": "7348054f268f0058574719c134e9f149565bb8ea", "config_commit": "92c695af8a2756d75152b54959de28d48fc25cf7", "board": "MATEKF405CTR", "gcc": "13.3.1"},
+    {"tag": "4.5.5", "commit": "4adbd3ef7cb546947600e5f747bd5453c9573063", "config_commit": "92c695af8a2756d75152b54959de28d48fc25cf7", "board": "MATEKF405CTR", "gcc": "10.3.1"},
+    {"tag": "4.4.3", "commit": "738127e7e11da587f63b9531ec732a37bdb436b0", "board": "STM32F405 + MTKS-MATEKF405CTR unified configuration", "gcc": "10.3.1"},
+    {"tag": "4.3.2", "commit": "60c9521da6072e6c891bd30fd772e91a790f0b53", "board": "MATEKF405 legacy board target", "gcc": "9.3.1"},
+    {"tag": "4.2.11", "commit": "948ba6339766851806d7637370829ea0ff74c690", "board": "MATEKF405 legacy board target", "gcc": "9.2.1"}
+  ]
+}

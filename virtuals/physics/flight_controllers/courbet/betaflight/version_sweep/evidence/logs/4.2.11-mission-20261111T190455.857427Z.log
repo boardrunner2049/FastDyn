@@ -1,0 +1,3 @@
+[ci] starting Betaflight F405 mission: config=out/betaflight/version-sweep/4.2.11/runtime.toml log=out/betaflight/version-sweep/4.2.11/mission.log
+[ci] Betaflight smoke failed: FMU ready, FMU loaded, FMU advancement, 1 ms SysTick, MAVCesium, Betaflight heartbeat, viewer HTTP ready, completion, CLIMB, NAV, RTH, LAND, SETTLE, DISARM, viewer recording
+

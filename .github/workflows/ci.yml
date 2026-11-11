@@ -26,7 +26,7 @@ jobs:
           sudo apt-get install -y \
             build-essential cmake git meson ninja-build pkg-config python3-venv \
             libglib2.0-dev libcjson-dev libpixman-1-dev libfdt-dev zlib1g-dev flex bison \
-            gcc-arm-none-eabi nasm llvm lld
+            gcc-arm-none-eabi gdb-multiarch nasm llvm lld
 
       - name: Set up and build (README, step 2)
         run: |

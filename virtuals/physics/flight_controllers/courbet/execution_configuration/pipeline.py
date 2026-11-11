@@ -7,14 +7,14 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib
 
-from profiles import ardupilot, px4
+from profiles import ardupilot, betaflight, px4
 
 from .elf import FirmwareELF
 from .rules import compile_rules
 from .validation import validate_target
 
 
-FIRMWARES = {'ardupilot': ardupilot, 'px4': px4}
+FIRMWARES = {'ardupilot': ardupilot, 'px4': px4, 'betaflight': betaflight}
 
 
 def prepare_execution_configuration(profile_path, *, elf_path=None, output_dir=None):
@@ -36,7 +36,7 @@ def prepare_execution_configuration(profile_path, *, elf_path=None, output_dir=N
         raise ValueError('profile schema_version must be 1')
     firmware_name = profile.get('firmware')
     if not isinstance(firmware_name, str) or firmware_name not in FIRMWARES:
-        raise ValueError('profile firmware must be ardupilot or px4')
+        raise ValueError('profile firmware must be ardupilot, px4 or betaflight')
     firmware = FIRMWARES[firmware_name]
 
     def relative_path(key, default=None):

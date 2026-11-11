@@ -1,0 +1,5 @@
+make: Entering directory '/scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/sources/4.4.3'
+rm -f /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/builds/4.4.3/20261111T191251.427903Z/obj/STM32F405/.efhash_*
+EF HASH -> /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/builds/4.4.3/20261111T191251.427903Z/obj/STM32F405/.efhash_d41d8cd98f00b204e9800998ecf8427e
+%% (debug) ./src/main/drivers/flash_m25p16.c 
+make: Leaving directory '/scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/sources/4.4.3'

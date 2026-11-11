@@ -1,0 +1,393 @@
+{
+  "version": {
+    "tag": "2026.6.2",
+    "commit": "e0b7bb01b17b21351057e9ead2d1ab39dd44fa16",
+    "config_commit": "3a406c5c30c20d7c3bc7dd5ed547cca961baf0a9",
+    "board": "MATEKF405CTR",
+    "gcc": "13.3.1"
+  },
+  "elf_sha256": "d571ed03e1ae69ee2677d85722e85ad22cbb3d517f1b1bb2a8273ffcebbff590",
+  "expected": {
+    "serialPort_s": [
+      60,
+      {
+        "vTable": 0,
+        "mode": 4,
+        "options": 5,
+        "baudRate": 8,
+        "rxBufferSize": 12,
+        "txBufferSize": 16,
+        "rxBuffer": 20,
+        "txBuffer": 24,
+        "rxBufferHead": 28,
+        "rxBufferTail": 32,
+        "txBufferHead": 36,
+        "txBufferTail": 40,
+        "rxCallback": 44,
+        "rxCallbackData": 48,
+        "idleCallback": 52,
+        "identifier": 56
+      }
+    ],
+    "motorDevice_s": [
+      12,
+      {
+        "vTable": 0,
+        "count": 4,
+        "initialized": 5,
+        "enabled": 6,
+        "motorEnableTimeMs": 8
+      }
+    ],
+    "busSegment_s": [
+      20,
+      {
+        "u": 0,
+        "len": 8,
+        "negateCS": 12,
+        "callback": 16
+      }
+    ],
+    "extDevice_s": [
+      152,
+      {
+        "bus": 0,
+        "busType_u": 4,
+        "dmaInitTx": 16,
+        "dmaInitRx": 76,
+        "useDMA": 136,
+        "txBuf": 140,
+        "rxBuf": 144,
+        "callbackArg": 148
+      }
+    ],
+    "busDevice_s": [
+      40,
+      {
+        "busType": 0,
+        "busType_u": 4,
+        "useDMA": 12,
+        "deviceCount": 13,
+        "dmaTx": 16,
+        "dmaRx": 20,
+        "dmaInitTx": 24,
+        "dmaInitRx": 28,
+        "curSegment": 32,
+        "initSegment": 36
+      }
+    ],
+    "featureConfig_s": [
+      4,
+      {
+        "enabledFeatures": 0
+      }
+    ],
+    "rxConfig_s": [
+      52,
+      {
+        "rcmap": 0,
+        "serialrx_provider": 8,
+        "serialrx_inverted": 9,
+        "halfDuplex": 10,
+        "spektrum_bind_pin_override_ioTag": 11,
+        "spektrum_bind_plug_ioTag": 12,
+        "spektrum_sat_bind": 13,
+        "spektrum_sat_bind_autoreset": 14,
+        "rssi_channel": 15,
+        "rssi_scale": 16,
+        "rssi_invert": 17,
+        "midrc": 18,
+        "mincheck": 20,
+        "maxcheck": 22,
+        "fpvCamAngleDegrees": 24,
+        "airModeActivateThreshold": 25,
+        "rx_min_usec": 26,
+        "rx_max_usec": 28,
+        "max_aux_channel": 30,
+        "rssi_src_frame_errors": 31,
+        "rssi_offset": 32,
+        "rc_smoothing": 33,
+        "rc_smoothing_setpoint_cutoff": 34,
+        "rc_smoothing_throttle_cutoff": 35,
+        "rc_smoothing_debug_axis": 36,
+        "rc_smoothing_auto_factor_rpy": 37,
+        "rc_smoothing_auto_factor_throttle": 38,
+        "rssi_src_frame_lpf_period": 39,
+        "rssi_smoothing": 40,
+        "srxl2_unit_id": 41,
+        "srxl2_baud_fast": 42,
+        "sbus_baud_fast": 43,
+        "msp_override_channels_mask": 44,
+        "msp_override_failsafe": 48,
+        "crsf_use_negotiated_baud": 49
+      }
+    ],
+    "motorConfig_s": [
+      38,
+      {
+        "dev": 0,
+        "motorIdle": 28,
+        "maxthrottle": 30,
+        "mincommand": 32,
+        "kv": 34,
+        "motorPoleCount": 36
+      }
+    ],
+    "motorDevConfig_s": [
+      28,
+      {
+        "motorPwmRate": 0,
+        "motorProtocol": 2,
+        "motorInversion": 3,
+        "useContinuousUpdate": 4,
+        "useBurstDshot": 5,
+        "useDshotTelemetry": 6,
+        "useDshotEdt": 7,
+        "ioTags": 8,
+        "motorTransportProtocol": 16,
+        "useDshotBitbang": 17,
+        "useDshotBitbangedTimer": 18,
+        "motorOutputReordering": 19
+      }
+    ],
+    "serialConfig_s": [
+      88,
+      {
+        "portConfigs": 0,
+        "serial_update_rate_hz": 84,
+        "reboot_character": 86
+      }
+    ],
+    "serialPortConfig_s": [
+      12,
+      {
+        "functionMask": 0,
+        "identifier": 4,
+        "msp_baudrateIndex": 5,
+        "gps_baudrateIndex": 6,
+        "blackbox_baudrateIndex": 7,
+        "telemetry_baudrateIndex": 8
+      }
+    ],
+    "gpsConfig_s": [
+      78,
+      {
+        "provider": 0,
+        "sbasMode": 1,
+        "autoConfig": 2,
+        "autoBaud": 3,
+        "gps_ublox_acquire_model": 4,
+        "gps_ublox_flight_model": 5,
+        "gps_update_rate_hz": 6,
+        "gps_ublox_use_galileo": 7,
+        "gps_set_home_point_once": 8,
+        "gps_use_3d_speed": 9,
+        "sbas_integrity": 10,
+        "gps_ublox_utc_standard": 11,
+        "gps_ublox_enable_ana": 12,
+        "nmeaCustomCommands": 13
+      }
+    ],
+    "modeActivationCondition_s": [
+      6,
+      {
+        "modeId": 0,
+        "auxChannelIndex": 1,
+        "range": 2,
+        "modeLogic": 4,
+        "linkedTo": 5
+      }
+    ],
+    "sdcardConfig_s": [
+      5,
+      {
+        "device": 0,
+        "cardDetectTag": 1,
+        "chipSelectTag": 2,
+        "cardDetectInverted": 3,
+        "mode": 4
+      }
+    ],
+    "blackboxConfig_s": [
+      8,
+      {
+        "fields_disabled_mask": 0,
+        "sample_rate": 4,
+        "device": 5,
+        "mode": 6,
+        "high_resolution": 7
+      }
+    ],
+    "batteryConfig_s": [
+      14,
+      {
+        "vbatnotpresentcellvoltage": 0,
+        "lvcPercentage": 2,
+        "voltageMeterSource": 3,
+        "currentMeterSource": 4,
+        "useVBatAlerts": 5,
+        "useConsumptionAlerts": 6,
+        "vbathysteresis": 7,
+        "vbatDisplayLpfPeriod": 8,
+        "ibatLpfPeriod": 9,
+        "vbatDurationForWarning": 10,
+        "vbatDurationForCritical": 11,
+        "vbatSagLpfPeriod": 12,
+        "isBatteryContinueEnabled": 13
+      }
+    ],
+    "pidConfig_s": [
+      6,
+      {
+        "pid_process_denom": 0,
+        "runaway_takeoff_prevention": 1,
+        "runaway_takeoff_deactivate_delay": 2,
+        "runaway_takeoff_deactivate_throttle": 4
+      }
+    ],
+    "controlRateConfig_s": [
+      32,
+      {
+        "thrMid8": 0,
+        "thrExpo8": 1,
+        "rates_type": 2,
+        "rcRates": 3,
+        "rcExpo": 6,
+        "rates": 9,
+        "throttle_limit_type": 12,
+        "throttle_limit_percent": 13,
+        "rate_limit": 14,
+        "profileName": 20,
+        "quickRatesRcExpo": 29,
+        "thrHover8": 30
+      }
+    ],
+    "gyroDeviceConfig_s": [
+      16,
+      {
+        "index": 0,
+        "busType": 1,
+        "spiBus": 2,
+        "csnTag": 3,
+        "i2cBus": 4,
+        "i2cAddress": 5,
+        "extiTag": 6,
+        "alignment": 7,
+        "customAlignment": 8,
+        "clkIn": 14
+      }
+    ],
+    "barometerConfig_s": [
+      8,
+      {
+        "baro_busType": 0,
+        "baro_spi_device": 1,
+        "baro_spi_csn": 2,
+        "baro_i2c_device": 3,
+        "baro_i2c_address": 4,
+        "baro_hardware": 5,
+        "baro_eoc_tag": 6,
+        "baro_xclr_tag": 7
+      }
+    ],
+    "spiPinConfig_s": [
+      5,
+      {
+        "ioTagSck": 0,
+        "ioTagMiso": 1,
+        "ioTagMosi": 2,
+        "txDmaopt": 3,
+        "rxDmaopt": 4
+      }
+    ],
+    "i2cConfig_s": [
+      6,
+      {
+        "ioTagScl": 0,
+        "ioTagSda": 1,
+        "pullUp": 2,
+        "clockSpeed": 4
+      }
+    ],
+    "serialPinConfig_s": [
+      18,
+      {
+        "ioTagTx": 0,
+        "ioTagRx": 6,
+        "ioTagInverter": 12
+      }
+    ],
+    "timerIOConfig_s": [
+      3,
+      {
+        "ioTag": 0,
+        "index": 1,
+        "dmaopt": 2
+      }
+    ]
+  },
+  "image_revision": "e0b7bb01b",
+  "image_target": "STM32F405",
+  "constants": {
+    "SERIAL_PORT_USART1": 51,
+    "SERIAL_PORT_USART2": 52,
+    "SERIAL_PORT_USART3": 53,
+    "FEATURE_RX_SERIAL": 8,
+    "FEATURE_RX_MSP": 16384,
+    "FEATURE_GPS": 128,
+    "FEATURE_TELEMETRY": 1024,
+    "FUNCTION_RX_SERIAL": 64,
+    "FUNCTION_MSP": 1,
+    "FUNCTION_GPS": 2,
+    "FUNCTION_TELEMETRY_MAVLINK": 512,
+    "GPS_UBLOX": 1,
+    "SERIALRX_MAVLINK": 16,
+    "RATES_TYPE_ACTUAL": 3
+  },
+  "receiver": "MAVLink",
+  "parameter_writes": [
+    "featureConfig_System+0/4/1160",
+    "rxConfig_System+8/1/16",
+    "motorConfig_System+2/1/0",
+    "motorConfig_System+4/1/1",
+    "serialConfig_System+0/4/1",
+    "serialConfig_System+12/4/576",
+    "serialConfig_System+24/4/1",
+    "serialConfig_System+36/4/2",
+    "serialConfig_System+48/4/0",
+    "serialConfig_System+60/4/0",
+    "serialConfig_System+72/4/0",
+    "gpsConfig_System+0/1/1",
+    "gpsConfig_System+2/1/0",
+    "gpsConfig_System+3/1/0",
+    "gpsConfig_System+6/1/10",
+    "modeActivationConditions_SystemArray+0/1/0",
+    "modeActivationConditions_SystemArray+1/1/0",
+    "modeActivationConditions_SystemArray+2/1/32",
+    "modeActivationConditions_SystemArray+3/1/48",
+    "modeActivationConditions_SystemArray+4/1/0",
+    "modeActivationConditions_SystemArray+5/1/0",
+    "modeActivationConditions_SystemArray+6/1/1",
+    "modeActivationConditions_SystemArray+7/1/1",
+    "modeActivationConditions_SystemArray+8/1/32",
+    "modeActivationConditions_SystemArray+9/1/48",
+    "modeActivationConditions_SystemArray+10/1/0",
+    "modeActivationConditions_SystemArray+11/1/0",
+    "sdcardConfig_System+4/1/0",
+    "blackboxConfig_System+5/1/0",
+    "batteryConfig_System+3/1/0",
+    "batteryConfig_System+4/1/0",
+    "pidConfig_System+0/1/8",
+    "controlRateProfiles_SystemArray+2/1/3",
+    "controlRateProfiles_SystemArray+3/1/7",
+    "controlRateProfiles_SystemArray+6/1/0",
+    "controlRateProfiles_SystemArray+9/1/67",
+    "controlRateProfiles_SystemArray+4/1/7",
+    "controlRateProfiles_SystemArray+7/1/0",
+    "controlRateProfiles_SystemArray+10/1/67",
+    "controlRateProfiles_SystemArray+5/1/7",
+    "controlRateProfiles_SystemArray+8/1/0",
+    "controlRateProfiles_SystemArray+11/1/67"
+  ],
+  "parameters_sha256": "90f65ada459dc4e04d60ee371a2b34e314e429adde376eeccc0bb7f2062edd86"
+}

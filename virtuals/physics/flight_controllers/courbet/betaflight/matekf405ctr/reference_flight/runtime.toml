@@ -1,0 +1,177 @@
+# Betaflight MATEKF405CTR: physical MPU6000 SPI and BMP280 I2C drivers.
+# See docs/BetaflightHardwareRehosting.md.
+# ==============================================================================
+#                              Memory Configuration
+# ==============================================================================
+[Memory]
+
+[Memory.main]           # 128K SRAM (stm32_flash_f405.ld)
+id = "bf_ram0"
+base_address = "0x20000000"
+memory_size  = "128K"
+memory_type  = "SRAM"
+backend      = "ram"
+share        = false
+prealloc     = false
+
+[[Memory.ccm]]          # 64K CCM: .bss/.fastram/stack live here
+id = "bf_ram1"
+index = 1
+base_address = "0x10000000"
+memory_size  = "64K"
+memory_type  = "SRAM"
+backend      = "ram"
+share        = false
+prealloc     = false
+
+[[Memory.bkpsram]]      # 4K backup SRAM (persistent objects)
+id = "bf_ram2"
+index = 2
+base_address = "0x40024000"
+memory_size  = "4K"
+memory_type  = "SRAM"
+backend      = "ram"
+share        = false
+prealloc     = false
+
+# ==============================================================================
+#                                CPU Configuration
+# ==============================================================================
+[Machine]
+platform = "STM32F427"          # same Cortex-M4F machine the ArduPilot targets use (168 MHz SYSCLK)
+enable_gdb = false
+stop_on_start = false
+launch_gdb = false
+monitor_port = 5656
+qmp_socket = "/tmp/qmp_betaflight_matekf405ctr.sock"
+log_file = "qemu_betaflight.log"
+log_options = "none"
+icount = { shift = 3, sleep = false, align = false }
+timer_irq_period_ns = 1000000   # 1 ms board tick = FMU step = Betaflight SysTick
+semihosting = false
+coverage = false
+finline = 'None'
+print_command = false
+
+[CPU]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m4"
+plugin_library = "build/libfastdyn.so"
+binary = "virtuals/physics/flight_controllers/courbet/betaflight/matekf405ctr/bin/betaflight_STM32F405_MATEKF405CTR.elf"
+init_nsvtor = "0x08000000"      # vector table at the start of flash (no bootloader offset)
+twintrace = "None"
+hardware_trace = 'hardware_log/io.log'
+existing_config_path = "virtuals/physics/flight_controllers/courbet/betaflight/matekf405ctr/unlabeled_conf"
+
+logger_content = """
+# --- Plugin Logger Configuration ---
+# level = DEBUG
+# output = stderr
+"""
+
+# ==============================================================================
+#                                FMU Configuration
+# ==============================================================================
+[FMU]
+active = "quadrotor"
+auto_build = true
+
+[FMU.models.quadrotor]
+model = "FastDyn.Copter"
+model_file = "modelica/FastDyn/Copter.mo"
+source_roots = ["third_party/common/modelica_models"]
+output = "out/fmi3/Copter"
+build = true
+release = false
+
+[FMU.models.quadrotor.parameters]
+# Purdue University Airport (KLAF) tarmac start point (shared with the ArduCopter configs).
+lat0 = 40.414929
+lon0 = -86.932387
+ground_alt_wgs84 = 149.0
+pwm_min = 1100.0
+pwm_max = 1900.0
+omega_max = 1300.0
+mass = 2.5644001
+ixx = 0.02601237985
+iyy = 0.02590943825
+izz = 0.045571756801
+Ct = 8.54858e-6
+Cm = 0.016
+Cn_r = -0.1
+
+# ==============================================================================
+#                             Runtime Helpers
+# ==============================================================================
+[Rumoca]
+enabled = false
+
+[Run]
+cwd = "."
+
+[Run.profiling]
+timing = true
+timing_echo = true
+python = false
+perf = "off"
+fmu = true
+
+# Betaflight uses private defaults: UART1 MAVLink 15551, UART2 MSP 15560,
+# MAVProxy's mission endpoint 15552, MAVCesium HTTP 15500.
+# The helper talks through MAVProxy so it remains the UART bridge's sole peer.
+[Run.processes.mavproxy]
+enabled = true
+quiet = true
+cwd = "virtuals/physics/flight_controllers/courbet/mavlink"
+env = { PYTHONPATH = ".", FASTDYN_FLIGHT_VIEW = "1" }
+command = [
+    "mavproxy.py",
+    "--daemon",
+    "--master=udpout:127.0.0.1:${FASTDYN_MAVLINK_FIRMWARE_PORT:-15551}",
+    "--out=udpout:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-15552}",
+    "--load-module=fastdyn_cesium:{\"port\":${FASTDYN_MAVCESIUM_PORT:-15500}}",
+]
+ready_message = "MAVCesium web viewer: open http://127.0.0.1:${FASTDYN_MAVCESIUM_PORT:-15500}/mavcesium/"
+
+[Run.processes.mission]
+enabled = true
+quiet = false
+terminate_run_on_exit = true
+command = [
+    "python3",
+    "virtuals/physics/flight_controllers/courbet/mavlink/mav_mission_betaflight.py",
+    "--connect", "udpin:127.0.0.1:${FASTDYN_MAVLINK_GCS_PORT:-15552}",
+    "--alt", "${FASTDYN_BF_MISSION_ALT:-15}",
+    "--waypoints=${FASTDYN_BF_WAYPOINTS:-30,0;30,30;0,30}",
+    "--stage-timeout", "${FASTDYN_BF_STAGE_TIMEOUT:-120}",
+    "--viewer-seconds", "${FASTDYN_BF_VIEW_SECONDS:-120}",
+    "--viewer-url", "http://127.0.0.1:${FASTDYN_MAVCESIUM_PORT:-15500}/mavcesium/state.json",
+]
+
+# ==============================================================================
+#                              Device Configuration
+# ==============================================================================
+[Device.Models.elder]
+
+[Device.Models.passthrough]
+    backend = "stlink"
+
+[Device.Models.classic]
+
+[Device.Models.twintrace]
+    backend = "stlink"
+
+[Device.Models.unhandled]
+
+# Everything in the peripheral and system space is left to QEMU's catch-all
+# unimplemented device (reads 0, writes ignored); no peripheral is modelled.
+[Device.remaining_space]
+    ranges = [["0x40000000", "0x40023FFF"], ["0x40025000", "0xDFFFFFFF"], ["0xE0000000", "0xEFFFFFFF"]]
+    irq = [['1','100']]
+    description = "Unmodelled peripheral and system space (backup SRAM at 0x40024000 is a RAM bank)."
+
+    [[Device.remaining_space.handlers]]
+        model = "classic"
+        enabled = false

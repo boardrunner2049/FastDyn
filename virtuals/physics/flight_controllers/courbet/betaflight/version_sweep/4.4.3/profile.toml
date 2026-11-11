@@ -1,0 +1,26 @@
+schema_version = 1
+firmware = "betaflight"
+elf = "bin/betaflight_STM32F405.elf"
+labeled_conf = "labeled_conf"
+output_dir = "unlabeled_conf"
+
+[validation]
+elf_sha256 = "d9763c6fc99cdabc710590fbc8240978aa35322c0b92c3fa2e153c6e450c1d00"
+
+[validation.symbol_addresses]
+__config_start = 0x8004000
+isr_vector_table_flash_base = 0x8000000
+isr_vector_table_base = 0x20000000
+_estack = 0x1000fff0
+
+[[validation.instructions]]
+at = "isr_vector_table_base"
+bytes = "f0ff001005900008"
+
+[[validation.instructions]]
+at = "run"
+bytes = "08b5"
+
+[[validation.instructions]]
+at = "run+2"
+bytes = "16f0c3fa"

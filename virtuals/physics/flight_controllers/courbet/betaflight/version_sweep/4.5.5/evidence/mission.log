@@ -1,0 +1,168 @@
+fastdyn.runner|INFO|  Creating output directory at path: /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.5.5/work
+fastdyn.runner|INFO|  FastDyn timing log: /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.5.5/work/fastdyn_timing.jsonl
+FMU ready: /scratch/Fastdyn/rehosting_projects/FastDyn/out/fmi3/Copter/FastDyn_Copter.fmu
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.fmu_auto_build 0.004s ok
+fastdyn.timing|INFO|  [timing] fastdyn:helpers.load_config 0.001s ok
+fastdyn.runtime_config|INFO|  Starting configured helper 'mavproxy': mavproxy.py --daemon --master=udpout:127.0.0.1:18551 --out=udpout:127.0.0.1:18552 '--load-module=fastdyn_cesium:{"port":18500}'
+fastdyn.timing|INFO|  [timing] fastdyn:helper.mavproxy.popen 0.000s ok
+fastdyn.runtime_config|INFO|  MAVCesium web viewer: open http://127.0.0.1:18500/mavcesium/
+fastdyn.runtime_config|INFO|  Starting configured helper 'mission': python3 virtuals/physics/flight_controllers/courbet/mavlink/mav_mission_betaflight.py --heartbeat-autopilot 0 --angle-mode-id 0 --rc-msp 127.0.0.1:18560 --legacy-position-velocity --connect udpin:127.0.0.1:18552 --alt 15 '--waypoints=30,0;30,30;0,30' --stage-timeout 45 --viewer-seconds 0 --viewer-url http://127.0.0.1:18500/mavcesium/state.json
+fastdyn.timing|INFO|  [timing] fastdyn:helper.mission.popen 0.000s ok
+fastdyn.timing|INFO|  [timing] fastdyn:helpers.start 0.001s ok
+fastdyn.toml_parser|INFO|  Parsing Config file: /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.5.5/runtime.toml
+fastdyn.fastdyn|INFO|  Parsing the passed path for the CMSIS SVD
+fastdyn.fastdyn|INFO|  Using SVD: /scratch/Fastdyn/rehosting_projects/FastDyn/third_party/common/cmsis-svd-data/data/STMicro/STM32F427.svd (key='STM32F427')
+bf-mission: viewer ready: http://127.0.0.1:18500/mavcesium/state.json
+fastdyn.fastdyn|INFO|  Creating IRQ Map using the CMSIS SVD
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.parse_config 0.562s ok
+fastdyn.timing|INFO|  [timing] fastdyn:machine0.compile_device_routing 0.000s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.write_device_config 0.000s ok
+fastdyn.targets.qemu_target|INFO|  QEMU executable: /scratch/Fastdyn/kry10-drone-analysis/FastDyn/third_party/common/qemu/build/qemu-system-arm (from build record /scratch/Fastdyn/rehosting_projects/FastDyn/build/fastdyn_build.json)
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_parameters' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_micros32' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_micros32' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_millis' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_cycle_counter' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_cycle_counter_init' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_flash_word' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_persistent_read' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_persistent_write' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_spi_sequence' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_read' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_read' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_write' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_write' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_busy' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_write' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_write_buf' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_end_write' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_rx_waiting' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_read' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_tx_free' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_tx_empty' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_serial_pump' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_motor_write_all' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_failure_mode' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.targets.qemu_target|INFO|  Virtual Instructions available at /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.5.5/work/virtuals/virtuals.txt
+fastdyn.targets.qemu_target|INFO|  Modifier Instructions available at /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.5.5/work/virtuals/modifiers.txt
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.build_command 0.002s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.setup 0.002s ok
+fastdyn.timing|INFO|  [timing] fastdyn:machine0.qemu_setup 0.002s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.kill_existing 0.110s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.build_env 0.000s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.popen 0.000s ok
+fastdyn.targets.qemu_target|INFO|  Letting QEMU run.
+FMU parameter override: Cm=0.016
+FMU parameter override: Cn_r=-0.1
+FMU parameter override: Ct=8.54858e-06
+FMU parameter override: ground_alt_wgs84=149
+FMU parameter override: ixx=0.0260124
+FMU parameter override: iyy=0.0259094
+FMU parameter override: izz=0.0455718
+FMU parameter override: lat0=40.4149
+FMU parameter override: lon0=-86.9324
+FMU parameter override: mass=2.5644
+FMU parameter override: omega_max=1300
+FMU parameter override: pwm_max=1900
+FMU parameter override: pwm_min=1100
+FMU backend loaded: /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.5.5/work/fmu-lw1xdr8r/binaries/x86_64-linux/Rumoca_1f10d937_7226_496d_b052_13b994417930.so
+FMU timing: init_wall=0.000s
+Current CPU type: cortex-m4-arm-cpu
+fastdyn.virtuals|INFO|  periodic IRQ 15 every 1000000 ns
+betaflight: cycle counter seeded (usTicks=168, 168000000 Hz)
+bf-hw: version-sweep runtime parameters applied
+betaflight: trace hw-mpu-detect pc=0x08059938 r0=0x10002dc8 t=0.100000
+bf-hw: MPU6000 raw SPI samples active (physical driver, polling)
+bf-hw: BMP280 identity read via I2C1 address 0x76
+bf-hw: starting real accelerometer calibration on stationary plant
+betaflight: trace hw-mpu-acc-decode pc=0x08009304 r0=0x10002cf4 t=1.787169
+betaflight: trace hw-mpu-gyro-decode pc=0x08009390 r0=0x10002db8 t=1.787182
+betaflight: UART bridge mavlink <-> UDP 127.0.0.1:18551
+betaflight: trace hw-mpu-gyro-decode pc=0x08009390 r0=0x10002db8 t=1.787302
+betaflight: UART bridge msp <-> UDP 127.0.0.1:18560
+betaflight: trace hw-mpu-gyro-decode pc=0x08009390 r0=0x10002db8 t=1.787430 (muted from now on)
+betaflight: trace hw-mpu-acc-decode pc=0x08009304 r0=0x10002cf4 t=1.788190
+betaflight: trace hw-mpu-acc-decode pc=0x08009304 r0=0x10002cf4 t=1.789190 (muted from now on)
+bf-hw: BMP280 raw I2C samples active (ARM compensation retained)
+betaflight: trace hw-bmp-compensate pc=0x08059bdc r0=0x2000f7f4 t=1.811447
+betaflight: trace hw-bmp-compensate pc=0x08059bdc r0=0x2000f7f4 t=1.836447
+betaflight: trace hw-bmp-compensate pc=0x08059bdc r0=0x2000f7f4 t=1.861453 (muted from now on)
+betaflight: mavlink peer 127.0.0.1:47463 (first datagram 21 bytes, t=1.999)
+bf-mission: t=   2.9 heartbeat sys=0 comp=200
+betaflight: msp peer 127.0.0.1:36439 (first datagram 22 bytes, t=2.028)
+bf-hw: version-sweep runtime parameters applied
+bf-mission: t=   3.5 PREFLIGHT fix=3 alt=149.1 waiting
+FMU timing: sim=5.320s wall_since_init=5.000s sim_wall_rtf=1.06x advanced=5.320s wall_advance=0.036s fmu_compute_rtf=146.50x advance_calls=5319 do_steps=5320 avg_do_step=6.8us
+bf-mission: t=   5.5 PREFLIGHT fix=3 alt=149.1 waiting
+bf-mission: t=   7.5 PREFLIGHT fix=3 alt=149.1 waiting
+bf-mission: t=   9.5 PREFLIGHT fix=3 alt=149.1 waiting
+FMU timing: sim=12.051s wall_since_init=10.000s sim_wall_rtf=1.21x advanced=12.051s wall_advance=0.081s fmu_compute_rtf=148.65x advance_calls=12050 do_steps=12051 avg_do_step=6.7us
+bf-mission: t=  10.9 home lat=40.4149290 lon=-86.9323870 alt=149.1
+bf-mission: t=  10.9 stage -> ARM
+bf-mission: t=  11.0 stage -> CLIMB
+bf-mission: t=  11.5 CLIMB     armed=1 n=   0.0 e=   0.0 alt=   1.0 v=( 0.00, 0.00, 1.78) att=(  0.0,  0.0,  0.0) rc r/p/t=1500/1500/1683 tgt n/e/alt=0/0/15
+bf-mission: t=  13.5 CLIMB     armed=1 n=   0.0 e=   0.0 alt=   8.6 v=( 0.00, 0.00, 1.96) att=(  0.0,  0.0,  0.0) rc r/p/t=1500/1500/1666 tgt n/e/alt=0/0/15
+FMU timing: sim=18.714s wall_since_init=15.001s sim_wall_rtf=1.25x advanced=18.714s wall_advance=0.127s fmu_compute_rtf=147.19x advance_calls=18713 do_steps=18714 avg_do_step=6.7us
+bf-mission: t=  15.5 CLIMB     armed=1 n=   0.0 e=   0.0 alt=  13.7 v=( 0.00, 0.00, 0.08) att=(  0.0,  0.0,  0.0) rc r/p/t=1500/1500/1667 tgt n/e/alt=0/0/15
+bf-mission: t=  17.0 stage -> NAV
+bf-mission: t=  17.5 NAV       armed=1 n=   0.1 e=   0.0 alt=  14.7 v=( 0.21, 0.00,-0.63) att=(  0.0, -9.7,  0.0) rc r/p/t=1500/1688/1668 tgt n/e/alt=30/0/15
+bf-mission: t=  19.5 NAV       armed=1 n=   7.3 e=   0.0 alt=  15.1 v=( 3.66, 0.00,-0.58) att=(  0.0,  2.6,  0.0) rc r/p/t=1500/1390/1653 tgt n/e/alt=30/0/15
+FMU timing: sim=25.399s wall_since_init=20.001s sim_wall_rtf=1.27x advanced=25.399s wall_advance=0.172s fmu_compute_rtf=147.39x advance_calls=25398 do_steps=25399 avg_do_step=6.7us
+bf-mission: t=  21.5 NAV       armed=1 n=  15.1 e=   0.0 alt=  15.2 v=( 2.95, 0.00,-0.36) att=(  0.0,  0.6,  0.0) rc r/p/t=1500/1518/1632 tgt n/e/alt=30/0/15
+bf-mission: t=  23.5 NAV       armed=1 n=  23.0 e=   0.0 alt=  15.4 v=( 2.89, 0.00,-0.08) att=(  0.0,  4.9,  0.0) rc r/p/t=1500/1378/1609 tgt n/e/alt=30/0/15
+FMU timing: sim=32.092s wall_since_init=25.002s sim_wall_rtf=1.28x advanced=32.092s wall_advance=0.217s fmu_compute_rtf=147.80x advance_calls=32091 do_steps=32092 avg_do_step=6.7us
+bf-mission: t=  25.5 NAV       armed=1 n=  27.5 e=   0.0 alt=  15.5 v=( 0.98, 0.00, 0.35) att=(  0.0,  1.1,  0.0) rc r/p/t=1500/1445/1578 tgt n/e/alt=30/0/15
+bf-mission: t=  26.0 waypoint 1/3 reached at n=28.2 e=0.0
+bf-mission: t=  27.5 NAV       armed=1 n=  29.1 e=   1.7 alt=  15.5 v=( 0.41, 1.87, 0.63) att=(  6.8,  0.7,  0.0) rc r/p/t=1651/1463/1563 tgt n/e/alt=30/30/15
+bf-mission: t=  29.5 NAV       armed=1 n=  29.6 e=   9.5 alt=  15.4 v=( 0.10, 2.80, 0.96) att=(  1.1, -0.1,  0.0) rc r/p/t=1550/1504/1544 tgt n/e/alt=30/30/15
+FMU timing: sim=38.730s wall_since_init=30.003s sim_wall_rtf=1.29x advanced=38.730s wall_advance=0.263s fmu_compute_rtf=147.54x advance_calls=38729 do_steps=38730 avg_do_step=6.7us
+bf-mission: t=  31.5 NAV       armed=1 n=  29.8 e=  17.0 alt=  15.3 v=( 0.04, 2.79, 1.04) att=(  1.3, -0.1,  0.1) rc r/p/t=1553/1505/1543 tgt n/e/alt=30/30/15
+bf-mission: t=  33.5 NAV       armed=1 n=  29.9 e=  25.8 alt=  15.5 v=( 0.02, 2.66, 0.73) att=( -5.2,  0.0,  0.1) rc r/p/t=1330/1498/1555 tgt n/e/alt=30/30/15
+bf-mission: t=  35.1 waypoint 2/3 reached at n=30.0 e=28.0
+FMU timing: sim=45.412s wall_since_init=35.004s sim_wall_rtf=1.30x advanced=45.412s wall_advance=0.307s fmu_compute_rtf=147.70x advance_calls=45411 do_steps=45412 avg_do_step=6.7us
+bf-mission: t=  35.5 NAV       armed=1 n=  29.9 e=  28.2 alt=  15.5 v=(-0.11, 0.37, 1.00) att=(  0.7,  9.6,  0.0) rc r/p/t=1543/1312/1541 tgt n/e/alt=0/30/15
+bf-mission: t=  37.6 NAV       armed=1 n=  24.1 e=  29.2 alt=  15.3 v=(-3.36, 0.24, 1.45) att=( -0.5, -0.6,  0.3) rc r/p/t=1493/1575/1523 tgt n/e/alt=0/30/15
+bf-mission: t=  39.6 NAV       armed=1 n=  16.3 e=  29.6 alt=  15.0 v=(-2.82, 0.10, 1.13) att=(  0.1,  1.2,  4.2) rc r/p/t=1507/1453/1552 tgt n/e/alt=0/30/15
+FMU timing: sim=52.150s wall_since_init=40.004s sim_wall_rtf=1.30x advanced=52.150s wall_advance=0.352s fmu_compute_rtf=147.99x advance_calls=52149 do_steps=52150 avg_do_step=6.7us
+bf-mission: t=  41.6 NAV       armed=1 n=   8.7 e=  29.8 alt=  14.7 v=(-2.85, 0.05, 0.63) att=(  0.1, -1.1,  5.8) rc r/p/t=1504/1556/1592 tgt n/e/alt=0/30/15
+bf-mission: t=  43.6 NAV       armed=1 n=   2.8 e=  29.9 alt=  14.4 v=(-1.06, 0.02, 0.30) att=(  0.1, -1.1, 14.3) rc r/p/t=1510/1556/1623 tgt n/e/alt=0/30/15
+bf-mission: t=  43.7 waypoint 3/3 reached at n=2.4 e=29.9
+bf-mission: t=  43.7 stage -> RTH
+FMU timing: sim=58.849s wall_since_init=45.004s sim_wall_rtf=1.31x advanced=58.849s wall_advance=0.398s fmu_compute_rtf=147.89x advance_calls=58848 do_steps=58849 avg_do_step=6.7us
+bf-mission: t=  45.6 RTH       armed=1 n=   1.2 e=  27.6 alt=  14.0 v=(-0.66,-2.59,-0.93) att=( -2.8, -1.7, 14.2) rc r/p/t=1418/1567/1711 tgt n/e/alt=0/0/15
+bf-mission: t=  47.6 RTH       armed=1 n=   0.3 e=  19.6 alt=  14.1 v=(-0.26,-3.21,-1.96) att=(  1.0, -0.9, 12.1) rc r/p/t=1553/1542/1767 tgt n/e/alt=0/0/15
+bf-mission: t=  49.6 RTH       armed=1 n=   0.1 e=  12.8 alt=  14.4 v=(-0.09,-2.50,-2.01) att=( -2.9, -0.4, 11.4) rc r/p/t=1408/1522/1757 tgt n/e/alt=0/0/15
+FMU timing: sim=65.513s wall_since_init=50.005s sim_wall_rtf=1.31x advanced=65.513s wall_advance=0.444s fmu_compute_rtf=147.57x advance_calls=65512 do_steps=65513 avg_do_step=6.7us
+bf-mission: t=  51.6 RTH       armed=1 n=  -0.1 e=   4.8 alt=  14.2 v=(-0.04,-1.64,-1.06) att=(  4.4, -0.4, 10.8) rc r/p/t=1615/1522/1730 tgt n/e/alt=0/0/15
+bf-mission: t=  53.1 home reached at n=-0.1 e=2.9
+bf-mission: t=  53.1 stage -> LAND
+bf-mission: t=  53.6 LAND      armed=1 n=  -0.1 e=   2.5 alt=  14.1 v=( 0.00,-0.75,-2.00) att=( -0.7, -0.2, 10.6) rc r/p/t=1496/1513/1668 tgt n/e/alt=0/0/15
+FMU timing: sim=72.201s wall_since_init=55.005s sim_wall_rtf=1.31x advanced=72.201s wall_advance=0.489s fmu_compute_rtf=147.63x advance_calls=72200 do_steps=72201 avg_do_step=6.7us
+bf-mission: t=  55.6 LAND      armed=1 n=  -0.1 e=   1.2 alt=  11.4 v=( 0.00,-0.24,-1.40) att=( -0.6, -0.3, 10.6) rc r/p/t=1465/1514/1634 tgt n/e/alt=0/0/15
+bf-mission: t=  57.6 LAND      armed=1 n=  -0.1 e=   0.8 alt=   8.7 v=( 0.00,-0.13,-1.10) att=( -0.6, -0.1, 10.6) rc r/p/t=1468/1510/1617 tgt n/e/alt=0/0/15
+bf-mission: t=  59.6 LAND      armed=1 n=  -0.1 e=   0.4 alt=   5.9 v=( 0.00,-0.08,-0.94) att=( -0.3, -0.1, 10.6) rc r/p/t=1481/1507/1609 tgt n/e/alt=0/0/15
+FMU timing: sim=78.909s wall_since_init=60.005s sim_wall_rtf=1.32x advanced=78.909s wall_advance=0.534s fmu_compute_rtf=147.73x advance_calls=78908 do_steps=78909 avg_do_step=6.7us
+bf-mission: t=  61.6 LAND      armed=1 n=  -0.0 e=   0.3 alt=   3.2 v=( 0.00,-0.05,-1.06) att=( -0.3, -0.1, 10.6) rc r/p/t=1486/1506/1617 tgt n/e/alt=0/0/15
+bf-mission: t=  63.6 LAND      armed=1 n=  -0.0 e=   0.2 alt=   1.1 v=( 0.00,-0.03,-1.10) att=( -0.1, -0.1, 10.6) rc r/p/t=1493/1504/1651 tgt n/e/alt=0/0/15
+bf-mission: t=  65.1 stage -> SETTLE
+FMU timing: sim=85.710s wall_since_init=65.005s sim_wall_rtf=1.32x advanced=85.710s wall_advance=0.579s fmu_compute_rtf=147.94x advance_calls=85709 do_steps=85710 avg_do_step=6.7us
+bf-mission: t=  65.6 SETTLE    armed=1 n=  -0.0 e=   0.1 alt=   0.0 v=( 0.00,-0.02,-0.37) att=( -0.1,  0.0, 10.6) rc r/p/t=1500/1500/1000 tgt n/e/alt=0/0/15
+bf-mission: t=  67.4 stage -> DISARM
+bf-mission: t=  67.6 DISARM    armed=0 n=  -0.0 e=   0.1 alt=   0.0 v=( 0.00, 0.00, 0.00) att=( -0.1,  0.0, 10.6) rc r/p/t=1500/1500/1000 tgt n/e/alt=0/0/15
+bf-mission: t=  68.4 landed and disarmed: mission complete; waypoints=3/3 max_alt=16.2m final_n=-0.0 final_e=0.1 alt=0.00m
+bf-mission: t=  68.4 stage -> COMPLETE
+fastdyn.timing|INFO|  [timing] fastdyn:helper.mission.exited exit_code=0
+qemu-system-arm: terminating on signal 2 from pid 1522451 (/scratch/Fastdyn/rehosting_projects/FastDyn/fastdyn-env/bin/python)
+bf-hw: summary MPU6000_SPI_reads=795263 BMP280_I2C_reads=3534 pressure_range=99354.9..99546.7Pa max_gyro=73.5dps
+fastdyn.core|INFO|  FastDyn Exit.
+fastdyn.targets.qemu_target|INFO|  QEMU exited with code 0
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.wait 68.430s ok
+fastdyn.timing|INFO|  [timing] fastdyn:machine0.qemu_execution 68.541s ok
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.machine0.run 68.544s ok
+fastdyn.timing|INFO|  [timing] fastdyn:helpers.stop 0.164s ok
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.run.total 69.320s ok

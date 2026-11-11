@@ -1,0 +1,5 @@
+make: Entering directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.3.2'
+make -j ./obj/betaflight_4.3.2_MATEKF405_60c9521da.hex
+make: make: Permission denied
+make: *** [Makefile:575: hex] Error 127
+make: Leaving directory '/scratch/Fastdyn/rehosting_projects/betaflight-sweep/4.3.2'

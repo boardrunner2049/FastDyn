@@ -1,0 +1,97 @@
+[ci] starting Betaflight F405 mission: config=out/betaflight/version-sweep/4.4.3/runtime.toml log=out/betaflight/version-sweep/4.4.3/mission.log
+[ci] FastDyn exited with status 1; mission failed
+fastdyn.runner|INFO|  Creating output directory at path: /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.4.3/work
+fastdyn.runner|INFO|  FastDyn timing log: /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.4.3/work/fastdyn_timing.jsonl
+FMU ready: /scratch/Fastdyn/rehosting_projects/FastDyn/out/fmi3/Copter/FastDyn_Copter.fmu
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.fmu_auto_build 0.005s ok
+fastdyn.timing|INFO|  [timing] fastdyn:helpers.load_config 0.001s ok
+fastdyn.runtime_config|INFO|  Starting configured helper 'mavproxy': mavproxy.py --daemon --master=udpout:127.0.0.1:18551 --out=udpout:127.0.0.1:18552 '--load-module=fastdyn_cesium:{"port":18500}'
+fastdyn.timing|INFO|  [timing] fastdyn:helper.mavproxy.popen 0.000s ok
+fastdyn.runtime_config|INFO|  MAVCesium web viewer: open http://127.0.0.1:18500/mavcesium/
+fastdyn.runtime_config|INFO|  Starting configured helper 'mission': python3 virtuals/physics/flight_controllers/courbet/mavlink/mav_mission_betaflight.py --heartbeat-autopilot 0 --angle-mode-id 0 --rc-msp 127.0.0.1:18560 --legacy-position-velocity --connect udpin:127.0.0.1:18552 --alt 15 '--waypoints=30,0;30,30;0,30' --stage-timeout 45 --viewer-seconds 0 --viewer-url http://127.0.0.1:18500/mavcesium/state.json
+fastdyn.timing|INFO|  [timing] fastdyn:helper.mission.popen 0.000s ok
+fastdyn.timing|INFO|  [timing] fastdyn:helpers.start 0.001s ok
+fastdyn.toml_parser|INFO|  Parsing Config file: /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.4.3/runtime.toml
+fastdyn.fastdyn|INFO|  Parsing the passed path for the CMSIS SVD
+fastdyn.fastdyn|INFO|  Using SVD: /scratch/Fastdyn/rehosting_projects/FastDyn/third_party/common/cmsis-svd-data/data/STMicro/STM32F427.svd (key='STM32F427')
+bf-mission: viewer ready: http://127.0.0.1:18500/mavcesium/state.json
+fastdyn.fastdyn|INFO|  Creating IRQ Map using the CMSIS SVD
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.parse_config 0.554s ok
+fastdyn.timing|INFO|  [timing] fastdyn:machine0.compile_device_routing 0.000s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.write_device_config 0.000s ok
+fastdyn.targets.qemu_target|INFO|  QEMU executable: /scratch/Fastdyn/kry10-drone-analysis/FastDyn/third_party/common/qemu/build/qemu-system-arm (from build record /scratch/Fastdyn/rehosting_projects/FastDyn/build/fastdyn_build.json)
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_parameters' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_micros32' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_micros32' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_millis' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_cycle_counter' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_cycle_counter_init' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_flash_word' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_persistent_read' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_persistent_write' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_spi_sequence' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_read' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_read' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_write' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_write' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_hw_i2c_busy' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_write' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_rx_waiting' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_read' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_tx_free' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_uart_tx_empty' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_serial_pump' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_motor_write_all' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_failure_mode' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.virtual_preprocessing|WARNING|  Virtual 'bf_trace' is not declared in the Python registry; preserving it for the native plugin or an extension (origin=existing_config).
+fastdyn.targets.qemu_target|INFO|  Virtual Instructions available at /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.4.3/work/virtuals/virtuals.txt
+fastdyn.targets.qemu_target|INFO|  Modifier Instructions available at /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.4.3/work/virtuals/modifiers.txt
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.build_command 0.002s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.setup 0.002s ok
+fastdyn.timing|INFO|  [timing] fastdyn:machine0.qemu_setup 0.002s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.kill_existing 0.087s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.build_env 0.000s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.popen 0.000s ok
+fastdyn.targets.qemu_target|INFO|  Letting QEMU run.
+FMU parameter override: Cm=0.016
+FMU parameter override: Cn_r=-0.1
+FMU parameter override: Ct=8.54858e-06
+FMU parameter override: ground_alt_wgs84=149
+FMU parameter override: ixx=0.0260124
+FMU parameter override: iyy=0.0259094
+FMU parameter override: izz=0.0455718
+FMU parameter override: lat0=40.4149
+FMU parameter override: lon0=-86.9324
+FMU parameter override: mass=2.5644
+FMU parameter override: omega_max=1300
+FMU parameter override: pwm_max=1900
+FMU parameter override: pwm_min=1100
+FMU backend loaded: /scratch/Fastdyn/rehosting_projects/FastDyn/out/betaflight/version-sweep/4.4.3/work/fmu-1ns026mh/binaries/x86_64-linux/Rumoca_1f10d937_7226_496d_b052_13b994417930.so
+FMU timing: init_wall=0.000s
+Current CPU type: cortex-m4-arm-cpu
+fastdyn.virtuals|INFO|  periodic IRQ 15 every 1000000 ns
+betaflight: cycle counter seeded (usTicks=168, 168000000 Hz)
+bf-hw: version-sweep runtime parameters applied
+bf-hw: starting real accelerometer calibration on stationary plant
+FMU timing: sim=6.858s wall_since_init=5.000s sim_wall_rtf=1.37x advanced=6.858s wall_advance=0.047s fmu_compute_rtf=146.79x advance_calls=6857 do_steps=6858 avg_do_step=6.8us
+FMU timing: sim=15.059s wall_since_init=10.001s sim_wall_rtf=1.51x advanced=15.059s wall_advance=0.101s fmu_compute_rtf=148.52x advance_calls=15058 do_steps=15059 avg_do_step=6.7us
+FMU timing: sim=23.221s wall_since_init=15.001s sim_wall_rtf=1.55x advanced=23.221s wall_advance=0.157s fmu_compute_rtf=148.10x advance_calls=23220 do_steps=23221 avg_do_step=6.7us
+FMU timing: sim=31.457s wall_since_init=20.001s sim_wall_rtf=1.57x advanced=31.457s wall_advance=0.211s fmu_compute_rtf=148.91x advance_calls=31456 do_steps=31457 avg_do_step=6.7us
+FMU timing: sim=39.642s wall_since_init=25.002s sim_wall_rtf=1.59x advanced=39.642s wall_advance=0.265s fmu_compute_rtf=149.57x advance_calls=39641 do_steps=39642 avg_do_step=6.6us
+FMU timing: sim=47.917s wall_since_init=30.002s sim_wall_rtf=1.60x advanced=47.917s wall_advance=0.319s fmu_compute_rtf=150.14x advance_calls=47916 do_steps=47917 avg_do_step=6.6us
+FMU timing: sim=56.101s wall_since_init=35.002s sim_wall_rtf=1.60x advanced=56.101s wall_advance=0.375s fmu_compute_rtf=149.61x advance_calls=56100 do_steps=56101 avg_do_step=6.6us
+bf-mission: t=  40.0 no heartbeat
+fastdyn.timing|INFO|  [timing] fastdyn:helper.mission.exited exit_code=2
+qemu-system-arm: terminating on signal 2 from pid 1526302 (/scratch/Fastdyn/rehosting_projects/FastDyn/fastdyn-env/bin/python)
+fastdyn.core|INFO|  FastDyn Exit.
+fastdyn.targets.qemu_target|INFO|  QEMU exited with code 0
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.wait 40.020s ok
+fastdyn.timing|INFO|  [timing] fastdyn:machine0.qemu_execution 40.108s ok
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.machine0.run 40.111s ok
+fastdyn.timing|INFO|  [timing] fastdyn:helpers.stop 0.114s ok
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.run.total 40.789s error
+Error: helper 'mission' exited with status 2

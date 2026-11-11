@@ -1,0 +1,6 @@
+__pycache__/
+*/unlabeled_conf/
+!*/evidence/*.log
+!evidence/logs/*.log
+!evidence/aborted-launches/*.log
+!evidence/baseline-regression.log
