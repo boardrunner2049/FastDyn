@@ -104,3 +104,5 @@ mixer in guest memory, arms through receiver frames, and verifies that
 throttle reaches the FMI motor input. The optional real-Copter check also
 verifies a climb of at least one metre and receiver-loss failsafe. It does not
 establish long-duration flight stability or mission completion.
+
+Version-specific challenges and resolutions: [INAV 10.0.0](versions/INAV-10.0.0.md).
