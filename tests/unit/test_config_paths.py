@@ -97,3 +97,16 @@ def test_absolute_paths_are_kept(tmp_path, example):
     config.write_text(CONFIG.replace('"firmwares/app.elf"', f'"{example}/firmwares/app.elf"'), encoding="utf-8")
 
     assert _machine(tmp_path, config).cpus[0].binary == f"{example}/firmwares/app.elf"
+
+
+def test_firmware_hash_guards_abi_specific_hooks(tmp_path, example):
+    import hashlib
+
+    config = example / "spi.toml"
+    digest = hashlib.sha256(b"").hexdigest()
+    config.write_text(CONFIG.replace('binary = "firmwares/app.elf"',
+                                     f'binary = "firmwares/app.elf"\nfirmware_sha256 = "{digest}"'))
+    _machine(tmp_path, config)
+    (example / "firmwares/app.elf").write_bytes(b"different firmware")
+    with pytest.raises(ValueError, match="Firmware SHA-256 mismatch"):
+        _machine(tmp_path, config)

@@ -478,3 +478,5 @@ fastdyn swarm -c configs/copter462.toml -n 20 -o out/swarm/copter --dry-run
 
 The Courbet Mission workflow's smoke tests run two-worker swarms for copter, rover, and plane to confirm
 FMU loading, board timing, MAVCesium URL generation, and port isolation.
+
+The optional `firmware_sha256` field under `[[CPU.cpu0]]` pins the configured firmware file to a lowercase SHA-256 digest. FastDyn refuses to launch when the file does not match; use this for firmware profiles with address-specific hooks.

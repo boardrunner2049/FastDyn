@@ -1,4 +1,5 @@
 import sys
+import hashlib
 import tomli
 import logging
 import os
@@ -343,6 +344,21 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
         curr_cpu = toml_parser.cpus_info[cpu][0]
 
         binary_path = _config_relative(toml_config, curr_cpu.get('binary')) or curr_cpu.get('drive_file') or ''
+        expected_hash = curr_cpu.get("firmware_sha256")
+        if expected_hash is not None:
+            if not isinstance(expected_hash, str) or len(expected_hash) != 64 or any(
+                    c not in "0123456789abcdef" for c in expected_hash):
+                raise ValueError("firmware_sha256 must be a lowercase SHA-256 digest")
+            try:
+                with open(binary_path, "rb") as firmware:
+                    digest = hashlib.sha256()
+                    for chunk in iter(lambda: firmware.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                    actual_hash = digest.hexdigest()
+            except OSError as exc:
+                raise ValueError(f"Cannot verify firmware {binary_path}: {exc}") from exc
+            if actual_hash != expected_hash:
+                raise ValueError(f"Firmware SHA-256 mismatch for {binary_path}; refusing ABI-specific hooks")
         cpu_obj = machine0.add_cpu(
                 arch=curr_cpu.get("arch", "arm"),
                 machine=curr_cpu.get("machine", "cortexm"),

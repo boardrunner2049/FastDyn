@@ -11,6 +11,10 @@ licenses:
   1ebd4d99 (4.6.2), 712b9bc2 (Rover 4.2.2), 30257f01 (Sub 4.5.7),
   60955121 (Rover 4.7.0-dev). st_drone_fcu_f401.elf is
   STMicroelectronics' STEVAL-FCU001V1 firmware, under ST's license.
+* virtuals/physics/flight_controllers/inav/inav-matekf405.elf and inav.patch:
+  INAV firmware, GPL-3.0-or-later, built from https://github.com/iNavFlight/inav
+  at d0c611e040887940226c9536bc84a3795ef9e800; see the adjacent LICENSE-INAV
+  and README.md for the source patch and build instructions.
 * tests/binaries/ and tests/raw/: RTOS test images built from their
   upstream projects and examples, under those projects' licenses:
   ChibiOS (GPL-3.0), FreeRTOS (MIT), NuttX (Apache-2.0), RT-Thread
