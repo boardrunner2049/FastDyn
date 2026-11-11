@@ -195,6 +195,15 @@ build = true
                                 break
                         hold(1900, 1500, .1)
                     assert value and float(value) > 1100
+                    # Stop sending and verify the firmware observes receiver loss.
+                    deadline = time.monotonic() + 8
+                    while time.monotonic() < deadline:
+                        flags = int.from_bytes(_read_memory(stream, 0x100010b4, 4), 'little')
+                        if flags & (1 << 7):  # ARMING_DISABLED_FAILSAFE_SYSTEM
+                            break
+                        time.sleep(.05)
+                    else:
+                        pytest.fail(f'INAV did not enter receiver failsafe: {flags:#x}')
         finally:
             try:
                 os.killpg(proc.pid, signal.SIGTERM)
