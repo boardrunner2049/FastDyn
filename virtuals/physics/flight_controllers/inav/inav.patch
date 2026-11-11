@@ -2,13 +2,22 @@ diff --git a/src/main/config/config_streamer_ram.c b/src/main/config/config_stre
 index 420e2a0..555f60d 100644
 --- a/src/main/config/config_streamer_ram.c
 +++ b/src/main/config/config_streamer_ram.c
-@@ -19,0 +20 @@
+@@ -17,6 +17,7 @@
+
+ #include <string.h>
+ #include "platform.h"
 +#include "common/utils.h"
+ #include "drivers/system.h"
+ #include "config/config_streamer.h"
+
 diff --git a/src/main/fc/rc_modes.c b/src/main/fc/rc_modes.c
 index d7aaff2..2e32c49 100755
 --- a/src/main/fc/rc_modes.c
 +++ b/src/main/fc/rc_modes.c
-@@ -58,0 +59,11 @@ static bool rcModeActivationOverrideActive;
+@@ -56,7 +56,19 @@ static bool rcModeActivationOverrideActive;
+ // and someone else has to debug it.
+ // STATIC_ASSERT(CHECKBOX_ITEM_COUNT <= 32, too_many_box_modes);
+
 +#ifdef FASTDYN_REHOST
 +PG_REGISTER_ARRAY_WITH_RESET_FN(modeActivationCondition_t, MAX_MODE_ACTIVATION_CONDITION_COUNT, modeActivationConditions, PG_MODE_ACTIVATION_PROFILE, 0);
 +void pgResetFn_modeActivationConditions(modeActivationCondition_t *instance)
@@ -20,42 +29,75 @@ index d7aaff2..2e32c49 100755
 +    instance[0].range.endStep = 48;
 +}
 +#else
-@@ -59,0 +71 @@ PG_REGISTER_ARRAY(modeActivationCondition_t, MAX_MODE_ACTIVATION_CONDITION_COUNT
+ PG_REGISTER_ARRAY(modeActivationCondition_t, MAX_MODE_ACTIVATION_CONDITION_COUNT, modeActivationConditions, PG_MODE_ACTIVATION_PROFILE, 0);
 +#endif
+ PG_REGISTER(modeActivationOperatorConfig_t, modeActivationOperatorConfig, PG_MODE_ACTIVATION_OPERATOR_CONFIG, 0);
+
+ PG_RESET_TEMPLATE(modeActivationOperatorConfig_t, modeActivationOperatorConfig,
 diff --git a/src/main/fc/settings.yaml b/src/main/fc/settings.yaml
 index 142f5f0..8984a42 100644
 --- a/src/main/fc/settings.yaml
 +++ b/src/main/fc/settings.yaml
-@@ -1830 +1830 @@ groups:
+@@ -1827,7 +1827,7 @@ groups:
+     members:
+       - name: gps_provider
+         description: "Which GPS protocol to be used."
 -        default_value: "UBLOX"
 +        default_value: "FAKE"
+         field: provider
+         table: gps_provider
+         type: uint8_t
 diff --git a/src/main/sensors/acceleration.c b/src/main/sensors/acceleration.c
 index 88d98f7..f5fcb3f 100644
 --- a/src/main/sensors/acceleration.c
 +++ b/src/main/sensors/acceleration.c
-@@ -667,0 +668 @@ void accSetCalibrationValues(void)
+@@ -665,8 +665,13 @@ bool accIsClipped(void)
+ void accSetCalibrationValues(void)
+ {
+     if (!ARMING_FLAG(SIMULATOR_MODE_SITL) &&
 +#ifndef FASTDYN_REHOST
-@@ -669 +670,5 @@ void accSetCalibrationValues(void)
+         ((accelerometerConfig()->accZero.raw[X] == 0) && (accelerometerConfig()->accZero.raw[Y] == 0) && (accelerometerConfig()->accZero.raw[Z] == 0) &&
 -        (accelerometerConfig()->accGain.raw[X] == 4096) && (accelerometerConfig()->accGain.raw[Y] == 4096) &&(accelerometerConfig()->accGain.raw[Z] == 4096))) {
 +        (accelerometerConfig()->accGain.raw[X] == 4096) && (accelerometerConfig()->accGain.raw[Y] == 4096) &&(accelerometerConfig()->accGain.raw[Z] == 4096))
 +#else
 +        false
 +#endif
 +    ) {
+         DISABLE_STATE(ACCELEROMETER_CALIBRATED);
+     }
+     else {
 diff --git a/src/main/sensors/compass.c b/src/main/sensors/compass.c
 index 79bcf16..d99d0b0 100644
 --- a/src/main/sensors/compass.c
 +++ b/src/main/sensors/compass.c
-@@ -446 +446 @@ void compassUpdate(timeUs_t currentTimeUs)
+@@ -443,7 +443,7 @@ void compassUpdate(timeUs_t currentTimeUs)
+     static int magAxisDeviation[XYZ_AXIS_COUNT];
+     static bool autoDetectOrientationThisSpin;
+
 -#if defined(SITL_BUILD)
 +#if defined(SITL_BUILD) || defined(FASTDYN_REHOST)
+     ENABLE_STATE(COMPASS_CALIBRATED);
+ #else
+     // Check magZero
 diff --git a/src/main/target/MATEKF405/target.h b/src/main/target/MATEKF405/target.h
 index a33807c..16f12e5 100644
 --- a/src/main/target/MATEKF405/target.h
 +++ b/src/main/target/MATEKF405/target.h
-@@ -119 +119 @@
+@@ -116,7 +116,7 @@
+
+ #define SERIAL_PORT_COUNT       8
+
 -#define DEFAULT_RX_TYPE         RX_TYPE_SERIAL
 +#define DEFAULT_RX_TYPE         RX_TYPE_MSP
-@@ -176 +176 @@
+ #define SERIALRX_PROVIDER       SERIALRX_SBUS
+ #define SERIALRX_UART           SERIAL_PORT_USART2
+
+@@ -173,7 +173,7 @@
+ #define CURRENT_METER_ADC_CHANNEL   ADC_CHN_2
+ #define RSSI_ADC_CHANNEL            ADC_CHN_3
+
 -#define DEFAULT_FEATURES        (FEATURE_OSD | FEATURE_CURRENT_METER | FEATURE_VBAT | FEATURE_TELEMETRY | FEATURE_BLACKBOX )
 +#define DEFAULT_FEATURES        (FEATURE_GPS | FEATURE_CURRENT_METER | FEATURE_VBAT | FEATURE_TELEMETRY)
+ #define CURRENT_METER_SCALE   179
+
+ #define USE_LED_STRIP

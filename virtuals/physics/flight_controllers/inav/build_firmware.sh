@@ -13,7 +13,7 @@ git -C "$source_dir" init
 git -C "$source_dir" remote add origin https://github.com/iNavFlight/inav.git
 git -C "$source_dir" fetch --depth 1 origin "$revision"
 git -C "$source_dir" checkout --detach FETCH_HEAD
-git -C "$source_dir" apply --unidiff-zero "$repo_root/virtuals/physics/flight_controllers/inav/inav.patch"
+git -C "$source_dir" apply "$repo_root/virtuals/physics/flight_controllers/inav/inav.patch"
 # Avoid generating CMake projects for hundreds of unrelated boards.
 python3 - "$source_dir/src/main/target/CMakeLists.txt" <<'PY'
 from pathlib import Path
