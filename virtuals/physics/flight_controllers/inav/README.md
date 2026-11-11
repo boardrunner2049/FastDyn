@@ -7,7 +7,8 @@ offsets apply **only** to the included ELF. The configuration checks its
 SHA-256 before installing the hooks.
 
 From the FastDyn root, prepare QEMU, the native plugin and Rumoca as described
-in the main README, then run:
+in the main README. Rumoca requires the nightly Rust toolchain pinned by its
+`rust-toolchain.toml`, `rustfmt`, and the `libudev` development files. Then run:
 
 ```sh
 source ./setup.sh --build-qemu --with-rumoca --skip-optifuzz
