@@ -275,6 +275,14 @@ def test_inav_copter_fmu_takeoff_and_receiver_loss(tmp_path):
                     time.sleep(.05)
                 else:
                     pytest.fail(f'INAV did not enter receiver failsafe: {flags:#x}')
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    pwm = struct.unpack('<4h', _read_memory(stream, 0x10004f70, 8))
+                    if all(value <= 1000 for value in pwm):
+                        break
+                    time.sleep(.05)
+                else:
+                    pytest.fail(f'motors did not return to idle after receiver loss: {pwm}')
         finally:
             try:
                 os.killpg(proc.pid, signal.SIGTERM)
