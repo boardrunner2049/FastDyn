@@ -85,10 +85,21 @@ their parameters. `return_sites(start, size)` recognizes the existing Cortex-M
 internal escape hatch used by specialized ObjectSan propagation logic that
 still needs Capstone operands.
 
-Decoding currently supports only `architecture="arm"` with
-`instruction_mode="thumb-mclass"`; other combinations raise
-`UnsupportedTargetError`. `LoopFinder`, `next_pcs`, and `mmiofinder` retain
-their distinct APIs and architecture support. Candidate memory accesses remain
+`analysis.constant_propagation.memory_accesses()` performs bounded,
+control-flow-aware propagation of partial register constants and returns
+immutable `KnownMemoryAccess` records when an instruction's effective address
+is known. It handles Cortex-M vector/entry seeds, direct calls, literal pools,
+`movw`/`movt`, register copies, immediate arithmetic, uncertain CFG merges,
+and ABI clobbers. The result is deliberately address-class agnostic: a plugin
+may classify the same facts as MMIO, RAM, protocol buffers, or another domain.
+The unfiltered result is cached by the shared session. Raw-image tools can use
+`find_known_memory_accesses()` or construct `ConstantPropagation` directly.
+
+Decoding and session constant propagation currently support only
+`architecture="arm"` with `instruction_mode="thumb-mclass"`; other combinations raise
+`UnsupportedTargetError`. `mmiofinder` is a compatibility adapter that filters
+the shared constant-propagation records by caller-supplied ranges. `LoopFinder`
+and `next_pcs` retain their distinct APIs. Candidate memory accesses remain
 conservative, including register-list transfers and accesses whose effective
 address cannot be recovered.
 
@@ -112,5 +123,6 @@ or `world` packages.
 
 Plugin examples in the repository include Function Counter using
 `ctx.analysis.symbols`, VariableWatch using fixed DWARF member paths and shared
-function ranges, and ObjectSan using decoded instructions while retaining its
-own propagation and allocator policies.
+function ranges, ObjectSan using decoded instructions while retaining its own
+propagation and allocator policies, and Automatic MMIO classifying the cached
+known-effective-address results for configured device ranges.

@@ -144,6 +144,9 @@ device models. Start with [docs/RunningFastDyn.md](docs/RunningFastDyn.md) and
 - `docs/FastDynDeviceModel.md`: the device models (classic, passthrough,
   elder, twintrace) and how a model library is written
   (`docs/ElderScrollDeviceModel.md`).
+- `docs/AutomaticMMIOOptimization.md`: automatic LLVM model extraction,
+  stripped Thumb firmware discovery, guarded QEMU substitution, and the
+  reproducible integration/performance demonstration.
 - `docs/VirtualsAndModifiers.md`: reference for PC-triggered virtual
   instructions and direct register/memory modifiers, including TOML syntax
   and the built-in virtual callback registry.

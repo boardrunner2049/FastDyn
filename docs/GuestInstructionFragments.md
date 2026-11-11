@@ -61,14 +61,19 @@ Cortex-M fixture without modifying the firmware image.
 
 ## Building the architecture matrix
 
-Apply both tracked QEMU patches in order and build the matrix with:
+Apply the tracked QEMU patch series in order and build the matrix with:
 
 ```bash
 source ./setup.sh --build-qemu \
   --qemu-targets arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu
 ```
 
-The setup script and Dockerfile apply `qemu-fastdyn-plugin-icount.patch` followed by `qemu-fastdyn-insn-fragments.patch`, detect an already-applied series, and fail rather than reset an incompatible checkout. A stale QEMU header fails the FastDyn build at the required `qemu/fastdyn-fragments.h` ABI include; it cannot accept and silently omit fragments.
+The setup script and Dockerfile apply `qemu-fastdyn-plugin-icount.patch`,
+`qemu-fastdyn-insn-fragments.patch`, and `qemu-fastdyn-mmio.patch` in order,
+detect an already-applied series, and fail rather than reset an incompatible
+checkout. A stale QEMU header fails the FastDyn build at the required
+`qemu/fastdyn-fragments.h` ABI include; it cannot accept and silently omit
+fragments.
 
 Guest-memory fragments, branches and guest control transfers, arbitrary helpers, host-state bindings, live updates/removal, automatic register preservation, and a public IR/TCG interface are intentionally absent.
 

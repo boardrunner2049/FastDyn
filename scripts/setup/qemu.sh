@@ -5,28 +5,33 @@ fastdyn_setup_qemu_patch() {
   local repo_root="$1"
   local qemu_root="$2"
   local patch
+  local applied=-1
+  local i
   local patches=(
     "$repo_root/patches/qemu-fastdyn-plugin-icount.patch"
     "$repo_root/patches/qemu-fastdyn-insn-fragments.patch"
+    "$repo_root/patches/qemu-fastdyn-mmio.patch"
   )
 
-  # The last patch may touch context introduced by an earlier patch.  If the
-  # complete series is present, checking that tip first avoids misclassifying
-  # the earlier patch as incompatible merely because its context advanced.
-  if [[ -f "${patches[1]}" ]] &&
-     git -C "$qemu_root" apply --reverse --check "${patches[1]}" >/dev/null 2>&1; then
+  # Find the tip of an already-applied prefix from newest to oldest. This also
+  # upgrades checkouts built with an older FastDyn patch series.
+  for ((i=${#patches[@]}-1; i>=0; i--)); do
+    if [[ -f "${patches[$i]}" ]] &&
+       git -C "$qemu_root" apply --reverse --check "${patches[$i]}" >/dev/null 2>&1; then
+      applied=$i
+      break
+    fi
+  done
+  if ((applied == ${#patches[@]}-1)); then
     echo "FastDyn QEMU ordered patch series is already applied"
     return 0
   fi
 
-  for patch in "${patches[@]}"; do
+  for ((i=applied+1; i<${#patches[@]}; i++)); do
+    patch="${patches[$i]}"
     if [[ ! -f "$patch" ]]; then
       echo "missing required QEMU patch: $patch" >&2
       return 1
-    fi
-    if git -C "$qemu_root" apply --reverse --check "$patch" >/dev/null 2>&1; then
-      echo "FastDyn QEMU patch is already applied: $patch"
-      continue
     fi
     if git -C "$qemu_root" apply --check "$patch" >/dev/null 2>&1; then
       git -C "$qemu_root" apply "$patch" || return
@@ -117,7 +122,7 @@ fastdyn_setup_qemu_hint() {
   local qemu_repo="$3"
   local qemu_ref="$4"
   local qemu_bin="$qemu_root/build/qemu-system-arm"
-  local qemu_patch="$repo_root/patches/qemu-fastdyn-insn-fragments.patch"
+  local qemu_patch="$repo_root/patches/qemu-fastdyn-mmio.patch"
 
   if [[ -x "$qemu_bin" ]]; then
     if fastdyn_setup_qemu_source_exists "$qemu_root" &&

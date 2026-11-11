@@ -1467,6 +1467,9 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
 			utils_die("Device Init Failed");
 	}
     #endif
+	if (virtual_run_post_device_init() != 0) {
+		utils_die("Runtime plugin post-device initialization failed");
+	}
 
     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
     qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);

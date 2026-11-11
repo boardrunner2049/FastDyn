@@ -286,5 +286,6 @@ int virtual_register(const char *name, cb_func_t func);
 // Initialization function
 int virtuals_init(int argc, char **argv);
 bool virtual_fragment_registration_failed(void);
+int virtual_run_post_device_init(void);
 
 #endif // VIRTUALS_H

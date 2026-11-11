@@ -1,0 +1,436 @@
+diff --git a/accel/tcg/fastdyn-mmio.c b/accel/tcg/fastdyn-mmio.c
+new file mode 100644
+index 0000000..812e750
+--- /dev/null
++++ b/accel/tcg/fastdyn-mmio.c
+@@ -0,0 +1,142 @@
++#include "qemu/osdep.h"
++#include "qemu/error-report.h"
++#include "qemu/thread.h"
++#include "qemu/qemu-plugin.h"
++#include "exec/fastdyn-mmio.h"
++
++#define FASTDYN_MAX_MMIO_REPLACEMENTS 4096u
++
++static FastDynMmioBoundReplacement replacements[FASTDYN_MAX_MMIO_REPLACEMENTS];
++static size_t replacement_count;
++static uint64_t next_replacement_id = 1;
++static bool registry_sealed;
++static QemuMutex registry_lock;
++static gsize registry_once;
++
++static void registry_init(void)
++{
++    qemu_mutex_init(&registry_lock);
++}
++
++static bool valid_expr(const FastDynMmioReplacement *r)
++{
++    unsigned depth = 0;
++    size_t i;
++
++    if (!r->state || !r->expr || !r->expr_count ||
++        r->expr_count > FASTDYN_MMIO_MAX_EXPR_INSNS || !r->state_size) {
++        return false;
++    }
++    for (i = 0; i < r->expr_count; i++) {
++        const FastDynMmioExprInsn *op = &r->expr[i];
++        unsigned width = 0;
++
++        switch (op->opcode) {
++        case FASTDYN_MMIO_EXPR_CONST:
++            depth++;
++            break;
++        case FASTDYN_MMIO_EXPR_LOAD_U8:
++            width = 1;
++            goto check_load;
++        case FASTDYN_MMIO_EXPR_LOAD_U16:
++            width = 2;
++            goto check_load;
++        case FASTDYN_MMIO_EXPR_LOAD_U32:
++            width = 4;
++check_load:
++            if (op->state_offset > r->state_size ||
++                width > r->state_size - op->state_offset) {
++                return false;
++            }
++            depth++;
++            break;
++        case FASTDYN_MMIO_EXPR_ADD:
++        case FASTDYN_MMIO_EXPR_SUB:
++        case FASTDYN_MMIO_EXPR_AND:
++        case FASTDYN_MMIO_EXPR_OR:
++        case FASTDYN_MMIO_EXPR_XOR:
++        case FASTDYN_MMIO_EXPR_SHL:
++        case FASTDYN_MMIO_EXPR_LSHR:
++            if (depth < 2) {
++                return false;
++            }
++            depth--;
++            break;
++        default:
++            return false;
++        }
++        if (depth > FASTDYN_MMIO_MAX_EXPR_INSNS) {
++            return false;
++        }
++    }
++    return depth == 1;
++}
++
++bool qemu_plugin_register_fastdyn_mmio_replacement(
++    const FastDynMmioReplacement *replacement, uint64_t *out_hook_id)
++{
++    FastDynMmioBoundReplacement *dst;
++    bool ok = false;
++
++    if (out_hook_id) {
++        *out_hook_id = 0;
++    }
++    if (!replacement || replacement->spec.isa != FASTDYN_GUEST_ISA_ARM ||
++        replacement->spec.mode != FASTDYN_CODE_MODE_THUMB ||
++        replacement->spec.instruction_order != FASTDYN_INSN_ORDER_LITTLE_ENDIAN ||
++        (replacement->guest_pc & 1) || replacement->guest_pc > UINT32_MAX ||
++        replacement->expected_address > UINT32_MAX ||
++        (replacement->transfer_size != 1 && replacement->transfer_size != 2 &&
++         replacement->transfer_size != 4) || !valid_expr(replacement)) {
++        error_report("FastDyn MMIO replacement registration rejected");
++        return false;
++    }
++
++    if (g_once_init_enter(&registry_once)) {
++        registry_init();
++        g_once_init_leave(&registry_once, 1);
++    }
++    qemu_mutex_lock(&registry_lock);
++    if (registry_sealed || replacement_count == FASTDYN_MAX_MMIO_REPLACEMENTS) {
++        goto out;
++    }
++    dst = &replacements[replacement_count++];
++    dst->id = next_replacement_id++;
++    dst->replacement = *replacement;
++    memcpy(dst->expr, replacement->expr,
++           replacement->expr_count * sizeof(replacement->expr[0]));
++    dst->replacement.expr = dst->expr;
++    if (out_hook_id) {
++        *out_hook_id = dst->id;
++    }
++    ok = true;
++out:
++    qemu_mutex_unlock(&registry_lock);
++    return ok;
++}
++
++const FastDynMmioBoundReplacement *fastdyn_mmio_find(
++    uint64_t guest_pc, FastDynCodeMode mode, unsigned transfer_size,
++    size_t *cursor)
++{
++    const FastDynMmioBoundReplacement *result = NULL;
++    size_t i;
++
++    if (g_once_init_enter(&registry_once)) {
++        registry_init();
++        g_once_init_leave(&registry_once, 1);
++    }
++    qemu_mutex_lock(&registry_lock);
++    registry_sealed = true;
++    for (i = *cursor; i < replacement_count; i++) {
++        FastDynMmioReplacement *r = &replacements[i].replacement;
++        if (r->guest_pc == guest_pc && r->spec.mode == mode &&
++            r->transfer_size == transfer_size) {
++            *cursor = i + 1;
++            result = &replacements[i];
++            break;
++        }
++    }
++    qemu_mutex_unlock(&registry_lock);
++    return result;
++}
+diff --git a/accel/tcg/meson.build b/accel/tcg/meson.build
+index a1009a3..0f21a2c 100644
+--- a/accel/tcg/meson.build
++++ b/accel/tcg/meson.build
+@@ -5,6 +5,7 @@ endif
+ tcg_ss = ss.source_set()
+ 
+ tcg_ss.add(files('fastdyn-fragments.c'))
++tcg_ss.add(files('fastdyn-mmio.c'))
+ 
+ tcg_ss.add(files(
+   'cpu-exec.c',
+diff --git a/include/exec/fastdyn-mmio.h b/include/exec/fastdyn-mmio.h
+new file mode 100644
+index 0000000..6b3510d
+--- /dev/null
++++ b/include/exec/fastdyn-mmio.h
+@@ -0,0 +1,16 @@
++#ifndef EXEC_FASTDYN_MMIO_H
++#define EXEC_FASTDYN_MMIO_H
++
++#include "qemu/fastdyn-mmio.h"
++
++typedef struct FastDynMmioBoundReplacement {
++    uint64_t id;
++    FastDynMmioReplacement replacement;
++    FastDynMmioExprInsn expr[FASTDYN_MMIO_MAX_EXPR_INSNS];
++} FastDynMmioBoundReplacement;
++
++const FastDynMmioBoundReplacement *fastdyn_mmio_find(
++    uint64_t guest_pc, FastDynCodeMode mode, unsigned transfer_size,
++    size_t *cursor);
++
++#endif
+diff --git a/include/qemu/fastdyn-mmio.h b/include/qemu/fastdyn-mmio.h
+new file mode 100644
+index 0000000..413e133
+--- /dev/null
++++ b/include/qemu/fastdyn-mmio.h
+@@ -0,0 +1,50 @@
++/* Typed ABI for FastDyn's guarded Cortex-M MMIO read replacements. */
++#ifndef QEMU_FASTDYN_MMIO_H
++#define QEMU_FASTDYN_MMIO_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#include "qemu/fastdyn-fragments.h"
++
++#define FASTDYN_MMIO_MAX_EXPR_INSNS 16u
++
++typedef enum FastDynMmioExprOpcode {
++    FASTDYN_MMIO_EXPR_INVALID = 0,
++    FASTDYN_MMIO_EXPR_CONST,
++    FASTDYN_MMIO_EXPR_LOAD_U8,
++    FASTDYN_MMIO_EXPR_LOAD_U16,
++    FASTDYN_MMIO_EXPR_LOAD_U32,
++    FASTDYN_MMIO_EXPR_ADD,
++    FASTDYN_MMIO_EXPR_SUB,
++    FASTDYN_MMIO_EXPR_AND,
++    FASTDYN_MMIO_EXPR_OR,
++    FASTDYN_MMIO_EXPR_XOR,
++    FASTDYN_MMIO_EXPR_SHL,
++    FASTDYN_MMIO_EXPR_LSHR,
++} FastDynMmioExprOpcode;
++
++/* Postfix expression instruction. LOAD uses state_offset; CONST uses value. */
++typedef struct FastDynMmioExprInsn {
++    uint8_t opcode;
++    uint8_t reserved[3];
++    uint32_t state_offset;
++    uint64_t value;
++} FastDynMmioExprInsn;
++
++typedef struct FastDynMmioReplacement {
++    uint64_t guest_pc;
++    uint64_t expected_address;
++    FastDynCodeSpec spec;
++    uint8_t transfer_size;
++    uint8_t expr_count;
++    uint16_t reserved;
++    uint32_t state_size;
++    const void *state;
++    const FastDynMmioExprInsn *expr;
++    uint64_t *fast_count;
++    uint64_t *fallback_count;
++} FastDynMmioReplacement;
++
++#endif
+diff --git a/include/qemu/qemu-plugin.h b/include/qemu/qemu-plugin.h
+index 6e06335..df0d5b8 100644
+--- a/include/qemu/qemu-plugin.h
++++ b/include/qemu/qemu-plugin.h
+@@ -16,6 +16,7 @@
+ #include <stdbool.h>
+ #include <stddef.h>
+ #include "qemu/fastdyn-fragments.h"
++#include "qemu/fastdyn-mmio.h"
+ 
+ /*
+  * For best performance, build the plugin with -fvisibility=hidden so that
+@@ -261,6 +262,10 @@ bool qemu_plugin_register_fastdyn_fragment(
+     uint64_t guest_pc, const uint8_t *code, size_t code_size,
+     const FastDynCodeSpec *spec, uint64_t *out_hook_id);
+ 
++QEMU_PLUGIN_API
++bool qemu_plugin_register_fastdyn_mmio_replacement(
++    const FastDynMmioReplacement *replacement, uint64_t *out_hook_id);
++
+ /**
+  * qemu_plugin_set_budget_exact_stop() - halt exactly on the budget deadline
+  * @exact: true to stop the guest precisely on its deadline
+diff --git a/target/arm/tcg/translate.c b/target/arm/tcg/translate.c
+index 6158638..a9c4026 100644
+--- a/target/arm/tcg/translate.c
++++ b/target/arm/tcg/translate.c
+@@ -29,6 +29,7 @@
+ #include "exec/helper-proto.h"
+ #include "exec/target_page.h"
+ #include "exec/fastdyn-fragments.h"
++#include "exec/fastdyn-mmio.h"
+ #include "tcg/tcg.h"
+ #include "tcg/tcg-temp-internal.h"
+ 
+@@ -1210,10 +1211,161 @@ void gen_aa32_st_internal_i64(DisasContext *s, TCGv_i64 val,
+     }
+ }
+ 
++static void fastdyn_mmio_counter_inc(uint64_t *counter)
++{
++    TCGv_ptr ptr;
++    TCGv_i64 value;
++
++    if (!counter) {
++        return;
++    }
++    ptr = tcg_constant_ptr((intptr_t)counter);
++    value = tcg_temp_new_i64();
++    tcg_gen_ld_i64(value, ptr, 0);
++    tcg_gen_addi_i64(value, value, 1);
++    tcg_gen_st_i64(value, ptr, 0);
++}
++
++static void fastdyn_mmio_emit_expr(TCGv_i32 result,
++                                   const FastDynMmioReplacement *r)
++{
++    TCGv_i32 stack[FASTDYN_MMIO_MAX_EXPR_INSNS];
++    TCGv_ptr state = tcg_constant_ptr((intptr_t)r->state);
++    unsigned depth = 0;
++    size_t i;
++
++    for (i = 0; i < r->expr_count; i++) {
++        const FastDynMmioExprInsn *op = &r->expr[i];
++        TCGv_i32 value;
++
++        switch (op->opcode) {
++        case FASTDYN_MMIO_EXPR_CONST:
++            stack[depth++] = tcg_constant_i32(op->value);
++            break;
++        case FASTDYN_MMIO_EXPR_LOAD_U8:
++            value = tcg_temp_new_i32();
++            tcg_gen_ld8u_i32(value, state, op->state_offset);
++            stack[depth++] = value;
++            break;
++        case FASTDYN_MMIO_EXPR_LOAD_U16:
++            value = tcg_temp_new_i32();
++            tcg_gen_ld16u_i32(value, state, op->state_offset);
++            stack[depth++] = value;
++            break;
++        case FASTDYN_MMIO_EXPR_LOAD_U32:
++            value = tcg_temp_new_i32();
++            tcg_gen_ld_i32(value, state, op->state_offset);
++            stack[depth++] = value;
++            break;
++        default: {
++            TCGv_i32 rhs = stack[--depth];
++            TCGv_i32 lhs = stack[--depth];
++            value = tcg_temp_new_i32();
++            switch (op->opcode) {
++            case FASTDYN_MMIO_EXPR_ADD:
++                tcg_gen_add_i32(value, lhs, rhs);
++                break;
++            case FASTDYN_MMIO_EXPR_SUB:
++                tcg_gen_sub_i32(value, lhs, rhs);
++                break;
++            case FASTDYN_MMIO_EXPR_AND:
++                tcg_gen_and_i32(value, lhs, rhs);
++                break;
++            case FASTDYN_MMIO_EXPR_OR:
++                tcg_gen_or_i32(value, lhs, rhs);
++                break;
++            case FASTDYN_MMIO_EXPR_XOR:
++                tcg_gen_xor_i32(value, lhs, rhs);
++                break;
++            case FASTDYN_MMIO_EXPR_SHL:
++                tcg_gen_shl_i32(value, lhs, rhs);
++                break;
++            case FASTDYN_MMIO_EXPR_LSHR:
++                tcg_gen_shr_i32(value, lhs, rhs);
++                break;
++            default:
++                g_assert_not_reached();
++            }
++            stack[depth++] = value;
++            break;
++        }
++        }
++    }
++    tcg_gen_mov_i32(result, stack[0]);
++    if (r->transfer_size == 1) {
++        tcg_gen_andi_i32(result, result, 0xff);
++    } else if (r->transfer_size == 2) {
++        tcg_gen_andi_i32(result, result, 0xffff);
++    }
++}
++
++/* Return true when the original qemu_ld was emitted as the guarded slow arm. */
++static bool fastdyn_mmio_try_load(DisasContext *s, TCGv_i32 val,
++                                 TCGv_i32 a32, int index, MemOp opc)
++{
++    const FastDynMmioBoundReplacement *matches[64];
++    const FastDynMmioBoundReplacement *bound;
++    unsigned transfer_size = 1u << (opc & MO_SIZE);
++    TCGLabel *slow, *done;
++    TCGv_i32 mpu;
++    size_t cursor = 0, count = 0, i;
++
++    if (!s->thumb || !arm_dc_feature(s, ARM_FEATURE_M) ||
++        (opc & (MO_SIGN | MO_BSWAP)) || transfer_size > 4) {
++        return false;
++    }
++    while (count < ARRAY_SIZE(matches) &&
++           (bound = fastdyn_mmio_find(s->pc_curr, FASTDYN_CODE_MODE_THUMB,
++                                      transfer_size, &cursor))) {
++        matches[count++] = bound;
++    }
++    if (!count) {
++        return false;
++    }
++
++    slow = gen_new_label();
++    done = gen_new_label();
++
++    /* An MPU enabled after translation immediately restores protected access. */
++    mpu = tcg_temp_new_i32();
++    tcg_gen_ld_i32(mpu, tcg_env,
++                   offsetof(CPUARMState, v7m.mpu_ctrl[M_REG_NS]));
++    tcg_gen_andi_i32(mpu, mpu, R_V7M_MPU_CTRL_ENABLE_MASK);
++    if (M_REG_NUM_BANKS > 1) {
++        TCGv_i32 secure_mpu = tcg_temp_new_i32();
++        tcg_gen_ld_i32(secure_mpu, tcg_env,
++                       offsetof(CPUARMState, v7m.mpu_ctrl[M_REG_S]));
++        tcg_gen_andi_i32(secure_mpu, secure_mpu,
++                         R_V7M_MPU_CTRL_ENABLE_MASK);
++        tcg_gen_or_i32(mpu, mpu, secure_mpu);
++    }
++    tcg_gen_brcondi_i32(TCG_COND_NE, mpu, 0, slow);
++
++    for (i = 0; i < count; i++) {
++        const FastDynMmioReplacement *r = &matches[i]->replacement;
++        TCGLabel *next = gen_new_label();
++
++        tcg_gen_brcondi_i32(TCG_COND_NE, a32, r->expected_address, next);
++        fastdyn_mmio_emit_expr(val, r);
++        fastdyn_mmio_counter_inc(r->fast_count);
++        tcg_gen_br(done);
++        gen_set_label(next);
++    }
++
++    gen_set_label(slow);
++    fastdyn_mmio_counter_inc(matches[0]->replacement.fallback_count);
++    gen_aa32_ld_internal_i32(s, val, a32, index, opc);
++    gen_set_label(done);
++    return true;
++}
++
+ void gen_aa32_ld_i32(DisasContext *s, TCGv_i32 val, TCGv_i32 a32,
+                      int index, MemOp opc)
+ {
+-    gen_aa32_ld_internal_i32(s, val, a32, index, finalize_memop(s, opc));
++    opc = finalize_memop(s, opc);
++    if (!fastdyn_mmio_try_load(s, val, a32, index, opc)) {
++        gen_aa32_ld_internal_i32(s, val, a32, index, opc);
++    }
+ }
+ 
+ void gen_aa32_st_i32(DisasContext *s, TCGv_i32 val, TCGv_i32 a32,

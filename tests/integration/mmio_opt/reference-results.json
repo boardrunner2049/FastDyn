@@ -1,0 +1,24 @@
+{
+  "environment": {
+    "qemu_commit": "99b54836ded8dc3271eba52deee7453efc0a13b9",
+    "workload": "tests/integration/mmio_opt/firmware.S"
+  },
+  "model_analysis": {
+    "declined_paths": 1,
+    "operation_count": 4,
+    "source": "tests/models/elder_echo.c",
+    "state_size": 32
+  },
+  "installation": {
+    "discovered_sites": 12,
+    "installed_sites": 10,
+    "declined_sites": 2,
+    "fast_executions": 1000010,
+    "guard_or_mpu_fallbacks": 3
+  },
+  "performance_seconds": {
+    "baseline_execution": 1.0822069479618222,
+    "optimized_execution": 0.04190325806848705,
+    "preparation": 0.032120933989062905
+  }
+}

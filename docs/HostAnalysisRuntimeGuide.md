@@ -14,8 +14,8 @@ results, see [HostAnalysisMigration.md](HostAnalysisMigration.md).
 
 No user configuration is required to enable host analysis. When an enabled
 plugin such as Function Counter, Function Tracer, VariableWatch, ObjectSan,
-Introspection, or World needs firmware facts, FastDyn creates a lazy analysis
-session for that CPU.
+Introspection, World, or Automatic MMIO needs firmware facts, FastDyn creates
+a lazy analysis session for that CPU.
 
 ```toml
 [CPU.cpu0.plugins.function_counter]
@@ -64,7 +64,9 @@ Use shared services only for facts. Keep these decisions in the plugin:
 - which hooks to install and what arguments they receive;
 - ABI placement, rendering limits, and diagnostics;
 - manifest and runtime-schema formats;
-- propagation, allocation, RTOS-hook, and firmware-profile policy.
+- plugin-specific propagation/selection, allocation, RTOS-hook, and
+  firmware-profile policy (shared immutable dataflow facts still belong in
+  `ctx.analysis`).
 
 Creating a context or reading `ctx.analysis` does not parse DWARF. Parsing is
 triggered only when a service such as `symbols` or `dwarf` is requested.
@@ -87,6 +89,13 @@ with AnalysisSession.open(
         print(function.name, hex(function.start), function.size,
               function.range_provenance)
 ```
+
+Reusable whole-firmware dataflow facts are also session services. For example,
+a preprocessor that needs statically known effective addresses should consume
+`analysis.constant_propagation.memory_accesses()` and apply its own address
+classification, rather than embedding a second register propagator. The same
+cached records can support MMIO discovery, RAM/protocol-buffer analysis, or
+other plugins.
 
 The currently supported decoder target is ARM Thumb/M-profile. Image, symbol,
 and DWARF queries can still be used for other ELF targets without invoking the

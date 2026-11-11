@@ -67,6 +67,7 @@ class ModelResult:
     status: str
     diagnostics: str = ""
     command: list[str] = field(default_factory=list)
+    mmio_operations: int = 0
 
     @property
     def first_error(self) -> str:
@@ -103,7 +104,8 @@ class BuildReport:
             "counts": {s: self.count(s) for s in (BUILT, UP_TO_DATE, FAILED, SKIPPED)},
             "models": [
                 {"name": r.name, "sources": r.sources, "output": r.output, "status": r.status,
-                 "diagnostics": r.diagnostics, "command": r.command}
+                 "diagnostics": r.diagnostics, "command": r.command,
+                 "mmio_operations": r.mmio_operations}
                 for r in self.results
             ],
         }
@@ -158,6 +160,7 @@ def build_models(
     pkgs: Iterable[str] = (),
     exclude: Iterable[str] = (),
     recursive: bool = False,
+    mmio_opt: bool = False,
 ) -> BuildReport:
     """Build models into ``out_dir/<name>.so``.
 
@@ -174,14 +177,33 @@ def build_models(
         models += find_models(inputs, recursive=recursive, exclude=exclude)
     _check_models(models)
 
-    toolchain = _Toolchain.resolve(vio=vio, pkgs=tuple(pkgs))
+    toolchain = _Toolchain.resolve(vio=vio, pkgs=tuple(pkgs), require_clang=mmio_opt)
     out_dir = Path(out_dir).resolve()
     (out_dir / STATE_DIR).mkdir(parents=True, exist_ok=True)
 
     stop = threading.Event()
 
     def build(model: Model) -> ModelResult:
-        result = _plan(model, out_dir, toolchain)
+        extra_sources: tuple[Path, ...] = ()
+        mmio_operations = 0
+        if mmio_opt:
+            try:
+                generated, mmio_operations = _generate_mmio_metadata(model, out_dir, toolchain)
+                extra_sources = (generated,)
+            except Exception as exc:
+                if not isinstance(exc, ModelBuildError):
+                    exc = ModelBuildError(str(exc))
+                result = ModelResult(model.name, [str(s) for s in model.sources],
+                                     str(out_dir / f"{model.name}.so"), FAILED,
+                                     diagnostics=str(exc))
+                Path(result.output).unlink(missing_ok=True)
+                _state_file(out_dir, model, ".mmio.c").unlink(missing_ok=True)
+                (out_dir / f"{model.name}.mmio.json").unlink(missing_ok=True)
+                if not keep_going:
+                    stop.set()
+                return result
+        result = _plan(model, out_dir, toolchain, extra_sources=extra_sources)
+        result.mmio_operations = mmio_operations
         if result.status == UP_TO_DATE:
             return result
         if stop.is_set():
@@ -227,8 +249,13 @@ class _Toolchain:
     vio: bool
 
     @classmethod
-    def resolve(cls, *, vio: bool, pkgs: tuple[str, ...]) -> "_Toolchain":
-        compiler = shlex.split(os.environ.get("CC") or "cc")
+    def resolve(cls, *, vio: bool, pkgs: tuple[str, ...],
+                require_clang: bool = False) -> "_Toolchain":
+        if require_clang:
+            from .mmio_model import resolve_clang
+            compiler = [resolve_clang()]
+        else:
+            compiler = shlex.split(os.environ.get("CC") or "cc")
         if not compiler or shutil.which(compiler[0]) is None:
             raise ModelBuildError(f"C compiler not found: {compiler[0] if compiler else '(empty $CC)'}")
 
@@ -336,23 +363,73 @@ def _state_file(out_dir: Path, model: Model, suffix: str) -> Path:
     return out_dir / STATE_DIR / f"{model.name}{suffix}"
 
 
-def _command(model: Model, toolchain: _Toolchain, output: Path, depfile: Path) -> list[str]:
+def _command(model: Model, toolchain: _Toolchain, output: Path, depfile: Path,
+             extra_sources: Sequence[Path] = ()) -> list[str]:
     return [
         *toolchain.compiler, *BASE_FLAGS, *toolchain.env_cflags, *_include_dirs(model),
         *toolchain.cflags, "-MMD", "-MF", str(depfile), "-o", str(output),
-        *(str(s.resolve()) for s in model.sources), *toolchain.libs, *toolchain.env_ldflags,
+        *(str(s.resolve()) for s in (*model.sources, *extra_sources)),
+        *toolchain.libs, *toolchain.env_ldflags,
     ]
 
 
-def _plan(model: Model, out_dir: Path, toolchain: _Toolchain) -> ModelResult:
+def _plan(model: Model, out_dir: Path, toolchain: _Toolchain,
+          extra_sources: Sequence[Path] = ()) -> ModelResult:
     """Work out the command, and whether the existing output is up to date."""
     output = out_dir / f"{model.name}.so"
     depfile = _state_file(out_dir, model, ".d")
-    command = _command(model, toolchain, _state_file(out_dir, model, ".so.tmp"), depfile)
+    command = _command(model, toolchain, _state_file(out_dir, model, ".so.tmp"), depfile,
+                       extra_sources)
     result = ModelResult(model.name, [str(s) for s in model.sources], str(output), BUILT, command=command)
     if _up_to_date(output, depfile, _state_file(out_dir, model, ".stamp"), _command_hash(command)):
         result.status = UP_TO_DATE
     return result
+
+
+def _write_if_changed(path: Path, text: str) -> None:
+    try:
+        if path.read_text() == text:
+            return
+    except OSError:
+        pass
+    path.write_text(text)
+
+
+def _generate_mmio_metadata(model: Model, out_dir: Path,
+                            toolchain: _Toolchain) -> tuple[Path, int]:
+    from . import mmio_model
+
+    if len(model.sources) != 1:
+        raise ModelBuildError("--mmio-opt currently requires one ordinary model source")
+    try:
+        analysis = mmio_model.analyze_source(
+            model.sources[0], cflags=toolchain.env_cflags,
+            include_flags=[*_include_dirs(model), *toolchain.cflags],
+            clang=toolchain.compiler[0],
+        )
+    except mmio_model.MmioModelError as exc:
+        raise ModelBuildError(f"model {model.name!r}: {exc}") from exc
+    generated = _state_file(out_dir, model, ".mmio.c")
+    _write_if_changed(generated, mmio_model.generated_c(analysis))
+    report = {
+        "model": model.name,
+        "source": str(model.sources[0]),
+        "read_function": analysis.read_function,
+        "state_size": analysis.state_size,
+        "operation_count": len(analysis.operations),
+        "declined_paths": analysis.declined_paths,
+        "operations": [
+            {"selector_kind": op.selector_kind,
+             "selector_state_offset": op.selector_offset,
+             "selector_width": op.selector_width,
+             "selector_value": op.selector_value,
+             "expression": list(op.expression)}
+            for op in analysis.operations
+        ],
+    }
+    _write_if_changed(out_dir / f"{model.name}.mmio.json",
+                      json.dumps(report, indent=2, sort_keys=True) + "\n")
+    return generated, len(analysis.operations)
 
 
 def _command_hash(command: list[str]) -> str:

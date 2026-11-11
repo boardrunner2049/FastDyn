@@ -5,7 +5,9 @@ import pytest
 
 from fastdyn.host import (AnalysisSession, AnalysisSessionPool, ImageAddressError,
                           AmbiguousSymbolError, UnsupportedTargetError,
+                          ConstantPropagation, KnownMemoryAccess,
                           constant_member_offset,
+                          find_known_memory_accesses,
                           resolve_address)
 from fastdyn.host.symbols import SymbolIndex
 
@@ -101,6 +103,54 @@ def test_decoder_return_forms_and_unsupported_mode():
     unsupported = AnalysisSession.open(VARIABLE_ELF, architecture="arm")
     with pytest.raises(UnsupportedTargetError):
         _ = unsupported.decoder
+
+
+def test_constant_propagation_is_shared_cached_and_address_class_agnostic():
+    # Vector table; literal load of 0x40010000; word load through the recovered
+    # base. The shared service reports the known address without classifying it.
+    blob = bytes.fromhex(
+        "00100020" "09000000" "014c" "2068" "fee7" "00bf" "00000140"
+    )
+    direct = find_known_memory_accesses(
+        blob=blob, base_va=0, arch="arm32", mode="thumb",
+    )
+    assert [(item.address, item.direction, item.transfer_size) for item in direct] == [
+        (0x40010000, "read", 4),
+    ]
+
+    shared = ConstantPropagation(
+        ((0, blob),), architecture="arm", instruction_mode="thumb-mclass",
+    )
+    first = shared.memory_accesses()
+    assert first is shared.memory_accesses()
+    assert first == tuple(direct)
+
+    session = arm_session(VARIABLE_ELF)
+    assert session.constant_propagation is session.constant_propagation
+    with pytest.raises(UnsupportedTargetError):
+        find_known_memory_accesses(blob=blob, base_va=0, arch="mips")
+
+
+def test_mmio_discovery_filters_shared_constant_facts_without_redecoding():
+    from fastdyn.mmio_plan import discover_firmware
+
+    access = KnownMemoryAccess(
+        pc=0x08000100, instruction_size=2, transfer_size=4,
+        direction="read", arch="ARM32-THUMB", instruction="ldr r0, [r1]",
+        base_register="r1", address=0x40010000, note="unit",
+    )
+
+    class SharedConstants:
+        def memory_accesses(self):
+            return (access,)
+
+    analysis = SimpleNamespace(constant_propagation=SharedConstants())
+    assert discover_firmware(
+        VARIABLE_ELF, ((0x40010000, 0x400100ff),), analysis=analysis,
+    ) == [access]
+    assert discover_firmware(
+        VARIABLE_ELF, ((0x50000000, 0x500000ff),), analysis=analysis,
+    ) == []
 
 
 def test_register_list_memory_transfers_remain_candidates():

@@ -44,6 +44,7 @@ int core_register_virtual_rule(void) { return 0; }
 int core_register_register_update(void) { return 0; }
 int core_register_instruction_fragment(void) { return 1; }
 int core_register_gated_modifier(void) { return 0; }
+int qemu_plugin_register_fastdyn_mmio_replacement(void) { return 1; }
 uint32_t qemu_get_register(int r) { (void)r; return 0; }
 void qemu_set_register(void) {}
 void *qemu_plugin_get_registers(void) { return NULL; }
@@ -64,14 +65,21 @@ HARNESS = r"""
 extern VirtualExitCallback exit_hooks[8];
 extern int exit_hook_count;
 extern const char *artifact_root;
+extern int virtual_run_post_device_init(void);
 
 /* One compiled-in plugin, as in libfastdyn.so. */
-static int builtin_initialize(const VirtualContext *ctx) { (void)ctx; return 0; }
+static int post_device_calls;
+static int post_device(const VirtualContext *ctx) { (void)ctx; post_device_calls++; return 0; }
+static int builtin_initialize(const VirtualContext *ctx) {
+    return virtual_register_post_device_init(ctx, post_device);
+}
 VIRTUAL_PLUGIN("builtin", builtin_initialize);
 
 int main(int argc, char **argv) {
     artifact_root = argv[1];
     virtual_initialize_plugins();
+    if (virtual_run_post_device_init() != 0) return 4;
+    if (post_device_calls != 1) return 5;
     if (virtual_load_external_plugins(argv[2]) != 0) {
         return 3;
     }

@@ -16,6 +16,7 @@
 
 #include <qemu/qemu-plugin.h>
 #include <qemu/fastdyn-fragments.h> /* required FastDyn/QEMU fragment ABI */
+#include <qemu/fastdyn-mmio.h> /* guarded MMIO replacement ABI */
 
 /* A virtual-instruction callback (also declared in FastDyn's common.h). */
 #ifndef FASTDYN_CB_FUNC_T_DEFINED
@@ -32,6 +33,7 @@ typedef void (*VirtualIrqCallback)(int irq);
 typedef void (*VirtualTbTranslationHook)(qemu_plugin_id_t id,
                                                  struct qemu_plugin_tb *tb);
 typedef int (*VirtualPluginInitializer)(const VirtualContext *ctx);
+typedef int (*VirtualPostDeviceInitCallback)(const VirtualContext *ctx);
 
 /* One MMIO access seen by FastDyn's device dispatch. */
 typedef struct {
@@ -66,6 +68,10 @@ int virtual_artifact_path(const VirtualContext *ctx,
                                   size_t out_size);
 void virtual_register_exit(const VirtualContext *ctx,
                                    VirtualExitCallback callback);
+/* Register initialization that needs resolved device-model instances. The
+ * callback runs after successful dev_init and before guest translation. */
+int virtual_register_post_device_init(const VirtualContext *ctx,
+                                      VirtualPostDeviceInitCallback callback);
 void virtual_log(const VirtualContext *ctx, VirtualLogLevel level,
                  const char *format, ...)
     __attribute__((format(printf, 3, 4)));
@@ -129,6 +135,10 @@ bool virtual_insert_before(const VirtualContext *ctx, uint64_t guest_pc,
                            const uint8_t *code, size_t code_size,
                            const FastDynCodeSpec *code_spec,
                            uint64_t *out_hook_id);
+/* Install a typed, guarded load replacement during post-device init. */
+bool virtual_register_mmio_replacement(
+    const VirtualContext *ctx, const FastDynMmioReplacement *replacement,
+    uint64_t *out_hook_id);
 bool virtual_register_gated_modifier(const VirtualContext *ctx,
                                              uint64_t address, const char *patch,
                                              const volatile uint8_t *enabled);

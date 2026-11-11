@@ -1,0 +1,44 @@
+[Memory]
+[Memory.main]
+id = "ram0"
+base_address = "0x20000000"
+memory_size = "512K"
+backend = "ram"
+share = false
+
+[Machine]
+platform = "generic-cortexm"
+qemu_path = "@QEMU@"
+enable_gdb = false
+stop_on_start = false
+monitor_port = 0
+qmp_socket = "@QMP@"
+semihosting = true
+semihosting_config = "enable=on,target=native"
+coverage = false
+finline = "None"
+
+[CPU]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m4"
+plugin_library = "@PLUGIN@"
+binary = "@FIRMWARE@"
+init_nsvtor = "0x0"
+twintrace = "None"
+
+[CPU.cpu0.plugins.mmio_opt]
+enabled = @MMIO_ENABLED@
+
+[Device.Models.elder]
+
+[Device.echo]
+ranges = [["0x40010000", "0x400100ff"]]
+irq = [16]
+reset = 287454020
+
+[[Device.echo.handlers]]
+model = "elder"
+enabled = true
+scroll = "@MODEL@"

@@ -9,6 +9,7 @@
 
 #define FD_LOG_SUBSYSTEM "elder"
 #include <fastdyn/log.h>
+#include <mmio_opt.h>
 
 /* Elder loads one device model library per configured device. The library
  * exports `fastdyn_model`, the interface in <fastdyn/device_model.h>. */
@@ -23,6 +24,7 @@ typedef struct {
     void *opaque;           // the model instance init returned
 
     const FdModel *v2;      // the model's descriptor
+    const FdMmioModel *mmio; // optional generated pure-read metadata
     FdDevice info;          // what the model is told about its device
     FdRange *ranges;
     int *irqs;
@@ -44,6 +46,68 @@ static device_model_t *elder_find_device(hwaddr address) {
 		}
 	}
 	return NULL;
+}
+
+static uint64_t elder_state_uint(const void *state, uint32_t state_size,
+                                 uint32_t offset, unsigned width, bool *ok)
+{
+    uint64_t value = 0;
+    if (!state || !width || width > sizeof(value) || offset > state_size ||
+        width > state_size - offset) {
+        *ok = false;
+        return 0;
+    }
+    memcpy(&value, (const unsigned char *)state + offset, width);
+    *ok = true;
+    return value;
+}
+
+bool elder_resolve_mmio_operation(uint64_t address,
+                                  FdResolvedMmioOperation *resolved)
+{
+    device_model_t *d = elder_find_device((hwaddr)address);
+    uint32_t i;
+
+    if (!d || !d->mmio || !resolved ||
+        d->mmio->abi != FASTDYN_MMIO_MODEL_ABI_VERSION ||
+        d->mmio->size < sizeof(FdMmioModel) || !d->mmio->operations) {
+        return false;
+    }
+    for (i = 0; i < d->mmio->operation_count; i++) {
+        const FdMmioOperation *op = &d->mmio->operations[i];
+        uint64_t selected = 0;
+        bool ok = true;
+
+        switch (op->selector_kind) {
+        case FD_MMIO_SELECTOR_ADDRESS_EQ_STATE:
+            selected = elder_state_uint(d->opaque, d->mmio->state_size,
+                                        op->selector_state_offset,
+                                        op->selector_width, &ok);
+            break;
+        case FD_MMIO_SELECTOR_ADDRESS_REL_STATE:
+            selected = elder_state_uint(d->opaque, d->mmio->state_size,
+                                        op->selector_state_offset,
+                                        op->selector_width, &ok) +
+                       op->selector_value;
+            break;
+        case FD_MMIO_SELECTOR_ADDRESS_EQ_CONSTANT:
+            selected = (uint64_t)op->selector_value;
+            break;
+        default:
+            ok = false;
+            break;
+        }
+        if (ok && selected == address) {
+            *resolved = (FdResolvedMmioOperation) {
+                .device_name = d->config->name,
+                .state = d->opaque,
+                .state_size = d->mmio->state_size,
+                .operation = op,
+            };
+            return true;
+        }
+    }
+    return false;
 }
 
 static uint64_t elder_read(void *opaque, hwaddr address, unsigned size, uint64_t pc) {
@@ -233,6 +297,8 @@ static void* elder_init(ConfigSection* model_info) {
 			elder_die("%s: %s does not export %s (see <fastdyn/device_model.h>)",
 			          d->config->name, d->config->scroll_path, FASTDYN_MODEL_SYMBOL);
 		}
+		d->mmio = (const FdMmioModel *)dlsym(d->handle,
+		                                               FASTDYN_MMIO_MODEL_SYMBOL);
 		elder_load_v2(d);
 
         // Register IRQs for this device based on config
