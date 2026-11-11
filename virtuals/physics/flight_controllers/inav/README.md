@@ -12,6 +12,7 @@ in the main README. Rumoca requires the nightly Rust toolchain pinned by its
 
 ```sh
 source ./setup.sh --build-qemu --with-rumoca --skip-optifuzz
+python utils/setup_fire_toolchain.py  # pinned FMI headers for packaging
 fastdyn run -c configs/inav_matekf405.toml -o inav-fastdyn_work
 ```
 
