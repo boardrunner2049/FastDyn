@@ -51,11 +51,11 @@ instruction = "inav_bus_read_buf"
 args = ["*"]
 [[CPU.cpu0.virtuals]]
 at = "0x080103d4"
-instruction = "micros32"
+instruction = "inav_micros64"
 args = ["*"]
 [[CPU.cpu0.virtuals]]
 at = "0x08010374"
-instruction = "micros32"
+instruction = "inav_micros64"
 args = ["*"]
 [[CPU.cpu0.virtuals]]
 at = "0x080968cc"

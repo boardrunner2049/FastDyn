@@ -42,6 +42,17 @@ static void inav_return(uint32_t value)
     qemu_set_register(qemu_get_register(ARM_V7M_LR), ARM_V7M_PC);
 }
 
+/* INAV on this STM32 target uses a 64-bit timeUs_t: return both words. */
+static void inav_micros64(unsigned int cpu, void *data)
+{
+    (void)cpu; (void)data;
+    int64_t ns = qemu_plugin_get_virtual_timer();
+    if (ns < 0) return;
+    uint64_t us = (uint64_t)ns / 1000;
+    qemu_set_register((uint32_t)(us >> 32), ARM_V7M_R1);
+    inav_return((uint32_t)us);
+}
+
 static void inav_bus_write(unsigned int cpu, void *data)
 {
     (void)cpu; (void)data;
@@ -270,6 +281,7 @@ int inav_init_virtuals(int argc, char **argv)
     virtual_register("inav_mag", inav_mag);
     virtual_register("inav_baro", inav_baro);
     virtual_register("inav_gps", inav_gps);
+    virtual_register("inav_micros64", inav_micros64);
     virtual_register("inav_bus_write", inav_bus_write);
     virtual_register("inav_bus_transfer", inav_bus_transfer);
     virtual_register("inav_bus_read", inav_bus_read);

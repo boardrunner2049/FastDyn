@@ -21,3 +21,5 @@ Firmware: INAV 10.0.0 development source at `d0c611e040887940226c9536bc84a3795ef
 ## Remaining work
 
 Telemetry and mission upload are not implemented. The real-model check demonstrates a climb of at least one metre and receiver-loss failsafe, not a sustained stable flight, mission, or full sensor calibration campaign. Two pre-existing FastDyn host-analysis unit tests fail because their FreeRTOS fixture lacks the expected `_start` alias and zero-size functions.
+
+The Cortex-M target uses a 64-bit `timeUs_t`. The original `micros32` hook returned only R0, leaving the high word in R1 stale. The `inav_micros64` hook returns both words from QEMU virtual time; the real-Copter takeoff and failsafe test was rerun after the correction.
