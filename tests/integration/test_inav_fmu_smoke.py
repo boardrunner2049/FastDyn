@@ -214,3 +214,74 @@ build = true
             except subprocess.TimeoutExpired:
                 os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
+
+
+@pytest.mark.skipif(os.environ.get('FASTDYN_RUN_INAV_COPTER') != '1',
+                    reason='set FASTDYN_RUN_INAV_COPTER=1 after building the Copter FMU')
+def test_inav_copter_fmu_takeoff_and_receiver_loss(tmp_path):
+    """Use the actual Copter model; no test FMU or guest-state injection."""
+    binary = ROOT / 'fastdyn-env/bin/fastdyn'
+    qmp = tmp_path / 'copter-qmp.sock'
+    config = (ROOT / 'configs/inav_matekf405.toml').read_text()
+    config = config.replace('/tmp/fastdyn-inav.qmp', str(qmp)).replace('auto_build = true', 'auto_build = false')
+    path = tmp_path / 'copter.toml'
+    path.write_text(config)
+    log = tmp_path / 'copter.log'
+    with log.open('w') as output:
+        proc = subprocess.Popen([str(binary), '-q', 'run', '-c', str(path),
+                                 '-o', str(tmp_path / 'work')], cwd=ROOT,
+                                stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:
+                    pytest.fail(f'Copter exited early: {log.read_text()}')
+                if qmp.exists() and 'GPS connected' in log.read_text():
+                    break
+                time.sleep(.05)
+            else:
+                pytest.fail(f'Copter did not initialize: {log.read_text()}')
+            with socket.socket(socket.AF_UNIX) as connection, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as receiver:
+                connection.connect(str(qmp))
+                stream = connection.makefile('rwb', buffering=0)
+                json.loads(stream.readline())
+                stream.write(b'{"execute":"qmp_capabilities"}\n')
+                assert 'return' in json.loads(stream.readline())
+                altitude_start = struct.unpack('<i', _read_memory(stream, 0x2000f014 + 20, 4))[0]
+                start = time.monotonic()
+                peak_altitude = altitude_start
+                armed = False
+                while time.monotonic() - start < 20:
+                    elapsed = time.monotonic() - start
+                    aux = 1900 if elapsed >= 2 else 1000
+                    throttle = 1750 if elapsed >= 4 else 1000
+                    receiver.sendto(b'FDRC' + struct.pack('<8H', 1500, 1500, throttle, 1500,
+                                                           aux, 1000, 1000, 1000),
+                                    ('127.0.0.1', 14590))
+                    flags = int.from_bytes(_read_memory(stream, 0x100010b4, 4), 'little')
+                    armed |= bool(flags & 4)
+                    altitude = struct.unpack('<i', _read_memory(stream, 0x2000f014 + 20, 4))[0]
+                    peak_altitude = max(peak_altitude, altitude)
+                    if armed and peak_altitude > altitude_start + 100:
+                        break
+                    time.sleep(.02)
+                assert armed, f'INAV did not arm: {flags:#x}\n{log.read_text()}'
+                assert peak_altitude > altitude_start + 100, f'no one-metre climb: {altitude_start=}, {peak_altitude=}'
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    flags = int.from_bytes(_read_memory(stream, 0x100010b4, 4), 'little')
+                    if flags & (1 << 7):
+                        break
+                    time.sleep(.05)
+                else:
+                    pytest.fail(f'INAV did not enter receiver failsafe: {flags:#x}')
+        finally:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                proc.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()

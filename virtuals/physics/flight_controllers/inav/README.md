@@ -93,11 +93,14 @@ ABI offsets, then update `firmware_sha256`; do not reuse this profile blindly.
 ```sh
 python -m pytest -q tests/unit/test_inav_sensors.py tests/unit/test_config_paths.py
 python -m pytest -q tests/integration/test_inav_fmu_smoke.py
+# After building out/fmi3/Copter/FastDyn_Copter.fmu:
+FASTDYN_RUN_INAV_COPTER=1 python -m pytest -q tests/integration/test_inav_fmu_smoke.py
 ```
 
 The integration check needs a built FastDyn plugin and patched QEMU. It uses
 FastDyn's usual QEMU resolution, including `FASTDYN_QEMU` when set. It builds a deterministic FMI test plant, boots the
 included firmware, checks the sensor bridges, calibration, GPS fix and motor
 mixer in guest memory, arms through receiver frames, and verifies that
-throttle reaches the FMI motor input. This check does not demonstrate flight
-stability or mission completion.
+throttle reaches the FMI motor input. The optional real-Copter check also
+verifies a climb of at least one metre and receiver-loss failsafe. It does not
+establish long-duration flight stability or mission completion.
