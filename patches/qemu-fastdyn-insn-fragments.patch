@@ -1,0 +1,1167 @@
+From 8406f7ea1168a25e73d6187b80d2920225f50493 Mon Sep 17 00:00:00 2001
+From: FastDyn Patch Builder <patch@example.invalid>
+Date: Wed, 11 Nov 2026 04:57:13 -0500
+Subject: [PATCH] Add architecture-neutral guest instruction fragments
+
+---
+ accel/tcg/fastdyn-fragments.c    | 320 +++++++++++++++++++++++++++++++
+ accel/tcg/meson.build            |   2 +
+ include/exec/fastdyn-fragments.h |  21 ++
+ include/qemu/fastdyn-fragments.h |  44 +++++
+ include/qemu/qemu-plugin.h       |   6 +
+ target/arm/tcg/translate-a64.c   |  54 ++++++
+ target/arm/tcg/translate.c       | 150 +++++++++++++++
+ target/i386/tcg/translate.c      | 204 +++++++++++++++++++-
+ target/riscv/translate.c         | 131 ++++++++++++-
+ 9 files changed, 924 insertions(+), 8 deletions(-)
+ create mode 100644 accel/tcg/fastdyn-fragments.c
+ create mode 100644 include/exec/fastdyn-fragments.h
+ create mode 100644 include/qemu/fastdyn-fragments.h
+
+diff --git a/accel/tcg/fastdyn-fragments.c b/accel/tcg/fastdyn-fragments.c
+new file mode 100644
+index 0000000..27d63e5
+--- /dev/null
++++ b/accel/tcg/fastdyn-fragments.c
+@@ -0,0 +1,320 @@
++#include "qemu/osdep.h"
++#include "qemu/error-report.h"
++#include "qemu/bswap.h"
++#include "qemu/thread.h"
++#include "qemu/qemu-plugin.h"
++#include "exec/fastdyn-fragments.h"
++
++#define FASTDYN_MAX_FRAGMENTS 1024u
++
++static FastDynFragment fragments[FASTDYN_MAX_FRAGMENTS];
++static size_t fragment_count;
++static uint64_t next_fragment_id = 1;
++static bool registry_sealed;
++static QemuMutex registry_lock;
++static gsize registry_once;
++
++static void registry_init(void)
++{
++    qemu_mutex_init(&registry_lock);
++}
++
++static bool valid_spec(const FastDynCodeSpec *spec)
++{
++    if (!spec || (spec->instruction_order != FASTDYN_INSN_ORDER_LITTLE_ENDIAN &&
++                  spec->instruction_order != FASTDYN_INSN_ORDER_BIG_ENDIAN)) {
++        return false;
++    }
++    switch (spec->isa) {
++    case FASTDYN_GUEST_ISA_ARM:
++        return spec->mode == FASTDYN_CODE_MODE_A32 ||
++               spec->mode == FASTDYN_CODE_MODE_THUMB;
++    case FASTDYN_GUEST_ISA_AARCH64:
++        return spec->mode == FASTDYN_CODE_MODE_A64 &&
++               spec->instruction_order == FASTDYN_INSN_ORDER_LITTLE_ENDIAN;
++    case FASTDYN_GUEST_ISA_X86:
++        return spec->mode >= FASTDYN_CODE_MODE_X86_16 &&
++               spec->mode <= FASTDYN_CODE_MODE_X86_64 &&
++               spec->instruction_order == FASTDYN_INSN_ORDER_LITTLE_ENDIAN;
++    case FASTDYN_GUEST_ISA_RISCV:
++        return (spec->mode == FASTDYN_CODE_MODE_RV32 ||
++                spec->mode == FASTDYN_CODE_MODE_RV64) &&
++               spec->instruction_order == FASTDYN_INSN_ORDER_LITTLE_ENDIAN;
++    default:
++        return false;
++    }
++}
++
++static bool aligned_pc(uint64_t pc, const FastDynCodeSpec *spec)
++{
++    switch (spec->mode) {
++    case FASTDYN_CODE_MODE_A32:
++    case FASTDYN_CODE_MODE_A64:
++        return !(pc & 3);
++    case FASTDYN_CODE_MODE_THUMB:
++    case FASTDYN_CODE_MODE_RV32:
++    case FASTDYN_CODE_MODE_RV64:
++        return !(pc & 1);
++    default:
++        return true;
++    }
++}
++
++static bool representable_pc(uint64_t pc, const FastDynCodeSpec *spec)
++{
++    switch (spec->mode) {
++    case FASTDYN_CODE_MODE_A32:
++    case FASTDYN_CODE_MODE_THUMB:
++    case FASTDYN_CODE_MODE_X86_16:
++    case FASTDYN_CODE_MODE_X86_32:
++    case FASTDYN_CODE_MODE_RV32:
++        return pc <= UINT32_MAX;
++    default:
++        /* Canonicality and implemented VA width are live CPU properties. */
++        return true;
++    }
++}
++
++static uint16_t fragment_u16(const uint8_t *p, bool big)
++{
++    return big ? lduw_be_p(p) : lduw_le_p(p);
++}
++
++static bool count_x86(const uint8_t *code, size_t size, FastDynCodeMode mode,
++                      size_t *count)
++{
++    size_t p = 0;
++    *count = 0;
++    while (p < size) {
++        size_t start = p, imm = 0;
++        unsigned op, modrm = 0, ext = 0;
++        bool p66 = false, rexw = false, need_modrm = false;
++        int opsize;
++
++#define REG_BYTE() ((p < size) ? code[p++] : 0x100)
++        do {
++            op = REG_BYTE();
++            if (op == 0x66) {
++                p66 = true;
++                rexw = false;
++            } else if (mode == FASTDYN_CODE_MODE_X86_64 &&
++                       op >= 0x40 && op <= 0x4f) {
++                rexw = op & 8;
++            } else {
++                break;
++            }
++        } while (p - start <= 15);
++        if (op > 0xff) {
++            return false;
++        }
++        opsize = mode == FASTDYN_CODE_MODE_X86_16 ? (p66 ? 4 : 2) :
++                 mode == FASTDYN_CODE_MODE_X86_32 ? (p66 ? 2 : 4) :
++                 rexw ? 8 : p66 ? 2 : 4;
++        if ((op & 0xf8) == 0xb0) {
++            imm = 1;
++        } else if ((op & 0xf8) == 0xb8) {
++            imm = opsize;
++        } else if (op == 0x88 || op == 0x89 || op == 0x8a || op == 0x8b ||
++                   op == 0x84 || op == 0x85) {
++            need_modrm = true;
++        } else if (((op & 0xf8) == 0x00 || (op & 0xf8) == 0x08 ||
++                    (op & 0xf8) == 0x20 || (op & 0xf8) == 0x28 ||
++                    (op & 0xf8) == 0x30 || (op & 0xf8) == 0x38) &&
++                   (op & 7) <= 3) {
++            need_modrm = true;
++        } else if (op == 0x04 || op == 0x0c || op == 0x24 || op == 0x2c ||
++                   op == 0x34 || op == 0x3c) {
++            imm = 1;
++        } else if (op == 0x05 || op == 0x0d || op == 0x25 || op == 0x2d ||
++                   op == 0x35 || op == 0x3d) {
++            imm = rexw ? 4 : opsize;
++        } else if (op == 0x80 || op == 0x81 || op == 0x83 ||
++                   op == 0xc6 || op == 0xc7 || op == 0xf6 || op == 0xf7 ||
++                   op == 0xc0 || op == 0xc1 || op == 0xd0 || op == 0xd1) {
++            modrm = REG_BYTE();
++            if (modrm > 0xff || (modrm >> 6) != 3) {
++                return false;
++            }
++            ext = (modrm >> 3) & 7;
++            if (op == 0x80 || op == 0x81 || op == 0x83) {
++                if (!(ext == 0 || ext == 1 || ext >= 4)) {
++                    return false;
++                }
++                imm = op == 0x81 ? (rexw ? 4 : opsize) : 1;
++            } else if (op == 0xc6 || op == 0xc7) {
++                if (ext) return false;
++                imm = op == 0xc6 ? 1 : rexw ? 4 : opsize;
++            } else if (op == 0xf6 || op == 0xf7) {
++                if (ext) return false;
++                imm = op == 0xf6 ? 1 : rexw ? 4 : opsize;
++            } else {
++                if (!(ext == 4 || ext == 5 || ext == 7)) return false;
++                imm = (op == 0xc0 || op == 0xc1) ? 1 : 0;
++            }
++        } else if (op == 0x0f) {
++            op = REG_BYTE();
++            if (!(op == 0xb6 || op == 0xb7 || op == 0xbe || op == 0xbf)) {
++                return false;
++            }
++            need_modrm = true;
++        } else if (op == 0x63 && mode == FASTDYN_CODE_MODE_X86_64) {
++            need_modrm = true;
++        } else {
++            return false;
++        }
++        if (need_modrm) {
++            modrm = REG_BYTE();
++            if (modrm > 0xff || (modrm >> 6) != 3) return false;
++        }
++        if (size - p < imm || p + imm - start > 15) return false;
++        p += imm;
++        if (++*count > FASTDYN_FRAGMENT_MAX_INSNS) return false;
++#undef REG_BYTE
++    }
++    return true;
++}
++
++static bool count_instructions(const uint8_t *code, size_t size,
++                               const FastDynCodeSpec *spec, size_t *count)
++{
++    size_t p = 0;
++    bool big = spec->instruction_order == FASTDYN_INSN_ORDER_BIG_ENDIAN;
++
++    if (spec->mode == FASTDYN_CODE_MODE_A32 ||
++        spec->mode == FASTDYN_CODE_MODE_A64) {
++        if (size & 3) return false;
++        *count = size / 4;
++        return *count <= FASTDYN_FRAGMENT_MAX_INSNS;
++    }
++    if (spec->mode == FASTDYN_CODE_MODE_X86_16 ||
++        spec->mode == FASTDYN_CODE_MODE_X86_32 ||
++        spec->mode == FASTDYN_CODE_MODE_X86_64) {
++        return count_x86(code, size, spec->mode, count);
++    }
++    *count = 0;
++    while (p < size) {
++        uint16_t first;
++        size_t len;
++        if (size - p < 2) return false;
++        first = fragment_u16(code + p, big);
++        if (spec->mode == FASTDYN_CODE_MODE_THUMB) {
++            unsigned top = first >> 11;
++            len = (top == 0x1d || top == 0x1e || top == 0x1f) ? 4 : 2;
++        } else {
++            len = (first & 3) == 3 ? 4 : 2;
++        }
++        if (size - p < len || ++*count > FASTDYN_FRAGMENT_MAX_INSNS) {
++            return false;
++        }
++        p += len;
++    }
++    return true;
++}
++
++bool qemu_plugin_register_fastdyn_fragment(
++    uint64_t guest_pc, const uint8_t *code, size_t code_size,
++    const FastDynCodeSpec *spec, uint64_t *out_hook_id)
++{
++    uint8_t *copy = NULL;
++    size_t combined = 0;
++    size_t combined_insns = 0, insn_count = 0;
++    size_t i;
++    bool ok = false;
++
++    if (out_hook_id) {
++        *out_hook_id = 0;
++    }
++    if (g_once_init_enter(&registry_once)) {
++        registry_init();
++        g_once_init_leave(&registry_once, 1);
++    }
++    if (!code || code_size == 0 || code_size > FASTDYN_FRAGMENT_MAX_BYTES ||
++        !valid_spec(spec) || !representable_pc(guest_pc, spec) ||
++        !aligned_pc(guest_pc, spec) ||
++        !count_instructions(code, code_size, spec, &insn_count)) {
++        error_report("FastDyn fragment registration rejected: invalid bytes, descriptor, limit, or address at 0x%" PRIx64,
++                     guest_pc);
++        return false;
++    }
++    copy = g_try_malloc(code_size);
++    if (!copy) {
++        error_report("FastDyn fragment registration rejected: allocation failed");
++        return false;
++    }
++    memcpy(copy, code, code_size);
++
++    qemu_mutex_lock(&registry_lock);
++    if (registry_sealed) {
++        error_report("FastDyn fragment registration rejected: translation has started");
++        goto out;
++    }
++    if (fragment_count == FASTDYN_MAX_FRAGMENTS) {
++        error_report("FastDyn fragment registration rejected: registry is full");
++        goto out;
++    }
++    for (i = 0; i < fragment_count; i++) {
++        FastDynFragment *f = &fragments[i];
++        if (f->guest_pc == guest_pc &&
++            !memcmp(&f->spec, spec, sizeof(*spec))) {
++            combined += f->code_size;
++            combined_insns += f->insn_count;
++        }
++    }
++    if (combined + code_size > FASTDYN_FRAGMENT_MAX_BYTES ||
++        combined_insns + insn_count > FASTDYN_FRAGMENT_MAX_INSNS) {
++        error_report("FastDyn fragment registration rejected: combined site limits exceeded at 0x%" PRIx64,
++                     guest_pc);
++        goto out;
++    }
++    fragments[fragment_count] = (FastDynFragment) {
++        .id = next_fragment_id++, .guest_pc = guest_pc, .spec = *spec,
++        .insn_count = insn_count,
++        .code_size = code_size, .code = copy,
++    };
++    if (out_hook_id) {
++        *out_hook_id = fragments[fragment_count].id;
++    }
++    fragment_count++;
++    copy = NULL;
++    ok = true;
++out:
++    qemu_mutex_unlock(&registry_lock);
++    g_free(copy);
++    return ok;
++}
++
++const FastDynFragment *fastdyn_fragment_find(
++    uint64_t guest_pc, FastDynGuestISA isa, FastDynCodeMode mode,
++    FastDynInstructionOrder order, size_t *cursor)
++{
++    const FastDynFragment *result = NULL;
++    size_t i;
++
++    if (g_once_init_enter(&registry_once)) {
++        registry_init();
++        g_once_init_leave(&registry_once, 1);
++    }
++    qemu_mutex_lock(&registry_lock);
++    registry_sealed = true;
++    for (i = *cursor; i < fragment_count; i++) {
++        FastDynFragment *f = &fragments[i];
++        if (f->guest_pc == guest_pc && f->spec.isa == isa &&
++            f->spec.mode == mode && f->spec.instruction_order == order) {
++            *cursor = i + 1;
++            result = f;
++            break;
++        }
++    }
++    qemu_mutex_unlock(&registry_lock);
++    return result;
++}
++
++void fastdyn_fragment_translation_error(const FastDynFragment *fragment,
++                                        size_t offset, const char *reason)
++{
++    error_report("FastDyn fragment hook=%" PRIu64 " pc=0x%" PRIx64
++                 " offset=%zu encoding=%d/%d rejected: %s",
++                 fragment->id, fragment->guest_pc, offset,
++                 fragment->spec.isa, fragment->spec.mode, reason);
++    abort();
++}
+diff --git a/accel/tcg/meson.build b/accel/tcg/meson.build
+index 575e92b..a1009a3 100644
+--- a/accel/tcg/meson.build
++++ b/accel/tcg/meson.build
+@@ -4,6 +4,8 @@ endif
+ 
+ tcg_ss = ss.source_set()
+ 
++tcg_ss.add(files('fastdyn-fragments.c'))
++
+ tcg_ss.add(files(
+   'cpu-exec.c',
+   'cpu-exec-common.c',
+diff --git a/include/exec/fastdyn-fragments.h b/include/exec/fastdyn-fragments.h
+new file mode 100644
+index 0000000..33e0edd
+--- /dev/null
++++ b/include/exec/fastdyn-fragments.h
+@@ -0,0 +1,21 @@
++#ifndef EXEC_FASTDYN_FRAGMENTS_H
++#define EXEC_FASTDYN_FRAGMENTS_H
++
++#include "qemu/fastdyn-fragments.h"
++
++typedef struct FastDynFragment {
++    uint64_t id;
++    uint64_t guest_pc;
++    FastDynCodeSpec spec;
++    size_t insn_count;
++    size_t code_size;
++    const uint8_t *code;
++} FastDynFragment;
++
++const FastDynFragment *fastdyn_fragment_find(
++    uint64_t guest_pc, FastDynGuestISA isa, FastDynCodeMode mode,
++    FastDynInstructionOrder order, size_t *cursor);
++G_NORETURN void fastdyn_fragment_translation_error(
++    const FastDynFragment *fragment, size_t offset, const char *reason);
++
++#endif
+diff --git a/include/qemu/fastdyn-fragments.h b/include/qemu/fastdyn-fragments.h
+new file mode 100644
+index 0000000..b40df10
+--- /dev/null
++++ b/include/qemu/fastdyn-fragments.h
+@@ -0,0 +1,44 @@
++/* Single byte/descriptor ABI shared by FastDyn and its QEMU fork. */
++#ifndef QEMU_FASTDYN_FRAGMENTS_H
++#define QEMU_FASTDYN_FRAGMENTS_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#define FASTDYN_FRAGMENT_MAX_INSNS 128u
++#define FASTDYN_FRAGMENT_MAX_BYTES 2048u
++
++typedef enum FastDynGuestISA {
++    FASTDYN_GUEST_ISA_INVALID = 0,
++    FASTDYN_GUEST_ISA_ARM,
++    FASTDYN_GUEST_ISA_AARCH64,
++    FASTDYN_GUEST_ISA_X86,
++    FASTDYN_GUEST_ISA_RISCV,
++} FastDynGuestISA;
++
++typedef enum FastDynCodeMode {
++    FASTDYN_CODE_MODE_INVALID = 0,
++    FASTDYN_CODE_MODE_A32,
++    FASTDYN_CODE_MODE_THUMB,
++    FASTDYN_CODE_MODE_A64,
++    FASTDYN_CODE_MODE_X86_16,
++    FASTDYN_CODE_MODE_X86_32,
++    FASTDYN_CODE_MODE_X86_64,
++    FASTDYN_CODE_MODE_RV32,
++    FASTDYN_CODE_MODE_RV64,
++} FastDynCodeMode;
++
++typedef enum FastDynInstructionOrder {
++    FASTDYN_INSN_ORDER_INVALID = 0,
++    FASTDYN_INSN_ORDER_LITTLE_ENDIAN,
++    FASTDYN_INSN_ORDER_BIG_ENDIAN,
++} FastDynInstructionOrder;
++
++typedef struct FastDynCodeSpec {
++    FastDynGuestISA isa;
++    FastDynCodeMode mode;
++    FastDynInstructionOrder instruction_order;
++} FastDynCodeSpec;
++
++#endif
+diff --git a/include/qemu/qemu-plugin.h b/include/qemu/qemu-plugin.h
+index 9aa6e2e..6e06335 100644
+--- a/include/qemu/qemu-plugin.h
++++ b/include/qemu/qemu-plugin.h
+@@ -15,6 +15,7 @@
+ #include <inttypes.h>
+ #include <stdbool.h>
+ #include <stddef.h>
++#include "qemu/fastdyn-fragments.h"
+ 
+ /*
+  * For best performance, build the plugin with -fvisibility=hidden so that
+@@ -255,6 +256,11 @@ void qemu_plugin_vmstate(void);
+ QEMU_PLUGIN_API
+ uint64_t qemu_plugin_wait_for_budget(void);
+ 
++QEMU_PLUGIN_API
++bool qemu_plugin_register_fastdyn_fragment(
++    uint64_t guest_pc, const uint8_t *code, size_t code_size,
++    const FastDynCodeSpec *spec, uint64_t *out_hook_id);
++
+ /**
+  * qemu_plugin_set_budget_exact_stop() - halt exactly on the budget deadline
+  * @exact: true to stop the guest precisely on its deadline
+diff --git a/target/arm/tcg/translate-a64.c b/target/arm/tcg/translate-a64.c
+index 221e157..dc29dde 100644
+--- a/target/arm/tcg/translate-a64.c
++++ b/target/arm/tcg/translate-a64.c
+@@ -18,6 +18,7 @@
+  */
+ #include "qemu/osdep.h"
+ #include "exec/target_page.h"
++#include "exec/fastdyn-fragments.h"
+ #include "translate.h"
+ #include "translate-a64.h"
+ #include "qemu/log.h"
+@@ -10209,6 +10210,57 @@ static void aarch64_tr_insn_start(DisasContextBase *dcbase, CPUState *cpu)
+     dc->insn_start_updated = false;
+ }
+ 
++static bool fastdyn_a64_scalar(uint32_t insn)
++{
++    uint32_t group = insn & 0x1f800000;
++
++    if (group == 0x11000000 ||            /* add/sub immediate */
++        group == 0x12000000 ||            /* logical immediate */
++        group == 0x12800000 ||            /* move wide */
++        group == 0x13000000) {            /* bitfield shifts/extensions */
++        return true;
++    }
++    return (insn & 0x1f000000) == 0x0a000000 || /* logical shifted */
++           (insn & 0x1f000000) == 0x0b000000;   /* add/sub reg */
++}
++
++static void fastdyn_emit_a64_fragments(DisasContext *s, uint64_t pc)
++{
++    const FastDynFragment *fragment;
++    size_t cursor = 0, count = 0, bytes = 0;
++    uint32_t saved_insn = s->insn;
++
++    while ((fragment = fastdyn_fragment_find(pc, FASTDYN_GUEST_ISA_AARCH64,
++                    FASTDYN_CODE_MODE_A64, FASTDYN_INSN_ORDER_LITTLE_ENDIAN,
++                    &cursor))) {
++        size_t off;
++        for (off = 0; off < fragment->code_size; off += 4) {
++            uint32_t word;
++            DisasJumpType old_jmp = s->base.is_jmp;
++            if (fragment->code_size - off < 4) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "truncated A64 instruction");
++            }
++            word = ldl_le_p(fragment->code + off);
++            if (!fastdyn_a64_scalar(word)) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "not in A64 scalar subset");
++            }
++            if (++count > FASTDYN_FRAGMENT_MAX_INSNS ||
++                (bytes += 4) > FASTDYN_FRAGMENT_MAX_BYTES) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "combined site limit exceeded");
++            }
++            s->insn = word;
++            if (!disas_a64(s, word) || s->base.is_jmp != old_jmp) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "unavailable or control-changing instruction");
++            }
++        }
++    }
++    s->insn = saved_insn;
++}
++
+ static void aarch64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+ {
+     DisasContext *s = container_of(dcbase, DisasContext, base);
+@@ -10290,6 +10342,8 @@ static void aarch64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+         }
+     }
+ 
++    fastdyn_emit_a64_fragments(s, pc);
++
+     s->is_nonstreaming = false;
+     if (s->sme_trap_nonstreaming) {
+         disas_sme_fa64(s, insn);
+diff --git a/target/arm/tcg/translate.c b/target/arm/tcg/translate.c
+index 3e70c18..6158638 100644
+--- a/target/arm/tcg/translate.c
++++ b/target/arm/tcg/translate.c
+@@ -28,6 +28,7 @@
+ #include "cpregs.h"
+ #include "exec/helper-proto.h"
+ #include "exec/target_page.h"
++#include "exec/fastdyn-fragments.h"
+ #include "tcg/tcg.h"
+ #include "tcg/tcg-temp-internal.h"
+ 
+@@ -8014,6 +8015,152 @@ static void arm_post_translate_insn(DisasContext *dc)
+     }
+ }
+ 
++/* Pure encoding classifiers for the bounded scalar fragment subset. */
++static bool fastdyn_a32_scalar(uint32_t insn)
++{
++    unsigned op;
++
++    if (extract32(insn, 28, 4) != 0xe) {
++        return false;                       /* A32 baseline admits AL only */
++    }
++    if (extract32(insn, 25, 3) == 1 ||
++        (extract32(insn, 25, 3) == 0 && !(insn & (1 << 4)))) {
++        op = extract32(insn, 21, 4);
++        if (!(op == 0 || op == 1 || op == 2 || op == 4 ||
++              op == 8 || op == 9 || op == 10 || op == 11 ||
++              op == 12 || op == 13 || op == 14 || op == 15)) {
++            return false;
++        }
++        if (extract32(insn, 12, 4) == 15 && op < 8) {
++            return false;
++        }
++        if (extract32(insn, 16, 4) == 15 && op != 13 && op != 15) {
++            return false;
++        }
++        return (insn & (1 << 25)) || extract32(insn, 0, 4) != 15;
++    }
++    return (insn & 0x0ff00000) == 0x03000000 || /* MOVW */
++           (insn & 0x0ff00000) == 0x03400000;   /* MOVT */
++}
++
++static bool fastdyn_thumb16_scalar(uint16_t insn)
++{
++    if ((insn & 0xe000) == 0x0000 ||       /* shifts, add/sub */
++        (insn & 0xe000) == 0x2000 ||       /* mov/cmp/add/sub immediate */
++        (insn & 0xfc00) == 0x4000) {       /* register data processing */
++        return true;
++    }
++    if ((insn & 0xfc00) == 0x4400) {       /* high add/cmp/mov, no bx */
++        return extract32(insn, 8, 2) != 3 &&
++               extract32(insn, 3, 4) != 15 &&
++               ((insn & 7) | ((insn >> 4) & 8)) != 15;
++    }
++    return false;
++}
++
++static bool fastdyn_thumb32_scalar(uint32_t insn)
++{
++    uint16_t hi = insn >> 16;
++    unsigned op;
++
++    if ((hi & 0xfe00) == 0xea00) {         /* shifted-register DP */
++        op = extract32(hi, 5, 4);
++        return op == 0 || op == 1 || op == 2 || op == 4 || op == 8 ||
++               op == 10 || op == 11 || op == 12 || op == 13 || op == 14;
++    }
++    if ((hi & 0xf800) == 0xf000 && !(hi & 0x0200)) {
++        op = extract32(hi, 5, 4);          /* modified immediate DP */
++        return op == 0 || op == 2 || op == 4 || op == 8 || op == 13;
++    }
++    return (hi & 0xfb80) == 0xf200 ||      /* ADDW */
++           (hi & 0xfb80) == (0xf2a0 & 0xfb80) || /* SUBW */
++           (hi & 0xff70) == 0xf340 ||      /* SBFX */
++           (hi & 0xff70) == (0xf3c0 & 0xff70);  /* UBFX */
++}
++
++static void fastdyn_emit_arm_fragments(DisasContext *dc, uint32_t pc,
++                                       bool thumb, uint32_t original_insn)
++{
++    FastDynInstructionOrder order = dc->sctlr_b ?
++        FASTDYN_INSN_ORDER_BIG_ENDIAN : FASTDYN_INSN_ORDER_LITTLE_ENDIAN;
++    FastDynCodeMode mode = thumb ? FASTDYN_CODE_MODE_THUMB :
++                                        FASTDYN_CODE_MODE_A32;
++    const FastDynFragment *fragment;
++    size_t cursor = 0, count = 0, bytes = 0;
++    uint32_t saved_insn = dc->insn;
++
++    while ((fragment = fastdyn_fragment_find(pc, FASTDYN_GUEST_ISA_ARM,
++                                              mode, order, &cursor))) {
++        size_t off = 0;
++        if (thumb && (dc->condexec_mask || dc->eci ||
++                      ((original_insn & 0xff00) == 0xbf00 &&
++                       (original_insn & 0xf) != 0))) {
++            fastdyn_fragment_translation_error(fragment, 0,
++                                               "IT instruction or active IT/ECI/ICI state");
++        }
++        while (off < fragment->code_size) {
++            unsigned len = thumb ? 2 : 4;
++            uint32_t word;
++            DisasJumpType old_jmp = dc->base.is_jmp;
++
++            if (thumb) {
++                uint16_t first;
++                if (fragment->code_size - off < 2) {
++                    fastdyn_fragment_translation_error(fragment, off,
++                                                       "truncated Thumb instruction");
++                }
++                first = dc->sctlr_b ? lduw_be_p(fragment->code + off) :
++                                      lduw_le_p(fragment->code + off);
++                len = thumb_insn_is_16bit(dc, pc, first) ? 2 : 4;
++                if (fragment->code_size - off < len) {
++                    fastdyn_fragment_translation_error(fragment, off,
++                                                       "truncated Thumb-2 instruction");
++                }
++                word = len == 2 ? first : ((uint32_t)first << 16) |
++                    (dc->sctlr_b ? lduw_be_p(fragment->code + off + 2) :
++                                   lduw_le_p(fragment->code + off + 2));
++                if (!(len == 2 ? fastdyn_thumb16_scalar(word) :
++                                 fastdyn_thumb32_scalar(word))) {
++                    fastdyn_fragment_translation_error(fragment, off,
++                                                       "not in Thumb scalar subset");
++                }
++            } else {
++                if (fragment->code_size - off < 4) {
++                    fastdyn_fragment_translation_error(fragment, off,
++                                                       "truncated A32 instruction");
++                }
++                word = dc->sctlr_b ? ldl_be_p(fragment->code + off) :
++                                     ldl_le_p(fragment->code + off);
++                if (!fastdyn_a32_scalar(word)) {
++                    fastdyn_fragment_translation_error(fragment, off,
++                                                       "not an AL scalar A32 instruction");
++                }
++            }
++            if (++count > FASTDYN_FRAGMENT_MAX_INSNS ||
++                (bytes += len) > FASTDYN_FRAGMENT_MAX_BYTES) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "combined site limit exceeded");
++            }
++            dc->insn = word;
++            if (thumb) {
++                if (len == 2) {
++                    disas_thumb_insn(dc, word);
++                } else {
++                    disas_thumb2_insn(dc, word);
++                }
++            } else {
++                disas_arm_insn(dc, word);
++            }
++            if (dc->base.is_jmp != old_jmp) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "decoder changed control flow");
++            }
++            off += len;
++        }
++    }
++    dc->insn = saved_insn;
++}
++
+ static void arm_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+ {
+     DisasContext *dc = container_of(dcbase, DisasContext, base);
+@@ -8050,6 +8197,7 @@ static void arm_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+     insn = arm_ldl_code(env, &dc->base, pc, dc->sctlr_b);
+     dc->insn = insn;
+     dc->base.pc_next = pc + 4;
++    fastdyn_emit_arm_fragments(dc, pc, false, insn);
+     disas_arm_insn(dc, insn);
+ 
+     arm_post_translate_insn(dc);
+@@ -8179,6 +8327,8 @@ static void thumb_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+         insn_eci_pc_save = dc->pc_save;
+     }
+ 
++    fastdyn_emit_arm_fragments(dc, dc->pc_curr, true, insn);
++
+     if (dc->condexec_mask && !thumb_insn_is_unconditional(dc, insn)) {
+         uint32_t cond = dc->condexec_cond;
+ 
+diff --git a/target/i386/tcg/translate.c b/target/i386/tcg/translate.c
+index 1c95217..238a5ca 100644
+--- a/target/i386/tcg/translate.c
++++ b/target/i386/tcg/translate.c
+@@ -26,6 +26,7 @@
+ #include "tcg/tcg-op-gvec.h"
+ #include "tcg/tcg-temp-internal.h"
+ #include "exec/translator.h"
++#include "exec/fastdyn-fragments.h"
+ #include "exec/target_page.h"
+ #include "fpu/softfloat.h"
+ 
+@@ -142,6 +143,10 @@ typedef struct DisasContext {
+     sigjmp_buf jmpbuf;
+     TCGOp *prev_insn_start;
+     TCGOp *prev_insn_end;
++
++    /* Bounded alternate byte source used only while emitting a fragment. */
++    const FastDynFragment *fastdyn_fragment;
++    size_t fastdyn_offset;
+ } DisasContext;
+ 
+ /*
+@@ -1690,22 +1695,43 @@ static uint64_t advance_pc(CPUX86State *env, DisasContext *s, int num_bytes)
+ 
+ static inline uint8_t x86_ldub_code(CPUX86State *env, DisasContext *s)
+ {
++    if (s->fastdyn_fragment) {
++        if (s->fastdyn_offset >= s->fastdyn_fragment->code_size) {
++            fastdyn_fragment_translation_error(s->fastdyn_fragment,
++                                               s->fastdyn_offset,
++                                               "decoder read past fragment");
++        }
++        s->pc++;
++        return s->fastdyn_fragment->code[s->fastdyn_offset++];
++    }
+     return translator_ldub(env, &s->base, advance_pc(env, s, 1));
+ }
+ 
+ static inline uint16_t x86_lduw_code(CPUX86State *env, DisasContext *s)
+ {
++    if (s->fastdyn_fragment) {
++        uint16_t v = x86_ldub_code(env, s);
++        return v | (uint16_t)x86_ldub_code(env, s) << 8;
++    }
+     return translator_lduw(env, &s->base, advance_pc(env, s, 2));
+ }
+ 
+ static inline uint32_t x86_ldl_code(CPUX86State *env, DisasContext *s)
+ {
++    if (s->fastdyn_fragment) {
++        uint32_t lo = x86_lduw_code(env, s);
++        return lo | (uint32_t)x86_lduw_code(env, s) << 16;
++    }
+     return translator_ldl(env, &s->base, advance_pc(env, s, 4));
+ }
+ 
+ #ifdef TARGET_X86_64
+ static inline uint64_t x86_ldq_code(CPUX86State *env, DisasContext *s)
+ {
++    if (s->fastdyn_fragment) {
++        uint64_t lo = x86_ldl_code(env, s);
++        return lo | (uint64_t)x86_ldl_code(env, s) << 32;
++    }
+     return translator_ldq(env, &s->base, advance_pc(env, s, 8));
+ }
+ #endif
+@@ -3754,6 +3780,8 @@ static void i386_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cpu)
+     int iopl = (flags >> IOPL_SHIFT) & 3;
+ 
+     dc->cs_base = dc->base.tb->cs_base;
++    dc->fastdyn_fragment = NULL;
++    dc->fastdyn_offset = 0;
+     dc->pc_save = dc->base.pc_next;
+     dc->flags = flags;
+ #ifndef CONFIG_USER_ONLY
+@@ -3815,6 +3843,171 @@ static void i386_tr_insn_start(DisasContextBase *dcbase, CPUState *cpu)
+     tcg_gen_insn_start(pc_arg, dc->cc_op);
+ }
+ 
++static FastDynCodeMode fastdyn_x86_mode(DisasContext *s)
++{
++    if (CODE64(s)) {
++        return FASTDYN_CODE_MODE_X86_64;
++    }
++    return CODE32(s) ? FASTDYN_CODE_MODE_X86_32 : FASTDYN_CODE_MODE_X86_16;
++}
++
++/* Return the end of one admitted register-only scalar instruction. */
++static size_t fastdyn_x86_scalar_end(const FastDynFragment *f, size_t off,
++                                     FastDynCodeMode mode)
++{
++    size_t start = off;
++    bool p66 = false, rexw = false;
++    unsigned op, modrm = 0, ext = 0;
++    int opsize;
++    size_t imm = 0;
++    bool need_modrm = false;
++
++#define FD_BYTE() ((off < f->code_size) ? f->code[off++] : \
++    (fastdyn_fragment_translation_error(f, off, "truncated x86 instruction"), 0))
++    for (;;) {
++        op = FD_BYTE();
++        if (op == 0x66) {
++            p66 = true;
++            rexw = false; /* a legacy prefix after REX cancels that REX */
++            continue;
++        }
++        if (mode == FASTDYN_CODE_MODE_X86_64 && op >= 0x40 && op <= 0x4f) {
++            rexw = op & 8;
++            continue;
++        }
++        break;
++    }
++    opsize = mode == FASTDYN_CODE_MODE_X86_16 ? (p66 ? 4 : 2) :
++             mode == FASTDYN_CODE_MODE_X86_32 ? (p66 ? 2 : 4) :
++             rexw ? 8 : p66 ? 2 : 4;
++
++    if ((op & 0xf8) == 0xb0) {             /* mov r8, imm8 */
++        imm = 1;
++    } else if ((op & 0xf8) == 0xb8) {      /* mov r, imm */
++        imm = opsize;
++    } else if (op == 0x88 || op == 0x89 || op == 0x8a || op == 0x8b ||
++               op == 0x84 || op == 0x85) { /* mov/test register */
++        need_modrm = true;
++    } else if (((op & 0xf8) == 0x00 || (op & 0xf8) == 0x08 ||
++                (op & 0xf8) == 0x20 || (op & 0xf8) == 0x28 ||
++                (op & 0xf8) == 0x30 || (op & 0xf8) == 0x38) &&
++               (op & 7) <= 3) {            /* add/or/and/sub/xor/cmp */
++        need_modrm = true;
++    } else if (op == 0x04 || op == 0x0c || op == 0x24 || op == 0x2c ||
++               op == 0x34 || op == 0x3c) {
++        imm = 1;
++    } else if (op == 0x05 || op == 0x0d || op == 0x25 || op == 0x2d ||
++               op == 0x35 || op == 0x3d) {
++        imm = rexw ? 4 : opsize;
++    } else if (op == 0x80 || op == 0x81 || op == 0x83 ||
++               op == 0xc6 || op == 0xc7 || op == 0xf6 || op == 0xf7 ||
++               op == 0xc0 || op == 0xc1 || op == 0xd0 || op == 0xd1) {
++        need_modrm = true;
++        modrm = FD_BYTE();
++        ext = (modrm >> 3) & 7;
++        if ((modrm >> 6) != 3) {
++            fastdyn_fragment_translation_error(f, start, "x86 memory operand");
++        }
++        if (op == 0x80 || op == 0x81 || op == 0x83) {
++            if (!(ext == 0 || ext == 1 || ext == 4 || ext == 5 ||
++                  ext == 6 || ext == 7)) {
++                fastdyn_fragment_translation_error(f, start, "unsupported group-1 operation");
++            }
++            imm = op == 0x81 ? (rexw ? 4 : opsize) : 1;
++        } else if (op == 0xc6 || op == 0xc7) {
++            if (ext != 0) {
++                fastdyn_fragment_translation_error(f, start, "invalid MOV immediate extension");
++            }
++            imm = op == 0xc6 ? 1 : rexw ? 4 : opsize;
++        } else if (op == 0xf6 || op == 0xf7) {
++            if (ext != 0) {
++                fastdyn_fragment_translation_error(f, start, "unsupported TEST group operation");
++            }
++            imm = op == 0xf6 ? 1 : rexw ? 4 : opsize;
++        } else {
++            if (!(ext == 4 || ext == 5 || ext == 7)) {
++                fastdyn_fragment_translation_error(f, start, "unsupported shift operation");
++            }
++            imm = (op == 0xc0 || op == 0xc1) ? 1 : 0;
++        }
++        need_modrm = false;
++    } else if (op == 0x0f) {
++        op = FD_BYTE();
++        if (!(op == 0xb6 || op == 0xb7 || op == 0xbe || op == 0xbf)) {
++            fastdyn_fragment_translation_error(f, start, "unsupported 0F opcode");
++        }
++        need_modrm = true;                  /* movzx/movsx */
++    } else if (op == 0x63 && mode == FASTDYN_CODE_MODE_X86_64) {
++        need_modrm = true;                  /* movsxd */
++    } else {
++        fastdyn_fragment_translation_error(f, start, "opcode outside scalar subset");
++    }
++
++    if (need_modrm) {
++        modrm = FD_BYTE();
++        if ((modrm >> 6) != 3) {
++            fastdyn_fragment_translation_error(f, start, "x86 memory operand");
++        }
++    }
++    if (f->code_size - off < imm) {
++        fastdyn_fragment_translation_error(f, off, "truncated x86 immediate");
++    }
++    off += imm;
++    if (off - start > X86_MAX_INSN_LENGTH) {
++        fastdyn_fragment_translation_error(f, start, "x86 instruction exceeds 15 bytes");
++    }
++#undef FD_BYTE
++    return off;
++}
++
++static void fastdyn_emit_x86_fragments(DisasContext *s, CPUState *cpu)
++{
++    FastDynCodeMode mode = fastdyn_x86_mode(s);
++    const FastDynFragment *fragment;
++    size_t cursor = 0, count = 0, bytes = 0;
++    target_ulong saved_pc = s->pc;
++    target_ulong saved_next = s->base.pc_next;
++    target_ulong saved_pc_save = s->pc_save;
++
++    /* Validate every matching byte before emitting any fragment operation. */
++    while ((fragment = fastdyn_fragment_find(saved_next, FASTDYN_GUEST_ISA_X86,
++                    mode, FASTDYN_INSN_ORDER_LITTLE_ENDIAN, &cursor))) {
++        size_t off = 0;
++        while (off < fragment->code_size) {
++            size_t end = fastdyn_x86_scalar_end(fragment, off, mode);
++            if (++count > FASTDYN_FRAGMENT_MAX_INSNS ||
++                (bytes += end - off) > FASTDYN_FRAGMENT_MAX_BYTES) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "combined site limit exceeded");
++            }
++            off = end;
++        }
++    }
++
++    cursor = 0;
++    while ((fragment = fastdyn_fragment_find(saved_next, FASTDYN_GUEST_ISA_X86,
++                    mode, FASTDYN_INSN_ORDER_LITTLE_ENDIAN, &cursor))) {
++        size_t off = 0;
++        while (off < fragment->code_size) {
++            size_t end = fastdyn_x86_scalar_end(fragment, off, mode);
++            DisasJumpType old_jmp = s->base.is_jmp;
++            s->fastdyn_fragment = fragment;
++            s->fastdyn_offset = off;
++            disas_insn(s, cpu);
++            s->fastdyn_fragment = NULL;
++            if (s->fastdyn_offset != end || s->base.is_jmp != old_jmp ||
++                s->pc_save != saved_pc_save) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "decoder state escaped scalar contract");
++            }
++            off = end;
++        }
++    }
++    s->pc = saved_pc;
++    s->base.pc_next = saved_next;
++    s->pc_save = saved_pc_save;
++}
++
+ static void i386_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+ {
+     DisasContext *dc = container_of(dcbase, DisasContext, base);
+@@ -3835,6 +4028,9 @@ static void i386_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+ 
+     switch (sigsetjmp(dc->jmpbuf, 0)) {
+     case 0:
++        fastdyn_emit_x86_fragments(dc, cpu);
++        /* Fault restoration for the original instruction sees fragment flags. */
++        tcg_set_insn_start_param(dc->base.insn_start, 1, dc->cc_op);
+         disas_insn(dc, cpu);
+         break;
+     case 1:
+@@ -3843,9 +4039,11 @@ static void i386_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+     case 2:
+         /* Restore state that may affect the next instruction. */
+         dc->pc = dc->base.pc_next;
+-        assert(dc->cc_op_dirty == orig_cc_op_dirty);
+-        assert(dc->cc_op == orig_cc_op);
+-        assert(dc->pc_save == orig_pc_save);
++        /* The rollback also removes fragment IR and its lazy-flag state. */
++        dc->cc_op_dirty = orig_cc_op_dirty;
++        dc->cc_op = orig_cc_op;
++        dc->pc_save = orig_pc_save;
++        dc->fastdyn_fragment = NULL;
+         dc->base.num_insns--;
+         tcg_remove_ops_after(dc->prev_insn_end);
+         dc->base.insn_start = dc->prev_insn_start;
+diff --git a/target/riscv/translate.c b/target/riscv/translate.c
+index acfeb88..7ffecaa 100644
+--- a/target/riscv/translate.c
++++ b/target/riscv/translate.c
+@@ -24,6 +24,7 @@
+ #include "exec/helper-gen.h"
+ #include "exec/target_page.h"
+ #include "exec/translator.h"
++#include "exec/fastdyn-fragments.h"
+ #include "exec/translation-block.h"
+ #include "exec/log.h"
+ #include "semihosting/semihost.h"
+@@ -1217,7 +1218,9 @@ const RISCVDecoder decoder_table[] = {
+ 
+ const size_t decoder_table_size = ARRAY_SIZE(decoder_table);
+ 
+-static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
++static void decode_opc_full(CPURISCVState *env, DisasContext *ctx,
++                            uint16_t opcode, uint32_t supplied,
++                            bool from_fragment)
+ {
+     ctx->virt_inst_excp = false;
+     ctx->cur_insn_len = insn_len(opcode);
+@@ -1233,10 +1236,12 @@ static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
+             return;
+         }
+     } else {
+-        uint32_t opcode32 = opcode;
+-        opcode32 = deposit32(opcode32, 16, 16,
+-                             translator_lduw(env, &ctx->base,
+-                                             ctx->base.pc_next + 2));
++        uint32_t opcode32 = from_fragment ? supplied : opcode;
++        if (!from_fragment) {
++            opcode32 = deposit32(opcode32, 16, 16,
++                                 translator_lduw(env, &ctx->base,
++                                                 ctx->base.pc_next + 2));
++        }
+         ctx->opcode = opcode32;
+ 
+         for (guint i = 0; i < ctx->decoders->len; ++i) {
+@@ -1250,6 +1255,121 @@ static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
+     gen_exception_illegal(ctx);
+ }
+ 
++static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
++{
++    decode_opc_full(env, ctx, opcode, 0, false);
++}
++
++static bool fastdyn_riscv_scalar(uint32_t insn, unsigned len, bool rv64)
++{
++    unsigned op, funct3, funct7;
++
++    if (len == 2) {
++        unsigned q = insn & 3;
++        funct3 = extract32(insn, 13, 3);
++        if (q == 0) {
++            return funct3 == 0;             /* c.addi4spn */
++        }
++        if (q == 1) {
++            if (funct3 <= 3) {              /* addi/addiw, li, lui */
++                return funct3 != 1 || rv64;
++            }
++            return funct3 == 4;             /* shifts/andi/register ALU */
++        }
++        if (q == 2) {
++            if (funct3 == 0) {              /* c.slli */
++                return true;
++            }
++            if (funct3 == 4) {              /* c.mv/c.add, not jr/jalr */
++                return extract32(insn, 2, 5) != 0;
++            }
++        }
++        return false;
++    }
++
++    op = insn & 0x7f;
++    funct3 = extract32(insn, 12, 3);
++    funct7 = extract32(insn, 25, 7);
++    switch (op) {
++    case 0x37:                              /* lui */
++        return true;
++    case 0x13:                              /* OP-IMM */
++        if (funct3 == 1) {
++            return rv64 ? !(funct7 & ~1u) : funct7 == 0;
++        }
++        if (funct3 == 5) {
++            return rv64 ? !(funct7 & ~0x21u) :
++                          (funct7 == 0 || funct7 == 0x20);
++        }
++        return true;
++    case 0x33:                              /* base OP, excluding M */
++        return funct7 == 0 ||
++               (funct7 == 0x20 && (funct3 == 0 || funct3 == 5));
++    case 0x1b:                              /* RV64 OP-IMM-32 */
++        return rv64 && (funct3 == 0 ||
++               (funct3 == 1 && funct7 == 0) ||
++               (funct3 == 5 && (funct7 == 0 || funct7 == 0x20)));
++    case 0x3b:                              /* RV64 OP-32 */
++        return rv64 && (funct7 == 0 ||
++               (funct7 == 0x20 && (funct3 == 0 || funct3 == 5)));
++    default:
++        return false;
++    }
++}
++
++static void fastdyn_emit_riscv_fragments(CPURISCVState *env,
++                                         DisasContext *ctx,
++                                         target_ulong pc)
++{
++    FastDynCodeMode mode = get_xl(ctx) == MXL_RV32 ?
++        FASTDYN_CODE_MODE_RV32 : FASTDYN_CODE_MODE_RV64;
++    const FastDynFragment *fragment;
++    size_t cursor = 0, combined_insns = 0, combined_bytes = 0;
++
++    while ((fragment = fastdyn_fragment_find(pc, FASTDYN_GUEST_ISA_RISCV,
++                    mode, FASTDYN_INSN_ORDER_LITTLE_ENDIAN, &cursor))) {
++        size_t off = 0;
++        while (off < fragment->code_size) {
++            uint16_t lo;
++            uint32_t insn;
++            unsigned len;
++            DisasJumpType old_jmp = ctx->base.is_jmp;
++
++            if (fragment->code_size - off < 2) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "truncated instruction");
++            }
++            lo = lduw_le_p(fragment->code + off);
++            len = insn_len(lo);
++            if ((len != 2 && len != 4) || fragment->code_size - off < len) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "unsupported or truncated length");
++            }
++            insn = len == 2 ? lo : ldl_le_p(fragment->code + off);
++            if (!fastdyn_riscv_scalar(insn, len, mode == FASTDYN_CODE_MODE_RV64)) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "not in scalar register subset");
++            }
++            if (len == 2 && !(has_ext(ctx, RVC) || ctx->cfg_ptr->ext_zca)) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "compressed extension is disabled");
++            }
++            if (++combined_insns > FASTDYN_FRAGMENT_MAX_INSNS ||
++                (combined_bytes += len) > FASTDYN_FRAGMENT_MAX_BYTES) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "combined site limit exceeded");
++            }
++            ctx->ol = ctx->xl;
++            decode_opc_full(env, ctx, lo, insn, true);
++            if (ctx->base.is_jmp != old_jmp) {
++                fastdyn_fragment_translation_error(fragment, off,
++                                                   "decoder changed control flow");
++            }
++            off += len;
++        }
++    }
++}
++
+ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
+ {
+     DisasContext *ctx = container_of(dcbase, DisasContext, base);
+@@ -1321,6 +1441,7 @@ static void riscv_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
+     CPURISCVState *env = cpu_env(cpu);
+     uint16_t opcode16 = translator_lduw(env, &ctx->base, ctx->base.pc_next);
+ 
++    fastdyn_emit_riscv_fragments(env, ctx, ctx->base.pc_next);
+     ctx->ol = ctx->xl;
+     decode_opc(env, ctx, opcode16);
+     ctx->base.pc_next += ctx->cur_insn_len;
+-- 
+2.43.0
+

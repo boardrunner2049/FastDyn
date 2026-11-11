@@ -16,6 +16,8 @@ Options:
   --clone-qemu          Download missing QEMU sources without building; preserve existing checkouts
   --build-qemu          Build the patched QEMU and the FastDyn QEMU plugin (with device models,
                         the FMU/flight-controller physics, and libhw when it is built)
+  --qemu-targets LIST   QEMU target list (default: arm-softmmu). For the fragment matrix use
+                        arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu
   --build-gazebo        Build legacy Gazebo/Courbet deps and FastDyn with LIBGZ/LIBHW
   --build-libhw         Build libhw (hardware-in-the-loop probe library) in the libhw root
   --build-libvio        Build the third_party/common/libvio submodule into out/libvio, where
@@ -65,6 +67,7 @@ fastdyn_setup_main() {
   local setup_optifuzz="true"
   local clone_qemu="false"
   local build_qemu="false"
+  local qemu_targets="arm-softmmu"
   local build_gazebo="false"
   local build_libhw="false"
   local build_libvio="false"
@@ -100,6 +103,10 @@ fastdyn_setup_main() {
       --build-qemu)
         build_qemu="true"
         shift
+        ;;
+      --qemu-targets)
+        qemu_targets="${2:?missing value for --qemu-targets}"
+        shift 2
         ;;
       --build-gazebo)
         build_gazebo="true"
@@ -234,7 +241,7 @@ fastdyn_setup_main() {
     fi
   fi
   if [[ "$build_qemu" == "true" ]]; then
-    fastdyn_setup_qemu_build "$repo_root" "$qemu_root" || return
+    fastdyn_setup_qemu_build "$repo_root" "$qemu_root" "$qemu_targets" || return
     if [[ "$build_gazebo" != "true" ]]; then
       fastdyn_setup_plugin_build "$repo_root" "$qemu_root" "$libhw_root" || return
     fi

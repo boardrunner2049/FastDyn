@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include <qemu/qemu-plugin.h>
+#include <qemu/fastdyn-fragments.h> /* required FastDyn/QEMU fragment ABI */
 
 /* A virtual-instruction callback (also declared in FastDyn's common.h). */
 #ifndef FASTDYN_CB_FUNC_T_DEFINED
@@ -120,6 +121,14 @@ bool virtual_register_rule(const VirtualContext *ctx,
 bool virtual_register_update(const VirtualContext *ctx,
                                      uint64_t address, int reg,
                                      uint64_t value);
+/*
+ * Copy immutable guest instruction bytes for translation immediately before
+ * the original instruction at guest_pc. Registration is initialization-only.
+ */
+bool virtual_insert_before(const VirtualContext *ctx, uint64_t guest_pc,
+                           const uint8_t *code, size_t code_size,
+                           const FastDynCodeSpec *code_spec,
+                           uint64_t *out_hook_id);
 bool virtual_register_gated_modifier(const VirtualContext *ctx,
                                              uint64_t address, const char *patch,
                                              const volatile uint8_t *enabled);

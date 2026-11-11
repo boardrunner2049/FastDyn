@@ -7,6 +7,39 @@ vehicle path. Run them from the FastDyn repository root after setup:
 source ./setup.sh --build-qemu --with-rumoca
 ```
 
+## Guest instruction fragment matrix
+
+Build the five required QEMU targets, then run the architecture matrix:
+
+```bash
+source ./setup.sh --build-qemu \
+  --qemu-targets arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu
+FASTDYN_QEMU_BUILD="$PWD/third_party/common/qemu/build" \
+  tests/integration/run_guest_code_fragments_smoke.sh
+```
+
+The runner assembles self-contained Cortex-A A32 and Thumb, Cortex-M Thumb,
+A64, x86-16/32/64, RV32, and RV64 fixtures. Every mode executes 100 accepted
+arithmetic fragment instructions and verifies that the unchanged original
+instruction consumes the resulting value and fragment-produced flags or integer
+predicates. It also checks Thumb IT-state rejection, RISC-V compressed-extension
+gating, x86 lazy-flag exception restoration and page-boundary decode rollback,
+registration order, TB invalidation/retranslation, original plugin accounting,
+copied ownership, malformed input, both independent limits, the combined-site
+limit, and initialization-only registry sealing.
+
+Exercise the public SDK and native external-plugin initialization path with:
+
+```bash
+FASTDYN_QEMU_ROOT="$PWD/third_party/common/qemu" \
+FASTDYN_QEMU_BIN="$PWD/third_party/common/qemu/build/qemu-system-arm" \
+  tests/integration/run_fastdyn_guest_code_fragment_smoke.sh
+```
+
+That smoke also checks observer-before-fragment ordering, same-site rejection of
+a program-counter modifier and a state-changing callback, unavailable-profile
+rejection, and propagation of required registration failure through setup.
+
 ## Vehicle Launch Smoke
 
 `courbet_fmu_vehicle_smoke.sh` launches one vehicle config and waits for:

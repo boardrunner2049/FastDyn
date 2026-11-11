@@ -98,6 +98,11 @@ cb_func_t lookup_callback(const char *name) {
     return NULL;
 }
 
+bool virtual_callback_is_observer(cb_func_t callback) {
+    return callback == printreg || callback == debug_log ||
+           callback == benchmark_start || callback == bench_tick;
+}
+
 // Timer callback
 static void my_timer_callback(void *opaque) {
     FD_LOG_DEBUG("virtual clock: %li", qemu_plugin_get_virtual_timer());
@@ -663,6 +668,7 @@ int virtual_register(const char *name, cb_func_t func) {
 
 int virtuals_init(int argc, char **argv) {
 	int status = -1;
+    bool required_fragment_failure = false;
     const char *timer_period_arg = utils_get_arg("timer_irq_period_ns", argc, argv);
     if (timer_period_arg && timer_period_arg[0] != '\0') {
         errno = 0;
@@ -686,6 +692,7 @@ int virtuals_init(int argc, char **argv) {
         /* Compiled-in virtual modules self-register through the public runtime SDK. */
 		if ((status = virtual_initialize_plugins()) < 0)
 				utils_warn("One or more runtime plugins failed to initialize");
+        required_fragment_failure |= virtual_fragment_registration_failed();
         /* Plugins from outside the tree were asked for explicitly (source = ...). */
 		if (virtual_load_external_plugins(utils_get_arg("virtual_libraries", argc, argv)) < 0)
 				utils_die("Could not load an out-of-tree plugin library (see the message above)");
@@ -704,5 +711,5 @@ int virtuals_init(int argc, char **argv) {
 #endif
 	}
 
-    return 0;
+    return required_fragment_failure ? -1 : 0;
 }

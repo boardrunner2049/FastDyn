@@ -48,11 +48,16 @@ RUN python3 -m venv "$VIRTUAL_ENV" \
     && pip install --no-cache-dir -e src
 
 # The patched QEMU FastDyn runs in (FastDyn's patch applied to the pinned submodule)
-RUN cd third_party/common/qemu && P=../../../patches/qemu-fastdyn-plugin-icount.patch \
-    && { patch -p1 -R -s -f --dry-run < $P >/dev/null || patch -p1 < $P; } \
+RUN cd third_party/common/qemu \
+    && FEATURE=../../../patches/qemu-fastdyn-insn-fragments.patch \
+    && if patch -p1 -R -s -f --dry-run < "$FEATURE" >/dev/null; then :; \
+       else for P in ../../../patches/qemu-fastdyn-plugin-icount.patch "$FEATURE"; do \
+           if patch -p1 -R -s -f --dry-run < "$P" >/dev/null; then :; \
+           else patch -p1 --dry-run < "$P" && patch -p1 < "$P" || exit 1; fi; \
+       done; fi \
     && mkdir build && cd build \
-    && ../configure --target-list=arm-softmmu --enable-plugins \
-    && make -j"$(nproc)" qemu-system-arm
+    && ../configure --target-list=arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu --enable-plugins \
+    && make -j"$(nproc)" qemu-system-arm qemu-system-aarch64 qemu-system-x86_64 qemu-system-riscv32 qemu-system-riscv64
 
 # libhw, and the Gazebo/Courbet parts the flight-controller backend links
 RUN make -C third_party/common/libhw \

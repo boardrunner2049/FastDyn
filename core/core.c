@@ -73,6 +73,10 @@ size_t listCount = 0;
 twintrace_mode_t twintrace_mode = TT_OFF;
 const char *twintrace_bin_path = NULL;
 static char run_artifacts_root[PATH_MAX];
+static char guest_target_name[32];
+#define MAX_INSTRUCTION_FRAGMENTS 1024
+static uint64_t instruction_fragment_pcs[MAX_INSTRUCTION_FRAGMENTS];
+static size_t instruction_fragment_pc_count;
 
 /**
  * @brief Parses a token string into a logger entry.
@@ -832,6 +836,51 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 
     for (i = 0; i < n; i++) {
         struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
+        uint64_t insn_pc = qemu_plugin_insn_vaddr(insn);
+        bool has_fragment = false;
+
+        for (size_t fragment_index = 0;
+             fragment_index < instruction_fragment_pc_count;
+             fragment_index++) {
+            if (instruction_fragment_pcs[fragment_index] == insn_pc) {
+                has_fragment = true;
+                break;
+            }
+        }
+
+        if (has_fragment) {
+            UpdateEntry *conflict_updates[MAX_MATCHES];
+            size_t conflict_count = find_updates_for_address(
+                insn_pc, conflict_updates, MAX_MATCHES);
+            int pc_reg = !strcmp(guest_target_name, "arm") ? 15 :
+                         !strcmp(guest_target_name, "x86_64") ||
+                         !strcmp(guest_target_name, "i386") ? 16 : 32;
+
+            for (size_t rule_index = 0; rule_index < rules_count; rule_index++) {
+                if (rules[rule_index].address == insn_pc &&
+                    !virtual_callback_is_observer(rules[rule_index].func)) {
+                    FD_LOG_ERROR("instruction fragment at 0x%llx conflicts with an unclassified or state-changing virtual callback",
+                                 (unsigned long long)insn_pc);
+                    utils_die("instruction fragment callback conflict");
+                }
+            }
+            for (size_t conflict_index = 0;
+                 conflict_index < conflict_count; conflict_index++) {
+                UpdateEntry *entry = conflict_updates[conflict_index];
+                if ((entry->type == TARGET_REGISTER ||
+                     entry->type == TARGET_DEREF) &&
+                    entry->target.reg_num == pc_reg) {
+                    FD_LOG_ERROR("instruction fragment at 0x%llx conflicts with a program-counter modifier",
+                                 (unsigned long long)insn_pc);
+                    utils_die("instruction fragment modifier conflict");
+                }
+            }
+            if (is_target_address(insn_pc)) {
+                FD_LOG_ERROR("instruction fragment at 0x%llx conflicts with a detour",
+                             (unsigned long long)insn_pc);
+                utils_die("instruction fragment detour conflict");
+            }
+        }
 
 		//TODO: THis will bite us one day!!
 		if (qemu_plugin_insn_vaddr(insn) == 0x20800050) {
@@ -1092,6 +1141,73 @@ bool core_register_register_update(uint64_t address, int reg, uint64_t value)
     return true;
 }
 
+void core_set_guest_target(const char *target_name)
+{
+    snprintf(guest_target_name, sizeof(guest_target_name), "%s",
+             target_name ? target_name : "");
+}
+
+static bool core_target_supports_spec(const FastDynCodeSpec *spec)
+{
+    if (!spec) {
+        return false;
+    }
+    if (!strcmp(guest_target_name, "arm")) {
+        return spec->isa == FASTDYN_GUEST_ISA_ARM &&
+               (spec->mode == FASTDYN_CODE_MODE_A32 ||
+                spec->mode == FASTDYN_CODE_MODE_THUMB);
+    }
+    if (!strcmp(guest_target_name, "aarch64")) {
+        return (spec->isa == FASTDYN_GUEST_ISA_AARCH64 &&
+                spec->mode == FASTDYN_CODE_MODE_A64) ||
+               (spec->isa == FASTDYN_GUEST_ISA_ARM &&
+                (spec->mode == FASTDYN_CODE_MODE_A32 ||
+                 spec->mode == FASTDYN_CODE_MODE_THUMB));
+    }
+    if (!strcmp(guest_target_name, "x86_64") ||
+        !strcmp(guest_target_name, "i386")) {
+        return spec->isa == FASTDYN_GUEST_ISA_X86 &&
+               spec->mode >= FASTDYN_CODE_MODE_X86_16 &&
+               spec->mode <= (!strcmp(guest_target_name, "x86_64") ?
+                             FASTDYN_CODE_MODE_X86_64 : FASTDYN_CODE_MODE_X86_32);
+    }
+    if (!strcmp(guest_target_name, "riscv32")) {
+        return spec->isa == FASTDYN_GUEST_ISA_RISCV &&
+               spec->mode == FASTDYN_CODE_MODE_RV32;
+    }
+    if (!strcmp(guest_target_name, "riscv64")) {
+        return spec->isa == FASTDYN_GUEST_ISA_RISCV &&
+               spec->mode == FASTDYN_CODE_MODE_RV64;
+    }
+    return false;
+}
+
+bool core_register_instruction_fragment(uint64_t guest_pc,
+                                        const uint8_t *code,
+                                        size_t code_size,
+                                        const FastDynCodeSpec *code_spec,
+                                        uint64_t *out_hook_id)
+{
+    if (out_hook_id) {
+        *out_hook_id = 0;
+    }
+    if (!core_target_supports_spec(code_spec)) {
+        FD_LOG_ERROR("instruction encoding profile is unavailable on QEMU target '%s'",
+                     guest_target_name[0] ? guest_target_name : "unknown");
+        return false;
+    }
+    if (instruction_fragment_pc_count >= MAX_INSTRUCTION_FRAGMENTS) {
+        FD_LOG_ERROR("instruction fragment registry is full");
+        return false;
+    }
+    if (!qemu_plugin_register_fastdyn_fragment(guest_pc, code, code_size,
+                                               code_spec, out_hook_id)) {
+        return false;
+    }
+    instruction_fragment_pcs[instruction_fragment_pc_count++] = guest_pc;
+    return true;
+}
+
 bool core_register_gated_modifier(uint64_t address, const char *patch,
                                   const volatile uint8_t *enabled)
 {
@@ -1202,9 +1318,9 @@ int core_get_run_artifact_path(const char *relative, char *out, size_t out_size)
     return 0;
 }
 
-static void prepare_runtime_plugins(int argc, char **argv) {
+static int prepare_runtime_plugins(int argc, char **argv) {
     core_init_run_artifacts_root(argc, argv);
-    virtuals_init(argc, argv);
+    return virtuals_init(argc, argv);
 }
 
 void parse_rules_file(const char *filename);
@@ -1268,7 +1384,9 @@ static void print_rules(void) {
 static int core_parse_arguments(int argc, char ** argv) {
 
 	/* Runtime plugins obtain only namespaced FastDyn-managed artifacts. */
-    prepare_runtime_plugins(argc, argv);
+    if (prepare_runtime_plugins(argc, argv) != 0) {
+        return -1;
+    }
 	const char *filename= utils_get_arg("detour", argc, argv);
     if (filename) {
             num_tuples = read_tuples_from_file(filename, address_tuples, MAX_TUPLES);
@@ -1335,6 +1453,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
                                            const qemu_info_t *info,
                                            int argc, char **argv)
 {
+	core_set_guest_target(info->target_name);
 	qemu_plugin_vmstate();
 	if (utils_init(argc, argv) != 0) {
 			utils_die("Utils initialization failed");

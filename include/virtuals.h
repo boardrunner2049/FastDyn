@@ -274,6 +274,7 @@ void dump_log_buffer_to_file(const AddressList* list, const char *filename);
 
 // Callback lookup function (moved from core.c)
 cb_func_t lookup_callback(const char *name);
+bool virtual_callback_is_observer(cb_func_t callback);
 
 // External dependencies from core.c
 extern AddressList addressLists[];
@@ -284,5 +285,6 @@ extern void qemu_set_register(uint32_t value, int reg);
 int virtual_register(const char *name, cb_func_t func);
 // Initialization function
 int virtuals_init(int argc, char **argv);
+bool virtual_fragment_registration_failed(void);
 
 #endif // VIRTUALS_H

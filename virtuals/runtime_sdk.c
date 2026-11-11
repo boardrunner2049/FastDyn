@@ -17,6 +17,7 @@ extern const VirtualPlugin __stop_virtual_plugins[];
 
 #define VIRTUAL_RUNTIME_MAX_PLUGINS 64
 static VirtualContext runtime_contexts[VIRTUAL_RUNTIME_MAX_PLUGINS];
+static bool fragment_registration_failed;
 
 static int valid_relative_path(const char *relative) {
     return relative && relative[0] && relative[0] != '/'
@@ -226,6 +227,30 @@ bool virtual_register_update(const VirtualContext *ctx,
                                      uint64_t value) {
     (void)ctx;
     return core_register_register_update(address, reg, value);
+}
+
+bool virtual_insert_before(const VirtualContext *ctx, uint64_t guest_pc,
+                           const uint8_t *code, size_t code_size,
+                           const FastDynCodeSpec *code_spec,
+                           uint64_t *out_hook_id) {
+    bool ok;
+
+    if (out_hook_id) {
+        *out_hook_id = 0;
+    }
+    ok = core_register_instruction_fragment(guest_pc, code, code_size,
+                                            code_spec, out_hook_id);
+    if (!ok) {
+        fragment_registration_failed = true;
+        virtual_log(ctx, VIRTUAL_LOG_ERROR,
+                    "guest instruction fragment registration failed at 0x%llx",
+                    (unsigned long long)guest_pc);
+    }
+    return ok;
+}
+
+bool virtual_fragment_registration_failed(void) {
+    return fragment_registration_failed;
 }
 
 bool virtual_register_gated_modifier(const VirtualContext *ctx,

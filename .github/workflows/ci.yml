@@ -14,7 +14,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - name: Check out FastDyn
@@ -25,10 +25,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake git meson ninja-build pkg-config python3-venv \
-            libglib2.0-dev libcjson-dev libpixman-1-dev libfdt-dev zlib1g-dev flex bison
+            libglib2.0-dev libcjson-dev libpixman-1-dev libfdt-dev zlib1g-dev flex bison \
+            gcc-arm-none-eabi nasm llvm lld
 
       - name: Set up and build (README, step 2)
-        run: source ./setup.sh --build-qemu
+        run: |
+          source ./setup.sh --build-qemu \
+            --qemu-targets arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu
 
       - name: Unit tests
         run: |
@@ -42,6 +45,18 @@ jobs:
           timeout 120 fastdyn -q run -c configs/minimal.toml | tee minimal.out
           grep -q '^Reg 0:0x00000003$' minimal.out
           grep -q '^\[BENCH\]\[minimal\] elapsed_ns=' minimal.out
+
+      - name: Guest instruction fragment architecture matrix
+        env:
+          FASTDYN_QEMU_BUILD: ${{ github.workspace }}/third_party/common/qemu/build
+        run: tests/integration/run_guest_code_fragments_smoke.sh
+
+      - name: FastDyn public fragment API smoke
+        env:
+          FASTDYN_QEMU_ROOT: ${{ github.workspace }}/third_party/common/qemu
+          FASTDYN_QEMU_BIN: ${{ github.workspace }}/third_party/common/qemu/build/qemu-system-arm
+          FASTDYN_PLUGIN_LIB: ${{ github.workspace }}/build/libfastdyn.so
+        run: tests/integration/run_fastdyn_guest_code_fragment_smoke.sh
 
       - name: Bundled FreeRTOS introspection smoke test
         env:

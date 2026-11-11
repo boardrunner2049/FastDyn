@@ -4,27 +4,39 @@
 fastdyn_setup_qemu_patch() {
   local repo_root="$1"
   local qemu_root="$2"
-  local patch="$repo_root/patches/qemu-fastdyn-plugin-icount.patch"
+  local patch
+  local patches=(
+    "$repo_root/patches/qemu-fastdyn-plugin-icount.patch"
+    "$repo_root/patches/qemu-fastdyn-insn-fragments.patch"
+  )
 
-  if [[ ! -f "$patch" ]]; then
-    echo "missing QEMU compatibility patch: $patch" >&2
+  # The last patch may touch context introduced by an earlier patch.  If the
+  # complete series is present, checking that tip first avoids misclassifying
+  # the earlier patch as incompatible merely because its context advanced.
+  if [[ -f "${patches[1]}" ]] &&
+     git -C "$qemu_root" apply --reverse --check "${patches[1]}" >/dev/null 2>&1; then
+    echo "FastDyn QEMU ordered patch series is already applied"
+    return 0
+  fi
+
+  for patch in "${patches[@]}"; do
+    if [[ ! -f "$patch" ]]; then
+      echo "missing required QEMU patch: $patch" >&2
+      return 1
+    fi
+    if git -C "$qemu_root" apply --reverse --check "$patch" >/dev/null 2>&1; then
+      echo "FastDyn QEMU patch is already applied: $patch"
+      continue
+    fi
+    if git -C "$qemu_root" apply --check "$patch" >/dev/null 2>&1; then
+      git -C "$qemu_root" apply "$patch" || return
+      echo "Applied FastDyn QEMU patch: $patch"
+      continue
+    fi
+    echo "FastDyn QEMU patch does not apply cleanly: $patch" >&2
+    echo "The ordered patch series requires the pinned QEMU base and all earlier patches." >&2
     return 1
-  fi
-
-  if git -C "$qemu_root" apply --reverse --check "$patch" >/dev/null 2>&1; then
-    echo "FastDyn QEMU compatibility patch is already applied"
-    return 0
-  fi
-
-  if git -C "$qemu_root" apply --check "$patch" >/dev/null 2>&1; then
-    git -C "$qemu_root" apply "$patch" || return
-    echo "Applied FastDyn QEMU compatibility patch: $patch"
-    return 0
-  fi
-
-  echo "FastDyn QEMU compatibility patch does not apply cleanly: $patch" >&2
-  echo "Check that the existing QEMU sources use the expected patched QEMU base." >&2
-  return 1
+  done
 }
 
 fastdyn_setup_qemu_source_exists() {
@@ -105,13 +117,13 @@ fastdyn_setup_qemu_hint() {
   local qemu_repo="$3"
   local qemu_ref="$4"
   local qemu_bin="$qemu_root/build/qemu-system-arm"
-  local qemu_patch="$repo_root/patches/qemu-fastdyn-plugin-icount.patch"
+  local qemu_patch="$repo_root/patches/qemu-fastdyn-insn-fragments.patch"
 
   if [[ -x "$qemu_bin" ]]; then
     if fastdyn_setup_qemu_source_exists "$qemu_root" &&
        ! git -C "$qemu_root" apply --reverse --check "$qemu_patch" >/dev/null 2>&1; then
       cat >&2 <<EOF
-FastDyn patched QEMU exists, but the required icount/plugin compatibility patch
+FastDyn patched QEMU exists, but the required ordered feature patch series
 is not detected in the checkout:
   $qemu_bin
 
@@ -154,6 +166,11 @@ EOF
 fastdyn_setup_qemu_build() {
   local repo_root="$1"
   local qemu_root="$2"
+  local targets="${3:-arm-softmmu}"
+  local build_targets=()
+  local configured_targets=""
+  local need_configure="false"
+  local target
 
   # Keep main's fresh-clone path: initialize the pinned submodule only when
   # its sources are missing. Existing checkouts are never fetched or reset.
@@ -164,7 +181,23 @@ fastdyn_setup_qemu_build() {
   fastdyn_setup_qemu_patch "$repo_root" "$qemu_root" || return
   mkdir -p "$qemu_root/build" || return
   if [[ ! -f "$qemu_root/build/build.ninja" ]]; then
-    (cd "$qemu_root/build" && ../configure --target-list=arm-softmmu --enable-plugins) || return
+    need_configure="true"
+  elif [[ -f "$qemu_root/build/config-host.mak" ]]; then
+    configured_targets=$(sed -n 's/^TARGET_DIRS=//p' "$qemu_root/build/config-host.mak")
+    IFS=',' read -ra build_targets <<< "$targets"
+    for target in "${build_targets[@]}"; do
+      if [[ " $configured_targets " != *" $target "* ]]; then
+        need_configure="true"
+        break
+      fi
+    done
   fi
-  make -C "$qemu_root/build" -j"$(fastdyn_setup_build_jobs)" qemu-system-arm || return
+  if [[ "$need_configure" == "true" ]]; then
+    (cd "$qemu_root/build" && ../configure --target-list="$targets" --enable-plugins) || return
+  fi
+  IFS=',' read -ra build_targets <<< "$targets"
+  for target in "${!build_targets[@]}"; do
+    build_targets[$target]="qemu-system-${build_targets[$target]%-softmmu}"
+  done
+  make -C "$qemu_root/build" -j"$(fastdyn_setup_build_jobs)" "${build_targets[@]}" || return
 }

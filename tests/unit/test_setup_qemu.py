@@ -47,11 +47,13 @@ def source_repo(tmp_path):
     configure.write_text(
         "#!/usr/bin/env bash\nset -e\n"
         'printf "%s\\n" "$@" > configure.args\n'
+        'targets=${1#--target-list=}\n'
+        'printf "TARGET_DIRS=%s\\n" "${targets//,/ }" > config-host.mak\n'
         "cat > Makefile <<'MAKE'\n"
-        ".PHONY: qemu-system-arm\n"
-        "qemu-system-arm:\n"
-        "\tcat ../include/qemu/qemu-plugin.h ../local-change > qemu-system-arm\n"
-        "\tchmod +x qemu-system-arm\n"
+        ".PHONY: FORCE\n"
+        "qemu-system-%: FORCE\n"
+        "\tcat ../include/qemu/qemu-plugin.h ../local-change > $@\n"
+        "\tchmod +x $@\n"
         "\techo build >> build-runs\n"
         "MAKE\n"
         "touch build.ninja\n"
@@ -77,6 +79,14 @@ def patch_repo(tmp_path):
         "@@ -1 +1 @@\n"
         "-base\n"
         "+patched\n"
+    )
+    (root / "patches/qemu-fastdyn-insn-fragments.patch").write_text(
+        "diff --git a/include/qemu/qemu-plugin.h b/include/qemu/qemu-plugin.h\n"
+        "--- a/include/qemu/qemu-plugin.h\n"
+        "+++ b/include/qemu/qemu-plugin.h\n"
+        "@@ -1 +1 @@\n"
+        "-patched\n"
+        "+patched-fragments\n"
     )
     return root
 
@@ -160,12 +170,12 @@ def test_build_patches_and_rebuilds_local_sources_without_fetching(source_repo, 
     head = git(source_repo, "rev-parse", "HEAD")
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, source_repo))
     binary = source_repo / "build/qemu-system-arm"
-    assert binary.read_text() == "patched\noriginal\n"
+    assert binary.read_text() == "patched-fragments\noriginal\n"
 
     (source_repo / "local-change").write_text("updated locally\n")
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, source_repo))
 
-    assert binary.read_text() == "patched\nupdated locally\n"
+    assert binary.read_text() == "patched-fragments\nupdated locally\n"
     assert (source_repo / "build/build-runs").read_text().splitlines() == ["build", "build"]
     assert git(source_repo, "rev-parse", "HEAD") == head
     assert git(source_repo, "branch", "--show-current") == "local-work"
@@ -180,7 +190,35 @@ def test_existing_binary_is_rebuilt_after_patch_application(source_repo, patch_r
     binary.chmod(0o755)
 
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, source_repo))
-    assert binary.read_text() == "patched\noriginal\n"
+    assert binary.read_text() == "patched-fragments\noriginal\n"
+
+
+def test_build_accepts_explicit_multi_target_list(source_repo, patch_repo):
+    targets = "arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu"
+
+    assert_success(run_function(
+        "fastdyn_setup_qemu_build", patch_repo, source_repo, targets
+    ))
+
+    assert f"--target-list={targets}" in (source_repo / "build/configure.args").read_text()
+    for target in ("arm", "aarch64", "x86_64", "riscv32", "riscv64"):
+        binary = source_repo / f"build/qemu-system-{target}"
+        assert binary.read_text() == "patched-fragments\noriginal\n"
+
+
+def test_multi_target_build_reconfigures_an_existing_default_build(source_repo, patch_repo):
+    assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, source_repo))
+    targets = "arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu"
+
+    assert_success(run_function(
+        "fastdyn_setup_qemu_build", patch_repo, source_repo, targets
+    ))
+
+    assert (source_repo / "build/config-host.mak").read_text() == (
+        "TARGET_DIRS=arm-softmmu aarch64-softmmu x86_64-softmmu "
+        "riscv32-softmmu riscv64-softmmu\n"
+    )
+    assert f"--target-list={targets}" in (source_repo / "build/configure.args").read_text()
 
 
 def test_patch_failure_stops_build_even_with_existing_binary(source_repo, patch_repo):
@@ -214,11 +252,11 @@ def test_build_initializes_pinned_submodule_without_advancing_ref(source_repo, p
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, target))
 
     assert git(target, "rev-parse", "HEAD") == pinned
-    assert (target / "build/qemu-system-arm").read_text() == "patched\noriginal\n"
+    assert (target / "build/qemu-system-arm").read_text() == "patched-fragments\noriginal\n"
     (target / "local-change").write_text("local submodule edit\n")
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, target))
     assert git(target, "rev-parse", "HEAD") == pinned
-    assert (target / "build/qemu-system-arm").read_text() == "patched\nlocal submodule edit\n"
+    assert (target / "build/qemu-system-arm").read_text() == "patched-fragments\nlocal submodule edit\n"
 
 
 @pytest.mark.parametrize(
