@@ -1,0 +1,130 @@
+# INAV MATEKF405 rehost. Hook addresses and guest ABIs are tied to this ELF.
+# See virtuals/physics/flight_controllers/inav/README.md.
+[Memory.main]
+id = "ram0"
+base_address = "0x20000000"
+memory_size = "512M"
+memory_type = "SRAM"
+backend = "ram"
+[[Memory.ram1]]
+id = "ram1"
+index = 1
+base_address = "0x10000000"
+memory_size = "512K"
+memory_type = "SRAM"
+backend = "ram"
+[Machine]
+platform = "generic-cortexm"
+monitor_port = 0
+qmp_socket = "/tmp/fastdyn-inav.qmp"
+log_options = "none"
+log_file = "inav-qemu.log"
+timer_irq_period_ns = 1000000
+[CPU]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m4"
+plugin_library = "build/libfastdyn.so"
+binary = "virtuals/physics/flight_controllers/inav/inav-matekf405.elf"
+firmware_sha256 = "88794628297915b4720f10e5bca9fc46ab3441b0eb4a4c9a29d0e83c9e8fda22"
+init_nsvtor = "0x08000000"
+[[CPU.cpu0.virtuals]]
+at = "0x0809a3b8"
+instruction = "inav_start_clock"
+
+# Bypass the unmodelled STM32 oscillator/PLL sequence, retaining systemInit.
+[[CPU.cpu0.modifiers]]
+at = "0x08003f94"
+patch = "r15 <- 0x0800404c"
+[[CPU.cpu0.virtuals]]
+at = "0x0800977c"
+instruction = "inav_bus_write"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x0800ad58"
+instruction = "inav_bus_read"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x0800a390"
+instruction = "inav_bus_read_buf"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x080103d4"
+instruction = "micros32"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x08010374"
+instruction = "micros32"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x080968cc"
+instruction = "inav_bus_transfer"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x0800d718"
+instruction = "inav_bus_transfer"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x0800a2e8"
+instruction = "inav_bus_read_buf"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x0800acbc"
+instruction = "inav_bus_transfer"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x0801a720"
+instruction = "inav_motors"
+args = ["0x10004f70"]
+
+[[CPU.cpu0.virtuals]]
+at = "0x08006c6c"
+instruction = "inav_mag"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x08006a04"
+instruction = "inav_baro"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x08062e90"
+instruction = "inav_gps"
+args = ["0x2000f014"]
+[[CPU.cpu0.virtuals]]
+at = "0x0803ec44"
+instruction = "inav_mixer"
+args = ["0x20007050"]
+
+[[CPU.cpu0.virtuals]]
+at = "0x0804b9f8"
+instruction = "inav_rc_read"
+args = ["*"]
+[[CPU.cpu0.virtuals]]
+at = "0x0804ba04"
+instruction = "inav_rc_status"
+args = ["*"]
+
+[FMU]
+active = "quadrotor"
+auto_build = true
+[FMU.models.quadrotor]
+model = "FastDyn.Copter"
+model_file = "modelica/FastDyn/Copter.mo"
+source_roots = ["third_party/common/modelica_models"]
+output = "out/fmi3/Copter"
+build = true
+release = true
+[FMU.models.quadrotor.parameters]
+lat0 = 40.414929
+lon0 = -86.932387
+ground_alt_wgs84 = 149.0
+pwm_min = 1100.0
+pwm_max = 1900.0
+omega_max = 1300.0
+mass = 2.5644001
+ixx = 0.02601237985
+iyy = 0.02590943825
+izz = 0.045571756801
+Ct = 8.54858e-6
+Cm = 0.016
+Cn_r = -0.1
