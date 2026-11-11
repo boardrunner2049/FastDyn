@@ -59,6 +59,8 @@ compiled against (recorded in `build/fastdyn_build.json` next to
 [Machine]
 platform = "STM32F427"
 # qemu_path = "../qemu/build/qemu-system-arm"   # optional, see above
+supercache = "../cache/firmware.sc"
+supercache_flat = true
 monitor_port = 5555
 qmp_socket = "/tmp/qmp.sock"
 log_file = "qemu.log"
@@ -74,6 +76,24 @@ edge_coverage = false
 print_command = false
 exit_timeout_ms = 5000
 ```
+
+`supercache` enables the persistent TCG cache in the FastDyn QEMU fork. A
+relative cache path is resolved next to the TOML file. `supercache_flat = true`
+selects the fastest immutable-firmware lookup mode: a direct index is used for
+guest-code spans through 32 MiB, and a compact paged index through 512 MiB.
+
+FastDyn owns cache invalidation. It writes `<supercache>.fastdyn.json` with a
+fingerprint of the effective configuration, generated device/virtual/modifier
+files, preprocessing artifacts, instrumentation options, firmware, QEMU,
+FastDyn plugin and external native libraries. If those inputs change, or the
+manifest is missing or unreadable, FastDyn removes the stale cache before
+launching QEMU. Configuration-like files are content-hashed; large native
+artifacts use their path, size and nanosecond modification time, so normal warm
+starts do not spend time hashing binaries. QEMU still checks its cache-format
+and native runtime compatibility.
+
+The QEMU fork requires ASLR to already be disabled for a supercache run. Launch
+FastDyn in such an environment, for example with `setarch $(uname -m) -R`.
 
 `qmp_socket` is QEMU's control socket. Left at `/tmp/qmp.sock` (the default),
 each run gets its own, `<work_dir>/qmp.sock`; when that path is too long for a

@@ -122,6 +122,9 @@ class QemuTargetOpts:
     def __init__(self):
         #initialize with default values
         self.qemu_path: str = ""  # optional; resolved by qemu_target.resolve_qemu_binary
+        self.config_path: Optional[str] = None
+        self.supercache: Optional[str] = None
+        self.supercache_flat: bool = False
         self.finline: Optional[str] = None
         self.coverage: bool = False
         self.fuzzing: bool = False

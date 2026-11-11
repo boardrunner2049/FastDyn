@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_QMP_SOCKET = "/tmp/qmp.sock"
 UNIX_SOCKET_PATH_MAX = 107  # sun_path holds 108 bytes, including the final NUL
+SUPERCACHE_MANIFEST_VERSION = 1
 
 
 def run_qmp_socket(work_dir):
@@ -88,6 +89,131 @@ def _read_existing_config(path):
 
 def _bool01(v: bool) -> str:
     return "1" if bool(v) else "0"
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _supercache_content_file(path):
+    """Identity for small configuration-like files whose bytes matter."""
+    if not path:
+        return None
+    path = os.path.abspath(os.fspath(path))
+    if not os.path.isfile(path):
+        return {"missing": path}
+    return {"sha256": _sha256_file(path), "size": os.path.getsize(path)}
+
+
+def _supercache_native_file(path):
+    """Cheap identity for large native/firmware artifacts.
+
+    The filesystem is trusted; size and nanosecond mtime make a rebuild or
+    firmware replacement invalidate the cache without hashing large binaries
+    on every FastDyn launch.
+    """
+    if not path:
+        return None
+    path = os.path.abspath(os.fspath(path))
+    try:
+        stat = os.stat(path)
+    except FileNotFoundError:
+        return {"missing": path}
+    return {
+        "path": path,
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+
+
+def _supercache_fingerprint(*, settings, content_files, native_files):
+    payload = {
+        "version": SUPERCACHE_MANIFEST_VERSION,
+        "settings": settings,
+        "content_files": {
+            name: _supercache_content_file(path)
+            for name, path in sorted(content_files.items())
+        },
+        "native_files": {
+            name: _supercache_native_file(path)
+            for name, path in sorted(native_files.items())
+        },
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest(), payload
+
+
+def _write_json_atomic(path, value):
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{os.path.basename(path)}.", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _configure_supercache(cache_path, *, flat, settings, content_files, native_files):
+    """Invalidate a cache whose FastDyn-owned translation inputs changed."""
+    cache_path = os.path.abspath(os.fspath(cache_path))
+    manifest_path = f"{cache_path}.fastdyn.json"
+    cache_dir = os.path.dirname(cache_path)
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+
+    fingerprint, inputs = _supercache_fingerprint(
+        settings=settings,
+        content_files=content_files,
+        native_files=native_files,
+    )
+    old_fingerprint = None
+    manifest_current = False
+    manifest_error = None
+    try:
+        with open(manifest_path, encoding="utf-8") as stream:
+            old_manifest = json.load(stream)
+        old_fingerprint = old_manifest.get("fingerprint")
+        manifest_current = (
+            old_manifest.get("version") == SUPERCACHE_MANIFEST_VERSION
+            and old_fingerprint == fingerprint
+        )
+    except FileNotFoundError:
+        manifest_error = "missing FastDyn manifest"
+    except (OSError, ValueError, AttributeError) as exc:
+        manifest_error = f"unreadable FastDyn manifest: {exc}"
+
+    if os.path.exists(cache_path) and old_fingerprint != fingerprint:
+        reason = manifest_error or "translation inputs changed"
+        try:
+            os.unlink(cache_path)
+        except OSError as exc:
+            raise RuntimeError(f"Unable to invalidate stale supercache {cache_path!r}: {exc}") from exc
+        log.info("Invalidated stale QEMU supercache %s (%s)", cache_path, reason)
+
+    if not manifest_current:
+        _write_json_atomic(manifest_path, {
+            "version": SUPERCACHE_MANIFEST_VERSION,
+            "fingerprint": fingerprint,
+            "inputs": inputs,
+        })
+
+    accel = f"tcg,supercache={cache_path}"
+    if flat:
+        accel += ",supercache-flat=on"
+    return accel
 
 
 _MEMORY_SIZE_RE = re.compile(r"^(0x[0-9a-fA-F]+|\d+)\s*([kmgtpeKMGTPE]?)(?:i?[bB])?$")
@@ -756,6 +882,66 @@ def build_qemu_cmd(machine, dev_config_path, out_path):
 
     if opts.finline is not None:
         plugin_kv.append(f"finline={opts.finline}")
+
+    supercache_path = getattr(opts, "supercache", None)
+    if supercache_path:
+        file_plugin_keys = {
+            "dev", "virtual", "modifier", "twintrace_binary",
+            "virtual_libraries", "fuzzing_schema", "savestate_extra_ranges",
+            "fmu", "fmu_resources", "finline",
+        }
+        scalar_plugin_options = []
+        for option in plugin_kv[1:]:
+            key = option.split("=", 1)[0]
+            if key not in file_plugin_keys:
+                scalar_plugin_options.append(option)
+
+        content_files = {
+            "fastdyn_config": getattr(opts, "config_path", None),
+            "device_config": dev_config_path,
+            "virtuals": virtuals_path,
+            "modifiers": modifiers_path,
+            "fuzzing_schema": fuzzing_schema,
+            "savestate_extra_ranges": savestate_extra_ranges_path,
+        }
+        if opts.finline not in (None, "None") and os.path.isfile(str(opts.finline)):
+            content_files["finline"] = opts.finline
+        for index, artifact in enumerate(getattr(machine, "preprocessing_artifacts", []) or []):
+            content_files[f"preprocessing_artifact_{index}"] = artifact
+
+        native_files = {
+            "qemu": qemu_bin,
+            "plugin": plugin_lib,
+            "firmware": kernel_file,
+            "drive": drive_file,
+            "bios": bios_file,
+            "fmu": getattr(machine, "fmu_path", None),
+        }
+        for index, library in enumerate(getattr(machine, "virtual_libraries", []) or []):
+            native_files[f"virtual_library_{index}"] = library
+
+        accel = _configure_supercache(
+            supercache_path,
+            flat=getattr(opts, "supercache_flat", False),
+            settings={
+                "platform": machine.platform,
+                "cpus": [{
+                    "arch": cpu.arch,
+                    "machine": cpu.machine,
+                    "cpu": cpu.cpu,
+                    "init_nsvtor": cpu.init_nsvtor,
+                } for cpu in cpus],
+                "icount": icount,
+                "log_options": log_options,
+                "globals": machine_globals,
+                "plugin_options": scalar_plugin_options,
+                "supercache_flat": bool(getattr(opts, "supercache_flat", False)),
+            },
+            content_files=content_files,
+            native_files=native_files,
+        )
+        cmd.extend(["-accel", accel])
+
     cmd.extend(["--plugin", ",".join(plugin_kv)])
 
     # Avoid -nographic: it binds QEMU's serial/monitor chardevs to stdio,

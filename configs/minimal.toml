@@ -45,6 +45,8 @@ prealloc     = false
 [Machine]
 platform = "generic-cortexm"   # or a chip name such as "STM32F429" to load its SVD peripherals
 # qemu_path = "qemu/build/qemu-system-arm"  # optional: defaults to the QEMU FastDyn was built against
+# supercache = "../cache/minimal.sc"  # persistent TCG cache; relative to this TOML
+# supercache_flat = true              # fastest mode for immutable firmware
 
 # --- Debugging, Control, and Logging ---
 enable_gdb = false             # true: start QEMU's GDB server on port 1234

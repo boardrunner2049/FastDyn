@@ -165,6 +165,21 @@ def _config_relative(config_path, value):
     return str(candidate) if candidate.exists() else value
 
 
+def _config_output_path(config_path, value, setting):
+    """Resolve an output file relative to its configuration file."""
+    if value in (None, "", False):
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"{setting} must be a path string")
+    if "\0" in value or "," in value:
+        raise ValueError(f"{setting} cannot contain a comma or NUL")
+
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = Path(config_path).expanduser().resolve().parent / path
+    return str(path.resolve())
+
+
 def _slaves_config_relative(config_path, slaves):
     """Slave entries with their device_scroll resolved like other model libraries."""
     resolved = []
@@ -276,7 +291,18 @@ def parser(out_dir, machine_name, toml_config, svd_path, fmu_name=None, load_fmu
     # additional machine params if set by the user related to qemu target
     q = machine0.qemu_target_opts
 
+    q.config_path        = str(Path(toml_config).expanduser().resolve())
     q.qemu_path          = toml_parser.machine_info.get("qemu_path", "")  # optional; see qemu_target.resolve_qemu_binary
+    q.supercache         = _config_output_path(
+        toml_config,
+        toml_parser.machine_info.get("supercache"),
+        "[Machine].supercache",
+    )
+    q.supercache_flat    = toml_parser.machine_info.get("supercache_flat", False)
+    if not isinstance(q.supercache_flat, bool):
+        raise TypeError("[Machine].supercache_flat must be true or false")
+    if q.supercache_flat and not q.supercache:
+        raise ValueError("[Machine].supercache_flat requires [Machine].supercache")
 
     q.enable_gdb         = toml_parser.machine_info.get("enable_gdb", False)
     q.stop_on_start      = toml_parser.machine_info.get("stop_on_start", False)

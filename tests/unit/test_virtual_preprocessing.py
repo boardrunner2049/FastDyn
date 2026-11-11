@@ -455,3 +455,33 @@ def test_qemu_omits_ram_base_global_for_toml_zero_address(tmp_path):
     )
 
     assert "virt-soc.ram_baseaddr0=0x0" not in qemu_cmd
+
+
+def test_qemu_command_enables_fastdyn_managed_supercache(tmp_path):
+    plugin = tmp_path / "libfastdyn.so"
+    plugin.touch()
+    firmware = Path("tests/sample_binaries/RTOS/RTOSDemo.axf").resolve()
+    cache = tmp_path / "cache" / "firmware.sc"
+
+    machine = Machine("machine0", "generic-cortexm")
+    machine.add_memory(
+        "main", "ram0", "0x20000000", "1M", "SRAM", "file",
+        str(tmp_path / "ram.bin"), True,
+    )
+    cpu = machine.add_cpu(
+        "arm", "cortexm", "cortex-m3", str(firmware), None,
+        "None", None, False,
+    )
+    cpu.plugin_library = str(plugin)
+    machine.qemu_target_opts.qemu_path = "/bin/true"
+    machine.qemu_target_opts.log_options = "none"
+    machine.qemu_target_opts.supercache = str(cache)
+    machine.qemu_target_opts.supercache_flat = True
+
+    qemu_cmd, *_ = build_qemu_cmd(
+        machine, str(tmp_path / "dev_config.json"), str(tmp_path)
+    )
+
+    accel = qemu_cmd[qemu_cmd.index("-accel") + 1]
+    assert accel == f"tcg,supercache={cache},supercache-flat=on"
+    assert (tmp_path / "cache" / "firmware.sc.fastdyn.json").is_file()

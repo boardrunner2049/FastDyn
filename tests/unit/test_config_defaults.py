@@ -54,6 +54,31 @@ def test_device_table_and_virtual_args_are_optional(tmp_path):
 
     assert machine.devices == {}
     assert machine.cpus[0].virtuals == ["0x08000100 benchmark_start"]
+    assert machine.qemu_target_opts.supercache is None
+    assert machine.qemu_target_opts.supercache_flat is False
+
+
+def test_supercache_path_is_relative_to_config_and_flat_is_optional(tmp_path):
+    text = SHORT_CONFIG.replace(
+        'platform = "generic-cortexm"',
+        'platform = "generic-cortexm"\nsupercache = "cache/firmware.sc"\nsupercache_flat = true',
+    )
+
+    opts = _machine(tmp_path, text).qemu_target_opts
+
+    assert opts.supercache == str(tmp_path / "cache" / "firmware.sc")
+    assert opts.supercache_flat is True
+    assert opts.config_path == str(tmp_path / "config.toml")
+
+
+def test_supercache_flat_requires_a_cache_file(tmp_path):
+    text = SHORT_CONFIG.replace(
+        'platform = "generic-cortexm"',
+        'platform = "generic-cortexm"\nsupercache_flat = true',
+    )
+
+    with pytest.raises(ValueError, match="supercache_flat requires"):
+        _machine(tmp_path, text)
 
 
 def test_missing_required_setting_names_table_and_key(tmp_path):
