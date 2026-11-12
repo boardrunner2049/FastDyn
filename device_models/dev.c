@@ -92,8 +92,20 @@ static inline void dev_get_timestamp(time_t *sec, long *usec) {
     }
 }
 
-static int dev_write(char * handler, long unsigned int address, uint64_t value, long unsigned int size) {
-    uint64_t pc = core_get_pc();
+static uint64_t dev_saved_pc(const qemu_plugin_mmio_context *context)
+{
+    if (!context ||
+        !(context->flags & QEMU_PLUGIN_MMIO_SAVED_PC_VALID)) {
+        utils_die("FastDyn MMIO saved PC is unavailable or unsupported");
+        return 0;
+    }
+    return context->saved_pc;
+}
+
+static int dev_write(const char *handler, uint64_t address, uint64_t value,
+                     uint64_t size,
+                     const qemu_plugin_mmio_context *context) {
+    uint64_t pc = dev_saved_pc(context);
 #ifdef DEV_LOGGER
     uint64_t icount = core_get_icount();
     time_t sec;
@@ -165,8 +177,10 @@ static int dev_write(char * handler, long unsigned int address, uint64_t value, 
 }
 
 // TODO: Change the hardcoded priorty variable.
-static int dev_read(char * handler, long unsigned int address, uint64_t *buf, long unsigned int size) {
-    uint64_t pc = core_get_pc();
+static int dev_read(const char *handler, uint64_t address, uint64_t *buf,
+                    uint64_t size,
+                    const qemu_plugin_mmio_context *context) {
+    uint64_t pc = dev_saved_pc(context);
 #ifdef DEV_LOGGER
     uint64_t icount = core_get_icount();
     time_t sec;
@@ -226,11 +240,13 @@ static int dev_read(char * handler, long unsigned int address, uint64_t *buf, lo
 #ifdef DEV_LOGGER
     if (twintrace_mode != TT_OFF) {
         utils_log_to_file(io_logger, "[%5ld.%06ld] icount=%" PRIu64" [%s] Read: \t address = 0x%08X, size = %u bytes, value = 0x%0*" PRIx64 ", pc=0x%08X \n",
-        sec, usec, icount, dev_to_use->name, address, size, size * 2, value, pc);
+        sec, usec, icount, dev_to_use->name, (unsigned)address,
+        (unsigned)size, (int)(size * 2), value, (unsigned)pc);
 
     } else {
     utils_log_to_file(io_logger, "[%5ld.%06ld] [%s] Read: \t address = 0x%08X, size = %u bytes, value = 0x%0*" PRIx64 ", pc=0x%08X \n",
-              sec, usec, dev_to_use->name, address, size, size * 2, value, pc);
+              sec, usec, dev_to_use->name, (unsigned)address,
+              (unsigned)size, (int)(size * 2), value, (unsigned)pc);
     }
 #endif
     } else {
@@ -240,7 +256,7 @@ static int dev_read(char * handler, long unsigned int address, uint64_t *buf, lo
 #ifdef DEV_LOGGER
         utils_log_to_file(io_logger,
             "[%5ld.%06ld] IO Read Access NOT Handled: \t address=0x%08" PRIx64 ", size=%u bytes, pc=0x%08" PRIx64 "\n",
-            sec, usec, (uint64_t)address, size, (uint64_t)pc);
+            sec, usec, (uint64_t)address, (unsigned)size, (uint64_t)pc);
 #endif
         FD_LOG_DEBUG("IO access not handled");
     }
@@ -259,7 +275,9 @@ static int dev_read(char * handler, long unsigned int address, uint64_t *buf, lo
 }
 
 // Base hardware reader and writer
-static DEV_XPORTER importer = {
+static const qemu_plugin_unimp_ops_v2 importer = {
+        .abi_version = QEMU_PLUGIN_UNIMP_ABI_V2,
+        .struct_size = sizeof(qemu_plugin_unimp_ops_v2),
         .read = dev_read,
         .write = dev_write
 };
@@ -760,7 +778,9 @@ int dev_init(int argc, char ** argv) {
 	if (dev_model_info) {
 		// Regisgter IRQ listener for logging
 	    core_register_irq_hook(dev_notify_irq, dev_irqret_hook);
-		qemu_plugin_unimp_export_device((void *)&importer);
+		if (!qemu_plugin_unimp_export_device_v2(&importer)) {
+			utils_die("FastDyn QEMU MMIO v2 registration failed; rebuild the pinned QEMU and FastDyn against the same qemu-plugin.h");
+		}
 		io_logger = dev_open_io_log();
 
 		if (start_ts.tv_sec == 0 && start_ts.tv_nsec == 0) {

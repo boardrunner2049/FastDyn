@@ -28,6 +28,35 @@ registration order, TB invalidation/retranslation, original plugin accounting,
 copied ownership, malformed input, both independent limits, the combined-site
 limit, and initialization-only registry sealing.
 
+## MMIO saved-PC benchmark
+
+After building a legacy FastDyn plugin and the patched plugin against the same
+updated QEMU header, run five alternating paired measurements of the ordinary
+device callback path with automatic MMIO substitution disabled:
+
+```bash
+FASTDYN_MMIO_PC_BASELINE_PLUGIN=/path/to/legacy/libfastdyn.so \
+FASTDYN_MMIO_PC_PATCHED_PLUGIN="$PWD/build/libfastdyn.so" \
+  tests/integration/run_fastdyn_mmio_pc.sh
+```
+
+The runner checks identical firmware results and model access counts and reports
+the whole-QEMU execution median, spread, throughput, and speedup. It does not
+enforce a speedup threshold. See `docs/mmio_saved_pc_benchmark.md` for the
+recorded result and PC contract.
+
+The saved-value and registration probe uses the allocating register read only
+inside the test callback. It compares that value with `saved_pc` for Cortex-M,
+AArch32, AArch64, x86-16/32/64 (including a nonzero real-mode `CS.base`), RV32,
+and RV64. The Cortex-M fixture forces a valid saved PC of zero, and a qtest
+access verifies that a non-vCPU caller still snapshots `first_cpu`. The probe
+also checks v2 descriptor rejection and single-version dispatch:
+
+```bash
+FASTDYN_QEMU_BUILD="$PWD/third_party/common/qemu/build" \
+  tests/integration/run_fastdyn_mmio_pc_equivalence.sh
+```
+
 Exercise the public SDK and native external-plugin initialization path with:
 
 ```bash

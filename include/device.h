@@ -91,11 +91,6 @@ typedef struct {
 } ModelEntry;
 
 
-typedef struct unimp_exporter {
-    int (*read)(char * handler, hwaddr addr, uint64_t *buf, hwaddr len);
-    int (*write)(char * handler, hwaddr addr, uint64_t value, hwaddr len);
-} DEV_XPORTER;
-
 //4KB regions for now.
 #define SLOT_SIZE   0x10
 

@@ -1,0 +1,513 @@
+diff --git a/hw/core/cpu-common.c b/hw/core/cpu-common.c
+index 39e674a..71b9d5b 100644
+--- a/hw/core/cpu-common.c
++++ b/hw/core/cpu-common.c
+@@ -366,6 +366,20 @@ static int64_t cpu_common_get_arch_id(CPUState *cpu)
+     return cpu->cpu_index;
+ }
+ 
++bool fastdyn_read_saved_pc(CPUState *cpu, uint64_t *value)
++{
++    CPUClass *cc;
++
++    if (!cpu || !value) {
++        return false;
++    }
++    cc = cpu->cc;
++    if (!cc || !cc->fastdyn_read_saved_pc) {
++        return false;
++    }
++    return cc->fastdyn_read_saved_pc(cpu, value);
++}
++
+ static void cpu_common_class_init(ObjectClass *klass, const void *data)
+ {
+     DeviceClass *dc = DEVICE_CLASS(klass);
+diff --git a/include/hw/core/cpu.h b/include/hw/core/cpu.h
+index 1e87f7d..25cc791 100644
+--- a/include/hw/core/cpu.h
++++ b/include/hw/core/cpu.h
+@@ -121,6 +121,9 @@ struct SysemuCPUOps;
+  *       also implement the synchronize_from_tb hook.
+  * @get_pc: Callback for getting the Program Counter register.
+  *       As above, with the semantics of the target architecture.
++ * @fastdyn_read_saved_pc: Read the scalar representation of the PC register
++ *       exposed by this CPU's selected core GDB register interface.  This is
++ *       intentionally distinct from the execution-address @get_pc hook.
+  * @gdb_read_register: Callback for letting GDB read a register.
+  *                     No more than @gdb_num_core_regs registers can be read.
+  * @gdb_write_register: Callback for letting GDB write a register.
+@@ -164,6 +167,7 @@ struct CPUClass {
+     int64_t (*get_arch_id)(CPUState *cpu);
+     void (*set_pc)(CPUState *cpu, vaddr value);
+     vaddr (*get_pc)(CPUState *cpu);
++    bool (*fastdyn_read_saved_pc)(CPUState *cpu, uint64_t *value);
+     int (*gdb_read_register)(CPUState *cpu, GByteArray *buf, int reg);
+     int (*gdb_write_register)(CPUState *cpu, uint8_t *buf, int reg);
+     vaddr (*gdb_adjust_breakpoint)(CPUState *cpu, vaddr addr);
+@@ -197,6 +201,8 @@ struct CPUClass {
+     bool gdb_stop_before_watchpoint;
+ };
+ 
++bool fastdyn_read_saved_pc(CPUState *cpu, uint64_t *value);
++
+ /*
+  * Fix the number of mmu modes to 16, which is also the maximum
+  * supported by the softmmu tlb api.
+diff --git a/include/qemu/qemu-plugin.h b/include/qemu/qemu-plugin.h
+index df0d5b8..dfa8962 100644
+--- a/include/qemu/qemu-plugin.h
++++ b/include/qemu/qemu-plugin.h
+@@ -890,6 +890,37 @@ void qemu_plugin_register_atexit_cb(qemu_plugin_id_t id,
+ 
+ QEMU_PLUGIN_API
+ void qemu_plugin_unimp_export_device(void * ops);
++
++enum {
++    QEMU_PLUGIN_UNIMP_ABI_V2 = 2,
++    QEMU_PLUGIN_MMIO_SAVED_PC_VALID = 1u << 0,
++};
++
++typedef struct {
++    /*
++     * The saved PC-register value that the existing FastDyn
++     * register-reading path would return at the beginning of this callback.
++     */
++    uint64_t saved_pc;
++    uint32_t flags;
++} qemu_plugin_mmio_context;
++
++typedef struct {
++    uint32_t abi_version;
++    uint32_t struct_size;
++
++    int (*read)(const char *handler, uint64_t address,
++                uint64_t *value, uint64_t size,
++                const qemu_plugin_mmio_context *context);
++
++    int (*write)(const char *handler, uint64_t address,
++                 uint64_t value, uint64_t size,
++                 const qemu_plugin_mmio_context *context);
++} qemu_plugin_unimp_ops_v2;
++
++QEMU_PLUGIN_API
++bool qemu_plugin_unimp_export_device_v2(
++    const qemu_plugin_unimp_ops_v2 *ops);
+ 	
+ 
+ /* returns how many vcpus were started at this point */
+diff --git a/plugins/core.c b/plugins/core.c
+index 0719b0b..46b7f8e 100644
+--- a/plugins/core.c
++++ b/plugins/core.c
+@@ -658,10 +658,16 @@ void qemu_plugin_atexit_cb(void)
+ 
+ 
+ extern void unimp_export_device(void * arg);
++extern bool unimp_export_device_v2(const qemu_plugin_unimp_ops_v2 *ops);
+ void qemu_plugin_unimp_export_device(void * ops) {
+ 		unimp_export_device(ops);
+ }
+ 
++bool qemu_plugin_unimp_export_device_v2(const qemu_plugin_unimp_ops_v2 *ops)
++{
++    return unimp_export_device_v2(ops);
++}
++
+ void qemu_plugin_register_atexit_cb(qemu_plugin_id_t id,
+                                     qemu_plugin_udata_cb_t cb,
+                                     void *udata)
+diff --git a/system/memory.c b/system/memory.c
+index 4d28c81..f6e4fc7 100644
+--- a/system/memory.c
++++ b/system/memory.c
+@@ -22,6 +22,7 @@
+ #include "qemu/error-report.h"
+ #include "qemu/main-loop.h"
+ #include "qemu/qemu-print.h"
++#include "qemu/qemu-plugin.h"
+ #include "qom/object.h"
+ #include "trace.h"
+ #include "system/ram_addr.h"
+@@ -30,6 +31,7 @@
+ #include "system/tcg.h"
+ #include "qemu/accel.h"
+ #include "hw/boards.h"
++#include "hw/core/cpu.h"
+ #include "migration/vmstate.h"
+ #include "system/address-spaces.h"
+ 
+@@ -68,28 +70,109 @@ typedef struct unimp_exporter {
+ 
+ 
+ static DEV_XPORTER exporter;
++static qemu_plugin_unimp_ops_v2 exporter_v2;
++
++typedef enum UnimpExporterVersion {
++    UNIMP_EXPORTER_NONE,
++    UNIMP_EXPORTER_LEGACY,
++    UNIMP_EXPORTER_V2,
++} UnimpExporterVersion;
++
++static UnimpExporterVersion exporter_version;
+ 
+ void unimp_export_device(void * arg);
++bool unimp_export_device_v2(const qemu_plugin_unimp_ops_v2 *ops);
+ bool qemu_plugin_unimp_read(const char *name, hwaddr addr, uint64_t *val, unsigned size);
+ bool qemu_plugin_unimp_write(const char *name, hwaddr addr, uint64_t val, unsigned size);
+ 
+ void unimp_export_device(void * arg) {
+     DEV_XPORTER * in_ops = (DEV_XPORTER *) arg;
+     memcpy(&exporter, (uint8_t *)in_ops, sizeof(DEV_XPORTER));
++    memset(&exporter_v2, 0, sizeof(exporter_v2));
++    exporter_version = UNIMP_EXPORTER_LEGACY;
++}
++
++bool unimp_export_device_v2(const qemu_plugin_unimp_ops_v2 *ops)
++{
++    qemu_plugin_unimp_ops_v2 new_ops = { 0 };
++
++    if (!ops || ops->abi_version != QEMU_PLUGIN_UNIMP_ABI_V2 ||
++        ops->struct_size < sizeof(*ops)) {
++        return false;
++    }
++    if (!ops->read || !ops->write) {
++        return false;
++    }
++
++    new_ops.abi_version = ops->abi_version;
++    new_ops.struct_size = sizeof(new_ops);
++    new_ops.read = ops->read;
++    new_ops.write = ops->write;
++
++    exporter_v2 = new_ops;
++    memset(&exporter, 0, sizeof(exporter));
++    exporter_version = UNIMP_EXPORTER_V2;
++    return true;
++}
++
++static bool unimp_has_read(void)
++{
++    return (exporter_version == UNIMP_EXPORTER_V2 && exporter_v2.read) ||
++           (exporter_version == UNIMP_EXPORTER_LEGACY && exporter.read);
++}
++
++static bool unimp_has_write(void)
++{
++    return (exporter_version == UNIMP_EXPORTER_V2 && exporter_v2.write) ||
++           (exporter_version == UNIMP_EXPORTER_LEGACY && exporter.write);
++}
++
++static int unimp_invoke_read(const char *name, uint64_t addr,
++                             uint64_t *val, uint64_t size)
++{
++    if (exporter_version == UNIMP_EXPORTER_V2 && exporter_v2.read) {
++        qemu_plugin_mmio_context context = { 0 };
++
++        if (fastdyn_read_saved_pc(first_cpu, &context.saved_pc)) {
++            context.flags |= QEMU_PLUGIN_MMIO_SAVED_PC_VALID;
++        }
++        return exporter_v2.read(name, addr, val, size, &context);
++    }
++    if (exporter_version == UNIMP_EXPORTER_LEGACY && exporter.read) {
++        return exporter.read(name, addr, val, size);
++    }
++    return 1;
++}
++
++static int unimp_invoke_write(const char *name, uint64_t addr,
++                              uint64_t val, uint64_t size)
++{
++    if (exporter_version == UNIMP_EXPORTER_V2 && exporter_v2.write) {
++        qemu_plugin_mmio_context context = { 0 };
++
++        if (fastdyn_read_saved_pc(first_cpu, &context.saved_pc)) {
++            context.flags |= QEMU_PLUGIN_MMIO_SAVED_PC_VALID;
++        }
++        return exporter_v2.write(name, addr, val, size, &context);
++    }
++    if (exporter_version == UNIMP_EXPORTER_LEGACY && exporter.write) {
++        return exporter.write(name, addr, val, size);
++    }
++    return 1;
+ }
+ 
+ bool qemu_plugin_unimp_read(const char *name, hwaddr addr, uint64_t *val, unsigned size)
+ {
+-    if (exporter.read) {
+-        return exporter.read(name, addr, val, size) == 0;
++    if (unimp_has_read()) {
++        return unimp_invoke_read(name, addr, val, size) == 0;
+     }
+     return false;
+ }
+ 
+ bool qemu_plugin_unimp_write(const char *name, hwaddr addr, uint64_t val, unsigned size)
+ {
+-    if (exporter.write) {
+-        return exporter.write(name, addr, val, size) == 0;
++    if (unimp_has_write()) {
++        return unimp_invoke_write(name, addr, val, size) == 0;
+     }
+     return false;
+ }
+@@ -468,8 +551,8 @@ static MemTxResult  memory_region_read_accessor(MemoryRegion *mr,
+     uint64_t tmp;
+ 	int bypass = 0;
+ 
+-	if (exporter.read && !mr->subpage) {
+-        if (!exporter.read(mr->name, (mr->addr + addr), &tmp, size)) {
++	if (unimp_has_read() && !mr->subpage) {
++        if (!unimp_invoke_read(mr->name, (mr->addr + addr), &tmp, size)) {
+                 bypass = 1;
+         }
+     }
+@@ -500,8 +583,8 @@ static MemTxResult memory_region_read_with_attrs_accessor(MemoryRegion *mr,
+ 	int bypass =0;
+     MemTxResult r = 0;
+ 
+-	if (exporter.read && !mr->subpage) {
+-			if (!exporter.read(mr->name, (mr->addr + addr), &tmp, size)) {
++	if (unimp_has_read() && !mr->subpage) {
++			if (!unimp_invoke_read(mr->name, (mr->addr + addr), &tmp, size)) {
+ 					bypass= 1;
+ 			}
+ 	}
+@@ -538,8 +621,8 @@ static MemTxResult memory_region_write_accessor(MemoryRegion *mr,
+                                       memory_region_name(mr));
+     }
+ 
+-	if (exporter.write && !mr->subpage) {
+-        if (!exporter.write(mr->name, (mr->addr + addr), tmp, size)) {
++	if (unimp_has_write() && !mr->subpage) {
++        if (!unimp_invoke_write(mr->name, (mr->addr + addr), tmp, size)) {
+                bypass= 1;
+         }
+     }
+@@ -565,8 +648,8 @@ static MemTxResult memory_region_write_with_attrs_accessor(MemoryRegion *mr,
+         trace_memory_region_ops_write(get_cpu_index(), mr, abs_addr, tmp, size,
+                                       memory_region_name(mr));
+     }
+-	if (exporter.write && !mr->subpage) {
+-			if (!exporter.write(mr->name, (mr->addr + addr), tmp, size)) {
++	if (unimp_has_write() && !mr->subpage) {
++			if (!unimp_invoke_write(mr->name, (mr->addr + addr), tmp, size)) {
+ 					return 0;
+ 			}
+ 	}
+diff --git a/target/arm/cpu.c b/target/arm/cpu.c
+index e025e24..154d92d 100644
+--- a/target/arm/cpu.c
++++ b/target/arm/cpu.c
+@@ -2778,6 +2778,7 @@ static void arm_cpu_class_init(ObjectClass *oc, const void *data)
+     cc->dump_state = arm_cpu_dump_state;
+     cc->set_pc = arm_cpu_set_pc;
+     cc->get_pc = arm_cpu_get_pc;
++    cc->fastdyn_read_saved_pc = arm_cpu_read_saved_pc;
+     cc->gdb_read_register = arm_cpu_gdb_read_register;
+     cc->gdb_write_register = arm_cpu_gdb_write_register;
+ #ifndef CONFIG_USER_ONLY
+diff --git a/target/arm/cpu.h b/target/arm/cpu.h
+index 302c24e..373208d 100644
+--- a/target/arm/cpu.h
++++ b/target/arm/cpu.h
+@@ -1180,6 +1180,7 @@ hwaddr arm_cpu_get_phys_page_attrs_debug(CPUState *cpu, vaddr addr,
+ #endif /* !CONFIG_USER_ONLY */
+ 
+ int arm_cpu_gdb_read_register(CPUState *cpu, GByteArray *buf, int reg);
++bool arm_cpu_read_saved_pc(CPUState *cpu, uint64_t *value);
+ int arm_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
+ 
+ int arm_cpu_write_elf64_note(WriteCoreDumpFunction f, CPUState *cs,
+diff --git a/target/arm/gdbstub.c b/target/arm/gdbstub.c
+index ce4497a..5544c77 100644
+--- a/target/arm/gdbstub.c
++++ b/target/arm/gdbstub.c
+@@ -39,6 +39,22 @@ typedef struct RegisterSysregFeatureParam {
+    We hack round this by giving the FPA regs zero size when talking to a
+    newer gdb.  */
+ 
++bool arm_cpu_read_saved_pc(CPUState *cs, uint64_t *value)
++{
++    ARMCPU *cpu = ARM_CPU(cs);
++    CPUARMState *env = &cpu->env;
++
++#ifdef TARGET_AARCH64
++    if (arm_gdbstub_is_aarch64(cpu)) {
++        *value = env->pc;
++        return true;
++    }
++#endif
++
++    *value = (uint32_t)env->regs[15];
++    return true;
++}
++
+ int arm_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
+ {
+     ARMCPU *cpu = ARM_CPU(cs);
+@@ -52,6 +68,14 @@ int arm_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
+ 
+     if (n < 16) {
+         /* Core integer register.  */
++        if (n == 15) {
++            uint64_t pc;
++
++            if (!arm_cpu_read_saved_pc(cs, &pc)) {
++                return 0;
++            }
++            return gdb_get_reg32(mem_buf, pc);
++        }
+         return gdb_get_reg32(mem_buf, env->regs[n]);
+     }
+     if (n == 25) {
+diff --git a/target/arm/gdbstub64.c b/target/arm/gdbstub64.c
+index 64ee9b3..6d14ced 100644
+--- a/target/arm/gdbstub64.c
++++ b/target/arm/gdbstub64.c
+@@ -44,8 +44,14 @@ int aarch64_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
+     switch (n) {
+     case 31:
+         return gdb_get_reg64(mem_buf, env->xregs[31]);
+-    case 32:
+-        return gdb_get_reg64(mem_buf, env->pc);
++    case 32: {
++        uint64_t pc;
++
++        if (!arm_cpu_read_saved_pc(cs, &pc)) {
++            return 0;
++        }
++        return gdb_get_reg64(mem_buf, pc);
++    }
+     case 33:
+         return gdb_get_reg32(mem_buf, pstate_read(env));
+     }
+diff --git a/target/i386/cpu.c b/target/i386/cpu.c
+index c9bd344..961ac0b 100644
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -9416,6 +9416,7 @@ static void x86_cpu_common_class_init(ObjectClass *oc, const void *data)
+     cc->dump_state = x86_cpu_dump_state;
+     cc->set_pc = x86_cpu_set_pc;
+     cc->get_pc = x86_cpu_get_pc;
++    cc->fastdyn_read_saved_pc = x86_cpu_read_saved_pc;
+     cc->gdb_read_register = x86_cpu_gdb_read_register;
+     cc->gdb_write_register = x86_cpu_gdb_write_register;
+     cc->get_arch_id = x86_cpu_get_arch_id;
+diff --git a/target/i386/cpu.h b/target/i386/cpu.h
+index 1146465..85ab687 100644
+--- a/target/i386/cpu.h
++++ b/target/i386/cpu.h
+@@ -2385,6 +2385,7 @@ bool x86_cpu_get_memory_mapping(CPUState *cpu, MemoryMappingList *list,
+ void x86_cpu_dump_state(CPUState *cs, FILE *f, int flags);
+ 
+ int x86_cpu_gdb_read_register(CPUState *cpu, GByteArray *buf, int reg);
++bool x86_cpu_read_saved_pc(CPUState *cpu, uint64_t *value);
+ int x86_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
+ void x86_cpu_gdb_init(CPUState *cs);
+ 
+diff --git a/target/i386/gdbstub.c b/target/i386/gdbstub.c
+index 04c49e8..c571d06 100644
+--- a/target/i386/gdbstub.c
++++ b/target/i386/gdbstub.c
+@@ -114,6 +114,24 @@ static int gdb_get_reg(CPUX86State *env, GByteArray *mem_buf, target_ulong val)
+     }
+ }
+ 
++static uint64_t x86_gdb_pc_value(CPUX86State *env)
++{
++#ifdef TARGET_X86_64
++    if (!(env->hflags & HF_CS64_MASK)) {
++        return env->eip & 0xffffffffUL;
++    }
++#endif
++    return env->eip;
++}
++
++bool x86_cpu_read_saved_pc(CPUState *cs, uint64_t *value)
++{
++    X86CPU *cpu = X86_CPU(cs);
++
++    *value = x86_gdb_pc_value(&cpu->env);
++    return true;
++}
++
+ int x86_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
+ {
+     X86CPU *cpu = X86_CPU(cs);
+@@ -155,7 +173,7 @@ int x86_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
+     } else {
+         switch (n) {
+         case IDX_IP_REG:
+-            return gdb_get_reg(env, mem_buf, env->eip);
++            return gdb_get_reg(env, mem_buf, x86_gdb_pc_value(env));
+         case IDX_FLAGS_REG:
+             return gdb_get_reg32(mem_buf, env->eflags);
+ 
+diff --git a/target/riscv/cpu.c b/target/riscv/cpu.c
+index 629ac37..4344fc3 100644
+--- a/target/riscv/cpu.c
++++ b/target/riscv/cpu.c
+@@ -2655,6 +2655,7 @@ static void riscv_cpu_common_class_init(ObjectClass *c, const void *data)
+     cc->dump_state = riscv_cpu_dump_state;
+     cc->set_pc = riscv_cpu_set_pc;
+     cc->get_pc = riscv_cpu_get_pc;
++    cc->fastdyn_read_saved_pc = riscv_cpu_read_saved_pc;
+     cc->gdb_read_register = riscv_cpu_gdb_read_register;
+     cc->gdb_write_register = riscv_cpu_gdb_write_register;
+     cc->gdb_stop_before_watchpoint = true;
+diff --git a/target/riscv/cpu.h b/target/riscv/cpu.h
+index 229ade9..ae30b6d 100644
+--- a/target/riscv/cpu.h
++++ b/target/riscv/cpu.h
+@@ -583,6 +583,7 @@ int riscv_cpu_write_elf64_note(WriteCoreDumpFunction f, CPUState *cs,
+ int riscv_cpu_write_elf32_note(WriteCoreDumpFunction f, CPUState *cs,
+                                int cpuid, DumpState *s);
+ int riscv_cpu_gdb_read_register(CPUState *cpu, GByteArray *buf, int reg);
++bool riscv_cpu_read_saved_pc(CPUState *cpu, uint64_t *value);
+ int riscv_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
+ int riscv_cpu_hviprio_index2irq(int index, int *out_irq, int *out_rdzero);
+ uint8_t riscv_cpu_default_priority(int irq);
+diff --git a/target/riscv/gdbstub.c b/target/riscv/gdbstub.c
+index 1934f91..1b0a8bd 100644
+--- a/target/riscv/gdbstub.c
++++ b/target/riscv/gdbstub.c
+@@ -47,6 +47,24 @@ static const struct TypeSize vec_lanes[] = {
+     { "uint8", "bytes", 8, 'b' },
+ };
+ 
++bool riscv_cpu_read_saved_pc(CPUState *cs, uint64_t *value)
++{
++    RISCVCPUClass *mcc = RISCV_CPU_GET_CLASS(cs);
++    RISCVCPU *cpu = RISCV_CPU(cs);
++
++    switch (mcc->def->misa_mxl_max) {
++    case MXL_RV32:
++        *value = (uint32_t)cpu->env.pc;
++        return true;
++    case MXL_RV64:
++    case MXL_RV128:
++        *value = (uint64_t)cpu->env.pc;
++        return true;
++    default:
++        return false;
++    }
++}
++
+ int riscv_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
+ {
+     RISCVCPUClass *mcc = RISCV_CPU_GET_CLASS(cs);
+@@ -57,7 +75,12 @@ int riscv_cpu_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
+     if (n < 32) {
+         tmp = env->gpr[n];
+     } else if (n == 32) {
+-        tmp = env->pc;
++        uint64_t pc;
++
++        if (!riscv_cpu_read_saved_pc(cs, &pc)) {
++            return 0;
++        }
++        tmp = pc;
+     } else {
+         return 0;
+     }
