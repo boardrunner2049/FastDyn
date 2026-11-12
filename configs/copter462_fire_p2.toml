@@ -1,6 +1,6 @@
 # P2: VirtualIO.PwmInput -> ESC.AverageUnidirectional -> Motors.DynamicDCEquivalent -> QuadraticBlade + HubReaction -> common Multirotor.
 # Electromechanical drive with inductance, load feedback and coast; parameters are illustrative.
-# Current Rumoca FMI3 build limitations: third_party/courbet_deps/fire_modelica_models/docs/validation.md
+# Current Rumoca FMI3 build limitations: third_party/courbet_deps/ModelicaCPSLibrary/docs/validation.md
 # ==============================================================================
 #                              Memory Configuration
 # ==============================================================================
@@ -83,7 +83,7 @@ model = "ConfiguredQuadP2"
 model_file = "out/fire/quad_p2/ConfiguredQuadP2.mo"
 source_roots = ["out/fire/quad_p2/sources"]
 output = "out/fmi3/ConfiguredQuadP2"
-compose = "third_party/courbet_deps/fire_modelica_models/configs/quad_p2.toml"
+compose = "third_party/courbet_deps/ModelicaCPSLibrary/configs/quad_p2.toml"
 build = true
 release = false
 

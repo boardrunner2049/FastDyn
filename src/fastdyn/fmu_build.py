@@ -43,6 +43,14 @@ REQUIRED_VALUE_REFERENCES = (
     "earth_radius_m",
 )
 
+# Optional rigid-body diagnostics. Older sensor-only FMUs remain supported.
+OPTIONAL_VALUE_REFERENCES = {
+    "truth.p_w": 3,
+    "truth.v_w": 3,
+    "truth.q_wb": 4,
+    "truth.omega_b": 3,
+}
+
 
 class FmuConfigError(RuntimeError):
     pass
@@ -514,6 +522,7 @@ def value_references(build: FmuBuild, *, xml: bytes | None = None) -> dict[str, 
         raise FmuConfigError(f"invalid FMU modelDescription.xml for {build.name}: {exc}") from exc
 
     requested = set(REQUIRED_VALUE_REFERENCES)
+    requested.update(OPTIONAL_VALUE_REFERENCES)
     requested.update((build.parameters or {}).keys())
 
     refs: dict[str, int] = {}
