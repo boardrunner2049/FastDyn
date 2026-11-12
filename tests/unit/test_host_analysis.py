@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+import subprocess
 
 import pytest
 
@@ -49,8 +50,20 @@ def test_run_contexts_share_the_pool_session_without_parsing(tmp_path):
     pool.close()
 
 
-def test_symbols_normalize_only_functions_and_preserve_aliases_and_zero():
-    session = arm_session(FREERTOS_ELF)
+@pytest.fixture
+def symbol_fixture(tmp_path):
+    # The shipped FreeRTOS build has neither an _start alias nor zero-sized
+    # functions. Build an explicit symbol-table fixture for these contracts.
+    obj, elf = tmp_path / "symbols.o", tmp_path / "symbols.elf"
+    subprocess.run(["arm-none-eabi-as", "-mcpu=cortex-m4",
+                    "tests/firmwares/host_symbols.S", "-o", str(obj)], check=True)
+    subprocess.run(["arm-none-eabi-ld", "-Ttext=0x100", "-e", "Reset_Handler",
+                    str(obj), "-o", str(elf)], check=True)
+    return elf
+
+
+def test_symbols_normalize_only_functions_and_preserve_aliases_and_zero(symbol_fixture):
+    session = arm_session(symbol_fixture)
     reset = session.symbols.lookup("Reset_Handler", kind="function")
     assert reset.address & 1
     assert reset.code_address == reset.address & ~1
@@ -60,8 +73,8 @@ def test_symbols_normalize_only_functions_and_preserve_aliases_and_zero():
     assert variable.address == variable.code_address == 0
 
 
-def test_inferred_function_ranges_stay_in_their_section():
-    session = arm_session(FREERTOS_ELF)
+def test_inferred_function_ranges_stay_in_their_section(symbol_fixture):
+    session = arm_session(symbol_fixture)
     inferred = [item for item in session.symbols.function_ranges()
                 if item.range_provenance == "inferred"]
     assert inferred

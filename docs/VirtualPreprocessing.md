@@ -201,6 +201,10 @@ and before translation. Guarded load replacement is likewise available
 through the typed `virtual_register_mmio_replacement()` SDK operation; modules
 do not call the QEMU extension directly.
 
+MMIO replacements registered through the SDK carry a live observer-disable
+flag. Registration of an MMIO observer after binding or translation immediately
+restores ordinary device dispatch for those sites; existing TBs need no flush.
+
 ## RTOS introspection
 
 RTOS introspection is the first run-wide implementation of this SDK. When its

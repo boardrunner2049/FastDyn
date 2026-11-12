@@ -116,9 +116,12 @@ void virtual_register_irq_hook(const VirtualContext *ctx,
                                        VirtualIrqCallback exit);
 /* Call `observer` for every MMIO access, handled or not, after the device
  * model ran; observers run in registration order on the vCPU thread.
- * Returns 0, or -1 if too many observers are registered. */
+ * Returns 0, or -1 if too many observers are registered. Register during init
+ * or from serialized vCPU hooks. Later registration disables replacements in
+ * already translated TBs through a live guard. */
 int virtual_register_mmio_observer(const VirtualContext *ctx,
                                    VirtualMmioObserver observer);
+bool virtual_mmio_observers_active(void);
 void virtual_register_tb_translation_hook(
     const VirtualContext *ctx, VirtualTbTranslationHook callback);
 bool virtual_register_rule(const VirtualContext *ctx,

@@ -423,6 +423,7 @@ def _generate_mmio_metadata(model: Model, out_dir: Path,
              "selector_state_offset": op.selector_offset,
              "selector_width": op.selector_width,
              "selector_value": op.selector_value,
+             "predicates": list(op.predicates),
              "expression": list(op.expression)}
             for op in analysis.operations
         ],

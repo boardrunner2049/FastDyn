@@ -32,6 +32,10 @@ sudo apt-get install -y \
 `libstlink-dev` and `libusb-1.0-0-dev` are for libhw only. Rust (`cargo`) is
 needed only for Rumoca, OptiFuzz and the libFuzz fuzzer library.
 
+Automatic MMIO model extraction additionally uses `clang-18` and `llvm-18`
+(including libLLVM's C API for host layout). Its integration tests use
+`binutils-arm-none-eabi`. These packages are installed by CI and the Dockerfile.
+
 ## setup.sh
 
 `source ./setup.sh [OPTIONS]` creates the virtual environment `fastdyn-env/`
