@@ -1,0 +1,26 @@
+schema_version = 1
+firmware = "betaflight"
+elf = "bin/betaflight_MATEKF405.elf"
+labeled_conf = "labeled_conf"
+output_dir = "unlabeled_conf"
+
+[validation]
+elf_sha256 = "0a9e9b368a0ac625a6b48fd01721bdbcc6b3942a8da8202946b50913201de870"
+
+[validation.symbol_addresses]
+__config_start = 0x8004000
+isr_vector_table_flash_base = 0x8000000
+isr_vector_table_base = 0x20000000
+_estack = 0x1000fff0
+
+[[validation.instructions]]
+at = "isr_vector_table_base"
+bytes = "f0ff0010ed8f0008"
+
+[[validation.instructions]]
+at = "run"
+bytes = "08b5"
+
+[[validation.instructions]]
+at = "run+2"
+bytes = "15f0d3f8"
