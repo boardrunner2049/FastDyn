@@ -97,6 +97,26 @@ bool elder_resolve_mmio_operation(uint64_t address,
             ok = false;
             break;
         }
+        if (!op->predicate_count || op->predicate_count > FASTDYN_MMIO_PREDICATE_MAX) {
+            continue;
+        }
+        for (uint32_t j = 0; ok && j < op->predicate_count; j++) {
+            const FdMmioPredicate *p = &op->predicates[j];
+            uint64_t value = p->value;
+            if (p->selector_kind == FD_MMIO_SELECTOR_ADDRESS_EQ_STATE ||
+                p->selector_kind == FD_MMIO_SELECTOR_ADDRESS_REL_STATE) {
+                value = elder_state_uint(d->opaque, d->mmio->state_size,
+                                         p->state_offset, p->width, &ok);
+                if (p->selector_kind == FD_MMIO_SELECTOR_ADDRESS_REL_STATE) {
+                    value += p->value;
+                }
+            } else if (p->selector_kind != FD_MMIO_SELECTOR_ADDRESS_EQ_CONSTANT) {
+                ok = false;
+            }
+            if ((address == value) != (bool)p->equal) {
+                ok = false;
+            }
+        }
         if (ok && selected == address) {
             *resolved = (FdResolvedMmioOperation) {
                 .device_name = d->config->name,

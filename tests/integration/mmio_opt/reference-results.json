@@ -1,24 +1,127 @@
 {
-  "environment": {
-    "qemu_commit": "99b54836ded8dc3271eba52deee7453efc0a13b9",
-    "workload": "tests/integration/mmio_opt/firmware.S"
+  "cases": {
+    "alignment": {
+      "baseline_execution_seconds": 0.03923780913464725,
+      "declined": 1,
+      "fallback": 0,
+      "fast": 0,
+      "firmware_discovery_plan_seconds": 0.0033310181461274624,
+      "installed": 0,
+      "observation_policy": {
+        "baseline_io_log": "all ordinary accesses",
+        "observer": "none",
+        "optimized_io_log": "ordinary accesses only; substituted reads omit log entries",
+        "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
+      },
+      "observer_counts": {},
+      "optimized_execution_seconds": 0.03755707503296435
+    },
+    "echo": {
+      "baseline_execution_seconds": 1.1444572689943016,
+      "declined": 2,
+      "fallback": 2,
+      "fast": 1000010,
+      "firmware_discovery_plan_seconds": 0.03187111206352711,
+      "installed": 10,
+      "observation_policy": {
+        "baseline_io_log": "all ordinary accesses",
+        "observer": "none",
+        "optimized_io_log": "ordinary accesses only; substituted reads omit log entries",
+        "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
+      },
+      "observer_counts": {},
+      "optimized_execution_seconds": 0.13539316807873547
+    },
+    "late-observer": {
+      "baseline_execution_seconds": 1.0358597990125418,
+      "declined": 2,
+      "fallback": 1000012,
+      "fast": 0,
+      "firmware_discovery_plan_seconds": 0.031437073135748506,
+      "installed": 10,
+      "observation_policy": {
+        "baseline_io_log": "all ordinary accesses",
+        "observer": "late",
+        "optimized_io_log": "ordinary accesses only; substituted reads omit log entries",
+        "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
+      },
+      "observer_counts": {
+        "baseline": {
+          "reads_handled": 1000012,
+          "reads_unhandled": 0,
+          "writes_handled": 1,
+          "writes_unhandled": 4
+        },
+        "optimized": {
+          "reads_handled": 1000012,
+          "reads_unhandled": 0,
+          "writes_handled": 1,
+          "writes_unhandled": 4
+        }
+      },
+      "optimized_execution_seconds": 1.05151447490789
+    },
+    "observer": {
+      "baseline_execution_seconds": 1.0692825259175152,
+      "declined": 12,
+      "fallback": 0,
+      "fast": 0,
+      "firmware_discovery_plan_seconds": 0.031166015192866325,
+      "installed": 0,
+      "observation_policy": {
+        "baseline_io_log": "all ordinary accesses",
+        "observer": "normal",
+        "optimized_io_log": "ordinary accesses only; substituted reads omit log entries",
+        "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
+      },
+      "observer_counts": {
+        "baseline": {
+          "reads_handled": 1000012,
+          "reads_unhandled": 0,
+          "writes_handled": 1,
+          "writes_unhandled": 4
+        },
+        "optimized": {
+          "reads_handled": 1000012,
+          "reads_unhandled": 0,
+          "writes_handled": 1,
+          "writes_unhandled": 4
+        }
+      },
+      "optimized_execution_seconds": 0.9923991491086781
+    },
+    "predicates": {
+      "baseline_execution_seconds": 0.03700549295172095,
+      "declined": 1,
+      "fallback": 0,
+      "fast": 2,
+      "firmware_discovery_plan_seconds": 0.0024026951286941767,
+      "installed": 2,
+      "observation_policy": {
+        "baseline_io_log": "all ordinary accesses",
+        "observer": "none",
+        "optimized_io_log": "ordinary accesses only; substituted reads omit log entries",
+        "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
+      },
+      "observer_counts": {},
+      "optimized_execution_seconds": 0.0404444239102304
+    },
+    "safety": {
+      "baseline_execution_seconds": 0.040511221159249544,
+      "declined": 7,
+      "fallback": 0,
+      "fast": 5,
+      "firmware_discovery_plan_seconds": 0.005785546964034438,
+      "installed": 5,
+      "observation_policy": {
+        "baseline_io_log": "all ordinary accesses",
+        "observer": "none",
+        "optimized_io_log": "ordinary accesses only; substituted reads omit log entries",
+        "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
+      },
+      "observer_counts": {},
+      "optimized_execution_seconds": 0.039650312857702374
+    }
   },
-  "model_analysis": {
-    "declined_paths": 1,
-    "operation_count": 4,
-    "source": "tests/models/elder_echo.c",
-    "state_size": 32
-  },
-  "installation": {
-    "discovered_sites": 12,
-    "installed_sites": 10,
-    "declined_sites": 2,
-    "fast_executions": 1000010,
-    "guard_or_mpu_fallbacks": 3
-  },
-  "performance_seconds": {
-    "baseline_execution": 1.0822069479618222,
-    "optimized_execution": 0.04190325806848705,
-    "preparation": 0.032120933989062905
-  }
+  "model_compilation_seconds": 0.49569373996928334
 }

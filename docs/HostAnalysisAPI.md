@@ -121,6 +121,11 @@ All public failures derive from `HostAnalysisError`: `ImageAddressError`,
 ELF/Capstone dependencies. It does not import GDB, Gazebo, plotting, FMI, FIRE,
 or `world` packages.
 
+`fastdyn.host.llvm_layout.gep_offsets()` is a separate, lazy host-model service.
+It uses libLLVM to parse constant GEP indices and obtain byte offsets from the
+module data layout. It returns unknown offsets when a proof is unavailable.
+Only callers of this service need libLLVM; firmware sessions do not load it.
+
 Plugin examples in the repository include Function Counter using
 `ctx.analysis.symbols`, VariableWatch using fixed DWARF member paths and shared
 function ranges, ObjectSan using decoded instructions while retaining its own

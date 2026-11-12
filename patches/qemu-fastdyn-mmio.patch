@@ -182,10 +182,10 @@ index 0000000..6b3510d
 +#endif
 diff --git a/include/qemu/fastdyn-mmio.h b/include/qemu/fastdyn-mmio.h
 new file mode 100644
-index 0000000..413e133
+index 0000000..9a2dcad
 --- /dev/null
 +++ b/include/qemu/fastdyn-mmio.h
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,52 @@
 +/* Typed ABI for FastDyn's guarded Cortex-M MMIO read replacements. */
 +#ifndef QEMU_FASTDYN_MMIO_H
 +#define QEMU_FASTDYN_MMIO_H
@@ -233,6 +233,8 @@ index 0000000..413e133
 +    const FastDynMmioExprInsn *expr;
 +    uint64_t *fast_count;
 +    uint64_t *fallback_count;
++    /* Live disable flag. Checked by generated code, including existing TBs. */
++    const int *disabled;
 +} FastDynMmioReplacement;
 +
 +#endif
@@ -260,7 +262,7 @@ index 6e06335..df0d5b8 100644
   * qemu_plugin_set_budget_exact_stop() - halt exactly on the budget deadline
   * @exact: true to stop the guest precisely on its deadline
 diff --git a/target/arm/tcg/translate.c b/target/arm/tcg/translate.c
-index 6158638..a9c4026 100644
+index 6158638..33b24f2 100644
 --- a/target/arm/tcg/translate.c
 +++ b/target/arm/tcg/translate.c
 @@ -29,6 +29,7 @@
@@ -271,7 +273,7 @@ index 6158638..a9c4026 100644
  #include "tcg/tcg.h"
  #include "tcg/tcg-temp-internal.h"
  
-@@ -1210,10 +1211,161 @@ void gen_aa32_st_internal_i64(DisasContext *s, TCGv_i64 val,
+@@ -1210,10 +1211,178 @@ void gen_aa32_st_internal_i64(DisasContext *s, TCGv_i64 val,
      }
  }
  
@@ -375,7 +377,8 @@ index 6158638..a9c4026 100644
 +    size_t cursor = 0, count = 0, i;
 +
 +    if (!s->thumb || !arm_dc_feature(s, ARM_FEATURE_M) ||
-+        (opc & (MO_SIGN | MO_BSWAP)) || transfer_size > 4) {
++        (opc & (MO_SIGN | MO_BSWAP)) || transfer_size > 4 ||
++        (opc & MO_AMASK) != MO_UNALN) {
 +        return false;
 +    }
 +    while (count < ARRAY_SIZE(matches) &&
@@ -389,6 +392,14 @@ index 6158638..a9c4026 100644
 +
 +    slow = gen_new_label();
 +    done = gen_new_label();
++
++    /* Never bypass architectural unaligned-access behavior. The original
++     * load below retains its finalized MemOp flags and exception semantics. */
++    if (transfer_size > 1) {
++        TCGv_i32 misaligned = tcg_temp_new_i32();
++        tcg_gen_andi_i32(misaligned, a32, transfer_size - 1);
++        tcg_gen_brcondi_i32(TCG_COND_NE, misaligned, 0, slow);
++    }
 +
 +    /* An MPU enabled after translation immediately restores protected access. */
 +    mpu = tcg_temp_new_i32();
@@ -410,6 +421,12 @@ index 6158638..a9c4026 100644
 +        TCGLabel *next = gen_new_label();
 +
 +        tcg_gen_brcondi_i32(TCG_COND_NE, a32, r->expected_address, next);
++        if (r->disabled) {
++            TCGv_i32 disabled = tcg_temp_new_i32();
++            TCGv_ptr flag = tcg_constant_ptr((intptr_t)r->disabled);
++            tcg_gen_ld_i32(disabled, flag, 0);
++            tcg_gen_brcondi_i32(TCG_COND_NE, disabled, 0, slow);
++        }
 +        fastdyn_mmio_emit_expr(val, r);
 +        fastdyn_mmio_counter_inc(r->fast_count);
 +        tcg_gen_br(done);
@@ -417,8 +434,10 @@ index 6158638..a9c4026 100644
 +    }
 +
 +    gen_set_label(slow);
-+    fastdyn_mmio_counter_inc(matches[0]->replacement.fallback_count);
 +    gen_aa32_ld_internal_i32(s, val, a32, index, opc);
++    /* MMIO may retry the instruction with can_do_io set. Count completion,
++     * not translation/retry attempts, and never count a fault as a read. */
++    fastdyn_mmio_counter_inc(matches[0]->replacement.fallback_count);
 +    gen_set_label(done);
 +    return true;
 +}

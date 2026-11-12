@@ -120,8 +120,19 @@ static int bind_replacements(const VirtualContext *ctx)
         FastDynMmioExprInsn expression[FASTDYN_MMIO_EXPR_MAX];
         FastDynMmioReplacement replacement;
 
+        if (virtual_mmio_observers_active()) {
+            site->reason = "MMIO observer requires ordinary device dispatch";
+            continue;
+        }
+
         if (strcmp(site->direction, "read")) {
             site->reason = "write or unknown direction";
+            continue;
+        }
+        if ((site->transfer_size != 1 && site->transfer_size != 2 &&
+             site->transfer_size != 4) ||
+            (site->address & (site->transfer_size - 1))) {
+            site->reason = "unsupported width or unaligned predicted address";
             continue;
         }
         if (!elder_resolve_mmio_operation(site->address, &resolved)) {

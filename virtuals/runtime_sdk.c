@@ -228,6 +228,10 @@ void virtual_register_irq_hook(const VirtualContext *ctx,
 static VirtualMmioObserver mmio_observers[VIRTUAL_MAX_MMIO_OBSERVERS];
 int virtual_mmio_observer_count;
 
+bool virtual_mmio_observers_active(void) {
+    return virtual_mmio_observer_count != 0;
+}
+
 int virtual_register_mmio_observer(const VirtualContext *ctx,
                                    VirtualMmioObserver observer) {
     if (!observer) {
@@ -291,7 +295,11 @@ bool virtual_insert_before(const VirtualContext *ctx, uint64_t guest_pc,
 bool virtual_register_mmio_replacement(
     const VirtualContext *ctx, const FastDynMmioReplacement *replacement,
     uint64_t *out_hook_id) {
-    bool ok = qemu_plugin_register_fastdyn_mmio_replacement(replacement,
+    FastDynMmioReplacement guarded;
+    if (!replacement) return false;
+    guarded = *replacement;
+    guarded.disabled = &virtual_mmio_observer_count;
+    bool ok = qemu_plugin_register_fastdyn_mmio_replacement(&guarded,
                                                              out_hook_id);
     if (!ok) {
         virtual_log(ctx, VIRTUAL_LOG_ERROR,

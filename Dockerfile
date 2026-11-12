@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential pkg-config cmake ninja-build flex bison git ca-certificates \
         curl wget lsb-release gnupg \
         python3 python3-venv python3-pip \
+        clang-18 llvm-18 binutils-arm-none-eabi \
         libglib2.0-dev libcjson-dev libpixman-1-dev libfdt-dev \
         libstlink-dev libusb-1.0-0-dev \
         rapidjson-dev libopencv-dev nlohmann-json3-dev \

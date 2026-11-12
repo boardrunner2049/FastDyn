@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
-import shlex
 import shutil
 import subprocess
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Optional, Sequence
+
+from .host.llvm_layout import LlvmLayoutError, gep_offsets
 
 
 class MmioModelError(RuntimeError):
@@ -25,6 +26,7 @@ class Operation:
     selector_width: int
     selector_value: int
     expression: tuple[tuple[str, int, int], ...]
+    predicates: tuple[tuple[str, int, int, int, bool], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -56,7 +58,7 @@ def resolve_clang() -> str:
 def compile_ir(source: Path, *, cflags: Sequence[str], include_flags: Sequence[str],
                clang: Optional[str] = None) -> str:
     compiler = clang or resolve_clang()
-    command = [compiler, "-O1", "-S", "-emit-llvm", "-fno-discard-value-names",
+    command = [compiler, "-fPIC", "-O1", "-S", "-emit-llvm", "-fno-discard-value-names",
                *cflags, *include_flags, str(source.resolve()), "-o", "-"]
     proc = subprocess.run(command, capture_output=True, text=True)
     if proc.returncode:
@@ -71,11 +73,17 @@ def analyze_ir(ir: str) -> Analysis:
     if read_name not in functions:
         raise MmioModelError("fastdyn_model.read could not be resolved in LLVM IR")
     state_size = _allocation_size(functions.get(init_name))
-    if state_size <= 0:
+    if state_size <= 0 or state_size > 0xFFFFFFFF:
         raise MmioModelError("could not prove the size of the model state allocation")
-    tbaa = _tbaa_offsets(ir)
-    mutable_offsets = _mutable_state_offsets(functions, init_name, tbaa)
-    paths = _execute(functions[read_name], tbaa)
+    try:
+        offsets = gep_offsets(ir)
+    except LlvmLayoutError as exc:
+        raise MmioModelError(str(exc)) from exc
+    mutable_offsets = _mutable_state_offsets(functions, init_name, offsets, state_size)
+    lifetime_safe = _state_lifetime_safe(functions, init_name, offsets)
+    if not lifetime_safe:
+        mutable_offsets = {-1}  # unknown writes, without materializing every byte
+    paths = _execute(functions[read_name], offsets, state_size)
 
     operations: list[Operation] = []
     declined = 0
@@ -83,12 +91,15 @@ def analyze_ir(ir: str) -> Analysis:
         if effectful or result is None:
             declined += 1
             continue
-        selector = _selector(conditions, mutable_offsets)
+        selectors = _selectors(conditions, mutable_offsets, state_size)
         postfix = _postfix(result, state_size)
-        if selector is None or postfix is None or len(postfix) > 16:
+        if not lifetime_safe and postfix and any("LOAD" in op[0] for op in postfix):
+            postfix = None
+        if selectors is None or postfix is None or len(postfix) > 16:
             declined += 1
             continue
-        operations.append(Operation(*selector, tuple(postfix)))
+        selector, predicates = selectors
+        operations.append(Operation(*selector, tuple(postfix), tuple(predicates)))
     operations = list(dict.fromkeys(operations))
     if not operations:
         raise MmioModelError("analysis found no pure, bounded MMIO read operations")
@@ -119,6 +130,11 @@ def generated_c(analysis: Analysis) -> str:
         ])
         for opcode, offset, value in op.expression:
             lines.append(f"            {{ .opcode = {opcode}, .state_offset = {offset}, .value = UINT64_C({value & ((1 << 64) - 1)}) }},")
+        lines.extend(["        },", f"        .predicate_count = {len(op.predicates)},",
+                      "        .predicates = {"])
+        for kind, offset, width, value, truth in op.predicates:
+            lines.append(f"            {{ .selector_kind = {kind}, .state_offset = {offset}, "
+                         f".width = {width}, .value = {value}, .equal = {int(truth)} }},")
         lines.extend(["        },", "    },"])
     lines.extend([
         "};", "",
@@ -156,7 +172,8 @@ def _parse_functions(ir: str) -> dict[str, _Function]:
             i += 1
             continue
         name = header.group(1)
-        args = re.findall(_VAR, header.group(2))
+        args = [re.findall(_VAR, item)[-1] for item in header.group(2).split(",")
+                if re.findall(_VAR, item)]
         i += 1
         body: list[str] = []
         while i < len(lines) and lines[i].strip() != "}":
@@ -187,51 +204,129 @@ def _parse_functions(ir: str) -> dict[str, _Function]:
     return functions
 
 
-def _tbaa_offsets(ir: str) -> dict[str, int]:
-    offsets: dict[str, int] = {}
-    for line in ir.splitlines():
-        match = re.match(r"(!\d+)\s*=\s*!\{.*i64\s+(-?\d+)\s*\}\s*$", line)
-        if match:
-            offsets[match.group(1)] = int(match.group(2))
-    return offsets
-
-
 def _allocation_size(init: Optional[_Function]) -> int:
     if init is None:
         return 0
     text = "\n".join(line for block in init.blocks.values() for line in block)
-    sizes = [int(x) for x in re.findall(r"dereferenceable_or_null\((\d+)\)", text)]
-    for a, b in re.findall(r"@calloc\(i64(?:\s+\w+)*\s+(\d+),\s+i64(?:\s+\w+)*\s+(\d+)\)", text):
-        sizes.append(int(a) * int(b))
-    for value in re.findall(r"@malloc\(i64(?:\s+\w+)*\s+(\d+)\)", text):
-        sizes.append(int(value))
-    return max(sizes, default=0)
+    allocations = {}
+    for line in text.splitlines():
+        assigned = re.match(rf"({_VAR})\s*=.*?@(?:calloc|malloc)\(", line)
+        if not assigned:
+            continue
+        calloc = re.search(r"@calloc\(i64(?:\s+\w+)*\s+(\d+),\s+i64(?:\s+\w+)*\s+(\d+)\)", line)
+        malloc = re.search(r"@malloc\(i64(?:\s+\w+)*\s+(\d+)\)", line)
+        if calloc:
+            allocations[assigned[1]] = int(calloc[1]) * int(calloc[2])
+        elif malloc:
+            allocations[assigned[1]] = int(malloc[1])
+    if len(allocations) != 1:
+        return 0
+    # Prove every non-null return is the allocation base, including phi merges.
+    safe = set(allocations) | {"null"}
+    changed = True
+    while changed:
+        changed = False
+        for dst, choices in re.findall(rf"({_VAR})\s*=\s*phi\s+ptr\s+([^\n]+)", text):
+            values = re.findall(r"\[\s*([^,]+),", choices)
+            if values and all(value.strip() in safe for value in values) and dst not in safe:
+                safe.add(dst)
+                changed = True
+    returns = re.findall(r"ret ptr\s+([^\s,]+)", text)
+    return next(iter(allocations.values())) if returns and all(v in safe for v in returns) else 0
 
 
-def _pointer_provenance(fn: _Function) -> set[str]:
-    state = {fn.args[0]} if fn.args else set()
+def _pointer_provenance(fn: _Function, offsets) -> dict[str, int | None]:
+    state = {fn.args[0]: 0} if fn.args else {}
     changed = True
     while changed:
         changed = False
         for line in (line for block in fn.blocks.values() for line in block):
-            match = re.match(rf"({_VAR})\s*=\s*(?:getelementptr|bitcast)\b.*?ptr\s+({_VAR})", line)
-            if match and match.group(2) in state and match.group(1) not in state:
-                state.add(match.group(1)); changed = True
+            match = re.match(rf"({_VAR})\s*=\s*getelementptr\b", line)
+            if match and match.group(1) not in state:
+                base, delta = offsets.get((fn.name, match.group(1)), ("", None))
+                if base in state:
+                    state[match.group(1)] = (state[base] + delta
+                                            if state[base] is not None and delta is not None
+                                            else None)
+                    changed = True
     return state
 
 
 def _mutable_state_offsets(functions: dict[str, _Function], init_name: str,
-                           tbaa: dict[str, int]) -> set[int]:
+                           offsets, state_size: int) -> set[int]:
     mutable: set[int] = set()
     for name, fn in functions.items():
         if name == init_name:
+            # Publishing a state pointer during initialization defeats the
+            # closed-world immutability/lifetime proof.
+            if any(re.search(r"\bstore\s+(?:(?:volatile|atomic)\s+)?ptr\b", line)
+                   for block in fn.blocks.values() for line in block):
+                return {-1}
             continue
-        pointers = _pointer_provenance(fn)
+        pointers = _pointer_provenance(fn, offsets)
         for line in (line for block in fn.blocks.values() for line in block):
-            match = re.search(rf"\bstore\b.*?,\s*ptr\s+({_VAR}).*?!tbaa\s+(!\d+)", line)
-            if match and match.group(1) in pointers and match.group(2) in tbaa:
-                mutable.add(tbaa[match.group(2)])
+            # A helper/indirect call or escaped pointer can modify any byte.
+            # Interprocedural alias proof is deliberately outside this subset.
+            if re.search(r"\b(call|invoke|atomicrmw|cmpxchg)\b", line):
+                return {-1}
+            if line.startswith("store "):
+                match = re.match(rf"store\s+i(\d+)\s+[^,]+,\s*ptr\s+({_VAR})", line)
+                if not match or pointers.get(match.group(2)) is None:
+                    return {-1}
+                offset = pointers[match.group(2)]
+                end = offset + (int(match.group(1)) + 7) // 8
+                if not 0 <= offset <= end <= state_size:
+                    return {-1}
+                mutable.update(range(offset, end))
     return mutable
+
+
+def _state_lifetime_safe(functions, init_name, offsets):
+    """Closed model: calls to defined helpers are allowed only for lifetime.
+
+    They still invalidate selector immutability. Unknown calls, pointer stores,
+    and pointer returns can publish/free state and forbid live state loads.
+    """
+    for name, fn in functions.items():
+        allocation_pointers = set()
+        if name == init_name:
+            for line in (line for block in fn.blocks.values() for line in block):
+                match = re.match(rf"({_VAR})\s*=.*?@(?:calloc|malloc)\(", line)
+                if match:
+                    allocation_pointers.add(match[1])
+            changed = True
+            while changed:
+                changed = False
+                for line in (line for block in fn.blocks.values() for line in block):
+                    assigned = re.match(rf"({_VAR})\s*=\s*(.*)", line)
+                    if assigned and assigned[1] not in allocation_pointers and \
+                            allocation_pointers & set(re.findall(_VAR, assigned[2])):
+                        # Also cover phi/select/bitcast/ptrtoint aliases. This
+                        # intentionally over-taints scalar values read from
+                        # state rather than losing a potential escape.
+                        allocation_pointers.add(assigned[1])
+                        changed = True
+        for line in (line for block in fn.blocks.values() for line in block):
+            if re.search(r"\bstore\s+(?:(?:volatile|atomic)\s+)?ptr\b", line):
+                return False
+            if name == init_name:
+                if line.startswith("store "):
+                    value, _, destination = line.partition(", ptr")
+                    if allocation_pointers & set(re.findall(_VAR, value)) and \
+                            not allocation_pointers & set(re.findall(_VAR, destination)):
+                        return False
+                if re.search(r"\b(call|invoke)\b", line):
+                    arguments = line[line.find("("):]
+                    if allocation_pointers & set(re.findall(_VAR, arguments)):
+                        return False
+                continue
+            if line.startswith("ret ptr"):
+                return False
+            if re.search(r"\b(call|invoke)\b", line):
+                target = re.search(r"@([-A-Za-z$._0-9]+)\(", line)
+                if not target or target[1] not in functions:
+                    return False
+    return True
 
 
 def _value(token: str, env: dict[str, Expr], bits: int = 64) -> Optional[Expr]:
@@ -246,10 +341,10 @@ def _value(token: str, env: dict[str, Expr], bits: int = 64) -> Optional[Expr]:
     return ("const", number & ((1 << bits) - 1), bits)
 
 
-def _execute(fn: _Function, tbaa: dict[str, int]):
+def _execute(fn: _Function, offsets, state_size: int):
     if len(fn.args) < 2:
         return []
-    initial: dict[str, Expr] = {fn.args[0]: ("state",), fn.args[1]: ("addr",)}
+    initial: dict[str, Expr] = {fn.args[0]: ("ptr", 0), fn.args[1]: ("addr",)}
     if len(fn.args) > 2:
         initial[fn.args[2]] = ("size",)
     if len(fn.args) > 3:
@@ -261,42 +356,44 @@ def _execute(fn: _Function, tbaa: dict[str, int]):
         if block in visited or block not in fn.blocks:
             returns.append((conditions, None, True)); continue
         env = dict(incoming)
-        pointer_vars = {key for key, value in env.items() if value and value[0] in ("state", "ptr")}
         terminated = False
         for line in fn.blocks[block]:
-            phi = re.match(rf"({_VAR})\s*=\s*phi\s+i\d+\s+(.+)", line)
+            phi = re.match(rf"({_VAR})\s*=\s*phi\s+i(\d+)\s+(.+)", line)
             if phi:
                 chosen = None
-                for value, label in re.findall(rf"\[\s*([^,]+),\s*%([-A-Za-z$._0-9]+)\s*\]", phi.group(2)):
+                for value, label in re.findall(rf"\[\s*([^,]+),\s*%([-A-Za-z$._0-9]+)\s*\]", phi.group(3)):
                     if label == pred:
-                        chosen = _value(value, env); break
+                        chosen = _value(value, env, int(phi[2])); break
                 env[phi.group(1)] = chosen or ("unknown",)
                 continue
-            gep = re.match(rf"({_VAR})\s*=\s*(?:getelementptr|bitcast)\b.*?ptr\s+({_VAR})", line)
+            gep = re.match(rf"({_VAR})\s*=\s*getelementptr\b", line)
             if gep:
-                if gep.group(2) in pointer_vars:
-                    pointer_vars.add(gep.group(1)); env[gep.group(1)] = ("ptr",)
+                base, delta = offsets.get((fn.name, gep.group(1)), ("", None))
+                pointer = env.get(base)
+                env[gep.group(1)] = (("ptr", pointer[1] + delta)
+                                    if pointer and pointer[0] == "ptr" and delta is not None
+                                    else ("unknown",))
                 continue
             load = re.match(rf"({_VAR})\s*=\s*load\s+i(8|16|32|64),\s*ptr\s+({_VAR}).*?(?:!tbaa\s+(!\d+))?$", line)
             if load:
-                tag_match = re.search(r"!tbaa\s+(!\d+)", line)
-                tag = tag_match.group(1) if tag_match else ""
-                if load.group(3) in pointer_vars and tag in tbaa:
-                    env[load.group(1)] = ("load", tbaa[tag], int(load.group(2)))
-                elif load.group(3) == fn.args[0]:
-                    env[load.group(1)] = ("load", 0, int(load.group(2)))
+                pointer = env.get(load.group(3))
+                bits = int(load.group(2))
+                if pointer and pointer[0] == "ptr" and 0 <= pointer[1] <= state_size - bits // 8:
+                    env[load.group(1)] = ("load", pointer[1], bits)
                 else:
                     env[load.group(1)] = ("unknown",)
+                    effectful = True  # even an unused invalid/unknown load is unsafe
                 continue
             binary = re.match(rf"({_VAR})\s*=\s*(add|sub|and|or|xor|shl|lshr)\s+i(\d+)\s+([^,]+),\s*(.+)", line)
             if binary:
                 lhs, rhs = _value(binary.group(4), env, int(binary.group(3))), _value(binary.group(5), env, int(binary.group(3)))
-                env[binary.group(1)] = (binary.group(2), lhs, rhs) if lhs and rhs else ("unknown",)
+                env[binary.group(1)] = (binary.group(2), lhs, rhs, int(binary.group(3))) if lhs and rhs else ("unknown",)
                 continue
-            cast = re.match(rf"({_VAR})\s*=\s*(zext|trunc)\s+i\d+\s+(.+?)\s+to\s+i(\d+)", line)
+            cast = re.match(rf"({_VAR})\s*=\s*(zext|trunc)\s+i(\d+)\s+(.+?)\s+to\s+i(\d+)", line)
             if cast:
-                value = _value(cast.group(3), env, int(cast.group(4)))
-                env[cast.group(1)] = (cast.group(2), value, int(cast.group(4))) if value else ("unknown",)
+                value = _value(cast[4], env, int(cast[3]))
+                width = int(cast[3] if cast[2] == "zext" else cast[5])
+                env[cast[1]] = (cast[2], value, width) if value else ("unknown",)
                 continue
             cmp_ = re.match(rf"({_VAR})\s*=\s*icmp\s+(eq|ne|ult|ule|ugt|uge|slt|sle|sgt|sge)\s+i(\d+)\s+([^,]+),\s*(.+)", line)
             if cmp_:
@@ -334,18 +431,15 @@ def _execute(fn: _Function, tbaa: dict[str, int]):
                     cond = ("cmp", "eq", selector, ("const", int(value), 64))
                     work.append((target, block, env, conditions + [(cond, True)], effectful, seen))
                 terminated = True; break
+            # Closed admission list: stores, volatile/atomic loads, fences,
+            # inline asm, and every unsupported instruction poison this path.
+            effectful = True
         if not terminated:
             returns.append((conditions, None, True))
     return returns
 
 
-def _strip_cast(expr: Optional[Expr]) -> Optional[Expr]:
-    while expr and expr[0] in ("zext", "trunc"):
-        expr = expr[1]
-    return expr
-
-
-def _selector(conditions, mutable_offsets: set[int]):
+def _selectors(conditions, mutable_offsets: set[int], state_size: int):
     def depends(expr, name: str) -> bool:
         if not isinstance(expr, tuple):
             return False
@@ -358,35 +452,51 @@ def _selector(conditions, mutable_offsets: set[int]):
     # must therefore be an address-selection predicate; accepting a branch on
     # live state here would freeze one arm of the model's behavior.
     for condition, _truth in conditions:
-        normalized = _strip_cast(condition)
+        normalized = condition
         if not normalized or normalized[0:2] != ("cmp", "eq") or \
            not depends(normalized, "addr"):
             return None
-    for condition, truth in reversed(conditions):
-        condition = _strip_cast(condition)
-        if not truth or not condition or condition[0] != "cmp" or condition[1] != "eq":
-            continue
-        lhs, rhs = _strip_cast(condition[2]), _strip_cast(condition[3])
+    predicates = []
+    primary = None
+    for condition, truth in conditions:
+        selector = None
+        lhs, rhs = condition[2], condition[3]
         if lhs and rhs and lhs[0] == "const":
             lhs, rhs = rhs, lhs
-        if lhs == ("addr",) and rhs and rhs[0] == "load" and rhs[1] not in mutable_offsets:
-            return ("FD_MMIO_SELECTOR_ADDRESS_EQ_STATE", rhs[1], rhs[2] // 8, 0)
-        if rhs == ("addr",) and lhs and lhs[0] == "load" and lhs[1] not in mutable_offsets:
-            return ("FD_MMIO_SELECTOR_ADDRESS_EQ_STATE", lhs[1], lhs[2] // 8, 0)
-        if lhs and lhs[0] == "sub" and _strip_cast(lhs[1]) == ("addr",):
-            base = _strip_cast(lhs[2])
-            if base and base[0] == "load" and base[1] not in mutable_offsets and rhs and rhs[0] == "const":
-                return ("FD_MMIO_SELECTOR_ADDRESS_REL_STATE", base[1], base[2] // 8, rhs[1])
+        if rhs == ("addr",):
+            lhs, rhs = rhs, lhs
+        def immutable(load):
+            return (load and load[0] == "load" and load[2] == 64
+                    and -1 not in mutable_offsets
+                    and 0 <= load[1] <= state_size - 8
+                    and not (set(range(load[1], load[1] + 8)) & mutable_offsets))
+        if lhs == ("addr",) and immutable(rhs):
+            selector = ("FD_MMIO_SELECTOR_ADDRESS_EQ_STATE", rhs[1], 8, 0)
+        if lhs and lhs[0] == "sub" and lhs[1] == ("addr",):
+            base = lhs[2]
+            if immutable(base) and rhs and rhs[0] == "const" and lhs[3] == 64:
+                selector = ("FD_MMIO_SELECTOR_ADDRESS_REL_STATE", base[1], 8, rhs[1])
         if lhs == ("addr",) and rhs and rhs[0] == "const":
-            return ("FD_MMIO_SELECTOR_ADDRESS_EQ_CONSTANT", 0, 0, rhs[1])
-    return None
+            selector = ("FD_MMIO_SELECTOR_ADDRESS_EQ_CONSTANT", 0, 0, rhs[1])
+        if selector is None:
+            return None
+        predicates.append((*selector, truth))
+        if truth:
+            primary = selector
+    return (primary, predicates) if primary and len(predicates) <= 8 else None
 
 
 def _postfix(expr: Optional[Expr], state_size: int):
-    expr = _strip_cast(expr)
     if not expr:
         return None
     kind = expr[0]
+    def mask(code, bits):
+        if code is None or bits not in (8, 16, 32, 64):
+            return None
+        return code + [("FD_MMIO_EXPR_CONST", 0, (1 << bits) - 1),
+                       ("FD_MMIO_EXPR_AND", 0, 0)] if bits < 32 else code
+    if kind in ("zext", "trunc"):
+        return mask(_postfix(expr[1], state_size), expr[2])
     if kind == "const":
         return [("FD_MMIO_EXPR_CONST", 0, expr[1])]
     if kind == "load":
@@ -397,8 +507,13 @@ def _postfix(expr: Optional[Expr], state_size: int):
     opcodes = {"add": "ADD", "sub": "SUB", "and": "AND", "or": "OR",
                "xor": "XOR", "shl": "SHL", "lshr": "LSHR"}
     if kind in opcodes:
+        # The runtime evaluates at 32 bits. Wider computations require a wider
+        # evaluator and are conservatively declined.
+        if expr[3] > 32 or (kind in ("shl", "lshr") and
+                           (expr[2][0] != "const" or expr[2][1] >= expr[3])):
+            return None
         lhs, rhs = _postfix(expr[1], state_size), _postfix(expr[2], state_size)
         if lhs is None or rhs is None:
             return None
-        return lhs + rhs + [(f"FD_MMIO_EXPR_{opcodes[kind]}", 0, 0)]
+        return mask(lhs + rhs + [(f"FD_MMIO_EXPR_{opcodes[kind]}", 0, 0)], expr[3])
     return None

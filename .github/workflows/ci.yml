@@ -26,7 +26,7 @@ jobs:
           sudo apt-get install -y \
             build-essential cmake git meson ninja-build pkg-config python3-venv \
             libglib2.0-dev libcjson-dev libpixman-1-dev libfdt-dev zlib1g-dev flex bison \
-            gcc-arm-none-eabi nasm llvm lld
+            gcc-arm-none-eabi binutils-arm-none-eabi nasm llvm llvm-18 clang-18 lld
 
       - name: Set up and build (README, step 2)
         run: |
@@ -36,7 +36,25 @@ jobs:
       - name: Unit tests
         run: |
           source fastdyn-env/bin/activate
-          python -m pytest -q tests/unit
+          python -m pytest -q tests/unit src/fastdyn/binary/tests/test_mmiofinder.py
+
+      - name: Automatic MMIO baseline and optimized regressions
+        env:
+          FASTDYN_QEMU_BIN: ${{ github.workspace }}/third_party/common/qemu/build/qemu-system-arm
+          FASTDYN_PLUGIN_LIB: ${{ github.workspace }}/build/libfastdyn.so
+          FASTDYN_MMIO_ARTIFACTS: ${{ github.workspace }}/mmio-opt-artifacts
+        run: tests/integration/run_fastdyn_mmio_opt.sh
+
+      - name: Upload automatic MMIO evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmio-opt-artifacts
+          path: |
+            mmio-opt-artifacts
+            !mmio-opt-artifacts/**/*.sock
+          if-no-files-found: warn
+          include-hidden-files: true
 
       - name: Minimal example (configs/minimal.toml)
         run: |
