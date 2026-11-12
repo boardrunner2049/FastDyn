@@ -73,7 +73,7 @@ def analyze_ir(ir: str) -> Analysis:
     if read_name not in functions:
         raise MmioModelError("fastdyn_model.read could not be resolved in LLVM IR")
     state_size = _allocation_size(functions.get(init_name))
-    if state_size <= 0:
+    if state_size <= 0 or state_size > 0xFFFFFFFF:
         raise MmioModelError("could not prove the size of the model state allocation")
     try:
         offsets = gep_offsets(ir)
@@ -82,7 +82,7 @@ def analyze_ir(ir: str) -> Analysis:
     mutable_offsets = _mutable_state_offsets(functions, init_name, offsets, state_size)
     lifetime_safe = _state_lifetime_safe(functions, init_name, offsets)
     if not lifetime_safe:
-        mutable_offsets = set(range(state_size))
+        mutable_offsets = {-1}  # unknown writes, without materializing every byte
     paths = _execute(functions[read_name], offsets, state_size)
 
     operations: list[Operation] = []
@@ -261,20 +261,23 @@ def _mutable_state_offsets(functions: dict[str, _Function], init_name: str,
             # closed-world immutability/lifetime proof.
             if any(re.search(r"\bstore\s+(?:(?:volatile|atomic)\s+)?ptr\b", line)
                    for block in fn.blocks.values() for line in block):
-                return set(range(state_size))
+                return {-1}
             continue
         pointers = _pointer_provenance(fn, offsets)
         for line in (line for block in fn.blocks.values() for line in block):
             # A helper/indirect call or escaped pointer can modify any byte.
             # Interprocedural alias proof is deliberately outside this subset.
             if re.search(r"\b(call|invoke|atomicrmw|cmpxchg)\b", line):
-                return set(range(state_size))
+                return {-1}
             if line.startswith("store "):
                 match = re.match(rf"store\s+i(\d+)\s+[^,]+,\s*ptr\s+({_VAR})", line)
                 if not match or pointers.get(match.group(2)) is None:
-                    return set(range(state_size))
+                    return {-1}
                 offset = pointers[match.group(2)]
-                mutable.update(range(offset, offset + (int(match.group(1)) + 7) // 8))
+                end = offset + (int(match.group(1)) + 7) // 8
+                if not 0 <= offset <= end <= state_size:
+                    return {-1}
+                mutable.update(range(offset, end))
     return mutable
 
 
@@ -464,6 +467,7 @@ def _selectors(conditions, mutable_offsets: set[int], state_size: int):
             lhs, rhs = rhs, lhs
         def immutable(load):
             return (load and load[0] == "load" and load[2] == 64
+                    and -1 not in mutable_offsets
                     and 0 <= load[1] <= state_size - 8
                     and not (set(range(load[1], load[1] + 8)) & mutable_offsets))
         if lhs == ("addr",) and immutable(rhs):

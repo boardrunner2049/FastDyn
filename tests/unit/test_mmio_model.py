@@ -64,6 +64,8 @@ def test_gep_uses_actual_array_element_and_bounds_not_scalar_tbaa():
     )
     with pytest.raises(mmio_model.MmioModelError, match="no pure"):
         mmio_model.analyze_ir(ir.replace("i64 0, i64 1", "i64 0, i64 2"))
+    with pytest.raises(mmio_model.MmioModelError, match="no pure"):
+        mmio_model.analyze_ir(ir.replace("i64 0, i64 1", "i64 0, i128 1"))
 
 
 def test_narrow_wrap_and_conversion_are_explicit_before_word_result():

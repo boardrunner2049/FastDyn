@@ -54,6 +54,8 @@ def gep_offsets(ir: str) -> dict[tuple[str, str], tuple[str, int | None]]:
     struct_element = api("LLVMStructGetTypeAtIndex", ptr, ptr, uint)
     struct_count = api("LLVMCountStructElementTypes", uint, ptr)
     is_int = api("LLVMIsAConstantInt", ptr, ptr)
+    value_type = api("LLVMTypeOf", ptr, ptr)
+    int_width = api("LLVMGetIntTypeWidth", uint, ptr)
     int_value = api("LLVMConstIntGetSExtValue", C.c_longlong, ptr)
     abi_size = api("LLVMABISizeOfType", C.c_ulonglong, ptr, ptr)
     field_offset = api("LLVMOffsetOfElement", C.c_ulonglong, ptr, ptr, uint)
@@ -84,7 +86,8 @@ def gep_offsets(ir: str) -> dict[tuple[str, str], tuple[str, int | None]]:
                         ty, offset = gep_type(insn), 0
                         for index in range(1, operand_count(insn)):
                             value = operand(insn, index)
-                            if not is_int(value) or not sized(ty):
+                            if not is_int(value) or not sized(ty) or \
+                                    int_width(value_type(value)) > 64:
                                 offset = None
                                 break
                             n = int_value(value)
