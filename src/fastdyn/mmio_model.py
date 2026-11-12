@@ -58,7 +58,7 @@ def resolve_clang() -> str:
 def compile_ir(source: Path, *, cflags: Sequence[str], include_flags: Sequence[str],
                clang: Optional[str] = None) -> str:
     compiler = clang or resolve_clang()
-    command = [compiler, "-O1", "-S", "-emit-llvm", "-fno-discard-value-names",
+    command = [compiler, "-fPIC", "-O1", "-S", "-emit-llvm", "-fno-discard-value-names",
                *cflags, *include_flags, str(source.resolve()), "-o", "-"]
     proc = subprocess.run(command, capture_output=True, text=True)
     if proc.returncode:

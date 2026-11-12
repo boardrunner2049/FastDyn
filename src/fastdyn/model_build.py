@@ -366,7 +366,8 @@ def _state_file(out_dir: Path, model: Model, suffix: str) -> Path:
 def _command(model: Model, toolchain: _Toolchain, output: Path, depfile: Path,
              extra_sources: Sequence[Path] = ()) -> list[str]:
     return [
-        *toolchain.compiler, *BASE_FLAGS, *toolchain.env_cflags, *_include_dirs(model),
+        *toolchain.compiler, *BASE_FLAGS, *(["-O1"] if extra_sources else []),
+        *toolchain.env_cflags, *_include_dirs(model),
         *toolchain.cflags, "-MMD", "-MF", str(depfile), "-o", str(output),
         *(str(s.resolve()) for s in (*model.sources, *extra_sources)),
         *toolchain.libs, *toolchain.env_ldflags,

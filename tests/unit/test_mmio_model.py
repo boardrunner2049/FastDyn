@@ -159,6 +159,8 @@ def test_actual_c_models_through_public_build_command(tmp_path):
         assert read(state, 0x40010008, 4, 0) == 0
         assert read(state, 0x40010010, 4, 0) == 0x22222222
         assert read(state, 0x40010014, 4, 0) == 0
+        assert read(state, 0x40010028, 4, 0) == 0xa5
+        assert read(state, 0x40010028, 4, 0) == 0xa5
     finally:
         libc = ctypes.CDLL(None)
         libc.free.argtypes = [ctypes.c_void_p]

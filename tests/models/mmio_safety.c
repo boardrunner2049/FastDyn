@@ -9,6 +9,7 @@ typedef struct {
     volatile uint32_t probe;
     uint32_t array[2];
     uint8_t byte;
+    uint32_t compiler_mode;
 } State;
 
 static void *init(const FdDevice *dev, const char *json, const FdHost *host) {
@@ -20,6 +21,7 @@ static void *init(const FdDevice *dev, const char *json, const FdHost *host) {
     s->array[0] = 0x11111111;
     s->array[1] = 0x22222222;
     s->byte = 255;
+    s->compiler_mode = 0xa5;
     return s;
 }
 
@@ -37,6 +39,14 @@ static uint64_t read_reg(void *opaque, hwaddr addr, unsigned size, uint64_t pc) 
     case 0x4001000c: (void)s->probe; return s->array[0];
     case 0x40010010: return s->array[1];
     case 0x40010014: return (uint8_t)(s->byte + 1);
+    case 0x40010028: {
+        uint32_t old = s->compiler_mode;
+        /* The analyzer and library must see the same preprocessing flags. */
+#if !defined(__OPTIMIZE__) || !defined(__PIC__) || defined(__PIE__)
+        s->compiler_mode = 0;
+#endif
+        return old;
+    }
     default: return addr == s->base ? 0x99 : 0;
     }
 }

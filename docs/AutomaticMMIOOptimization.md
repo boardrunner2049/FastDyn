@@ -35,6 +35,12 @@ elder scroll and enable firmware discovery:
 enabled = true
 ```
 
+Analysis and optimized-model library builds both use `-fPIC -O1` before user
+`CFLAGS`, so preprocessing/optimization options agree. In particular,
+`__OPTIMIZE__`/`__PIC__` conditionals cannot select different callbacks in the
+analyzed source and the actual library. Ordinary builds without `--mmio-opt`
+retain their usual flags.
+
 `fastdyn run` writes these artifacts below the run directory:
 
 - `run-artifacts/mmio_opt/discovery.json`: decoded accesses and preparation
