@@ -1,0 +1,671 @@
+diff --git a/accel/tcg/plugin-gen.c b/accel/tcg/plugin-gen.c
+index 0784ef3..abd9da4 100644
+--- a/accel/tcg/plugin-gen.c
++++ b/accel/tcg/plugin-gen.c
+@@ -28,6 +28,7 @@
+ #include "exec/plugin-gen.h"
+ #include "exec/translator.h"
+ #include "exec/translation-block.h"
++#include "exec/target_page.h"
+ 
+ enum plugin_gen_from {
+     PLUGIN_GEN_FROM_TB,
+@@ -36,6 +37,76 @@ enum plugin_gen_from {
+     PLUGIN_GEN_AFTER_TB,
+ };
+ 
++uint64_t __attribute__((weak))
++fastdyn_const_pc_insn_state(const DisasContextBase *db)
++{
++    (void)db;
++    return 0;
++}
++
++bool __attribute__((weak)) fastdyn_const_pc_target_is_pc_reg(uint64_t reg)
++{
++    (void)reg;
++    return false;
++}
++
++bool __attribute__((weak))
++fastdyn_const_pc_target_eligible(uint64_t state, uint64_t source_pc,
++                                uint64_t destination)
++{
++    (void)state;
++    (void)source_pc;
++    (void)destination;
++    return false;
++}
++
++void __attribute__((weak))
++fastdyn_const_pc_target_emit(uint64_t state, uint64_t destination,
++                             uint64_t expected_page, TCGLabel *fallback)
++{
++    (void)state;
++    (void)destination;
++    (void)expected_page;
++    (void)fallback;
++    g_assert_not_reached();
++}
++
++void __attribute__((weak))
++fastdyn_const_pc_target_emit_legacy(uint64_t destination, TCGLabel *fallback)
++{
++    (void)destination;
++    (void)fallback;
++    g_assert_not_reached();
++}
++
++static bool fastdyn_const_pc_enabled(void)
++{
++    static gsize initialized;
++    static bool enabled;
++
++    if (g_once_init_enter(&initialized)) {
++        const char *value = g_getenv("FASTDYN_CONST_PC_CHAIN");
++
++        enabled = value == NULL || strcmp(value, "0") != 0;
++        g_once_init_leave(&initialized, 1);
++    }
++    return enabled;
++}
++
++static bool fastdyn_const_pc_trace_enabled(void)
++{
++    static gsize initialized;
++    static bool enabled;
++
++    if (g_once_init_enter(&initialized)) {
++        const char *value = g_getenv("FASTDYN_CONST_PC_CHAIN_TRACE");
++
++        enabled = value != NULL && strcmp(value, "0") != 0;
++        g_once_init_leave(&initialized, 1);
++    }
++    return enabled;
++}
++
+ /* called before finishing a TB with exit_tb, goto_tb or goto_ptr */
+ void plugin_gen_disable_mem_helpers(void)
+ {
+@@ -293,6 +364,148 @@ void gen_inline_update_pc_cb(struct qemu_plugin_inline_cb *cb) {
+ 	}
+ }
+ 
++static bool fastdyn_const_pc_cb_is_safe(const struct qemu_plugin_dyn_cb *cb)
++{
++    switch (cb->type) {
++    case PLUGIN_CB_INLINE_ADD_U64:
++    case PLUGIN_CB_INLINE_STORE_U64:
++    case PLUGIN_CB_INLINE_LOG_REG:
++        return true;
++    case PLUGIN_CB_INLINE_UPDATE_REG:
++    case PLUGIN_CB_INLINE_CONST_REG:
++        return !fastdyn_const_pc_target_is_pc_reg(cb->inline_insn.imm);
++    default:
++        return false;
++    }
++}
++
++static bool fastdyn_const_pc_prefix_is_safe(struct qemu_plugin_tb *plugin_tb,
++                                            int insn_idx, int cb_idx)
++{
++    const GArray *cbs = plugin_tb->cbs;
++
++    for (int i = 0, n = cbs ? cbs->len : 0; i < n; i++) {
++        if (!fastdyn_const_pc_cb_is_safe(
++                &g_array_index(cbs, struct qemu_plugin_dyn_cb, i))) {
++            return false;
++        }
++    }
++
++    for (int i = 0; i <= insn_idx; i++) {
++        struct qemu_plugin_insn *insn =
++            g_ptr_array_index(plugin_tb->insns, i);
++        int limit;
++
++        if (i < insn_idx && insn->mem_cbs && insn->mem_cbs->len) {
++            return false;
++        }
++        cbs = insn->insn_cbs;
++        limit = i == insn_idx ? cb_idx : (cbs ? cbs->len : 0);
++        for (int j = 0; j < limit; j++) {
++            if (!fastdyn_const_pc_cb_is_safe(
++                    &g_array_index(cbs, struct qemu_plugin_dyn_cb, j))) {
++                return false;
++            }
++        }
++    }
++    return true;
++}
++
++static bool fastdyn_const_pc_has_later_legacy_pc(
++    const struct qemu_plugin_insn *insn, int cb_idx)
++{
++    const GArray *cbs = insn->insn_cbs;
++
++    for (int i = cb_idx + 1, n = cbs ? cbs->len : 0; i < n; i++) {
++        const struct qemu_plugin_dyn_cb *cb =
++            &g_array_index(cbs, struct qemu_plugin_dyn_cb, i);
++
++        if (cb->type == PLUGIN_CB_INLINE_UPDATE_REG &&
++            fastdyn_const_pc_target_is_pc_reg(cb->inline_insn.imm)) {
++            return true;
++        }
++    }
++    return false;
++}
++
++static bool fastdyn_try_const_pc(struct qemu_plugin_inline_cb *cb,
++                                 struct qemu_plugin_tb *plugin_tb,
++                                 struct qemu_plugin_insn *insn,
++                                 int insn_idx, int cb_idx,
++                                 const char **fallback_reason)
++{
++    DisasContextBase *db = (DisasContextBase *)tcg_ctx->plugin_db;
++    uint64_t destination = cb->entry.offset;
++    uint64_t state;
++    TCGLabel *fallback = NULL;
++    int slot;
++
++    if (!fastdyn_const_pc_target_is_pc_reg(cb->imm)) {
++        *fallback_reason = "not-target-pc";
++        return false;
++    }
++    if (!fastdyn_const_pc_enabled()) {
++        *fallback_reason = "disabled";
++        return false;
++    }
++    if (plugin_tb == NULL || insn == NULL) {
++        *fallback_reason = "missing-instruction-context";
++        return false;
++    }
++    if (tcg_ctx->fastdyn_const_pc_promoted) {
++        *fallback_reason = "redirect-already-promoted";
++        return false;
++    }
++    state = insn->fastdyn_const_pc_state;
++    if (!fastdyn_const_pc_target_eligible(state, insn->vaddr, destination)) {
++        *fallback_reason = "target-state-or-address";
++        return false;
++    }
++    if (db->pc_next <= db->pc_first ||
++        !translator_is_same_page(db, db->pc_next - 1)) {
++        *fallback_reason = "multi-page-source";
++        return false;
++    }
++    if (!translator_use_goto_tb(db, destination)) {
++        *fallback_reason = "chaining-disabled-or-cross-page";
++        return false;
++    }
++    if (!fastdyn_const_pc_prefix_is_safe(plugin_tb, insn_idx, cb_idx)) {
++        *fallback_reason = "callback-overlap";
++        return false;
++    }
++    if (fastdyn_const_pc_has_later_legacy_pc(insn, cb_idx)) {
++        *fallback_reason = "legacy-pc-overlap";
++        return false;
++    }
++    slot = tcg_get_unused_goto_tb_slot();
++    if (slot < 0) {
++        *fallback_reason = "no-exit-slot";
++        return false;
++    }
++
++    if (state & FASTDYN_CONST_PC_NEEDS_PAGE_GUARD) {
++        fallback = gen_new_label();
++    }
++    fastdyn_const_pc_target_emit(state, destination,
++                                 destination & TARGET_PAGE_MASK, fallback);
++    gen_disable_mem_helper();
++    translator_set_can_do_io(true);
++    tcg_gen_goto_tb_plugin(slot);
++    tcg_gen_exit_tb(tcg_ctx->gen_tb, slot);
++    if (fallback) {
++        fastdyn_const_pc_target_emit_legacy(destination, fallback);
++    }
++    tcg_ctx->fastdyn_const_pc_promoted = true;
++    if (fastdyn_const_pc_trace_enabled()) {
++        fprintf(stderr,
++                "fastdyn-const-pc: promoted source=0x%" PRIx64
++                " destination=0x%" PRIx64 " slot=%d\n",
++                insn->vaddr, destination, slot);
++    }
++    return true;
++}
++
+ //TODO:
+ typedef struct {
+     uint8_t *buffer;  // Pointer to the buffer
+@@ -346,7 +559,10 @@ void gen_inline_update_mem_cb(struct qemu_plugin_inline_cb *cb) {
+     tcg_temp_free_i32(val);
+ }
+ 
+-static void inject_cb(struct qemu_plugin_dyn_cb *cb)
++static void inject_cb_with_context(struct qemu_plugin_dyn_cb *cb,
++                                   struct qemu_plugin_tb *plugin_tb,
++                                   struct qemu_plugin_insn *insn,
++                                   int insn_idx, int cb_idx)
+ 
+ {
+     switch (cb->type) {
+@@ -365,6 +581,24 @@ static void inject_cb(struct qemu_plugin_dyn_cb *cb)
+ 	case PLUGIN_CB_INLINE_UPDATE_REG:
+ 		gen_inline_update_pc_cb(&cb->inline_insn);
+ 		break;
++	case PLUGIN_CB_INLINE_CONST_REG:
++	{
++		const char *fallback_reason = "unknown";
++
++		if (!fastdyn_try_const_pc(&cb->inline_insn, plugin_tb, insn,
++		                           insn_idx, cb_idx, &fallback_reason)) {
++			if (fastdyn_const_pc_trace_enabled() &&
++			    fastdyn_const_pc_target_is_pc_reg(cb->inline_insn.imm)) {
++				fprintf(stderr,
++				        "fastdyn-const-pc: fallback source=0x%" PRIx64
++				        " destination=0x%zx reason=%s\n",
++				        insn ? insn->vaddr : 0,
++				        cb->inline_insn.entry.offset, fallback_reason);
++			}
++			update_reg(cb->inline_insn.imm, cb->inline_insn.entry.offset);
++		}
++		break;
++	}
+ 	case PLUGIN_CB_INLINE_UPDATE_MEM:
+ 		gen_inline_update_mem_cb(&cb->inline_insn);
+ 		break;
+@@ -383,6 +617,11 @@ static void inject_cb(struct qemu_plugin_dyn_cb *cb)
+     }
+ }
+ 
++static void inject_cb(struct qemu_plugin_dyn_cb *cb)
++{
++    inject_cb_with_context(cb, NULL, NULL, -1, -1);
++}
++
+ static void inject_mem_cb(struct qemu_plugin_dyn_cb *cb,
+                           enum qemu_plugin_mem_rw rw,
+                           qemu_plugin_meminfo_t meminfo, TCGv_i64 addr)
+@@ -477,8 +716,9 @@ static void plugin_gen_inject(struct qemu_plugin_tb *plugin_tb)
+ 
+                 cbs = insn->insn_cbs;
+                 for (i = 0, n = (cbs ? cbs->len : 0); i < n; i++) {
+-                    inject_cb(
+-                        &g_array_index(cbs, struct qemu_plugin_dyn_cb, i));
++                    inject_cb_with_context(
++                        &g_array_index(cbs, struct qemu_plugin_dyn_cb, i),
++                        plugin_tb, insn, insn_idx, i);
+                 }
+                 break;
+ 
+@@ -575,6 +815,7 @@ void plugin_gen_insn_start(CPUState *cpu, const DisasContextBase *db)
+     tcg_ctx->plugin_insn = insn;
+     insn->calls_helpers = false;
+     insn->mem_helper = false;
++    insn->fastdyn_const_pc_state = fastdyn_const_pc_insn_state(db);
+     if (insn->insn_cbs) {
+         g_array_set_size(insn->insn_cbs, 0);
+     }
+diff --git a/accel/tcg/translator.c b/accel/tcg/translator.c
+index 034f2f3..daf802e 100644
+--- a/accel/tcg/translator.c
++++ b/accel/tcg/translator.c
+@@ -21,7 +21,7 @@
+ #include "disas/disas.h"
+ #include "tb-internal.h"
+ 
+-static void set_can_do_io(DisasContextBase *db, bool val)
++void translator_set_can_do_io(bool val)
+ {
+     QEMU_BUILD_BUG_ON(sizeof_field(CPUState, neg.can_do_io) != 1);
+     tcg_gen_st8_i32(tcg_constant_i32(val), tcg_env,
+@@ -214,10 +214,10 @@ void translator_loop(CPUState *cpu, TranslationBlock *tb, int *max_insns,
+     } else {
+         tcg_debug_assert(first_insn_start != db->insn_start);
+         tcg_ctx->emit_before_op = first_insn_start;
+-        set_can_do_io(db, false);
++        translator_set_can_do_io(false);
+     }
+     tcg_ctx->emit_before_op = db->insn_start;
+-    set_can_do_io(db, true);
++    translator_set_can_do_io(true);
+     tcg_ctx->emit_before_op = NULL;
+ 
+     /* May be used by disas_log or plugin callbacks. */
+diff --git a/include/exec/plugin-gen.h b/include/exec/plugin-gen.h
+index cbb2ca2..f63dc8c 100644
+--- a/include/exec/plugin-gen.h
++++ b/include/exec/plugin-gen.h
+@@ -16,6 +16,20 @@
+ 
+ struct DisasContextBase;
+ 
++/* Common bits in the otherwise target-owned per-instruction state. */
++#define FASTDYN_CONST_PC_SUPPORTED          (1ULL << 0)
++#define FASTDYN_CONST_PC_NEEDS_PAGE_GUARD   (1ULL << 1)
++
++uint64_t fastdyn_const_pc_insn_state(const struct DisasContextBase *db);
++bool fastdyn_const_pc_target_is_pc_reg(uint64_t reg);
++bool fastdyn_const_pc_target_eligible(uint64_t state, uint64_t source_pc,
++                                     uint64_t destination);
++void fastdyn_const_pc_target_emit(uint64_t state, uint64_t destination,
++                                  uint64_t expected_page,
++                                  TCGLabel *fallback);
++void fastdyn_const_pc_target_emit_legacy(uint64_t destination,
++                                         TCGLabel *fallback);
++
+ #ifdef CONFIG_PLUGIN
+ 
+ bool plugin_gen_tb_start(CPUState *cpu, const struct DisasContextBase *db);
+diff --git a/include/exec/translator.h b/include/exec/translator.h
+index 3c32655..6a8b016 100644
+--- a/include/exec/translator.h
++++ b/include/exec/translator.h
+@@ -159,6 +159,9 @@ void translator_loop(CPUState *cpu, TranslationBlock *tb, int *max_insns,
+  */
+ bool translator_use_goto_tb(DisasContextBase *db, vaddr dest);
+ 
++/* Emit the state normally restored by cpu_tb_exec() between TBs. */
++void translator_set_can_do_io(bool val);
++
+ /**
+  * translator_io_start
+  * @db: Disassembly context
+diff --git a/include/qemu/plugin.h b/include/qemu/plugin.h
+index ea27348..3e6470f 100644
+--- a/include/qemu/plugin.h
++++ b/include/qemu/plugin.h
+@@ -76,7 +76,8 @@ enum plugin_dyn_cb_type {
+ 	PLUGIN_CB_INLINE_UPDATE_MEM,
+ 	PLUGIN_CB_INLINE_LOG_REG,
+ 	PLUGIN_CB_INLINE_STORE_IO,
+-	PLUGIN_CB_INLINE_LOAD_IO
++	PLUGIN_CB_INLINE_LOAD_IO,
++	PLUGIN_CB_INLINE_CONST_REG
+ };
+ 
+ struct qemu_plugin_regular_cb {
+@@ -125,6 +126,9 @@ struct qemu_plugin_insn {
+ 
+     /* if set, the instruction calls helpers that might access guest memory */
+     bool mem_helper;
++
++    /* Target-owned facts captured at this instruction's translation point. */
++    uint64_t fastdyn_const_pc_state;
+ };
+ 
+ /* A scoreboard is an array of values, indexed by vcpu_index */
+diff --git a/include/qemu/qemu-plugin.h b/include/qemu/qemu-plugin.h
+index dfa8962..d8b74cf 100644
+--- a/include/qemu/qemu-plugin.h
++++ b/include/qemu/qemu-plugin.h
+@@ -472,7 +472,8 @@ enum qemu_plugin_op {
+ 	QEMU_PLUGIN_INLINE_UPDATE_MEM,
+ 	QEMU_PLUGIN_INLINE_LOG_REG,
+ 	QEMU_PLUGIN_INLINE_LOAD_IO,
+-	QEMU_PLUGIN_INLINE_STORE_IO
++	QEMU_PLUGIN_INLINE_STORE_IO,
++	QEMU_PLUGIN_INLINE_CONST_REG
+ };
+ 
+ /**
+@@ -1126,4 +1127,8 @@ void qemu_plugin_u64_set(qemu_plugin_u64 entry, unsigned int vcpu_index,
+ QEMU_PLUGIN_API
+ uint64_t qemu_plugin_u64_sum(qemu_plugin_u64 entry);
+ 
++/* FastDyn private extension level required by the constant-PC overlay. */
++QEMU_PLUGIN_API
++int qemu_plugin_fastdyn_const_pc_chain_version(void);
++
+ #endif /* QEMU_QEMU_PLUGIN_H */
+diff --git a/include/tcg/tcg-op-common.h b/include/tcg/tcg-op-common.h
+index e1071ad..00f38cb 100644
+--- a/include/tcg/tcg-op-common.h
++++ b/include/tcg/tcg-op-common.h
+@@ -64,6 +64,12 @@ void tcg_gen_exit_tb(const TranslationBlock *tb, unsigned idx);
+  */
+ void tcg_gen_goto_tb(unsigned idx);
+ 
++/* Late plugin injection has already passed plugin cleanup markers. */
++void tcg_gen_goto_tb_plugin(unsigned idx);
++
++/* Return an unclaimed outgoing slot, or -1 if both are owned. */
++int tcg_get_unused_goto_tb_slot(void);
++
+ /**
+  * tcg_gen_lookup_and_goto_ptr() - look up the current TB, jump to it if valid
+  * @addr: Guest address of the target TB
+diff --git a/include/tcg/tcg.h b/include/tcg/tcg.h
+index 125323f..23824a8 100644
+--- a/include/tcg/tcg.h
++++ b/include/tcg/tcg.h
+@@ -377,8 +377,9 @@ struct TCGContext {
+     tcg_insn_unit *code_buf;      /* pointer for start of tb */
+     tcg_insn_unit *code_ptr;      /* pointer for running end of tb */
+ 
++    /* Outgoing slots are translation state, not only debug bookkeeping. */
++    unsigned int goto_tb_issue_mask;
+ #ifdef CONFIG_DEBUG_TCG
+-    int goto_tb_issue_mask;
+     const TCGOpcode *vecop_list;
+ #endif
+ 
+@@ -416,6 +417,9 @@ struct TCGContext {
+ 
+     /* descriptor of the instruction being translated */
+     struct qemu_plugin_insn *plugin_insn;
++
++    /* Only one FastDyn fixed-PC redirect may claim a slot in this TB. */
++    bool fastdyn_const_pc_promoted;
+ #endif
+ 
+     /* For host-specific values. */
+diff --git a/plugins/api.c b/plugins/api.c
+index 55df323..cbc9b5a 100644
+--- a/plugins/api.c
++++ b/plugins/api.c
+@@ -52,6 +52,11 @@
+ #include "exec/icount.h"
+ #include "system/cpu-timers-internal.h"
+ 
++int qemu_plugin_fastdyn_const_pc_chain_version(void)
++{
++    return 1;
++}
++
+ /* Uninstall and Reset handlers */
+ 
+ void qemu_plugin_uninstall(qemu_plugin_id_t id, qemu_plugin_simple_cb_t cb)
+diff --git a/plugins/core.c b/plugins/core.c
+index 46b7f8e..c047f18 100644
+--- a/plugins/core.c
++++ b/plugins/core.c
+@@ -348,6 +348,8 @@ static enum plugin_dyn_cb_type op_to_cb_type(enum qemu_plugin_op op)
+         return PLUGIN_CB_INLINE_STORE_U64;
+ 	case QEMU_PLUGIN_INLINE_UPDATE_REG:
+ 		return PLUGIN_CB_INLINE_UPDATE_REG;
++	case QEMU_PLUGIN_INLINE_CONST_REG:
++		return PLUGIN_CB_INLINE_CONST_REG;
+ 	case QEMU_PLUGIN_INLINE_UPDATE_MEM:
+ 		return PLUGIN_CB_INLINE_UPDATE_MEM;
+ 	case QEMU_PLUGIN_INLINE_LOG_REG:
+diff --git a/target/arm/tcg/translate.c b/target/arm/tcg/translate.c
+index 33b24f2..7f5379c 100644
+--- a/target/arm/tcg/translate.c
++++ b/target/arm/tcg/translate.c
+@@ -30,6 +30,7 @@
+ #include "exec/target_page.h"
+ #include "exec/fastdyn-fragments.h"
+ #include "exec/fastdyn-mmio.h"
++#include "exec/plugin-gen.h"
+ #include "tcg/tcg.h"
+ #include "tcg/tcg-temp-internal.h"
+ 
+@@ -232,6 +233,91 @@ void update_reg(int reg, uint64_t target) {
+ 	}
+ #endif
+ }
++
++#define FASTDYN_ARM_CONST_PC_THUMB   (1ULL << 8)
++#define FASTDYN_ARM_CONST_PC_SPECIAL (1ULL << 9)
++
++uint64_t fastdyn_const_pc_insn_state(const DisasContextBase *db)
++{
++#ifdef TARGET_AARCH64
++    return 0;
++#else
++    const DisasContext *s = container_of(db, DisasContext, base);
++    uint64_t state = FASTDYN_CONST_PC_SUPPORTED;
++
++    if (tb_cflags(db->tb) & CF_PCREL) {
++        state |= FASTDYN_CONST_PC_NEEDS_PAGE_GUARD;
++    }
++    if (s->thumb) {
++        state |= FASTDYN_ARM_CONST_PC_THUMB;
++    }
++    if (s->condexec_mask || s->condexec_cond || s->eci ||
++        s->ss_active || s->pc_save == -1) {
++        state |= FASTDYN_ARM_CONST_PC_SPECIAL;
++    }
++    return state;
++#endif
++}
++
++bool fastdyn_const_pc_target_is_pc_reg(uint64_t reg)
++{
++#ifdef TARGET_AARCH64
++    return false;
++#else
++    return reg == 15;
++#endif
++}
++
++bool fastdyn_const_pc_target_eligible(uint64_t state, uint64_t source_pc,
++                                     uint64_t destination)
++{
++#ifdef TARGET_AARCH64
++    return false;
++#else
++    if (!(state & FASTDYN_CONST_PC_SUPPORTED) ||
++        (state & FASTDYN_ARM_CONST_PC_SPECIAL) ||
++        destination > UINT32_MAX || destination > 0x20800000 ||
++        source_pc == 0x20800050) {
++        return false;
++    }
++    if (state & FASTDYN_ARM_CONST_PC_THUMB) {
++        return (destination & 1) == 0;
++    }
++    return (destination & 3) == 0;
++#endif
++}
++
++void fastdyn_const_pc_target_emit(uint64_t state, uint64_t destination,
++                                  uint64_t expected_page,
++                                  TCGLabel *fallback)
++{
++#ifndef TARGET_AARCH64
++    if (state & FASTDYN_CONST_PC_NEEDS_PAGE_GUARD) {
++        TCGv_i32 page = tcg_temp_ebb_new_i32();
++
++        g_assert(fallback != NULL);
++        tcg_gen_andi_i32(page, cpu_R[15], TARGET_PAGE_MASK);
++        tcg_gen_brcondi_i32(TCG_COND_NE, page, (uint32_t)expected_page,
++                            fallback);
++        tcg_temp_free_i32(page);
++    }
++    tcg_gen_mov_i32(cpu_R[15], tcg_constant_i32(destination));
++#else
++    g_assert_not_reached();
++#endif
++}
++
++void fastdyn_const_pc_target_emit_legacy(uint64_t destination,
++                                         TCGLabel *fallback)
++{
++#ifndef TARGET_AARCH64
++    g_assert(fallback != NULL);
++    gen_set_label(fallback);
++    update_reg(15, destination);
++#else
++    g_assert_not_reached();
++#endif
++}
+ void log_reg(uint8_t * buffer, uint16_t * index, void *consumer_index, int reg);
+ void log_reg(uint8_t * buffer, uint16_t * index, void *consumer_index, int reg) {
+ 	if (reg < 16) {
+diff --git a/tcg/tcg-op.c b/tcg/tcg-op.c
+index dfa5c38..78ad036 100644
+--- a/tcg/tcg-op.c
++++ b/tcg/tcg-op.c
+@@ -3231,11 +3231,9 @@ void tcg_gen_exit_tb(const TranslationBlock *tb, unsigned idx)
+     if (tb == NULL) {
+         tcg_debug_assert(idx == 0);
+     } else if (idx <= TB_EXIT_IDXMAX) {
+-#ifdef CONFIG_DEBUG_TCG
+         /* This is an exit following a goto_tb.  Verify that we have
+            seen this numbered exit before, via tcg_gen_goto_tb.  */
+         tcg_debug_assert(tcg_ctx->goto_tb_issue_mask & (1 << idx));
+-#endif
+     } else {
+         /* This is an exit via the exitreq label.  */
+         tcg_debug_assert(idx == TB_EXIT_REQUESTED);
+@@ -3244,21 +3242,41 @@ void tcg_gen_exit_tb(const TranslationBlock *tb, unsigned idx)
+     tcg_gen_op1i(INDEX_op_exit_tb, 0, val);
+ }
+ 
+-void tcg_gen_goto_tb(unsigned idx)
++static void tcg_gen_goto_tb_internal(unsigned idx, bool plugin_cleanup)
+ {
+     /* We tested CF_NO_GOTO_TB in translator_use_goto_tb. */
+     tcg_debug_assert(!(tcg_ctx->gen_tb->cflags & CF_NO_GOTO_TB));
+     /* We only support two chained exits.  */
+     tcg_debug_assert(idx <= TB_EXIT_IDXMAX);
+-#ifdef CONFIG_DEBUG_TCG
+     /* Verify that we haven't seen this numbered exit before.  */
+     tcg_debug_assert((tcg_ctx->goto_tb_issue_mask & (1 << idx)) == 0);
+     tcg_ctx->goto_tb_issue_mask |= 1 << idx;
+-#endif
+-    plugin_gen_disable_mem_helpers();
++    if (plugin_cleanup) {
++        plugin_gen_disable_mem_helpers();
++    }
+     tcg_gen_op1i(INDEX_op_goto_tb, 0, idx);
+ }
+ 
++void tcg_gen_goto_tb(unsigned idx)
++{
++    tcg_gen_goto_tb_internal(idx, true);
++}
++
++void tcg_gen_goto_tb_plugin(unsigned idx)
++{
++    tcg_gen_goto_tb_internal(idx, false);
++}
++
++int tcg_get_unused_goto_tb_slot(void)
++{
++    for (unsigned int idx = 0; idx <= TB_EXIT_IDXMAX; idx++) {
++        if (!(tcg_ctx->goto_tb_issue_mask & (1 << idx))) {
++            return idx;
++        }
++    }
++    return -1;
++}
++
+ void tcg_gen_lookup_and_goto_ptr(void)
+ {
+     TCGv_ptr ptr;
+diff --git a/tcg/tcg.c b/tcg/tcg.c
+index d714ae2..df6c7f9 100644
+--- a/tcg/tcg.c
++++ b/tcg/tcg.c
+@@ -1980,8 +1980,9 @@ void tcg_func_start(TCGContext *s)
+     s->nb_labels = 0;
+     s->current_frame_offset = s->frame_start;
+ 
+-#ifdef CONFIG_DEBUG_TCG
+     s->goto_tb_issue_mask = 0;
++#ifdef CONFIG_PLUGIN
++    s->fastdyn_const_pc_promoted = false;
+ #endif
+ 
+     QTAILQ_INIT(&s->ops);

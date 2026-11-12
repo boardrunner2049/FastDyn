@@ -104,6 +104,14 @@ def patch_repo(tmp_path):
         "-patched-mmio\n"
         "+patched-mmio-pc\n"
     )
+    (root / "patches/qemu-fastdyn-constant-pc.patch").write_text(
+        "diff --git a/include/qemu/qemu-plugin.h b/include/qemu/qemu-plugin.h\n"
+        "--- a/include/qemu/qemu-plugin.h\n"
+        "+++ b/include/qemu/qemu-plugin.h\n"
+        "@@ -1 +1 @@\n"
+        "-patched-mmio-pc\n"
+        "+patched-constant-pc\n"
+    )
     return root
 
 
@@ -186,12 +194,12 @@ def test_build_patches_and_rebuilds_local_sources_without_fetching(source_repo, 
     head = git(source_repo, "rev-parse", "HEAD")
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, source_repo))
     binary = source_repo / "build/qemu-system-arm"
-    assert binary.read_text() == "patched-mmio-pc\noriginal\n"
+    assert binary.read_text() == "patched-constant-pc\noriginal\n"
 
     (source_repo / "local-change").write_text("updated locally\n")
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, source_repo))
 
-    assert binary.read_text() == "patched-mmio-pc\nupdated locally\n"
+    assert binary.read_text() == "patched-constant-pc\nupdated locally\n"
     assert (source_repo / "build/build-runs").read_text().splitlines() == ["build", "build"]
     assert git(source_repo, "rev-parse", "HEAD") == head
     assert git(source_repo, "branch", "--show-current") == "local-work"
@@ -206,17 +214,27 @@ def test_existing_binary_is_rebuilt_after_patch_application(source_repo, patch_r
     binary.chmod(0o755)
 
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, source_repo))
-    assert binary.read_text() == "patched-mmio-pc\noriginal\n"
+    assert binary.read_text() == "patched-constant-pc\noriginal\n"
 
 
 def test_patch_series_upgrades_a_checkout_with_the_previous_tip(source_repo, patch_repo):
     git(source_repo, "apply", str(patch_repo / "patches/qemu-fastdyn-plugin-icount.patch"))
     git(source_repo, "apply", str(patch_repo / "patches/qemu-fastdyn-insn-fragments.patch"))
     git(source_repo, "apply", str(patch_repo / "patches/qemu-fastdyn-mmio.patch"))
+    git(source_repo, "apply", str(patch_repo / "patches/qemu-fastdyn-mmio-pc.patch"))
 
     assert_success(run_function("fastdyn_setup_qemu_patch", patch_repo, source_repo))
 
-    assert (source_repo / HEADER).read_text() == "patched-mmio-pc\n"
+    assert (source_repo / HEADER).read_text() == "patched-constant-pc\n"
+
+
+def test_patch_series_upgrades_an_older_prefix(source_repo, patch_repo):
+    git(source_repo, "apply", str(patch_repo / "patches/qemu-fastdyn-plugin-icount.patch"))
+    git(source_repo, "apply", str(patch_repo / "patches/qemu-fastdyn-insn-fragments.patch"))
+
+    assert_success(run_function("fastdyn_setup_qemu_patch", patch_repo, source_repo))
+
+    assert (source_repo / HEADER).read_text() == "patched-constant-pc\n"
 
 
 def test_patch_series_is_idempotent(source_repo, patch_repo):
@@ -225,12 +243,12 @@ def test_patch_series_is_idempotent(source_repo, patch_repo):
 
     assert_success(run_function("fastdyn_setup_qemu_patch", patch_repo, source_repo))
 
-    assert first == "patched-mmio-pc\n"
+    assert first == "patched-constant-pc\n"
     assert (source_repo / HEADER).read_text() == first
 
 
 def test_missing_required_terminal_patch_fails_clearly(source_repo, patch_repo):
-    (patch_repo / "patches/qemu-fastdyn-mmio-pc.patch").unlink()
+    (patch_repo / "patches/qemu-fastdyn-constant-pc.patch").unlink()
 
     result = run_function("fastdyn_setup_qemu_patch", patch_repo, source_repo)
 
@@ -248,7 +266,7 @@ def test_build_accepts_explicit_multi_target_list(source_repo, patch_repo):
     assert f"--target-list={targets}" in (source_repo / "build/configure.args").read_text()
     for target in ("arm", "aarch64", "x86_64", "riscv32", "riscv64"):
         binary = source_repo / f"build/qemu-system-{target}"
-        assert binary.read_text() == "patched-mmio-pc\noriginal\n"
+        assert binary.read_text() == "patched-constant-pc\noriginal\n"
 
 
 def test_multi_target_build_reconfigures_an_existing_default_build(source_repo, patch_repo):
@@ -297,11 +315,11 @@ def test_build_initializes_pinned_submodule_without_advancing_ref(source_repo, p
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, target))
 
     assert git(target, "rev-parse", "HEAD") == pinned
-    assert (target / "build/qemu-system-arm").read_text() == "patched-mmio-pc\noriginal\n"
+    assert (target / "build/qemu-system-arm").read_text() == "patched-constant-pc\noriginal\n"
     (target / "local-change").write_text("local submodule edit\n")
     assert_success(run_function("fastdyn_setup_qemu_build", patch_repo, target))
     assert git(target, "rev-parse", "HEAD") == pinned
-    assert (target / "build/qemu-system-arm").read_text() == "patched-mmio-pc\nlocal submodule edit\n"
+    assert (target / "build/qemu-system-arm").read_text() == "patched-constant-pc\nlocal submodule edit\n"
 
 
 def test_hint_rejects_stale_binary_even_when_source_is_fully_patched(source_repo, patch_repo):
@@ -319,7 +337,7 @@ def test_hint_rejects_stale_binary_even_when_source_is_fully_patched(source_repo
 
     assert_success(result)
     assert "QEMU binary is stale" in result.stderr
-    assert "qemu_plugin_unimp_export_device_v2" in result.stderr
+    assert "qemu_plugin_fastdyn_const_pc_chain_version" in result.stderr
 
 
 @pytest.mark.parametrize(

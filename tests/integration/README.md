@@ -45,6 +45,25 @@ the whole-QEMU execution median, spread, throughput, and speedup. It does not
 enforce a speedup threshold. See `docs/mmio_saved_pc_benchmark.md` for the
 recorded result and PC contract.
 
+## Constant-PC chaining
+
+Run the A32 and Thumb fixed-PC modifier correctness, legacy-equivalence,
+generated-operation, cleanup-marker, and live-link checks with:
+
+```bash
+tests/integration/run_fastdyn_constant_pc.sh
+```
+
+The bounded five-pair benchmark is separate from CI and has no flaky timing
+threshold:
+
+```bash
+fastdyn-env/bin/python tests/integration/constant_pc/benchmark.py
+```
+
+See `tests/integration/constant_pc/README.md` for prerequisites and overrides,
+and `docs/constant_pc_benchmark.md` for the recorded result.
+
 The saved-value and registration probe uses the allocating register read only
 inside the test callback. It compares that value with `saved_pc` for Cortex-M,
 AArch32, AArch64, x86-16/32/64 (including a nonzero real-mode `CS.base`), RV32,

@@ -76,6 +76,13 @@ jobs:
           FASTDYN_PLUGIN_LIB: ${{ github.workspace }}/build/libfastdyn.so
         run: tests/integration/run_fastdyn_guest_code_fragment_smoke.sh
 
+      - name: FastDyn constant-PC chaining smoke
+        env:
+          FASTDYN_QEMU_BIN: ${{ github.workspace }}/third_party/common/qemu/build/qemu-system-arm
+          FASTDYN_PLUGIN_LIB: ${{ github.workspace }}/build/libfastdyn.so
+          FASTDYN_BIN: ${{ github.workspace }}/fastdyn-env/bin/fastdyn
+        run: tests/integration/run_fastdyn_constant_pc.sh
+
       - name: Bundled FreeRTOS introspection smoke test
         env:
           FASTDYN_QEMU_BIN: ${{ github.workspace }}/third_party/common/qemu/build/qemu-system-arm

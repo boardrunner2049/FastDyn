@@ -12,6 +12,7 @@ fastdyn_setup_qemu_patch() {
     "$repo_root/patches/qemu-fastdyn-insn-fragments.patch"
     "$repo_root/patches/qemu-fastdyn-mmio.patch"
     "$repo_root/patches/qemu-fastdyn-mmio-pc.patch"
+    "$repo_root/patches/qemu-fastdyn-constant-pc.patch"
   )
 
   # Find the tip of an already-applied prefix from newest to oldest. This also
@@ -123,7 +124,7 @@ fastdyn_setup_qemu_hint() {
   local qemu_repo="$3"
   local qemu_ref="$4"
   local qemu_bin="$qemu_root/build/qemu-system-arm"
-  local qemu_patch="$repo_root/patches/qemu-fastdyn-mmio-pc.patch"
+  local qemu_patch="$repo_root/patches/qemu-fastdyn-constant-pc.patch"
 
   if [[ -x "$qemu_bin" ]]; then
     if fastdyn_setup_qemu_source_exists "$qemu_root" &&
@@ -139,10 +140,10 @@ EOF
       return 0
     fi
     if ! nm -D --defined-only "$qemu_bin" 2>/dev/null |
-         grep -q '[[:space:]]qemu_plugin_unimp_export_device_v2$'; then
+         grep -q '[[:space:]]qemu_plugin_fastdyn_const_pc_chain_version$'; then
       cat >&2 <<EOF
-FastDyn's QEMU binary is stale: it does not export the required MMIO v2 API
-(qemu_plugin_unimp_export_device_v2):
+FastDyn's QEMU binary is stale: it does not export the required constant-PC
+chain API (qemu_plugin_fastdyn_const_pc_chain_version):
   $qemu_bin
 
 Rebuild it from the patched checkout with:

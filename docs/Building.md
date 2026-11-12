@@ -11,7 +11,8 @@ FastDyn builds against dependencies pinned as submodules:
 
 - `third_party/common/qemu`: the patched QEMU fork that hosts the FastDyn
   plugin (the ordered `qemu-fastdyn-plugin-icount.patch`,
-  `qemu-fastdyn-insn-fragments.patch`, and `qemu-fastdyn-mmio.patch` series is
+  `qemu-fastdyn-insn-fragments.patch`, `qemu-fastdyn-mmio.patch`,
+  `qemu-fastdyn-mmio-pc.patch`, and `qemu-fastdyn-constant-pc.patch` series is
   applied on top)
 - `third_party/common/libhw`: the hardware-probe library (ST-Link / OpenOCD /
   J-Link), needed only to talk to a board (passthrough, twintrace recording)
@@ -107,6 +108,8 @@ cd third_party/common/qemu
 git apply ../../../patches/qemu-fastdyn-plugin-icount.patch
 git apply ../../../patches/qemu-fastdyn-insn-fragments.patch
 git apply ../../../patches/qemu-fastdyn-mmio.patch
+git apply ../../../patches/qemu-fastdyn-mmio-pc.patch
+git apply ../../../patches/qemu-fastdyn-constant-pc.patch
 mkdir build && cd build
 ../configure --target-list=arm-softmmu --enable-plugins
 make qemu-system-arm

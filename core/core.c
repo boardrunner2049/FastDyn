@@ -968,7 +968,18 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                 // change CPSR.
                 entry.offset = (size_t)(e->value.imm);
 				entry.data = (void *)e;
-                qemu_plugin_register_vcpu_insn_exec_inline_per_vcpu(insn, QEMU_PLUGIN_INLINE_UPDATE_REG, entry, e->target.reg_num);
+				if (e->type == TARGET_REGISTER &&
+				    e->value_type == VALUE_IMMEDIATE &&
+				    e->enabled == NULL &&
+				    is_target_address(insn_pc) == NULL) {
+					qemu_plugin_register_vcpu_insn_exec_inline_per_vcpu(
+						insn, QEMU_PLUGIN_INLINE_CONST_REG, entry,
+						e->target.reg_num);
+				} else {
+					qemu_plugin_register_vcpu_insn_exec_inline_per_vcpu(
+						insn, QEMU_PLUGIN_INLINE_UPDATE_REG, entry,
+						e->target.reg_num);
+				}
 	        } else if (e->type == TARGET_MEMORY) {
                 unsigned long addr = e->target.addr;
                 if (addr > 0x40000000) // This covers standard ARMv7-M / ARMv8-M memory map
@@ -1453,6 +1464,9 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
                                            const qemu_info_t *info,
                                            int argc, char **argv)
 {
+	if (qemu_plugin_fastdyn_const_pc_chain_version() != 1) {
+		utils_die("FastDyn requires the constant-PC QEMU overlay API v1");
+	}
 	core_set_guest_target(info->target_name);
 	qemu_plugin_vmstate();
 	if (utils_init(argc, argv) != 0) {

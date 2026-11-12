@@ -69,11 +69,17 @@ source ./setup.sh --build-qemu \
 ```
 
 The setup script and Dockerfile apply `qemu-fastdyn-plugin-icount.patch`,
-`qemu-fastdyn-insn-fragments.patch`, and `qemu-fastdyn-mmio.patch` in order,
+`qemu-fastdyn-insn-fragments.patch`, `qemu-fastdyn-mmio.patch`,
+`qemu-fastdyn-mmio-pc.patch`, and `qemu-fastdyn-constant-pc.patch` in order,
 detect an already-applied series, and fail rather than reset an incompatible
 checkout. A stale QEMU header fails the FastDyn build at the required
 `qemu/fastdyn-fragments.h` ABI include; it cannot accept and silently omit
 fragments.
+
+The constant-PC optimization does not relax fragment placement: a fragment
+and PC modifier at the same instruction remain a translation-time conflict.
+The original TB extent and fragment/plugin instruction metadata are retained;
+the chainable redirect is injected at the modifier's existing position.
 
 Guest-memory fragments, branches and guest control transfers, arbitrary helpers, host-state bindings, live updates/removal, automatic register preservation, and a public IR/TCG interface are intentionally absent.
 

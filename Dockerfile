@@ -50,10 +50,12 @@ RUN python3 -m venv "$VIRTUAL_ENV" \
 
 # The patched QEMU FastDyn runs in (FastDyn's patch applied to the pinned submodule)
 RUN cd third_party/common/qemu \
-    && FEATURE=../../../patches/qemu-fastdyn-mmio.patch \
+    && FEATURE=../../../patches/qemu-fastdyn-constant-pc.patch \
     && if patch -p1 -R -s -f --dry-run < "$FEATURE" >/dev/null; then :; \
        else for P in ../../../patches/qemu-fastdyn-plugin-icount.patch \
                      ../../../patches/qemu-fastdyn-insn-fragments.patch \
+                     ../../../patches/qemu-fastdyn-mmio.patch \
+                     ../../../patches/qemu-fastdyn-mmio-pc.patch \
                      "$FEATURE"; do \
            if patch -p1 -R -s -f --dry-run < "$P" >/dev/null; then :; \
            else patch -p1 --dry-run < "$P" && patch -p1 < "$P" || exit 1; fi; \
