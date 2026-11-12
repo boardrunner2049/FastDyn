@@ -1,11 +1,11 @@
 {
   "cases": {
     "alignment": {
-      "baseline_execution_seconds": 0.0319333930965513,
+      "baseline_execution_seconds": 0.03923780913464725,
       "declined": 1,
       "fallback": 0,
       "fast": 0,
-      "firmware_discovery_plan_seconds": 0.0017620420549064875,
+      "firmware_discovery_plan_seconds": 0.0033310181461274624,
       "installed": 0,
       "observation_policy": {
         "baseline_io_log": "all ordinary accesses",
@@ -14,14 +14,14 @@
         "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
       },
       "observer_counts": {},
-      "optimized_execution_seconds": 0.033166737062856555
+      "optimized_execution_seconds": 0.03755707503296435
     },
     "echo": {
-      "baseline_execution_seconds": 1.2110684900544584,
+      "baseline_execution_seconds": 1.1444572689943016,
       "declined": 2,
       "fallback": 2,
       "fast": 1000010,
-      "firmware_discovery_plan_seconds": 0.03329597692936659,
+      "firmware_discovery_plan_seconds": 0.03187111206352711,
       "installed": 10,
       "observation_policy": {
         "baseline_io_log": "all ordinary accesses",
@@ -30,14 +30,14 @@
         "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
       },
       "observer_counts": {},
-      "optimized_execution_seconds": 0.09566042805090547
+      "optimized_execution_seconds": 0.13539316807873547
     },
     "late-observer": {
-      "baseline_execution_seconds": 1.0736457370221615,
+      "baseline_execution_seconds": 1.0358597990125418,
       "declined": 2,
       "fallback": 1000012,
       "fast": 0,
-      "firmware_discovery_plan_seconds": 0.03831546404398978,
+      "firmware_discovery_plan_seconds": 0.031437073135748506,
       "installed": 10,
       "observation_policy": {
         "baseline_io_log": "all ordinary accesses",
@@ -59,14 +59,14 @@
           "writes_unhandled": 4
         }
       },
-      "optimized_execution_seconds": 1.00205696397461
+      "optimized_execution_seconds": 1.05151447490789
     },
     "observer": {
-      "baseline_execution_seconds": 1.0773450690321624,
+      "baseline_execution_seconds": 1.0692825259175152,
       "declined": 12,
       "fallback": 0,
       "fast": 0,
-      "firmware_discovery_plan_seconds": 0.03568345005623996,
+      "firmware_discovery_plan_seconds": 0.031166015192866325,
       "installed": 0,
       "observation_policy": {
         "baseline_io_log": "all ordinary accesses",
@@ -88,14 +88,14 @@
           "writes_unhandled": 4
         }
       },
-      "optimized_execution_seconds": 1.0388300179038197
+      "optimized_execution_seconds": 0.9923991491086781
     },
     "predicates": {
-      "baseline_execution_seconds": 0.07066981005482376,
+      "baseline_execution_seconds": 0.03700549295172095,
       "declined": 1,
       "fallback": 0,
       "fast": 2,
-      "firmware_discovery_plan_seconds": 0.0019902558997273445,
+      "firmware_discovery_plan_seconds": 0.0024026951286941767,
       "installed": 2,
       "observation_policy": {
         "baseline_io_log": "all ordinary accesses",
@@ -104,14 +104,14 @@
         "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
       },
       "observer_counts": {},
-      "optimized_execution_seconds": 0.04034327808767557
+      "optimized_execution_seconds": 0.0404444239102304
     },
     "safety": {
-      "baseline_execution_seconds": 0.15877788700163364,
+      "baseline_execution_seconds": 0.040511221159249544,
       "declined": 7,
       "fallback": 0,
       "fast": 5,
-      "firmware_discovery_plan_seconds": 0.005811722949147224,
+      "firmware_discovery_plan_seconds": 0.005785546964034438,
       "installed": 5,
       "observation_policy": {
         "baseline_io_log": "all ordinary accesses",
@@ -120,8 +120,8 @@
         "timing_interpretation": "dispatch plus logging savings; no isolated dispatch claim"
       },
       "observer_counts": {},
-      "optimized_execution_seconds": 0.1293028627987951
+      "optimized_execution_seconds": 0.039650312857702374
     }
   },
-  "model_compilation_seconds": 0.8250129369553179
+  "model_compilation_seconds": 0.49569373996928334
 }

@@ -38,7 +38,10 @@ enabled = true
 Analysis and optimized-model library builds both use `-fPIC -O1` before user
 `CFLAGS`, so preprocessing/optimization options agree. In particular,
 `__OPTIMIZE__`/`__PIC__` conditionals cannot select different callbacks in the
-analyzed source and the actual library. Ordinary builds without `--mmio-opt`
+analyzed source and the actual library. The library links the exact analyzed
+LLVM IR; the C preprocessor is run once. Changes to this IR force an incremental
+rebuild even when generated operation metadata is unchanged, including changes
+only to the initializer or slow callbacks. Ordinary builds without `--mmio-opt`
 retain their usual flags.
 
 `fastdyn run` writes these artifacts below the run directory:

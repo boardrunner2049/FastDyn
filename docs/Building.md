@@ -33,7 +33,7 @@ sudo apt-get install -y \
 needed only for Rumoca, OptiFuzz and the libFuzz fuzzer library.
 
 Automatic MMIO model extraction additionally uses `clang-18` and `llvm-18`
-(including libLLVM's C API for host layout). Its integration tests use
+(including libLLVM's C API for host layout). The regression tests also use
 `binutils-arm-none-eabi`. These packages are installed by CI and the Dockerfile.
 
 ## setup.sh

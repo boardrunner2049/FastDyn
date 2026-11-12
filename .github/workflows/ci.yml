@@ -54,6 +54,7 @@ jobs:
             mmio-opt-artifacts
             !mmio-opt-artifacts/**/*.sock
           if-no-files-found: warn
+          include-hidden-files: true
 
       - name: Minimal example (configs/minimal.toml)
         run: |

@@ -172,6 +172,7 @@ typedef struct FdMmioOperation {
     int64_t selector_value;
     FdMmioExprInsn expr[FASTDYN_MMIO_EXPR_MAX];
     uint32_t predicate_count;
+    uint32_t predicate_reserved; /* explicit wire padding, including packed builds */
     FdMmioPredicate predicates[FASTDYN_MMIO_PREDICATE_MAX];
 } FdMmioOperation;
 

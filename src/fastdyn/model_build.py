@@ -188,8 +188,8 @@ def build_models(
         mmio_operations = 0
         if mmio_opt:
             try:
-                generated, mmio_operations = _generate_mmio_metadata(model, out_dir, toolchain)
-                extra_sources = (generated,)
+                generated, analyzed_ir, mmio_operations = _generate_mmio_metadata(model, out_dir, toolchain)
+                extra_sources = (analyzed_ir, generated)
             except Exception as exc:
                 if not isinstance(exc, ModelBuildError):
                     exc = ModelBuildError(str(exc))
@@ -198,6 +198,7 @@ def build_models(
                                      diagnostics=str(exc))
                 Path(result.output).unlink(missing_ok=True)
                 _state_file(out_dir, model, ".mmio.c").unlink(missing_ok=True)
+                _state_file(out_dir, model, ".mmio.ll").unlink(missing_ok=True)
                 (out_dir / f"{model.name}.mmio.json").unlink(missing_ok=True)
                 if not keep_going:
                     stop.set()
@@ -369,7 +370,9 @@ def _command(model: Model, toolchain: _Toolchain, output: Path, depfile: Path,
         *toolchain.compiler, *BASE_FLAGS, *(["-O1"] if extra_sources else []),
         *toolchain.env_cflags, *_include_dirs(model),
         *toolchain.cflags, "-MMD", "-MF", str(depfile), "-o", str(output),
-        *(str(s.resolve()) for s in (*model.sources, *extra_sources)),
+        # MMIO builds link the exact IR that was analyzed, rather than running
+        # the C preprocessor a second time (e.g. __TIME__ could change).
+        *(str(s.resolve()) for s in (extra_sources or model.sources)),
         *toolchain.libs, *toolchain.env_ldflags,
     ]
 
@@ -382,7 +385,8 @@ def _plan(model: Model, out_dir: Path, toolchain: _Toolchain,
     command = _command(model, toolchain, _state_file(out_dir, model, ".so.tmp"), depfile,
                        extra_sources)
     result = ModelResult(model.name, [str(s) for s in model.sources], str(output), BUILT, command=command)
-    if _up_to_date(output, depfile, _state_file(out_dir, model, ".stamp"), _command_hash(command)):
+    if _up_to_date(output, depfile, _state_file(out_dir, model, ".stamp"),
+                   _command_hash(command), extra_sources):
         result.status = UP_TO_DATE
     return result
 
@@ -397,7 +401,7 @@ def _write_if_changed(path: Path, text: str) -> None:
 
 
 def _generate_mmio_metadata(model: Model, out_dir: Path,
-                            toolchain: _Toolchain) -> tuple[Path, int]:
+                            toolchain: _Toolchain) -> tuple[Path, Path, int]:
     from . import mmio_model
 
     if len(model.sources) != 1:
@@ -412,9 +416,13 @@ def _generate_mmio_metadata(model: Model, out_dir: Path,
         raise ModelBuildError(f"model {model.name!r}: {exc}") from exc
     generated = _state_file(out_dir, model, ".mmio.c")
     _write_if_changed(generated, mmio_model.generated_c(analysis))
+    analyzed_ir = _state_file(out_dir, model, ".mmio.ll")
+    _write_if_changed(analyzed_ir, analysis.llvm_ir)
     report = {
         "model": model.name,
         "source": str(model.sources[0]),
+        "analyzed_ir": str(analyzed_ir),
+        "analyzed_ir_sha256": hashlib.sha256(analysis.llvm_ir.encode()).hexdigest(),
         "read_function": analysis.read_function,
         "state_size": analysis.state_size,
         "operation_count": len(analysis.operations),
@@ -431,21 +439,23 @@ def _generate_mmio_metadata(model: Model, out_dir: Path,
     }
     _write_if_changed(out_dir / f"{model.name}.mmio.json",
                       json.dumps(report, indent=2, sort_keys=True) + "\n")
-    return generated, len(analysis.operations)
+    return generated, analyzed_ir, len(analysis.operations)
 
 
 def _command_hash(command: list[str]) -> str:
     return hashlib.sha256("\0".join(command).encode()).hexdigest()
 
 
-def _up_to_date(output: Path, depfile: Path, stamp: Path, command_hash: str) -> bool:
+def _up_to_date(output: Path, depfile: Path, stamp: Path, command_hash: str,
+                extra_dependencies: Sequence[Path] = ()) -> bool:
     try:
         if json.loads(stamp.read_text()).get("command") != command_hash:
             return False
         # File times advance in coarse steps, so a source saved right after a
         # build can carry the library's own time: equal counts as changed.
         built = output.stat().st_mtime_ns
-        return all(Path(dep).stat().st_mtime_ns < built for dep in _read_depfile(depfile))
+        return all(Path(dep).stat().st_mtime_ns < built
+                   for dep in (*_read_depfile(depfile), *extra_dependencies))
     except (OSError, ValueError):
         return False
 

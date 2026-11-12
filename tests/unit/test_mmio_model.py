@@ -4,6 +4,7 @@ import subprocess
 import ctypes
 import json
 import sys
+import shutil
 
 import pytest
 
@@ -132,8 +133,12 @@ def test_unrepresentable_integer_forms_decline(instruction):
 
 
 def test_actual_c_models_through_public_build_command(tmp_path):
+    sources = tmp_path / "inputs"
+    sources.mkdir()
+    for name in ("mmio_safety", "mmio_predicates"):
+        shutil.copy2(REPO / f"tests/models/{name}.c", sources / f"{name}.c")
     subprocess.run([sys.executable, "-m", "fastdyn.main", "build-model", "--mmio-opt",
-                    "--no-vio", "tests/models/mmio_safety.c", "tests/models/mmio_predicates.c",
+                    "--no-vio", str(sources / "mmio_safety.c"), str(sources / "mmio_predicates.c"),
                     "-o", str(tmp_path)], check=True, cwd=REPO)
     report = json.loads((tmp_path / "mmio_safety.mmio.json").read_text())
     values = {op["selector_value"]: op for op in report["operations"]}
@@ -164,6 +169,24 @@ def test_actual_c_models_through_public_build_command(tmp_path):
     finally:
         libc = ctypes.CDLL(None)
         libc.free.argtypes = [ctypes.c_void_p]
+        libc.free(state)
+    # Changing only init must rebuild even if operation metadata is unchanged.
+    source = sources / "mmio_safety.c"
+    source.write_text(source.read_text().replace("0x12345678", "0x87654321"))
+    subprocess.run([sys.executable, "-m", "fastdyn.main", "build-model", "--mmio-opt",
+                    "--no-vio", str(source), "-o", str(tmp_path)], check=True, cwd=REPO)
+    # A fresh filename avoids dlopen's process-local library cache.
+    shutil.copy2(tmp_path / "mmio_safety.so", tmp_path / "rebuilt.so")
+    rebuilt = ctypes.CDLL(str(tmp_path / "rebuilt.so"))
+    model = Model.in_dll(rebuilt, "fastdyn_model")
+    init = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p)(model.init)
+    read = ctypes.CFUNCTYPE(ctypes.c_uint64, ctypes.c_void_p, ctypes.c_ulong,
+                            ctypes.c_uint, ctypes.c_uint64)(model.read)
+    state = init(None, b"{}", None)
+    try:
+        assert read(state, 0x40010004, 4, 0) == 0x87654321
+        assert read(state, 0x40010008, 4, 0) == 0
+    finally:
         libc.free(state)
 
 
