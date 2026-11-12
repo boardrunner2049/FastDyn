@@ -1,0 +1,40 @@
+featureInit bf_hw_parameters 4.5.5
+# Physical MPU6000/BMP280 drivers run in the unchanged MATEKF405CTR ARM ELF.
+main raise_periodic_irq 15,1000000
+micros bf_micros32 *
+microsISR bf_micros32 *
+millis bf_millis *
+getCycleCounter bf_cycle_counter *
+cycleCounterInit bf_cycle_counter_init *usTicks,usTicksInv,cpuClockFrequency
+FLASH_ProgramWord bf_hw_flash_word *
+persistentObjectRead bf_persistent_read *
+persistentObjectWrite bf_persistent_write *
+
+# Explicit guest runtime settings; source and firmware image stay unchanged.
+
+# Substitute the bus transport, preserving physical driver execution.
+spiSequence bf_hw_spi_sequence *
+i2cBusReadRegisterBuffer bf_hw_i2c_read *
+i2cBusReadRegisterBufferStart bf_hw_i2c_read *
+i2cBusWriteRegister bf_hw_i2c_write *
+i2cBusWriteRegisterStart bf_hw_i2c_write *
+i2cBusBusy bf_hw_i2c_busy *
+
+# UART3 receives UBX packets, which the real GPS parser consumes.
+uartWrite bf_uart_write *
+uartWriteBuf bf_uart_write_buf *
+uartEndWrite bf_uart_end_write *
+uartTotalRxBytesWaiting bf_uart_rx_waiting *
+uartRead bf_uart_read *
+uartTotalTxBytesFree bf_uart_tx_free *
+isUartTransmitBufferEmpty bf_uart_tx_empty *
+run+2 bf_serial_pump *scheduler,run+2,accStartCalibration
+motorWriteAll bf_motor_write_all motorDevice,52
+failureMode bf_failure_mode *
+HardFault_Handler bf_trace hw-hardfault
+
+# Observe the original driver functions for execution evidence; no substitution.
+mpu6000SpiDetect bf_trace hw-mpu-detect
+mpuGyroReadSPI bf_trace hw-mpu-gyro-decode
+mpuAccReadSPI bf_trace hw-mpu-acc-decode
+bmp280Calculate bf_trace hw-bmp-compensate

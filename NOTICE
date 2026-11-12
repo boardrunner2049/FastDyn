@@ -25,6 +25,13 @@ licenses:
   libraries.
 * patches/qemu-fastdyn-plugin-icount.patch: a change to QEMU,
   GPL-2.0-or-later.
+* virtuals/physics/flight_controllers/courbet/betaflight/:
+  Betaflight hardware-target firmware and board configuration, GPL-3.0-or-later.
+  LICENSE-BETAFLIGHT contains the license. docs/BetaflightHardwareRehosting.md,
+  version_sweep/README.md and version_sweep/results.csv identify source and
+  configuration commits, compiler versions and build selections for
+  https://github.com/betaflight/betaflight, https://github.com/betaflight/config
+  and https://github.com/betaflight/unified-targets.
 
 The submodules under third_party/ and tools/ are separate projects under
 their own licenses.

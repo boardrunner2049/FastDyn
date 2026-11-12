@@ -1,0 +1,11 @@
+# QEMU clock and RTC are supplied by the common virtual-time callbacks.
+SetSysClock r15 r14
+systemClockSetHSEValue r15 r14
+OverclockRebootIfNecessary r15 r14
+# Internal ADC is absent; battery/current sources are explicitly set to NONE.
+adcInternalInit r15 r14
+adcInternalIsBusy r0 0
+adcInternalIsBusy r15 r14
+# Synchronous SPI transport, polling MPU6000 mode. No DMA/EXTI is advertised.
+spiUseDMA r0 0
+spiUseDMA r15 r14
