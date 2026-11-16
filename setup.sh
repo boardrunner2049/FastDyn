@@ -366,6 +366,7 @@ fastdyn_setup_optifuzz_deps() {
   local banquo_root="$1"
   local banquo_repo="$2"
   local banquo_ref="$3"
+  local predicate_patch="$4"
 
   if ! command -v cargo >/dev/null 2>&1; then
     echo "cargo was not found. Install Rust/Cargo or rerun with --skip-optifuzz." >&2
@@ -393,6 +394,10 @@ Expected to find:
 Use --optifuzz-root to point at an existing checkout, or rerun after removing the incomplete directory.
 EOF
     return 1
+  fi
+
+  if ! git -C "$banquo_root" apply --reverse --check "$predicate_patch" >/dev/null 2>&1; then
+    git -C "$banquo_root" apply "$predicate_patch" || return
   fi
 
   echo "OptiFuzz Banquo dependency is ready: $banquo_root"
@@ -585,7 +590,8 @@ fastdyn_setup_main() {
     (cd "$repo_root/third_party/common/rumoca" && cargo build -p rumoca --features lockstep --release) || return
   fi
   if [[ "$setup_optifuzz" == "true" ]]; then
-    fastdyn_setup_optifuzz_deps "$optifuzz_root" "$optifuzz_repo" "$optifuzz_ref" || return
+    fastdyn_setup_optifuzz_deps "$optifuzz_root" "$optifuzz_repo" "$optifuzz_ref" \
+      "$repo_root/patches/banquo-predicate-sign.patch" || return
   fi
 
   export FASTDYN_VENV="$venv_path"

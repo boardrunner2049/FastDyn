@@ -1,6 +1,7 @@
 #ifndef PHY_H
 #define PHY_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -74,6 +75,15 @@ typedef struct {
 typedef struct {
     gps_data_t gps;
     imu_batch_t imu_batch;
+    bool has_kinematics;
+    double rpy_rad[3];
+    double omega_frd[3];
+    double alpha_frd[3];
+    double pos_ned[3];
+    double accel_ned[3];
+    bool has_vehicle_outputs;
+    // Packed FMI values: vel_frd, accel_frd, rotation (row-major), mag, barometer, motor_cmd.
+    double vehicle_outputs[3 + 3 + 9 + 3 + 4 + 4];
 } trace_t;
 
 

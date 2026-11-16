@@ -96,6 +96,15 @@ typedef struct {
     fmi3ValueReference lon0;
     fmi3ValueReference ground_alt_wgs84;
     fmi3ValueReference earth_radius_m;
+    fmi3ValueReference rpy_rad;
+    fmi3ValueReference omega_frd;
+    fmi3ValueReference alpha_frd;
+    fmi3ValueReference pos_ned;
+    fmi3ValueReference accel_ned;
+    fmi3ValueReference vel_frd;
+    fmi3ValueReference accel_frd;
+    fmi3ValueReference rotation;
+    fmi3ValueReference motor_cmd;
 } fmu_value_refs_t;
 
 typedef struct {
@@ -115,6 +124,8 @@ typedef struct {
     double pwm[4];
     bool pwm_dirty;
     bool initialized;
+    bool has_kinematics;
+    bool has_vehicle_outputs;
     fmu_value_refs_t vr;
 } fmu_state_t;
 
@@ -375,6 +386,17 @@ static int configure_value_references(void)
         {"lon0", &fmu_state.vr.lon0},
         {"ground_alt_wgs84", &fmu_state.vr.ground_alt_wgs84},
         {"earth_radius_m", &fmu_state.vr.earth_radius_m},
+    }, kinematics[] = {
+        {"rpy_rad", &fmu_state.vr.rpy_rad},
+        {"omega_frd", &fmu_state.vr.omega_frd},
+        {"alpha_frd", &fmu_state.vr.alpha_frd},
+        {"pos_ned", &fmu_state.vr.pos_ned},
+        {"accel_ned", &fmu_state.vr.accel_ned},
+    }, vehicle_outputs[] = {
+        {"vel_frd", &fmu_state.vr.vel_frd},
+        {"accel_frd", &fmu_state.vr.accel_frd},
+        {"rotation", &fmu_state.vr.rotation},
+        {"motor_cmd", &fmu_state.vr.motor_cmd},
     };
 
     for (size_t i = 0; i < sizeof(entries) / sizeof(entries[0]); i++) {
@@ -384,6 +406,29 @@ static int configure_value_references(void)
         }
         if (status > 0 && env_flag_enabled("FASTDYN_DEBUG_FMU_VR")) {
             printf("FMU value reference override: %s=%u\n", entries[i].name, *entries[i].vr);
+        }
+    }
+    size_t found = 0;
+    const size_t count = sizeof(kinematics) / sizeof(kinematics[0]);
+    for (size_t i = 0; i < count; i++) {
+        int status = get_fmu_vr_arg(kinematics[i].name, kinematics[i].vr);
+        if (status < 0) {
+            return 0;
+        }
+        found += status;
+    }
+    if (found && found != count) {
+        fprintf(stderr, "Incomplete FMU kinematics value references\n");
+        return 0;
+    }
+    fmu_state.has_kinematics = found == count;
+    fmu_state.has_vehicle_outputs = get_exact_arg("fmu_vr_rotation") != NULL;
+    if (fmu_state.has_vehicle_outputs) {
+        for (size_t i = 0; i < sizeof(vehicle_outputs) / sizeof(vehicle_outputs[0]); i++) {
+            if (get_fmu_vr_arg(vehicle_outputs[i].name, vehicle_outputs[i].vr) != 1) {
+                fprintf(stderr, "Missing vehicle output reference: %s\n", vehicle_outputs[i].name);
+                return 0;
+            }
         }
     }
     return 1;
@@ -555,9 +600,13 @@ static int fmu_backend_init(void)
         return 0;
     }
 
+    double initial_accel_ned[3];
     if (fmu_state.enterInitializationMode(fmu_state.instance, 0, 0.0, 0.0, 0, 0.0) != fmi3OK ||
         !set_configured_parameters() ||
         !set_pwm_inputs() ||
+        // Evaluate the initial PWM-dependent forces in Rumoca before its first output snapshot.
+        (fmu_state.has_kinematics &&
+         fmu_state.getFloat64(fmu_state.instance, &fmu_state.vr.accel_ned, 1, initial_accel_ned, 3) != fmi3OK) ||
         fmu_state.exitInitializationMode(fmu_state.instance) != fmi3OK) {
         fprintf(stderr, "FMU initialization failed for %s\n", so_path);
         return 0;
@@ -644,6 +693,37 @@ static int fmu_get_navsat_reading(gps_data_t *gps_data)
     gps_data->nsec = (uint32_t)((fmu_state.time_s - floor(fmu_state.time_s)) * 1.0e9);
     gps_data->yaw_deg = (float)yaw_deg;
     return 1;
+}
+
+static int fmu_get_trace(trace_t *trace)
+{
+    if (!fmu_get_imu_batch(&trace->imu_batch) || !fmu_get_navsat_reading(&trace->gps)) {
+        return 0;
+    }
+    trace->has_kinematics = fmu_state.has_kinematics;
+    trace->has_vehicle_outputs = fmu_state.has_vehicle_outputs;
+    if (trace->has_vehicle_outputs) {
+        const fmu_value_refs_t *vr = &fmu_state.vr;
+        const fmi3ValueReference refs[] = {
+            vr->vel_frd, vr->accel_frd, vr->rotation, vr->mag,
+            vr->baro_altitude_m, vr->baro_pressure_pa, vr->baro_temperature_c,
+            vr->baro_climb_rate_mps, vr->motor_cmd,
+        };
+        fmi3Status status = fmu_state.getFloat64(fmu_state.instance, refs, sizeof(refs) / sizeof(refs[0]),
+            trace->vehicle_outputs, sizeof(trace->vehicle_outputs) / sizeof(trace->vehicle_outputs[0]));
+        if (status != fmi3OK) {
+            fprintf(stderr, "FMU fmi3GetFloat64(vehicle trace) failed with status %d\n", (int)status);
+            return 0;
+        }
+    }
+    if (!trace->has_kinematics) {
+        return 1;
+    }
+    return get_values(fmu_state.vr.rpy_rad, trace->rpy_rad, 3) &&
+           get_values(fmu_state.vr.omega_frd, trace->omega_frd, 3) &&
+           get_values(fmu_state.vr.alpha_frd, trace->alpha_frd, 3) &&
+           get_values(fmu_state.vr.pos_ned, trace->pos_ned, 3) &&
+           get_values(fmu_state.vr.accel_ned, trace->accel_ned, 3);
 }
 
 static int fmu_set_servo_pwm(int channel, int pwm)
@@ -757,6 +837,7 @@ phy_backend_t fmu_backend = {
     .imu_frame = PHY_BODY_FRAME_FRD,
     .init = fmu_backend_init,
     .shutdown = fmu_backend_shutdown,
+    .get_trace = fmu_get_trace,
     .get_imu_batch = fmu_get_imu_batch,
     .get_mag_reading = fmu_get_mag_reading,
     .get_navsat_reading = fmu_get_navsat_reading,

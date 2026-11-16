@@ -1,6 +1,7 @@
 #
 # STL-style formulas evaluated by `PhysicalObserver` using `banquo-parser`.
-# One formula per line; blank lines and lines starting with `#` are ignored.
+# One formula per line. Comments may also contain the directives described below.
+# A "# VEHICLES ..." line scopes subsequent formulas to the listed FMUv3 vehicles.
 #
 # By default, all formulas are optimized, which can lead to some formulas
 # being "overshadowed" by others.
@@ -43,3 +44,17 @@ always -0.5 <= roll_rate and roll_rate <= 0.5
 
 # Lateral acceleration boundary.
 # always -3.9 <= lateral_accel and lateral_accel <= 3.9
+
+# VEHICLES copter rover
+# Motion limits over the entire FMUv3 trace.
+# speed_ned_mps is the nonnegative 3-D norm of gps_vel_n/e/d in m/s.
+always speed_ned_mps <= 10.0
+
+# FRD body attitude in the NED frame (rad).
+always -0.3 <= roll_rad and roll_rad <= 0.3
+always -0.3 <= pitch_rad and pitch_rad <= 0.3
+
+# World-frame kinematic acceleration (m/s^2), one limit per N/E/D axis.
+always -100.0 <= accel_n_mps2 and accel_n_mps2 <= 100.0
+always -100.0 <= accel_e_mps2 and accel_e_mps2 <= 100.0
+always -100.0 <= accel_d_mps2 and accel_d_mps2 <= 100.0

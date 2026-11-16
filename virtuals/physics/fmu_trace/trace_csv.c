@@ -11,7 +11,7 @@ static FILE *robustness_trace_csv = NULL;
 static bool robustness_trace_csv_init_attempted = false;
 static bool robustness_trace_csv_disabled = false;
 
-static int init_robustness_trace_csv(void)
+static int init_robustness_trace_csv(const trace_t *trace)
 {
     if (robustness_trace_csv_init_attempted) {
         return robustness_trace_csv != NULL || robustness_trace_csv_disabled;
@@ -30,22 +30,26 @@ static int init_robustness_trace_csv(void)
         return 0;
     }
 
-    // header declaration (uses same names as STL formulas)
-    //if (fprintf(robustness_trace_csv,
-    //            "sim_time_ms,gps_lat,gps_lon,gps_alt,gps_vel_n,gps_vel_e,gps_vel_d,"
-    //            "gps_sec,gps_nsec,gps_yaw_deg") < 0) {
-    //    goto write_error;
-    //}
     if (fprintf(robustness_trace_csv,
                 "sim_time,lat,lon,z,gps_vel_n,gps_vel_e,gps_vel_d,"
-                "gps_sec,gps_nsec,gps_yaw_deg") < 0) {
+                "gps_sec,gps_nsec,gps_yaw_deg,x_accel,y_accel,z_accel,"
+                "roll_rate,pitch_rate,yaw_rate") < 0) {
         goto write_error;
     }
-    if (fprintf(robustness_trace_csv,
-                // translational accelerations
-                ",x_accel,y_accel,z_accel,"
-                // angular velocities
-                "roll_rate,pitch_rate,yaw_rate") < 0) { // role rate is rate of rotating about x axis
+    if (trace->has_kinematics && fputs(",roll_rad,pitch_rad,yaw_rad,"
+                                "omega_frd_x,omega_frd_y,omega_frd_z,"
+                                "alpha_frd_x,alpha_frd_y,alpha_frd_z,"
+                                "pos_n_m,pos_e_m,pos_d_m,"
+                                "accel_n_mps2,accel_e_mps2,accel_d_mps2",
+                                robustness_trace_csv) == EOF) {
+        goto write_error;
+    }
+    if (trace->has_vehicle_outputs &&
+        fputs(",vel_frd_x,vel_frd_y,vel_frd_z,accel_frd_x,accel_frd_y,accel_frd_z,"
+              "rotation_11,rotation_12,rotation_13,rotation_21,rotation_22,rotation_23,"
+              "rotation_31,rotation_32,rotation_33,mag_x,mag_y,mag_z,"
+              "baro_altitude_m,baro_pressure_pa,baro_temperature_c,baro_climb_rate_mps,"
+              "motor_cmd_1,motor_cmd_2,motor_cmd_3,motor_cmd_4", robustness_trace_csv) == EOF) {
         goto write_error;
     }
     if (fputc('\n', robustness_trace_csv) == EOF ||
@@ -63,7 +67,7 @@ write_error:
 
 int write_robustness_trace_csv(double sim_time_ms, const trace_t *trace)
 {
-    if (trace == NULL || !init_robustness_trace_csv()) {
+    if (trace == NULL || !init_robustness_trace_csv(trace)) {
         return 0;
     }
     if (robustness_trace_csv_disabled) {
@@ -86,6 +90,23 @@ int write_robustness_trace_csv(double sim_time_ms, const trace_t *trace)
                 (double)imu->accel_body.z, (double)imu->gyro.x,
                 (double)imu->gyro.y, (double)imu->gyro.z) < 0) {
         goto write_error;
+    }
+    if (trace->has_kinematics) {
+        const double *vectors[] = {trace->rpy_rad, trace->omega_frd, trace->alpha_frd,
+                                   trace->pos_ned, trace->accel_ned};
+        for (size_t i = 0; i < sizeof(vectors) / sizeof(vectors[0]); i++) {
+            const double *v = vectors[i];
+            if (fprintf(robustness_trace_csv, ",%.17g,%.17g,%.17g", v[0], v[1], v[2]) < 0) {
+                goto write_error;
+            }
+        }
+    }
+    if (trace->has_vehicle_outputs) {
+        for (size_t i = 0; i < sizeof(trace->vehicle_outputs) / sizeof(trace->vehicle_outputs[0]); i++) {
+            if (fprintf(robustness_trace_csv, ",%.17g", trace->vehicle_outputs[i]) < 0) {
+                goto write_error;
+            }
+        }
     }
     if (fputc('\n', robustness_trace_csv) == EOF ||
         fflush(robustness_trace_csv) != 0) {

@@ -352,7 +352,7 @@ where
             
             // create mutated input with fuzzed params and optimizer retreieved envs
             let mut mutated_input_float_aligned = mutated_input.clone();
-            mutated_input_float_aligned.set_param_bytes(params_bytes);
+            *mutated_input_float_aligned.param_bytes_mut() = libafl::inputs::BytesInput::new(params_bytes);
             mutated_input_float_aligned.set_env_config(env_string);
 
             // run FastDyn with mutated input

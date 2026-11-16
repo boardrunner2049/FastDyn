@@ -251,6 +251,23 @@ fn run_optifuzz_smoke(input_library: &CPExpInput) {
     if !matches!(result, ExitKind::Ok) {
         std::process::exit(1);
     }
+    if env::var("FASTDYN_OPTIFUZZ_BACKEND").as_deref() == Ok("fmuv3")
+        && env::var("FASTDYN_OPTIFUZZ_DRY_RUN").as_deref() != Ok("1")
+    {
+        evaluate_saved_fmuv3_execution();
+    }
+}
+
+fn evaluate_saved_fmuv3_execution() {
+    let mut observer = PhysicalObserver::new(
+        RECORDING_TIMESTEP, MISSION_TIMEOUT, TRACE_LOG_PATH, ROBUSTNESS_LOG_PATH,
+    );
+    let execution = mission_execution::execution_id();
+    let minimum = observer.evaluate_fmuv3_execution(&execution).unwrap_or_else(|err| {
+        eprintln!("Failed to evaluate execution {execution}: {err}");
+        std::process::exit(1);
+    });
+    println!("OptiFuzz execution {execution}: min robustness={minimum}");
 }
 
 pub fn main() {
@@ -260,6 +277,11 @@ pub fn main() {
 
     if env::var("FASTDYN_OPTIFUZZ_BACKEND").is_err() {
         env::set_var("FASTDYN_OPTIFUZZ_BACKEND", "fmuv3");
+    }
+
+    if env::args().nth(1).as_deref() == Some("--evaluate-trace") {
+        evaluate_saved_fmuv3_execution();
+        return;
     }
 
     /**
