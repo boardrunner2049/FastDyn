@@ -17,6 +17,12 @@ jobs:
       - name: Check out FastDyn
         uses: actions/checkout@v4
 
+      - name: Initialize FMU build dependencies
+        run: |
+          git submodule update --init -- \
+            third_party/common/rumoca \
+            third_party/common/modelica_models
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
