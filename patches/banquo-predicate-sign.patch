@@ -1,0 +1,47 @@
+diff --git a/banquo-parser/src/expressions.rs b/banquo-parser/src/expressions.rs
+index 0151278..6bad8bb 100644
+--- a/banquo-parser/src/expressions.rs
++++ b/banquo-parser/src/expressions.rs
+@@ -64,32 +64,23 @@ impl Polynomial {
+ pub struct Predicate(CorePredicate);
+ 
+ impl Predicate {
+-    /// Build a predicate for "left <= right" when it appears as a *conjunct* in an
+-    /// "and" (e.g. `always A and B`). Robustness sign matches the combined "and"
+-    /// semantics. Use this for predicates that are operands of `and`.
++    /// Convert left <= right to the core representation A*x <= b.
++    /// The core evaluates b - A*x, so constants and coefficients move in opposite directions.
+     pub fn new(left: Polynomial, right: Polynomial) -> Self {
+         let mut p = CorePredicate::new();
+-        for t in left.0 {
+-            p -= CoreTerm::from(t);
+-        }
+-        for t in right.0 {
+-            p += CoreTerm::from(t);
++        for (terms, sign) in [(left.0, 1.0), (right.0, -1.0)] {
++            for term in terms {
++                match term {
++                    Term::Variable(name, coeff) => p += (name, sign * coeff),
++                    Term::Constant(value) => p -= sign * value,
++                }
++            }
+         }
+         Self(p)
+     }
+ 
+-    /// Build a predicate for "left <= right" when it stands *alone* (e.g. `always 3.1*x <= 0.5*y`
+-    /// with no "and"). Robustness is (right - left): non-negative when the constraint holds,
+-    /// negative when violated, matching `banquo::predicate!`.
+     pub fn new_standalone(left: Polynomial, right: Polynomial) -> Self {
+-        let mut p = CorePredicate::new();
+-        for t in left.0 {
+-            p += CoreTerm::from(t);
+-        }
+-        for t in right.0 {
+-            p -= CoreTerm::from(t);
+-        }
+-        Self(p)
++        Self::new(left, right)
+     }
+ }
+ 

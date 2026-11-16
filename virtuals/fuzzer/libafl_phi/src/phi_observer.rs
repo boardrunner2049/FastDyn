@@ -35,7 +35,7 @@ use crate::cpexp_state::{HasLatestRobustness, HasOptimizer};
 use crate::trace_parser::parse_trace_log;
 
 /// Path to the text file containing STL-style formulas, one per line.
-/// Lines starting with `#` and blank lines are ignored.
+/// Supports vehicle sections and optimization markers in comment lines.
 const STL_FORMULAS_PATH: &str = "stl_formulas.txt";
 
 fn optifuzz_backend_is_fmuv3() -> bool {
@@ -170,34 +170,32 @@ fn create_contest_trace(mut csv_reader: csv::Reader<std::fs::File>) -> Trace<Has
     trace
 }
 
-fn create_contest_trace2(mut csv_reader: csv::Reader<std::fs::File>) -> Trace<HashMap<String, f64>> {
-    let headers = csv_reader.headers().cloned().unwrap();
-    let mut trace: Trace<HashMap<String, f64>> = Trace::new();
-    for result in csv_reader.records()
-    {
-        let record = result.unwrap();
-        let mut row_map = HashMap::new();
-        let mut timestamp: Option<f64> = None; 
-
-        for i in 0..record.len()
+fn read_fmuv3_trace(path: &Path) -> Result<Trace<HashMap<String, f64>>, Error> {
+    let invalid_csv = |e: csv::Error| Error::illegal_state(format!("{}: {e}", path.display()));
+    let mut reader = csv::Reader::from_path(path).map_err(invalid_csv)?;
+    let headers = reader.headers().map_err(invalid_csv)?.clone();
+    let mut trace = Trace::new();
+    for record in reader.records() {
+        let record = record.map_err(invalid_csv)?;
+        let mut row: HashMap<String, f64> = headers
+            .iter()
+            .zip(record.iter())
+            .filter_map(|(name, value)| value.parse().ok().map(|v| (name.to_owned(), v)))
+            .collect();
+        let timestamp = *row.get("sim_time").filter(|t| t.is_finite()).ok_or_else(|| {
+            Error::illegal_state(format!("Missing or invalid sim_time in {}", path.display()))
+        })?;
+        if let (Some(n), Some(e), Some(d)) =
+            (row.get("gps_vel_n"), row.get("gps_vel_e"), row.get("gps_vel_d"))
         {
-            let header_name = &headers[i];
-            let cell_value_str = &record[i];
-            if let Ok(value) = cell_value_str.parse::<f64>() {
-                row_map.insert(header_name.to_string(), value);
-                if i == 0 {
-                    timestamp = Some(value);
-                }
-            }
+            row.insert("speed_ned_mps".to_owned(), n.hypot(*e).hypot(*d));
         }
-        if timestamp.is_some() {
-            trace.insert(timestamp.unwrap(), row_map);
-        }
-        else{
-            panic!("Error: Failed to parse a valid timestamp for index 0 in this row.");
-        }
+        trace.insert(timestamp, row);
     }
-    trace
+    if trace.is_empty() {
+        return Err(Error::illegal_state(format!("Empty trace: {}", path.display())));
+    }
+    Ok(trace)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -234,7 +232,7 @@ impl PhysicalObserver {
         let limit: f64 = if limit <= 0.0 { 10.0 } else { limit };
 
         // Load STL formulas from the configured text file.
-        let (formulas, mut opt_indices) = Self::load_formulas_from_file(STL_FORMULAS_PATH);
+        let (formulas, opt_indices) = Self::load_formulas_from_file(STL_FORMULAS_PATH);
 
         // Initialize robustness vector with +inf for each loaded formula so that
         // the first evaluation will always improve it.
@@ -266,10 +264,36 @@ impl PhysicalObserver {
         &self.latest_robustness_vec
     }
 
+    pub(crate) fn evaluate_fmuv3_execution(&mut self, execution: &str) -> Result<f64, Error> {
+        let trace_path = Path::new(&self.trace_log_dir).join(format!("trace_{execution}.csv"));
+        let trace = read_fmuv3_trace(&trace_path)?;
+        let mut scores = Vec::with_capacity(self.formulas.len());
+        for (idx, formula) in self.formulas.iter().enumerate() {
+            let metrics = formula.evaluate(&trace).map_err(|err| {
+                Error::illegal_state(format!("{}: formula {idx}: {err}", trace_path.display()))
+            })?;
+            let score = metrics.iter().map(|(_, value)| *value).fold(f64::INFINITY, f64::min);
+            scores.push(score);
+        }
+        let minimum = self.optimized_formula_indices.iter()
+            .map(|&idx| scores[idx])
+            .fold(f64::INFINITY, f64::min);
+        let log_dir = Path::new(&self.robustness_log_dir);
+        create_dir_all(log_dir)?;
+        let mut file = File::create(log_dir.join(format!("robustness_{execution}.csv")))?;
+        for (idx, (formula, score)) in self.formulas.iter().zip(&scores).enumerate() {
+            let source = formula.debug_source().unwrap();
+            writeln!(file, "Formula{idx}={source}, robustness={score},")?;
+        }
+        writeln!(file, "min robustness={minimum}")?;
+        self.latest_robustness_vec = scores;
+        Ok(minimum)
+    }
+
     /// Load STL-style formulas from a plain text file using `banquo-parser`.
     ///
     /// - One formula per non-empty line.
-    /// - Lines starting with `#` are treated as comments and ignored.
+    /// - Comments may scope FMUv3 vehicles or select optimization targets.
     fn load_formulas_from_file(path: &str) -> (Vec<ParsedFormula>, Vec<usize>) {
         let file = File::open(path).unwrap_or_else(|err| {
             panic!(
@@ -284,6 +308,8 @@ impl PhysicalObserver {
         let mut formulas = Vec::new();
         let mut opt_indices: Vec<usize> = Vec::new();
 
+        let vehicle = crate::optifuzz_vehicle();
+        let mut include_section = true;
         for (idx, line_res) in reader.lines().enumerate() {
             let line_num = idx + 1;
             let line = line_res.unwrap_or_else(|err| {
@@ -296,6 +322,15 @@ impl PhysicalObserver {
 
             // Skip blank lines.
             if formula_str.is_empty() {
+                continue;
+            }
+
+            if let Some(vehicles) = formula_str.strip_prefix("# VEHICLES ") {
+                include_section = optifuzz_backend_is_fmuv3()
+                    && vehicles.split_whitespace().any(|name| name == vehicle);
+                continue;
+            }
+            if !include_section {
                 continue;
             }
 
@@ -373,95 +408,8 @@ where
 
     fn post_exec(&mut self, state: &mut S, _input: &I, _exit_kind: &ExitKind) -> Result<(), Error> {
         if optifuzz_backend_is_fmuv3() {
-            // parse the trace log generated for this (get max, min, avg values?)
-            // compare max and min againt banquo STL formulas
-            // return robustness
-            
-            let trace_dir = Path::new(&self.trace_log_dir);
-            let trace_log_path = format!(
-                "{}/trace_{}.csv",
-                self.trace_log_dir,
-                state.executions()
-            );
-            //let trace_stats = parse_trace_log(&trace_log_path).unwrap();
-
-            let csv_reader_status = csv::ReaderBuilder::new()
-                .has_headers(true)
-                .from_path(&trace_log_path);
-
-            if csv_reader_status.is_err() {
-                println!(
-                    "Warning: Failed to open trace log file for parsing {}",
-                    state.executions()
-                );
-                // TODO: should return an error or something???  - should always be able to open
-                println!("Skipping physical observation...");
-                return Ok(());
-            }
-
-            let mut csv_reader = csv_reader_status.unwrap();
-            //let headers = csv_reader.headers()?.clone();
-            // TODO: using a Vector here instead of BTreeMap is more efficient when inserting (since we know dataset is chronological)
-            let mut trace: Trace<HashMap<String, f64>> = create_contest_trace2(csv_reader);
-            self.latest_robustness_vec.clear();
-
-            // trace is created, now I need to feed into Banquo to eval STL formulas
-            // should get robustness for each formula
-            //self.latest_robustness_vec
-            //    .push(evaluate(&trace, &contest_formula).unwrap());
-
-            
-            let log_dir = Path::new(&self.robustness_log_dir);
-            create_dir_all(log_dir).expect("Unable to create robustness log directory");
-            let robustness_log_path = format!(
-                "{}/robustness_{}.csv",
-                self.robustness_log_dir,
-                state.executions()
-            );
-            let mut file = OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .create(true)
-                .open(&robustness_log_path)
-                .expect("Unable to create robustness log file");
-
-            for (idx, formula) in self.formulas.iter().enumerate() {
-                let metrics = formula
-                    .evaluate(&trace)
-                    .unwrap_or_else(|e| {
-                        panic!(
-                            "Error evaluating STL formula #{} from '{}': {}",
-                            idx + 1,
-                            STL_FORMULAS_PATH,
-                            e
-                        )
-                    });
-
-                // Reduce the per-time-step metrics to a single robustness value by
-                // taking the minimum over the trace, matching the classic STL
-                // robustness semantics.
-                let robustness = metrics
-                    .iter()
-                    .fold(f64::INFINITY, |acc, (t, v)| {
-                        let _ = t; // ignore time, only robustness value matters
-                        if *v < acc { *v } else { acc }
-                    });
-                self.latest_robustness_vec.push(robustness);
-
-                writeln!(file, "Formula{}={}, robustness={},", idx, formula.debug_source().unwrap(), robustness).unwrap(); 
-            }
-
-            // Get minimum robustness value of the OPTIMIZED formulas, and put it in the state to tell the optimizer
-            let mut min_optimized_robustness: f64 = f64::INFINITY;
-            for opt in self.optimized_formula_indices.iter() {
-                let current_robustness = self.latest_robustness_vec[*opt];
-                if current_robustness < min_optimized_robustness {
-                    min_optimized_robustness = current_robustness;
-                }
-            }
-            writeln!(file, "min robustness={}", min_optimized_robustness).unwrap(); 
-            state.set_latest_robustness(min_optimized_robustness);
-
+            let minimum = self.evaluate_fmuv3_execution(&state.executions().to_string())?;
+            state.set_latest_robustness(minimum);
             return Ok(());
         }
 

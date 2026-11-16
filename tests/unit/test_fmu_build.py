@@ -1,4 +1,5 @@
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -54,4 +55,35 @@ def test_value_references_reject_missing_configured_parameter(tmp_path):
     write_model_description(build.output)
 
     with pytest.raises(fmu_build.FmuConfigError, match="not_in_fmu"):
+        fmu_build.value_references(build)
+
+
+def test_partial_kinematics_group_reports_missing_outputs(tmp_path):
+    build = make_build(tmp_path, {})
+    write_model_description(build.output)
+    path = build.output / "modelDescription.xml"
+    xml = ET.parse(path)
+    variable = ET.SubElement(xml.find("ModelVariables"), "Float64", name="alpha_frd",
+                             valueReference="88", causality="output")
+    ET.SubElement(variable, "Dimension", start="3")
+    xml.write(path)
+    with pytest.raises(fmu_build.FmuConfigError, match="pos_ned"):
+        fmu_build.value_references(build)
+
+
+def test_scalar_kinematics_cannot_be_read_as_vector(tmp_path):
+    build = make_build(tmp_path, {})
+    write_model_description(build.output, ("alpha_frd",))
+    with pytest.raises(fmu_build.FmuConfigError, match="shape"):
+        fmu_build.value_references(build)
+
+
+def test_copter_rotation_requires_two_dimensions(tmp_path):
+    build = make_build(tmp_path, {})
+    xml = ET.Element("fmiModelDescription")
+    rotation = ET.SubElement(ET.SubElement(xml, "ModelVariables"), "Float64",
+                             name="rotation", valueReference="1", causality="output")
+    ET.SubElement(rotation, "Dimension", start="9")
+    ET.ElementTree(xml).write(build.output / "modelDescription.xml")
+    with pytest.raises(fmu_build.FmuConfigError, match=r"rotation.*\(3, 3\)"):
         fmu_build.value_references(build)

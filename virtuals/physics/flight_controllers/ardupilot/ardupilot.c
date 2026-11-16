@@ -396,7 +396,7 @@ void init_wheel_encoder(unsigned int cpu_index, void *udata)
 /**
  * @brief Copy wheel encoder state to frontend
  *
- * This function reads the current position of the wheel encoders from Gazebo
+ * This function reads wheel joint positions from the active physics backend
  * and updates the corresponding fields in the ArduRover simulation.
  *
  * @requirements.copy_wheel_encoder_state_to_frontend
@@ -419,6 +419,19 @@ void init_wheel_encoder(unsigned int cpu_index, void *udata)
 void copy_wheel_encoder_state_to_frontend(unsigned int cpu_index, void *udata)
 {
 
+    static atomic_bool joint_state_unavailable = false;
+    double motor0_pos = 0.0;
+    double motor2_pos = 0.0;
+    if (!phy_get_joint_state(&motor0_pos, &motor2_pos))
+    {
+        if (!atomic_exchange(&joint_state_unavailable, true))
+        {
+            fprintf(stderr, "Wheel encoder update skipped: the active physics backend provided no wheel joint positions.\n");
+        }
+        return;
+    }
+    atomic_store(&joint_state_unavailable, false);
+
     uint32_t driver_address = (uint32_t)qemu_get_register(ARM_V7M_R0);
     uint32_t frontend_address = 0;
     qemu_plugin_read_memory(driver_address + 0x4, (uint8_t *)&frontend_address, sizeof(uint32_t));
@@ -426,14 +439,6 @@ void copy_wheel_encoder_state_to_frontend(unsigned int cpu_index, void *udata)
     uint32_t driver2_address = 0;
     qemu_plugin_read_memory(frontend_address + 0x6c, (uint8_t *)&driver1_address, sizeof(uint32_t));
     qemu_plugin_read_memory(frontend_address + 0x70, (uint8_t *)&driver2_address, sizeof(uint32_t));
-
-    double motor0_pos = 0.0;
-    double motor2_pos = 0.0;
-    if (!phy_get_joint_state(&motor0_pos, &motor2_pos))
-    {
-        fprintf(stderr, "Failed to get joint state from Gazebo\n");
-        return;
-    }
 
     int64_t current_nanos = qemu_plugin_get_virtual_timer();
     uint32_t current_millis = (uint32_t)(current_nanos / 1000000);

@@ -52,6 +52,8 @@ FASTDYN_OPTIFUZZ_DRY_RUN=1 \
 cargo run --bin baby_fuzzer
 ```
 
+For one real FMUv3 run with per-formula robustness and a raw-trace cross-check, see the [Copter mission instructions](../../../utils/optifuzz-dev/README.md#run-one-copter-mission-with-stl-monitoring).
+
 CI runs this dry-run path for copter, rover, and plane, including two-worker
 swarm dry-runs.
 

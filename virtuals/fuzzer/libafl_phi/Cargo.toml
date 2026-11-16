@@ -11,6 +11,13 @@ edition = "2021"
 default = ["std"]
 tui = []
 std = []
+legacy-gazebo = []
+
+# The external Gazebo recorder belongs to the optional legacy build.
+[[bin]]
+name = "trace_recorder"
+path = "src/bin/trace_recorder/main.rs"
+required-features = ["legacy-gazebo"]
 
 [profile.dev]
 panic = "abort"

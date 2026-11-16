@@ -36,9 +36,6 @@ model Copter
   parameter Real lat0 = 40.414929 "Reference latitude [deg]";
   parameter Real lon0 = -86.932387 "Reference longitude [deg]";
   parameter Real ground_alt_wgs84 = 149.0 "WGS84 ellipsoid altitude of the local ground collision plane [m]";
-  parameter Real accel_bias[3] = {0, 0, 0} "Accelerometer bias [m/s^2]";
-  parameter Real gyro_bias[3] = {0, 0, 0} "Gyroscope bias [rad/s]";
-  parameter Real mag_bias[3] = {0, 0, 0} "Magnetometer bias [Gauss]";
   parameter Real gps_bias[3] = {0, 0, 0} "GPS bias N/E/altitude [m]";
   parameter Real baro_alt_bias = 0.0 "Barometer relative altitude bias [m]";
   parameter Real earth_radius_m = 6378137.0 "Spherical Earth radius used for local geodetic conversion [m]";
@@ -46,23 +43,32 @@ model Copter
 
   input Real pwm[4](start = {1000, 1000, 1000, 1000}) "Motor PWM commands";
 
-  output Real accel[3] "Body FRD accelerometer [m/s^2]";
-  output Real gyro[3] "Body FRD gyroscope [rad/s]";
-  output Real mag[3] "Body FRD magnetometer [Gauss]";
-  output Real gps[3] "GPS latitude, longitude, altitude";
-  output Real vel_ned[3] "GPS velocity NED [m/s]";
-  output Real yaw_deg "Yaw [deg]";
-  output Real baro_altitude_m "Barometer relative altitude [m]";
-  output Real baro_pressure_pa "Barometer pressure [Pa]";
-  output Real baro_temperature_c "Barometer temperature [degC]";
-  output Real baro_climb_rate_mps "Barometer climb rate [m/s]";
-  output Real motor_cmd[4] "Motor commands after PWM scaling [rad/s]";
+  output Real pos_ned[3](each unit="m") "Position N/E/D relative to the local ground origin";
+  output Real pos_gps[3] "GPS latitude [deg], longitude [deg], WGS84 ellipsoid altitude [m]";
+  output Real vel_ned[3](each unit="m/s") "World velocity N/E/D";
+  output Real vel_frd[3](each unit="m/s") "Body velocity F/R/D";
+  output Real accel_ned[3](each unit="m/s2") "World kinematic acceleration N/E/D";
+  output Real accel_frd[3](each unit="m/s2") "Body kinematic acceleration F/R/D";
+
+  output Real rpy[3](each unit="rad") "ZYX attitude of FRD body in NED, ordered roll/pitch/yaw";
+  output Real rotation[3, 3] "Rotation matrix from body FRD to world NED";
+  output Real yaw_deg(unit="deg") "Yaw attitude of FRD body in NED";
+  output Real omega_frd[3](each unit="rad/s") "Angular velocity about FRD body axes";
+  output Real alpha_frd[3](each unit="rad/s2") "Angular acceleration about FRD body axes";
+
+  output Real mag[3](each unit="Gauss") "Body FRD magnetometer";
+  output Real baro_altitude_m(unit="m") "Barometer relative altitude";
+  output Real baro_pressure_pa(unit="Pa") "Barometer pressure";
+  output Real baro_temperature_c(unit="degC") "Barometer temperature";
+  output Real baro_climb_rate_mps(unit="m/s") "Barometer climb rate";
+  output Real motor_cmd[4](each unit="rad/s") "Motor commands after PWM scaling";
 
 protected
   Real pwm_span;
   Real pwm_norm[4];
   Real gps_lat_lon[2];
-  Real yaw_rad;
+  Real angular_momentum_flu[3];
+  Real net_torque_flu[3];
 
 equation
   pwm_span = pwm_max - pwm_min;
@@ -73,9 +79,7 @@ equation
     plant.omega_cmd[i] = motor_cmd[i];
   end for;
 
-  accel = plant.accel + accel_bias;
-  gyro = plant.gyro + gyro_bias;
-  mag = plant.mag + mag_bias;
+  mag = plant.mag;
 
   gps_lat_lon = Geodesy.localNorthEastToLatLon(
     lat0,
@@ -83,17 +87,29 @@ equation
     plant.p[1] + gps_bias[1],
     -plant.p[2] + gps_bias[2],
     earth_radius_m);
-  gps[1] = gps_lat_lon[1];
-  gps[2] = gps_lat_lon[2];
-  gps[3] = ground_alt_wgs84 + plant.p[3] + gps_bias[3];
+  pos_gps[1] = gps_lat_lon[1];
+  pos_gps[2] = gps_lat_lon[2];
+  pos_gps[3] = ground_alt_wgs84 + plant.p[3] + gps_bias[3];
 
   vel_ned[1] = plant.v_w[1];
   vel_ned[2] = -plant.v_w[2];
   vel_ned[3] = -plant.v_w[3];
 
-  yaw_rad = atan2(2.0 * (plant.q[1] * plant.q[4] + plant.q[2] * plant.q[3]),
-                  1.0 - 2.0 * (plant.q[3] * plant.q[3] + plant.q[4] * plant.q[4]));
-  yaw_deg = -yaw_rad * 180.0 / pi;
+  vel_frd = plant.R_FRD_FLU * plant.v_b;
+  rotation = transpose(plant.R_NWU_NED) * plant.R * transpose(plant.R_FRD_FLU);
+  rpy[1] = atan2(rotation[3,2], rotation[3,3]);
+  rpy[2] = asin(min(1.0, max(-1.0, -rotation[3,1])));
+  rpy[3] = atan2(rotation[2,1], rotation[1,1]);
+  yaw_deg = rpy[3] * 180.0 / pi;
+
+  omega_frd = plant.gyro;
+  angular_momentum_flu = plant.J * plant.omega;
+  net_torque_flu = plant.M_b - cross(plant.omega, angular_momentum_flu);
+  alpha_frd = angularAccelerationFRD(plant.J, net_torque_flu);
+  pos_ned = {plant.p[1], -plant.p[2], -plant.p[3]};
+  // F_b excludes gravity. Rotate it into world axes, divide by mass and restore gravity.
+  accel_ned = plant.R_NWU_NED * ((plant.R * plant.F_b) / plant.mass + {0, 0, -plant.g});
+  accel_frd = transpose(rotation) * accel_ned;
 
   baro_altitude_m = plant.p[3] + baro_alt_bias;
   baro_temperature_c = 15.0 - 0.0065 * (ground_alt_wgs84 + baro_altitude_m);

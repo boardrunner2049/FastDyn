@@ -41,6 +41,14 @@ REQUIRED_VALUE_REFERENCES = (
     "ground_alt_wgs84",
     "earth_radius_m",
 )
+KINEMATICS_OUTPUTS = ("rpy_rad", "omega_frd", "alpha_frd", "pos_ned", "accel_ned")
+# Plugin roles shared with older FMUs. The virtual accelerometer consumes specific force.
+VEHICLE_SENSOR_BINDINGS = {
+    "gps": "pos_gps", "gyro": "omega_frd", "accel": "plant.accel", "rpy_rad": "rpy",
+}
+VEHICLE_TRACE_SHAPES = {
+    "vel_frd": (3,), "accel_frd": (3,), "rotation": (3, 3), "motor_cmd": (4,),
+}
 
 
 class FmuConfigError(RuntimeError):
@@ -448,34 +456,54 @@ def value_references(build: FmuBuild) -> dict[str, int]:
     except ET.ParseError as exc:
         raise FmuConfigError(f"invalid FMU modelDescription.xml for {build.name}: {exc}") from exc
 
-    requested = set(REQUIRED_VALUE_REFERENCES)
-    requested.update((build.parameters or {}).keys())
+    variables = {v.get("name"): v for v in root.findall("{*}ModelVariables/*")}
+    vehicle = build.model in ("FastDyn.Copter", "FastDyn.Rover")
+    has_body_outputs = vehicle and bool(
+        {"pos_gps", "rpy", "rotation", "vel_frd", "accel_frd"}.intersection(variables)
+    )
+    bindings = {name: name for name in REQUIRED_VALUE_REFERENCES}
+    shapes: dict[str, tuple[int, ...]] = {}
+    if has_body_outputs or (vehicle and set(KINEMATICS_OUTPUTS).intersection(variables)):
+        bindings.update({name: name for name in KINEMATICS_OUTPUTS})
+        shapes.update(dict.fromkeys(KINEMATICS_OUTPUTS, (3,)))
+    if has_body_outputs:
+        bindings.update(VEHICLE_SENSOR_BINDINGS)
+        bindings.update({name: name for name in VEHICLE_TRACE_SHAPES})
+        shapes.update(VEHICLE_TRACE_SHAPES)
+        shapes.update(dict.fromkeys(("gps", "accel", "gyro", "mag", "vel_ned"), (3,)))
+        shapes.update(dict.fromkeys(("yaw_deg", "baro_altitude_m", "baro_pressure_pa",
+                                     "baro_temperature_c", "baro_climb_rate_mps"), ()))
+
+    for name in build.parameters or {}:
+        if name in bindings and bindings[name] != name:
+            raise FmuConfigError(f"{name!r} is a sensor role, not a parameter in FMU {build.name!r}")
+        bindings[name] = name
 
     refs: dict[str, int] = {}
-    for element in root.iter():
-        if element.tag.rsplit("}", 1)[-1] != "Float64":
+    missing = []
+    for role, name in bindings.items():
+        element = variables.get(name)
+        if element is None:
+            missing.append(name)
             continue
-        name = element.attrib.get("name")
+        is_float64 = element.tag.rsplit("}", 1)[-1] == "Float64"
+        if role in shapes:
+            dimensions = tuple(d.get("start") for d in element.findall("{*}Dimension"))
+            if (not is_float64 or element.get("causality") != "output"
+                    or dimensions != tuple(map(str, shapes[role]))):
+                raise FmuConfigError(f"FMU {name!r} must be a Float64 output with shape {shapes[role]}")
         raw_vr = element.attrib.get("valueReference")
-        if name in requested and raw_vr is not None:
-            try:
-                refs[name] = int(raw_vr)
-            except ValueError as exc:
-                raise FmuConfigError(
-                    f"FMU variable {name!r} has invalid valueReference {raw_vr!r}"
-                ) from exc
-
-    missing = [name for name in REQUIRED_VALUE_REFERENCES if name not in refs]
+        if not is_float64 or raw_vr is None:
+            missing.append(name)
+            continue
+        try:
+            refs[role] = int(raw_vr)
+        except ValueError as exc:
+            raise FmuConfigError(
+                f"FMU variable {name!r} has invalid valueReference {raw_vr!r}"
+            ) from exc
     if missing:
         raise FmuConfigError(
             f"FMU {build.name!r} is missing required variables: {', '.join(missing)}"
-        )
-    missing_parameters = sorted(
-        name for name in (build.parameters or {}) if name not in refs
-    )
-    if missing_parameters:
-        raise FmuConfigError(
-            f"FMU {build.name!r} is missing configured parameter variables: "
-            f"{', '.join(missing_parameters)}"
         )
     return refs

@@ -59,13 +59,15 @@ phy_body_frame_t phy_get_imu_frame(void)
 
 int phy_get_trace(trace_t *trace)
 {
-    if (trace == NULL ||
-        !phy_get_imu_batch(&(trace->imu_batch)) ||
-        !phy_get_navsat_reading(&(trace->gps))) {
+    if (trace == NULL) {
         return 0;
     }
-
-    return 1;
+    trace->has_kinematics = false;
+    trace->has_vehicle_outputs = false;
+    if (active_backend && active_backend->get_trace) {
+        return active_backend->get_trace(trace);
+    }
+    return phy_get_imu_batch(&trace->imu_batch) && phy_get_navsat_reading(&trace->gps);
 }
 
 int phy_get_imu_batch(imu_batch_t *imu_batch)

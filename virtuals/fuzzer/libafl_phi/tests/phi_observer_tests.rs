@@ -92,46 +92,52 @@ fn fails_when_variable_missing_from_trace() {
 
 #[test]
 fn parses_production_stl_formulas_txt_with_same_logic() {
-    // This test mirrors the parsing logic used by `PhysicalObserver::load_formulas_from_file`
-    // against the real `stl_formulas.txt` that the fuzzer uses in production.
-
-    // 1) Open the production STL formulas file from the crate root.
-    let file = File::open("stl_formulas.txt")
-        .expect("stl_formulas.txt should exist in the crate root for this test");
-    let reader = BufReader::new(file);
-
-    // 2) Apply the exact same parsing rules as `PhysicalObserver::load_formulas_from_file`:
-    //    skip blank lines and comments, and panic if any formula cannot be parsed.
-    let mut formulas: Vec<ParsedFormula> = Vec::new();
-    for (idx, line_res) in reader.lines().enumerate() {
-        let line_num = idx + 1;
-        let line = line_res.unwrap_or_else(|err| {
-            panic!("Error reading line {} from 'stl_formulas.txt': {}", line_num, err)
-        });
-
-        let s = line.trim().to_owned();
-        if s.is_empty() || s.starts_with('#') {
-            continue;
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/stl_formulas.txt");
+    let formulas = load_stl_formulas(path);
+    let bounds = [
+        ("speed_ned_mps", 10.0),
+        ("roll_rad", 0.3),
+        ("pitch_rad", 0.3),
+        ("accel_n_mps2", 100.0),
+        ("accel_e_mps2", 100.0),
+        ("accel_d_mps2", 100.0),
+    ];
+    for (signal, limit) in bounds {
+        let selected: Vec<_> = formulas.iter()
+            .filter(|(src, _)| src.split_whitespace().any(|token| token == signal))
+            .collect();
+        assert_eq!(selected.len(), 1, "Expected one envelope for {signal}");
+        let (_, formula) = selected[0];
+        for fraction in [-1.2_f64, -1.0, -0.5, 0.0, 0.5, 1.0, 1.2] {
+            let value = limit * fraction;
+            if signal == "speed_ned_mps" && value < 0.0 {
+                continue;
+            }
+            let states = [0.0, value, 0.0].map(|x| {
+                std::collections::HashMap::from([(signal.to_owned(), x)])
+            });
+            let [start, excursion, end] = states;
+            let trace = Trace::from([(0.0, start), (1.0, excursion), (2.0, end)]);
+            let rho = min_robustness(&formula.evaluate(&trace).unwrap());
+            assert!((rho - (limit - value.abs())).abs() < 1e-9, "{signal} at {value}: {rho}");
         }
-
-        // Panic on parse error, mirroring the runtime behaviour in `PhysicalObserver`.
-        let parsed = parse_formula(&s).unwrap_or_else(|e| {
-            panic!(
-                "Failed to parse STL formula on line {} of 'stl_formulas.txt': \"{}\"\nError: {}",
-                line_num, s, e
-            );
-        });
-
-        formulas.push(parsed);
     }
+}
 
-    // If we get here, no panic occurred and all formulas parsed successfully.
-    // As an additional sanity check, the current production file should define 5 formulas.
-    assert_eq!(
-        formulas.len(),
-        5,
-        "Expected 5 formulas to be parsed from stl_formulas.txt"
-    );
+#[test]
+fn altitude_implication_preserves_constant_and_variable_signs() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/stl_formulas.txt");
+    let (_, formula) = load_stl_formulas(path).into_iter()
+        .find(|(src, _)| src.contains("implies") && src.contains("z <= 130.0"))
+        .expect("existing altitude formula");
+    for (time, altitude, expected) in [(0.0, 150.0, 1.0), (10.0, 120.0, 10.0),
+                                       (10.0, 130.0, 0.0), (10.0, 150.0, -9.0)] {
+        let state = std::collections::HashMap::from([
+            ("sim_time".to_owned(), time), ("z".to_owned(), altitude),
+        ]);
+        let trace = Trace::from([(time, state)]);
+        assert_eq!(min_robustness(&formula.evaluate(&trace).unwrap()), expected);
+    }
 }
 
 /// Build a single state (one time step) with roll, pitch, roll_rate, lateral_accel.
@@ -209,16 +215,14 @@ fn reference_formula_lat_accel() -> impl BanquoFormula<std::collections::HashMap
 
 #[test]
 fn stl_formulas_parse_and_evaluate_accurately() {
-    // Prove that the formulas in stl_formulas.txt evaluate identically to the
-    // hand-built reference (Always::unbounded(And::new(min_pred, max_pred))).
-    // Robustness is negative only when we violate a policy; in-bounds => non-negative.
-
-    let parsed = load_stl_formulas("stl_formulas.txt");
-    assert_eq!(
-        parsed.len(),
-        5,
-        "stl_formulas.txt must define exactly 5 formulas for this test"
-    );
+    // Keep the historical parser-vs-macro fixtures independent of the active mission policy.
+    let parsed: Vec<_> = [
+        "always -0.78539816339 <= roll and roll <= 0.78539816339",
+        "always -0.78539816339 <= pitch and pitch <= 0.78539816339",
+        "always -0.3 <= roll and roll <= 0.3",
+        "always -0.5 <= roll_rate and roll_rate <= 0.5",
+        "always -3.9 <= lateral_accel and lateral_accel <= 3.9",
+    ].into_iter().map(|src| (src.to_owned(), parse_formula(src).unwrap())).collect();
 
     const TOL: f64 = 1e-9;
     type State = std::collections::HashMap<String, f64>;

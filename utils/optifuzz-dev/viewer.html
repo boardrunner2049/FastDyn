@@ -1,0 +1,68 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VEHICLE_NAME 4.6.2 AUTO | FMU signals</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#f6f8f8;color:#193743;font:15px/1.55 'DejaVu Sans',Arial,sans-serif}main{max-width:1340px;margin:auto;padding:30px 4vw}h1{font-size:clamp(23px,3.3vw,38px);margin:0 0 6px}p{margin:6px 0 16px;color:#445b68}.controls{display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin:18px 0}label{display:grid;gap:4px;color:#485e67;font-size:13px}select,button{padding:8px 11px;background:white;color:#123641;border:1px solid #a1babd;border-radius:4px;font:inherit}button{cursor:pointer}#chart{width:100%;height:clamp(440px,68vh,750px);background:white}#range{font-variant-numeric:tabular-nums}details{margin:14px 0}th,td{text-align:left;border-bottom:1px solid #dae3e5;padding:4px 12px}a{color:#00666d}
+</style><main><h1>VEHICLE_NAME 4.6.2 AUTO mission signals</h1>
+<p>Compare two variables sampled from the same FMU at the same time. Solid lines show the primary signal and dotted lines the comparison. Click a legend entry to toggle a component.</p>
+<div class="controls"><button id="trackToggle" aria-expanded="false">Show ground track</button></div><div id="ground" style="display:none;height:620px"></div><div class="controls"><label>Primary signal<select id="a"></select></label><label>Component<select id="ac"></select></label><label>Comparison signal<select id="b"></select></label><label>Component<select id="bc"></select></label>
+<button id="flight">MISSION_INTERVAL</button><button id="full">Full run</button></div><div id="chart"></div>
+<p id="range"></p><details><summary>FMU parameters at the first sample</summary><table><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody>PARAMS</tbody></table></details>
+</main><script>PLOT_LIB</script><script id="payload" type="application/json">PAYLOAD</script><script>
+const info=JSON.parse(document.getElementById('payload').textContent), signals=info.signals;
+const by=id=>document.getElementById(id);
+const decode=str=>new Float64Array(Uint8Array.from(atob(str),c=>c.charCodeAt(0)).buffer);
+const t=decode(info.t), plot=by('chart'), palette=['#147378','#b84926','#5469ab','#914e80','#948009','#2a8da7','#a74358','#639745','#4f5079'];
+function opt(parent,label,val){const x=document.createElement('option');x.textContent=label;x.value=val;parent.appendChild(x);}
+function fill(id,initial){
+ const sel=by(id); if(id==='b') opt(sel,'None','');
+ for(const group of ['Model outputs','Inputs','Internal variables']){
+  const box=document.createElement('optgroup');box.label=group;sel.appendChild(box);
+  for(const key of Object.keys(signals).filter(k=>signals[k].group===group).sort()) opt(box,key,key);
+ }
+ sel.value=initial;sel.onchange=()=>{parts(id);render();};parts(id);
+}
+function parts(id){
+ const sel=by(id+'c'), key=by(id).value; sel.replaceChildren();opt(sel,'All','all');
+ if(key) signals[key].channels.forEach((c,j)=>opt(sel,c.label,j));
+ sel.onchange=render;sel.disabled=!key||signals[key].channels.length===1;
+ if(key==='pos_gps')sel.value='0';
+}
+let range=info.flight;
+function render(){
+ let lines=[], units=[[],[]];
+ for(const [axis,id] of ['a','b'].entries()){
+  const key=by(id).value; if(!key)continue;
+  const part=by(id+'c').value;
+  signals[key].channels.forEach((c,j)=>{
+   if(part!=='all'&&Number(part)!==j)return;
+   if(!c.values)c.values=decode(c.data);
+   units[axis].push(c.unit||'Model units');
+   lines.push({type:'scatter',mode:'lines',x:t,y:c.values,name:c.label+(c.unit?' ('+c.unit+')':''),yaxis:axis?'y2':'y',
+    hovertemplate:'%{x:.4f} s · %{y:.7g}<extra>%{fullData.name}</extra>',
+    line:{color:palette[j%palette.length],width:axis?1.6:2.3,dash:axis?'dot':'solid'}});
+  });
+ }
+ const u=units.map(arr=>Array.from(new Set(arr)).join(', ')); const separate=units[1].length && u[0]!==u[1];
+ if(!separate)lines.forEach(s=>s.yaxis='y');
+ const layout={template:'plotly_white',margin:{l:70,r:separate?80:28,b:68,t:48},
+  font:{family:'DejaVu Sans, Arial, sans-serif',color:'#193743'},legend:{orientation:'h',y:1.03,x:0},hovermode:'closest',
+  xaxis:{title:{text:'Simulation time (s)'},range:range},yaxis:{title:{text:u[0]},automargin:true},paper_bgcolor:'white',plot_bgcolor:'white'};
+ if(separate)layout.yaxis2={title:{text:u[1]},side:'right',overlaying:'y',showgrid:false};
+ return Plotly.react(plot,lines,layout,{responsive:true,displaylogo:false,scrollZoom:true});
+}
+by('trackToggle').onclick=()=>{
+ const el=by('ground'),btn=by('trackToggle'),display=el.style.display==='none';
+ el.style.display=display?'block':'none';btn.textContent=display?'Hide ground track':'Show ground track';btn.setAttribute('aria-expanded',String(display));if(!display)return;
+ const d=info.track, paths=[{x:d.planE,y:d.planN,text:d.labels,textposition:'top right',mode:'markers+lines+text',
+ name:'Uploaded waypoints',line:{dash:'dash',color:'#777'},marker:{size:7}}];
+ for(const reverse of (d.rover?[false,true]:[false])){
+  const keep=d.sequence.map(n=>d.reverse.includes(n)===reverse);
+  paths.push({x:d.e.map((v,i)=>keep[i]?v:null),y:d.n.map((v,i)=>keep[i]?v:null),customdata:d.t,mode:'lines',
+   name:d.rover?(reverse?'Reverse legs':'Forward legs'):'FMU ground track',line:{width:3,color:reverse?'#bd4d24':'#13747b'},hovertemplate:'East %{x:.2f} m · North %{y:.2f} m<br>Elapsed time %{customdata:.2f} s<extra>%{fullData.name}</extra>'});
+ }
+ Plotly.newPlot(el,paths,{title:{text:'Mission ground track'},xaxis:{title:{text:'East (m)'},constrain:'domain'},yaxis:{title:{text:'North (m)'},scaleanchor:'x',scaleratio:1},
+ margin:{l:60,r:35,t:56,b:65},legend:{orientation:'h'},hovermode:'closest'},{responsive:true,displaylogo:false});
+};
+fill('a','pos_ned');fill('b','plant.p');
+by('flight').onclick=()=>{range=info.flight;render();};by('full').onclick=()=>{range=[t[0],t[t.length-1]];render();};
+by('range').textContent='Display data use an approximately 20 Hz grid, component extrema and the first 0.27 s at full resolution. Full-resolution signals are in fmu_signals.npz.';
+render();
+</script></html>

@@ -18,7 +18,7 @@ const RUN_SERVICES_DIR: &str = "../../physics/flight_controllers/courbet/gazebo"
 const MAV_C2_DIR: &str = "../../physics/flight_controllers/courbet/mavlink";
 const FASTDYN_DIR: &str = "../../..";
 
-fn execution_id() -> String {
+pub(crate) fn execution_id() -> String {
     env::var("EXECUTION").unwrap_or_else(|_| "0".to_string())
 }
 

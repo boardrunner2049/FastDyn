@@ -26,6 +26,7 @@ glib = dependency('glib-2.0', version: '>=2.56.0', required: true)
 cjson_dep = dependency('libcjson', required: true)
 deps = [glib, cjson_dep]
 srcs = []
+fmu_srcs = []
 
 #debugging FLAGS
 DEBUG_PRINT = get_option('DEBUG_PRINT')
@@ -214,8 +215,21 @@ endif
 
 fastdyn_target = shared_module(
   'fastdyn',
-  srcs,
+  srcs + fmu_srcs,
   include_directories: [qemu_include, local_include],
   dependencies: deps,
   install: false
 )
+
+# The mission recorder reuses the normal plugin objects and instruments the FMU backend.
+if fmu_srcs.length() > 0
+  shared_module(
+    'fastdyn_mission',
+    'utils/optifuzz-dev/capture.c',
+    objects: fastdyn_target.extract_objects(srcs),
+    include_directories: [qemu_include, local_include],
+    dependencies: deps,
+    install: false,
+    build_by_default: false,
+  )
+endif
