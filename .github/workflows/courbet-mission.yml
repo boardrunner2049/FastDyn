@@ -36,6 +36,7 @@ jobs:
             pkg-config \
             protobuf-compiler \
             python3-venv \
+            universal-ctags \
             zlib1g-dev
 
       - name: Install Rust toolchain
