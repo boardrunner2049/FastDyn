@@ -4,6 +4,7 @@
 #include <string.h>
 #include <utils.h>
 #include "physics_engines/stub/stub.h"
+#include "gcs_receiver.h"
 #if ENABLE_LIBGZ
 #include "physics_engines/gazebo/gazebo.h"
 #endif
@@ -61,11 +62,24 @@ int phy_get_trace(trace_t *trace)
 {
     if (trace == NULL ||
         !phy_get_imu_batch(&(trace->imu_batch)) ||
-        !phy_get_navsat_reading(&(trace->gps))) {
+        !phy_get_navsat_reading(&(trace->gps)) ||
+        !phy_get_vel_ned(&(trace->vel_ned))) {
         return 0;
     }
 
+    gcs_receiver_get_rc6_pwm(&(trace->rc6_pwm));
+
+
     return 1;
+}
+
+int phy_get_vel_ned(vector3d_t *vel_ned)
+{
+    if (!active_backend || !active_backend->get_vel_ned) {
+        return 0;
+    }
+
+    return active_backend->get_vel_ned(vel_ned);
 }
 
 int phy_get_imu_batch(imu_batch_t *imu_batch)

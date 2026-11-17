@@ -74,6 +74,8 @@ typedef struct {
 typedef struct {
     gps_data_t gps;
     imu_batch_t imu_batch;
+    vector3d_t vel_ned;
+    uint16_t rc6_pwm;
 } trace_t;
 
 
@@ -89,6 +91,8 @@ typedef struct phy_backend {
     int (*get_trace)(trace_t *trace);
 
     int (*get_imu_batch)(imu_batch_t *imu_batch);
+
+    int (*get_vel_ned)(vector3d_t *vel_ned);
 
     int (*get_mag_reading)(vector3d_t *mag);
 
@@ -133,6 +137,7 @@ int phy_init(int argc, char ** argv);
 // Could be a pointer to an array of imu_batch_t structs, along with a size parameter
 int phy_get_trace(trace_t *trace);
 int phy_get_imu_batch(imu_batch_t *batch);
+int phy_get_vel_ned(vector3d_t *vel_ned);
 int phy_get_mag_reading(vector3d_t *mag);
 int phy_get_navsat_reading(gps_data_t *gps_data);
 int phy_set_servo_pwm(int channel, int pwm);

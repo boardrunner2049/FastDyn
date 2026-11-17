@@ -592,6 +592,18 @@ static void fmu_backend_shutdown(void)
     fmu_state.initialized = false;
 }
 
+static int fmu_get_vel_ned(vector3d_t *vel_ned)
+{
+    double values[3] = {0.0, 0.0, 0.0};
+    if (!get_values(fmu_state.vr.vel_ned, values, 3)) {
+        return 0;
+    }
+    vel_ned->x = values[0];
+    vel_ned->y = values[1];
+    vel_ned->z = values[2];
+    return 1;
+}
+
 static int fmu_get_imu_batch(imu_batch_t *imu_batch)
 {
     double accel[3] = {0.0, 0.0, -9.80665};
@@ -757,6 +769,7 @@ phy_backend_t fmu_backend = {
     .imu_frame = PHY_BODY_FRAME_FRD,
     .init = fmu_backend_init,
     .shutdown = fmu_backend_shutdown,
+    .get_vel_ned = fmu_get_vel_ned,
     .get_imu_batch = fmu_get_imu_batch,
     .get_mag_reading = fmu_get_mag_reading,
     .get_navsat_reading = fmu_get_navsat_reading,

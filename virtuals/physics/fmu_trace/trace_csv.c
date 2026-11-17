@@ -48,6 +48,11 @@ static int init_robustness_trace_csv(void)
                 "roll_rate,pitch_rate,yaw_rate") < 0) { // role rate is rate of rotating about x axis
         goto write_error;
     }
+    if (fprintf(robustness_trace_csv,
+                // translational accelerations
+                ",vel_n,vel_e,vel_d, pwm") < 0) { // role rate is rate of rotating about x axis
+        goto write_error;
+    }
     if (fputc('\n', robustness_trace_csv) == EOF ||
         fflush(robustness_trace_csv) != 0) {
         goto write_error;
@@ -87,6 +92,20 @@ int write_robustness_trace_csv(double sim_time_ms, const trace_t *trace)
                 (double)imu->gyro.y, (double)imu->gyro.z) < 0) {
         goto write_error;
     }
+
+    const vector3d_t *vel_ned = &trace->vel_ned;
+    if (fprintf(robustness_trace_csv, ",%.9g,%.9g,%.9g",
+                (double)vel_ned->x, (double)vel_ned->y,
+                (double)vel_ned->z) < 0) {
+        goto write_error;
+    }
+
+    //const uint16_t *rc6_pwm = &trace->rc6_pwm;
+    if (fprintf(robustness_trace_csv, ",%u",
+                (uint16_t)trace->rc6_pwm) < 0) {
+        goto write_error;
+    }
+
     if (fputc('\n', robustness_trace_csv) == EOF ||
         fflush(robustness_trace_csv) != 0) {
         goto write_error;

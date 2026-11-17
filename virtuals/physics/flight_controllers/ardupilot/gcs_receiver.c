@@ -11,6 +11,10 @@
 #include "ring_buffer.h"
 #include "mavlink_lib.h"
 #include "mavlink.h"
+#include <stdatomic.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include "gcs_receiver.h"
 
 #define RING_BUFFER_SIZE 512
 #define DEFAULT_GCS_UDP_PORT 14551
@@ -18,7 +22,21 @@
 #define MAX_PACKET_SIZE 1024
 #define RED   "\033[31m"
 #define RESET "\033[0m"
+#define RC6_PWM_VALID (1u << 16)
 
+static atomic_uint_least32_t rc6_override_state = 0;
+bool gcs_receiver_get_rc6_pwm(uint16_t *pwm)
+{
+    uint32_t state = atomic_load_explicit(
+        &rc6_override_state, memory_order_acquire);
+
+    if (pwm == NULL || (state & RC6_PWM_VALID) == 0) {
+        return false;
+    }
+
+    *pwm = (uint16_t)(state & UINT16_MAX);
+    return true;
+}
 
 static pthread_t gcs_listener_tid;
 static pthread_t gps_input_listener_tid;
@@ -175,6 +193,19 @@ void translate_and_forward(const mavlink_message_t* msg) {
         return;
     }
 
+    if (msg->msgid == MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE) {
+        mavlink_rc_channels_override_t override;
+        mavlink_msg_rc_channels_override_decode(msg, &override);
+        // RC6 command is override.chan6_raw
+        uint16_t pwm = override.chan6_raw;
+        if (pwm == 0) {
+            atomic_store_explicit(&rc6_override_state, 0, memory_order_release);
+        } else if (pwm != UINT16_MAX) {
+            atomic_store_explicit(
+                &rc6_override_state, RC6_PWM_VALID | pwm, memory_order_release);
+        }
+    }
+
     // // write every message out to a file "/root/rooney/FastDyn/courbet/mavlink/mavlink_received.log"
     // FILE *log_file = fopen("/root/rooney/FastDyn/courbet/mavlink/mavlink_received.log", "a");
     // if (log_file) {
@@ -292,7 +323,9 @@ static void* udp_listener(void *arg) {
                     continue;
                 }
                 // Also feed byte to MAVLink parser
-                // mavlink_input_byte(buffer[i]);
+                if (config->updates_gcs_endpoint) {
+                    mavlink_input_byte(buffer[i]);
+                }
             }
         }
     }

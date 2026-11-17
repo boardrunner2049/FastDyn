@@ -558,6 +558,12 @@ def ensure_armed_and_started(
     )
     print("[mission] mission start requested", flush=True)
     timing.mark("mission.start_requested", echo=True)
+    print("[mission] writing 1000 to RC6", flush=True)
+
+    mav.mav.rc_channels_override_send(
+        mav.target_system, mav.target_component,
+        65535, 65535, 65535, 65535, 65535, 1000, 65535, 65535
+    )
 
 
 def wait_for_gps_fusion(mav: mavutil.mavfile, count: int, timeout: float) -> None:
