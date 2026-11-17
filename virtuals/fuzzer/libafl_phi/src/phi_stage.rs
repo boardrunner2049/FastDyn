@@ -90,7 +90,7 @@ impl<S> Restartable<S> for PhiStage
         //     return Ok(false);
         // }
 
-        Ok(false)
+        Ok(true)
 
     }
 
