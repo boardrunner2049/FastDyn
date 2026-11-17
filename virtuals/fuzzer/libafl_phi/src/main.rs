@@ -459,10 +459,10 @@ pub fn main() {
 
     println!("Starting the fuzzing loop!");
 
-    let stats_stage = AflStatsStage::builder()
-        .map_feedback(&coverage_feedback_for_stats)
-        .build()
-        .unwrap();
+    //let stats_stage = AflStatsStage::builder()
+    //    .map_feedback(&coverage_feedback_for_stats)
+    //    .build()
+    //    .unwrap();
 
     // Setup a mutational stage with a basic bytes mutator
 
@@ -493,7 +493,7 @@ pub fn main() {
             mutator,
             nonzero!(MAX_EXECUTIONS_PER_LAMBDA_STAGE)
         ),
-        stats_stage,
+        //stats_stage,
     );
 
     fuzzer
