@@ -379,6 +379,7 @@ impl TargetInput {
 pub trait HasParamBytes {
     fn param_bytes(&self) -> &BytesInput;
     fn param_bytes_mut(&mut self) -> &mut BytesInput;
+    fn set_param_bytes(&mut self, new_bytes: Vec<u8>);
 }
 
 impl HasParamBytes for TargetInput {
@@ -387,6 +388,9 @@ impl HasParamBytes for TargetInput {
     }
     fn param_bytes_mut(&mut self) -> &mut BytesInput {
         &mut self.param_bytes
+    }
+    fn set_param_bytes(&mut self, new_bytes: Vec<u8>) {
+        self.param_bytes = BytesInput::new(new_bytes);
     }
 }
 
