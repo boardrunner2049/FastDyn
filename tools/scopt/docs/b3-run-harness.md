@@ -114,7 +114,7 @@ r = package_negative(snapshot, mutant_plan, "runs/<wp>/negative", label="drop-g_
 The directory is written outside any store, carries `x_negative_control` and
 `NEGATIVE_CONTROL.json`, keeps the full `validation.json` (the bypassed failures included;
 verdict `rejected`), and is refused by `scopt publish`, `formats.artifact.publish`, deploy (by
-default; also when given as the bare `<dir>/cache.sc`, judged by the directory's marker file and
+default; also when given as the bare `<dir>/cache.sc`, recognized by the directory's marker file and
 the file's own `<file>.scopt.json` sidecar) and campaign preflight. Known limit: the tags
 live next to the file, not in the `.sc` bytes, so a control's `cache.sc` copied to another
 directory deploys as an untagged bare `.sc` (`identity.checked = false`); gate reports name
