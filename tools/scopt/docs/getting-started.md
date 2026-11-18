@@ -22,10 +22,11 @@ The steps in short (each is explained below; none may be skipped):
 3. build QEMU and the FastDyn plugin with `setup.sh` (§3);
 4. create a Python 3.12 venv and `pip install -e 'tools/scopt[test]'` (`[test]` brings
    pytest) (§4);
-5. bind scopt to your QEMU (§5): `scopt envlayout produce`, **`scopt helper-effects
-   rebind`** (without it every helper call is fail-closed and B3/B4 find little to do),
-   and the `export` lines (`SCOPT_ENVLAYOUT_PATH`, `SCOPT_HELPER_EFFECTS_PATH`,
-   `SCOPT_V6_EXES`, `SCOPT_RUNTIME_QEMU`, `SCOPT_RUNTIME_QEMU_SHA256`, `FASTDYN_ROOT`);
+5. bind scopt to your QEMU (§5): write the environment file `~/scopt.env`
+   (`SCOPT_ENVLAYOUT_PATH`, `SCOPT_HELPER_EFFECTS_PATH`, `SCOPT_V6_EXES`,
+   `SCOPT_RUNTIME_QEMU`, `SCOPT_RUNTIME_QEMU_SHA256`, `FASTDYN_ROOT`), then run
+   `scopt envlayout produce` and **`scopt helper-effects rebind`** (without it every
+   helper call is fail-closed and B3/B4 find little to do);
 6. run the tests (§6);
 7. write the firmware's FastDyn TOML (§7), then prepare, optimize, validate and run
    (§8-§11); `docs/workflow.md` has the full workflow.
@@ -87,10 +88,12 @@ source ./setup.sh --build-qemu --qemu-root third_party/common/qemu
 This creates `fastdyn-env/` (the `fastdyn` command), configures QEMU with
 `../configure --target-list=arm-softmmu --enable-plugins`, builds
 `third_party/common/qemu/build/qemu-system-arm`, and builds `build/libfastdyn.so`.
-It took about 3 minutes on 16 cores. Naming `--qemu-root` is optional on a fresh
-checkout. It matters when an already built `../qemu` sits next to the checkout: without
-it, setup.sh prefers that older build, and it has neither the capture/profile hooks nor
-the v6 loader.
+It took about 3 minutes on 16 cores, on a host where ccache and the pip cache were
+already warm; on a new machine the build and the Python installs take longer.
+
+Naming `--qemu-root` is optional on a fresh checkout. It matters when an already built
+`../qemu` sits next to the checkout: without it, setup.sh prefers that older build, and
+it has neither the capture/profile hooks nor the v6 loader.
 
 setup.sh is FastDyn's general setup, so it does more than scopt needs:
 
@@ -101,8 +104,11 @@ setup.sh is FastDyn's general setup, so it does more than scopt needs:
   They dominate the disk use: SITL_Models is about 750 MB of the download, and
   cmsis-svd-data downloads only about 34 MB but checks out to about 5.8 GB. A checkout
   after setup.sh was about 11 GB in total. scopt uses none of these submodules.
-  `--skip-submodules` leaves them out (it should save about 7 GB; the scopt path was
-  checked with them present, not with this flag);
+  `--skip-submodules` does **not** save that space together with `--build-qemu`: it
+  only skips setup.sh's own submodule step, and the plugin build that `--build-qemu`
+  runs (the `fetch` target of the `Makefile`) initializes the same three submodules
+  anyway. The checkout was 11 GB with the flag as well. The by-hand build below
+  initializes only cmsis-svd-data (`make DEV=true` builds no flight-controller support);
 - it clones the OptiFuzz dependency (banquo) into `../banquo`, **outside the
   checkout**; add `--skip-optifuzz` to leave it out;
 - it creates `third_party/common/qemu/ws/` with Courbet RAM backing files (one of
@@ -113,9 +119,16 @@ setup.sh is FastDyn's general setup, so it does more than scopt needs:
   `taskset -c 0-7 bash -c 'source ./setup.sh --build-qemu --qemu-root third_party/common/qemu'`
   limits it to 8 jobs.
 
-The build log prints `ninja: error: Could not initialize jobserver` and
-`fatal: No names found, cannot describe anything.` (the submodule is a shallow clone);
-both are harmless, the build goes on.
+The build log prints a few messages that are harmless for scopt; the build goes on:
+
+- `ninja: error: Could not initialize jobserver`;
+- `fatal: No names found, cannot describe anything.` (the submodule is a shallow clone);
+- from the plugin's `meson setup`: `WARNING: include_directories sandbox violation! ...
+  This warning will become a hard error in a future Meson release.`;
+- the plugin's `meson setup` command line passes `-Dlibhw_path=` and `-Daflnet_path=`
+  pointing at `libhw` and `aflnet` directories next to the checkout, which do not
+  exist. Those options are only read when libhw or AFLNet support is enabled, and
+  neither is for scopt.
 
 **The icount patch.** setup.sh applies `patches/qemu-fastdyn-plugin-icount.patch` only
 when `git apply --reverse --check` says it is not already there. On this branch the
@@ -175,26 +188,40 @@ the sha256 of `qemu-system-arm`. The package ships data for the two maintainer b
 (gate `56d8bfb3…`, WP-QINT `8864c726…`). Your build has another sha256, so produce your
 own.
 
+First write the environment file. Run this **once, from the root of the FastDyn
+checkout**: the here-document is not quoted, so `$PWD`, `$HOME` and the `sha256sum`
+are expanded while the file is written, and `~/scopt.env` holds absolute paths that
+work from any directory.
+
 ```sh
-Q=$PWD/third_party/common/qemu/build/qemu-system-arm
-QSHA=$(sha256sum "$Q" | cut -d' ' -f1)
-mkdir -p ~/scopt-data/envlayouts ~/scopt-data/helper_effects
-export SCOPT_ENVLAYOUT_PATH=~/scopt-data/envlayouts
-export SCOPT_HELPER_EFFECTS_PATH=~/scopt-data/helper_effects
-export SCOPT_V6_EXES=$QSHA
-export SCOPT_RUNTIME_QEMU=$Q SCOPT_RUNTIME_QEMU_SHA256=$QSHA   # QEMU for commands without --qemu
-export FASTDYN_ROOT=~/scopt-work         # your workspace for runs (not the checkout)
-mkdir -p "$FASTDYN_ROOT"
+cat > ~/scopt.env <<EOF
+export F=$PWD                                                  # the FastDyn checkout
+export Q=$PWD/third_party/common/qemu/build/qemu-system-arm    # your QEMU
+export QSHA=$(sha256sum third_party/common/qemu/build/qemu-system-arm | cut -d' ' -f1)
+export SCOPT_ENVLAYOUT_PATH=$HOME/scopt-data/envlayouts
+export SCOPT_HELPER_EFFECTS_PATH=$HOME/scopt-data/helper_effects
+export SCOPT_V6_EXES=\$QSHA
+export SCOPT_RUNTIME_QEMU=\$Q SCOPT_RUNTIME_QEMU_SHA256=\$QSHA   # QEMU for commands without --qemu
+export FASTDYN_ROOT=$HOME/scopt-work                           # your workspace (not the checkout)
+EOF
+. ~/scopt.env
+mkdir -p "$SCOPT_ENVLAYOUT_PATH" "$SCOPT_HELPER_EFFECTS_PATH" "$FASTDYN_ROOT"
+cat ~/scopt.env                    # check: absolute paths and a 64-digit QSHA
 ```
+
+Source `~/scopt.env` in every shell that runs scopt (and activate `scopt-env`, §4). The
+recorded `QSHA` belongs to the build that existed when the file was written: after a
+rebuild of QEMU, write the file again and repeat this section (see §13).
 
 1. **EnvLayout** (env field offsets, from DWARF, needed by B3 and B4):
 
    ```sh
    scopt envlayout produce --exe "$Q" --out $SCOPT_ENVLAYOUT_PATH/$QSHA.json
-   scopt envlayout show --exe-sha256 sha256:$QSHA      # regs[15], hflags.flags, neg.can_do_io ...
+   scopt envlayout show --exe-sha256 $QSHA      # regs[15], hflags.flags, neg.can_do_io ...
    ```
 
    The file must be named `<exe sha256 hex>.json`; scopt looks it up by that name.
+   `--exe-sha256` takes the hex digest with or without the `sha256:` prefix.
 
 2. **Helper effect table** (what each TCG helper may read, write, or fault on). Without
    one, every helper call is treated as unknown ("fail closed"): artifacts stay correct,
@@ -233,16 +260,26 @@ with an unchecked binary.
 
 The other two locations scopt uses have defaults:
 
-- `FASTDYN_ROOT` is the workspace: the commands below write under `$W`, a directory in
-  it, and scopt reads optional maintainer evidence there (`runs/`, `fixtures/`, the
-  maintainer's QEMU builds under `wt/`). Unset, it defaults to the directory that holds
-  `tools/` (here the checkout root).
+- `FASTDYN_ROOT` has two roles. It is your workspace: the commands below write under
+  `$W`, a directory in it, and the campaign drivers write `runs/...` there. It is also
+  the root of the maintainer's workspace layout, so scopt looks up a few fixed paths
+  under it. Outside the tests these are:
+
+  | path under `$FASTDYN_ROOT` | used for | when it is absent |
+  |---|---|---|
+  | `runs/wp22/gate-binary.json` | adds the gate binary's sha256 to the v6-capable executables (item 3 above) | only `SCOPT_V6_EXES` and `--v6-exe` count |
+  | `wt/qemu-int/build/qemu-system-arm` | the default QEMU of a command without `--qemu`, checked against the WP-QINT sha256 `8864c726…` | no default: `runtime_qemu_unavailable` unless `SCOPT_RUNTIME_QEMU` is set |
+  | `runs/b3-explore/wp16/calibration.json` (or `$SCOPT_B3_CALIBRATION`) | measured cost constants for the B3 profitability estimate | the built-in constants |
+  | `src/qemu/`, `src/fastdyn/` | the B0 reference binaries, used only by B0 comparisons and the import of B0 caches without capture metadata | those commands report the missing file |
+
+  A new workspace contains none of them, so nothing is read from it; do not create
+  these paths in your own workspace. The tests read more of the maintainer's layout
+  (§6). Unset, `FASTDYN_ROOT` defaults to the directory that holds `tools/` (here the
+  checkout root).
 - `SCOPT_FASTDYN_SRC` is the FastDyn checkout scopt launches FastDyn from
   (`fastdyn-env/bin/fastdyn`, `build/libfastdyn.so`; FastDyn runs with it as the
   working directory). Unset, it is the checkout that contains this `tools/scopt`;
   set it only to use another FastDyn build.
-
-Put the `export` lines in a file you source in every shell that runs scopt.
 
 ## 6. Run the tests
 
@@ -380,8 +417,7 @@ The modifier address is the `uxtb r3, r3` two instructions after `ldrb r3, [r3]`
 TOML once with plain FastDyn, from a scratch directory:
 
 ```sh
-F=$PWD                                    # the FastDyn checkout
-mkdir -p ~/fw/check && cd ~/fw/check
+mkdir -p ~/fw/check && cd ~/fw/check      # $F: the FastDyn checkout (~/scopt.env, §5)
 setarch x86_64 -R $F/fastdyn-env/bin/fastdyn run -c ~/fw/fw.toml -o fwrun
 cd $F
 ```
@@ -454,6 +490,15 @@ scopt profile run -c $CFG --snapshot $SNAP --qemu "$Q" --out $W/prof
 `prepare` exits 0 (PASS), 1 (FAIL) or 2 (refused, for example a flat cache or a TOML
 without a supercache).
 
+`import` writes one file per distinct translated block into the store (about 2000 for
+the compute workload) and fsyncs each before the snapshot is renamed into place. On a
+rotating disk this can take a minute or two while the CPU is mostly idle. On a terminal
+it prints progress lines on stderr (`--no-progress` turns them off). If you interrupt
+it (Ctrl-C, SIGTERM or SIGHUP), it removes its temporary directory under
+`store/snapshots/`, so the store never holds a partial snapshot; run it again. A
+`kill -9` cannot be handled: then delete the `store/snapshots/.tmp-*` directory it left
+behind (make it writable first, §12).
+
 `import` re-derives every bundle field it can from the cache's FastDyn manifest and
 the native files. `memory_map_hash` needs the TOML's memory banks, which `import` does
 not read, so it is reported as unverified. That is expected: the field is part of the
@@ -472,8 +517,10 @@ below), so each store holds the artifacts of one kind.
 
 - `scopt optimize` exits 0 when the artifact is published and 2 when it is rejected.
   With `--json` it prints a JSON document whose `artifact_dir` is the artifact
-  directory (`null` when rejected); without it, the directory is printed on the line
-  after `artifact <id>`.
+  directory (`null` when rejected) and whose `publish_status` is `created`, or
+  `exists` when the store already held the identical artifact (`null` when rejected).
+  Without `--json`, the directory is printed on the line after
+  `artifact <id> (created)`.
 - `scopt b4 package` and `scopt sfb package` have no `--json` option: they always
   print JSON (or write it to `--out FILE`). Its `status` is `published`, `no_change` or
   a rejection, and `path` is the artifact directory (or the rejection file). They exit
@@ -551,11 +598,18 @@ scopt deploy $P -c $CFG --run-dir $W/run1 --qemu "$Q"     # writes the artifact 
 scopt rundir launch $W/run1                               # setarch -R, timeout, proof -> run.json
 ```
 
+`deploy` prints a short summary. Its `check:` line reads `not run (no --check)` unless
+you pass `--check`, which runs the deploy oracle (FastDyn's configuration step, no
+guest run) twice more in scratch directories and requires the same fingerprint each
+time (then `ok`).
+
 FastDyn then starts warm from the optimized cache. `launch` resets every RAM bank
 before the run, so a file copied into the run directory by hand is lost. Give a
-firmware with an input bank its input on the launch:
+firmware with an input bank its input on the launch. A run directory is used once, so
+deploy a new one first:
 
 ```sh
+scopt deploy $P -c $CFG --run-dir $W/run2 --qemu "$Q"
 scopt rundir launch $W/run2 --inputs heldout-1.bin        # --input-bank ID, default "input"
 ```
 

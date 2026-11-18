@@ -40,7 +40,9 @@ milestones were evaluated and name places outside the repository:
   maintainer's recorded runs or fixtures skip when they are absent, with a message that
   names the missing path. Unset, it defaults to the directory that holds `tools/`
   (the FastDyn checkout root); `SCOPT_FASTDYN_SRC` (the FastDyn build scopt launches)
-  defaults to that checkout. Both defaults are in `scopt/paths.py`.
+  defaults to that checkout. Both defaults are in `scopt/paths.py`. The few fixed
+  maintainer paths scopt itself (outside the tests) looks up under `$FASTDYN_ROOT` are
+  listed in `docs/getting-started.md` §5.
 - The campaign files in `campaigns/` are frozen records of the maintainer's evaluation
   and name the maintainer's paths.
 - "the maintainer's evaluation data", "evaluation report" and "notes" name material that
