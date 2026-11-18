@@ -29,7 +29,7 @@
 [submodule "third_party/common/qemu"]
 	path = third_party/common/qemu
 	url = https://github.com/boardrunner2049/qemu.git
-	branch = fastdyn
+	branch = scopt
 	shallow = true
 	ignore = dirty
 [submodule "third_party/common/libhw"]
