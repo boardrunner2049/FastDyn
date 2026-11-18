@@ -19,7 +19,7 @@
 #
 
 # 100m altitude +- 30m
-always (1.0 <= sim_time) implies (z <= 130.0)
+# always ((1.0 <= sim_time) implies (z <= 130.0))
 # always (1.0 <= sim_time) implies (70.0 <= z)
 # always (z <= 130.0)
 
@@ -39,7 +39,15 @@ always (1.0 <= sim_time) implies (z <= 130.0)
 # always -0.3 <= roll and roll <= 0.3
 
 # Roll growth boundary: limit roll rate.
-always -0.5 <= roll_rate and roll_rate <= 0.5
+# always -0.5 <= roll_rate and roll_rate <= 0.5
 
 # Lateral acceleration boundary.
 # always -3.9 <= lateral_accel and lateral_accel <= 3.9
+
+
+#always ((pwm <= 65534.999) implies (DER_ground_speed <= 0.01 * (((TUNE_MAX - TUNE_MIN) / (2000.0 - 1000.0)) * pwm - 400.0)))
+#always ((pwm <= 65534.999) implies (DER_ground_speed <= 0.01 ))
+always ((pwm <= 65534.999) implies (DER_ground_speed <= DER_max_speed * 1.2))
+#always DER_ground_speed <= DER_max_speed * 1.2
+
+

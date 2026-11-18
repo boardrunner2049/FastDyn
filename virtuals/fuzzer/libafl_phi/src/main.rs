@@ -323,10 +323,13 @@ pub fn main() {
      */
     // We have included the parameters we fuzzed during the ArduPlane campaign here as an example.
     let param_info_vec: Vec<ParamInput> = vec![
-        ParamInput::new_float("ATC_RAT_YAW_P", (0.05, 0.5), 0.005),
-        ParamInput::new_float("ATC_RAT_YAW_I", (0.0, 0.2), 0.005),
-        ParamInput::new_float("ATC_RAT_YAW_D", (0.0, 0.03), 0.001),
-        ParamInput::new_float("ATC_RAT_YAW_FF", (0.0, 0.2), 0.005),
+        //ParamInput::new_float("ATC_RAT_YAW_P", (0.05, 0.5), 0.005),
+        //ParamInput::new_float("ATC_RAT_YAW_I", (0.0, 0.2), 0.005),
+        //ParamInput::new_float("ATC_RAT_YAW_D", (0.0, 0.03), 0.001),
+        //ParamInput::new_float("ATC_RAT_YAW_FF", (0.0, 0.2), 0.005),
+        ParamInput::new_float("TUNE_MIN", (300.0, 10000.0), 0.5),
+        ParamInput::new_float("TUNE_MAX", (500.0, 10000.0), 0.5),
+
         // Group 1 — Roll Control Loop
         // ParamInput::new_float("RLL_RATE_P", (0.08, 0.35), 0.005),
         // ParamInput::new_float("RLL_RATE_I", (0.01, 0.6), 0.01),

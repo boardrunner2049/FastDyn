@@ -32,6 +32,8 @@ use banquo::predicate::FormulaError;
 use banquo::{evaluate, predicate, EvaluationError, Formula, Predicate, Trace};
 
 use crate::cpexp_state::{HasLatestRobustness, HasOptimizer};
+use crate::cpexp_input::{HasParamBytes, TargetInput};
+use crate::cpexp_state::HasInputLibrary;
 use crate::trace_parser::parse_trace_log;
 
 /// Path to the text file containing STL-style formulas, one per line.
@@ -170,13 +172,14 @@ fn create_contest_trace(mut csv_reader: csv::Reader<std::fs::File>) -> Trace<Has
     trace
 }
 
-fn create_contest_trace2(mut csv_reader: csv::Reader<std::fs::File>) -> Trace<HashMap<String, f64>> {
+fn create_contest_trace2(mut csv_reader: csv::Reader<std::fs::File>, param_mapping: &HashMap<String, f64>) 
+-> Trace<HashMap<String, f64>> {
     let headers = csv_reader.headers().cloned().unwrap();
     let mut trace: Trace<HashMap<String, f64>> = Trace::new();
     for result in csv_reader.records()
     {
         let record = result.unwrap();
-        let mut row_map = HashMap::new();
+        let mut row_map = param_mapping.clone();
         let mut timestamp: Option<f64> = None; 
 
         for i in 0..record.len()
@@ -190,6 +193,30 @@ fn create_contest_trace2(mut csv_reader: csv::Reader<std::fs::File>) -> Trace<Ha
                 }
             }
         }
+
+        if let (Some(&vel_n), Some(&vel_e)) = (row_map.get("vel_n"), row_map.get("vel_e")) {
+            let vel_ground = f64::sqrt(vel_n * vel_n + vel_e * vel_e);
+            row_map.insert("DER_ground_speed".to_string(), vel_ground);
+        }
+
+        if let (Some(&tune_max), Some(&tune_min), Some(&pwm)) = (row_map.get("TUNE_MAX"), row_map.get("TUNE_MIN"), row_map.get("pwm")) {
+            let mut max_speed = f64::INFINITY;
+            let slope = ((tune_max * 0.01 - tune_min * 0.01) / (2000.0 - 1000.0)); // Assuming pwm range is 1000 to 2000
+            let intercept = tune_min * 0.01 - (slope * 1000.0);
+            if (tune_max > tune_min) 
+            {
+                max_speed = slope * pwm + intercept;
+            }
+            row_map.insert("DER_max_speed".to_string(), max_speed);
+
+            if let Some(&vel_ground) = row_map.get("DER_ground_speed")
+            {
+                if vel_ground > max_speed * 1.2 {
+                    println!("found bug: {row_map:?}");
+                }
+            }
+        }
+
         if timestamp.is_some() {
             trace.insert(timestamp.unwrap(), row_map);
         }
@@ -197,6 +224,12 @@ fn create_contest_trace2(mut csv_reader: csv::Reader<std::fs::File>) -> Trace<Ha
             panic!("Error: Failed to parse a valid timestamp for index 0 in this row.");
         }
     }
+
+    let middle = trace.len() / 2;
+    for (time, row) in trace.iter().skip(middle.saturating_sub(5)).take(10) {
+        println!("trace[{time}] = {row:?}");
+    }
+
     trace
 }
 
@@ -332,7 +365,8 @@ impl PhysicalObserver {
 
 impl<I, S> Observer<I, S> for PhysicalObserver
 where
-    S: HasExecutions + HasOptimizer + HasLatestRobustness,
+    I: HasParamBytes,
+    S: HasExecutions + HasOptimizer + HasLatestRobustness + HasInputLibrary,
 {
     fn pre_exec(&mut self, state: &mut S, _input: &I) -> Result<(), Error> {
         if optifuzz_backend_is_fmuv3() {
@@ -402,7 +436,15 @@ where
             let mut csv_reader = csv_reader_status.unwrap();
             //let headers = csv_reader.headers()?.clone();
             // TODO: using a Vector here instead of BTreeMap is more efficient when inserting (since we know dataset is chronological)
-            let mut trace: Trace<HashMap<String, f64>> = create_contest_trace2(csv_reader);
+            let param_inputs = TargetInput::bytes_to_f32_vec(_input.param_bytes());
+            let param_bounds = state.input_library().get_param_input();
+
+            let mut param_mapping: HashMap<String, f64> = HashMap::new();
+            for (i, param_bound) in param_bounds.iter().enumerate() {
+                let param_f64 = param_inputs[i] as f64;
+                param_mapping.insert(param_bound.get_name().clone(), param_f64);
+            }
+            let mut trace: Trace<HashMap<String, f64>> = create_contest_trace2(csv_reader, &param_mapping);
             self.latest_robustness_vec.clear();
 
             // trace is created, now I need to feed into Banquo to eval STL formulas
@@ -425,6 +467,10 @@ where
                 .open(&robustness_log_path)
                 .expect("Unable to create robustness log file");
 
+
+            for (key, value) in &param_mapping {
+                writeln!(file, "{}={}", key, value).unwrap(); 
+            }
             for (idx, formula) in self.formulas.iter().enumerate() {
                 let metrics = formula
                     .evaluate(&trace)
