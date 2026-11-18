@@ -31,6 +31,7 @@ bool gcs_receiver_get_rc6_pwm(uint16_t *pwm)
         &rc6_override_state, memory_order_acquire);
 
     if (pwm == NULL || (state & RC6_PWM_VALID) == 0) {
+        *pwm = UINT16_MAX; // Return UINT16_MAX if no valid PWM is available
         return false;
     }
 
