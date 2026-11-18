@@ -15160,10 +15160,10 @@ index 0000000000000000000000000000000000000000..f92bcc1c85276b812bb9d4cd925b14d2
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-function-reorder-relocs.s b/bolt/test/ARM/thumb-function-reorder-relocs.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..7c6c2c0b2a132c5e34c69198b7672f20522b7235
+index 0000000000000000000000000000000000000000..e691ab3b42ee66b3a81927c64d4254792bd6f382
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-function-reorder-relocs.s
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,241 @@
 +## Exercise the first whole-image Cortex-M relocation path.  Unlike compact
 +## publication, this mode may change function addresses.  The test checks the
 +## complete chain: explicit opt-in, typed flash placement, Thumb-state data
@@ -15189,6 +15189,20 @@ index 0000000000000000000000000000000000000000..7c6c2c0b2a132c5e34c69198b7672f20
 +# RUN:   --fastdyn-firmware-report=%t/profile-report.json \
 +# RUN:   -o %t/profile-candidate.elf 2>&1 \
 +# RUN:   | FileCheck %s --check-prefix=PROFILE-BOLT
++
++## A branch/call profile feeds BOLT's call-graph-directed CDSort.  The
++## exec-count control over the same profile emits worker_a, worker_b, reset;
++## CDSort instead keeps the hot worker_a/reset affinity contiguous before
++## worker_b.  This distinguishes graph ordering from mere count sorting.
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/callgraph.fdata --relocs --use-old-text \
++# RUN:   --reorder-functions=cdsort \
++# RUN:   --fastdyn-firmware-report=%t/callgraph-report.json \
++# RUN:   -o %t/callgraph-candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=CALLGRAPH-BOLT
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/callgraph.fdata --relocs --use-old-text \
++# RUN:   --reorder-functions=exec-count -o %t/count-control.elf
 +
 +## Relocation mode is never implicit for ARM firmware and cannot use BOLT's
 +## generic "allocate after the final PT_LOAD" placement policy.
@@ -15222,6 +15236,14 @@ index 0000000000000000000000000000000000000000..7c6c2c0b2a132c5e34c69198b7672f20
 +# RUN:   | FileCheck %s --check-prefix=PROFILE-CODE
 +# RUN: %python -c "import json; d=json.load(open('%t/profile-report.json.layout.json')); print([(f['name'],hex(f['original_address']),hex(f['output_address']),len(f['instruction_origins'])) for f in d['functions']])" \
 +# RUN:   | FileCheck %s --check-prefix=PROFILE-ORIGINS
++# RUN: llvm-nm --numeric-sort %t/callgraph-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=CALLGRAPH-SYMBOLS
++# RUN: llvm-readelf -rW %t/callgraph-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=CALLGRAPH-RELOCS
++# RUN: %python -c "import json; d=json.load(open('%t/callgraph-report.json.layout.json')); print([(f['name'],hex(f['original_address']),hex(f['output_address']),len(f['instruction_origins'])) for f in d['functions']])" \
++# RUN:   | FileCheck %s --check-prefix=CALLGRAPH-ORIGINS
++# RUN: llvm-nm --numeric-sort %t/count-control.elf \
++# RUN:   | FileCheck %s --check-prefix=COUNT-CONTROL
 +
 +# BOLT: BOLT-INFO: 3 functions pinned by order file
 +# BOLT: BOLT-INFO: using original .text for new code with 0x40 alignment
@@ -15229,6 +15251,9 @@ index 0000000000000000000000000000000000000000..7c6c2c0b2a132c5e34c69198b7672f20
 +# PROFILE-BOLT: BOLT-INFO: 3 out of 3 functions in the binary (100.0%) have non-empty execution profile
 +# PROFILE-BOLT: BOLT-INFO: using original .text for new code with 0x40 alignment
 +# PROFILE-BOLT: BOLT-INFO: FastDyn wrote linker-resolved firmware layout
++# CALLGRAPH-BOLT: BOLT-INFO: 3 out of 3 functions in the binary (100.0%) have non-empty execution profile
++# CALLGRAPH-BOLT: BOLT-INFO: using original .text for new code with 0x40 alignment
++# CALLGRAPH-BOLT: BOLT-INFO: FastDyn wrote linker-resolved firmware layout
 +# NO-RELOCS: BOLT-ERROR: function reordering only works when relocations are enabled
 +# NO-PLACEMENT: BOLT-ERROR: Cortex-M relocation mode currently requires --use-old-text so all emitted code remains inside the qualified input flash range
 +# MISSING: BOLT-ERROR: relocations against code are missing from the input file. Cannot proceed in relocations mode (-relocs).
@@ -15286,6 +15311,21 @@ index 0000000000000000000000000000000000000000..7c6c2c0b2a132c5e34c69198b7672f20
 +# PROFILE-CODE: 0800011c <worker_b>:
 +
 +# PROFILE-ORIGINS: [('Reset_Handler', '0x8000100', '0x8000104', 7), ('worker_a', '0x8000118', '0x8000100', 2), ('worker_b', '0x800011c', '0x800011c', 2)]
++
++# CALLGRAPH-SYMBOLS: 08000100 T worker_a
++# CALLGRAPH-SYMBOLS-NEXT: 08000104 T Reset_Handler
++# CALLGRAPH-SYMBOLS: 08000118 T fixture_halt
++# CALLGRAPH-SYMBOLS-NEXT: 0800011c T worker_b
++# CALLGRAPH-RELOCS: R_ARM_THM_CALL 08000101 worker_a
++# CALLGRAPH-RELOCS: R_ARM_THM_CALL 0800011d worker_b
++# CALLGRAPH-RELOCS: R_ARM_THM_JUMP24 08000118 fixture_halt
++# CALLGRAPH-RELOCS: R_ARM_ABS32 08000105 Reset_Handler
++# CALLGRAPH-ORIGINS: [('Reset_Handler', '0x8000100', '0x8000104', 7), ('worker_a', '0x8000118', '0x8000100', 2), ('worker_b', '0x800011c', '0x800011c', 2)]
++
++# COUNT-CONTROL: 08000100 T worker_a
++# COUNT-CONTROL-NEXT: 08000104 T worker_b
++# COUNT-CONTROL-NEXT: 08000108 T Reset_Handler
++# COUNT-CONTROL: 0800011c T fixture_halt
 +
 +//--- fixture.s
 +.syntax unified
@@ -15361,6 +15401,10 @@ index 0000000000000000000000000000000000000000..7c6c2c0b2a132c5e34c69198b7672f20
 +1 worker_a 0 1000
 +1 Reset_Handler 0 100
 +1 worker_b 0 10
++
++//--- callgraph.fdata
++1 Reset_Handler 8 1 worker_a 0 0 1000
++1 Reset_Handler e 1 worker_b 0 0 10
 diff --git a/bolt/test/ARM/thumb-jump-table-promotion-flags-live.s b/bolt/test/ARM/thumb-jump-table-promotion-flags-live.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..be9694630c66d306d493dd4feffd9b246130982d
