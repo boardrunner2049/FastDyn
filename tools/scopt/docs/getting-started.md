@@ -25,7 +25,7 @@ The steps in short (each is explained below; none may be skipped):
 5. bind scopt to your QEMU (§5): `scopt envlayout produce`, **`scopt helper-effects
    rebind`** (without it every helper call is fail-closed and B3/B4 find little to do),
    and the `export` lines (`SCOPT_ENVLAYOUT_PATH`, `SCOPT_HELPER_EFFECTS_PATH`,
-   `SCOPT_V6_EXES`, `FASTDYN_ROOT`);
+   `SCOPT_V6_EXES`, `SCOPT_RUNTIME_QEMU`, `SCOPT_RUNTIME_QEMU_SHA256`, `FASTDYN_ROOT`);
 6. run the tests (§6);
 7. write the firmware's FastDyn TOML (§7), then prepare, optimize, validate and run
    (§8-§11); `docs/workflow.md` has the full workflow.
@@ -47,6 +47,8 @@ sudo apt-get install -y \
 - **meson** comes from pip, not apt: QEMU's `configure` needs meson >= 1.5, which
   FastDyn's `requirements.txt` installs into `fastdyn-env/`. Ubuntu 24.04's apt meson
   (1.3) is too old, so it is not in the list.
+- **Disk space**: about 12 GB free for the checkout (see §3; most of it is FastDyn
+  submodules scopt does not use), plus a few GB for the scopt work directory.
 - **Network access** during the build: `setup.sh` fetches submodules and Python
   packages, and QEMU's `configure` downloads its softfloat test subprojects.
 - **gdb** for `scopt envlayout produce` (reads the QEMU executable's DWARF) and for the
@@ -65,6 +67,10 @@ cd FastDyn
 git submodule update --init third_party/common/qemu
 git -C third_party/common/qemu log --oneline -1   # 934890ed51 tcg/supercache: .sc v6 loader ...
 ```
+
+If your checkout has no `tools/scopt/docs/getting-started.md`, or `scopt helper-effects
+--help` (after §4) lists no `rebind` command, you cloned an older state of the `scopt`
+branch than this page describes; fetch it again.
 
 The submodule is pinned to the `scopt` branch of `boardrunner2049/qemu`: the FastDyn
 SuperCache base plus the FastDyn icount patch and the three scopt QEMU changes (capture,
@@ -91,9 +97,12 @@ setup.sh is FastDyn's general setup, so it does more than scopt needs:
 - it installs all of FastDyn's Python requirements into `fastdyn-env/` (vtk, opencv,
   matplotlib, MAVProxy, ...), including the meson QEMU needs;
 - it initializes the FastDyn submodules `third_party/common/cmsis-svd-data`,
-  `third_party/courbet_deps/SITL_Models` (about 750 MB, most of the download) and
-  `third_party/courbet_deps/mavlink_headers` (`--skip-submodules` turns this off; the
-  scopt path was checked with them present);
+  `third_party/courbet_deps/SITL_Models` and `third_party/courbet_deps/mavlink_headers`.
+  They dominate the disk use: SITL_Models is about 750 MB of the download, and
+  cmsis-svd-data downloads only about 34 MB but checks out to about 5.8 GB. A checkout
+  after setup.sh was about 11 GB in total. scopt uses none of these submodules.
+  `--skip-submodules` leaves them out (it should save about 7 GB; the scopt path was
+  checked with them present, not with this flag);
 - it clones the OptiFuzz dependency (banquo) into `../banquo`, **outside the
   checkout**; add `--skip-optifuzz` to leave it out;
 - it creates `third_party/common/qemu/ws/` with Courbet RAM backing files (one of
@@ -173,6 +182,7 @@ mkdir -p ~/scopt-data/envlayouts ~/scopt-data/helper_effects
 export SCOPT_ENVLAYOUT_PATH=~/scopt-data/envlayouts
 export SCOPT_HELPER_EFFECTS_PATH=~/scopt-data/helper_effects
 export SCOPT_V6_EXES=$QSHA
+export SCOPT_RUNTIME_QEMU=$Q SCOPT_RUNTIME_QEMU_SHA256=$QSHA   # QEMU for commands without --qemu
 export FASTDYN_ROOT=~/scopt-work         # your workspace for runs (not the checkout)
 mkdir -p "$FASTDYN_ROOT"
 ```
@@ -214,6 +224,13 @@ mkdir -p "$FASTDYN_ROOT"
    `$FASTDYN_ROOT/runs/wp22/gate-binary.json` (absent on your machine). These sources
    add up; with the exports above, your build is the v6-capable one.
 
+`SCOPT_RUNTIME_QEMU` and `SCOPT_RUNTIME_QEMU_SHA256` name the QEMU that a command
+uses when it is given no `--qemu` (the commands below all pass `--qemu "$Q"`). scopt
+checks the binary against that sha256. Without them, the only default is the
+maintainer's WP-QINT build under `$FASTDYN_ROOT/wt/`, which is absent on your
+machine, so such a command is refused with `runtime_qemu_unavailable` rather than run
+with an unchecked binary.
+
 The other two locations scopt uses have defaults:
 
 - `FASTDYN_ROOT` is the workspace: the commands below write under `$W`, a directory in
@@ -237,17 +254,19 @@ cd ../..
 
 The suite uses synthetic snapshots and the files in `tests/data/`, so most of it runs
 anywhere; it takes under a minute. Without the maintainer's evidence it gives about
-820 passed and 620 skipped. The skips are tests that need evidence that is not in the repository:
+820 passed, about 620 skipped, 0 failed and 0 xfailed. The skips are tests that need
+evidence that is not in the repository: tests marked `real`, and tests that re-check
+recorded runs. They read the maintainer's workspace under `$FASTDYN_ROOT`
+(`runs/...`, `fixtures/...`, the B0 snapshot `runs/b0/cache/minimal.sc`, the WP-QINT
+and gate QEMU builds under `wt/`, the B5 plan under `runs/b5`, or `$B5_RUNS`), and
+each skips with a message that names the missing path, for example
+`.../scopt-work/runs/b0/cache/minimal.sc not present` or
+`.../scopt-work/fixtures/b3/b3conf.py not present`.
 
-- tests marked `real`, and tests that re-check recorded runs: they read the
-  maintainer's workspace (`$FASTDYN_ROOT/runs/...`, `$FASTDYN_ROOT/fixtures/...`, the
-  B0 snapshot `runs/b0/cache/minimal.sc`, the WP-QINT and gate QEMU builds under
-  `$FASTDYN_ROOT/wt/`) and skip with a message that names the missing path, such as
-  "minimal snapshot not present", "fixtures/b3 not present" or
-  "integrated binary not present";
-- the B5 freeze test skips when scopt's code changed after the B5 campaign was frozen
-  ("scopt code changed since the B5 freeze (expected)");
-- a few `xfail` rows are known, documented limits.
+With the maintainer's workspace as `FASTDYN_ROOT` these tests run. Then a few
+strict `xfail` rows record known results of earlier gate runs, and the B5 freeze test
+skips with "scopt code changed since the B5 freeze (expected)" when scopt's code
+changed after the B5 campaign was frozen.
 
 `-rs` prints every skip reason. A skip is never a failure, and a failure is never an
 expected result: report it. Tests marked `qemu` need a built QEMU and the fixtures; they
@@ -378,6 +397,29 @@ This demo spends almost all of its time in the idle loop, so it is a good smoke 
 but a poor optimization target. The evaluated workload is a compute-heavy variant with
 an input bank; its sources are kept by the maintainer and are not in the repository.
 
+**A firmware with an input bank.** A firmware that reads its input from memory gets one
+more `[Memory]` bank. scopt writes the input file into the bank with id `input` (the
+`--input-bank` default) before every run, zero-padded to the bank size. The bank's
+contents are not part of FastDyn's TOML fingerprint, so one cache serves every input.
+The compute workload declares it like this (base address and size are the firmware's
+choice; the `memory_file` must be relative):
+
+```toml
+[[Memory.input]]
+id = "input"
+index = 1
+base_address = "0x30000000"
+memory_size  = "1M"
+memory_type  = "SRAM"
+backend      = "file"
+memory_file  = "input.bin"
+share        = true
+prealloc     = false
+```
+
+`docs/fixtures.md` lists the rest of the fixture contract (relative run paths, a fixed
+end of run).
+
 ## 8. Prepare, import, profile
 
 ```sh
@@ -398,23 +440,44 @@ scopt bundle runtime-identity --run-dir $W/prep/oracle --sc $W/prep/cache/fw.sc 
 # immutable snapshot in a store (exit 2 = rejected, reason printed)
 scopt import $W/prep --bundle $W/bundle.json --runtime-identity $W/runtime_identity.json \
       --store $W/store
+# (it prints "bundle: 7 fields verified; unverified: memory_map_hash": expected, see below)
 SNAP=$(ls -d $W/store/snapshots/*)
 # RuntimeIdentity v2 (admission facts), needed by B3 and B4
 scopt admission identity --snapshot $SNAP --config $CFG --out $W/runtime_identity.v2.json
 # exact software profile on unchained warm copies (train inputs only)
 scopt profile run -c $CFG --snapshot $SNAP --qemu "$Q" --out $W/prof
+# a firmware with an input bank and a measured window, for example
+#   scopt profile run -c $CFG --snapshot $SNAP --qemu "$Q" --phase steady@0x3018 \
+#         --inputs train-1.bin --inputs train-2.bin --out $W/prof
 ```
 
 `prepare` exits 0 (PASS), 1 (FAIL) or 2 (refused, for example a flat cache or a TOML
-without a supercache). `profile run` takes `--phase NAME@0xVADDR` to split the profile
-at a guest address (for example the `benchmark_start` address) and `--inputs` for each
-training input. `$W/prof/merged.profile.json` is the profile the passes read.
+without a supercache).
+
+`import` re-derives every bundle field it can from the cache's FastDyn manifest and
+the native files. `memory_map_hash` needs the TOML's memory banks, which `import` does
+not read, so it is reported as unverified. That is expected: the field is part of the
+`bundle_id`, and `deploy` recomputes the bundle from the run's TOML and refuses a
+mismatch.
+
+`profile run` takes `--phase NAME@0xVADDR` to split the profile at a guest address
+(for example the `benchmark_start` address, `0x3018` in the §7 example) and
+`--inputs` for each training input. `$W/prof/merged.profile.json` is the profile the passes read.
 
 ## 9. Optimize
 
-Each command writes an artifact directory under `STORE/artifacts/<id>/` and exits 0, or
-exits 2 and writes the reason to `STORE/rejections/<candidate>.json`. `--json` prints
-`artifact_dir`.
+Each command writes an artifact directory under `STORE/artifacts/<id>/`, or the reason
+for a rejection to `STORE/rejections/<candidate>.json`. Use one store per command (as
+below), so each store holds the artifacts of one kind.
+
+- `scopt optimize` exits 0 when the artifact is published and 2 when it is rejected.
+  With `--json` it prints a JSON document whose `artifact_dir` is the artifact
+  directory (`null` when rejected); without it, the directory is printed on the line
+  after `artifact <id>`.
+- `scopt b4 package` and `scopt sfb package` have no `--json` option: they always
+  print JSON (or write it to `--out FILE`). Its `status` is `published`, `no_change` or
+  a rejection, and `path` is the artifact directory (or the rejection file). They exit
+  0 for `published` or `no_change`, 1 otherwise.
 
 ```sh
 # B2: profile-guided hot/cold layout (.sc v5, any loader)
@@ -440,12 +503,25 @@ first time. `--disable PASS` / `--only PASS` run ablations. Pass lists live in
 ## 10. Validate and publish
 
 ```sh
-A=$(ls -d $W/out/layout/artifacts/*)
+A=$(ls -d $W/out/layout/artifacts/*)                # one artifact in this store (§9)
 scopt validate $A --snapshot $SNAP                  # static V1-V9: B2 layout artifacts only
+P=$W/pub/artifacts/$(basename $A)                   # publish keeps the artifact id
 scopt publish  $A --store $W/pub                    # verified copy (every artifact kind)
-P=$(ls -d $W/pub/artifacts/*)
 scopt validate $P --dynamic -c $CFG --qemu "$Q" --baseline $SNAP --out $W/v10/layout
+
+# B3 and B4: no static validate (see the table); publish re-checks them
+for k in b3 b4; do
+  A=$(ls -d $W/out/$k/artifacts/*)
+  scopt publish $A --store $W/pub
+  scopt validate $W/pub/artifacts/$(basename $A) --dynamic -c $CFG --qemu "$Q" \
+        --baseline $SNAP --out $W/v10/$k
+done
 ```
+
+`$W/pub` now holds several artifacts, so name them by id (as above) rather than with
+`ls -d $W/pub/artifacts/*`. `scopt publish --json` prints the published copy's
+`artifact_dir`. Add `--inputs heldout-1.bin` (one per input) to the dynamic check for a
+firmware with an input bank.
 
 Which check applies to which artifact:
 
@@ -484,8 +560,18 @@ scopt rundir launch $W/run2 --inputs heldout-1.bin        # --input-bank ID, def
 ```
 
 `launch` exits 0 when the run proof passes (verdict `PASS`). With
-`--reference-norm FILE` it also compares the normalized output with `FILE` (for
-example the `output.norm` of a baseline run) and exits 1 when they differ. A run
+`--reference-norm FILE` it also compares the normalized output with `FILE` and exits 1
+when they differ. Every launch writes the normalized output to `output.norm` in its run
+directory. A baseline run is a deploy of the unoptimized snapshot directory itself:
+
+```sh
+scopt deploy $SNAP -c $CFG --run-dir $W/run0 --qemu "$Q"     # the baseline: the snapshot
+scopt rundir launch $W/run0 --inputs heldout-1.bin
+scopt deploy $P -c $CFG --run-dir $W/run3 --qemu "$Q"
+scopt rundir launch $W/run3 --inputs heldout-1.bin --reference-norm $W/run0/output.norm
+```
+
+Leave out `--inputs` for a firmware without an input bank. A run
 directory is used once: deploy into a fresh one for every launch. For timing (paired,
 interleaved, frozen campaigns) see `docs/workflow.md` §4 and
 `docs/timing-and-report.md`.

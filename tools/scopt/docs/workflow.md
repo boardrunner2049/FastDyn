@@ -1,10 +1,10 @@
 # End-to-end workflow: prepare, optimize, validate, run, report
 
-This page covers the documented workflow that assignment §6 asks for. It strings the
-per-milestone docs together in the order a new workload goes through them. The commands
-are the ones the B5 evaluation ran (their logs are part of the maintainer's evaluation
-data, not in the repository). For a first run on your own machine, with your own QEMU
-build, start with `docs/getting-started.md`; it uses the same commands. Paths are
+This page covers the end-to-end workflow. It strings the per-milestone docs together in
+the order a new workload goes through them. The commands are the ones the B5 evaluation
+ran (their logs are part of the maintainer's evaluation data, not in the repository).
+For a first run on your own machine, with your own QEMU build, start with
+`docs/getting-started.md`; it uses the same commands. Paths are
 shortened with the variables below.
 
 ```sh
@@ -14,7 +14,7 @@ PY=python                             # the venv with scopt installed; `scopt` =
 Q=<QEMU tree>/build/qemu-system-arm   # a build of the QEMU scopt branch (docs/qemu.md); the
                                       # evaluation used the gate binary, sha256 56d8bfb3...0430d90
 CFG=<base FastDyn TOML>               # supercache on, supercache_flat = false, icount shift 0
-W=<work dir>                          # e.g. $F/runs/<campaign>
+W=<work dir>                          # e.g. $F/<workload>, a fresh directory per workload
 ```
 
 **Runtime.** B1/B2 used the WP-QINT binary (QEMU `scopt` branch up to commit
@@ -44,7 +44,10 @@ Every run goes through the WP8 harness:
 | graph / summaries (optional inspection) | `scopt graph export`, `scopt return-edges summaries`, `scopt b4 census` | `graph.json`, CalleeSummary v1 rows, D1/D2/D3 counts | `docs/return-edges.md`, `docs/b4.md` |
 
 Profiles are taken only on **train** inputs and only on the unoptimized base.
-Held-out and final inputs are never used for training (`fixtures/inputs/README.md`).
+Held-out and final inputs are never used for training. Keep the three sets disjoint:
+train inputs for `prepare` and `profile run`, held-out inputs for the dynamic check
+(V10), final inputs only for the timed evaluation. (The maintainer's input sets and
+their README are in the maintainer's workspace, not in the repository.)
 
 ## 2. Optimize (one invocation per pass set; each pass leaves its own ledger row)
 
@@ -69,7 +72,7 @@ reported as `skipped_unsupported` (`docs/b5-campaign.md`).
 | static re-validation (V1-V9, MANIFEST) | `scopt validate ARTIFACT --snapshot $W/store/snapshots/<id>` | **move-only artifacts (identity, B2 layout) only.** B3, B4 and `sfb` artifacts change unit bytes and were certified by their own checks (V1-V23, SFB1-SFB9) when packaged; `validate` refuses them with `static_not_applicable`, exit 2, and `scopt publish` re-checks them |
 | publish (verified copy) | `scopt publish ARTIFACT --store $W/pubstore` | refuses negative controls, test-policy artifacts and anything that does not verify |
 | dynamic V10 on held-out inputs | `scopt validate ARTIFACT --dynamic -c $CFG --qemu $Q --baseline $W/store/snapshots/<id> --inputs heldout-{1,2,3}.bin --out $W/v10/<arm>` | guest output, proof `PASS`, no unexpected fallback |
-| B3/B4 dynamic oracles | `scopt validate ARTIFACT --dynamic --oracles O1,O2a,O2b,O3,O5,O6 ...` | fixture oracles (`fixtures/b3/expected.py`); O4 via `--negative-control` |
+| B3/B4 dynamic oracles | `scopt validate ARTIFACT --dynamic --oracles O1,O2a,O2b,O3,O5,O6 ...` | fixture oracles (`$FASTDYN_ROOT/fixtures/b3/expected.py`, a maintainer fixture that is not in the repository); O4 via `--negative-control` |
 
 ## 4. Run (timing)
 
@@ -103,9 +106,9 @@ Arms, pairing, sample validity and freeze rules are documented in
 ## 5. Report (one command, from the measurements)
 
 ```sh
-$PY tests/qemu/b5_campaign.py report --campaign campaigns/b5-freertos.toml --out-root $F/runs/b5/timing
-# equivalent: scopt report $F/runs/b5/timing --out $F/runs/b5/timing/report/report.md \
-#   --profile $F/runs/wp28/compute/prof/merged.profile.json --b5-campaign campaigns/b5-freertos.toml
+$PY tests/qemu/b5_campaign.py report --campaign campaigns/b5-freertos.toml --out-root <out root>
+# equivalent: scopt report <out root> --out <out root>/report/report.md \
+#   --profile $W/prof/merged.profile.json --b5-campaign campaigns/b5-freertos.toml
 ```
 
 `scopt report` always exits 0. A missing or unsupported target, arm or pass becomes a
@@ -120,19 +123,19 @@ The outcome ledger keeps these stages as separate columns: `inspected`, `optimiz
 Supplementary, untimed tables (seed sensitivity, leave-one-input-out, drift, load):
 
 ```sh
-$PY tests/qemu/b5_evaluate.py --out-root $F/runs/b5/timing --out $F/runs/b5/evaluation/b5-evaluation.json
+$PY tests/qemu/b5_evaluate.py --out-root <out root> --out <out root>/evaluation/b5-evaluation.json
 ```
 
 ## Milestone drivers (each re-runs one gate end to end)
 
 | milestone | driver | doc / report |
 |---|---|---|
-| B0 | `fixtures/{freertos-mps2,freertos-mps2-compute,fault}/qualify.sh`, `tests/qemu/base_warm_smoke.sh` | the maintainer's evaluation report `B0-qualification.md` (not in the repository) |
+| B0 | `$FASTDYN_ROOT/fixtures/{freertos-mps2,freertos-mps2-compute,fault}/qualify.sh` (maintainer fixtures, not in the repository), `tests/qemu/base_warm_smoke.sh` | the maintainer's evaluation report `B0-qualification.md` (not in the repository) |
 | B1 | `tests/qemu/t_b1_0.py`, `tests/qemu/b1_gate.py` | `docs/b1-gate.md`, the maintainer's evaluation report `B1-gate.md` (not in the repository) |
 | B2 | `tests/qemu/b2_gate.py`, `b2_fault.py`, `b2_campaign.py` | `docs/b2-*.md`, the maintainer's evaluation report `B2-gate.md` (not in the repository) |
 | B3 | `tests/qemu/wp28_gate.py`, `wp28_report.py` | `docs/b3-gate.md`, the maintainer's evaluation report `B3-gate.md` (not in the repository) |
 | B4 | `tests/qemu/wp29_gate.py`, `wp29_report.py` | `docs/b4.md`, the maintainer's evaluation report `B4-gate.md` (not in the repository) |
 | B5 | `tests/qemu/b5_campaign.py`, `b5_evaluate.py` | `docs/b5-campaign.md`, the maintainer's evaluation report `B5-evaluation.md` (not in the repository) |
 
-The gate and evaluation reports, and the map from each assignment requirement to its evidence,
+The gate and evaluation reports, and the map from each requirement to its evidence,
 are kept by the maintainer and are not part of the repository.

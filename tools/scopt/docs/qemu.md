@@ -104,8 +104,11 @@ scopt envlayout show --exe-sha256 sha256:$QSHA
 
 The producer runs gdb from a fresh temporary directory, expands nested structs and
 arrays, and checks `offsetof(ArchCPU, env) == sizeof(CPUState)`. The file name must be
-the executable's sha256 in hex. The layout's `envlayout_id` is a content hash, so the
-same sources and compiler give the same id.
+the executable's sha256 in hex. The layout's `envlayout_id` is a content hash of the
+whole document, and the document records `exe_sha256`, so every build gets its own id,
+even from the same sources. What the same sources and compiler do reproduce is the
+field list: a fresh build of the `scopt` branch gave the same 2904 fields and offsets as
+the gate binary's layout, under a different `envlayout_id`.
 
 ### Adopt the helper effect table for a new build
 
