@@ -78,7 +78,7 @@ import tempfile
 import time
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -367,6 +367,119 @@ def decode_compare(u: Any, link: UnitLink, code_address: int, code_size: int
 # static validation
 # ---------------------------------------------------------------------------
 
+def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
+                       ) -> tuple[dict[str, UnitLink], dict[str, Any]]:
+    """Recheck native code, then project the equivalent original helper events for V2–V4."""
+    extended = [unit for unit in link.units if unit.native_fragments and
+                snapshot.unit(unit.uid).inline_start is None and
+                not snapshot.unit(unit.uid).splice_applied]
+    if not extended:
+        return {}, {}
+    from .analysis.api import ScopeRef
+    from .analysis.native_callees import prepare_native_images
+    from .analysis.store import AnalysisStore
+    from .importer.join import ImportRejected
+    from .link import LinkError, relocate_unit
+    from .model.native import supports_tcg_integer_abi
+    from .splice_layout import materialize_splice
+    from .validate_sym.native_inline import NativeInlineError, verify_fragment, verify_site
+    from .validate_sym.program import certified_native_calls, program_of, world_of
+
+    projected = {}
+    spliced = {}
+    errors = []
+    stores = {}
+    code_address = snapshot.header.code_address
+    for lu in extended:
+        original = snapshot.unit(lu.uid)
+        try:
+            plain = relocate_unit(original, lu.new_tb_offset)
+            body = bytearray(lu.body[:original.tc_size])
+            start = original.tc_size
+            last = -1
+            for call in lu.native_fragments:
+                if call.call_off < last:
+                    raise ValueError("inline requests overlap or are out of order")
+                last = call.continuation_off
+                framed = call.splice is not None and call.splice.kind == "frame"
+                if not framed:
+                    verify_site(original, call, code_address)
+                if not call.bridge_sha256:
+                    raise ValueError("native bridge digest is missing")
+                if call.bridge_sha256 not in stores:
+                    native = prepare_native_images(
+                        snapshot, backend_revision="58df0ef89dd64126512e4ee27b4ac3fd8ddf6247",
+                        bridge_version=1, policy_version=1, bridge_sha256=call.bridge_sha256)
+                    analysis = AnalysisStore(snapshot, external_inputs={"native-images": native})
+                    layout = analysis.get("envlayout", ScopeRef("snapshot", snapshot.snapshot_id)).value
+                    if not layout["bound"]:
+                        raise ValueError("native validation needs the exact QEMU EnvLayout")
+                    stores[call.bridge_sha256] = analysis
+                analysis = stores[call.bridge_sha256]
+                rows = analysis.get("native-callees", ScopeRef("unit", lu.uid)).value
+                certified = next((row for row in rows if row.call.host_off == call.call_off), None)
+                if (certified is None or certified.callee is None or
+                        certified.input_id != call.native_input_id or
+                        certified.call.guest_pcs != call.guest_pcs or
+                        certified.call.pool_slot_off != call.pool_slot_off or
+                        certified.callee.image_id != call.image_id or
+                        certified.callee.elf_address != call.elf_address or
+                        certified.callee.image_offset != call.image_offset or
+                        certified.callee.code != call.callee_code or
+                        certified.callee.runtime_address != call.target_abs or
+                        certified.callee.symbol != call.symbol):
+                    raise ValueError("linked callee does not match its capture-bound native image")
+                if framed:
+                    if (certified.callee.role != "plugin" or certified.callee.abi != "sysv-amd64" or
+                            certified.call.call_class != "plugin" or certified.call.helper_flags != 0 or
+                            certified.callee.tcg_typemask != 400):
+                        raise ValueError("framed splice does not match the captured plugin ABI")
+                elif (certified.callee.role != "qemu" or
+                      not supports_tcg_integer_abi(certified.callee.tcg_typemask)):
+                    raise ValueError("linked callee does not match the captured integer helper ABI")
+                if call.splice is not None:
+                    if len(lu.native_fragments) != 1 or call.tcg_typemask != certified.callee.tcg_typemask:
+                        raise ValueError("splice must have one call and the captured signature")
+                    materialized = materialize_splice(original, call, code_address)
+                    placed = relocate_unit(materialized, lu.new_tb_offset)
+                    if (placed.body, placed.record, tuple(sorted(placed.patched))) != (
+                            lu.body, lu.record, tuple(sorted(lu.patched))):
+                        raise ValueError("linked splice bytes, record or fixup fields differ from the proof")
+                    abstract = certified_native_calls(program_of(original, world_of(snapshot)),
+                                                      plain.body[:original.tc_size], lu.delta, (call,))
+                    projected[lu.uid] = replace(plain, body=abstract.code + plain.body[original.tc_size:])
+                    spliced[lu.uid] = materialized
+                    break
+                expected_call = (b"\xe9" + (start - call.call_off - 5).to_bytes(4, "little", signed=True)
+                                 + b"\x90" * (len(call.call_bytes) - 5))
+                if body[call.call_off:call.continuation_off] != expected_call:
+                    raise ValueError("linked call does not jump to its certified island")
+                end = start + len(call.fragment.code)
+                verify_fragment(call, lu.body[start:end], island_start=start)
+                start = end
+                body[call.call_off:call.continuation_off] = plain.body[
+                    call.call_off:call.continuation_off]
+            if lu.uid in spliced:
+                continue
+            out_record = ScRecord.from_bytes(lu.record)
+            if start != out_record.tc_size:
+                raise ValueError("certified islands do not cover the enlarged code")
+            expected_fields = tuple((f.field_off, f.width) for f in original.reloc.fixups
+                                    if not any(c.call_off <= f.field_off < c.continuation_off
+                                               for c in lu.native_fragments))
+            if tuple(sorted(lu.patched)) != tuple(sorted(expected_fields if lu.moved else ())):
+                raise ValueError("remaining linked fixup fields differ")
+            projected_program = certified_native_calls(
+                program_of(original, world_of(snapshot)), bytes(body), lu.delta, lu.native_fragments)
+            body = projected_program.code + lu.body[start:]
+            projected[lu.uid] = replace(lu, body=bytes(body), patched=plain.patched)
+        except (NativeInlineError, ImportRejected, LinkError, ValueError, OSError, OverflowError) as exc:
+            errors.append(f"{lu.uid}: {getattr(exc, 'reason', 'native_correspondence')}: {exc}")
+    validation.add("V24", "native_correspondence", not errors, _few(errors) or
+                   f"verified native correspondence in {len(extended)} units ({len(spliced)} spliced)")
+    return projected, spliced
+
+
 def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike, *,
                     sidecar: Mapping[str, Any] | None,
                     expected_pinned: Sequence[Mapping[str, Any]] | None = None,
@@ -418,9 +531,12 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
     ok2, det2 = scparse_compare(out_path, out, script=scparse)
     v.add("V1", "second_parser", ok2, det2)
 
+    projections, spliced = _native_projection(snapshot, link, v)
+
     # ---- V2 byte diff -------------------------------------------------------
     bad2 = []
-    for lu in link.units:
+    for linked in link.units:
+        lu = projections.get(linked.uid, linked)
         u = in_units[lu.uid]
         old = u.code + u.search
         if len(old) != len(lu.body):
@@ -448,7 +564,8 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
     ca, cs = h_in.code_address, h_in.code_size
     bad3, bad4 = [], []
     nfix = 0
-    for lu in link.units:
+    for linked in link.units:
+        lu = projections.get(linked.uid, linked)
         if not lu.moved:
             continue
         u = in_units[lu.uid]
@@ -471,7 +588,7 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
           if not bad4 else _few(bad4))
     bad4b = []
     for lu in link.units:
-        u = in_units[lu.uid]
+        u = spliced.get(lu.uid, in_units[lu.uid])
         rec = ScRecord.from_bytes(lu.record)
         tc_abs = ca + rec.tc_offset
         for off in rec.jmp_insn_offset:
@@ -489,31 +606,37 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
         return (uid, rec.page_addr0, rec.page_addr1, rec.flags, rec.cs_base, rec.cflags,
                 rec.guest_hash, rec.guest_size, rec.icount, tuple(rec.jmp_reset_offset),
                 tuple(rec.jmp_insn_offset))
-    mi = Counter(ident(u.uid, ScRecord.from_bytes(u.record)) for u in snapshot.units())
+    mi = Counter(ident(u.uid, ScRecord.from_bytes(spliced.get(u.uid, u).record))
+                 for u in snapshot.units())
     mo = Counter(ident(uid, out.records[i]) for uid, i in zip(out_uids, out.valid_slots))
     v.add("V5", "unit_multiset", mi == mo,
           f"{sum(mo.values())} units, no add or drop" if mi == mo else
           f"added {_few(list((mo - mi).elements())[:3])} dropped "
           f"{_few(list((mi - mo).elements())[:3])}")
     bad5 = [lu.uid for lu in link.units
-            if lu.body[in_units[lu.uid].tc_size:] != in_units[lu.uid].search]
-    v.add("V5", "search_data", not bad5,
-          "search data byte-identical for every unit" if not bad5 else _few(bad5))
+            if lu.body[ScRecord.from_bytes(lu.record).tc_size:] !=
+            spliced.get(lu.uid, in_units[lu.uid]).search]
+    search_evidence = ("search data matches checked offsets and original guest words" if spliced
+                       else "search data byte-identical for every unit")
+    v.add("V5", "search_data", not bad5, _few(bad5) if bad5 else search_evidence)
 
     # ---- V6 recovery --------------------------------------------------------
     bad6 = []
     npts = 0
     for lu in link.units:
-        u = in_units[lu.uid]
+        u = spliced.get(lu.uid, in_units[lu.uid])
         if not u.recovery:
             continue
         rec = ScRecord.from_bytes(lu.record)
+        removed = {call.continuation_off for call in lu.native_fragments if call.splice is None}
         try:
-            rows = decode_search(lu.body[u.tc_size:], u.icount, is_pcrel(rec.cflags))
+            rows = decode_search(lu.body[rec.tc_size:], u.icount, is_pcrel(rec.cflags))
         except ValueError as e:
             bad6.append(f"{lu.uid}: search {e}")
             continue
         for p in u.recovery:
+            if p.source == "helper_call" and p.host_return_offset in removed:
+                continue
             npts += 1
             got = unwind(rows, p.host_return_offset)
             if got is None or got[0] != p.insn or tuple(got[1]) != tuple(p.words):
@@ -583,6 +706,7 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
         bad3b = []
         bad6b = []
         details = getattr(snapshot, "details", {}) or {}
+        by_link_uid = link.by_uid()
         for u2 in res.snapshot.units():
             u = in_units.get(u2.uid)
             if u is None:
@@ -592,11 +716,43 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
                                                               u.origin):
                 bad8.append(f"{u2.uid}: {_status(u)}{list(u.reloc.reasons)} -> "
                             f"{_status(u2)}{list(u2.reloc.reasons)}")
-            if _fixup_rows(u2) != _fixup_rows(u):
+            expected_inline = by_link_uid[u.uid].native_fragments
+            if u2.native_fragments != expected_inline:
+                bad8.append(f"{u2.uid}: reimported native provenance differs")
+
+            if u.uid in spliced:
+                from .splice_layout import splice_offsets
+
+                expected = spliced[u.uid]
+                linked = by_link_uid[u.uid]
+                mu = splice_offsets(expected_inline[0])
+                if not u2.splice_applied or any(getattr(u2, k) != getattr(expected, k) for k in
+                        ("insns", "ldst", "opmarks", "pool_start", "body_end", "ldst_end",
+                         "recovery", "static_exits")):
+                    bad8.append(f"{u2.uid}: reimported splice coordinates differ")
+                expected_fixups = [(*row[:5], row[5] + linked.delta
+                                     if row[2] == "abs_plus_delta" and row[5] is not None
+                                     else row[5]) for row in _fixup_rows(expected)]
+                if _fixup_rows(u2) != expected_fixups:
+                    bad3b.append(f"{u2.uid}: remapped fixups differ")
+                ci, co = _classes(details.get(u.uid)), _classes(res.checks.get(u2.slot))
+                if ci is not None and sorted((mu(off), cls) for off, cls in ci
+                                             if not mu.start <= off < mu.end) != (co or []):
+                    bad3b.append(f"{u2.uid}: remapped site classes differ")
+                continue
+
+            added_inline = expected_inline if u.inline_start is None and not u.splice_applied else ()
+
+            def original_field(off: int) -> bool:
+                return off < u.tc_size and not any(
+                    call.call_off <= off < call.continuation_off for call in added_inline)
+
+            if _fixup_rows(u2) != [row for row in _fixup_rows(u) if original_field(row[0])]:
                 bad3b.append(f"{u2.uid}: fixups differ")
             ci, co = _classes(details.get(u.uid)), _classes(res.checks.get(u2.slot))
-            if ci is not None and ci != co:
-                bad3b.append(f"{u2.uid}: site classes differ")
+            if ci is not None and ([row for row in ci if original_field(row[0])] !=
+                                   [row for row in co or () if original_field(row[0])]):
+                bad3b.append(f"{u2.uid}: retained site classes differ")
             if any(r.startswith("recovery_mismatch") for r in u2.reloc.reasons):
                 bad6b.append(u2.uid)
         v.add("V8", "reimport_status", not bad8,
@@ -828,6 +984,12 @@ class ValidateAndPackage:
         c = self.candidate
         snap = c.working_set.base
         self._inspected(snap)
+        from .passes.base import Outcome
+        from .passes.host_inline_extreme import EXTREME_PASS
+
+        extreme = c.outcome(EXTREME_PASS)
+        if extreme is not None and extreme.outcome not in (Outcome.CANDIDATE, Outcome.NO_CHANGE):
+            return self._reject(extreme.reason)
         link = NativeLinker(c, join_result=self.join_result).link()
         if not link.ok:
             f = link.failures[0]
@@ -960,7 +1122,12 @@ def _layout_phase(candidate: Any) -> str:
 def artifact_link(snapshot: Any, art_dir: str | os.PathLike) -> LinkResult:
     """A :class:`LinkResult` describing what is in ``art_dir/cache.sc`` (for
     re-validation): units matched to the input by slot order."""
-    out = read_sc(Path(art_dir) / "cache.sc")
+    from .importer.join import join
+
+    root = Path(art_dir)
+    out = read_sc(root / "cache.sc")
+    captures = sorted(root.glob("*.scm"))
+    binding = join(out, captures).slots if captures and out.loadable else {}
     if not out.loadable:
         raise ScFormatError(f"{art_dir}/cache.sc is not loadable: {out.header_problems}")
     units = []
@@ -973,9 +1140,21 @@ def artifact_link(snapshot: Any, art_dir: str | os.PathLike) -> LinkResult:
             raise ScFormatError(f"slot {i}: {uid} != input {u.uid}")
         rec = out.records[i]
         d = rec.tb_offset - u.tb_offset
-        patched = tuple((f.field_off, f.width) for f in u.reloc.fixups) if d else ()
+        chunk = binding[i].chunk if i in binding else None
+        fragments = chunk.native_fragments if chunk is not None else ()
+        if d and fragments and fragments[0].splice is not None and not u.splice_applied:
+            from .splice_layout import splice_offsets
+
+            call = fragments[0]
+            mu = splice_offsets(call)
+            patched = tuple((mu(f.field_off), f.width) for f in u.reloc.fixups
+                            if not mu.start <= f.field_off < mu.end)
+            patched += tuple((mu.start + rel.field_off, 4) for rel in call.splice.relocations)
+        else:
+            patched = tuple((f.field_off, f.width) for f in u.reloc.fixups if not any(
+                c.call_off <= f.field_off < c.continuation_off for c in fragments)) if d else ()
         units.append(UnitLink(u.uid, i, u.tb_offset, rec.tb_offset, out.record_bytes[i],
-                              out.bodies[i], patched, input_slot=u.slot))
+                              out.bodies[i], patched, input_slot=u.slot, native_fragments=fragments))
     return LinkResult(True, out.header, tuple(units))
 
 
@@ -1208,6 +1387,7 @@ V_ROWS: dict[str, tuple[str, str, str]] = {
     "V21": ("budgets and growth accounting", "WP18/WP21", "implemented (pass budgets: WP21)"),
     "V22": ("ops-xcheck (Tier 1)", "WP23", "not_run: WP23 not approved"),
     "V23": ("observation contract unchanged", "WP18/WP25", "implemented"),
+    "V24": ("native call correspondence", "host-inline", "implemented"),
 }
 
 V6_GATE_BINARY_JSON = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn")) / \

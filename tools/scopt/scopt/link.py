@@ -69,18 +69,22 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .canon import fnv1a64, hexaddr
 from .formats import scm_v1 as S
+from .formats.enums import Encoding, OpMarkKind, SiteKind
 from .formats.sc_v5 import ScHeader, ScRecord, read_sc
 from .model.snapshot import LAYOUT_SECTIONS, WorkingSet
-from .model.unit import Fixup, TBUnit
+from .model.unit import Fixup, Site, TBUnit
+
+if TYPE_CHECKING:
+    from .model.native import InlineCall
 
 __all__ = [
     "NativeLinker", "LinkResult", "UnitLink", "LinkFailure", "LinkError", "int32_ok",
     "apply_fixup", "relocate_unit", "derive_scm", "capture_join", "TB_ALIGN", "arena_limit",
-    "R",
+    "R", "transplant_native",
 ]
 
 TB_ALIGN = 64
@@ -138,6 +142,9 @@ class UnitLink:
     body: bytes  # [tc', end'): code then search data
     patched: tuple[tuple[int, int], ...] = ()  # (field_off, width) changed, relative to tc
     input_slot: int | None = None  # the slot in the input .sc (None: same as ``slot``)
+    native_fragments: tuple[InlineCall, ...] = ()
+    inline_start: int | None = None
+    native_unit: TBUnit | None = field(default=None, repr=False)  # enlarged, before relocation
 
     @property
     def in_slot(self) -> int:
@@ -243,7 +250,8 @@ def relocate_unit(u: TBUnit, new_tb: int) -> UnitLink:
     d = new_tb - u.tb_offset
     body = u.code + u.search
     if d == 0:
-        return UnitLink(u.uid, u.slot, u.tb_offset, new_tb, bytes(u.record), body)
+        return UnitLink(u.uid, u.slot, u.tb_offset, new_tb, bytes(u.record), body,
+                        native_fragments=u.native_fragments, inline_start=u.inline_start)
     code = bytearray(u.code)
     patched = []
     for f in u.reloc.fixups:
@@ -252,7 +260,121 @@ def relocate_unit(u: TBUnit, new_tb: int) -> UnitLink:
     rec = ScRecord.from_bytes(u.record).replace(
         tb_offset=u.tb_offset + d, tc_offset=u.tc_offset + d, end_offset=u.end_offset + d)
     return UnitLink(u.uid, u.slot, u.tb_offset, new_tb, rec.to_bytes(fix_checksum=True),
-                    bytes(code) + u.search, tuple(patched))
+                    bytes(code) + u.search, tuple(patched), native_fragments=u.native_fragments,
+                    inline_start=u.inline_start)
+
+
+def _branch_disp(start: int, end: int, uid: str) -> bytes:
+    value = end - start
+    if not int32_ok(value):
+        raise LinkError(R.REL32_RANGE, f"native branch {start:#x} -> {end:#x}", uid)
+    return value.to_bytes(4, "little", signed=True)
+
+
+def transplant_native(u: TBUnit, *, code_address: int) -> TBUnit:
+    """Materialize a unit's checked symbolic fragments at its pre-move offsets."""
+    from .validate_sym.native_inline import verify_fragment
+
+    if (not u.native_fragments or u.stub_start is not None or u.inline_start is not None
+            or u.meta_status != "ok" or not u.reloc.relocatable):
+        raise LinkError("native_layout_unsupported", "native growth needs an original relocatable TB",
+                        u.uid)
+    code = bytearray(u.code)
+    inline_start = len(code)
+    tc_abs = code_address + u.tc_offset
+    drop_fields: set[int] = set()
+    drop_sites: set[Site] = set()
+    drop_marks = set()
+    drop_recovery = set()
+    entry_sites = []
+    prior_calls: list[tuple[int, int]] = []
+    for request in u.native_fragments:
+        off, continuation = request.call_off, request.continuation_off
+        if (len(request.call_bytes) not in (5, 6)
+                or not 0 <= off < continuation < u.ldst_end
+                or continuation != off + len(request.call_bytes)
+                or u.code[off:continuation] != request.call_bytes
+                or any(_overlaps(off, continuation, a, b) for a, b in prior_calls)):
+            raise LinkError("native_callsite_mismatch", f"call bytes/range at +{off:#x}", u.uid)
+        prior_calls.append((off, continuation))
+        rows = [s for s in u.sites if s.insn_off == off and s.kind == SiteKind.HELPER_CALL]
+        if (len(rows) != 1 or rows[0].aux != request.helper_id
+                or rows[0].value != request.target_abs):
+            raise LinkError("native_callsite_mismatch", f"helper capture at +{off:#x}", u.uid)
+        site = rows[0]
+        captured_pool = [p for p in u.pool if p.user_field_off == site.field_off]
+        if request.pool_slot_off is None:
+            correct_encoding = (site.enc == Encoding.REL32 and not captured_pool
+                                and len(request.call_bytes) == 5 and request.call_bytes[0] == 0xE8)
+        else:
+            correct_encoding = (site.enc == Encoding.POOL_INDIRECT and len(captured_pool) == 1
+                                and captured_pool[0].slot_off == request.pool_slot_off
+                                and captured_pool[0].data0 == request.target_abs
+                                and len(request.call_bytes) == 6
+                                and request.call_bytes[:2] == b"\xff\x15")
+        if not correct_encoding:
+            raise LinkError("native_callsite_mismatch", f"encoding at +{off:#x}", u.uid)
+        if any(tc_abs + off < s.value < tc_abs + continuation for s in u.sites):
+            raise LinkError("native_callsite_mismatch", f"edge into call footprint at +{off:#x}", u.uid)
+        marks = [m for m in u.opmarks if m.kind == OpMarkKind.CALL and m.host_off <= off]
+        if marks:
+            mark = max(marks, key=lambda m: m.host_off)
+            if mark.helper_id == request.helper_id and mark.insn_idx == site.insn_idx:
+                drop_marks.add(mark)
+        drop_fields.add(site.field_off)
+        drop_sites.add(site)
+        drop_recovery.add(continuation)
+
+        island_start = len(code)
+        island = bytearray(request.fragment.code)
+        for field_off in request.fragment.continuation_fields:
+            if not 0 < field_off <= len(island) - 4 or island[field_off - 1] != 0xE9:
+                raise LinkError("native_fragment_invalid", "invalid return relocation", u.uid)
+            island[field_off:field_off + 4] = _branch_disp(
+                island_start + field_off + 4, continuation, u.uid)
+        try:
+            verify_fragment(request, bytes(island), island_start=island_start)
+        except ValueError as e:
+            raise LinkError("native_fragment_invalid", str(e), u.uid) from e
+        disp = _branch_disp(off + 5, island_start, u.uid)
+        code[off:continuation] = b"\xe9" + disp + b"\x90" * (continuation - off - 5)
+        entry_sites.append(Site(off + 1, off, 4, Encoding.REL32, SiteKind.LABEL_JMP, 0,
+                                tc_abs + island_start, site.insn_idx,
+                                int.from_bytes(disp, "little")))
+        code.extend(island)
+
+    pool, retained = [], {}
+    for i, entry in enumerate(u.pool):
+        if entry.user_field_off not in drop_fields:
+            retained[i] = len(pool)
+            pool.append(entry)
+    sites = []
+    for site in u.sites:
+        if site in drop_sites or (site.kind == SiteKind.POOL_REF and site.field_off in drop_fields):
+            continue
+        if site.kind == SiteKind.POOL_REF:
+            if site.aux not in retained:
+                raise LinkError("native_callsite_mismatch", "retired pool user is still referenced",
+                                u.uid)
+            site = replace(site, aux=retained[site.aux])
+        sites.append(site)
+    sites.extend(entry_sites)
+    sites.sort(key=lambda site: (site.insn_off, site.field_off))
+    recovery = tuple(p for p in u.recovery
+                     if p.source != "helper_call" or p.host_return_offset not in drop_recovery)
+    code = bytes(code)
+    end = u.tc_offset + len(code) + len(u.search)
+    record = ScRecord.from_bytes(u.record).replace(tc_size=len(code), end_offset=end)
+    raw_record = record.to_bytes(fix_checksum=True)
+    return replace(u, code=code, tc_size=len(code), end_offset=end, record=raw_record,
+                   sites=tuple(sites), pool=tuple(pool),
+                   opmarks=tuple(mark for mark in u.opmarks if mark not in drop_marks),
+                   recovery=tuple(replace(p, id=f"r{i}") for i, p in enumerate(recovery)),
+                   reloc=replace(u.reloc, fixups=tuple(f for f in u.reloc.fixups
+                                                        if f.field_off not in drop_fields)),
+                   inline_start=inline_start,
+                   content_hash=_content(raw_record, code, u.search,
+                                         {"native": [c.to_json() for c in u.native_fragments]}))
 
 
 # ---------------------------------------------------------------------------
@@ -386,8 +508,73 @@ class NativeLinker:
         fails += [f for f in rfails if f.uid not in bad]
         return plan, links, fails
 
+    def _link_native(self, units: Sequence[TBUnit]) -> LinkResult:
+        """Append enlarged units outside every original TB while preserving slot order."""
+        header = self.header
+        growing = [u for u in units if u.native_fragments and u.inline_start is None
+                   and not u.splice_applied]
+        if (header.version != 5 or not self.derive_captures
+                or any(u.stub_start is not None for u in units)):
+            fail = LinkFailure(growing[0].uid, "native_layout_unsupported",
+                               "native growth requires unguarded v5 and derived capture")
+            return LinkResult(False, header, failures=(fail,))
+        modes = {request.splice is not None for u in growing for request in u.native_fragments}
+        if len(modes) > 1:
+            fail = LinkFailure(growing[0].uid, "native_layout_unsupported",
+                               "splice and island growth need separate pipelines")
+            return LinkResult(False, header, failures=(fail,))
+        join = self._join()
+        bound = set(join.bound()) if join is not None else set()
+        for unit in growing:
+            if unit.slot not in bound:
+                fail = LinkFailure(unit.uid, "native_metadata_missing", "no bound source capture")
+                return LinkResult(False, header, failures=(fail,))
+        cursor = max((u.end_offset for u in units), default=header.prologue_end)
+        links = []
+        try:
+            for slot, u in enumerate(units):
+                if u.native_fragments and u.inline_start is None and not u.splice_applied:
+                    if u.native_fragments[0].splice is not None:
+                        from .splice_layout import materialize_splice
+                        from .validate_sym.native_inline import NativeInlineError
+
+                        if len(u.native_fragments) != 1:
+                            raise LinkError("splice_layout_unsupported", "one splice per unit", u.uid)
+                        try:
+                            materialized = materialize_splice(self.base.unit(u.uid),
+                                                              u.native_fragments[0], header.code_address)
+                        except NativeInlineError as exc:
+                            raise LinkError(exc.reason, str(exc), u.uid) from exc
+                    else:
+                        materialized = transplant_native(u, code_address=header.code_address)
+                    target = round_up(cursor, TB_ALIGN)
+                    cursor = target + materialized.end_offset - u.tb_offset
+                    if cursor >= arena_limit(header):
+                        raise LinkError(R.OUT_OF_RANGE, f"enlarged TB ends at {cursor:#x}", u.uid)
+                    link = replace(relocate_unit(materialized, target), native_unit=materialized)
+                else:
+                    link = relocate_unit(u, u.tb_offset)
+                links.append(replace(link, slot=slot, input_slot=u.slot))
+            result = LinkResult(True, header, tuple(links))
+            files, names = derive_scm(join, result.by_uid(), self.base)
+        except LinkError as e:
+            return LinkResult(False, header, failures=(LinkFailure(e.uid, e.reason, e.detail),))
+        except S.ScmEncodeError as e:
+            fail = LinkFailure(growing[0].uid, "native_metadata_invalid", str(e))
+            return LinkResult(False, header, failures=(fail,))
+        result.derived_scms = tuple(files)
+        result.capture_sources = tuple(names)
+        return result
+
     def link(self) -> LinkResult:
         """Place, relocate, roll back once if needed, derive the captures."""
+        units = self.ws.units()
+        if self.ws.has_layout_edits and (
+                native := next((u for u in units if u.native_fragments), None)) is not None:
+            fail = LinkFailure(native.uid, "native_layout_unsupported", "native islands with layout edits")
+            return LinkResult(False, self.header, failures=(fail,))
+        if any(u.native_fragments and u.inline_start is None and not u.splice_applied for u in units):
+            return self._link_native(units)
         plan, links, fails = self._attempt(frozenset())
         attempts = 1
         rollbacks: tuple[LinkFailure, ...] = ()
@@ -451,6 +638,26 @@ def capture_join(snapshot: Any) -> Any:
 def _rewrite_tb(tb: S.TbChunk, link: UnitLink, code_address: int) -> S.TbChunk:
     """The TB chunk describing ``link``: the output slot, the new record, and (for a
     moved unit) ``code_fnv64`` and the sites rewritten for the move."""
+    if link.native_unit is not None:
+        from .formats.layouts import SCM_TB_CHUNK_VERSION_3, SCM_TB_CHUNK_VERSION_4
+
+        u = link.native_unit
+        row_version = SCM_TB_CHUNK_VERSION_4 if u.splice_applied else SCM_TB_CHUNK_VERSION_3
+        span = u.native_fragments[0].splice.start_off if u.splice_applied else u.inline_start
+        tb = replace(tb, record=u.record, code_size=u.tc_size, sites=_scm_sites(u),
+                     insn0_start=u.insn0_start, body_end=u.body_end, ldst_end=u.ldst_end,
+                     pool_start=0xFFFF_FFFF if u.pool_start is None else u.pool_start,
+                     insns=tuple(S.ScmInsn(i.words, i.host_start, i.host_end) for i in u.insns),
+                     ldst=tuple(S.ScmLdst(tuple(0xFFFF_FFFF if f is None else f for f in d.jcc_fields),
+                                          d.slow_start, d.slow_end, d.raddr_off,
+                                          d.oi, d.op_ordinal, int(d.is_ld)) for d in u.ldst),
+                     pool=tuple(S.ScmPool(p.user_field_off, p.slot_off, p.rtype,
+                                          p.nlong, p.addend, p.data0) for p in u.pool),
+                     opmarks=tuple(S.ScmOpMark(m.host_off, int(m.kind), m.insn_idx,
+                                              0xFFFF_FFFF if m.helper_id is None else m.helper_id)
+                                   for m in u.opmarks),
+                     tb_chunk_version=row_version, reserved=span,
+                     native_fragments=u.native_fragments, source=None)
     d = link.delta
     if d == 0:
         if tb.slot == link.slot and tb.record == link.record:
@@ -767,6 +974,8 @@ def grow_unit(u: TBUnit, exits: Sequence[GuardedExitSpec], *, code_address: int,
         raise LinkError(R2.NO_META, "no capture metadata", u.uid)
     if not u.reloc.relocatable:
         raise LinkError(R2.UNIT_NOT_RELOCATABLE, ",".join(u.reloc.reasons), u.uid)
+    if u.native_fragments or u.inline_start is not None:
+        raise LinkError("native_layout_unsupported", "native islands with guard growth", u.uid)
     if u.stub_start is not None:
         raise LinkError(R2.EXIT_NOT_GOTO_PTR, "unit is already grown", u.uid)
     if not exits:
@@ -1063,6 +1272,8 @@ class NativeLinkerV2:
         plan, h = self.plan, self.header
         ca = h.code_address
         units = list(self.snap.units())
+        if (native := next((u for u in units if u.native_fragments), None)) is not None:
+            return self._fail(native.uid, "native_layout_unsupported", "native islands with B3")
         by_uid = {u.uid: u for u in units}
         for uid in list(plan.grow) + list(plan.rewrites) + \
                 [v.src_uid for v in plan.variants] + [v.pred_uid for v in plan.variants]:

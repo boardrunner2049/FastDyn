@@ -1,0 +1,17 @@
+diff --git a/bolt/include/bolt/Passes/Inliner.h b/bolt/include/bolt/Passes/Inliner.h
+--- a/bolt/include/bolt/Passes/Inliner.h
++++ b/bolt/include/bolt/Passes/Inliner.h
+@@ -76,6 +76,14 @@ class Inliner : public BinaryFunctionPass {
+              const BinaryFunction &Callee);
+ 
+ public:
++  // FastDyn uses a synthetic caller and performs its own admission and
++  // correspondence checks. Keep the actual CFG cloning in BOLT.
++  void inlineVerifiedCall(BinaryBasicBlock &Caller,
++                          BinaryBasicBlock::iterator Call,
++                          const BinaryFunction &Callee) {
++    (void)inlineCall(Caller, Call, Callee);
++  }
++
+   explicit Inliner(const cl::opt<bool> &PrintPass)
+       : BinaryFunctionPass(PrintPass) {}

@@ -51,12 +51,13 @@ import bisect
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..canon import fnv1a64
 from ..decode.search import SearchDecodeError, SearchRows, decode_search, is_pcrel
 from ..decode.thumb import check_lengths, lengths_from_words
-from ..decode.x86 import Arena, DecodedRef, Insn as X86Insn, RefKind, extract_refs, sweep, tiles
+from ..decode.x86 import (Arena, DecodedRef, Insn as X86Insn, RefKind, decode_one,
+                          extract_refs, sweep, tiles)
 from ..formats.enums import NONE_U32, Encoding, SiteKind, TbFlag
 from ..formats.sc_v5 import ScHeader, ScUnit
 from ..formats.scm_v1 import TbChunk
@@ -64,6 +65,9 @@ from ..model.unit import (AnchoredPointer, Fixup, HelperBinding, Insn, Ldst, OpM
                           PoolEntry, RecoveryPoint, Site)
 from .classify import OWN_STRUCT_IDX, AddrClass, HostContext, helper_symbol_ok
 from .recovery import RECOVERY_MISMATCH, RecoveryCheck, check_recovery
+
+if TYPE_CHECKING:
+    from ..model.native import NativeSplice
 
 __all__ = [
     "CF_NOIRQ", "ClassifiedSite", "UnitCheck", "Firmware", "crosscheck_unit", "X86_REGS",
@@ -192,6 +196,7 @@ class UnitCheck:
     arrays: dict[str, tuple] = field(default_factory=dict)
     helper_symbol_checks: list[tuple[int, str | None, str | None, bool | None]] = \
         field(default_factory=list)
+    native_fixups: tuple[Fixup, ...] = ()
 
     def check(self, name: str, ok: bool | None, detail: str = "",
               reason: str | None = None) -> bool:
@@ -209,6 +214,7 @@ class UnitCheck:
     @property
     def fixups(self) -> tuple[Fixup, ...]:
         fx = [c.fixup for c in self.classified if c.fixup is not None]
+        fx.extend(self.native_fixups)
         return tuple(sorted(fx, key=lambda f: f.field_off))
 
     def sorted_reasons(self) -> tuple[str, ...]:
@@ -285,13 +291,17 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
     ps = chunk.pool_start_or_none
     # B3 grown unit (TB chunk v2, WP18): guard stubs [stub_start, tc_size) after the pool
     ss = chunk.stub_start
-    code_end = r.tc_size if ss is None else ss  # end of the TCG-emitted bytes (and pool)
+    inline_start = chunk.inline_start
+    splice_start = chunk.splice_start
+    code_end = chunk.pool_end  # end of the original TCG bytes (and pool)
     pool_end = code_end if ps is None else ps
     order = chunk.insn0_start <= chunk.body_end <= chunk.ldst_end <= pool_end <= code_end \
         <= r.tc_size
     uc.check("layout_order", order,
              f"insn0 {chunk.insn0_start} body_end {chunk.body_end} ldst_end {chunk.ldst_end} "
-             f"pool_start {ps} stub_start {ss} code_size {r.tc_size}", "layout_mismatch")
+             f"pool_start {ps} stub_start {ss} inline_start {inline_start} "
+             f"splice_start {splice_start} code_size {r.tc_size}",
+             "layout_mismatch")
     if ps is None:
         uc.check("layout_pad", chunk.ldst_end == code_end,
                  f"no pool: ldst_end {chunk.ldst_end} == code end {code_end}",
@@ -301,9 +311,15 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
         uc.check("layout_pad", all(b == NOP for b in pad), f"{len(pad)} bytes before the pool",
                  "layout_mismatch")
     if ps is not None and order:
-        _check_pool(uc, code, pool, ps, code_end, tc_abs)
-    elif pool:
-        uc.check("pool", False, f"{len(pool)} pool rows but no pool_start", "pool_mismatch")
+        retired = []
+        for req in chunk.native_fragments:
+            if req.pool_slot_off is not None:
+                delta = (0 if req.splice is None else
+                         req.splice.start_off + len(req.splice.code) - req.continuation_off)
+                retired.append((req.pool_slot_off + delta, req.target_abs))
+        _check_pool(uc, code, pool, ps, code_end, tc_abs, retired=retired)
+    elif pool or any(req.pool_slot_off is not None for req in chunk.native_fragments):
+        uc.check("pool", False, "pool rows but no valid pool_start", "pool_mismatch")
     else:
         uc.check("pool", None, "no pool")
 
@@ -338,16 +354,47 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
     if order and ss is not None:
         xs_stub = sweep(code[ss:], tc_abs + ss, tc_abs + r.tc_size)
         tiled = tiled and tiles(xs_stub, tc_abs + ss, tc_abs + r.tc_size)
+    xs_native = []
+    if order and inline_start is not None:
+        xs_native = sweep(code[inline_start:], tc_abs + inline_start, tc_abs + r.tc_size)
+        tiled = tiled and tiles(xs_native, tc_abs + inline_start, tc_abs + r.tc_size)
     if not tiled:
-        first_bad = next((i.address - tc_abs for i in xs + xs_stub if i.bad), pool_end)
+        first_bad = next((i.address - tc_abs for i in xs + xs_stub + xs_native if i.bad),
+                         pool_end)
         uc.check("decode", False, f"sweep of [0, {pool_end})" +
-                 (f" + [{ss}, {r.tc_size})" if ss is not None else "") + " does not tile",
+                 (f" + [{ss}, {r.tc_size})" if ss is not None else "") +
+                 (f" + [{inline_start}, {r.tc_size})" if inline_start is not None else "") + " does not tile",
                  f"decode_failed@0x{first_bad:x}")
     else:
-        uc.check("decode", True, f"{len(xs) + len(xs_stub)} host insns tile [0, {pool_end})" +
-                 (f" and the guard stubs [{ss}, {r.tc_size})" if ss is not None else ""))
+        uc.check("decode", True, f"{len(xs) + len(xs_stub) + len(xs_native)} host insns tile "
+                 f"[0, {pool_end})" +
+                 (f" and the guard stubs [{ss}, {r.tc_size})" if ss is not None else "") +
+                 (f" and the native islands [{inline_start}, {r.tc_size})" if inline_start is not None else ""))
+    if inline_start is not None:
+        error = _native_span_error(code, chunk, ctx, tc_abs, xs, pbits) if tiled else "invalid code span"
+        uc.check("native_islands", error is None, error or "checked native island correspondence",
+                 "native_fragment_invalid")
+        if error is not None:
+            uc.meta_status = "incomplete"
+    tcg_instructions = xs + xs_stub
+    if splice_start is not None:
+        error = (_native_splice_error(code, chunk, ctx, tc_abs, tcg_instructions, pbits)
+                 if tiled else "invalid code span")
+        uc.check("native_splice", error is None, error or "checked native splice correspondence",
+                 "native_fragment_invalid")
+        if error is None:
+            splice = chunk.native_fragments[0].splice
+            end = splice_start + len(splice.code)
+            tcg_instructions = [i for i in tcg_instructions
+                                if not splice_start <= i.address - tc_abs < end]
+            uc.native_fixups = tuple(
+                Fixup(splice_start + rel.field_off, 4, "rel_minus_delta",
+                      int(SiteKind.MOVI_CONST), "ext.native", rel.target_abs)
+                for rel in splice.relocations)
+        else:
+            uc.meta_status = "incomplete"
     xs = xs + xs_stub
-    by_off = {i.address - tc_abs: i for i in xs}
+    by_off = {i.address - tc_abs: i for i in xs + xs_native}
     starts = sorted(by_off)
     insn_end = {o: i.end - tc_abs for o, i in by_off.items()}
 
@@ -373,7 +420,7 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
 
     # -- steps 5 + 6: matching and classification ----------------------------------
     if tiled:
-        _match_and_classify(uc, u, chunk, ctx, xs, by_off, starts, sites, pool, ldst, tc_abs,
+        _match_and_classify(uc, u, chunk, ctx, tcg_instructions, by_off, starts, sites, pool, ldst, tc_abs,
                             tb_abs, hdr)
 
     # -- step 7: recovery --------------------------------------------------------
@@ -431,10 +478,192 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
     return uc
 
 
+def _native_guest_pcs(chunk: TbChunk, page_bits: int) -> tuple[int, ...]:
+    sizes = lengths_from_words([row.words[0] for row in chunk.insns],
+                               len(chunk.guest_bytes), page_bits)
+    guest_pcs = []
+    vaddr = chunk.vaddr
+    for size in sizes:
+        guest_pcs.append(vaddr)
+        vaddr += size
+    return tuple(guest_pcs)
+
+
+def _relocated_splice_code(splice: NativeSplice, tc_abs: int) -> bytes:
+    """Apply the certified displacement fields at the captured, physical TB base."""
+    relocated = bytearray(splice.code)
+    end = 0
+    for row in splice.relocations:
+        off = row.field_off
+        if not end <= off < off + 4 <= row.next_off <= len(relocated):
+            raise ValueError("invalid framed native relocation span")
+        if relocated[off:off + 4] != b"\0" * 4:
+            raise ValueError("framed native relocation placeholder is not zero")
+        displacement = row.target_abs - (tc_abs + splice.start_off + row.next_off)
+        if not -(1 << 31) <= displacement < (1 << 31):
+            raise ValueError("framed native relocation exceeds signed rel32 range")
+        relocated[off:off + 4] = displacement.to_bytes(4, "little", signed=True)
+        end = off + 4
+    return bytes(relocated)
+
+
+def _native_splice_error(code: bytes, chunk: TbChunk, ctx: HostContext, tc_abs: int,
+                         physical: Sequence[X86Insn], page_bits: int) -> str | None:
+    """Check a v4 splice's physical span and surviving captured origin."""
+    from ..validate_sym.native_splice import verify_splice_body
+
+    if len(chunk.native_fragments) != 1:
+        return "native splice requires exactly one request"
+    req, = chunk.native_fragments
+    splice = req.splice
+    if splice is None or splice.start_off != chunk.splice_start:
+        return "native splice geometry differs from the request"
+    start = splice.start_off
+    end = start + len(splice.code)
+    delta = end - req.continuation_off
+    by_off = {insn.address - tc_abs: insn for insn in physical}
+    try:
+        expected = _relocated_splice_code(splice, tc_abs)
+    except ValueError as error:
+        return str(error)
+    if (not chunk.insn0_start <= start <= end <= chunk.body_end
+            or start not in by_off or end not in by_off or code[start:end] != expected):
+        return "native splice bytes or instruction boundaries differ"
+    call = decode_one(req.call_bytes, tc_abs + req.call_off)
+    if call is None or not call.is_call or call.size != len(req.call_bytes):
+        return "native splice has invalid original call bytes"
+    helper = ctx.helper(req.helper_id)
+    if helper is None or helper.func != req.target_abs:
+        return "native splice helper binding disagrees"
+    if req.pool_slot_off is not None:
+        slot = req.pool_slot_off + delta
+        pool = chunk.pool_start_or_none
+        if (len(req.call_bytes) != 6 or call.rip_target != tc_abs + req.pool_slot_off
+                or pool is None or not pool <= slot <= chunk.code_size - 8
+                or int.from_bytes(code[slot:slot + 8], "little") != req.target_abs):
+            return "native splice retired pool binding disagrees"
+    elif len(req.call_bytes) != 5 or req.call_bytes[0] != 0xE8:
+        return "native splice original direct call is invalid"
+    indices = [i for i, guest in enumerate(chunk.insns)
+               if guest.host_start <= start < guest.host_end and end <= guest.host_end]
+    guest_pcs = _native_guest_pcs(chunk, page_bits)
+    if (len(indices) != 1 or indices[0] >= len(guest_pcs)
+            or req.guest_pcs != (guest_pcs[indices[0]],)):
+        return "native splice guest origin or containing instruction disagrees"
+    if (any(start <= row.insn_off < end or start <= row.field_off < end for row in chunk.sites)
+            or any(start <= mark.host_off < end for mark in chunk.opmarks)
+            or any(start <= row.user_field_off < end for row in chunk.pool)):
+        return "obsolete TCG metadata inside native splice"
+    start_abs, end_abs = tc_abs + start, tc_abs + end
+    for off, insn in by_off.items():
+        if start <= off < end:
+            continue
+        branch = insn.branch_target
+        if branch is not None and start_abs < branch < end_abs:
+            return "outside reference enters the native splice interior"
+        addr, operand = insn.rip_target, insn.rip_mem
+        if (addr is not None and operand is not None and addr < end_abs
+                and start_abs < addr + max(operand.size, 1)):
+            return "outside RIP-relative access overlaps the native splice"
+    for row in chunk.sites:
+        if start_abs < row.value < end_abs:
+            return "outside captured reference enters the native splice interior"
+        insn = by_off.get(row.insn_off)
+        if row.value == start_abs and start < end and (
+                insn is None or insn.branch_target != start_abs):
+            return "outside captured data reference observes the native splice entry"
+    try:
+        if splice.kind == "frame":
+            from ..validate_sym.native_virtual import verify_virtual_splice_body
+
+            verify_virtual_splice_body(req)
+        else:
+            verify_splice_body(req)
+    except (ValueError, OSError) as error:
+        return str(error)
+    return None
+
+
+def _native_span_error(code: bytes, chunk: TbChunk, ctx: HostContext, tc_abs: int,
+                       original: Sequence[X86Insn], page_bits: int) -> str | None:
+    """Cross-check the v3 spans without interpreting native code as TCG output."""
+    from ..validate_sym.native_inline import verify_fragment
+
+    inline_start = chunk.inline_start
+    assert inline_start is not None
+    start = inline_start
+    original_end = chunk.pool_start_or_none
+    if original_end is None:
+        original_end = start
+    guest_pcs = _native_guest_pcs(chunk, page_bits)
+    entries: dict[int, tuple[int, int]] = {}
+    by_off = {insn.address - tc_abs: insn for insn in original}
+    for req in chunk.native_fragments:
+        off, end = req.call_off, req.continuation_off
+        if (off in entries or len(req.call_bytes) not in (5, 6)
+                or not 0 <= off < end < original_end or end - off != len(req.call_bytes)
+                or any(a < end and off < b for a, (_, b) in entries.items())):
+            return f"native call footprint {off}:{end}"
+        island_end = start + len(req.fragment.code)
+        if not start < island_end <= len(code):
+            return f"native fragment extent {start}:{island_end}"
+        helper = ctx.helper(req.helper_id)
+        if helper is None or helper.func != req.target_abs:
+            return f"native helper capture disagrees at {off}"
+        captured = decode_one(req.call_bytes, tc_abs + off)
+        if captured is None or not captured.is_call or captured.size != len(req.call_bytes):
+            return f"recorded native call is invalid at {off}"
+        if req.pool_slot_off is not None:
+            slot = req.pool_slot_off
+            if (len(req.call_bytes) != 6 or captured.rip_target != tc_abs + slot
+                    or chunk.pool_start_or_none is None
+                    or not original_end <= slot <= inline_start - 8
+                    or
+                    int.from_bytes(code[slot:slot + 8], "little") != req.target_abs):
+                return f"retired pool binding disagrees at {off}"
+        elif len(req.call_bytes) != 5 or req.call_bytes[0] != 0xE8:
+            return f"recorded direct call is invalid at {off}"
+        insn = by_off.get(off)
+        if (insn is None or insn.raw[:1] != b"\xe9" or insn.size != 5
+                or insn.branch_target != tc_abs + start or end not in by_off
+                or code[off + 5:end] != b"\x90" * (end - off - 5)):
+            return f"native island entry branch disagrees at {off}"
+        call_sites = [row for row in chunk.sites if row.insn_off == off]
+        if (len(call_sites) != 1 or call_sites[0].kind != SiteKind.LABEL_JMP
+                or call_sites[0].value != tc_abs + start or call_sites[0].field_off != off + 1):
+            return f"invalid replaced callsite metadata at {off}"
+        index = call_sites[0].insn_idx
+        if not 0 <= index < len(guest_pcs) or req.guest_pcs != (guest_pcs[index],):
+            return f"native guest origin disagrees at {off}"
+        try:
+            verify_fragment(req, code[start:island_end], island_start=start)
+        except ValueError as error:
+            return str(error)
+        entries[off] = (start, end)
+        start = island_end
+    if start != len(code):
+        return "native islands do not tile the appended span"
+    for insn in original:
+        target = insn.branch_target
+        if target is None:
+            continue
+        target -= tc_abs
+        origin = insn.address - tc_abs
+        if inline_start <= target < len(code) and (
+                origin not in entries or entries[origin][0] != target):
+            return f"unexpected incoming edge to native island at {target}"
+        if any(a < target < b for a, (_, b) in entries.items()):
+            return f"incoming edge to replaced instruction at {target}"
+    return None
+
+
 def _check_pool(uc: UnitCheck, code: bytes, pool: Sequence[PoolEntry], ps: int, size: int,
-                tc_abs: int) -> None:
+                tc_abs: int, *, retired: Sequence[tuple[int, int]] = ()) -> None:
     probs = []
     slots: dict[int, tuple[int, int]] = {}
+    for off, value in retired:
+        if slots.setdefault(off, (1, value)) != (1, value):
+            probs.append(f"retired slot {off} has two values")
     for k, p in enumerate(pool):
         if p.nlong != 1:
             probs.append(f"row {k}: nlong {p.nlong}")

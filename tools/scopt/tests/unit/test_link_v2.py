@@ -309,7 +309,7 @@ def _codes(v):
 
 
 def test_registry_has_every_v_row():
-    assert sorted(V_ROWS, key=lambda c: int(c[1:])) == [f"V{i}" for i in range(1, 24)]
+    assert sorted(V_ROWS, key=lambda c: int(c[1:])) == [f"V{i}" for i in range(1, 25)]
 
 
 def test_v6_import_rejection_reasons(tmp_path):

@@ -22,11 +22,11 @@ import os
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import NamedTuple
+from typing import BinaryIO, NamedTuple
 
 __all__ = [
     "MapEntry", "Maps", "ElfSymbol", "ElfSegment", "ElfImage", "Module", "Symbol",
-    "Symbolizer", "load_elf", "PAGE_SIZE", "SETARCH_R_PIE_BASE",
+    "Symbolizer", "load_elf", "read_elf", "PAGE_SIZE", "SETARCH_R_PIE_BASE",
 ]
 
 PAGE_SIZE = 4096
@@ -226,6 +226,22 @@ class ElfImage:
             i += 1
         return False
 
+    def bounded_function(self, name: str, vaddr: int) -> ElfSymbol | None:
+        """Exact, sized entry with no conflicting function range."""
+        sym = self.symbol(name)
+        if sym is None or sym.type != "STT_FUNC" or sym.value != vaddr or sym.size <= 0:
+            return None
+        if self.symbol(name + ".cold") is not None:
+            return None
+        i = bisect.bisect_left(self._values, vaddr + sym.size) - 1
+        while i >= 0 and self._max_end[i] > vaddr:
+            other = self.symbols[i]
+            if (other.type == "STT_FUNC" and other.value + max(other.size, 1) > vaddr
+                    and (other.value, other.size) != (sym.value, sym.size)):
+                return None
+            i -= 1
+        return sym
+
     def funcs(self) -> list[ElfSymbol]:
         return [s for s in self.symbols if s.type == "STT_FUNC"]
 
@@ -234,31 +250,36 @@ def _rank(s: ElfSymbol) -> int:
     return {"STT_FUNC": 0, "STT_OBJECT": 1, "STT_TLS": 3}.get(s.type, 2)
 
 
-@lru_cache(maxsize=16)
-def _load_elf_cached(path: str, mtime_ns: int, size: int) -> ElfImage:
+def read_elf(f: BinaryIO, path: str) -> ElfImage:
+    """Read an ELF image from an already opened binary stream."""
     from elftools.elf.elffile import ELFFile
     from elftools.elf.sections import SymbolTableSection
 
-    with open(path, "rb") as f:
-        elf = ELFFile(f)
-        segs = tuple(ElfSegment(seg["p_vaddr"], seg["p_memsz"], seg["p_offset"], seg["p_filesz"],
-                                seg["p_flags"])
-                     for seg in elf.iter_segments() if seg["p_type"] == "PT_LOAD")
-        tab = elf.get_section_by_name(".symtab")
-        if not isinstance(tab, SymbolTableSection):
-            tab = elf.get_section_by_name(".dynsym")
-        syms: dict[tuple[int, str], ElfSymbol] = {}
-        if isinstance(tab, SymbolTableSection):
-            for s in tab.iter_symbols():
-                typ = s["st_info"]["type"]
-                if (not s.name or s["st_shndx"] == "SHN_UNDEF" or s["st_value"] == 0
-                        or typ in ("STT_SECTION", "STT_FILE")):
-                    continue
-                syms.setdefault((s["st_value"], s.name),
-                                ElfSymbol(s["st_value"], s["st_size"], s.name, typ))
-        is_pie = elf.header["e_type"] == "ET_DYN"
+    elf = ELFFile(f)
+    segs = tuple(ElfSegment(seg["p_vaddr"], seg["p_memsz"], seg["p_offset"], seg["p_filesz"],
+                            seg["p_flags"])
+                 for seg in elf.iter_segments() if seg["p_type"] == "PT_LOAD")
+    tab = elf.get_section_by_name(".symtab")
+    if not isinstance(tab, SymbolTableSection):
+        tab = elf.get_section_by_name(".dynsym")
+    syms: dict[tuple[int, str], ElfSymbol] = {}
+    if isinstance(tab, SymbolTableSection):
+        for s in tab.iter_symbols():
+            typ = s["st_info"]["type"]
+            if (not s.name or s["st_shndx"] == "SHN_UNDEF" or s["st_value"] == 0
+                    or typ in ("STT_SECTION", "STT_FILE")):
+                continue
+            syms.setdefault((s["st_value"], s.name),
+                            ElfSymbol(s["st_value"], s["st_size"], s.name, typ))
+    is_pie = elf.header["e_type"] == "ET_DYN"
     ordered = tuple(sorted(syms.values(), key=lambda s: (s.value, _rank(s), s.name)))
     return ElfImage(path, segs, ordered, is_pie)
+
+
+@lru_cache(maxsize=16)
+def _load_elf_cached(path: str, mtime_ns: int, size: int) -> ElfImage:
+    with open(path, "rb") as f:
+        return read_elf(f, path)
 
 
 def load_elf(path: str | os.PathLike) -> ElfImage:

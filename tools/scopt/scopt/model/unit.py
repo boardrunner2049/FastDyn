@@ -17,6 +17,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from ..formats.enums import Encoding, ExitKind, OpMarkKind, SiteKind
+from .native import InlineCall
 from ..ids import TBKey
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -236,10 +237,17 @@ class TBUnit:
     # B3 (WP18): code offset of the guard stubs appended after the pool of a
     # grown unit (None: not grown). ``[pool_start, stub_start)`` is the pool.
     stub_start: int | None = None
+    # Logical islands are published at the pass boundary. Their continuation
+    # fields remain symbolic until the linker chooses an arena placement.
+    native_fragments: tuple[InlineCall, ...] = ()
+    inline_start: int | None = None
+    splice_applied: bool = False
 
     @property
     def pool_end(self) -> int:
         """End of the constant pool: ``stub_start`` for a grown unit, else ``tc_size``."""
+        if self.inline_start is not None:
+            return self.inline_start
         return self.tc_size if self.stub_start is None else self.stub_start
 
 

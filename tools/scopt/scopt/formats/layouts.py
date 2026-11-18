@@ -111,7 +111,15 @@ SCM_TB_CHUNK_VERSION = 1
 #: ``stub_start`` (code offset of the guard stubs appended after the pool,
 #: 0xFFFFFFFF = none), the high u32 is 0.
 SCM_TB_CHUNK_VERSION_2 = 2
-SCM_TB_CHUNK_VERSIONS = (SCM_TB_CHUNK_VERSION, SCM_TB_CHUNK_VERSION_2)
+# Derived TB v3 (native islands): reserved[31:0] is the original code size;
+# reserved[63:32] is the byte length of a canonical JSON trailer after guest_bytes.
+SCM_TB_CHUNK_VERSION_3 = 3
+# Derived TB v4 (native splice): same trailer framing, with the splice start
+# in reserved[31:0] and one inline request describing the replaced span.
+SCM_TB_CHUNK_VERSION_4 = 4
+SCM_TB_CHUNK_VERSIONS = (SCM_TB_CHUNK_VERSION, SCM_TB_CHUNK_VERSION_2,
+                         SCM_TB_CHUNK_VERSION_3, SCM_TB_CHUNK_VERSION_4)
+SCM_TB_NATIVE_MAX = 1 << 20
 
 # VARIANT chunk (type 9, Python-only, WP18): a variant C' of a general record C.
 # version, variant_index, general_slot, flags, tb_offset, tc_offset, tc_size,

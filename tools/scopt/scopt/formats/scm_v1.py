@@ -43,18 +43,23 @@ round-trips exactly; :meth:`TbChunk.model_arrays` converts them to the
 
 from __future__ import annotations
 
+import json
 import os
 import struct
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union
 
-from ..canon import fnv1a64, hexaddr
+from ..canon import canonical_json, fnv1a64, hexaddr
 from . import layouts as L
 from .enums import (
     NONE_U32, CaptureLevel, ChunkType, Encoding, MapsTag, OpMarkKind, SiteKind, TbFlag,
 )
+
+if TYPE_CHECKING:
+    from ..model.native import InlineCall
+
 
 __all__ = [
     "ScmError", "ScmHeaderError", "ScmDecodeError", "ScmEncodeError", "SnapshotMergeConflict",
@@ -382,9 +387,59 @@ class ChunkSource:
     offset: int
 
 
+def _valid_native_scalar_fields(call: InlineCall) -> bool:
+    offsets = (call.call_off, call.continuation_off, call.helper_id, call.target_abs,
+               call.elf_address, call.image_offset, *call.guest_pcs,
+               *call.fragment.continuation_fields)
+    if call.splice is not None:
+        offsets += (call.splice.start_off, call.splice.depth, call.tcg_typemask)
+        offsets += tuple(n for r in call.splice.relocations
+                         for n in (r.field_off, r.next_off, r.target_abs))
+    if call.pool_slot_off is not None:
+        offsets += (call.pool_slot_off,)
+    offsets += tuple(n for o in call.fragment.origins
+                     for n in (o.source_off, o.source_size, o.output_off, o.output_size))
+    return (all(type(n) is int and 0 <= n < (1 << 64) for n in offsets)
+            and all(isinstance(s, str) and s for s in
+                    (call.target, call.unit_hash, call.image_id, call.native_input_id, call.symbol))
+            and (call.bridge_sha256 is None or isinstance(call.bridge_sha256, str)))
+
+
+_NATIVE_TB_VERSIONS = (L.SCM_TB_CHUNK_VERSION_3, L.SCM_TB_CHUNK_VERSION_4)
+
+
+def _native_metadata_matches(version: int, start: int, size: int,
+                             requests: tuple[InlineCall, ...]) -> bool:
+    if version == L.SCM_TB_CHUNK_VERSION_3:
+        return 0 < start < size and bool(requests) and all(r.splice is None for r in requests)
+    if not 0 <= start < size or len(requests) != 1:
+        return False
+    req, = requests
+    splice = req.splice
+    if (splice is None or splice.start_off != start or start > req.call_off
+            or len(splice.prefix) != req.call_off - start
+            or req.continuation_off != req.call_off + len(req.call_bytes)
+            or start + len(splice.code) > size):
+        return False
+    if splice.kind != "frame":
+        return splice.kind == "integer" and splice.depth == 1 and not splice.relocations
+    if (splice.depth not in (1, 2) or splice.prefix or start != req.call_off
+            or req.tcg_typemask != 400
+            or req.pool_slot_off is not None or len(req.call_bytes) != 5
+            or req.call_bytes[:1] != b"\xe8" or not splice.code):
+        return False
+    end = 0
+    for r in splice.relocations:
+        if (not end <= r.field_off < r.field_off + 4 <= r.next_off <= len(splice.code)
+                or splice.code[r.field_off:r.field_off + 4] != b"\0" * 4):
+            return False
+        end = r.field_off + 4
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class TbChunk:
-    """TB payload, ``tb_chunk_version`` 1 (§2.5.5). Array counts are the tuple lengths."""
+    """Captured TB v1 and derived TB v2–v4. Array counts are tuple lengths."""
 
     slot: int
     commit_seq: int
@@ -409,6 +464,7 @@ class TbChunk:
     insn_start_words: int = 3
     reserved: int = 0
     source: ChunkSource | None = field(default=None, compare=False, repr=False)
+    native_fragments: tuple[InlineCall, ...] = ()
 
     TYPE = ChunkType.TB
 
@@ -431,8 +487,22 @@ class TbChunk:
         return None if v == NONE_U32 else v
 
     @property
+    def inline_start(self) -> int | None:
+        if self.tb_chunk_version == L.SCM_TB_CHUNK_VERSION_3:
+            return self.reserved & 0xFFFF_FFFF
+        return None
+
+    @property
+    def splice_start(self) -> int | None:
+        if self.tb_chunk_version == L.SCM_TB_CHUNK_VERSION_4:
+            return self.reserved & 0xFFFF_FFFF
+        return None
+
+    @property
     def pool_end(self) -> int:
-        """End of the pool (``stub_start`` for a grown unit, else ``code_size``)."""
+        """End of original code and pool, before either kind of appended code."""
+        if self.inline_start is not None:
+            return self.inline_start
         ss = self.stub_start
         return self.code_size if ss is None else ss
 
@@ -453,16 +523,31 @@ class TbChunk:
     def encode(self) -> bytes:
         if len(self.record) != 104:
             raise ScmEncodeError(f"slot {self.slot}: record must be 104 bytes")
+        native = b""
+        reserved = self.reserved
+        version = self.tb_chunk_version
+        if version in _NATIVE_TB_VERSIONS:
+            start = self.reserved & 0xFFFF_FFFF
+            if not all(_valid_native_scalar_fields(call) for call in self.native_fragments):
+                raise ScmEncodeError(f"tb_chunk_v{version}_native_data")
+            if not _native_metadata_matches(version, start, self.code_size, self.native_fragments):
+                raise ScmEncodeError(f"tb_chunk_v{version}_native_layout")
+            native = canonical_json([call.to_json() for call in self.native_fragments])
+            if len(native) > L.SCM_TB_NATIVE_MAX:
+                raise ScmEncodeError(f"tb_chunk_v{version}_native_size")
+            reserved = len(native) << 32 | start
+        elif self.native_fragments:
+            raise ScmEncodeError("native fragments require TB v3 or v4")
         hdr = _pack(L.SCM_TB_HEADER, self.tb_chunk_version, self.slot, self.commit_seq,
                     bytes(self.record), self.vaddr, self.code_fnv64, self.attempts, self.flags,
                     self.insn0_start, self.body_end, self.ldst_end, self.pool_start,
                     self.code_size, len(self.insns), self.insn_start_words, len(self.sites),
                     len(self.pool), len(self.ldst), len(self.opmarks), len(self.static_exits),
-                    len(self.guest_bytes), self.reserved)
+                    len(self.guest_bytes), reserved)
         parts = [hdr]
         for name, _sz, _cls in _ARRAYS:
             parts.extend(e.encode() for e in getattr(self, name))
-        parts.append(bytes(self.guest_bytes))
+        parts.extend((bytes(self.guest_bytes), native))
         return b"".join(parts)
 
     @classmethod
@@ -479,7 +564,33 @@ class TbChunk:
             raise ScmDecodeError(f"insn_start_words:{isw}")
         counts = (icount, n_sites, n_pool, n_ldst, n_opm, n_sx)
         need = L.SCM_TB_HEADER.size + sum(n * sz for n, (_a, sz, _c) in zip(counts, _ARRAYS)) + n_gb
-        pad = _check_len(p, need, "tb")
+        native = ()
+        if ver in _NATIVE_TB_VERSIONS:
+            length = reserved >> 32
+            start = reserved & 0xFFFF_FFFF
+            if (not 0 < length <= L.SCM_TB_NATIVE_MAX or not start < code_size
+                    or ver == L.SCM_TB_CHUNK_VERSION_3 and start == 0):
+                raise ScmDecodeError(f"tb_chunk_v{ver}_native_layout")
+            pad = _check_len(p, need + length, "tb")
+            raw = bytes(p[need:need + length])
+            from ..model.native import InlineCall
+
+            try:
+                doc = json.loads(raw)
+                if not isinstance(doc, list) or not doc:
+                    raise ValueError("inline call list is empty or malformed")
+                native = tuple(InlineCall.from_json(call) for call in doc)
+                if not all(_valid_native_scalar_fields(call) for call in native):
+                    raise ValueError("invalid inline call metadata scalar")
+                if not _native_metadata_matches(ver, start, code_size, native):
+                    raise ValueError("native metadata does not match the span")
+                if canonical_json([call.to_json() for call in native]) != raw:
+                    raise ValueError("non-canonical inline call metadata")
+            except (ValueError, TypeError, AttributeError, KeyError, OverflowError, RecursionError) as e:
+                raise ScmDecodeError(f"tb_chunk_v{ver}_native_data:{e}") from e
+            reserved &= 0xFFFF_FFFF  # Keep the modeled geometry independent of encoded length.
+        else:
+            pad = _check_len(p, need, "tb")
         off = L.SCM_TB_HEADER.size
         arrays: dict[str, tuple] = {}
         for n, (name, sz, ecls) in zip(counts, _ARRAYS):
@@ -490,7 +601,8 @@ class TbChunk:
                    code_fnv64=cfnv, attempts=attempts, flags=flags, insn0_start=insn0,
                    body_end=body_end, ldst_end=ldst_end, pool_start=pool_start,
                    code_size=code_size, guest_bytes=guest, tb_chunk_version=ver,
-                   insn_start_words=isw, reserved=reserved, source=source, **arrays), pad
+                   insn_start_words=isw, reserved=reserved, source=source,
+                   native_fragments=native, **arrays), pad
 
     # -- conversion to the importer's model types ------------------------------
     def model_arrays(self) -> dict[str, tuple]:
@@ -1229,6 +1341,12 @@ def chunk_to_json(ch: ScmChunk, *, arrays: bool = True) -> dict[str, Any]:
         out["payload_len"] = len(b.payload)
     if isinstance(b, TbChunk) and b.stub_start is not None:
         out["tb"]["stub_start"] = b.stub_start
+    if isinstance(b, TbChunk) and b.inline_start is not None:
+        out["tb"]["inline_start"] = b.inline_start
+    if isinstance(b, TbChunk) and b.splice_start is not None:
+        out["tb"]["splice_start"] = b.splice_start
+    if isinstance(b, TbChunk) and b.native_fragments:
+        out["tb"]["native_fragments"] = [call.to_json() for call in b.native_fragments]
     return out
 
 

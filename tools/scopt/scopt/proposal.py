@@ -38,6 +38,7 @@ from .analysis.api import AnalysisResult
 from .canon import canonical_json, sha256_id
 from .canon import _check as _check_json  # canonical-JSON value check
 from .ids import is_unit_id
+from .model.native import InlineCall
 from .model.snapshot import ANNOT_HASH_PREFIX, LAYOUT_HASH_PREFIX, LAYOUT_SECTIONS, deep_freeze
 from .passes.base import B2_EDIT_KINDS, B3_EDIT_KINDS, EditCapabilityError, EditKind, PassDescriptor
 
@@ -355,6 +356,29 @@ class ProposalBuilder:
                                         f"multiple of {TB_ALIGN}")
         self._record(EditKind.PLACE, {"uid": uid, "tb_offset": tb_offset}, (uid,), reads=reads,
                      cites=cites, facet_reads=("unit", "layout"))
+
+    def inline_call(self, payload: InlineCall) -> None:
+        """Propose a checked native replacement for a call in the current unit."""
+        self._capability(EditKind.INLINE_CALL)
+        if not isinstance(payload, InlineCall):
+            raise EditPreconditionError("INLINE_CALL requires an InlineCall payload")
+        unit = self._unit(payload.target)
+        splice = payload.splice
+        framed = splice is not None and splice.kind == "frame"
+        if (payload.unit_hash != unit.content_hash or (not framed and not payload.fragment.code)
+                or payload.call_off < 0 or payload.continuation_off > unit.ldst_end
+                or payload.continuation_off != payload.call_off + len(payload.call_bytes)
+                or len(payload.call_bytes) not in (5, 6)
+                or unit.code[payload.call_off:payload.continuation_off] != payload.call_bytes):
+            raise EditPreconditionError("INLINE_CALL does not match the current call bytes")
+        if splice is not None:
+            start = splice.start_off
+            if (not 0 <= start <= payload.call_off or (start == payload.call_off) != framed
+                    or not splice.code or payload.growth < 0 or payload.growth % 8
+                    or unit.code[start:payload.call_off] != splice.prefix):
+                raise EditPreconditionError("INLINE_CALL splice does not match the argument setup")
+        e = self._record(EditKind.INLINE_CALL, {"payload": payload.to_json()}, (payload.target,))
+        self._edits[-1] = replace(e, payload=payload)
 
     # -- B3/B4 edits (typed payloads of design §3.7; enabled only by a B3 manager) --
     def _b3(self, kind: EditKind, payload: Any, uids: tuple[str, ...], *,

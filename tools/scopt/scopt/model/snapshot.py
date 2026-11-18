@@ -29,10 +29,11 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from types import MappingProxyType
 from typing import Any
 
-from ..canon import canonical_json
+from ..canon import canonical_json, sha256_id
 from ..passes.base import EditKind
 from .unit import TBUnit
 
@@ -283,6 +284,8 @@ class WorkingSet:
 
     def layout_hash(self, uid: str) -> str:
         st = dict(self.layout_state(uid))
+        if fragments := self.unit(uid).native_fragments:
+            st["native_growth"] = sum(f.growth for f in fragments)
         return LAYOUT_HASH_PREFIX + hashlib.sha256(canonical_json(st)).hexdigest()
 
     def annotation_hash(self, uid: str) -> str:
@@ -318,6 +321,7 @@ class WorkingSet:
         touched_layout: set[str] = set()
         touched_sections: set[str] = set()
         touched_annot: set[str] = set()
+        native_by_unit: dict[str, list] = {}
 
         def drop_layout(uid: str) -> None:
             e = self._section_of.get(uid)
@@ -363,12 +367,24 @@ class WorkingSet:
                 placements[uid] = int(a["tb_offset"])
                 owners[uid] = owner
                 touched_layout.add(uid)
+            elif kind is EditKind.INLINE_CALL:
+                native_by_unit.setdefault(ed.payload.target, []).append(ed.payload)
             else:
                 raise WorkingSetError(f"edit kind {kind.name} cannot be applied to a B2 "
                                       "working set (capability_not_enabled)")
 
         prov = self._provenance + ((MappingProxyType(dict(provenance)),) if provenance else ())
-        new = WorkingSet(self._base, _by_uid=self._by_uid, _order=self._order,
+        by_uid = self._by_uid
+        if native_by_unit:
+            copies = dict(by_uid)
+            for uid, requests in native_by_unit.items():
+                u = copies[uid]
+                ordered = sorted(requests, key=lambda r: r.call_off)
+                fragments = u.native_fragments + tuple(ordered)
+                content = sha256_id(canonical_json([u.content_hash, [r.certificate_id for r in ordered]]))
+                copies[uid] = replace(u, native_fragments=fragments, content_hash=content)
+            by_uid = MappingProxyType(copies)
+        new = WorkingSet(self._base, _by_uid=by_uid, _order=self._order,
                          generation=self._generation + 1, pins=pins,
                          sections={s: tuple(v) for s, v in sections.items()},
                          placements=placements, owners=owners, annotations=annotations,
@@ -385,6 +401,8 @@ class WorkingSet:
         for uid in touched_annot:
             if self.annotation_hash(uid) != new.annotation_hash(uid):
                 changed.setdefault(uid, set()).add(FACET_ANNOTATIONS)
+        for uid in native_by_unit:
+            changed.setdefault(uid, set()).update({FACET_CODE, FACET_META, FACET_LAYOUT})
         return new, {uid: frozenset(f) for uid, f in changed.items()}
 
     def __repr__(self) -> str:

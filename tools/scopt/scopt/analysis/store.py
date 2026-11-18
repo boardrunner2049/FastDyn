@@ -10,11 +10,12 @@ How dependencies are tracked
 * ``ctx.annotations(uid)`` -> ``(uid, "annot:…")``;
 * ``ctx.analysis(name, scope)`` -> ``(name, version, result_hash)`` in ``dep_results``;
 * ``ctx.profile(phase)`` / ``ctx.bundle`` -> the profile_id / bundle_id in ``dep_inputs``;
+* ``ctx.external_input(name)`` -> a named immutable input digest in ``dep_inputs``;
 * the snapshot_id is always in ``dep_inputs``.
 
 A compute function may only read inputs its spec declares in ``inputs``
 (``"code"``, ``"meta"``, ``"layout"``, ``"annotations"``, ``"profile:<phase>"``
-or ``"profile:*"``, ``"bundle"``) and analyses its spec declares in
+or ``"profile:*"``, ``"bundle"``, ``"external:<name>"``) and analyses its spec declares in
 ``requires``; anything else raises :class:`UndeclaredInput`.
 
 A result is *current* when every ``dep_units`` hash equals the unit's current
@@ -63,7 +64,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..canon import SHA256_PREFIX
+from ..canon import SHA256_PREFIX, is_sha256_id
 from ..ids import is_unit_id
 from ..model.snapshot import (
     CONTENT_FACETS, FACET_ANNOTATIONS, FACET_LAYOUT, FACETS, facets_of_hash,
@@ -74,7 +75,7 @@ from .api import AnalysisResult, AnalysisSpec, ScopeRef
 from .registry import AnalysisRegistry, MissingAnalysis, default_registry
 
 __all__ = [
-    "AnalysisStore", "AnalysisCtx", "UndeclaredInput", "AnalysisCycle", "AnalysisSchemaError",
+    "AnalysisStore", "AnalysisCtx", "AnalysisInput", "UndeclaredInput", "AnalysisCycle", "AnalysisSchemaError",
     "MissingAnalysis", "value_digest", "scope_ref", "SQLITE_SCHEMA_VERSION",
     "profile_phase_info", "profile_for_phase", "profile_id_of",
 ]
@@ -332,6 +333,18 @@ def profile_for_phase(profiles: Sequence[Any], phase: str | None) -> Any | None:
 # Compute context
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True, slots=True)
+class AnalysisInput:
+    """A caller-provided immutable value and the digest of its complete provenance."""
+
+    input_id: str
+    value: Any
+
+    def __post_init__(self) -> None:
+        if not is_sha256_id(self.input_id):
+            raise ValueError("external input id must be a SHA-256 content id")
+
+
 class AnalysisCtx:
     """What a compute function sees. Every read is recorded as a dependency."""
 
@@ -460,6 +473,14 @@ class AnalysisCtx:
             self._dep_inputs.add(self._store.bundle_id)
         return self._store.view.bundle
 
+    def external_input(self, name: str) -> AnalysisInput | None:
+        """Read an explicitly supplied immutable input or record its absence."""
+        self._need(f"external:{name}")
+        value = self._store._external_inputs.get(name)
+        marker = value.input_id if value is not None else "missing"
+        self._dep_inputs.add(f"external:{name}:{marker}")
+        return value
+
     def certify(self, certified: bool = True) -> None:
         """Mark the result as a certified fact (citable through ``PassContext.fact``)."""
         self._certified = bool(certified)
@@ -584,11 +605,15 @@ class AnalysisStore:
 
     def __init__(self, view: Any, registry: AnalysisRegistry | None = None, *,
                  profiles: Iterable[Any] = (), bundle_id: str | None = None,
-                 sqlite_path: str | None = None):
+                 sqlite_path: str | None = None,
+                 external_inputs: Mapping[str, AnalysisInput] | None = None):
         self._view = view if isinstance(view, WorkingSetView) else snapshot_view(view)
         self.registry = registry if registry is not None else default_registry()
         self.profiles: tuple[Any, ...] = tuple(profiles)
         self.bundle_id = bundle_id
+        self._external_inputs: dict[str, AnalysisInput] = {}
+        for name, value in (external_inputs or {}).items():
+            self.set_input(name, value)
         self._cache: dict[_Key, _Entry] = {}
         self._computing: list[_Key] = []
         self._sql = _SqliteCache(sqlite_path) if sqlite_path else None
@@ -606,8 +631,21 @@ class AnalysisStore:
     def set_profiles(self, profiles: Iterable[Any]) -> None:
         self.profiles = tuple(profiles)
 
+    def set_input(self, name: str, value: AnalysisInput | None) -> None:
+        """Replace a named external dependency. The usual cache checks detect stale values."""
+        if not name or ":" in name:
+            raise ValueError(f"invalid external input name: {name!r}")
+        if value is None:
+            self._external_inputs.pop(name, None)
+        elif isinstance(value, AnalysisInput):
+            self._external_inputs[name] = value
+        else:
+            raise TypeError("external inputs must be AnalysisInput instances")
+
     def inputs(self) -> frozenset[str]:
         ids = {self._view.snapshot_id}
+        ids.update(f"external:{name}:{value.input_id}"
+                   for name, value in self._external_inputs.items())
         if self.bundle_id:
             ids.add(self.bundle_id)
         for p in self.profiles:
@@ -648,6 +686,9 @@ class AnalysisStore:
         for i in r.dep_inputs:
             if i.startswith("no_profile:"):
                 if not self._no_profile(i):
+                    return False
+            elif i.startswith("external:") and i.endswith(":missing"):
+                if i[len("external:"):-len(":missing")] in self._external_inputs:
                     return False
             elif i not in inputs:
                 return False

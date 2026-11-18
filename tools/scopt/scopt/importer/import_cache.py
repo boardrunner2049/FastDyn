@@ -62,7 +62,7 @@ from ..formats.sc_v5 import ScFile, read_sc, sha256_sparse, sparse_copy
 from ..ids import bundle_id as _bundle_id
 from ..ids import tb_uid, unit_ids
 from ..model.cache_snapshot import CacheSnapshot, snapshot_dir_name
-from ..model.unit import Bindings, RelocInfo, TBUnit
+from ..model.unit import Bindings, HelperBinding, RelocInfo, TBUnit
 from .classify import HostContext, context_for
 from .crosscheck import Firmware, UnitCheck, crosscheck_unit
 from .join import ImportRejected, JoinResult, join
@@ -341,6 +341,51 @@ def _meta_doc(b, uc: UnitCheck | None, reloc: RelocInfo, origin: str, vaddrs: tu
     }
 
 
+def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping[str, Any] | None,
+                            uid: str, resolvers: dict, images: dict) -> str | None:
+    """Check v3/v4 provenance against the captured runtime's exact ELF bytes."""
+    from ..model.native import supports_tcg_integer_abi
+    from .native_callee import CalleeResolutionError, NativeCalleeResolver
+
+    if runtime is None:
+        return "missing runtime identity"
+    if id(binding.source) not in resolvers:
+        try:
+            digest = sha256_id(Path(binding.source.path).read_bytes())
+        except (OSError, TypeError):
+            return "source capture unavailable"
+        resolvers[id(binding.source)] = NativeCalleeResolver(
+            context, binding.source.run_info, runtime, digest, images)
+    resolver = resolvers[id(binding.source)]
+    for req in binding.chunk.native_fragments:
+        helper = context.helper(req.helper_id)
+        if req.target != uid or helper is None or helper.func != req.target_abs:
+            return "native fragment does not identify this unit and captured helper"
+        framed = req.splice is not None and req.splice.kind == "frame"
+        if framed:
+            if helper.name_str is not None or helper.tcg_flags != 0 or helper.typemask != 400:
+                return "framed native fragment is not a captured FastDyn callback"
+        elif helper.name_str is None or (helper.tcg_flags & 0xF) != 5:
+            return "native fragment is not a captured pure QEMU helper"
+        target = context.code_target(helper.func)
+        if target is None:
+            return "native fragment target has no executable mapping"
+        try:
+            function = resolver.resolve(HelperBinding(
+                req.helper_id, helper.name_str, target.module, req.symbol, helper.tcg_flags,
+                helper.func))
+        except CalleeResolutionError as e:
+            return f"{e.reason}: {e}"
+        expected_role = "plugin" if framed else "qemu"
+        if (function.role != expected_role
+                or (not framed and not supports_tcg_integer_abi(function.tcg_typemask))
+                or (req.splice is not None and req.tcg_typemask != function.tcg_typemask)
+                or function.code != req.callee_code or function.image_id != req.image_id
+                or function.elf_address != req.elf_address or function.image_offset != req.image_offset):
+            return "native fragment source differs from the bound executable"
+    return None
+
+
 class ImportCache:
     """The import service (see the module docstring)."""
 
@@ -400,6 +445,7 @@ class ImportCache:
             plugin = nf["plugin"].get("path")
 
         ctxs: dict[int, HostContext] = {}
+        native_resolvers, native_images = {}, {}
         units_in = sc.units()
         uids = unit_ids(u.record.tb_uid for u in units_in)
         checks: dict[int, UnitCheck] = {}
@@ -419,6 +465,14 @@ class ImportCache:
                 ctx = context_for(b.source, ctxs, plugin_path=plugin)
                 uc = crosscheck_unit(su, b.chunk, sc.header, ctx,
                                      icache_linesize=ri.icache_linesize, firmware=firmware)
+                if b.chunk.native_fragments and uc.meta_status == "ok":
+                    problem = _native_binding_problem(b, ctx, self.runtime_identity, uid,
+                                                      native_resolvers, native_images)
+                    uc.check("native_images", problem is None,
+                             problem or "native fragment sources match verified runtime images",
+                             "native_image_mismatch")
+                    if problem is not None:
+                        uc.meta_status = "incomplete"
                 checks[su.slot] = uc
             if uc is None:
                 reasons = ("no_meta",) + ((b.reason,) if b.reason and b.reason != "no_chunk"
@@ -441,6 +495,12 @@ class ImportCache:
             stub_start = None if chunk is None else chunk.stub_start
             if stub_start is not None:
                 meta["stub_start"] = stub_start  # v2 chunks only: v1 hashes unchanged
+            inline_start = None if chunk is None else chunk.inline_start
+            if inline_start is not None:
+                meta["inline_start"] = inline_start
+            splice_applied = chunk is not None and chunk.splice_start is not None
+            if splice_applied:
+                meta["splice_start"] = chunk.splice_start
             units.append(TBUnit(
                 uid=uid, key=r.key, slot=su.slot, guest_size=r.guest_size, icount=r.icount,
                 guest_hash=r.guest_hash, vaddrs=vaddrs, origin=origin,  # type: ignore[arg-type]
@@ -458,7 +518,8 @@ class ImportCache:
                 bindings=Bindings(uc.helpers, uc.unchecked) if uc else Bindings(),
                 meta_status=meta_status,  # type: ignore[arg-type]
                 content_hash=_content_hash(su.record_bytes, su.body, meta),
-                stub_start=stub_start))
+                stub_start=stub_start, inline_start=inline_start, splice_applied=splice_applied,
+                native_fragments=chunk.native_fragments if chunk and meta_status == "ok" else ()))
             assert uid.startswith(tb_uid(r.key, r.guest_size, r.icount, r.guest_hash))
 
         if self.strict:

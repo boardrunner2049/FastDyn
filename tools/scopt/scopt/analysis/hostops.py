@@ -434,6 +434,8 @@ class _Builder:
                      envlayout_id=None if self.lay is None else self.lay.envlayout_id)
         if u.meta_status != "ok":
             return UnitHostOps(status="pinned", reasons=(u.meta_status,), ops=(), **empty)
+        if getattr(u, "native_fragments", ()):
+            return UnitHostOps(status="pinned", reasons=("native_fragments_unmodeled",), ops=(), **empty)
         if self.lay is None:
             return UnitHostOps(status="pinned", reasons=("guard_layout_unbound",), ops=(), **empty)
         end = u.pool_start if u.pool_start is not None else len(u.code)

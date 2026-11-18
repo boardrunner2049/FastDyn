@@ -33,7 +33,8 @@ from dataclasses import replace
 from typing import Any
 
 from ..canon import hexaddr, sha256_id
-from ..formats.enums import STATIC_EXIT_OFFPAGE_SLOT, ExitKind, OpMarkKind, SiteKind
+from ..decode.x86 import sweep
+from ..formats.enums import STATIC_EXIT_OFFPAGE_SLOT, Encoding, ExitKind, OpMarkKind, SiteKind
 from ..ids import region_id
 from ..model.unit import Exit, TBUnit
 from . import schemas
@@ -186,6 +187,30 @@ def _guest_pages(u: TBUnit, page_bits: int) -> list[dict[str, Any]]:
     return out
 
 
+def _native_relocation_encodings(u: TBUnit) -> dict[int, Encoding]:
+    """Report the machine encoding of each certified relocation without a TCG Site."""
+    encodings = {}
+    if not u.splice_applied:
+        return encodings
+    for request in u.native_fragments:
+        splice = request.splice
+        if splice is None or not splice.relocations:
+            continue
+        start = splice.start_off
+        by_end = {insn.end: insn for insn in sweep(u.code[start:start + len(splice.code)], start)}
+        for row in splice.relocations:
+            field = start + row.field_off
+            insn = by_end.get(start + row.next_off)
+            if insn is not None:
+                if insn.branch_target is not None and insn.imm_size == 4 and (
+                        insn.address + insn.imm_offset == field):
+                    encodings[field] = Encoding.REL32
+                elif insn.rip_target is not None and insn.disp_size == 4 and (
+                        insn.address + insn.disp_offset == field):
+                    encodings[field] = Encoding.RIPREL32
+    return encodings
+
+
 def build_region(u: TBUnit, *, snapshot_id: str, tb_size: int, page_bits: int,
                  bundle: Mapping[str, Any] | None, runtime_identity_id: str | None,
                  search_len: int | None, site_bindings: Mapping[int, Any] | None = None,
@@ -224,8 +249,14 @@ def build_region(u: TBUnit, *, snapshot_id: str, tb_size: int, page_bits: int,
     events.sort(key=lambda e: (e["host_offset"], e["kind"]))
 
     relocs = []
+    sites = {s.field_off: s for s in u.sites}
+    native_encodings = _native_relocation_encodings(u)
     for f in u.reloc.fixups:
-        s = next(x for x in u.sites if x.field_off == f.field_off)
+        site = sites.get(f.field_off)
+        encoding = (native_encodings.get(f.field_off) if f.target_class == "ext.native"
+                    else site.enc if site is not None else None)
+        if encoding is None:
+            raise ValueError(f"fixup at {f.field_off:#x} has no captured or certified encoding")
         b = site_bindings.get(f.field_off)
         tgt: dict[str, Any] = {"class": f.target_class}
         if b is not None and b.module:
@@ -237,7 +268,7 @@ def build_region(u: TBUnit, *, snapshot_id: str, tb_size: int, page_bits: int,
         if f.target_abs is not None:
             tgt["addr"] = hexaddr(f.target_abs)
         relocs.append({"member": 0, "field_offset": f.field_off, "width": f.width,
-                       "encoding": s.enc.name.lower(), "site_kind": SiteKind(f.site_kind).name,
+                       "encoding": encoding.name.lower(), "site_kind": SiteKind(f.site_kind).name,
                        "target": tgt, "rule": f.rule})
 
     exits_at = unit_exits_at(u)

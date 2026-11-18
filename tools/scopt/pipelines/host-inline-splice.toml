@@ -1,0 +1,9 @@
+schema = "scopt.pipeline"
+version = 1
+name = "host-inline-splice"
+description = "Verified straight-line fallthrough splicing of one native helper call per TB."
+allowed_capabilities = ["INLINE_CALL"]
+
+[[pass]]
+name = "host-inline-splice"
+version = 1

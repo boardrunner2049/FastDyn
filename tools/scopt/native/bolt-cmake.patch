@@ -1,0 +1,11 @@
+diff --git a/bolt/CMakeLists.txt b/bolt/CMakeLists.txt
+--- a/bolt/CMakeLists.txt
++++ b/bolt/CMakeLists.txt
+@@ -202,3 +202,7 @@ endif()
+ 
+ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/include/bolt/RuntimeLibs/RuntimeLibraryVariables.inc.in
+                ${CMAKE_CURRENT_BINARY_DIR}/include/bolt/RuntimeLibs/RuntimeLibraryVariables.inc @ONLY)
++
++if(DEFINED SCOPT_NATIVE_SOURCE)
++  add_subdirectory("${SCOPT_NATIVE_SOURCE}" "${CMAKE_BINARY_DIR}/scopt-native")
++endif()

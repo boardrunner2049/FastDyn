@@ -1,0 +1,9 @@
+schema = "scopt.pipeline"
+version = 1
+name = "host-inline"
+description = "Offline, verified register-only native helper inlining."
+allowed_capabilities = ["INLINE_CALL"]
+
+[[pass]]
+name = "host-inline"
+version = 1

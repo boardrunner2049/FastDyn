@@ -318,8 +318,10 @@ def test_malformed_payload_rejects_only_that_chunk():
     for bad_payload, reason in (
             (payload + b"\x01" * 8, "payload_len"),
             (payload[:150], "payload_len"),
-            # v2 is the derived-only grown-unit chunk (WP18); 3 is unknown
-            (struct.pack("<I", 3) + payload[4:], "unsupported_tb_chunk_version:3"),
+            # v3 requires a nonempty native island trailer and a span boundary.
+            (struct.pack("<I", 3) + payload[4:], "tb_chunk_v3_native_layout"),
+            (struct.pack("<I", 4) + payload[4:], "tb_chunk_v4_native_layout"),
+            (struct.pack("<I", 5) + payload[4:], "unsupported_tb_chunk_version:5"),
             (payload[:166] + struct.pack("<H", 4) + payload[168:], "insn_start_words:4")):
         framed = S.frame_chunk(int(ChunkType.TB), tbc["seq"], bad_payload)
         y = x[: tbc["offset"]] + framed + x[tbc["offset"] + tbc["length"]:]

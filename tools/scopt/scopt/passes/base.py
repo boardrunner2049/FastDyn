@@ -14,15 +14,16 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
+from ..model.native import InlineCall
 from ..model.unit import SnapshotView, UnitView
 
 __all__ = [
-    "EditKind", "B2_EDIT_KINDS", "B3_EDIT_KINDS", "LayoutSection", "Budgets",
+    "EditKind", "B2_EDIT_KINDS", "B3_EDIT_KINDS", "NATIVE_EDIT_KINDS", "LayoutSection", "Budgets",
     "PassDescriptor", "Outcome", "PassResult", "PassContext", "ProposalBuilderAPI",
     "Pass", "BudgetExceeded", "EditCapabilityError", "StaleFact", "Reason",
     # B3/B4 typed payloads (design §3.7, frozen at WP18's first merge)
     "GuardAtom", "GuardedSlot", "Clone", "SpecEntry", "FactRef", "Patch", "PayloadError",
-    "B3Reason", "SLOT_KINDS", "EXIT_CLASSES", "PATCH_TEMPLATES", "PAYLOAD_KINDS",
+    "InlineCall", "B3Reason", "SLOT_KINDS", "EXIT_CLASSES", "PATCH_TEMPLATES", "PAYLOAD_KINDS",
 ]
 
 
@@ -38,10 +39,14 @@ class EditKind(Enum):
     ADD_REGION = 14
     ADD_RECOVERY = 15
     ATTACH_FACT = 16
+    INLINE_CALL = 17
 
 
 B2_EDIT_KINDS = frozenset({EditKind.ANNOTATE, EditKind.PIN, EditKind.LAYOUT_ORDER, EditKind.PLACE})
-B3_EDIT_KINDS = frozenset(set(EditKind) - B2_EDIT_KINDS)
+B3_EDIT_KINDS = frozenset({EditKind.CLONE, EditKind.REDIRECT_EXIT, EditKind.ADD_ENTRY,
+                          EditKind.PURE_REWRITE, EditKind.ADD_REGION, EditKind.ADD_RECOVERY,
+                          EditKind.ATTACH_FACT})
+NATIVE_EDIT_KINDS = frozenset({EditKind.INLINE_CALL})
 
 LayoutSection = Literal["hot", "warm", "unknown", "boot", "cold"]
 
@@ -153,6 +158,7 @@ class ProposalBuilderAPI(Protocol):
     def pure_rewrite(self, *args: Any, **kwargs: Any) -> None: ...
     def add_region(self, *args: Any, **kwargs: Any) -> None: ...
     def add_recovery(self, *args: Any, **kwargs: Any) -> None: ...
+    def inline_call(self, payload: InlineCall) -> None: ...
     def attach_fact(self, *args: Any, **kwargs: Any) -> None: ...
 
 

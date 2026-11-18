@@ -117,6 +117,8 @@ class Program:
     exec_end: int | None = None  # decoding stops here (pool start) unless inside the stub
     insn_starts: tuple[int, ...] = ()
     logmeta: LogMeta | None = None
+    # The verifier projects a checked native island back to its abstract call.
+    native_call_origins: tuple[tuple[int, tuple[int, ...], str], ...] = ()
 
     @property
     def logblocks(self) -> Mapping[int, LogBlock]:
@@ -174,6 +176,8 @@ def world_of(snapshot: Any, layout: Any = None) -> World:
 
 def program_of(u: Any, world: World) -> Program:
     """The :class:`Program` of one captured :class:`~scopt.model.unit.TBUnit`."""
+    if getattr(u, "inline_start", None) is not None or getattr(u, "splice_applied", False):
+        raise ValueError("imported native code requires a certified HostSym projection")
     ca = world.code_address
     base = ca + u.tc_offset
     goto_tb = {s.insn_off: int(s.aux) for s in u.sites if s.kind == SiteKind.GOTO_TB}
@@ -211,6 +215,40 @@ def program_of(u: Any, world: World) -> Program:
         exec_end=u.pool_start if u.pool_start is not None else len(u.code),
         insn_starts=tuple(sorted(i.host_start for i in u.insns)),
         logmeta=meta_of_unit(u, world.layout, ca))
+
+
+def certified_native_calls(original: Program, relocated_code: bytes, delta: int,
+                           requests: Sequence[Any]) -> Program:
+    """Represent V24-checked islands as ordinary HostSym helper-call events.
+
+    ``relocated_code`` is the verified TCG projection, with the original call
+    operands restored at their final addresses. No code is decoded inside an
+    island. The caller must first check source identity, physical correspondence,
+    the call footprint and the final entry and continuation edges.
+    """
+    from ..decode.x86 import decode_one
+
+    if len(relocated_code) != len(original.code):
+        raise ValueError("native HostSym projection changes TCG code size")
+    rows = []
+    for request in requests:
+        off = request.call_off
+        inst = decode_one(relocated_code[off:request.continuation_off], original.base + delta + off)
+        helper = original.helpers.get(request.target_abs)
+        if inst is None or not inst.is_call or helper is None or helper.id != request.helper_id:
+            raise ValueError("native HostSym projection has no original helper event")
+        called = inst.branch_target
+        if inst.rip_target is not None:
+            slot = inst.rip_target - original.base - delta
+            if slot < 0 or slot + 8 > len(relocated_code):
+                raise ValueError("native HostSym projection has an invalid helper pool slot")
+            called = int.from_bytes(relocated_code[slot:slot + 8], "little")
+        if called != request.target_abs:
+            raise ValueError("native HostSym projection changes the helper binding")
+        rows.append((off, request.guest_pcs, request.certificate_id))
+    return remap(original, lambda off: off, code=relocated_code, base=original.base + delta,
+                 struct_base=original.struct_base + delta, own_end=original.own_end + delta,
+                 native_call_origins=tuple(rows))
 
 
 def patched(p: Program, patches: Sequence[tuple[int, bytes]], *, uid: str | None = None,

@@ -80,12 +80,17 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
     views, notes = _profiles(profiles, snap)
     params = json.loads(Path(params_file).read_text()) if params_file else None
     from ..manager import load_pipeline
-    from ..passes.base import B3_EDIT_KINDS
+    from ..passes.base import B3_EDIT_KINDS, NATIVE_EDIT_KINDS, EditKind
 
     try:
         pl = load_pipeline(pipeline)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
+    native = bool(pl.allowed_capabilities & NATIVE_EDIT_KINDS) or any(
+        unit.inline_start is not None or unit.splice_applied for unit in snap.units())
+    layout_caps = {EditKind.PIN, EditKind.LAYOUT_ORDER, EditKind.PLACE}
+    if native and (b3_mode or pl.allowed_capabilities & (B3_EDIT_KINDS | layout_caps)):
+        raise click.UsageError("native_combination_unsupported: native islands need a standalone pipeline")
     if b3_mode or (pl.allowed_capabilities & B3_EDIT_KINDS):
         _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, v6_exes,
                      selftest_file, prep, elf, as_json)

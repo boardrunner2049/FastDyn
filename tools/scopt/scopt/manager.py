@@ -52,6 +52,7 @@ code and outcome). Every pass row of the ledger then carries ``counts``
 from __future__ import annotations
 
 import importlib
+import json
 import logging
 import os
 import pkgutil
@@ -76,7 +77,7 @@ from .ledger import Ledger, LedgerRow, utc_now
 from .model.snapshot import FACETS, WorkingSet
 from .model.view import WorkingSetView
 from .passes.base import (
-    B2_EDIT_KINDS, B3_EDIT_KINDS, BudgetExceeded, EditCapabilityError, EditKind, Outcome,
+    B2_EDIT_KINDS, B3_EDIT_KINDS, NATIVE_EDIT_KINDS, BudgetExceeded, EditCapabilityError, EditKind, Outcome,
     PassDescriptor, PassResult, Reason, StaleFact,
 )
 from .proposal import (
@@ -443,7 +444,17 @@ class Candidate:
         return self.working_set.has_layout_edits
 
     def pipeline_provenance(self) -> list[dict[str, Any]]:
-        return [p.to_sidecar() for p in self.passes]
+        rows = [p.to_sidecar() for p in self.passes]
+        if self.pipeline.allowed_capabilities & NATIVE_EDIT_KINDS:
+            for row, record in zip(rows, self.passes):
+                if record.stats:
+                    row["x_counts"] = dict(record.stats)
+                if record.detail:
+                    try:
+                        row["x_diagnostics"] = json.loads(record.detail)
+                    except ValueError:
+                        row["x_diagnostics"] = record.detail
+        return rows
 
     def pinned(self) -> list[dict[str, Any]]:
         return [{"unit": uid, "reasons": list(r)} for uid, r in self.working_set.pinned()]
@@ -515,7 +526,7 @@ class PassManager:
     def __init__(self, snapshot: Any, pipeline: Any, profiles: Iterable[Any] = (),
                  params: Mapping[str, Mapping[str, Any]] | None = None,
                  store: AnalysisStore | None = None, *, disable: Iterable[str] = (),
-                 only: str | None = None, enabled_capabilities: Iterable[EditKind] = B2_EDIT_KINDS,
+                 only: str | None = None, enabled_capabilities: Iterable[EditKind] = B2_EDIT_KINDS | NATIVE_EDIT_KINDS,
                  passes: PassRegistry | None = None,
                  analyses: AnalysisRegistry | None = None, ledger: Ledger | None = None,
                  clock=utc_now, bundle_id: str | None = None, b3: Any = None):
@@ -580,7 +591,7 @@ class PassManager:
             evidence = rec.edit_digest if rec.edit_digest else (
                 sha256_id(rec.traceback.encode("utf-8")) if rec.traceback else None)
             counts = None
-            if self.b3env is not None:
+            if self.b3env is not None or self.pipeline.allowed_capabilities & NATIVE_EDIT_KINDS:
                 counts = {k: int(v) for k, v in rec.stats.items()
                           if isinstance(v, (int, float)) and not isinstance(v, bool)
                           and float(v).is_integer()}
@@ -721,6 +732,10 @@ class PassManager:
     def _admission(self, d: PassDescriptor, view: WorkingSetView
                    ) -> tuple[Outcome, str, str] | None:
         U, K = Outcome.SKIPPED_UNSUPPORTED, Outcome.SKIPPED_UNKNOWN
+        if d.capabilities & NATIVE_EDIT_KINDS and (self.b3env is not None or
+                self.pipeline.allowed_capabilities & (B3_EDIT_KINDS | {
+                    EditKind.PIN, EditKind.LAYOUT_ORDER, EditKind.PLACE})):
+            return U, "native_combination_unsupported", "native islands need a standalone pipeline"
         if d.domain != "HostCache":
             return U, R.DOMAIN, f"domain {d.domain!r}"
         if d.unit_scope == "region" and self.b3env is None:
@@ -910,7 +925,22 @@ class PassManager:
         layout_here: dict[str, int] = {}
         pinned_here: set[str] = set()
         overrides = "layout" in d.overrides
+        native_ranges: dict[str, list[tuple[int, int]]] = {}
+        inline_growth = 0
         for e in edits:
+            if e.kind is EditKind.INLINE_CALL:
+                r = e.payload
+                u = ws.unit(r.target)
+                if not ws.is_relocatable(u.uid) or ws.is_pinned(u.uid) or u.stub_start is not None or u.splice_applied:
+                    return F, Reason.NOT_RELOCATABLE, f"native island cannot grow {u.uid}"
+                ranges = native_ranges.setdefault(u.uid, [(p.splice.start_off if p.splice else p.call_off,
+                                                            p.continuation_off)
+                                                           for p in u.native_fragments])
+                start = r.splice.start_off if r.splice else r.call_off
+                if any(lo < r.continuation_off and start < hi for lo, hi in ranges):
+                    return F, Reason.CONFLICT, f"overlapping inline requests in {u.uid}"
+                ranges.append((start, r.continuation_off))
+                inline_growth += r.growth
             if e.kind in (EditKind.LAYOUT_ORDER, EditKind.PLACE):
                 for u in e.units:
                     if not ws.is_relocatable(u):
@@ -939,6 +969,9 @@ class PassManager:
                                                 f"{ws.layout_owner(u)!r}; pinning it needs "
                                                 "overrides={'layout'}")
                 pinned_here.add(u)
+        if inline_growth > b.max_code_growth_bytes:
+            return (Outcome.BUDGET_EXHAUSTED, Reason.BUDGET_EXHAUSTED,
+                    f"native growth {inline_growth} > {b.max_code_growth_bytes}")
         return None
 
 

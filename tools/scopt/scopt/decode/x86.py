@@ -38,7 +38,7 @@ from ..formats.enums import Encoding
 
 __all__ = [
     "Insn", "X86Insn", "MemOperand", "RefKind", "DecodedRef", "Arena", "AddressRanges",
-    "sweep", "sweep_to_pool", "extract_refs", "bad_insns", "tiles", "decoder",
+    "decode_one", "sweep", "sweep_to_pool", "extract_refs", "bad_insns", "tiles", "decoder",
 ]
 
 _U64 = (1 << 64) - 1
@@ -167,6 +167,12 @@ def _from_cs(i: capstone.CsInsn) -> Insn:
         op_sizes=tuple(sizes), dst_reg=dst_reg,
         imm_offset=i.imm_offset, imm_size=i.imm_size,
         disp_offset=i.disp_offset, disp_size=i.disp_size)
+
+
+def decode_one(code: bytes, address: int) -> Insn | None:
+    """Decode only the instruction beginning at ``address``."""
+    insn = next(decoder().disasm(code, address, count=1), None)
+    return None if insn is None else _from_cs(insn)
 
 
 def _bad(addr: int, byte: bytes) -> Insn:
