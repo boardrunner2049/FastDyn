@@ -1,0 +1,19 @@
+# Baseline-TCG fix (LLVM survey §3c B4-1; WP16 measured +10.8 %): rewrite the TB
+# entry's 32-bit icount load after a 16-bit store into a forwardable form.
+#
+# NOT a B3 or B4 optimization and never counted as caching (spec §8; design
+# invariant 3 is broken on purpose: the entry check changes). Its own arm in B5.
+# Ablation: run without this pipeline (or `scopt sfb package --disable`).
+#
+# The pass records its proposal as ANNOTATE edits (key x_icount_entry_sfb); the
+# frozen typed payloads have no prefix-growth kind, so `scopt sfb package`
+# materializes them (scopt.passes.icount_entry_sfb.package_sfb).
+schema = "scopt.pipeline"
+version = 1
+name = "tcg-entry-sfb"
+description = "Baseline-TCG fix: store-forwardable icount entry (+16 bytes per unit)."
+allowed_capabilities = ["ANNOTATE"]
+
+[[pass]]
+name = "icount-entry-sfb"
+version = 1

@@ -1,0 +1,15 @@
+# Test-only pipeline (WP10, F-B2-2 with every unit moved): reverse-layout with
+# `exclude`, then move-units places the excluded units explicitly.
+schema = "scopt.pipeline"
+version = 1
+name = "test-reverse-move"
+description = "Reverse layout plus explicit moves (test only)."
+allowed_capabilities = ["LAYOUT_ORDER", "PLACE"]
+
+[[pass]]
+name = "reverse-layout"
+version = 1
+
+[[pass]]
+name = "move-units"
+version = 1

@@ -1,0 +1,28 @@
+# B4 pipeline (design §7, plan WP25): bounded executor-state synchronization
+# elimination. One pass; same-length NOP fill of dead env stores.
+#
+#   eliminate-state-sync  D1 flag/register stores kept only by TCG's pseudo sync
+#                         points (brcond/br/set_label), D2 can_do_io stores (incl.
+#                         the prefix store, design §7.3; every helper call reads
+#                         can_do_io, LLVM survey §3c), D3 plugin_mem_value stores
+#                         (only with the RuntimeIdentity mem_get_value fact)
+#
+# Per-class ablation (T-B4-11): --param eliminate-state-sync.classes=D1  (or D2, D3,
+# "D1|D2", ...). A B4-only plan is a v5 artifact (no loader change).
+#
+# PURE_REWRITE is a B3/B4 edit kind: today's PassManager (B2) does not enable it
+# (WP21 owns that change). Until then `scopt b4 package` runs this pipeline's
+# pass through scopt.passes.eliminate_state_sync.propose_b4/package_b4.
+#
+# The icount-entry store-forwarding fix (icount-entry-sfb) is NOT part of B4:
+# it is a baseline-TCG fix with its own pipeline (tcg-entry-sfb.toml) and arm.
+schema = "scopt.pipeline"
+version = 1
+name = "b4"
+description = "B4: same-length NOP fill of dead executor-state stores (D1/D2/D3)."
+allowed_capabilities = ["PURE_REWRITE"]
+
+[[pass]]
+name = "eliminate-state-sync"
+version = 1
+params = { classes = "D1|D2|D3" }

@@ -1,0 +1,43 @@
+# B2 layout pipeline (design §5.10, §5.7, §7, §9). Passes: WP11.
+# Only ANNOTATE and LAYOUT_ORDER edits are allowed; B3/B4 kinds are never
+# enabled in B2, and PLACE stays test-only (move-units).
+#
+#   hotcold-partition  classify every unit (hot/warm/boot_only/cold_zero/unknown)
+#                      from the exact steady-phase entries; annotate only
+#   cluster-hot        Pettis-Hansen chain merge of the hot units over the exact
+#                      chain0/chain1/lookup_hit edge weights -> section "hot"
+#   order-cold         warm, unknown, boot, cold sections in original slot order
+#                      (plus the hot units in slot order if cluster-hot did not
+#                      lay them out)
+#
+# NativeLinker then places pinned units first (fixed), and the sections
+# hot -> warm -> unknown -> boot -> cold from ROUND_UP(prologue_end, 64);
+# records keep their original slot order.
+#
+# Ablation (scopt optimize --disable PASS), see docs/b2-layout.md:
+#   --disable cluster-hot        hot units in slot order (partition without clustering)
+#   --disable order-cold         clustered hot units placed first-fit around the
+#                                other units, which stay at their original offsets
+#   --disable hotcold-partition  degenerate: no classification, so both layout
+#                                passes skip (missing_hotness) and the candidate
+#                                is the input layout (0 units moved)
+schema = "scopt.pipeline"
+version = 1
+name = "b2-layout"
+description = "Profile-guided hot/cold layout on the unmodified v5 loader."
+allowed_capabilities = ["ANNOTATE", "PIN", "LAYOUT_ORDER"]
+
+[[pass]]
+name = "hotcold-partition"
+version = 1
+params = { phase = "steady", coverage = 0.99 }
+
+[[pass]]
+name = "cluster-hot"
+version = 1
+params = { phase = "steady", kinds = ["chain0", "chain1", "lookup_hit"] }
+
+[[pass]]
+name = "order-cold"
+version = 1
+params = { hot_fallback = true }

@@ -1,0 +1,11 @@
+# Test-only pipeline (WP10, F-B2-1/F-B2-5): explicit PLACE edits from move-units@1.
+# Params come from `scopt optimize --params FILE` ({"move-units": {"moves"|"deltas": {...}}}).
+schema = "scopt.pipeline"
+version = 1
+name = "test-move-units"
+description = "Move chosen units to explicit offsets (test only)."
+allowed_capabilities = ["PLACE"]
+
+[[pass]]
+name = "move-units"
+version = 1

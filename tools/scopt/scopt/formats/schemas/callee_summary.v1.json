@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fastdyn.local/scopt/callee_summary.v1.json",
+  "title": "CalleeSummary v1, one row per return unit (B3/B4 design §3.3; WP20)",
+  "type": "object",
+  "required": ["schema", "version", "snapshot_id", "return_unit", "exit_id", "exit_kind",
+               "return_insn_vaddr", "return_insn", "admitted", "exit_reasons", "callee",
+               "patches", "facts", "refused", "effects", "barriers", "deps", "row_hash"],
+  "patternProperties": {"^x_": {}},
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "fastdyn.callee_summary"},
+    "version": {"const": 1},
+    "snapshot_id": {"$ref": "#/$defs/sha256"},
+    "return_unit": {"$ref": "#/$defs/uid"},
+    "exit_id": {"type": "string", "pattern": "^x[0-9]+$"},
+    "exit_kind": {"enum": ["goto_ptr", "exit_null"]},
+    "return_insn_vaddr": {"anyOf": [{"$ref": "#/$defs/hex"}, {"type": "null"}]},
+    "return_insn": {"type": ["string", "null"]},
+    "admitted": {"type": "boolean"},
+    "exit_reasons": {"type": "array", "items": {"$ref": "#/$defs/reason"}},
+    "callee": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "object", "required": ["name", "start", "end", "source"],
+         "additionalProperties": false,
+         "properties": {"name": {"type": "string"}, "start": {"$ref": "#/$defs/hex"},
+                        "end": {"$ref": "#/$defs/hex"}, "source": {"const": "elf_symtab"}}}
+      ]
+    },
+    "patches_scope": {"enum": ["callee", "unit", "unknown"]},
+    "patches": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["kind", "index", "vaddr", "text", "form", "defines_fact"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {"enum": ["modifier", "virtual"]}, "index": {"type": "integer", "minimum": 0},
+          "vaddr": {"$ref": "#/$defs/hex"}, "text": {"type": "string"},
+          "form": {"type": "string"}, "field": {"type": "string"},
+          "value": {"$ref": "#/$defs/hex"}, "defines_fact": {"type": "boolean"}
+        }
+      }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fact_id", "field", "value", "def_host_off", "def_insn", "defs", "source",
+                     "cert_hash", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "fact_id": {"$ref": "#/$defs/sha256"},
+          "field": {"$ref": "#/$defs/field"},
+          "value": {"$ref": "#/$defs/hex"},
+          "def_host_off": {"type": "integer", "minimum": 0},
+          "def_insn": {"type": "integer", "minimum": 0},
+          "defs": {"type": "array", "minItems": 1, "items": {
+            "type": "object", "required": ["host_off", "insn"], "additionalProperties": false,
+            "properties": {"host_off": {"type": "integer", "minimum": 0},
+                           "insn": {"type": "integer", "minimum": 0}}}},
+          "source": {"enum": ["patch", "guest_code"]},
+          "plan_entry": {"type": "object"},
+          "writer_insn": {"type": "integer", "minimum": 0},
+          "writer_vaddr": {"$ref": "#/$defs/hex"},
+          "cert_hash": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+          "status": {"enum": ["proposed", "certified"]}
+        }
+      }
+    },
+    "refused": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["field", "reason"], "additionalProperties": false,
+        "properties": {"field": {"$ref": "#/$defs/field"}, "reason": {"type": "string"},
+                       "detail": {"type": "string"}, "value": {"$ref": "#/$defs/hex"}}
+      }
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["kind", "host_off"], "additionalProperties": false,
+        "properties": {
+          "kind": {"enum": ["guest_ld", "guest_st", "helper_call", "plugin_cb",
+                            "host_abs_store", "exit"]},
+          "host_off": {"type": "integer", "minimum": 0},
+          "insn": {"type": ["integer", "null"]},
+          "oi": {"type": "integer"}, "faultable": {"type": "boolean"},
+          "helper_id": {"type": ["integer", "null"]}, "helper": {"type": ["string", "null"]},
+          "flags": {"type": ["integer", "null"]}, "class": {"type": "string"},
+          "abs": {"anyOf": [{"$ref": "#/$defs/hex"}, {"type": "null"}]},
+          "exit": {"type": "string"}
+        }
+      }
+    },
+    "barriers": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["host_off", "kind", "detail"],
+        "additionalProperties": false,
+        "properties": {"host_off": {"type": "integer", "minimum": 0},
+                       "kind": {"enum": ["call_global", "plugin_cb", "unclassified_store"]},
+                       "detail": {"type": "string"}}
+      }
+    },
+    "deps": {
+      "type": "object",
+      "required": ["unit", "patch_plan_hash", "instrumentation_hash", "contract_id",
+                   "helpers", "envlayout_id"],
+      "additionalProperties": false,
+      "patternProperties": {"^x_": {}},
+      "properties": {
+        "unit": {
+          "type": "object", "required": ["uid", "content_hash", "guest_hash", "key"],
+          "additionalProperties": false,
+          "properties": {
+            "uid": {"$ref": "#/$defs/uid"},
+            "content_hash": {"$ref": "#/$defs/sha256"},
+            "guest_hash": {"$ref": "#/$defs/hex"},
+            "key": {"type": "object", "required": ["page_addr0", "page_addr1", "flags",
+                                                   "cs_base", "cflags"],
+                    "additionalProperties": false,
+                    "properties": {"page_addr0": {"$ref": "#/$defs/hex"},
+                                   "page_addr1": {"anyOf": [{"$ref": "#/$defs/hex"},
+                                                            {"type": "null"}]},
+                                   "flags": {"$ref": "#/$defs/hex"},
+                                   "cs_base": {"$ref": "#/$defs/hex"},
+                                   "cflags": {"$ref": "#/$defs/hex"}}}
+          }
+        },
+        "patch_plan_hash": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "instrumentation_hash": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "contract_id": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "helpers": {"type": "array", "items": {
+          "type": "object", "required": ["id", "name", "flags"], "additionalProperties": false,
+          "properties": {"id": {"type": "integer"}, "name": {"type": ["string", "null"]},
+                         "flags": {"type": "integer"}}}},
+        "envlayout_id": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "ops_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "row_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "hex": {"type": "string", "pattern": "^0x[0-9a-f]+$"},
+    "uid": {"type": "string", "pattern": "^tb:[0-9a-f]{32}#[0-9]+$"},
+    "field": {"enum": ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10",
+                       "r11", "r12", "NF", "ZF", "CF", "VF"]},
+    "reason": {"type": "object", "required": ["code"], "additionalProperties": false,
+               "properties": {"code": {"type": "string"}, "detail": {"type": "string"}}}
+  }
+}

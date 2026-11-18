@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fastdyn.local/scopt/envlayout.v1.json",
+  "title": "EnvLayout v1 (B3/B4 design §0 G21; WP17)",
+  "type": "object",
+  "required": ["schema", "exe_sha256", "producer", "sizes", "env_offset_in_cpu",
+               "neg_offset_in_cpustate", "fields", "envlayout_id"],
+  "patternProperties": {"^x_": {}},
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "scopt.envlayout/1"},
+    "exe_sha256": {"$ref": "#/$defs/sha256"},
+    "envlayout_id": {"$ref": "#/$defs/sha256"},
+    "producer": {
+      "type": "object",
+      "required": ["tool", "method"],
+      "properties": {
+        "tool": {"type": "string"},
+        "version": {"type": ["string", "null"]},
+        "method": {"type": "string"},
+        "types": {"type": "array", "items": {"type": "string"}}
+      },
+      "patternProperties": {"^x_": {}},
+      "additionalProperties": false
+    },
+    "sizes": {
+      "type": "object",
+      "required": ["CPUState", "CPUArchState", "CPUNegativeOffsetState"],
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "env_offset_in_cpu": {"type": "integer", "minimum": 0},
+    "neg_offset_in_cpustate": {"type": "integer", "minimum": 0},
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "region", "off", "size", "elem"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "region": {"enum": ["env", "neg", "cpu"]},
+          "off": {"type": "integer"},
+          "size": {"type": "integer", "minimum": 0},
+          "elem": {"type": "integer", "minimum": 0},
+          "dims": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 1}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

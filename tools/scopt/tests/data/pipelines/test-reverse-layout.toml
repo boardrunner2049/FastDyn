@@ -1,0 +1,10 @@
+# Test-only pipeline (WP10, F-B2-2): every relocatable unit re-placed in reverse slot order.
+schema = "scopt.pipeline"
+version = 1
+name = "test-reverse-layout"
+description = "Reverse the placement of every relocatable unit (test only)."
+allowed_capabilities = ["LAYOUT_ORDER"]
+
+[[pass]]
+name = "reverse-layout"
+version = 1

@@ -1,0 +1,11 @@
+# Identity pipeline (design §5.10, T-B1-5): no edits. NativeLinker (WP10) must
+# reproduce the input cache byte for byte (V9).
+schema = "scopt.pipeline"
+version = 1
+name = "identity"
+description = "No-op pipeline; the artifact must equal the input cache (V9)."
+allowed_capabilities = []
+
+[[pass]]
+name = "identity"
+version = 1

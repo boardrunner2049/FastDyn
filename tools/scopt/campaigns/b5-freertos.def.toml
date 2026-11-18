@@ -1,0 +1,390 @@
+# B5 campaign DEFINITION (WP30; design/B3-B4-design.md §10, plan WP30). Hand-written.
+#
+# This file says WHAT the B5 campaign times and HOW each arm is obtained. It holds no
+# sha256. `tests/qemu/b5_campaign.py prep` builds or collects every arm on the frozen gate
+# binary, `freeze` resolves this file into the frozen campaign `campaigns/b5-freertos.toml`
+# (every sha256: gate binary, plugin, firmware, base TOML, snapshot, training profile, every
+# arm's cache.sc / MANIFEST / artifact id, every input and split manifest, the code ids),
+# and `check` is the freeze checker. WP30 defines the campaign; it times nothing.
+#
+# Priorities (reports/WP16-probe.md, R11 decision; WP28/WP29 reported rows):
+#   1. lookup removal (b3-static, b3-chain, b3) -- WP16 gce +6.9 %, WP28 held-out b3 +6.3 %;
+#   2. the baseline-TCG entry fix (sfb) -- the largest effect, its own arm, NEVER counted as
+#      caching, B3 or B4;
+#   3. b3-spec (CP/BF/DHO on 4 variants: model 0.8 % of lookups; WP28 null) and B4
+#      (D1/D2/D3: WP16 d1 null, WP29 null) -- null-expected arms, reported plainly;
+#   4. ablations (per pass / per class / layout) -- second set per split.
+schema = "scopt.b5_definition/1"
+name = "b5-freertos"
+design = "design/B3-B4-design.md section 10 (arms 10.1, metrics 10.2, profitability 10.3), section 11 (B3/B4 performance rows); IMPLEMENTATION-PLAN-B3B4.md WP30"
+frozen_campaign = "b5-freertos.toml"
+
+[runtime]
+gate_binary_record = "/data/extra_copy/fastdyn/runs/wp22/gate-binary.json"
+plugin = "/data/extra_copy/fastdyn/src/fastdyn/build/libfastdyn.so"
+launch = "setarch x86_64 -R, timeout, fresh run dir per run (own cache, work, RAM), supercache_flat = false, RAM reset per run"
+rule = "Every arm, the warm reference and every baseline run on the frozen gate binary qint-v6-gate-1 (plan R13, design D-EV-2). A later commit to qint-v6 voids the freeze."
+
+[workload]
+name = "compute"
+note = "FreeRTOS MPS2 CM3 compute fixture, icount shift=0, BENCH window = vComputeWindowStart..End. The only workload with input splits and B3/B4 artifacts on the gate binary."
+base_from = "/data/extra_copy/fastdyn/runs/wp28/compute.json"
+base_note = "The gate-binary compute base of WP28 (scopt prepare on train-1..3, import, admission identity v2, steady@0x2990 profile on train-1..3). WP29's base has the same snapshot id and byte-identical cache.sc and TOML (checked at freeze)."
+phase = "steady@0x2990"
+calibration = "/data/extra_copy/fastdyn/runs/b3-explore/wp16/calibration.json"
+calibration_note = "WP16 constants were measured on the qint binary. They feed the MODEL rows only (labelled qint). The train set re-derives the per-lookup and per-store savings on the gate binary (D-EV-2) from measured differences."
+
+# ---------------------------------------------------------------------------------------
+# Arms. kind: nocache | empty | deploy. source: how prep obtains the artifact:
+#   warm               the base snapshot directory
+#   reuse:<file>#<key> a published artifact recorded by an earlier gate WP (JSON path)
+#   build:<recipe>     built by b5_campaign.py prep on the gate-binary base
+# category: baseline | reference | control | b2 | b3 | b4 | baseline_tcg_fix
+# ---------------------------------------------------------------------------------------
+
+[[arm]]
+name = "nocache"
+kind = "nocache"
+role = "baseline"
+category = "baseline"
+note = "base TOML with [Machine].supercache commented out (derived by scopt run)"
+
+[[arm]]
+name = "empty"
+kind = "empty"
+role = "baseline"
+category = "baseline"
+note = "cold run in a fresh run dir, nothing deployed"
+
+[[arm]]
+name = "warm"
+kind = "deploy"
+role = "reference"
+category = "reference"
+source = "warm"
+note = "primary reference: the unoptimized gate-binary cache every candidate was optimized from"
+
+[[arm]]
+name = "identity"
+kind = "deploy"
+role = "candidate"
+category = "control"
+source = "build:identity"
+aa_control = true
+note = "identity pipeline, v5 file: its cache.sc is byte-identical to warm (V9), so it is the A/A control of the deploy path and measures the noise floor; exempt from the duplicate rule"
+
+[[arm]]
+name = "identity-v6"
+kind = "deploy"
+role = "candidate"
+category = "control"
+source = "build:identity-v6"
+note = "the same code as v6 with an empty extension table: v6 loader overhead (ext parse, activation)"
+
+[[arm]]
+name = "layout"
+kind = "deploy"
+role = "candidate"
+category = "b2"
+source = "build:b2-layout"
+note = "B2 pipeline re-run on the gate-binary base (B2 was null on qint; re-collected per D-EV-2)"
+
+[[arm]]
+name = "b3-chain"
+kind = "deploy"
+role = "candidate"
+category = "b3"
+priority = 1
+source = "reuse:/data/extra_copy/fastdyn/runs/wp28/compute.json#arms.b3-chain.publish.artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp28/compute.json#arms.b3-chain.v10.verdict"
+note = "chain-returns only (GENERAL guarded slots on return exits)"
+
+[[arm]]
+name = "b3-static"
+kind = "deploy"
+role = "candidate"
+category = "b3"
+priority = 1
+source = "reuse:/data/extra_copy/fastdyn/runs/wp28/compute.json#arms.b3-static.publish.artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp28/compute.json#arms.b3-static.v10.verdict"
+note = "chain-static only (beyond the spec's return scope; reported separately)"
+
+[[arm]]
+name = "b3-spec"
+kind = "deploy"
+role = "candidate"
+category = "b3"
+priority = 3
+source = "reuse:/data/extra_copy/fastdyn/runs/wp28/compute.json#arms.b3-spec.publish.artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp28/compute.json#arms.b3-spec.v10.verdict"
+note = "specialize-returns + CP + BF + DHO (semantic cross-TB; 4 SPEC variants on compute)"
+
+[[arm]]
+name = "b3"
+kind = "deploy"
+role = "candidate"
+category = "b3"
+priority = 1
+source = "reuse:/data/extra_copy/fastdyn/runs/wp28/compute.json#arms.b3.publish.artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp28/compute.json#arms.b3.v10.verdict"
+note = "all six B3 passes = the B3 part of `semantic` (semantic itself is skipped_unsupported, see below); parent of the b3-no-<pass> ablations"
+
+[[arm]]
+name = "b4"
+kind = "deploy"
+role = "candidate"
+category = "b4"
+priority = 3
+source = "reuse:/data/extra_copy/fastdyn/runs/wp29/compute/package.json#rows[label=b4].artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp29/compute-v10.json#rows[label=b4].verdict"
+note = "eliminate-state-sync D1|D2|D3 (v5 file); parent of the per-class ablations"
+
+[[arm]]
+name = "sfb"
+kind = "deploy"
+role = "candidate"
+category = "baseline_tcg_fix"
+priority = 2
+source = "reuse:/data/extra_copy/fastdyn/runs/wp29/compute/package.json#rows[label=sfb].artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp29/compute-v10.json#rows[label=sfb].verdict"
+note = "icount-entry store-forwarding fix: a BASELINE-TCG fix (survey section 3c B4-1). Its own arm; never counted as caching, B3 or B4 (spec section 8)"
+
+[[arm]]
+name = "sfb-b4"
+kind = "deploy"
+role = "candidate"
+category = "b4"
+priority = 3
+parent = "sfb"
+source = "reuse:/data/extra_copy/fastdyn/runs/wp29/compute/package.json#rows[label=sfb+b4].artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp29/compute-v10.json#rows[label=sfb+b4].verdict"
+note = "B4 layered on the entry fix (survey: B4 after SFB); compared with sfb (its parent) and with warm. The B4 share is sfb-b4 vs sfb only"
+
+# ---- ablations (second set per split) ---------------------------------------------------
+
+[[arm]]
+name = "layout-no-cluster-hot"
+kind = "deploy"
+role = "ablation"
+category = "b2"
+parent = "layout"
+ablated_pass = "cluster-hot"
+source = "build:b2-layout --disable cluster-hot"
+
+[[arm]]
+name = "layout-no-order-cold"
+kind = "deploy"
+role = "ablation"
+category = "b2"
+parent = "layout"
+ablated_pass = "order-cold"
+source = "build:b2-layout --disable order-cold"
+
+[[arm]]
+name = "b3-no-specialize-returns"
+kind = "deploy"
+role = "ablation"
+category = "b3"
+parent = "b3"
+ablated_pass = "specialize-returns"
+source = "build:b3 --disable specialize-returns"
+
+[[arm]]
+name = "b3-no-constant-propagation"
+kind = "deploy"
+role = "ablation"
+category = "b3"
+parent = "b3"
+ablated_pass = "constant-propagation"
+source = "build:b3 --disable constant-propagation"
+
+[[arm]]
+name = "b3-no-branch-folding"
+kind = "deploy"
+role = "ablation"
+category = "b3"
+parent = "b3"
+ablated_pass = "branch-folding"
+source = "build:b3 --disable branch-folding"
+
+[[arm]]
+name = "b3-no-dead-host-ops"
+kind = "deploy"
+role = "ablation"
+category = "b3"
+parent = "b3"
+ablated_pass = "dead-host-ops"
+source = "build:b3 --disable dead-host-ops"
+
+[[arm]]
+name = "b3-no-chain-returns"
+kind = "deploy"
+role = "ablation"
+category = "b3"
+parent = "b3"
+ablated_pass = "chain-returns"
+source = "build:b3 --disable chain-returns"
+
+[[arm]]
+name = "b3-no-chain-static"
+kind = "deploy"
+role = "ablation"
+category = "b3"
+parent = "b3"
+ablated_pass = "chain-static"
+source = "build:b3 --disable chain-static"
+
+[[arm]]
+name = "b4-D1"
+kind = "deploy"
+role = "ablation"
+category = "b4"
+parent = "b4"
+ablated_pass = "classes=D1"
+source = "reuse:/data/extra_copy/fastdyn/runs/wp29/compute/package.json#rows[label=b4-d1].artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp29/compute-v10.json#rows[label=b4-d1].verdict"
+note = "B4 per class (T-B4-11): only D1"
+
+[[arm]]
+name = "b4-D2"
+kind = "deploy"
+role = "ablation"
+category = "b4"
+parent = "b4"
+ablated_pass = "classes=D2"
+source = "reuse:/data/extra_copy/fastdyn/runs/wp29/compute/package.json#rows[label=b4-d2].artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp29/compute-v10.json#rows[label=b4-d2].verdict"
+note = "B4 per class (T-B4-11): only D2"
+
+[[arm]]
+name = "b4-D3"
+kind = "deploy"
+role = "ablation"
+category = "b4"
+parent = "b4"
+ablated_pass = "classes=D3"
+source = "reuse:/data/extra_copy/fastdyn/runs/wp29/compute/package.json#rows[label=b4-d3].artifact_dir"
+v10 = "/data/extra_copy/fastdyn/runs/wp29/compute-v10.json#rows[label=b4-d3].verdict"
+note = "B4 per class (T-B4-11): only D3"
+
+# ---------------------------------------------------------------------------------------
+# Arms of design §10.1 that cannot be built today: rows `skipped_unsupported` in every
+# report (scopt report shows them; they are never silently dropped).
+# ---------------------------------------------------------------------------------------
+
+[[skipped_unsupported]]
+name = "semantic"
+reason = "capability_not_enabled"
+detail = "b3-chain + b3-static + b3-spec + b4 in ONE artifact needs a B3+B4 packager: scopt.manager_b3.optimize_b3 builds hostsym inputs with build_contract and no need_d2/need_d3, while B4 deletions are only certified by eliminate_state_sync.package_b4 (StrictCallContract, need_d2/need_d3, V15 deletable class). No WP owns that composition yet. The B3 part is timed as `b3`, the B4 part as `b4`."
+
+[[skipped_unsupported]]
+name = "combined"
+reason = "capability_not_enabled"
+detail = "semantic + layout: needs `semantic`, and scopt.manager_b3.optimize_b3 refuses a pipeline with both B2 layout edits and B3/B4 edits (ValueError 'combined arm: v2', WP21 note item 15)."
+
+[[skipped_unsupported]]
+name = "semantic-no-<pass>"
+expand = ["chain-returns", "chain-static", "specialize-returns", "constant-propagation", "branch-folding", "dead-host-ops", "eliminate-state-sync"]
+reason = "capability_not_enabled"
+detail = "parent `semantic` is skipped_unsupported. Substitute: b3-no-<pass> on top of `b3` (the six B3 passes) and b4-D1/D2/D3 on top of `b4`."
+
+# Built or known arms that are NOT timed (reported as excluded rows, with the reason).
+[[excluded]]
+name = "layout-no-hotcold-partition"
+reason = "degenerate (WP11, docs/b2-layout.md): both layout passes skip with missing_hotness and the candidate is the input layout (0 moved), byte-identical to warm/identity"
+
+[[excluded]]
+name = "cmov"
+reason = "experimental_cmov_crosses_insn (WP16): the if-converted window crosses a guest-insn boundary that V15 refuses; never published, so never a campaign arm"
+
+[[excluded]]
+name = "gce / d1 / lk2x / gce-fail / sfb-ctl (WP16 copies)"
+reason = "experimental v5 copies labelled experimental_* on the qint binary, never published; superseded by the validated v6 b3-chain/b3-static arms and the published b4/sfb artifacts"
+
+[[excluded]]
+name = "blinky"
+reason = "no gate-binary blinky base or B3/B4 artifact exists, and its window is ~99.96 % idle loop (B2 informational only); not re-collected"
+
+[excluded_rule]
+duplicate = "an arm whose cache.sc sparse sha256 equals an earlier arm's (in file order) is excluded at freeze as degenerate (it would time the same bytes twice), with the arm it duplicates; an arm with aa_control = true that equals warm is kept (A/A control) and marked sha256_equals_warm"
+
+# ---------------------------------------------------------------------------------------
+# Sets: train (calibration and model check only), heldout and final (the reported rows).
+# Each set: interleaved, paired, seeded schedule (scopt.run.arms.make_schedule): per rep
+# the input order is shuffled and per (rep, input) the arm order; >= 30 reps x 3 inputs.
+# Sets run in file order. The final split runs last and only after `check` passes again.
+# ---------------------------------------------------------------------------------------
+
+[schedule]
+min_reps = 30
+timeout_s = 300.0
+order = "sets in file order; within a set per repetition the inputs are shuffled and per (rep, input) the arms are shuffled with random.Random(seed); the schedule is in campaign.json before the first run"
+core_arms = ["nocache", "empty", "warm", "identity", "identity-v6", "layout", "b3-chain", "b3-static", "b3-spec", "b3", "b4", "sfb", "sfb-b4"]
+ablation_arms = ["warm", "layout", "layout-no-cluster-hot", "layout-no-order-cold", "b3", "b3-no-specialize-returns", "b3-no-constant-propagation", "b3-no-branch-folding", "b3-no-dead-host-ops", "b3-no-chain-returns", "b3-no-chain-static", "b4", "b4-D1", "b4-D2", "b4-D3"]
+calibration_arms = ["warm", "b3-chain", "b3-static", "b3-spec", "b3", "b4", "sfb"]
+
+[[set]]
+name = "compute-train-calib"
+split = "train"
+input_set = "/data/extra_copy/fastdyn/fixtures/inputs/train/freertos-mps2-compute"
+arms = "calibration_arms"
+reps = 30
+seed = 3001
+purpose = "re-derive c_lookup-type savings per removed lookup / store on the gate binary against the train-profile MODEL (D-EV-2). Never a headline speedup."
+
+[[set]]
+name = "compute-heldout-core"
+split = "heldout"
+input_set = "/data/extra_copy/fastdyn/fixtures/inputs/heldout/freertos-mps2-compute"
+arms = "core_arms"
+reps = 30
+seed = 3002
+
+[[set]]
+name = "compute-heldout-ablation"
+split = "heldout"
+input_set = "/data/extra_copy/fastdyn/fixtures/inputs/heldout/freertos-mps2-compute"
+arms = "ablation_arms"
+reps = 30
+seed = 3003
+
+[[set]]
+name = "compute-final-core"
+split = "final"
+input_set = "/data/extra_copy/fastdyn/fixtures/inputs/final/freertos-mps2-compute"
+arms = "core_arms"
+reps = 30
+seed = 3004
+
+[[set]]
+name = "compute-final-ablation"
+split = "final"
+input_set = "/data/extra_copy/fastdyn/fixtures/inputs/final/freertos-mps2-compute"
+arms = "ablation_arms"
+reps = 30
+seed = 3005
+
+# Untimed diagnostics after the timing sets (never under the timing lock, never timed):
+[diag]
+base_profiles = ["heldout", "final"]
+base_profile_note = "steady-phase profile of the BASE snapshot on the held-out and final inputs (evaluation only, never training; design 10.2): the removed-lookup/store MODEL re-computed per split"
+v6_stats_arms = ["identity-v6", "b3-chain", "b3-static", "b3-spec", "b3"]
+v6_stats_splits = ["heldout", "final"]
+v6_stats_note = "one untimed run per (v6 arm, input) with QEMU_SC_V6_STATS through scopt validate --dynamic --oracles O1,O3,O5 against warm: links armed, disarm_*, refused, ext_load_ns, appended; C' entries of every SPEC variant by gdb -nx hardware breakpoints"
+
+[timing]
+lock = "/data/extra_copy/fastdyn/runs/.timing.lock"
+cores = 4
+cpu_list_default = "8-11"
+load_sample_s = 30
+note = "run holds flock on the host-wide lock for the whole job, pins scopt run to 4 cores with taskset, samples /proc/loadavg every 30 s and records the CPU budget and load averages in b5_campaign.json"
+
+[rules]
+min_valid_pairs = 30
+R1_freeze = "b5_campaign.py check passes before the first set, before the first final set and after the last set; every scopt run campaign.json has status done and freeze_ok true"
+R2_samples = "every timed arm of every set has >= 30 valid paired samples with warm"
+R3_correctness = "no output_mismatch against warm of the same (rep, input) pair"
+R4_qemu = "every valid sample ran the frozen gate binary sha256 (no mixed_qemu)"
+R5_reported = "scopt report rendered per set and combined, with the B5 section (every metric row of design 10.2, skipped_unsupported and excluded rows included)"
+R6_lock = "the timing job held the host-wide timing lock, used <= 4 cores and recorded load averages"
+verdict = "B5 = measured_and_reported when R1-R6 hold, else incomplete (listing the failed rules). The speedup is not a pass criterion: per comparison faster / slower / no_significant_difference (95 % CI excludes 1 or not); R11 flag = median >= 1.0 % and CI excludes 0. Null and negative results are reported plainly. No retuning after looking at held-out or final results."

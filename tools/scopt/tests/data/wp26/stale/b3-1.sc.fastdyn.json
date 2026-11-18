@@ -1,0 +1,70 @@
+{
+  "fingerprint": "385febb75455fa6f1199473259a62a32348936a790980c308b0cb3503b3364a6",
+  "inputs": {
+    "content_files": {
+      "device_config": {
+        "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "size": 2
+      },
+      "fastdyn_config": {
+        "sha256": "534a0c7abfe644d28c3dbcba9c50678453b3f6fc01bf9d59a64810c6b955619c",
+        "size": 2668
+      },
+      "fuzzing_schema": null,
+      "modifiers": {
+        "sha256": "2895b48e23d81545747c6db55bde5cffaaf8d3c7f73eb9cbba6d2e4495b4d3ff",
+        "size": 16
+      },
+      "savestate_extra_ranges": null,
+      "virtuals": {
+        "sha256": "6a8759a3971502070eae408a87e39f880d0b6ced24cb9fcc2d527ceb3c924ad2",
+        "size": 127
+      }
+    },
+    "native_files": {
+      "bios": null,
+      "drive": null,
+      "firmware": {
+        "mtime_ns": 1794911183321234382,
+        "path": "/data/extra_copy/fastdyn/fixtures/b3/b3.elf",
+        "size": 36424
+      },
+      "fmu": null,
+      "plugin": {
+        "mtime_ns": 1794850409852314078,
+        "path": "/data/extra_copy/fastdyn/src/fastdyn/build/libfastdyn.so",
+        "size": 562000
+      },
+      "qemu": {
+        "mtime_ns": 1794859089270970075,
+        "path": "/data/extra_copy/fastdyn/wt/qemu-int/build/qemu-system-arm",
+        "size": 137579032
+      }
+    },
+    "settings": {
+      "cpus": [
+        {
+          "arch": "arm",
+          "cpu": "cortex-m3",
+          "init_nsvtor": "0x0",
+          "machine": "cortexm"
+        }
+      ],
+      "globals": {},
+      "icount": "shift=0,sleep=off,align=off",
+      "log_options": "none",
+      "platform": "generic-cortexm",
+      "plugin_options": [
+        "log_level=20",
+        "coverage=0",
+        "fuzzing=0",
+        "edge_coverage=0",
+        "twintrace=off",
+        "exact_budget_stop=0"
+      ],
+      "supercache_flat": false
+    },
+    "version": 1
+  },
+  "version": 1
+}

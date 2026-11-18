@@ -1,0 +1,511 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fastdyn.local/scopt/schemas/profile.v1.json",
+  "title": "Profile v1",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "fastdyn.profile"
+    },
+    "version": {
+      "const": 1
+    },
+    "profile_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "snapshot_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "bundle_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "contract_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "runtime_identity_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "collection": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "enum": [
+            "exact_dispatch_unchained_v1"
+          ]
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "overflow": {
+          "type": "boolean"
+        },
+        "chain_disabled": {
+          "type": "boolean"
+        },
+        "time_dilation": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "repetitions": {
+          "$ref": "#/$defs/u"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "sha256": {
+                "$ref": "#/$defs/sha256id"
+              },
+              "split": {
+                "enum": [
+                  "train",
+                  "heldout",
+                  "final"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "sha256",
+              "split"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string"
+              },
+              "clean_exit": {
+                "type": "boolean"
+              },
+              "total_dispatches": {
+                "$ref": "#/$defs/u"
+              },
+              "transient_entries": {
+                "$ref": "#/$defs/u"
+              }
+            },
+            "required": [
+              "run_id",
+              "clean_exit",
+              "total_dispatches",
+              "transient_entries"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        }
+      },
+      "required": [
+        "method",
+        "complete",
+        "overflow",
+        "chain_disabled",
+        "time_dilation",
+        "repetitions",
+        "inputs",
+        "runs"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "phases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/u"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 15
+          },
+          "marker": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/hex"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "match": {
+            "anyOf": [
+              {
+                "enum": [
+                  "exact_start",
+                  "contained"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reached": {
+            "type": "boolean"
+          },
+          "first_dispatch_index": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/u"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "marker",
+          "reached"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      },
+      "minItems": 1
+    },
+    "domain": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "snapshot_units",
+            "artifact_units"
+          ]
+        },
+        "count": {
+          "$ref": "#/$defs/u"
+        }
+      },
+      "required": [
+        "kind",
+        "count"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "$ref": "#/$defs/unit_id"
+          },
+          "vaddrs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/hex"
+            },
+            "uniqueItems": true
+          },
+          "status": {
+            "$ref": "#/$defs/status"
+          },
+          "reason": {
+            "$ref": "#/$defs/reason"
+          },
+          "phase": {
+            "$ref": "#/$defs/phase_counts"
+          }
+        },
+        "required": [
+          "unit",
+          "vaddrs",
+          "status",
+          "phase"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "src": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/unit_id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dst": {
+            "$ref": "#/$defs/unit_id"
+          },
+          "kind": {
+            "enum": [
+              "chain0",
+              "chain1",
+              "lookup_hit",
+              "lookup_miss",
+              "exit_null",
+              "exit_requested",
+              "first"
+            ]
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "irq",
+                "exception",
+                "longjmp"
+              ]
+            },
+            "uniqueItems": true
+          },
+          "phase": {
+            "$ref": "#/$defs/u"
+          },
+          "count": {
+            "$ref": "#/$defs/u"
+          },
+          "status": {
+            "$ref": "#/$defs/status"
+          },
+          "reason": {
+            "$ref": "#/$defs/reason"
+          },
+          "dest_set_complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "src",
+          "dst",
+          "kind",
+          "flags",
+          "phase",
+          "count",
+          "status"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "profile_only": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/$defs/key"
+          },
+          "guest_hash": {
+            "$ref": "#/$defs/hex"
+          },
+          "size": {
+            "$ref": "#/$defs/u"
+          },
+          "icount": {
+            "$ref": "#/$defs/u"
+          },
+          "vaddrs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/hex"
+            },
+            "uniqueItems": true
+          },
+          "phase": {
+            "$ref": "#/$defs/phase_counts"
+          }
+        },
+        "required": [
+          "key",
+          "guest_hash",
+          "phase"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "transient": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "$ref": "#/$defs/u"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "static_cost": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "profile_id",
+    "snapshot_id",
+    "bundle_id",
+    "contract_id",
+    "runtime_identity_id",
+    "collection",
+    "phases",
+    "domain",
+    "units",
+    "edges",
+    "profile_only",
+    "transient"
+  ],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x_": {}
+  },
+  "$defs": {
+    "sha256id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "hex": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]+$"
+    },
+    "unit_id": {
+      "type": "string",
+      "pattern": "^tb:[0-9a-f]{32}#(0|[1-9][0-9]*)$"
+    },
+    "u": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "$ref": "#/$defs/u"
+        },
+        "aborted": {
+          "$ref": "#/$defs/u"
+        },
+        "longjmp": {
+          "$ref": "#/$defs/u"
+        },
+        "lookup_hits": {
+          "$ref": "#/$defs/u"
+        }
+      },
+      "required": [
+        "entries",
+        "aborted",
+        "longjmp"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "phase_counts": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(0|[1-9][0-9]*)$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/counts"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "exact",
+        "lower_bound",
+        "unknown",
+        "sampled"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key": {
+      "type": "object",
+      "properties": {
+        "page_addr0": {
+          "$ref": "#/$defs/hex"
+        },
+        "page_addr1": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hex"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "$ref": "#/$defs/hex"
+        },
+        "cs_base": {
+          "$ref": "#/$defs/hex"
+        },
+        "cflags": {
+          "$ref": "#/$defs/hex"
+        }
+      },
+      "required": [
+        "page_addr0",
+        "page_addr1",
+        "flags",
+        "cs_base",
+        "cflags"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    }
+  },
+  "description": "Profile v1 (design \u00a73.6-3.8). profile_id = sha256 of the canonical JSON without profile_id. Edge src null = NONE (kind 'first')."
+}

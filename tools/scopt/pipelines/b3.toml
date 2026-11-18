@@ -1,0 +1,52 @@
+# B3 pipeline (design/B3-B4-design.md §3.5, §10.1; WP21). Run with B3 mode on
+# (scopt.manager_b3.optimize_b3 / `scopt optimize --pipeline b3 --b3 ...`).
+#
+#   1 specialize-returns   CLONE C->C', REDIRECT_EXIT(R.slot, SPEC), ADD_ENTRY, ATTACH_FACT
+#                          (claims slots first; certified return-edge facts only)
+#   2 constant-propagation PURE_REWRITE on variants: env load of a fact field -> xor/imm form
+#   3 branch-folding       PURE_REWRITE on variants: hconst-decided jcc -> jmp / nop
+#   4 dead-host-ops        PURE_REWRITE on variants: dead register-only ops -> nop
+#   5 chain-returns        REDIRECT_EXIT(R.slot, GENERAL) on remaining slots of return exits
+#   6 chain-static         REDIRECT_EXIT(R.slot, GENERAL) on static off-page exits
+#
+# After the passes the manager downgrades a variant whose bytes equal C to a GENERAL
+# slot (no_simplification) and generates one ADD_REGION (multi_tb) record per SPEC link.
+#
+# Arms (§10.1) by ablation of this one file:
+#   b3-chain  : --only chain-returns
+#   b3-static : --only chain-static
+#   b3-spec   : --disable chain-returns --disable chain-static
+#   T-B3-6    : --disable constant-propagation | branch-folding | dead-host-ops
+# Slot arbitration (pass 1 claims slots before 5/6) makes ablations non-additive.
+schema = "scopt.pipeline"
+version = 1
+name = "b3"
+description = "Guarded cross-TB specialization (B3): SPEC/GENERAL guarded slots, variants, CP/BF/DHO."
+allowed_capabilities = ["CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "specialize-returns"
+version = 1
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "chain-returns"
+version = 1
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+params = { targets_per_exit = 2 }

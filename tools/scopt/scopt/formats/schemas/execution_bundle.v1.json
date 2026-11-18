@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fastdyn.local/scopt/schemas/execution_bundle.v1.json",
+  "title": "ExecutionBundle v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "bundle_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "original_image_hash": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "image_hash": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "patch_plan_hash": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "patch_bindings_hash": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "origin_map_hash": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "isa": {
+          "type": "string",
+          "enum": [
+            "armv7-m",
+            "armv8-m.main",
+            "armv8-m.base",
+            "armv6-m"
+          ]
+        },
+        "mode": {
+          "const": "thumb"
+        },
+        "endianness": {
+          "const": "little"
+        },
+        "cpu": {
+          "type": "string",
+          "minLength": 1
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "isa",
+        "mode",
+        "endianness",
+        "cpu",
+        "features"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "entry_points": {
+      "type": "object",
+      "properties": {
+        "elf_entry": {
+          "$ref": "#/$defs/hex"
+        },
+        "vtor": {
+          "$ref": "#/$defs/hex"
+        },
+        "reset_vector": {
+          "$ref": "#/$defs/hex"
+        },
+        "initial_sp": {
+          "$ref": "#/$defs/hex"
+        }
+      },
+      "required": [
+        "elf_entry",
+        "vtor",
+        "reset_vector",
+        "initial_sp"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "memory_map_hash": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "contract_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "instrumentation_hash": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "device_model_hash": {
+      "$ref": "#/$defs/sha256id"
+    }
+  },
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "original_image_hash",
+    "image_hash",
+    "patch_plan_hash",
+    "patch_bindings_hash",
+    "origin_map_hash",
+    "target",
+    "entry_points",
+    "memory_map_hash",
+    "contract_id",
+    "instrumentation_hash",
+    "device_model_hash"
+  ],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x_": {}
+  },
+  "$defs": {
+    "sha256id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "hex": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]+$"
+    },
+    "unit_id": {
+      "type": "string",
+      "pattern": "^tb:[0-9a-f]{32}#(0|[1-9][0-9]*)$"
+    },
+    "u": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "description": "ExecutionBundle v1 (project spec \u00a77, design \u00a74.2). bundle_id = sha256 of the canonical JSON without bundle_id. Keys matching ^x_ are extensions and are covered by bundle_id."
+}

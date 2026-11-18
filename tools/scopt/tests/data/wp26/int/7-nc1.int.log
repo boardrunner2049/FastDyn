@@ -1,0 +1,1500 @@
+Loaded reset SP 0x0 PC 0x0 from vector table
+Loaded reset SP 0x20100000 PC 0x61 from vector table
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return
+Taking exception 5 [IRQ] on CPU 0
+...taking pending nonsecure exception 15
+...loading from element 15 of non-secure vector table at 0x3c
+...loaded new PC 0xf1
+Taking exception 8 [QEMU v7M exception exit] on CPU 0
+Exception return: magic PC fffffff9 previous exception 15
+...successful exception return

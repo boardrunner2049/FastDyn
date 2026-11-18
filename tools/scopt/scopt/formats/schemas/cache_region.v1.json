@@ -1,0 +1,1138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fastdyn.local/scopt/schemas/cache_region.v1.json",
+  "title": "CacheRegion v1",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "fastdyn.cache_region"
+    },
+    "version": {
+      "const": 1
+    },
+    "region_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "kind": {
+      "enum": [
+        "tb_singleton",
+        "multi_tb"
+      ]
+    },
+    "bundle_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "contract_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "runtime_identity_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "$ref": "#/$defs/unit_id"
+          },
+          "key": {
+            "$ref": "#/$defs/key"
+          },
+          "guest": {
+            "type": "object",
+            "properties": {
+              "size": {
+                "$ref": "#/$defs/u"
+              },
+              "icount": {
+                "$ref": "#/$defs/u"
+              },
+              "hash": {
+                "$ref": "#/$defs/hex"
+              },
+              "origin": {
+                "enum": [
+                  "elf_verified",
+                  "ram_resident",
+                  "unknown"
+                ]
+              },
+              "vaddrs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/hex"
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "size",
+              "icount",
+              "hash",
+              "origin",
+              "vaddrs"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          },
+          "origin": {
+            "type": "object",
+            "properties": {
+              "snapshot_id": {
+                "$ref": "#/$defs/sha256id"
+              },
+              "slot": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/u"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tb_offset": {
+                "$ref": "#/$defs/hex"
+              }
+            },
+            "required": [
+              "snapshot_id",
+              "slot",
+              "tb_offset"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        },
+        "required": [
+          "unit",
+          "key",
+          "guest",
+          "origin"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      },
+      "minItems": 1
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "general",
+              "specialized"
+            ]
+          },
+          "member": {
+            "$ref": "#/$defs/u"
+          },
+          "host_offset": {
+            "$ref": "#/$defs/u"
+          },
+          "precondition": {
+            "type": "object",
+            "properties": {
+              "full_key": {
+                "type": "boolean"
+              },
+              "extra_guards": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/guard_atom"
+                }
+              },
+              "facts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/fact_ref"
+                }
+              }
+            },
+            "required": [
+              "full_key",
+              "extra_guards"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "member",
+          "host_offset",
+          "precondition"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "exits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "member": {
+            "$ref": "#/$defs/u"
+          },
+          "kind": {
+            "enum": [
+              "goto_tb",
+              "goto_ptr",
+              "exit_null",
+              "exit_requested",
+              "guarded_slot"
+            ]
+          },
+          "slot": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/u"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "insn": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/u"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "static_dest_vaddr": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/hex"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "patchable": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "insn_offset": {
+                    "$ref": "#/$defs/u"
+                  },
+                  "reset_offset": {
+                    "$ref": "#/$defs/u"
+                  }
+                },
+                "required": [
+                  "insn_offset",
+                  "reset_offset"
+                ],
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^x_": {}
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slot_kind": {
+            "enum": [
+              "GENERAL",
+              "SPEC"
+            ]
+          },
+          "target_vaddr": {
+            "$ref": "#/$defs/hex"
+          },
+          "guard_off": {
+            "$ref": "#/$defs/u"
+          },
+          "guard_len": {
+            "$ref": "#/$defs/u"
+          },
+          "reset": {
+            "enum": [
+              "jmp_F",
+              "exit_tb"
+            ]
+          },
+          "exit_class": {
+            "enum": [
+              "return",
+              "static"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "member",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "guarded_slot"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "slot",
+                "slot_kind",
+                "target_vaddr",
+                "guard_off",
+                "guard_len",
+                "reset"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "native": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/native_unit"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "members": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "$ref": "#/$defs/native_unit"
+              }
+            }
+          },
+          "required": [
+            "members"
+          ],
+          "additionalProperties": false,
+          "patternProperties": {
+            "^x_": {}
+          }
+        }
+      ]
+    },
+    "relocations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "member": {
+            "$ref": "#/$defs/u"
+          },
+          "field_offset": {
+            "$ref": "#/$defs/u"
+          },
+          "width": {
+            "enum": [
+              1,
+              4,
+              8
+            ]
+          },
+          "encoding": {
+            "enum": [
+              "none",
+              "rel8",
+              "rel32",
+              "riprel32",
+              "imm32_zx",
+              "imm32_sx",
+              "imm64",
+              "xor0",
+              "pool_indirect",
+              "goto_tb_rel32"
+            ]
+          },
+          "site_kind": {
+            "enum": [
+              "LABEL_JMP",
+              "LABEL_JCC",
+              "LDST_FAST_JCC",
+              "LDST_RET_JMP",
+              "LDST_HELPER_CALL",
+              "HELPER_CALL",
+              "EXIT_TB_RET_JMP",
+              "EXIT_TB_EPI_JMP",
+              "MOVI_EXIT_TB_PTR",
+              "MOVI_LDST_RA",
+              "MOVI_CONST",
+              "POOL_REF",
+              "GOTO_TB",
+              "GOTO_PTR",
+              "OTHER_BRANCH"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "required": [
+              "class"
+            ],
+            "properties": {
+              "class": {
+                "type": "string",
+                "minLength": 1
+              },
+              "module": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "addr": {
+                "$ref": "#/$defs/hex"
+              }
+            }
+          },
+          "rule": {
+            "enum": [
+              "rel_minus_delta",
+              "abs_plus_delta"
+            ]
+          }
+        },
+        "required": [
+          "member",
+          "field_offset",
+          "width",
+          "encoding",
+          "site_kind",
+          "target",
+          "rule"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "maps": {
+      "type": "object",
+      "properties": {
+        "insn": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/u"
+              },
+              "index": {
+                "$ref": "#/$defs/u"
+              },
+              "words": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/hex"
+                },
+                "minItems": 1
+              },
+              "host_start": {
+                "$ref": "#/$defs/u"
+              },
+              "host_end": {
+                "$ref": "#/$defs/u"
+              }
+            },
+            "required": [
+              "member",
+              "index",
+              "words",
+              "host_start",
+              "host_end"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "host_offset": {
+                "$ref": "#/$defs/u"
+              },
+              "kind": {
+                "enum": [
+                  "guest_ld",
+                  "guest_st",
+                  "helper_call",
+                  "plugin_cb"
+                ]
+              },
+              "insn": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/u"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "faultable": {
+                "type": "boolean"
+              },
+              "recovery": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "host_offset",
+              "kind",
+              "insn",
+              "faultable",
+              "recovery"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        }
+      },
+      "required": [
+        "insn",
+        "events"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "recovery": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "host_return_offset": {
+            "$ref": "#/$defs/u"
+          },
+          "member": {
+            "$ref": "#/$defs/u"
+          },
+          "insn": {
+            "$ref": "#/$defs/u"
+          },
+          "restore": {
+            "type": "object",
+            "properties": {
+              "pc_mode": {
+                "enum": [
+                  "pcrel_page_offset"
+                ]
+              },
+              "words": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/hex"
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "pc_mode",
+              "words"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          },
+          "state_fixups": {
+            "type": "array",
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "id",
+          "host_return_offset",
+          "member",
+          "insn",
+          "restore",
+          "state_fixups"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "properties": {
+        "helpers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/u"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "module": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "symbol": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "flags": {
+                "$ref": "#/$defs/hex"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "flags"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        },
+        "unchecked_host_pointers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "class": {
+                "type": "string"
+              },
+              "anchor": {
+                "type": "string"
+              },
+              "site": {
+                "$ref": "#/$defs/u"
+              }
+            },
+            "required": [
+              "class",
+              "anchor",
+              "site"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        }
+      },
+      "required": [
+        "helpers",
+        "unchecked_host_pointers"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "properties": {
+        "guest_pages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ram_addr": {
+                "$ref": "#/$defs/hex"
+              },
+              "len": {
+                "$ref": "#/$defs/u"
+              }
+            },
+            "required": [
+              "ram_addr",
+              "len"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        },
+        "units": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/unit_id"
+          }
+        },
+        "facts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fact_ref"
+          }
+        },
+        "patch_plan_hash": {
+          "$ref": "#/$defs/sha256id"
+        },
+        "instrumentation_hash": {
+          "$ref": "#/$defs/sha256id"
+        }
+      },
+      "required": [
+        "guest_pages",
+        "units",
+        "facts",
+        "patch_plan_hash",
+        "instrumentation_hash"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "status": {
+      "enum": [
+        "ok_relocatable",
+        "pinned"
+      ]
+    },
+    "pin_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "passes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "$ref": "#/$defs/u"
+              }
+            },
+            "required": [
+              "name",
+              "version"
+            ],
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x_": {}
+            }
+          }
+        },
+        "source_units": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/unit_id"
+          }
+        }
+      },
+      "required": [
+        "passes",
+        "source_units"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "region_id",
+    "kind",
+    "bundle_id",
+    "contract_id",
+    "runtime_identity_id",
+    "members",
+    "entries",
+    "exits",
+    "native",
+    "relocations",
+    "maps",
+    "recovery",
+    "bindings",
+    "dependencies",
+    "status",
+    "pin_reasons",
+    "unknowns",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x_": {}
+  },
+  "$defs": {
+    "sha256id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "hex": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]+$"
+    },
+    "unit_id": {
+      "type": "string",
+      "pattern": "^tb:[0-9a-f]{32}#(0|[1-9][0-9]*)$"
+    },
+    "u": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "key": {
+      "type": "object",
+      "properties": {
+        "page_addr0": {
+          "$ref": "#/$defs/hex"
+        },
+        "page_addr1": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hex"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "$ref": "#/$defs/hex"
+        },
+        "cs_base": {
+          "$ref": "#/$defs/hex"
+        },
+        "cflags": {
+          "$ref": "#/$defs/hex"
+        }
+      },
+      "required": [
+        "page_addr0",
+        "page_addr1",
+        "flags",
+        "cs_base",
+        "cflags"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "guard_atom": {
+      "type": "object",
+      "properties": {
+        "atom": {
+          "enum": [
+            "g_bp",
+            "g_thumb",
+            "g_cond",
+            "g_flags",
+            "g_flags2",
+            "g_pc"
+          ]
+        },
+        "env_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "width": {
+          "enum": [
+            1,
+            4,
+            8
+          ]
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "zero"
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/hex"
+        }
+      },
+      "required": [
+        "atom",
+        "env_field",
+        "width",
+        "op",
+        "value"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "fact_ref": {
+      "type": "object",
+      "properties": {
+        "fact_id": {
+          "$ref": "#/$defs/sha256id"
+        },
+        "field": {
+          "enum": [
+            "r0",
+            "r1",
+            "r2",
+            "r3",
+            "r4",
+            "r5",
+            "r6",
+            "r7",
+            "r8",
+            "r9",
+            "r10",
+            "r11",
+            "r12",
+            "NF",
+            "ZF",
+            "CF",
+            "VF"
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/hex"
+        },
+        "def_insn": {
+          "$ref": "#/$defs/u"
+        },
+        "source": {
+          "enum": [
+            "patch",
+            "guest_code"
+          ]
+        },
+        "cert_hash": {
+          "$ref": "#/$defs/sha256id"
+        },
+        "summary_row_hash": {
+          "$ref": "#/$defs/sha256id"
+        }
+      },
+      "required": [
+        "fact_id",
+        "field",
+        "value",
+        "def_insn",
+        "source",
+        "cert_hash",
+        "summary_row_hash"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "native_unit": {
+      "type": "object",
+      "properties": {
+        "code_sha256": {
+          "$ref": "#/$defs/sha256id"
+        },
+        "code_len": {
+          "$ref": "#/$defs/u"
+        },
+        "insn0_start": {
+          "$ref": "#/$defs/u"
+        },
+        "body_end": {
+          "$ref": "#/$defs/u"
+        },
+        "ldst_end": {
+          "$ref": "#/$defs/u"
+        },
+        "pool_start": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/u"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "search_len": {
+          "$ref": "#/$defs/u"
+        },
+        "end_offset_rel": {
+          "$ref": "#/$defs/u"
+        },
+        "struct": {
+          "type": "object",
+          "properties": {
+            "offset_from_code": {
+              "type": "integer"
+            },
+            "size": {
+              "$ref": "#/$defs/u"
+            }
+          },
+          "required": [
+            "offset_from_code",
+            "size"
+          ],
+          "additionalProperties": false,
+          "patternProperties": {
+            "^x_": {}
+          }
+        },
+        "alignment": {
+          "$ref": "#/$defs/u"
+        },
+        "stub_start": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/u"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "code_sha256",
+        "code_len",
+        "insn0_start",
+        "body_end",
+        "ldst_end",
+        "pool_start",
+        "search_len",
+        "end_offset_rel",
+        "struct",
+        "alignment"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "native_multi": {
+      "type": "object",
+      "required": [
+        "members"
+      ]
+    }
+  },
+  "description": "CacheRegion v1 (design \u00a74.5). region_id = sha256 of the canonical JSON without region_id and provenance. B1/B2 produce only tb_singleton regions with general entries; specialized entries, non-empty state_fixups/facts and multi_tb are valid here but rejected by the B2 packager.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "multi_tb"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "members": {
+            "minItems": 2
+          },
+          "native": {
+            "$ref": "#/$defs/native_multi"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "tb_singleton"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "members": {
+            "maxItems": 1
+          },
+          "native": {
+            "$ref": "#/$defs/native_unit"
+          }
+        }
+      }
+    }
+  ]
+}

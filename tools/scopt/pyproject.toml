@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scopt"
+version = "0.1.0"
+description = "Offline optimizer for FastDyn QEMU supercache (.sc) snapshots"
+requires-python = ">=3.12"
+dependencies = [
+    "capstone==5.0.3",
+    "pyelftools>=0.31",
+    "jsonschema>=4.20",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+zstd = ["zstandard"]
+
+[project.scripts]
+scopt = "scopt.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["scopt", "scopt.*"]
+
+[tool.setuptools.package-data]
+"scopt.formats" = ["schemas/*.json", "envlayouts/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--import-mode=importlib"
+markers = [
+    "real: needs real fixtures outside the repo (runs/b0/cache/minimal.sc, ...)",
+    "qemu: needs a built QEMU binary",
+    "slow: takes more than a few seconds",
+]

@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fastdyn.local/scopt/schemas/artifact_sidecar.v1.json",
+  "title": "Artifact sidecar v1",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "fastdyn.artifact_sidecar"
+    },
+    "version": {
+      "const": 1
+    },
+    "input_snapshot_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "output_snapshot_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "bundle_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "runtime_identity_id": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "profile_ids": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "$ref": "#/$defs/sha256id"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile_id",
+          "verdict"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "pipeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pass": {
+            "type": "string"
+          },
+          "version": {
+            "$ref": "#/$defs/u"
+          },
+          "params_sha256": {
+            "$ref": "#/$defs/sha256id"
+          },
+          "outcome": {
+            "enum": [
+              "no_change",
+              "candidate",
+              "skipped_unsupported",
+              "skipped_unknown",
+              "budget_exhausted",
+              "failed"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "affected": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "edit_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/sha256id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duration_s": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "pass",
+          "version",
+          "params_sha256",
+          "outcome",
+          "reason",
+          "affected",
+          "edit_digest",
+          "duration_s"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "move_map": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^tb:[0-9a-f]{32}#(0|[1-9][0-9]*)$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "slot": {
+            "$ref": "#/$defs/u"
+          },
+          "old_tb_offset": {
+            "$ref": "#/$defs/hex"
+          },
+          "new_tb_offset": {
+            "$ref": "#/$defs/hex"
+          },
+          "delta": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "slot",
+          "old_tb_offset",
+          "new_tb_offset",
+          "delta"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "pinned": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "$ref": "#/$defs/unit_id"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "unit",
+          "reasons"
+        ],
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x_": {}
+        }
+      }
+    },
+    "validation_sha256": {
+      "$ref": "#/$defs/sha256id"
+    },
+    "tool_versions": {
+      "type": "object",
+      "properties": {
+        "scopt": {
+          "type": "string"
+        },
+        "capstone": {
+          "type": "string"
+        },
+        "pyelftools": {
+          "type": "string"
+        },
+        "python": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scopt",
+        "capstone",
+        "pyelftools"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x_": {}
+      }
+    },
+    "loader_requirement": {
+      "enum": [
+        "qemu-sc-v5-unmodified",
+        "qemu-sc-v6"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "input_snapshot_id",
+    "output_snapshot_id",
+    "bundle_id",
+    "runtime_identity_id",
+    "profile_ids",
+    "pipeline",
+    "move_map",
+    "pinned",
+    "validation_sha256",
+    "tool_versions",
+    "loader_requirement"
+  ],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x_": {}
+  },
+  "$defs": {
+    "sha256id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "hex": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]+$"
+    },
+    "unit_id": {
+      "type": "string",
+      "pattern": "^tb:[0-9a-f]{32}#(0|[1-9][0-9]*)$"
+    },
+    "u": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "description": "Provenance sidecar cache.sc.scopt.json (design \u00a74.6). Not named *.fastdyn.json; ignored by QEMU and FastDyn."
+}
