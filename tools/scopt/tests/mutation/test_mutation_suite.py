@@ -75,8 +75,14 @@ def test_every_mutant_has_a_detector_or_a_static_only_reason(suite):
             assert r.name in STATIC_ONLY
     # close-out: the LOG_REG spin mutants are observable only on a full coverage ring
     # (design/closeout-logreg.md §A.8; disclosed in the gate reports)
+    # F13: rewrites around a NO_RWG call that writes env (no shipped template makes one;
+    # notes/no-rwg-soundness.md)
     assert set(STATIC_ONLY) == {"drop_g_cond", "drop_g_flags", "drop_g_flags2",
-                                "logreg_spin_nop", "logreg_spin_retarget"}
+                                "logreg_spin_nop", "logreg_spin_retarget",
+                                "nrwg_hflags_writeback", "nrwg_hflags_read_hoisted",
+                                "nrwg_hflags_const_after_call", "nrwg_hflags_fact_after_call",
+                                "nrwg_unknown_helper_writeback", "nrwg_drop_g_flags_after_call",
+                                "nrwg_drop_g_flags2_after_call"}
 
 
 def test_guard_mutants_use_reference_emitter(suite):

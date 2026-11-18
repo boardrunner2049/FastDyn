@@ -36,6 +36,7 @@ from ..decode.thumb_sem import decode_unit
 from ..formats.callee_summary_v1 import SCHEMA, VERSION, fact_id, factref, seal_row
 from .api import AnalysisSpec, ScopeRef
 from .effects import Effects, build_effects, call_class
+from .helper_effects import effects_for_hostops
 from .exit_facts import ExitFactSet, FactRow, UnitExitFacts
 from .hcfg import HCfg, build_hcfg
 from .hostops import UnitHostOps
@@ -67,7 +68,7 @@ def _effects(h: UnitHostOps, e: Effects) -> list[dict[str, Any]]:
             out.append({"kind": "guest_ld" if o.is_ld else "guest_st", "host_off": o.off,
                         "insn": o.insn, "oi": int(o.oi or 0), "faultable": True})
         elif kind == "call":
-            cc = call_class(o.helper_name, o.helper_flags)
+            cc = call_class(o.helper_name, o.helper_flags, effects_for_hostops(h))
             out.append({"kind": "plugin_cb" if cc == "plugin" else "helper_call",
                         "host_off": o.off, "insn": o.insn, "helper_id": o.helper_id,
                         "helper": o.helper_name, "flags": o.helper_flags, "class": cc})

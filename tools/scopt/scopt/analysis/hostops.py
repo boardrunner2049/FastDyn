@@ -921,6 +921,10 @@ def _origin(o: HostOp, acc: EnvAccess | None, insn_with_ldst: set[int]) -> str:
 
 def build_hostops(unit: Any, layout: EnvLayout | None, code_address: int) -> UnitHostOps:
     """HostOps of one TBUnit (no store; for analyses use ``hostops@1``)."""
+    if layout is not None:
+        from .helper_effects import effects_for_layout
+
+        effects_for_layout(layout)  # binds layout.envlayout_id to its helper effect table
     return _Builder(unit, layout, code_address).build()
 
 

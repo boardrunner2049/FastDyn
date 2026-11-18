@@ -8,7 +8,8 @@ Sync events (§7.1)::
     S1 TB entry (before the entry check)      S2 exit (goto_tb / guarded slot = direct chain;
     S3 lookup_tb_ptr call                         exit_tb / goto_ptr / exit_requested = main loop)
     S4 non-pure call (flags 0, NO_WG, plugin callback, noreturn)
-    S5 LDST block                             S6 udiv/sdiv (NO_RWG but may raise)
+    S5 LDST block                             S6 udiv/sdiv (NO_RWG but may raise; any
+                                                 NO_RWG helper whose effect-table row may fault)
     P  brcond / br / set_label (pseudo; nothing observes)
 
 Fields (env offsets from the EnvLayout, G21)::

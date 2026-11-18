@@ -16,11 +16,19 @@ Abstractions (§9.2):
   havocked (``hv``), then ``pc := raddr``. The block's bytes are not executed; :mod:`.equiv` checks
   they are identical in both versions (else ``edit_inside_ldst_block``).
 * **call** (not in a slow path): a ``call`` event (target, class, the six
-  SysV argument registers, env and frame snapshots); caller-saved registers
-  and flags havocked, ``rax := ("ret", seq)``; env havocked per the helper
-  class (flags-0 / plugin / noreturn: all but ``neg.can_do_io``; unknown
-  target: all; ``NO_WG``: all but the globals and ``neg.can_do_io``; lookup:
-  all but the globals; ``NO_RWG``: none).
+  SysV argument registers, env and frame snapshots, and the env bytes the helper
+  may read); caller-saved registers and flags havocked, ``rax := ("ret", seq)``;
+  env havocked and the host-memory version bumped per the helper's row in the
+  **helper effect table** bound to the layout's executable
+  (:mod:`scopt.analysis.helper_effects`): exactly the row's ``env_writes`` are
+  havocked (for example ``env->hflags`` for ``rebuild_hflags_m32[_newel]``;
+  nothing for ``udiv``/``sdiv``; all but the globals for the lookup; all but
+  ``neg.can_do_io`` for flags-0 helpers and plugin callbacks; all for noreturn
+  helpers) and ``hver`` is bumped iff ``hostmem_writes``. A helper without a
+  row, an unknown call target, and every helper when no table is bound are
+  fail closed: env havocked entirely, ``hver`` bumped, every env byte compared
+  at the call event, class ``global`` (S4). ``TCG_CALL_NO_RWG`` alone never
+  makes a call env-pure: it only promises that the TCG globals are untouched.
 * **can_do_io across a returning access or helper** (WP19 integration): the
   only writers of ``cpu->neg.can_do_io`` are generated code, ``cpu_tb_exec``,
   ``helper_lookup_tb_ptr`` (sets it true), ``cpu_loop_exit`` (longjmps, never
@@ -69,7 +77,8 @@ from typing import Any
 import capstone
 from capstone import x86 as X
 
-from ..analysis.effects import call_class
+from ..analysis.helper_effects import BoundEffects, call_class, effects_for_layout, \
+    resolve_fail_closed
 from .program import LdstBlock, Program
 from .semantics import Unsupported, apply_cc, cond_of, execute, lea_addr, rd_reg, reg_info
 from .state import ENV, FRAME, Event, State, Term, is_const, mentions
@@ -412,10 +421,13 @@ class _BlockMem(_Mem):
 
 
 def explore(p: Program, pre: Mapping[tuple[int, int], int] | None = None, *, layout: Any = None,
-            max_paths: int = MAX_PATHS, max_steps: int = MAX_STEPS) -> Exploration:
-    """Every path of ``p`` from offset 0 (see the module doc)."""
+            max_paths: int = MAX_PATHS, max_steps: int = MAX_STEPS,
+            effects: BoundEffects | None = None) -> Exploration:
+    """Every path of ``p`` from offset 0 (see the module doc). ``effects`` defaults to the
+    helper effect table bound to ``layout`` (none bound: every helper fail closed)."""
     ex = Exploration(p.uid)
-    keeps = havoc_keeps(layout)
+    fx = effects if effects is not None else effects_for_layout(layout)
+    keeps = havoc_keeps(layout) + (fx,)
     mem = _Mem(p, p.in_stub)
     work: list[tuple[int, State]] = [(0, State.initial(pre_bytes(pre)))]
     while work:
@@ -591,12 +603,15 @@ def _call(p: Program, st: State, ci: Any, pc: int, nxt: int, keeps) -> int | Non
         a = int.from_bytes(p.code[rel:rel + 8], "little")
     else:
         raise Unsupported("indirect_call")
+    fx: BoundEffects = keeps[3]
     h = p.helpers.get(a)
     if h is None:
         cls, tgt = "unknown", ("abs", a)
+        eff = resolve_fail_closed(fx.layout)
     else:
-        cls = call_class(h.name, h.flags)
+        cls = call_class(h.name, h.flags, fx)
         tgt = ("helper", h.name if h.name is not None else f"#{h.id}", h.flags)
+        eff = fx.resolved(h.name, h.flags)
     if cls == "ldst_slow":  # pragma: no cover - slow paths are never executed
         raise Unsupported("slow_path_call")
     seq = st.seq
@@ -604,26 +619,19 @@ def _call(p: Program, st: State, ci: Any, pc: int, nxt: int, keeps) -> int | Non
     if p.in_stub(pc):
         st.stub_writes.append(pc)
     st.events.append(Event("call", cls, (tgt,) + args, env=st.env.copy(), frame=st.frame.copy(),
-                           pc=pc))
+                           pc=pc, reads=eff.reads))
     for r in CALLER_SAVED:
         st.regs[r] = ("clob", "call", seq, r)
     st.regs["rax"] = ("ret", seq, tgt)
     for f in _FLAGS:
         st.flags[f] = ("clob", "call", seq, f)
-    keep_globals, keep_ldst, keep_helper = keeps
-    if cls in ("pure", "raising"):
-        pass
-    elif cls == "lookup":
-        st.env.havoc(("call", seq), keep_globals)  # the lookup itself sets can_do_io
-        st.hver += 1
-    elif h is not None and h.flags is not None and h.flags & 0x2 and cls == "global":
-        st.env.havoc(("call", seq), keep_ldst)
-        st.hver += 1
-    elif h is not None and cls != "noreturn":
-        st.env.havoc(("call", seq), keep_helper)
-        st.hver += 1
-    else:
+    # the row's returning-path env writes (an unknown function of the old byte, the same
+    # epoch on both sides) and its host-memory writes; nothing else changes
+    if eff.writes.all:
         st.env.havoc(("call", seq), None)
+    elif eff.writes_env:
+        st.env.havoc(("call", seq), eff.keep)
+    if eff.effect.hostmem_writes:
         st.hver += 1
     if cls == "noreturn":
         _exit(p, st, "noreturn", (tgt,), pc)

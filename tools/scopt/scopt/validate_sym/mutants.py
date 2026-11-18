@@ -44,7 +44,8 @@ from .program import GSlot, GuardAtom, HelperRef, LdstBlock, Program, patched
 __all__ = ["MutantResult", "SuiteResult", "synthetic_suite", "real_mutants", "SynthUnit",
            "grow_guarded", "DETECTORS", "STATIC_ONLY", "SynthContract", "CODE_ADDRESS",
            "ENV_ABS", "synthetic_units", "UNIT_TB", "MINI_LAYOUT", "GuardSpec", "unit_logreg",
-           "LOG_IDX", "LOG_CONS", "LOG_BUF"]
+           "LOG_IDX", "LOG_CONS", "LOG_BUF", "MINI_EXE", "GATE_EXE", "mini_effects",
+           "REBUILD", "unit_nrwg", "nrwg_cases"]
 
 CODE_ADDRESS = 0x7FFF00000000
 TB_RET = CODE_ADDRESS + 0x18
@@ -56,6 +57,7 @@ MSR = 0x555555A01000
 PLUGIN_CB = 0x7FFFF7A00000
 LD_HELPER = 0x555555A02000
 ST_HELPER = 0x555555A03000
+REBUILD = 0x555555A04000  # rebuild_hflags_m32_newel (TCG_CALL_NO_RWG; writes env->hflags)
 RAM_PTR = 0x7FFFE0000000
 RING = 0x7FFFD0000000
 ENV_ABS = 0x555556000000
@@ -111,6 +113,15 @@ DETECTORS: dict[str, str | None] = {
     "logreg_ring_aliases_env": "F-B4-10 (O1/O6: env bytes overwritten)",
     "logreg_value_field": "F-B3-23 / F-B4-10 (O6)",
     "logreg_d1_store_hoisted": "F-B3-23 / F-B4-10 (O6)",
+    # NO_RWG helpers write non-global env (design/helper-inlining-design.md F13; the helper
+    # effect table, scopt.analysis.helper_effects): rebuild_hflags_m32_newel writes hflags
+    "nrwg_hflags_writeback": None,
+    "nrwg_hflags_read_hoisted": None,
+    "nrwg_hflags_const_after_call": None,
+    "nrwg_hflags_fact_after_call": None,
+    "nrwg_unknown_helper_writeback": None,
+    "nrwg_drop_g_flags_after_call": None,
+    "nrwg_drop_g_flags2_after_call": None,
 }
 STATIC_ONLY: dict[str, str] = {
     "drop_g_cond": "a return is last in any IT block, so condexec is 0 at every return-exit "
@@ -125,6 +136,21 @@ STATIC_ONLY: dict[str, str] = {
                        "deterministically, so only the static byte-freeze can see it",
     "logreg_spin_retarget": "as logreg_spin_nop (the retargeted spin also only runs on a full "
                             "ring)",
+    "nrwg_hflags_writeback": "no shipped template edits env around a NO_RWG call, and every "
+                             "rebuild_hflags site of the workloads is v7m_msr -> rebuild -> "
+                             "regs[15] update -> exit_null (no V15-legal same-length patch "
+                             "fits); only 6 sites change hflags at run time and no fixture "
+                             "edits them (notes/no-rwg-soundness.md, notes/no-rwg-impact)",
+    "nrwg_hflags_read_hoisted": "as nrwg_hflags_writeback",
+    "nrwg_hflags_const_after_call": "as nrwg_hflags_writeback",
+    "nrwg_hflags_fact_after_call": "fact fields are r0-r12/NZCV and no unit with a rebuild "
+                                   "call has a lookup tail (none is grown), so no real hflags "
+                                   "fact crosses a rebuild",
+    "nrwg_unknown_helper_writeback": "every helper of the workloads has a row; the unknown "
+                                     "helper is the fail-closed rule itself",
+    "nrwg_drop_g_flags_after_call": "as drop_g_flags (no rebuild unit is grown, and V13 of a "
+                                    "real grown R runs without an hflags precondition)",
+    "nrwg_drop_g_flags2_after_call": "as nrwg_drop_g_flags_after_call",
 }
 
 
@@ -144,8 +170,22 @@ class SynthContract:
         return self.c.observable(fld, event, exit_kind=exit_kind)
 
 
+#: the synthetic executable MINI_LAYOUT stands for (no real QEMU binary has this digest)
+MINI_EXE = "sha256:" + "5c" * 32
+#: the executable whose helper effect table the synthetic units use (the gate binary)
+GATE_EXE = "sha256:56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90"
+
+
 class _MiniLayout:
-    """Byte -> field names for the synthetic units (the contract's listed fields)."""
+    """Byte -> field names for the synthetic units (the contract's listed fields).
+
+    Bound to the synthetic executable :data:`MINI_EXE`, whose helper effect table is the
+    gate binary's rows (:func:`mini_effects`), so hostsym models every helper of the
+    synthetic units by the same rows as the real ones (``rebuild_hflags_m32*`` writes
+    ``hflags``, ``udiv``/``sdiv`` may fault, unknown helpers fail closed)."""
+
+    exe_sha256 = MINI_EXE
+    envlayout_id = "sha256:" + "5d" * 32
 
     _F = {**{f"regs[{i}]": (4 * i, 4) for i in range(16)}, "CF": (OFF_CF, 4), "VF": (OFF_VF, 4),
           "NF": (OFF_NF, 4), "ZF": (OFF_ZF, 4), "thumb": (OFF_THUMB, 1),
@@ -179,6 +219,26 @@ class _MiniLayout:
 
 
 MINI_LAYOUT = _MiniLayout()
+
+
+def mini_effects():
+    """The helper effect table of :data:`MINI_LAYOUT` (registered on first use): the
+    packaged gate table's rows, rebound to :data:`MINI_EXE`."""
+    from ..analysis.helper_effects import (HelperEffectTable, effects_for_layout,
+                                           find_helper_effects, register)
+
+    b = effects_for_layout(MINI_LAYOUT)
+    if b.table is not None:
+        return b
+    gate = find_helper_effects(GATE_EXE)
+    if gate is None:  # pragma: no cover - the gate table is packaged
+        raise RuntimeError("the packaged helper effect table of the gate binary is missing")
+    t = HelperEffectTable.build(MINI_EXE, gate.rows,
+                                {"synthetic": f"rows of {gate.table_id} ({GATE_EXE})"})
+    return register(t, MINI_LAYOUT)
+
+
+mini_effects()
 
 
 # ---------------------------------------------------------------------------
@@ -411,14 +471,19 @@ def unit_cont() -> tuple[Program, SynthUnit]:
 
 
 def unit_ret(*, store_r0: int | None = 0, guard: GuardSpec | None = None,
-             uid: str = "synth:ret") -> tuple[Program, SynthUnit]:
-    """R: ``movs r0,#k; bx lr`` (the 0x1ede shape); ``store_r0=None`` is the suffix unit."""
+             uid: str = "synth:ret", rebuild: bool = False) -> tuple[Program, SynthUnit]:
+    """R: ``movs r0,#k; bx lr`` (the 0x1ede shape); ``store_r0=None`` is the suffix unit;
+    ``rebuild`` adds a ``rebuild_hflags_m32_newel`` call before the return's effects."""
     u = SynthUnit(uid, icount=2 if store_r0 is not None else 1)
     a = u.a
     u.prefix()
     if store_r0 is not None:
         u.rec("r0", lambda: a.mov_env_imm(OFF_R[0], store_r0))
     a.mov_env_imm(OFF_CDIO, 1, w=1)
+    if rebuild:
+        u.pool["p_rb"] = REBUILD
+        a.mov_rdi_rbp()
+        a.call_pool("p_rb")
 
     def effects() -> None:
         a.mov_r_env("rbx", OFF_R[14])
@@ -428,7 +493,11 @@ def unit_ret(*, store_r0: int | None = 0, guard: GuardSpec | None = None,
         a.alu_r_imm("and", "rbx", 1)
         a.mov_env_r(OFF_THUMB, "rbx", w=1)
     u.tail_or_jump(guard, effects)
-    return u.build(guard=guard), u
+    p = u.build(guard=guard)
+    if rebuild:
+        p = replace(p, helpers={**p.helpers,
+                                REBUILD: HelperRef(3, "rebuild_hflags_m32_newel", 1)})
+    return p, u
 
 
 def unit_mem(*, update_ptr: int = RAM_PTR, tb: int = UNIT_TB) -> tuple[Program, SynthUnit]:
@@ -736,6 +805,8 @@ def synthetic_suite() -> SuiteResult:
                                                                   uid=cd.uid + "'"))))
     # the coverage LOG_REG block (close-out L1-L8, design/closeout-logreg.md §A.8)
     _logreg_mutants(out, eq, control)
+    # NO_RWG helpers that write env (F13; the helper effect table)
+    _nrwg_mutants(out, eq, control)
     # guard-stub mutants with WP19's reference emitter (WP18's emitter: integration stage)
     for name, spec in _guard_specs():
         rr, rp = grow_guarded(spec)
@@ -751,6 +822,114 @@ def synthetic_suite() -> SuiteResult:
     scert = certify_fact(sp, 0, (OFF_R[0], 4), layout=lay)
     out.results.append(_fact_res("shared_variant_suffix", sp.uid, scert, 0, needs_emitter=True))
     return out
+
+
+def unit_nrwg(uid: str, body: Callable[[Asm], None], *, tail: str = "exit_null",
+              helper: HelperRef | None = None) -> Program:
+    """A TB-shaped unit around a call of ``p_rb`` (bound to ``helper``, default
+    ``rebuild_hflags_m32_newel`` with flags ``TCG_CALL_NO_RWG``): prefix; ``body``;
+    ``regs[15] := 0x1b2c``; ``exit_null`` (the real rebuild sites' shape) or a lookup
+    tail."""
+    u = SynthUnit(uid)
+    u.pool["p_rb"] = REBUILD
+    u.prefix()
+    body(u.a)
+    u.a.mov_env_imm(OFF_R[15], 0x1B2C)
+    if tail == "exit_null":
+        u.a.jmp(target=EPILOGUE)
+    else:
+        u.lookup_tail()
+    p = u.build()
+    h = helper or HelperRef(3, "rebuild_hflags_m32_newel", 1)
+    return replace(p, helpers={**p.helpers, REBUILD: h})
+
+
+def _call_rb(a: Asm) -> None:
+    a.mov_rdi_rbp()
+    a.call_pool("p_rb")
+
+
+def nrwg_cases(helper: HelperRef | None = None) -> list[tuple[str, Program, Program,
+                                                               dict | None, bool]]:
+    """(name, O, N, precondition, N is a correct rewrite) around one NO_RWG call
+    (notes/no-rwg-soundness.md §3, M13a-c). Every N except the identity is wrong whenever
+    the call changes ``hflags``."""
+    K = 0x110
+
+    def m13a(a: Asm) -> None:  # write the stale hflags back after the call
+        a.mov_r_env("rbx", OFF_FLAGS)
+        _call_rb(a)
+        a.mov_env_r(OFF_FLAGS, "rbx")
+
+    def ob(a: Asm) -> None:  # O reads hflags after the call into r0
+        _call_rb(a)
+        a.mov_r_env("rbx", OFF_FLAGS)
+        a.mov_env_r(OFF_R[0], "rbx")
+
+    def nb(a: Asm) -> None:  # N reads it before the call
+        a.mov_r_env("rbx", OFF_FLAGS)
+        _call_rb(a)
+        a.mov_env_r(OFF_R[0], "rbx")
+
+    def m13c(a: Asm) -> None:  # store the precondition's hflags constant after the call
+        _call_rb(a)
+        a.mov_env_imm(OFF_FLAGS, K)
+
+    o = unit_nrwg("nrwg", _call_rb, helper=helper)
+    return [("writeback", o, unit_nrwg("nrwg'", m13a, helper=helper), None, False),
+            ("read_hoisted", unit_nrwg("nrwg_rd", ob, helper=helper),
+             unit_nrwg("nrwg_rd'", nb, helper=helper), None, False),
+            ("const_after_call", o, unit_nrwg("nrwg'", m13c, helper=helper),
+             {(OFF_FLAGS, 4): K}, False),
+            ("identity", o, unit_nrwg("nrwg'", _call_rb, helper=helper), None, True)]
+
+
+def _nrwg_mutants(out: SuiteResult, eq: Callable[..., Verdict],
+                  control: Callable[..., None]) -> None:
+    """F13 (design/helper-inlining-design.md): ``rebuild_hflags_m32_newel`` is
+    ``TCG_CALL_NO_RWG`` and writes ``env->hflags``; hostsym havocs exactly the row's write
+    set. Wrong rewrites around the call (M13a-c) and an hflags fact certified across it
+    must be rejected; a NO_RWG helper without a row is fail closed. Controls: the identity
+    is equivalent; a D1 store before the call that is overwritten after it may be deleted
+    (the rebuild reads no D1 byte) but not when the helper is unknown (fail closed: S4)."""
+    for name, o, n, pre, good in nrwg_cases():
+        if good:
+            control("nrwg_identity_equivalent", eq(o, n, pre))
+        else:
+            out.results.append(_res(f"nrwg_hflags_{name}", o.uid, eq(o, n, pre)))
+    r = unit_nrwg("nrwg_r", _call_rb, tail="lookup")
+    cert = certify_fact(r, None, (OFF_FLAGS, 4), layout=MINI_LAYOUT, pre={(OFF_FLAGS, 4): 0x110})
+    out.results.append(_fact_res("nrwg_hflags_fact_after_call", r.uid, cert, 0x110))
+    # V13: a guard atom on hflags is not entailed by a precondition across the rebuild
+    g = GuardSpec()
+    pre = {(OFF_FLAGS, 4): g.kf, (OFF_FLAGS2, 8): g.kf2}
+    rr, _ = unit_ret(rebuild=True, uid="synth:retrb")
+    for atom in ("g_flags", "g_flags2"):
+        rp, _ = unit_ret(rebuild=True, guard=GuardSpec(drop=frozenset({atom})),
+                         uid="synth:retrb'")
+        out.results.append(_res(f"nrwg_drop_{atom}_after_call", rp.uid, check_guarded_chain(
+            rr, rp, SynthContract(True), layout=MINI_LAYOUT, pre=pre)))
+    rp, _ = unit_ret(rebuild=True, guard=g, uid="synth:retrb'")
+    control("nrwg_guarded_chain_after_rebuild_equivalent", check_guarded_chain(
+        rr, rp, SynthContract(True), layout=MINI_LAYOUT, pre=pre))
+    unk = HelperRef(4, "nrwg_helper_without_row", 1)
+    _, o, n, _, _ = nrwg_cases(unk)[0]
+    out.results.append(_res("nrwg_unknown_helper_writeback", o.uid, eq(o, n)))
+
+    def d1_dead(a: Asm) -> None:
+        a.mov_env_imm(OFF_R[1], 7)
+        _call_rb(a)
+        a.mov_env_imm(OFF_R[1], 9)
+
+    def d1_deleted(a: Asm) -> None:
+        _call_rb(a)
+        a.mov_env_imm(OFF_R[1], 9)
+
+    control("nrwg_d1_store_before_rebuild_deletable",
+            eq(unit_nrwg("nrwg_d1", d1_dead), unit_nrwg("nrwg_d1'", d1_deleted)))
+    control("nrwg_d1_store_before_unknown_helper_observed",
+            eq(unit_nrwg("nrwg_d1", d1_dead, helper=unk),
+               unit_nrwg("nrwg_d1'", d1_deleted, helper=unk)), want=False)
 
 
 def _logreg_mutants(out: SuiteResult, eq: Callable[..., Verdict],

@@ -25,6 +25,11 @@ Transfer, per op (``need_in = (need_out & ~kill) | gen``)::
     env store                               kill the bytes it writes (a read-modify-write
                                             also gens them)
     sync event                              gen the bytes observable there (table above)
+    call                                    also gen every tracked byte in the helper's
+                                            ``env_reads`` (helper effect table,
+                                            :mod:`.helper_effects`); a named helper
+                                            without a row is class ``global`` and reads
+                                            everything (fail closed). A call kills nothing.
 
 LLVM-survey corrections (design/llvm-pass-applicability.md §3c B4-2, §4.3 item 5),
 as adopted here (recorded in the WP25 implementation note of the design):
@@ -97,7 +102,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .api import AnalysisSpec, ScopeRef
-from .effects import call_class
+from .helper_effects import TCG_CALL_NO_RETURN, TCG_CALL_NO_RWG, BoundEffects, call_class, \
+    effects_for_hostops, effects_for_layout
 from .hcfg import HCfg, build_hcfg, exit_class
 from .hostops import OpKind, UnitHostOps, build_hostops
 from .obs_contract import D1_FIELDS, D2_FIELDS, D3_FIELDS, MAIN_LOOP_EXITS, ObsContract
@@ -309,24 +315,54 @@ def _skip(uid: str, reason: str, detail: str, mode: str, c: ObsContract, cra: bo
                     counts={f"unit:{reason}": 1})
 
 
+def _tcg_syncs_globals(name: str | None, flags: int | None) -> bool:
+    """TCG's own rule (independent of scopt's helper model): the globals are synced
+    before every call that is not a named ``NO_RWG`` helper (``mode="tcg"``)."""
+    f = 0 if flags is None else flags
+    return name is None or name == "lookup_tb_ptr" or bool(f & TCG_CALL_NO_RETURN) or \
+        not f & TCG_CALL_NO_RWG
+
+
+def _read_mask(tb: TrackedBytes, reads: Any) -> int:
+    if reads is None:
+        return 0
+    if getattr(reads, "all", False):
+        return tb.all
+    m = 0
+    for b, bit in tb.index.items():
+        if reads(b):
+            m |= 1 << bit
+    return m
+
+
 def _observers(h: UnitHostOps, g: HCfg, tb: TrackedBytes, c: ObsContract, *, mode: str,
-               call_reads_all: bool, d3_all_calls: bool = False) -> list[int]:
-    """Bytes observed at each op (the sync events of §7.1 for each class)."""
+               call_reads_all: bool, d3_all_calls: bool = False,
+               effects: BoundEffects | None = None) -> list[int]:
+    """Bytes observed at each op (the sync events of §7.1 for each class, plus, at a call,
+    every tracked byte the helper may read by its row in the helper effect table; a
+    helper without a row is fail closed: class ``global`` and every byte read)."""
     D1, D2, D3 = tb.cls_mask["D1"], tb.cls_mask["D2"], tb.cls_mask["D3"]
     tcg = mode == "tcg"
+    fx = effects if effects is not None else effects_for_hostops(h)
     obs = [0] * len(h.ops)
     targets = {o.target for o in h.ops if o.target is not None}
+    rmask: dict[tuple[str | None, int | None], int] = {}
     for i, o in enumerate(h.ops):
         m = 0
         ek = g.exits.get(i)
         if o.kind == OpKind.CALL and o.block != "ldst_slow":
-            cc = call_class(o.helper_name, o.helper_flags)
+            cc = call_class(o.helper_name, o.helper_flags, fx)
             if tcg:
                 # TCG's own set: globals synced before every call that is not NO_RWG
-                if cc not in ("pure", "raising"):
+                if _tcg_syncs_globals(o.helper_name, o.helper_flags):
                     m |= D1
-            elif cc in ("lookup", "global", "plugin", "noreturn", "raising"):
-                m |= D1  # S3, S4, S6 (= S4)
+            else:
+                if cc in ("lookup", "global", "plugin", "noreturn", "raising"):
+                    m |= D1  # S3, S4, S6 (= S4)
+                k = (o.helper_name, o.helper_flags)
+                if k not in rmask:
+                    rmask[k] = _read_mask(tb, fx.resolved(*k).reads)
+                m |= rmask[k]  # the helper's own env reads (helper effect table)
             s4 = cc in ("global", "plugin", "noreturn", "raising")  # S4, S6 (= S4)
             if call_reads_all or s4:
                 m |= D2  # survey §3c B4-2 (1): every call reads can_do_io
@@ -371,7 +407,8 @@ def _gen_kill(o: Any, tb: TrackedBytes) -> tuple[int, int, bool]:
 def syncdead_unit(u: Any, h: UnitHostOps, g: HCfg, layout: Any, contract: ObsContract, *,
                   mode: str = "b4", call_reads_all: bool = True, d3_all_calls: bool = False,
                   max_paths: int = MAX_PATHS, max_candidates: int = MAX_CANDIDATES,
-                  tracked: TrackedBytes | None = None, skip_special: bool = True) -> SyncDead:
+                  tracked: TrackedBytes | None = None, skip_special: bool = True,
+                  effects: BoundEffects | None = None) -> SyncDead:
     """Dead deletable-class stores of unit ``u`` (see the module doc).
 
     ``skip_special=False`` analyses ``special_cflags_unit`` units too; it exists
@@ -403,7 +440,10 @@ def syncdead_unit(u: Any, h: UnitHostOps, g: HCfg, layout: Any, contract: ObsCon
     ALL = tb.all
     ops = h.ops
     n = len(ops)
-    obs = _observers(h, g, tb, c, mode=mode, call_reads_all=cra, d3_all_calls=d3_all_calls)
+    fx = effects if effects is not None else \
+        (effects_for_layout(layout) if layout is not None else effects_for_hostops(h))
+    obs = _observers(h, g, tb, c, mode=mode, call_reads_all=cra, d3_all_calls=d3_all_calls,
+                     effects=fx)
     gk = [_gen_kill(o, tb) for o in ops]
     # backward may-need, reverse topological order on the (acyclic) atomic graph
     order: list[int] = []

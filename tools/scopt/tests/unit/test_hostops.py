@@ -303,13 +303,20 @@ def test_effects_sync_points():
 
 
 def test_call_class():
-    assert call_class("lookup_tb_ptr", 6) == "lookup"
-    assert call_class(None, 1) == "plugin"
-    assert call_class("udiv", 1) == "raising"
-    assert call_class("rebuild_hflags_m32", 1) == "pure"
-    assert call_class("v7m_msr", 0) == "global"
-    assert call_class("exception_internal", 8) == "noreturn"
-    assert call_class("<ldst_slow_path>", None) == "ldst_slow"
+    from scopt.analysis.helper_effects import effects_for_layout
+
+    fx = effects_for_layout(find_envlayout(
+        "sha256:56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90"))
+    assert call_class("lookup_tb_ptr", 6, fx) == "lookup"
+    assert call_class(None, 1, fx) == "plugin"
+    assert call_class("udiv", 1, fx) == "raising"
+    assert call_class("rebuild_hflags_m32", 1, fx) == "pure"
+    assert call_class("v7m_msr", 0, fx) == "global"
+    assert call_class("exception_internal", 8, fx) == "noreturn"
+    assert call_class("<ldst_slow_path>", None, fx) == "ldst_slow"
+    # pure / raising need a row in the helper effect table (NO_RWG alone: fail closed)
+    assert call_class("rebuild_hflags_m32", 1) == "global"
+    assert call_class("udiv", 1) == "global"
 
 
 # -- Tier-0 TB-start callback evidence ----------------------------------------------------------------

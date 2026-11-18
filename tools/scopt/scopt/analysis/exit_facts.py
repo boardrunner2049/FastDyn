@@ -17,8 +17,10 @@ Lattice per env field (meet over the atomic predecessors)::
 
 Kills (§3.2 rule 2, A's algorithm): a call whose flags lack
 ``TCG_CALL_NO_WRITE_GLOBALS`` (flags & 3 == 0: FastDyn virtuals are flags-0
-calls), any plugin callback (unnamed helper; even a NO_RWG plugin callback can
-change guest registers through ``qemu_plugin_set_register``), a host store
+calls), a call whose helper has no row in the helper effect table or whose row may
+write a TCG global (:mod:`.helper_effects`, fail closed), any plugin callback
+(unnamed helper; even a NO_RWG plugin callback can change guest registers through
+``qemu_plugin_set_register``), a host store
 through an unknown pointer, and an unclassified ``rbp`` write. Host register
 constants are tracked so that ``mov [rbp+d], reg`` with a known ``reg`` is a
 constant store; a call clobbers the caller-saved registers.
@@ -42,7 +44,7 @@ from typing import Any
 
 from ..decode.thumb_sem import ENV_OF_FIELD, FACT_FIELDS, FIELD_OF_ENV
 from .api import AnalysisSpec, ScopeRef
-from .effects import call_class
+from .helper_effects import BoundEffects, call_class, effects_for_hostops
 from .hcfg import HCfg, build_hcfg
 from .hostops import OpKind, UnitHostOps, reg_family
 
@@ -239,14 +241,17 @@ def _reg_width(name: str | None) -> tuple[str, int] | None:
 
 
 def _transfer(o: Any, regs: dict[str, int], env: dict[str, tuple],
-              barriers: list[Barrier]) -> None:
+              barriers: list[Barrier], fx: BoundEffects | None = None) -> None:
     k = o.kind
     # ---- env effects --------------------------------------------------------------------
     if k == OpKind.CALL:
-        cc = call_class(o.helper_name, o.helper_flags)
+        cc = call_class(o.helper_name, o.helper_flags, fx)
         if cc == "plugin":
             _kill_all(env, Barrier(o.off, "plugin_cb", f"helper {o.helper_id}"), barriers)
-        elif cc not in ("lookup", "ldst_slow") and not ((o.helper_flags or 0) & 0x3):
+        elif cc != "ldst_slow" and (
+                not ((o.helper_flags or 0) & 0x3) or fx is None or
+                not fx.keeps_globals(o.helper_name, o.helper_flags)):
+            # flags-0 helper, or a helper whose row does not rule out a global write
             _kill_all(env, Barrier(o.off, "call_global",
                                    f"{o.helper_name}:flags={o.helper_flags}"), barriers)
         for r in _CALLER_SAVED:
@@ -295,7 +300,7 @@ def _transfer(o: Any, regs: dict[str, int], env: dict[str, tuple],
         regs[new[0]] = new[1]
 
 
-def _dataflow(h: UnitHostOps, g: HCfg, stop: set[int]
+def _dataflow(h: UnitHostOps, g: HCfg, stop: set[int], fx: BoundEffects | None = None
               ) -> tuple[dict[int, _State], dict[int, list[Barrier]]]:
     """In-states of every reachable op (atomic view), in index order (the graph is a DAG
     whose edges go forward; ``g.cyclic`` units are refused by the caller)."""
@@ -322,14 +327,17 @@ def _dataflow(h: UnitHostOps, g: HCfg, stop: set[int]
             continue
         regs, env = dict(st[0]), dict(st[1])
         bl = list(barriers_at.get(i, []))
-        _transfer(h.ops[i], regs, env, bl)
+        _transfer(h.ops[i], regs, env, bl, fx)
         barriers_at[i] = bl
         outs[i] = (regs, env)
     return ins, barriers_at
 
 
-def propose_exit_facts(h: UnitHostOps, g: HCfg | None = None) -> UnitExitFacts:
-    """Facts at every admissible lookup tail of ``h`` (see the module docstring)."""
+def propose_exit_facts(h: UnitHostOps, g: HCfg | None = None, *,
+                       effects: BoundEffects | None = None) -> UnitExitFacts:
+    """Facts at every admissible lookup tail of ``h`` (see the module docstring).
+    ``effects`` defaults to the helper effect table bound to ``h``'s EnvLayout."""
+    fx = effects if effects is not None else effects_for_hostops(h)
     if not h.ok:
         return UnitExitFacts(h.uid, "unavailable", tuple(h.reasons) or ("hostops_pinned",))
     g = g if g is not None else build_hcfg(h)
@@ -342,7 +350,7 @@ def propose_exit_facts(h: UnitHostOps, g: HCfg | None = None) -> UnitExitFacts:
                     key=FACT_FIELDS.index)
     if not tails:
         return UnitExitFacts(h.uid, "ok", (), (), tuple(stored))
-    ins, bars = _dataflow(h, g, {t.copy_idx for _, t, _ in tails})
+    ins, bars = _dataflow(h, g, {t.copy_idx for _, t, _ in tails}, fx)
     out: list[ExitFactSet] = []
     for _gi, t, _r in tails:
         st = ins.get(t.copy_idx)

@@ -1,0 +1,249 @@
+{
+ "exe_sha256": "sha256:8864c72671971cf4488b5afa76eeee02a3e2a472c45af81ec1314464e6035f41",
+ "qemu_source": {
+  "commit": "1258c6a3f29042c689ba2fda159f737cf07f8825",
+  "files": [
+   "include/tcg/tcg.h",
+   "accel/tcg/tcg-runtime.h",
+   "accel/tcg/cpu-exec.c",
+   "accel/tcg/cpu-exec-common.c",
+   "target/arm/tcg/helper.h",
+   "target/arm/tcg/hflags.c",
+   "target/arm/tcg/op_helper.c",
+   "target/arm/tcg/m_helper.c",
+   "target/arm/internals.h",
+   "hw/intc/armv7m_nvic.c"
+  ],
+  "target": "arm-softmmu, cortex-m3 (MPS2)",
+  "tree": "qemu fastdyn + qint (WP-QINT integrated binary)"
+ },
+ "rows": [
+  {
+   "env_reads": "all",
+   "env_writes": {
+    "all_except": [
+     "@can_do_io"
+    ]
+   },
+   "helper": "<plugin>",
+   "hostmem_reads": true,
+   "hostmem_writes": true,
+   "may_fault": true,
+   "returns": true,
+   "src": [
+    "FastDyn plugin callbacks (unnamed helpers, flags 0 or 1): anything through the plugin API",
+    "returning helpers never change neg.can_do_io: its only writers are TB code, cpu_tb_exec, helper_lookup_tb_ptr and cpu_loop_exit (no return) (accel/tcg/cpu-exec.c:392,452; accel/tcg/cpu-exec-common.c:70)"
+   ],
+   "tcg_flags": null
+  },
+  {
+   "env_reads": "all",
+   "env_writes": "all",
+   "helper": "exception_internal",
+   "hostmem_reads": true,
+   "hostmem_writes": true,
+   "may_fault": true,
+   "returns": false,
+   "src": [
+    "target/arm/tcg/helper.h:49 DEF_HELPER_2(exception_internal, noreturn, env, i32)",
+    "target/arm/tcg/op_helper.c:538-545 cs->exception_index; cpu_loop_exit"
+   ],
+   "tcg_flags": 8
+  },
+  {
+   "env_reads": "all",
+   "env_writes": "all",
+   "helper": "exception_with_syndrome",
+   "hostmem_reads": true,
+   "hostmem_writes": true,
+   "may_fault": true,
+   "returns": false,
+   "src": [
+    "target/arm/tcg/helper.h:50 DEF_HELPER_3(exception_with_syndrome, noreturn, env, i32, i32)",
+    "target/arm/tcg/op_helper.c:558-562 raise_exception -> env->exception.*, cs->exception_index, cpu_loop_exit"
+   ],
+   "tcg_flags": 8
+  },
+  {
+   "env_reads": {
+    "all_except": [
+     "@D2",
+     "@D3"
+    ]
+   },
+   "env_writes": {
+    "all_except": [
+     "@globals"
+    ]
+   },
+   "helper": "lookup_tb_ptr",
+   "hostmem_reads": true,
+   "hostmem_writes": true,
+   "may_fault": true,
+   "returns": true,
+   "src": [
+    "accel/tcg/tcg-runtime.h:27 DEF_HELPER_FLAGS_1(lookup_tb_ptr, TCG_CALL_NO_WG_SE, cptr, env)",
+    "accel/tcg/cpu-exec.c:392 can_do_io = true before any read (the TB's can_do_io value is never read); :394 get_tb_cpu_state; reads no plugin_mem_value",
+    "accel/tcg/cpu-exec.c:397-398 cpu_loop_exit on a breakpoint (may fault)",
+    "writes: over-approximation (all env but the TCG globals); host memory: TB hash and jump cache"
+   ],
+   "tcg_flags": 6
+  },
+  {
+   "env_reads": {
+    "all_except": [
+     "@D1",
+     "@D2",
+     "@D3"
+    ]
+   },
+   "env_writes": {
+    "size": 16,
+    "span": [
+     "hflags.flags",
+     "hflags.flags2"
+    ]
+   },
+   "helper": "rebuild_hflags_m32",
+   "hostmem_reads": true,
+   "hostmem_writes": false,
+   "may_fault": false,
+   "returns": true,
+   "src": [
+    "target/arm/tcg/helper.h:109 DEF_HELPER_FLAGS_2(rebuild_hflags_m32, TCG_CALL_NO_RWG, void, env, int)",
+    "target/arm/tcg/hflags.c:474 env->hflags = rebuild_hflags_m32(...)",
+    "reads and host memory: as rebuild_hflags_m32_newel (el from the argument)"
+   ],
+   "tcg_flags": 1
+  },
+  {
+   "env_reads": {
+    "all_except": [
+     "@D1",
+     "@D2",
+     "@D3"
+    ]
+   },
+   "env_writes": {
+    "size": 16,
+    "span": [
+     "hflags.flags",
+     "hflags.flags2"
+    ]
+   },
+   "helper": "rebuild_hflags_m32_newel",
+   "hostmem_reads": true,
+   "hostmem_writes": false,
+   "may_fault": false,
+   "returns": true,
+   "src": [
+    "target/arm/tcg/helper.h:108 DEF_HELPER_FLAGS_1(rebuild_hflags_m32_newel, TCG_CALL_NO_RWG, void, env)",
+    "target/arm/tcg/hflags.c:466 env->hflags = rebuild_hflags_m32(...): writes the 16-byte CPUARMTBFlags (target/arm/cpu.h CPUARMTBFlags: flags + flags2)",
+    "reads (hflags.c:113-140, 69-108; internals.h arm_current_el): v7m.control, v7m.exception, v7m.ccr, v7m.secure, features, cp15.sctlr/scr, debug state; no regs[0..14], CF/VF/NF/ZF, can_do_io or plugin_mem_value (no D1/D2/D3 byte)",
+    "host memory: reads NVIC state through env->nvic (m_helper.c:185-190, armv7m_nvic.c:394-416), writes none; no exception path"
+   ],
+   "tcg_flags": 1
+  },
+  {
+   "env_reads": {
+    "all_except": [
+     "@D1",
+     "@D2",
+     "@D3"
+    ]
+   },
+   "env_writes": "none",
+   "helper": "sdiv",
+   "hostmem_reads": true,
+   "hostmem_writes": false,
+   "may_fault": true,
+   "returns": true,
+   "src": [
+    "target/arm/tcg/helper.h:11 DEF_HELPER_FLAGS_3(sdiv, TCG_CALL_NO_RWG, s32, env, s32, s32)",
+    "target/arm/tcg/op_helper.c:154-164: the returning path writes nothing",
+    "op_helper.c:134-144 DIV_0_TRP trap (may fault)"
+   ],
+   "tcg_flags": 1
+  },
+  {
+   "env_reads": "all",
+   "env_writes": {
+    "all_except": [
+     "@can_do_io"
+    ]
+   },
+   "helper": "shl_cc",
+   "hostmem_reads": true,
+   "hostmem_writes": true,
+   "may_fault": false,
+   "returns": true,
+   "src": [
+    "target/arm/tcg/helper.h:265 DEF_HELPER_3(shl_cc, i32, env, i32, i32)",
+    "target/arm/tcg/op_helper.c:1201-1215 writes env->CF only",
+    "writes and host memory: over-approximation; returning helpers never change neg.can_do_io: its only writers are TB code, cpu_tb_exec, helper_lookup_tb_ptr and cpu_loop_exit (no return) (accel/tcg/cpu-exec.c:392,452; accel/tcg/cpu-exec-common.c:70)"
+   ],
+   "tcg_flags": 0
+  },
+  {
+   "env_reads": {
+    "all_except": [
+     "@D1",
+     "@D2",
+     "@D3"
+    ]
+   },
+   "env_writes": "none",
+   "helper": "udiv",
+   "hostmem_reads": true,
+   "hostmem_writes": false,
+   "may_fault": true,
+   "returns": true,
+   "src": [
+    "target/arm/tcg/helper.h:12 DEF_HELPER_FLAGS_3(udiv, TCG_CALL_NO_RWG, i32, env, i32, i32)",
+    "target/arm/tcg/op_helper.c:166-173: the returning path writes nothing",
+    "op_helper.c:134-144 den == 0 with CCR.DIV_0_TRP: raise_exception_ra (may fault; reads features, v7m.ccr, v7m.secure)"
+   ],
+   "tcg_flags": 1
+  },
+  {
+   "env_reads": "all",
+   "env_writes": {
+    "all_except": [
+     "@can_do_io"
+    ]
+   },
+   "helper": "v7m_mrs",
+   "hostmem_reads": true,
+   "hostmem_writes": true,
+   "may_fault": false,
+   "returns": true,
+   "src": [
+    "target/arm/tcg/helper.h:74 DEF_HELPER_2(v7m_mrs, i32, env, i32)",
+    "target/arm/tcg/m_helper.c:2429 reads v7m.* and regs[13], writes nothing",
+    "writes and host memory: over-approximation; returning helpers never change neg.can_do_io: its only writers are TB code, cpu_tb_exec, helper_lookup_tb_ptr and cpu_loop_exit (no return) (accel/tcg/cpu-exec.c:392,452; accel/tcg/cpu-exec-common.c:70)"
+   ],
+   "tcg_flags": 0
+  },
+  {
+   "env_reads": "all",
+   "env_writes": {
+    "all_except": [
+     "@can_do_io"
+    ]
+   },
+   "helper": "v7m_msr",
+   "hostmem_reads": true,
+   "hostmem_writes": true,
+   "may_fault": true,
+   "returns": true,
+   "src": [
+    "target/arm/tcg/helper.h:73 DEF_HELPER_3(v7m_msr, void, env, i32, i32)",
+    "target/arm/tcg/m_helper.c:2556 writes v7m.primask/basepri/faultmask/control/other_sp and regs[13]; raise_exception_ra(EXCP_STKOF) (may fault)",
+    "writes and host memory: over-approximation (all env but can_do_io); returning helpers never change neg.can_do_io: its only writers are TB code, cpu_tb_exec, helper_lookup_tb_ptr and cpu_loop_exit (no return) (accel/tcg/cpu-exec.c:392,452; accel/tcg/cpu-exec-common.c:70)"
+   ],
+   "tcg_flags": 0
+  }
+ ],
+ "schema": "scopt.helper-effects/1",
+ "table_id": "sha256:2c66c874e86334cb7f4204a3f8acc0ca31b743df2ed715c162b254714f0fb6d2"
+}

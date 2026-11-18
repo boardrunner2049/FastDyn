@@ -200,7 +200,17 @@ def test_hconst_kill_rules():
     ops2 = tuple(replace(o, helper_flags=0x2 | 0x1) if o.kind == OpKind.CALL else o for o in ops)
     hc2 = build_hconst(replace(h, ops=ops2), build_hcfg(replace(h, ops=ops2)), {"r0": 0},
                        code=code)
-    assert set(hc2.foldable) == {0, 2}  # a NO_WG helper keeps the global
+    assert set(hc2.foldable) == {0}  # a NO_WG helper without an effect-table row: fail closed
+    from scopt.analysis.helper_effects import effects_for_layout
+    from scopt.formats.envlayout_v1 import find_envlayout
+
+    fx = effects_for_layout(find_envlayout(
+        "sha256:56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90"))
+    ops4 = tuple(replace(o, helper_name="lookup_tb_ptr", helper_flags=0x6)
+                 if o.kind == OpKind.CALL else o for o in ops)
+    hc4 = build_hconst(replace(h, ops=ops4), build_hcfg(replace(h, ops=ops4)), {"r0": 0},
+                       code=code, effects=fx)
+    assert set(hc4.foldable) == {0, 2}  # a NO_WG helper whose row writes no global keeps it
     ops3 = tuple(replace(o, helper_name=None) if o.kind == OpKind.CALL else o for o in ops2)
     hc3 = build_hconst(replace(h, ops=ops3), build_hcfg(replace(h, ops=ops3)), {"r0": 0},
                        code=code)

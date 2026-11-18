@@ -12,7 +12,12 @@ AF ZF SF OF DF``):
 * call: uses = the SysV argument registers ``rdi rsi rdx rcx r8 r9`` (all six:
   the capture does not record the helper typemask, so this over-approximates,
   which only keeps more values live), plus ``rbp rsp``; defs = the caller-saved
-  registers and all flags (the return value is in ``rax``);
+  registers and all flags (the return value is in ``rax``). This is the SysV ABI
+  contract every helper obeys, so it does not depend on the helper's row in the
+  helper effect table (:mod:`.helper_effects`): an env or host-memory effect is
+  not a register effect, and a helper that faults never returns into the TB.
+  It is therefore sound for every row and for fail-closed (unknown) helpers;
+  DHO never removes an op with a memory operand, so env effects never reach it;
 * exits: ``rbp`` and ``rsp`` are live after every exit; ``jmp tb_ret`` reads
   ``rax`` (the ``lea rax,[tb+idx]`` before it); ``jmp reg`` reads its
   register; nothing else (the epilogue restores callee-saved registers from

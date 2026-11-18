@@ -143,10 +143,13 @@ class _Obs:
 
 
 def _env_diff(a: ByteMem, b: ByteMem, obs: _Obs, sync: str, exit_kind: str | None,
-              *, all_bytes: bool = False) -> list[tuple[int, str]]:
+              *, all_bytes: bool = False, extra: Any = None) -> list[tuple[int, str]]:
+    """Differing bytes: those observable at ``sync`` under the contract, plus every byte
+    ``extra`` accepts (a call's helper read set)."""
     out = []
     for x in sorted(a.written() | b.written()):
-        if not all_bytes and not obs.observable(x, sync, exit_kind):
+        if not all_bytes and not obs.observable(x, sync, exit_kind) and \
+                not (extra is not None and extra(x)):
             continue
         if a.byte(x) != b.byte(x):
             out.append((x, obs.field_of(x)))
@@ -179,7 +182,9 @@ def _event_diff(a: Event, b: Event, obs: _Obs) -> str | None:
         return "payload length"
     sync, ek = sync_of(a)
     if sync is not None and a.env is not None and b.env is not None:
-        d = _env_diff(a.env, b.env, obs, sync, ek)
+        # a call: the bytes its helper may read are compared too (helper effect table);
+        # both sides call the same target (payload equal), so they carry the same set
+        d = _env_diff(a.env, b.env, obs, sync, ek, extra=a.reads)
         if d:
             return "env " + ", ".join(f"{f}@{x:#x}" for x, f in d[:6])
     if a.frame is not None and b.frame is not None:
@@ -337,13 +342,15 @@ def _complete(st: State) -> bool:
 
 def check_equiv(o: Program, n: Program, pre: Mapping[tuple[int, int], int] | None = None,
                 mu=None, contract: Any = None, *, layout: Any = None,
-                env_abs: tuple[int, int] | None = None, max_paths: int = MAX_PATHS) -> Verdict:
-    """V12 for a candidate ``n`` of ``o`` under precondition ``pre`` (env (off, w) -> value)."""
+                env_abs: tuple[int, int] | None = None, max_paths: int = MAX_PATHS,
+                effects: Any = None) -> Verdict:
+    """V12 for a candidate ``n`` of ``o`` under precondition ``pre`` (env (off, w) -> value).
+    ``effects`` (a bound helper effect table) defaults to the one bound to ``layout``."""
     v = _structural(o, n, mu)
     if v is not None:
         return v
-    eo = explore(o, pre, layout=layout, max_paths=max_paths)
-    en = explore(n, pre, layout=layout, max_paths=max_paths)
+    eo = explore(o, pre, layout=layout, max_paths=max_paths, effects=effects)
+    en = explore(n, pre, layout=layout, max_paths=max_paths, effects=effects)
     return _compare(o, n, eo, en, contract, layout, env_abs)
 
 
@@ -442,15 +449,15 @@ def _guarded_diff(o: Program, n: Program, ost: State, nst: State, obs: _Obs, con
 
 def check_guarded_chain(r: Program, rp: Program, contract: Any = None, *, layout: Any = None,
                         pre: Mapping[tuple[int, int], int] | None = None,
-                        env_abs: tuple[int, int] | None = None) -> Verdict:
+                        env_abs: tuple[int, int] | None = None, effects: Any = None) -> Verdict:
     """V12/V13 on a grown return/static unit ``rp`` (= R') against the original ``r``."""
     if not rp.slots or rp.stub is None:
         return _mismatch("guard_contract_violation", "R' declares no guarded slot / stub")
     v = _structural(r, rp, None)
     if v is not None:
         return v
-    eo = explore(r, pre, layout=layout)
-    en = explore(rp, pre, layout=layout)
+    eo = explore(r, pre, layout=layout, effects=effects)
+    en = explore(rp, pre, layout=layout, effects=effects)
     out = _compare(r, rp, eo, en, contract, layout, env_abs, guarded=True)
     if out.ok:
         reached = {st.end[2] for st in en.paths if st.end and st.end[1] == "guarded_slot"}
@@ -485,14 +492,14 @@ class FactCert:
 
 def certify_fact(r: Program, slot: int | None, fld: tuple[int, int], *, layout: Any = None,
                  pre: Mapping[tuple[int, int], int] | None = None,
-                 exit_pc: int | None = None) -> FactCert:
+                 exit_pc: int | None = None, effects: Any = None) -> FactCert:
     """``env[fld]`` (``(off, width)``) at R's guarded slot ``slot`` (or, for ``None``,
     at the lookup call of every lookup exit) on every feasible path.
 
     ``exit_pc`` (``slot`` None only) restricts it to the lookup exit whose
     ``jmp reg`` is at that host offset (``T + 9`` for the tail at ``T``): the
     fact of one exit of a unit with several lookup tails."""
-    ex = explore(r, pre, layout=layout)
+    ex = explore(r, pre, layout=layout, effects=effects)
     if not ex.complete:
         why = "budget" if ex.budget_exhausted else ", ".join(
             sorted({f"{w}@{pc:#x}" for w, pc in ex.unsupported})[:4])

@@ -295,8 +295,9 @@ class Event:
 
     ``kind``: ``call`` | ``guest`` | ``host_store`` | ``exit``. ``data`` holds
     the non-env payload terms; ``env``/``frame`` are frozen memories (compared
-    under the observation contract for ``cls``/``exit_kind``); ``pc`` is the
-    host offset of the instruction (diagnostics only, never compared).
+    under the observation contract for ``cls``/``exit_kind``, and a call event's
+    ``reads`` bytes in addition); ``pc`` is the host offset of the instruction
+    (diagnostics only, never compared).
     """
 
     kind: str
@@ -306,6 +307,9 @@ class Event:
     frame: ByteMem | None = None
     exit_kind: str | None = None
     pc: int = -1
+    #: call events: the env bytes the helper may read (a byte predicate, compared at the
+    #: event in addition to the bytes the observation contract makes observable there)
+    reads: Callable[[int], bool] | None = None
 
 
 @dataclass

@@ -26,7 +26,9 @@ Transfer (fail closed: anything not modelled makes its outputs unknown):
 * ENV stores: a whole 32-bit store of a fact field from an immediate or a
   known register defines it; any other store to a fact field kills it;
 * kills of every fact field (§3.4 "Fact lifetime"): a call whose TCG flags
-  lack ``TCG_CALL_NO_WRITE_GLOBALS`` or whose flags are unknown, every plugin
+  lack ``TCG_CALL_NO_WRITE_GLOBALS`` or whose flags are unknown, a call whose
+  helper has no row in the helper effect table or whose row may write a TCG
+  global (:mod:`.helper_effects`, fail closed), every plugin
   callback (unnamed helper), a HOST_ABS store (except the two stores of a
   matched coverage LOG_REG block, which write the ring and its index outside
   env; close-out), OPAQUE ops with a memory operand; any exit ends the path;
@@ -309,8 +311,8 @@ def _kill_facts(env: dict[str, int]) -> None:
     env.clear()
 
 
-def _step(h: UnitHostOps, i: int, code: bytes, st: _State, facts_tracked: frozenset[str]
-          ) -> tuple[_State, dict[str, Any]]:
+def _step(h: UnitHostOps, i: int, code: bytes, st: _State, facts_tracked: frozenset[str],
+          fx: Any = None) -> tuple[_State, dict[str, Any]]:
     """Transfer of op ``i``; returns the out-state and per-op notes."""
     o = h.ops[i]
     env, regs, flags = st.d()
@@ -321,7 +323,8 @@ def _step(h: UnitHostOps, i: int, code: bytes, st: _State, facts_tracked: frozen
         return st, note
     if k == OpKind.CALL:
         name, fl = o.helper_name, o.helper_flags
-        if name is None or fl is None or not (fl & TCG_CALL_NO_WRITE_GLOBALS):
+        if name is None or fl is None or not (fl & TCG_CALL_NO_WRITE_GLOBALS) or \
+                fx is None or not fx.keeps_globals(name, fl):
             _kill_facts(env)
         for r in _CALLER_SAVED:
             regs.pop(r, None)
@@ -546,9 +549,14 @@ def _alu(ci: Any, m: str, ops: Any, ev: _Eval) -> bool:
 # ---------------------------------------------------------------------------
 
 def build_hconst(h: UnitHostOps, g: HCfg, facts: Mapping[str, int] | None = None, *,
-                 code: bytes | None = None, max_rounds: int = 64) -> HConst:
+                 code: bytes | None = None, max_rounds: int = 64, effects: Any = None
+                 ) -> HConst:
     """The lattice of unit ``h`` (bytes ``code``, default the unit's) under ``facts``
-    (``{"r0": 0, ...}``) at its entry."""
+    (``{"r0": 0, ...}``) at its entry. ``effects`` (a bound helper effect table) defaults
+    to the one bound to ``h``'s EnvLayout."""
+    from .helper_effects import effects_for_hostops
+
+    fx = effects if effects is not None else effects_for_hostops(h)
     facts = {str(k): int(v) & 0xFFFFFFFF for k, v in (facts or {}).items()}
     bad = sorted(set(facts) - set(FACT_FIELDS))
     if bad:
@@ -577,7 +585,7 @@ def build_hconst(h: UnitHostOps, g: HCfg, facts: Mapping[str, int] | None = None
         seen_count[i] += 1
         if seen_count[i] > max_rounds:
             return HConst(h.uid, False, ("hconst_did_not_converge",), ftuple)
-        out, note = _step(h, i, code, st, tracked)
+        out, note = _step(h, i, code, st, tracked, fx)
         notes[i] = note
         succ = g.successors(i, atomic=True)
         o = h.ops[i]

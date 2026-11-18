@@ -9,15 +9,21 @@ Derived from HostOps + hcfg only (Tier-0 metadata; no TCG IR). Value
     events   [(op index, kind, detail)]    guest accesses, calls, non-env host stores,
                                            env stores of non-bookkeeping fields, exits
 
-Call classes (``call_class``)::
+Call classes (``call_class``, :mod:`.helper_effects`)::
 
     lookup     lookup_tb_ptr                      -> S3
-    pure       named NO_RWG helper that cannot raise (not udiv/sdiv, not noreturn) -> no sync
-    raising    udiv / sdiv (NO_RWG, may raise DIV_0_TRP) -> S6 (treated as S4 by B4)
+    pure       NO_RWG helper with a row in the helper effect table that cannot fault
+                                                  -> no sync (P)
+    raising    NO_RWG helper with a row that may fault (udiv / sdiv: DIV_0_TRP)
+                                                  -> S6 (treated as S4 by B4)
     plugin     unnamed helper (plugin callback, any flags)  -> S4
     noreturn   TCG_CALL_NO_RETURN                 -> S4 (and an exit)
-    global     flags 0 or NO_WG                   -> S4
+    global     flags 0 or NO_WG, and every named helper without a row (fail closed) -> S4
     ldst_slow  softmmu slow-path helper           -> part of S5
+
+The class of a ``NO_RWG`` helper depends on the effect table bound to the unit's
+EnvLayout (``effects_for_hostops``): ``TCG_CALL_NO_RWG`` only promises that the helper
+leaves the TCG globals alone, so "pure" is a property of the helper's row, not of its flags.
 """
 
 from __future__ import annotations
@@ -27,32 +33,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .api import AnalysisSpec, ScopeRef
-from .hcfg import TCG_CALL_NO_RETURN, HCfg, exit_class
+from .hcfg import HCfg, exit_class
+from .helper_effects import TCG_CALL_NO_RWG, TCG_CALL_NO_WG, BoundEffects, call_class, \
+    effects_for_hostops
 from .hostops import OpKind, UnitHostOps
 
-__all__ = ["Effects", "build_effects", "call_class", "EFFECTS", "ANALYSES", "RAISING_NO_RWG",
+__all__ = ["Effects", "build_effects", "call_class", "EFFECTS", "ANALYSES",
            "TCG_CALL_NO_RWG", "TCG_CALL_NO_WG"]
-
-TCG_CALL_NO_RWG = 0x0001
-TCG_CALL_NO_WG = 0x0002
-RAISING_NO_RWG = frozenset({"udiv", "sdiv"})
-
-
-def call_class(name: str | None, flags: int | None) -> str:
-    if name == "<ldst_slow_path>":
-        return "ldst_slow"
-    if name is None:
-        return "plugin"
-    if name == "lookup_tb_ptr":
-        return "lookup"
-    f = 0 if flags is None else flags
-    if f & TCG_CALL_NO_RETURN:
-        return "noreturn"
-    if name in RAISING_NO_RWG:
-        return "raising"
-    if f & TCG_CALL_NO_RWG:
-        return "pure"
-    return "global"
 
 
 _CALL_SYNC = {"lookup": "S3", "plugin": "S4", "noreturn": "S4", "global": "S4", "raising": "S6"}
@@ -76,7 +63,9 @@ class Effects:
             [self.uid, list(self.sync), list(self.events)]).encode()).hexdigest()
 
 
-def build_effects(h: UnitHostOps, g: HCfg) -> Effects:
+def build_effects(h: UnitHostOps, g: HCfg, fx: BoundEffects | None = None) -> Effects:
+    """``fx`` defaults to the helper effect table bound to ``h``'s EnvLayout."""
+    fx = fx if fx is not None else effects_for_hostops(h)
     sync: list[tuple[int, str, str]] = []
     ev: list[tuple[int, str, str]] = []
     if h.ops:
@@ -85,7 +74,7 @@ def build_effects(h: UnitHostOps, g: HCfg) -> Effects:
     for i, o in enumerate(h.ops):
         ek = g.exits.get(i)
         if o.kind == OpKind.CALL:
-            cc = call_class(o.helper_name, o.helper_flags)
+            cc = call_class(o.helper_name, o.helper_flags, fx)
             if cc in _CALL_SYNC and o.block != "ldst_slow":
                 sync.append((i, _CALL_SYNC[cc], f"{cc}:{o.helper_name}"))
             ev.append((i, "call", f"{cc}:{o.helper_name}:{o.helper_flags}"))

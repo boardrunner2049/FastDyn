@@ -187,8 +187,8 @@ class _B:
                            self.off, self.off, None, self.off, 1, 0xff022000, None)
 
 
-def _facts(b: _B):
-    f = propose_exit_facts(b.build())
+def _facts(b: _B, effects=None):
+    f = propose_exit_facts(b.build(), effects=effects)
     assert f.status == "ok" and len(f.exits) == 1
     return f.exits[0]
 
@@ -213,18 +213,29 @@ def test_fact_from_tracked_register():
     assert _facts(b).fact("r0").value == 3
 
 
-@pytest.mark.parametrize("name,flags,killed", [
-    ("v_virtual", 0, True),  # FastDyn virtual: flags-0 call
-    (None, 1, True),  # plugin callback: killed whatever its flags
-    ("udiv", 1, False),  # NO_RWG helper
-    ("helper_nowg", 2, False),  # NO_WG helper
+def _gate_effects():
+    from scopt.analysis.helper_effects import effects_for_layout
+    from scopt.formats.envlayout_v1 import find_envlayout
+
+    return effects_for_layout(find_envlayout(
+        "sha256:56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90"))
+
+
+@pytest.mark.parametrize("name,flags,table,killed", [
+    ("v_virtual", 0, True, True),  # FastDyn virtual: flags-0 call
+    (None, 1, True, True),  # plugin callback: killed whatever its flags
+    ("udiv", 1, True, False),  # NO_RWG helper with a row that writes no global
+    ("rebuild_hflags_m32", 1, True, False),  # NO_RWG, writes hflags only
+    ("udiv", 1, False, True),  # no helper effect table bound: fail closed
+    ("helper_nowg", 2, True, True),  # NO_WG helper without a row: fail closed
+    ("lookup_tb_ptr", 6, True, False),  # NO_WG with a row (all env but the globals)
 ])
-def test_fact_killed_by_helper(name, flags, killed):
+def test_fact_killed_by_helper(name, flags, table, killed):
     b = _B()
     b.st_imm("regs[0]", 1)
     b.call(name, flags)
     b.tail()
-    e = _facts(b)
+    e = _facts(b, _gate_effects() if table else None)
     if killed:
         assert e.fact("r0") is None
         assert [(r.field, r.reason) for r in e.refused] == [("r0", "fact_killed_by_helper")]

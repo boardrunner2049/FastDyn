@@ -26,7 +26,7 @@ A trace is the ordered list of events of one path:
 Env snapshots are compared byte by byte. Only the fields that `obs-contract@1` makes observable
 at the event are compared:
 
-- call events, by class: lookup at S3; flags-0, plugin, noreturn and unknown at S4; `udiv`/`sdiv` at S6; pure calls at P.
+- call events, by class: lookup at S3; flags-0, plugin, noreturn, unknown targets and helpers without a row in the helper effect table at S4; rowed `NO_RWG` helpers that may fault (`udiv`/`sdiv`) at S6; rowed `NO_RWG` helpers that cannot fault (pure) at P. At every call event the env bytes in the helper's `env_reads` are compared too.
 - `guest` events at S5.
 - `exit` events at S2, by exit kind.
 
@@ -58,12 +58,23 @@ allocator's input loads.
 side deleted stays visible after a call or an LDST, and two sides that agreed still agree.
 
 **Calls.** Caller-saved registers and the flags are havocked, and `rax` gets the term
-`("ret", seq, target)`. How much env is havocked depends on the call class:
-- flags-0 and plugin calls to a known helper: all env except `neg.can_do_io`;
-- calls to an unknown target, and noreturn calls: all env;
-- `NO_WG` calls: all env except the TCG globals and `neg.can_do_io`;
+`("ret", seq, target)`. What happens to env and host memory comes from the **helper effect
+table** (`scopt/analysis/helper_effects.py`; tables in `scopt/formats/helper_effects/<exe
+sha256>.json`, bound to the QEMU executable like the EnvLayout). Each row gives the helper's
+env read and write sets (by EnvLayout field), whether it reads or writes host memory, whether it
+may fault, and the QEMU source lines it was taken from. hostsym havocks exactly the row's
+`env_writes` and bumps the host-memory version iff `hostmem_writes`:
+- `rebuild_hflags_m32[_newel]` (`NO_RWG`): `env->hflags` (the 16-byte `CPUARMTBFlags`), no host memory;
+- `udiv`/`sdiv` (`NO_RWG`, may fault): nothing on the returning path;
 - `lookup_tb_ptr`: all env except the TCG globals (the lookup sets `can_do_io`);
-- `NO_RWG` calls: no env.
+- flags-0 helpers (`v7m_msr`, `v7m_mrs`, `shl_cc`) and plugin callbacks: all env except `neg.can_do_io` (an over-approximation);
+- noreturn helpers: all env.
+
+`TCG_CALL_NO_RWG` only promises that the TCG globals are untouched, so it never makes a call
+env-pure by itself. Fail closed: a named helper without a row (or whose TCG flags differ from
+the row's), an unknown call target, and every helper when no table is bound to the layout's
+executable havoc all env, bump the host-memory version and are compared at S4 with every env
+byte.
 
 **`can_do_io` across a returning access or helper (WP19 integration).** In the QEMU source, the
 only writers of `cpu->neg.can_do_io` are generated code, `cpu_tb_exec`, `helper_lookup_tb_ptr`,

@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .analysis.effects import call_class
+from .analysis.helper_effects import effects_for_hostops
 from .analysis.hcfg import build_hcfg
 from .analysis.hostops import OpKind, build_hostops
 from .analysis.obs_contract import build_contract
@@ -158,7 +159,8 @@ def _first_observer(h: Any, g: Any, i: int, fld: str, *, stop_at_branch: bool = 
         if j in g.exits:
             return j, "exit"
         if q.kind == OpKind.CALL and q.block != "ldst_slow":
-            return j, "call:" + call_class(q.helper_name, q.helper_flags)
+            return j, "call:" + call_class(q.helper_name, q.helper_flags,
+                                           effects_for_hostops(h))
         if q.kind == OpKind.GUEST_ACCESS:
             return j, "ldst"
         if q.kind == OpKind.ENV_LOAD and q.env and q.env[0].field == fld:
