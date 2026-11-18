@@ -2,12 +2,12 @@
 
 The B1 completion gate (design §6) is T-B1-0 … T-B1-9 on the minimal fixture, plus
 T-B1-0/1/3/5 on FreeRTOS MPS2 CM3: the blinky fixture and the WP12 compute variant.
-Every run uses the integrated WP-QINT binary. See `RUNTIME.md` for that binary.
+Every run uses the integrated WP-QINT binary. `docs/qemu.md` describes that binary (QEMU branch `scopt` up to commit `a0681a6ac3`).
 
 ## How to run it
 
 ```sh
-PY=/data/extra_copy/fastdyn/tools-env/bin/python
+PY=python
 cd <scopt worktree>
 # T-B1-0: re-qualification plus the disabled-hook cost (not gated; see the flag rule below)
 $PY tests/qemu/t_b1_0.py --out runs/wp14/t-b1-0 --workload all --pairs 30 --seed 14

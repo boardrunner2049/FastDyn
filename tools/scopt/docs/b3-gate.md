@@ -1,23 +1,23 @@
 # The B3 gate (WP28)
 
-Design: `design/B3-B4-design.md` §11 ("B3 spec gate", "B3 hardening", "B3+", "B3
+Design: `docs/design/B3-B4-design.md` §11 ("B3 spec gate", "B3 hardening", "B3+", "B3
 performance") and the WP28 implementation note at its end. Plan:
-`design/IMPLEMENTATION-PLAN-B3B4.md` `## WP28`. Report: `reports/B3-gate.md`.
+`docs/design/IMPLEMENTATION-PLAN-B3B4.md` `## WP28`. Report: the maintainer's evaluation report `B3-gate.md` (not in the repository).
 
 The gate is one driver, `tests/qemu/wp28_gate.py` (steps in `wp28_steps.py`), run from this
-worktree with the tools-env python, plus the timing script `wp28_timing.sh`. Every dynamic
+worktree with the scopt venv python, plus the timing script `wp28_timing.sh`. Every dynamic
 item runs on the frozen gate binary `qint-v6-gate-1` (exe sha256 in
-`runs/wp22/gate-binary.json`; the `gate` step re-checks sha, tag = HEAD and a clean tree, and
+the maintainer's evaluation data (not in the repository); the `gate` step re-checks sha, tag = HEAD and a clean tree, and
 every `run.json` records the sha). Every base is re-collected on that binary.
 
 ```
 taskset -c 16-23 python tests/qemu/wp28_gate.py --out runs/wp28 --steps \
     gate,bases,artifacts,dynamic,aa,stale,gdbdiag,t_b3_6,o4,mutants,roundtrip,alias,smc17,\
     coverage,ucond,compute,compute_hits
-tests/qemu/wp28_timing.sh                       # holds runs/.timing.lock, 4 cores
+tests/qemu/wp28_timing.sh                       # holds the workspace timing lock, 4 cores
 python tests/qemu/wp28_timing_analyze.py runs/wp28/timing --out runs/wp28/timing-analysis.json
 python tests/qemu/wp28_gate.py --out runs/wp28 --steps verdict
-python tests/qemu/wp28_report.py --runs runs/wp28 --out reports/B3-gate.md
+python tests/qemu/wp28_report.py --runs runs/wp28 --out <reports dir>/B3-gate.md   # report kept by the maintainer, not in the repository
 python -m pytest tests/acceptance/test_b3_gate.py    # reads runs/wp28 (WP28_RUNS overrides)
 ```
 
@@ -40,7 +40,7 @@ python -m pytest tests/acceptance/test_b3_gate.py    # reads runs/wp28 (WP28_RUN
 | `coverage` | 4 (F-B3-23) | the real pipeline under coverage, O6 and C' hits on the published artifact's variants (computed, not hard-coded) |
 | `compute` | performance (reported) | compute base on the gate binary, `b3-chain`, `b3-static`, `b3-spec`, `b3`; V10 on held-out inputs |
 | `compute_hits` | performance (reported) | diagnostic gdb re-runs of the held-out V10 runs: C' entries of every SPEC variant (never timed) |
-| `verdict` | all | `runs/wp28/verdict.json`: spec gate, hardening, reported outcomes, mutation table, ledger stages, blockers |
+| `verdict` | all | the maintainer's evaluation data (not in the repository): spec gate, hardening, reported outcomes, mutation table, ledger stages, blockers |
 
 T-B3-26, T-B3-27 and F-B3-18 are cited from WP22/WP26 runs on the same exe sha (T-B3-27 is
 judged from WP22's evidence files, not its verdict text); T-B3-29 is

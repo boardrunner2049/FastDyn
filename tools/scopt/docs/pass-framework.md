@@ -1,6 +1,6 @@
 # Pass framework (WP9)
 
-Design: `design/B1-design.md` §5.2-5.6 and §5.9. This page records how WP9
+Design: `docs/design/B1-design.md` §5.2-5.6 and §5.9. This page records how WP9
 filled in the points the design leaves open. The module docstrings have the
 details.
 
@@ -134,4 +134,4 @@ and the store on WP7 `CacheSnapshot`s imported from the real minimal capture
 NO_CHANGE with an empty edit log, `b2-layout` without a profile changing
 nothing, the real analyses through the store, ANNOTATE+PLACE invalidating
 exactly `annotations`, `layout` and a layout dependent, and stale-edit /
-capability failures. It skips when the `runs/` inputs are absent.
+capability failures. It skips when the maintainer's evaluation data (not in the repository) inputs are absent.

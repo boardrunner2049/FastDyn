@@ -1,6 +1,6 @@
 # Contracts frozen by WP0
 
-`design/B1-design.md` is authoritative. This file records how WP0 pinned down
+`docs/design/B1-design.md` is authoritative. This file records how WP0 pinned down
 the points the design leaves open, and the places where the design text
 disagreed with the source. The Python modules named below are the executable
 form of these rules. Changing any of them is a contract change: it needs a
@@ -16,8 +16,8 @@ design-doc edit and a review from every dependent WP.
 | core unit types (§5.2) | `scopt/model/unit.py` |
 | analysis-store types (§5.3) | `scopt/analysis/api.py` |
 | pass API (§5.4-5.5) | `scopt/passes/base.py` |
-| QEMU base hooks | `/data/extra_copy/fastdyn/patches/qemu-sc-base.patch` |
-| `.qprof` v1 producer semantics (WP5) | `docs/qprof-producer.md`, `/data/extra_copy/fastdyn/patches/qemu-sc-profile.patch` |
+| QEMU base hooks | QEMU commit `2dfce24b2a` (patch `qemu-sc-base`) |
+| `.qprof` v1 producer semantics (WP5) | `docs/qprof-producer.md`, QEMU commit `a0681a6ac3` (patch `qemu-sc-profile`) |
 
 ## Clarifications and errata
 

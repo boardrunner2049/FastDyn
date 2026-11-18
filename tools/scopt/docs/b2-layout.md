@@ -1,6 +1,6 @@
 # B2 layout: analyses, passes, pipeline (WP11)
 
-Design: `design/B1-design.md` §4.7, §5.7, §5.9, §5.10, §7 and §9. Code:
+Design: `docs/design/B1-design.md` §4.7, §5.7, §5.9, §5.10, §7 and §9. Code:
 
 | piece | module |
 |---|---|

@@ -1,6 +1,6 @@
 # `.qprof` v1 producer semantics (WP5, `qemu-sc-profile.patch`)
 
-`design/B1-design.md` §3 is authoritative. The byte layout is frozen in
+`docs/design/B1-design.md` §3 is authoritative. The byte layout is frozen in
 `scopt/formats/layouts.py` (QPROF_*; see `docs/contracts.md` item 6 for the
 72-byte TB row). This page records what the QEMU side (`accel/tcg/sc-profile.c`)
 actually writes, including the points §3 leaves open. WP6 (ingest) should

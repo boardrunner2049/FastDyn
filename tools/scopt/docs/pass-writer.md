@@ -61,7 +61,7 @@ Run it with `python -m pytest tests/unit/test_pass_writer_example.py`.
 
 ## Worked example 2: the design's §5.10 example (profile-driven)
 
-`design/B1-design.md` §5.10 gives `hotcold-partition` as the pass-writer example. It
+`docs/design/B1-design.md` §5.10 gives `hotcold-partition` as the pass-writer example. It
 requires `profile.counts@1` and `refs@1`, needs the `steady` phase at
 `min_profile_match = 0.95`, and annotates each unit `hot`, `warm`, `unknown`,
 `boot_only` or `cold_zero`. `tests/unit/test_pass_framework.py`

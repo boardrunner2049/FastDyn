@@ -1,7 +1,7 @@
 # B3/B4 run harness: v6 proof, diagnostics, oracles O1-O6, negative controls, arms (WP26)
 
-Design: `design/B3-B4-design.md` §5.1, §5.7, §5.8, §9.3-§9.5, §10.1 and the WP26 implementation
-note at its end. Plan: `design/IMPLEMENTATION-PLAN-B3B4.md` `## WP26`.
+Design: `docs/design/B3-B4-design.md` §5.1, §5.7, §5.8, §9.3-§9.5, §10.1 and the WP26 implementation
+note at its end. Plan: `docs/design/IMPLEMENTATION-PLAN-B3B4.md` `## WP26`.
 
 Nothing here is timed. Every QEMU run uses `setarch x86_64 -R`, `timeout` and a fresh
 directory; gdb is always `gdb -nx -batch` with cwd = FastDyn's own cwd (never a QEMU tree).
@@ -67,7 +67,7 @@ control's O1/O2a/O2b failures are its detections, not failures. The ledger reaso
 `negative control O4 (pass = mutant detected)`.
 
 A `.sc` v6 artifact on a QEMU binary that is not v6-capable (`scopt.validate.v6_capable_exes`:
-`runs/wp22/gate-binary.json`, `$SCOPT_V6_EXES`) is refused before any launch
+the maintainer's evaluation data (not in the repository), `$SCOPT_V6_EXES`) is refused before any launch
 (`OracleRefused("v6_loader_required")`, CLI exit 2): on such a binary every v6 run would be
 `INVALID_artifact_not_used`.
 
@@ -123,8 +123,8 @@ artifacts by directory, never by a bare `.sc`. A row outside the bypass set that
 
 ## Smoke on the current binary (not acceptance)
 
-`runs/wp26/smoke/smoke.py` (run from the worktree with `PYTHONPATH` set to it) exercises the
-paths on `wt/qemu-int` with recorded WP24 caches: deploy+launch of F-B3-1 warm (PASS, fixture
+the maintainer's evaluation data (not in the repository) (run from the worktree with `PYTHONPATH` set to it) exercises the
+paths on the WP-QINT QEMU tree with recorded WP24 caches: deploy+launch of F-B3-1 warm (PASS, fixture
 oracle clean), gdb hit counts on the TBs at Vc and f (1000 each), the diag twin (3 counted
 calls after `benchmark_start`: the fixture's teardown `MPU_CTRL = 0` after the loop is one
 flush that counts 3 calls; the smoke accepted it with `allowed_calls=3`. Since WP26 review 2
@@ -137,7 +137,7 @@ path (`prepare_direct` + `scopt import`: 17/17 units `ok_relocatable`, no bundle
 
 ## Integration on the gate binary (WP26 integration stage)
 
-`tests/qemu/wp26_integ.py` (see `tests/qemu/README.md`); evidence in `runs/wp26/integ/final/`.
+`tests/qemu/wp26_integ.py` (see `tests/qemu/README.md`); evidence in the maintainer's evaluation data (not in the repository).
 Facts that a user of the harness needs:
 
 - **FastDyn takes the QEMU from the TOML's `qemu_path`.** `deploy_new(..., qemu=Q)` exports

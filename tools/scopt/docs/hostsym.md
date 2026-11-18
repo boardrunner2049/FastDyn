@@ -1,6 +1,6 @@
 # hostsym: the B3/B4 validator kernel (WP19)
 
-Design: `design/B3-B4-design.md` §9.2 (kernel), §9.3 (mutation suite), §9.1 rows V12, V13
+Design: `docs/design/B3-B4-design.md` §9.2 (kernel), §9.3 (mutation suite), §9.1 rows V12, V13
 (path-condition part), V14, V18. Code: `scopt/validate_sym/`.
 
 ## What it checks

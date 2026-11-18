@@ -9,7 +9,7 @@ with the same key in both arms; static V6 must agree for the moved units.
 ## How to run it
 
 ```sh
-PY=/data/extra_copy/fastdyn/tools-env/bin/python
+PY=python
 cd <scopt worktree>
 $PY tests/qemu/b2_fault.py --out runs/wp15b/fault --modes noicount,icount --reps 3
 $PY tests/qemu/b2_fault.py --out runs/wp15b/fault --render        # OUT/tables.md

@@ -1,7 +1,7 @@
 # B3/B4 linker, `.sc` v6 and structural V-rows (WP18)
 
-Design: `design/B3-B4-design.md` §2, §3.4, §3.7, §3.9, §4.1, §5.2-5.4, §9.1 and the
-WP18 implementation note at its end. Plan: `design/IMPLEMENTATION-PLAN-B3B4.md` `## WP18`.
+Design: `docs/design/B3-B4-design.md` §2, §3.4, §3.7, §3.9, §4.1, §5.2-5.4, §9.1 and the
+WP18 implementation note at its end. Plan: `docs/design/IMPLEMENTATION-PLAN-B3B4.md` `## WP18`.
 
 ## Modules
 
@@ -10,7 +10,7 @@ WP18 implementation note at its end. Plan: `design/IMPLEMENTATION-PLAN-B3B4.md` 
 | `scopt/guard.py` | canonical guard template `guard-v1` (§4.1): `emit_guard`, strict `decode_guard`, `guard_key` (Kf/Kf2, THUMB/CONDEXEC/SS rules), `guard_atoms`, `GuardOffsets.from_layout(EnvLayout)` |
 | `scopt/link.py` (v2 part) | `lookup_tails`, `tail_problem`, `exit_class_of`, `free_slots`, `grow_unit`, `apply_pure_rewrite`, `rewrite_unit`, `B3Plan`, `VariantSpec`, `NativeLinkerV2`, `derive_scm_v2` |
 | `scopt/formats/sc_v6.py` | `write_sc6`, `read_sc6`, `ext_problem` (the loader's checks and messages, in its order), `ExtTable`/`VariantEntry`/`SlotEntry`/`LinkEntry`, `sc6_snapshot_id`, `sc6parse_compare` (V11) |
-| `independent/sc6parse.py` | independent parser written from the C loader (`wt/qemu-v6` `tcg/supercache.c`); stdlib only |
+| `independent/sc6parse.py` | independent parser written from the C loader (the gate QEMU tree `tcg/supercache.c`); stdlib only |
 | `scopt/formats/scm_v1.py` | TB chunk v2 (`stub_start` in the low u32 of `reserved`), chunk 9 `VARIANT` (Python-only) |
 | `scopt/formats/region_v1.py` | `guarded_slot` exits of grown units, `build_multi_tb_region` |
 | `scopt/formats/schemas/cache_region.v1.json` | multi_tb branch: `native.members`, typed `GuardAtom`/`FactRef`, `state_fixups: []` |
@@ -37,7 +37,7 @@ r = package_b3(snapshot, plan, store, candidate_id=..., runtime=v6_identity)
   used there).
 * `force_v6=True` with an empty plan gives the identity-v6 artifact (V9').
 * V7 accepts a v6 artifact only when the RuntimeIdentity's exe sha256 is v6-capable:
-  `v6_exes=` / `$SCOPT_V6_EXES` / `runs/wp22/gate-binary.json` (`exe_sha256`).
+  `v6_exes=` / `$SCOPT_V6_EXES` / the maintainer's evaluation data (not in the repository) (`exe_sha256`).
 * A SPEC slot is bound to the key of the C whose clone it enters: the linker refuses
   `continuation_key_mismatch` unless `guard_key(spec) == guard_key(C.flags, C.cs_base)`
   and `Vc` is one of C's virtual addresses (`spec_binding_problem`), and V13
@@ -69,5 +69,5 @@ r = package_b3(snapshot, plan, store, candidate_id=..., runtime=v6_identity)
 
 `tests/unit/test_sc_v6.py` (T-B3-1), `test_link_v2.py` (guard, growth, payloads, V-rows,
 T-B3-2, T-B3-3), `test_region_multi_tb.py`, `test_graph_b3.py` (T-B3-28);
-`runs/wp18/run_acceptance.py` (full sweeps), `runs/wp18/integ_v10.py` (v5 grown units V10 on
-minimal and fault, qint binary).
+scripts in the maintainer's evaluation data (not in the repository): full sweeps, and V10 of v5 grown units on
+minimal and fault (qint binary).

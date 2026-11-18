@@ -1,6 +1,6 @@
 # NativeLinker, ValidateAndPackage, artifacts (WP10)
 
-Design: `design/B1-design.md` §4.6-4.7, §5.6 step 6, §5.7-5.8. The module
+Design: `docs/design/B1-design.md` §4.6-4.7, §5.6 step 6, §5.7-5.8. The module
 docstrings hold the details. This page records how WP10 settled the points
 the design leaves open.
 

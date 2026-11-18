@@ -2,12 +2,12 @@
 
 Design §7. F-B2-3 (fault attribution with faulting units moved ±64 MiB) and F-B2-7
 (FreeRTOS timing) are not part of WP15A. Every run uses the integrated WP-QINT
-binary; see `RUNTIME.md`.
+binary; see `docs/qemu.md`.
 
 ## How to run it
 
 ```sh
-PY=/data/extra_copy/fastdyn/tools-env/bin/python
+PY=python
 cd <scopt worktree>
 for w in minimal fault compute; do          # compute: F-B2-6 only
   $PY tests/qemu/b2_gate.py --workload $w --out runs/wp15a/$w
@@ -32,7 +32,7 @@ SCOPT_B2_GATE_E2E=1 $PY -m pytest tests/acceptance/test_b2_gate.py -k end_to_end
 |---|---|---|---|
 | `minimal` | `src/fastdyn/configs/b0-sc.toml` | `steady@0x08003972` | 163 units |
 | `fault` | `fixtures/fault/fault-fixture.toml.in` rendered as `fdrun.py --arm sc-noicount` into `OUT/configs/fault-fixture-sc.toml` | `steady@0x58` (`fault_bench_start`) | `fault_fixture.elf`, variants (a)-(d), 48 units. No icount, because §9 keeps CF_USE_ICOUNT units out of the F-B2 gates until qualified. Guest output is also compared with `fixtures/fault/expected/fixture.norm`. |
-| `compute` | `runs/wp13-r2/compute/configs/compute-sc.toml` | (WP11 steady profile) | F-B2-6 only. Uses a sparse copy of the B1 gate snapshot (train-1; the source is checked unchanged) and held-out input `heldout-1`. |
+| `compute` | the maintainer's evaluation data (not in the repository) | (WP11 steady profile) | F-B2-6 only. Uses a sparse copy of the B1 gate snapshot (train-1; the source is checked unchanged) and held-out input `heldout-1`. |
 
 **Chain (minimal, fault):**
 1. `prepare` (capture on);

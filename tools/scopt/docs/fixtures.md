@@ -1,6 +1,6 @@
 # Fixtures (WP12)
 
-The fixtures live outside this repo, in `/data/extra_copy/fastdyn/fixtures/`. In the same way as the qualified `freertos-mps2` fixture, they are not under git. This repo carries the static consistency tests (`tests/unit/test_wp12_fixtures.py`) and the dynamic smoke test (`tests/qemu/wp12_fixtures_smoke.sh QEMU OUT`).
+The fixtures live outside this repo, in `$FASTDYN_ROOT/fixtures/`. In the same way as the qualified `freertos-mps2` fixture, they are not under git. This repo carries the static consistency tests (`tests/unit/test_wp12_fixtures.py`) and the dynamic smoke test (`tests/qemu/wp12_fixtures_smoke.sh QEMU OUT`).
 
 | fixture | for | status / doc |
 |---|---|---|
@@ -8,7 +8,7 @@ The fixtures live outside this repo, in `/data/extra_copy/fastdyn/fixtures/`. In
 | `fixtures/freertos-mps2/` | B0 real workload, blinky | qualified earlier, reused. 99.96% idle loop, so unsuitable for layout PGO |
 | `fixtures/freertos-mps2-compute/` | F-B2-7 real workload: FreeRTOS packet-processing pipeline, 0% idle-loop TB share in the window | `fixtures/freertos-mps2-compute/QUALIFICATION.md` |
 | `fixtures/inputs/{train,heldout,final}/freertos-mps2-compute/` | 3 distinct input streams per split | `fixtures/inputs/README.md` |
-| `fixtures/b3/` (WP24) | B3/B4 fixtures of design §9.5: one image with phases F-B3-1…14, 17, 20…24 (+1p, 3b, 6t/6r/6h, 8p) and F-B4-1…7, 9, 10 selected by the input word; F-B3-16(a,b,d,e) stale configs/images; F-B3-24 `-O0`/`-Os` images; the F-B3-15 mps2 alias image with a direct-QEMU runner; gdb `-nx` diag scenarios (F-B3-12/13 incl. the PAUSED stop) and the O3 host-hit counter | `fixtures/b3/README.md`; qualified 90/90 + alias on `wt/qemu-int` (`runs/wp24-fix/qual-final`, current image after review 3) |
+| `fixtures/b3/` (WP24) | B3/B4 fixtures of design §9.5: one image with phases F-B3-1…14, 17, 20…24 (+1p, 3b, 6t/6r/6h, 8p) and F-B4-1…7, 9, 10 selected by the input word; F-B3-16(a,b,d,e) stale configs/images; F-B3-24 `-O0`/`-Os` images; the F-B3-15 mps2 alias image with a direct-QEMU runner; gdb `-nx` diag scenarios (F-B3-12/13 incl. the PAUSED stop) and the O3 host-hit counter | `fixtures/b3/README.md`; qualified 90/90 + alias on the WP-QINT QEMU tree (the maintainer's evaluation data (not in the repository), current image after review 3) |
 
 ## Contracts the run harness (WP8) and the arms (WP13) must keep
 
@@ -25,7 +25,7 @@ The fixtures live outside this repo, in `/data/extra_copy/fastdyn/fixtures/`. In
    - compute: after all frames of all passes.
 
    Guest-visible results are `printreg` and `debug_log` lines. Normalize as `fixtures/lib/fdrun.py` does: mask the BENCH host time; in no-icount mode, also mask the virtual times.
-4. **QEMU binary.** Everything was qualified on the B0 binary, and the smoke test also passed on `wt/qemu-wp0` (base patch). Once WP-QINT exists, re-run `fault/qualify.sh` and `freertos-mps2-compute/qualify.sh` with `FIXTURE_QEMU=wt/qemu-int/build/qemu-system-arm`.
+4. **QEMU binary.** Everything was qualified on the B0 binary, and the smoke test also passed on the WP0 QEMU tree (base patch). Once WP-QINT exists, re-run `fault/qualify.sh` and `freertos-mps2-compute/qualify.sh` with `FIXTURE_QEMU=<WP-QINT build>/qemu-system-arm`.
 
 ## B3/B4 fixture contracts (WP24, `fixtures/b3/`)
 

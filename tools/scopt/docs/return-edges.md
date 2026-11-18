@@ -1,6 +1,6 @@
 # Return edges, exit facts, provenance and CalleeSummary (B3 WP20)
 
-Design: `design/B3-B4-design.md` §3.1-3.3 and the WP20 implementation note at its end.
+Design: `docs/design/B3-B4-design.md` §3.1-3.3 and the WP20 implementation note at its end.
 
 ## Analyses
 
@@ -55,7 +55,7 @@ WP20_FX_ROOT=FX pytest tests/acceptance/test_wp20_fixtures.py
 
 The driver renders each `fixtures/b3/b3-<cfg>.toml.in` with `fixtures/lib/fdrun.py`
 (`sc` = icount shift 0, `sc-noicount`), then `scopt prepare` (capture-on, current
-`wt/qemu-int` binary by default), `bundle identity`, `bundle runtime-identity`, `import`,
+the WP-QINT binary by default), `bundle identity`, `bundle runtime-identity`, `import`,
 and optionally a steady-phase profile (`steady@b3_bench_start`). Nothing is timed. The
 evaluator checks the plan's WP20 integration criteria: F-B3-1/1p/2/3/3b/4/8 `r0 == 0`
 `source = patch` certified on every return unit of the patched instruction; F-B3-6 `f5`

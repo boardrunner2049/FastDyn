@@ -1,8 +1,8 @@
 # B3 first vertical slice (WP27)
 
-Design: `design/B3-B4-design.md` §12 "First vertical slice" and the WP27 implementation note at
-its end. Plan: `design/IMPLEMENTATION-PLAN-B3B4.md` `## WP27`. Driver: `tests/qemu/wp27_slice0.py`
-(see `tests/qemu/README.md`). Evidence: `runs/wp27/` (`verdict.json`, `wp27-slice0.json`).
+Design: `docs/design/B3-B4-design.md` §12 "First vertical slice" and the WP27 implementation note at
+its end. Plan: `docs/design/IMPLEMENTATION-PLAN-B3B4.md` `## WP27`. Driver: `tests/qemu/wp27_slice0.py`
+(see `tests/qemu/README.md`). Evidence: the maintainer's evaluation data (not in the repository) (`verdict.json`, `wp27-slice0.json`).
 
 The two-TB example is WP24 phase F-B3-1: R = `f_b3_1` (`adds r0,r0,#1; bx lr`, FastDyn
 modifier `r0 <- 0` on the `bx lr`), C = the one-instruction TB `[cbz r0, Lz]` at `vc_b3_1`.
@@ -51,7 +51,7 @@ copy when every flush happened after the last execution of C and R's stub
 ## Slice 1 (gate binary, integration stage)
 
 Driver: `tests/qemu/wp27_slice1.py` (see `tests/qemu/README.md`). Evidence:
-`runs/wp27/slice1/` (`wp27-slice1.json`, `verdict.json`). Every run uses the frozen gate
+the maintainer's evaluation data (not in the repository) (`wp27-slice1.json`, `verdict.json`). Every run uses the frozen gate
 binary `qint-v6-gate-1` (exe sha256 `56d8bfb3…`); the driver refuses to start if the tag,
 the `qint-v6` HEAD or the exe changed. Nothing is timed.
 

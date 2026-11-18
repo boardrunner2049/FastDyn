@@ -1,6 +1,6 @@
 # F-B2-7 campaign: preparation, freeze, check, timing (WP15C)
 
-Design: `design/B1-design.md` §7 F-B2-7, §4.8; plan WP15 ("No retuning after
+Design: `docs/design/B1-design.md` §7 F-B2-7, §4.8; plan WP15 ("No retuning after
 looking at final inputs. The candidate and profile sha256 values are frozen in
 the campaign file before timing").
 
@@ -32,7 +32,7 @@ are never used. Result: `OUT/prep_summary.json`.
 ## 2. Freeze (`b2_campaign.py freeze`)
 
 Run on a clean, committed tree. It refuses when a prep failed, when the code
-to be frozen has uncommitted changes, or when any `run*.json` under `runs/b2`
+to be frozen has uncommitted changes, or when any `run*.json` under the maintainer's evaluation data (not in the repository)
 already names a final input. It writes every identity the timing deploys or
 depends on (QEMU, plugin, firmware sha256 + size + mtime, base TOML, snapshot,
 profile, every artifact's `cache.sc` sparse sha256 + `MANIFEST.sha256` + id,
@@ -88,14 +88,14 @@ not a pass criterion: a null or negative result is reported as it is.
 - Timing command (run from this worktree, so that the frozen code tree is the one used):
 
   ```
-  cd /data/extra_copy/fastdyn/wt/scopt-wp15c && /data/extra_copy/fastdyn/tools-env/bin/python \
+  cd tools/scopt && python \
     tests/qemu/b2_campaign.py run --campaign campaigns/b2-freertos.toml \
     --expect-sha256 9f70d438cc48b0eafcfcfadfa723bda1e8b7cfb6841d9671ee3c4fcbaa916bb8 \
-    --out-root /data/extra_copy/fastdyn/runs/b2/timing
+    --out-root $FASTDYN_ROOT/runs/b2/timing
   ```
 
 - Smoke (not a measurement): `--smoke --reps 2 --sets compute-heldout` into
-  `runs/b2/smoke/`: 42/42 valid runs, freeze_ok, rules R1-R5 ok, 81 s for the
+  the maintainer's evaluation data (not in the repository): 42/42 valid runs, freeze_ok, rules R1-R5 ok, 81 s for the
   runs (1.93 s per run).
 - Estimate for the full campaign: 630 + 630 + 210 = 1470 runs, about 1.9-2.1 s
   each, plus checks and reports: about 55 minutes, and about 26 GB of run

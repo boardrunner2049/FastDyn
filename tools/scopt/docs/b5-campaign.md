@@ -1,8 +1,8 @@
 # B5 campaign: definition, prep, freeze, check, plan, run, diag, report (WP30)
 
-Design: `design/B3-B4-design.md` §10 (arms §10.1, metrics §10.2, model §10.3) and §11
-("B3 performance", B4 item 5). Plan: `design/IMPLEMENTATION-PLAN-B3B4.md` `## WP30`.
-Priorities: `reports/WP16-probe.md` (R11 decision). Report: `reports/B5-plan.md`.
+Design: `docs/design/B3-B4-design.md` §10 (arms §10.1, metrics §10.2, model §10.3) and §11
+("B3 performance", B4 item 5). Plan: `docs/design/IMPLEMENTATION-PLAN-B3B4.md` `## WP30`.
+Priorities: the maintainer's evaluation report `WP16-probe.md` (not in the repository) (R11 decision). Report: the maintainer's evaluation report `B5-plan.md` (not in the repository).
 
 WP30 **defines** the campaign; it times nothing. `prep`, `freeze`, `check` and `plan` are
 untimed. `run` is the only timing command; it belongs to the B5 execution stage.
@@ -68,19 +68,19 @@ runs last, after `check` passes again.
 ## Commands
 
 ```
-B=tests/qemu/b5_campaign.py; PY=/data/extra_copy/fastdyn/tools-env/bin/python
-$PY $B prep   --out /data/extra_copy/fastdyn/runs/b5/prep                      # untimed
-$PY $B freeze --prep /data/extra_copy/fastdyn/runs/b5/prep/prep_summary.json \
+B=tests/qemu/b5_campaign.py; PY=python
+$PY $B prep   --out $FASTDYN_ROOT/runs/b5/prep                      # untimed
+$PY $B freeze --prep $FASTDYN_ROOT/runs/b5/prep/prep_summary.json \
               --out campaigns/b5-freertos.toml                                   # then commit it
 $PY $B check  --campaign campaigns/b5-freertos.toml --expect-sha256 <hex>       # freeze checker
 $PY $B plan   --campaign campaigns/b5-freertos.toml --expect-sha256 <hex> \
-              --out /data/extra_copy/fastdyn/runs/b5/plan                      # dry run, no QEMU
+              --out $FASTDYN_ROOT/runs/b5/plan                      # dry run, no QEMU
 # --- B5 execution stage only (timing) ---
 $PY $B run    --campaign campaigns/b5-freertos.toml --expect-sha256 <hex> \
-              --out-root /data/extra_copy/fastdyn/runs/b5/timing --cpus 8-11
+              --out-root $FASTDYN_ROOT/runs/b5/timing --cpus 8-11
 $PY $B diag   --campaign campaigns/b5-freertos.toml --expect-sha256 <hex> \
-              --out-root /data/extra_copy/fastdyn/runs/b5/timing                # untimed
-$PY $B report --campaign campaigns/b5-freertos.toml --out-root /data/extra_copy/fastdyn/runs/b5/timing
+              --out-root $FASTDYN_ROOT/runs/b5/timing                # untimed
+$PY $B report --campaign campaigns/b5-freertos.toml --out-root $FASTDYN_ROOT/runs/b5/timing
 ```
 
 * `freeze` refuses when prep did not pass, when a timing campaign on a final input exists
@@ -89,13 +89,13 @@ $PY $B report --campaign campaigns/b5-freertos.toml --out-root /data/extra_copy/
   ran on the gate binary (WP28/WP29 reported rows) in `freeze`.
 * `check` recomputes: the campaign file sha256 and that it is committed; the scopt tree,
   pipelines tree, driver, helper and definition blobs at HEAD; the gate tag commit; the gate
-  exe sha256 (file and `runs/wp22/gate-binary.json`); plugin; firmware sha256/size/mtime;
+  exe sha256 (file and the maintainer's evaluation data (not in the repository)); plugin; firmware sha256/size/mtime;
   base TOML; snapshot `cache.sc` (sparse) and `snapshot.json`; training profile file and
   id, and that its inputs are train only; RuntimeIdentity; calibration; per arm the
   `cache.sc`, `MANIFEST.sha256`, artifact id and directory name, no negative-control tag;
   per set the input manifest and files, reps >= 30, warm present, every ablation's
   parent present; distinct seeds.
-* `run` re-executes itself under `flock runs/.timing.lock`, pins `scopt run` with
+* `run` re-executes itself under `flock $FASTDYN_ROOT/runs/.timing.lock`, pins `scopt run` with
   `taskset` to at most 4 CPUs, samples the load average every 30 s, runs `check` before
   the first set, before the first final set and after the last, prunes cache copies and
   `io.log` after each set (sha256 + size in `deleted-files.jsonl`), and writes

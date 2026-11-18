@@ -2,21 +2,27 @@
 
 This page covers the documented workflow that assignment §6 asks for. It strings the
 per-milestone docs together in the order a new workload goes through them. The commands
-are the ones the B5 evaluation actually ran (logs: `runs/wp28/compute/logs/0*.log`,
-`runs/b5/prep/logs/*.log`). Paths are shortened with the variables below.
+are the ones the B5 evaluation ran (their logs are part of the maintainer's evaluation
+data, not in the repository). For a first run on your own machine, with your own QEMU
+build, start with `docs/getting-started.md`; it uses the same commands. Paths are
+shortened with the variables below.
 
 ```sh
-F=/data/extra_copy/fastdyn
-PY=$F/tools-env/bin/python            # run from $F/tools/scopt (main); `scopt` = `$PY -m scopt`
-Q=$F/wt/qemu-v6/build/qemu-system-arm  # gate binary qint-v6-gate-1, sha256 56d8bfb3...0430d90 (runs/wp22/gate-binary.json)
-CFG=$F/runs/wp28/compute/configs/compute-sc-gate.toml   # base FastDyn TOML (supercache on, icount shift 0)
-W=<work dir>                           # e.g. $F/runs/<campaign>
+F=$FASTDYN_ROOT                       # workspace for runs (not the repository)
+PY=python                             # the venv with scopt installed; `scopt` = `$PY -m scopt`
+                                      # run from tools/scopt
+Q=<QEMU tree>/build/qemu-system-arm   # a build of the QEMU scopt branch (docs/qemu.md); the
+                                      # evaluation used the gate binary, sha256 56d8bfb3...0430d90
+CFG=<base FastDyn TOML>               # supercache on, supercache_flat = false, icount shift 0
+W=<work dir>                          # e.g. $F/runs/<campaign>
 ```
 
-**Runtime.** B1/B2 used the WP-QINT binary (`RUNTIME.md`). B3, B4 and B5 use the frozen
-gate binary above: WP-QINT plus `patches/qemu-sc-v6-loader.patch`, the `.sc` v6 loader.
-The B0 binary (`src/qemu/build`) is only a reference. A cache recorded by one binary is
-never valid for another, because the runtime signature hashes the executable.
+**Runtime.** B1/B2 used the WP-QINT binary (QEMU `scopt` branch up to commit
+`a0681a6ac3`). B3, B4 and B5 use the frozen gate binary: WP-QINT plus the `.sc` v6 loader
+(commit `934890ed51`). The B0 binary (the FastDyn QEMU without the scopt commits) is only
+a reference. A cache recorded by one binary is never valid for another, because the
+runtime signature hashes the executable; scopt's per-executable data (EnvLayout, helper
+effect table, v6 capability) has to be set up for each build (`docs/qemu.md`).
 
 Every run goes through the WP8 harness:
 - a fresh run dir;
@@ -60,7 +66,7 @@ reported as `skipped_unsupported` (`docs/b5-campaign.md`).
 
 | check | command | notes |
 |---|---|---|
-| static re-validation (V1-V9, MANIFEST) | `scopt validate ARTIFACT --snapshot $W/store/snapshots/<id>` | **v5 artifacts only.** It cannot read a v6 artifact (known gap, `reports/B3-gate.md` §4); for v6, `scopt publish` re-checks instead |
+| static re-validation (V1-V9, MANIFEST) | `scopt validate ARTIFACT --snapshot $W/store/snapshots/<id>` | **v5 artifacts only.** It cannot read a v6 artifact (known gap, B3 gate report §4); for v6, `scopt publish` re-checks instead |
 | publish (verified copy) | `scopt publish ARTIFACT --store $W/pubstore` | refuses negative controls, test-policy artifacts and anything that does not verify |
 | dynamic V10 on held-out inputs | `scopt validate ARTIFACT --dynamic -c $CFG --qemu $Q --baseline $W/store/snapshots/<id> --inputs heldout-{1,2,3}.bin --out $W/v10/<arm>` | guest output, proof `PASS`, no unexpected fallback |
 | B3/B4 dynamic oracles | `scopt validate ARTIFACT --dynamic --oracles O1,O2a,O2b,O3,O5,O6 ...` | fixture oracles (`fixtures/b3/expected.py`); O4 via `--negative-control` |
@@ -68,7 +74,7 @@ reported as `skipped_unsupported` (`docs/b5-campaign.md`).
 ## 4. Run (timing)
 
 Timing goes only through a frozen campaign:
-- under `flock runs/.timing.lock`;
+- under `flock $FASTDYN_ROOT/runs/.timing.lock`;
 - on at most 4 CPUs;
 - with nothing else of ours timed at the same time.
 
@@ -113,11 +119,12 @@ $PY tests/qemu/b5_evaluate.py --out-root $F/runs/b5/timing --out $F/runs/b5/eval
 
 | milestone | driver | doc / report |
 |---|---|---|
-| B0 | `fixtures/{freertos-mps2,freertos-mps2-compute,fault}/qualify.sh`, `tests/qemu/base_warm_smoke.sh` | `reports/B0-qualification.md` |
-| B1 | `tests/qemu/t_b1_0.py`, `tests/qemu/b1_gate.py` | `docs/b1-gate.md`, `reports/B1-gate.md` |
-| B2 | `tests/qemu/b2_gate.py`, `b2_fault.py`, `b2_campaign.py` | `docs/b2-*.md`, `reports/B2-gate.md` |
-| B3 | `tests/qemu/wp28_gate.py`, `wp28_report.py` | `docs/b3-gate.md`, `reports/B3-gate.md` |
-| B4 | `tests/qemu/wp29_gate.py`, `wp29_report.py` | `docs/b4.md`, `reports/B4-gate.md` |
-| B5 | `tests/qemu/b5_campaign.py`, `b5_evaluate.py` | `docs/b5-campaign.md`, `reports/B5-evaluation.md` |
+| B0 | `fixtures/{freertos-mps2,freertos-mps2-compute,fault}/qualify.sh`, `tests/qemu/base_warm_smoke.sh` | the maintainer's evaluation report `B0-qualification.md` (not in the repository) |
+| B1 | `tests/qemu/t_b1_0.py`, `tests/qemu/b1_gate.py` | `docs/b1-gate.md`, the maintainer's evaluation report `B1-gate.md` (not in the repository) |
+| B2 | `tests/qemu/b2_gate.py`, `b2_fault.py`, `b2_campaign.py` | `docs/b2-*.md`, the maintainer's evaluation report `B2-gate.md` (not in the repository) |
+| B3 | `tests/qemu/wp28_gate.py`, `wp28_report.py` | `docs/b3-gate.md`, the maintainer's evaluation report `B3-gate.md` (not in the repository) |
+| B4 | `tests/qemu/wp29_gate.py`, `wp29_report.py` | `docs/b4.md`, the maintainer's evaluation report `B4-gate.md` (not in the repository) |
+| B5 | `tests/qemu/b5_campaign.py`, `b5_evaluate.py` | `docs/b5-campaign.md`, the maintainer's evaluation report `B5-evaluation.md` (not in the repository) |
 
-The map from each assignment requirement to its evidence is `$F/DELIVERABLES.md`.
+The gate and evaluation reports, and the map from each assignment requirement to its evidence,
+are kept by the maintainer and are not part of the repository.

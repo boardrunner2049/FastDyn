@@ -1,43 +1,72 @@
 # scopt
 
-`scopt` is the offline optimizer for FastDyn QEMU supercache (`.sc`) snapshots.
+`scopt` is the offline optimizer for FastDyn QEMU supercache (`.sc`) snapshots. It
+imports a cache that FastDyn's QEMU recorded, runs optimization passes over the cached
+host code (profile-guided layout, cross-TB return specialization, state-sync
+elimination), validates the result, and writes an artifact that FastDyn loads as an
+ordinary warm cache.
 
-- Design (authoritative): `/data/extra_copy/fastdyn/design/B1-design.md`
-- Work breakdown: `/data/extra_copy/fastdyn/design/IMPLEMENTATION-PLAN.md`
+## Start here
+
+- **Getting started** (fresh machine → first optimized artifact): `docs/getting-started.md`
+- **QEMU** (the `scopt` QEMU branch, build options, binding to one executable, EnvLayout,
+  helper effect table): `docs/qemu.md`
+- **Workflow** (prepare → optimize → validate/publish → run → report, timing campaigns):
+  `docs/workflow.md`
+- **Pass-writer guide** with a runnable example: `docs/pass-writer.md`,
+  `tests/unit/test_pass_writer_example.py`
+- **Design documents**: `docs/design/README.md` (B1/B2 design `docs/design/B1-design.md`
+  is authoritative for the formats; B3/B4 in `docs/design/B3-B4-design.md`)
+
+Reference:
+
 - Contracts frozen by WP0, with clarifications and errata: `docs/contracts.md`
+- Schemas: `scopt/formats/schemas/*.json` and `scopt/formats/layouts.py`. Check them with
+  `scopt contracts check`
+- One-command report: `tests/qemu/b5_campaign.py report` (`docs/b5-campaign.md`,
+  `docs/timing-and-report.md`)
+- Per-milestone pages: `docs/b1-gate.md`, `docs/b2-*.md`, `docs/b3-*.md`, `docs/b4.md`,
+  `docs/b5-campaign.md`
+- Milestone gate and evaluation reports are kept by the maintainer and are not part of
+  the repository.
 
-## Start here (deliverables)
+## Paths in these docs
 
-- **Workflow** (prepare → optimize → validate/publish → run → report): `docs/workflow.md`
-- **Pass-writer guide** with a runnable example: `docs/pass-writer.md`, `tests/unit/test_pass_writer_example.py`
-- **Schemas:** `scopt/formats/schemas/*.json` and `scopt/formats/layouts.py`. Check them with `scopt contracts check`; the contract table is in `docs/contracts.md`
-- **One-command report:** `tests/qemu/b5_campaign.py report` (`docs/b5-campaign.md`, `docs/timing-and-report.md`)
-- **Milestone reports and the requirement → evidence map:** `/data/extra_copy/fastdyn/DELIVERABLES.md`
+Commands run from `tools/scopt` unless they say otherwise. Several pages describe how the
+milestones were evaluated and name places outside the repository:
+
+- `$FASTDYN_ROOT` is the workspace scopt's drivers write to (`runs/...`) and read
+  fixtures from (`fixtures/...`). Set it to a directory of your own; tests that need the
+  maintainer's recorded runs or fixtures skip when they are absent.
+- "the maintainer's evaluation data", "evaluation report" and "notes" name material that
+  is not in the repository.
+- "WP-QINT QEMU" and "gate QEMU" are builds of the QEMU `scopt` branch (`docs/qemu.md`).
 
 ## Setup
 
 ```sh
-/data/extra_copy/fastdyn/tools-env/bin/pip install -e /data/extra_copy/fastdyn/tools/scopt
-/data/extra_copy/fastdyn/tools-env/bin/scopt --help
-cd /data/extra_copy/fastdyn/tools/scopt && /data/extra_copy/fastdyn/tools-env/bin/python -m pytest
+python3.12 -m venv scopt-env
+scopt-env/bin/pip install -e 'tools/scopt[test]'      # from the FastDyn checkout root
+scopt-env/bin/scopt --help
+cd tools/scopt && ../../scopt-env/bin/python -m pytest tests -m 'not qemu' -q
 ```
 
-Python 3.12, capstone 5.0.3, pyelftools, jsonschema, click and pytest are all
-installed in `tools-env`.
+Python 3.12, capstone 5.0.3, pyelftools, jsonschema and click (pytest for the tests).
+`docs/getting-started.md` covers QEMU, FastDyn and the environment variables.
 
-Editable-install caveat: the `scopt` that `tools-env` imports is the one in
-`tools/scopt`, i.e. `main`. Inside a WP worktree, run the tests as
-`python -m pytest` from the worktree root. pytest puts the worktree first on
-`sys.path` (`pythonpath = ["."]`), so the worktree's own copy is the one
-imported. Check with `python -c "import scopt; print(scopt.__file__)"`.
+Editable-install caveat: the `scopt` that the venv imports is the checkout it was
+installed from. In another worktree, run the tests as `python -m pytest` from that
+worktree's `tools/scopt`: pytest puts it first on `sys.path` (`pythonpath = ["."]`), so
+its own copy is the one imported. Check with
+`python -c "import scopt; print(scopt.__file__)"`.
 
-## Working on a WP
+## Working on a change
 
 ```sh
-git -C /data/extra_copy/fastdyn/tools/scopt worktree add /data/extra_copy/fastdyn/wt/scopt-wpN -b wpn main
+git worktree add ../FastDyn-mychange -b mychange      # a separate worktree per change
 ```
 
-Commit only on your own branch. A separate step merges branches into `main`.
+Commit on your own branch and merge it after review.
 
 To keep parallel branches free of merge conflicts:
 
@@ -72,20 +101,13 @@ tests/
 
 ## QEMU side
 
-`/data/extra_copy/fastdyn/patches/qemu-sc-base.patch` (WP0) goes on top of the
-FastDyn compat commit. The reference worktree is
-`/data/extra_copy/fastdyn/wt/qemu-wp0` (branch `wp0`):
+scopt needs the QEMU `scopt` branch (`third_party/common/qemu`): FastDyn's supercache
+plus the capture, profile and `.sc` v6 loader commits. `docs/qemu.md` describes each
+commit, the build options and how scopt's data binds to one QEMU executable.
 
-- commit 1 is the compat patch;
-- commit 2 is the base patch;
-- the build is in `build/`, configured with
-  `../configure --target-list=arm-softmmu --enable-plugins` using the
-  fastdyn-env meson 1.12.1, the same as `src/qemu/build`.
-
-Build only the target you need: `ninja -j12 qemu-system-arm`. A full `ninja`
-fails to link `qemu-storage-daemon`, because the compat patch references
-`budget_*` symbols that are not in that tool. The pristine tree has the same
-failure.
+Build only the target you need: `make qemu-system-arm` (or `ninja qemu-system-arm`). A
+full build fails to link `qemu-storage-daemon`, because the FastDyn icount commit
+references `budget_*` symbols that are not in that tool.
 
 `tests/qemu/base_warm_smoke.sh QEMU OUT_ROOT` runs the minimal fixture cold
 and then warm, each in a fresh run directory.

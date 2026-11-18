@@ -1,7 +1,7 @@
 # B3 passes and the B3 manager (WP21)
 
-Design: `design/B3-B4-design.md` §3.4-3.9, §10.3, and the WP21 implementation note at its
-end. Plan: `design/IMPLEMENTATION-PLAN-B3B4.md` `## WP21`.
+Design: `docs/design/B3-B4-design.md` §3.4-3.9, §10.3, and the WP21 implementation note at its
+end. Plan: `docs/design/IMPLEMENTATION-PLAN-B3B4.md` `## WP21`.
 
 ## Pipeline
 
@@ -159,7 +159,7 @@ refusals), manager preconditions and composition, outcome classes.
 (fakes; the exact F-B3-1 budget boundary; F-B3-6 on the gate-binary base keeps one of two
 variants under the default budget and both with `growth_fraction = 1.0`).
 
-`tests/qemu/wp21_integ.py` (integration, gate binary; evidence `runs/wp21-int/`): F-B3-1
+`tests/qemu/wp21_integ.py` (integration, gate binary; evidence in the maintainer's evaluation data (not in the repository)): F-B3-1
 bases prepared and profiled on the frozen gate binary with their real RuntimeIdentity v2;
 `scopt optimize --b3` for the full pipeline and the CP/BF/DHO ablations, with the variant
 bytes checked independently from the output `cache.sc` (capstone diff of the variant
