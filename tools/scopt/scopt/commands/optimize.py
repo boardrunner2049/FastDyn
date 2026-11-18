@@ -153,6 +153,7 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, 
     doc = {"path": r["path"], "outcome": r["outcome"], "status": pk.status, "reason": pk.reason,
            "artifact_id": getattr(pk, "artifact_id", None),
            "artifact_dir": getattr(pk, "artifact_dir", None),
+           "publish_status": getattr(pk, "publish_status", None),
            "rejection_path": getattr(pk, "rejection_path", None),
            "passes": [p.to_json() for p in c.passes], "notes": notes,
            "downgraded": None if m is None else m.downgraded,
@@ -172,7 +173,8 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, 
         if doc["validation"]:
             click.echo("validation: " + " ".join(f"{k}={v}" for k, v in doc["validation"].items()))
         if pk.status == "published":
-            click.echo(f"artifact {doc['artifact_id']}\n  {doc['artifact_dir']}")
+            click.echo(f"artifact {doc['artifact_id']} ({doc['publish_status']})\n"
+                       f"  {doc['artifact_dir']}")
         else:
             click.echo(f"REJECTED ({r['outcome']}): {pk.reason}\n  {doc['rejection_path']}")
     sys.exit(0 if pk.status == "published" else 2)

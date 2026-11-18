@@ -48,7 +48,7 @@ import os
 import secrets
 import shutil
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -634,8 +634,12 @@ def import_variants(f6: Any, units: Sequence[TBUnit], captures: Sequence[Any]
 
 def import_snapshot(prep: str | os.PathLike | None = None, *, sc: str | None = None,
                     scms: Sequence[str] | None = None, manifest: str | None = None,
-                    store: str | os.PathLike | None = None, **kw: Any) -> ImportResult:
-    """Import from a prep dir (or explicit paths); with ``store``, also write it."""
+                    store: str | os.PathLike | None = None,
+                    progress: Callable[[str], None] | None = None,
+                    **kw: Any) -> ImportResult:
+    """Import from a prep dir (or explicit paths); with ``store``, also write it.
+
+    ``progress`` (optional) receives short status lines while the import runs."""
     if prep is not None:
         sc0, scms0, man0 = find_inputs(prep)
         sc = sc or sc0
@@ -645,9 +649,14 @@ def import_snapshot(prep: str | os.PathLike | None = None, *, sc: str | None = N
         raise ImportRejected("inputs", "no .sc given")
     if manifest is None and os.path.isfile(str(sc) + ".fastdyn.json"):
         manifest = str(sc) + ".fastdyn.json"
+    if progress is not None:
+        progress(f"import: reading {sc} and {len(scms or [])} capture file(s)")
     res = ImportCache(sc, scms or [], manifest=manifest, **kw).run()
     if store is not None:
-        write_store(res, store)
+        if progress is not None:
+            progress(f"import: {res.summary['records']['valid']} records checked; "
+                     f"writing the snapshot to {Path(store) / 'snapshots'}")
+        write_store(res, store, progress=progress)
     return res
 
 
@@ -792,12 +801,38 @@ def _capture_name(data: bytes) -> str:
 # Store
 # ---------------------------------------------------------------------------
 
-def _write(path: Path, data: bytes, mode: int = 0o444) -> None:
+def _write(path: Path, data: bytes, mode: int = 0o444, *, sync: bool = True) -> None:
     with open(path, "wb") as f:
         f.write(data)
         f.flush()
-        os.fsync(f.fileno())
+        if sync:
+            os.fsync(f.fileno())
     os.chmod(path, mode)
+
+
+def _fsync_path(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+#: threads used to fsync the store files. One fsync per file in sequence costs
+#: one journal commit each (minutes for ~2000 code files on a rotating disk);
+#: concurrent fsyncs share commits. Every file is still fsynced before the
+#: directory fsync and the rename, so the durability guarantee is unchanged.
+FSYNC_THREADS = 32
+
+
+def _fsync_all(paths: Sequence[Path]) -> None:
+    if not paths:
+        return
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(FSYNC_THREADS, len(paths))) as ex:
+        for _ in ex.map(_fsync_path, paths):  # re-raises the first OSError
+            pass
 
 
 def _tree(root: Path) -> dict[str, Path]:
@@ -816,8 +851,16 @@ def _same_tree(a: Path, b: Path) -> list[str]:
     return diff
 
 
-def write_store(res: ImportResult, store: str | os.PathLike) -> str:
-    """Write ``store/snapshots/<hex>/`` (§4.3 step 4); returns its path."""
+def write_store(res: ImportResult, store: str | os.PathLike,
+                progress: Callable[[str], None] | None = None) -> str:
+    """Write ``store/snapshots/<hex>/`` (§4.3 step 4); returns its path.
+
+    Every file is written into ``snapshots/.tmp-*``, fsynced, and the directory
+    is renamed into place only when complete; an exception (including
+    ``KeyboardInterrupt``) removes the temporary directory, so the store never
+    holds a partial snapshot. ``progress`` receives short status lines.
+    """
+    say = progress or (lambda _m: None)
     snaps = Path(store) / "snapshots"
     snaps.mkdir(parents=True, exist_ok=True)
     final = snaps / snapshot_dir_name(res.snapshot.snapshot_id)
@@ -855,17 +898,18 @@ def write_store(res: ImportResult, store: str | os.PathLike) -> str:
         _write(tmp / "snapshot.json", canonical_json(summary) + b"\n")
         _write(tmp / "units.jsonl", canonical_jsonl(res.regions))
         (tmp / "code").mkdir()
+        code_files = []
         for u in res.snapshot.units():
             body = u.code + u.search
             p = tmp / "code" / f"{sha256_hex(body)}.bin"
             if not p.exists():
-                _write(p, body)
+                _write(p, body, sync=False)
+                code_files.append(p)
         _write(tmp / "evidence.jsonl", canonical_jsonl(res.evidence_rows()))
-        fd = os.open(tmp, os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        say(f"store: syncing {len(code_files)} code files to disk")
+        _fsync_all(code_files)
+        _fsync_path(tmp / "code")
+        _fsync_path(tmp)
         if final.exists():
             diff = _same_tree(tmp, final)
             if diff:
@@ -873,9 +917,12 @@ def write_store(res: ImportResult, store: str | os.PathLike) -> str:
             res.store_status = "exists"
         else:
             os.rename(tmp, final)
+            _fsync_path(snaps)
             res.store_status = "created"
     finally:
         if tmp.exists():
+            if res.store_status is None:
+                say(f"store: removing {tmp.name}; nothing was stored")
             _rmtree(tmp)
     res.store_dir = str(final)
     object.__setattr__(res.snapshot, "path", str(final))

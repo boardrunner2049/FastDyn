@@ -59,7 +59,9 @@ def deploy_cmd(artifact, base_toml, run_dir, check, method, quiet, qemu, timeout
     _emit(doc, as_json, {
         "run_dir": doc["run_dir"], "method": doc["method"],
         "fingerprint": doc["oracle"]["fingerprint"],
-        "check": None if "check" not in doc else doc["check"]["ok"],
+        # --check (two extra shim runs, equal fingerprints); off by default
+        "check": "not run (no --check)" if "check" not in doc else
+                 ("ok" if doc["check"]["ok"] else "FAILED"),
         "deployed_records": doc["state"]["n"],
         "bundle_id": doc["identity"].get("bundle_id"),
     })

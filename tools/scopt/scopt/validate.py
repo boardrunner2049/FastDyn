@@ -2500,6 +2500,7 @@ class B3PackageResult:
     validation: Validation | None = None
     link: Any = None
     reimport: Any = None
+    publish_status: str | None = None  # created | exists (published only)
 
 
 #: V-rows whose body certifies B3/B4 edits (hostsym, facts, mutation suite). They
@@ -2786,9 +2787,9 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
         led.emit("artifact", candidate_id, "accepted", "pass", "V1-V23 (static)",
                  sidecar["validation_sha256"])
         led.write(stage / A.LEDGER)
-        aid, final, _st = A.publish(stage, store)
+        aid, final, st = A.publish(stage, store)
         return B3PackageResult("published", candidate_id, None, aid, str(final), None, val,
-                               link, res)
+                               link, res, publish_status=st)
     finally:
         if stage.exists():
             A.remove_tree(stage)

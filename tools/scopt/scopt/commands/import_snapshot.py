@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import signal
 import sys
 
 import click
@@ -32,21 +33,50 @@ def register(group: click.Group) -> None:
               help="Store root; writes STORE/snapshots/<id>/. Without it nothing is written.")
 @click.option("--strict", is_flag=True, help="Fail the import on any missing_reference.")
 @click.option("--json", "as_json", is_flag=True, help="Print snapshot.json instead of a summary.")
+@click.option("--progress/--no-progress", "progress_flag", default=None,
+              help="Progress lines on stderr (default: when stderr is a terminal).")
 def import_cmd(prep, sc, scms, manifest, bundle, runtime_identity, firmware, plugin, store,
-               strict, as_json):
-    """Import PREP (a prep dir or a .sc) into a CacheSnapshot; exit 2 on reject."""
+               strict, as_json, progress_flag):
+    """Import PREP (a prep dir or a .sc) into a CacheSnapshot; exit 2 on reject.
+
+    Progress lines go to stderr when it is a terminal. Writing the store
+    fsyncs every file and can take a minute or more on a slow disk. An
+    interrupted import (Ctrl-C, SIGTERM, SIGHUP) removes its temporary
+    directory: the store never holds a partial snapshot.
+    """
     from ..importer.import_cache import ImportRejected, import_snapshot
 
     if prep is None and sc is None:
         raise click.UsageError("give PREP or --sc")
+
+    def _interrupt(signum, _frame):
+        raise KeyboardInterrupt(signal.Signals(signum).name)
+
+    old = {}
+    try:  # only possible in the main thread
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            old[sig] = signal.signal(sig, _interrupt)
+    except ValueError:
+        pass
+    if progress_flag is None:
+        progress_flag = sys.stderr.isatty()
+    progress = (lambda m: click.echo(m, err=True)) if progress_flag else None
     try:
         res = import_snapshot(prep, sc=sc, scms=list(scms) or None, manifest=manifest,
                               store=store, bundle=bundle, runtime_identity=runtime_identity,
-                              firmware=firmware, plugin=plugin, strict=strict)
+                              firmware=firmware, plugin=plugin, strict=strict,
+                              progress=progress)
     except ImportRejected as e:
         click.echo(f"import rejected: {e.reason}" + (f" ({e.detail})" if e.detail else ""),
                    err=True)
         sys.exit(2)
+    except KeyboardInterrupt as e:
+        click.echo(f"import interrupted ({e or 'SIGINT'}); the store holds no partial snapshot",
+                   err=True)
+        sys.exit(130)
+    finally:
+        for sig, h in old.items():
+            signal.signal(sig, h)
     s = res.summary
     if as_json:
         click.echo(json.dumps(s, indent=2, sort_keys=True))

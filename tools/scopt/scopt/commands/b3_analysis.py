@@ -58,11 +58,25 @@ def envlayout_produce(exe, out):
 @click.argument("fields", nargs=-1)
 def envlayout_show(exe_sha256, path, fields):
     """Print the offsets of FIELDS (default: the design G21 names)."""
+    from ..canon import is_sha256_id
     from ..formats.envlayout_v1 import G21_NAMES, find_envlayout, read_envlayout
 
-    lay = read_envlayout(path) if path else find_envlayout(exe_sha256)
+    if not path and not exe_sha256:
+        raise click.UsageError("give --exe-sha256 or --file")
+    sha = None
+    if not path:
+        # accept the bare hex digest (the produced file's name) as well as "sha256:<hex>"
+        sha = exe_sha256.strip().lower()
+        if not sha.startswith("sha256:"):
+            sha = f"sha256:{sha}"
+        if not is_sha256_id(sha):
+            raise click.BadParameter(f"{exe_sha256!r} is not a sha256 (64 hex digits, "
+                                     "optionally prefixed with 'sha256:')",
+                                     param_hint="--exe-sha256")
+    lay = read_envlayout(path) if path else find_envlayout(sha)
     if lay is None:
-        click.echo("guard_layout_unbound: no EnvLayout for that executable", err=True)
+        click.echo(f"guard_layout_unbound: no EnvLayout for {sha} on the search path "
+                   "(SCOPT_ENVLAYOUT_PATH, then the packaged layouts)", err=True)
         sys.exit(2)
     names = list(fields) or list(G21_NAMES.values())
     rows = {}
