@@ -1,0 +1,122 @@
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS32
+  Data:            ELFDATA2LSB
+  Type:            ET_EXEC
+  Machine:         EM_ARM
+  Flags:           [ EF_ARM_SOFT_FLOAT, EF_ARM_EABI_VER5 ]
+  Entry:           0x8000011
+ProgramHeaders:
+  - Type:            PT_LOAD
+    Flags:           [ PF_X, PF_R ]
+    FirstSec:        .isr_vector
+    LastSec:         .text
+    VAddr:           0x8000000
+    Align:           0x1000
+    Offset:          0x1000
+Sections:
+  - Name:            .isr_vector
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC ]
+    Address:         0x8000000
+    AddressAlign:    0x4
+    Offset:          0x1000
+    Content:         00100020110000082B0000082B000008
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    Address:         0x8000010
+    AddressAlign:    0x4
+    # movs r0,#1; cbnz r0,jump6_target; a skipped write; two nops;
+    # write 42 to 0x20000000; halt.  The retained JUMP6 relocation names the
+    # resolved branch target exactly.
+    Content:         012010B9002100BF00BF2A2140F20002C2F200021160FFF7FEBFFFF7FEBF
+  - Name:            .ARM.attributes
+    Type:            SHT_ARM_ATTRIBUTES
+    AddressAlign:    0x1
+    Content:         41130000006165616269000109000000060A074D
+  - Name:            .rel.isr_vector
+    Type:            SHT_REL
+    Flags:           [ SHF_INFO_LINK ]
+    Link:            .symtab
+    AddressAlign:    0x4
+    Info:            .isr_vector
+    Relocations:
+      - Offset:          0x8000004
+        Symbol:          Reset_Handler
+        Type:            R_ARM_ABS32
+      - Offset:          0x8000008
+        Symbol:          Default_Handler
+        Type:            R_ARM_ABS32
+      - Offset:          0x800000C
+        Symbol:          Default_Handler
+        Type:            R_ARM_ABS32
+  - Name:            .rel.text
+    Type:            SHT_REL
+    Flags:           [ SHF_INFO_LINK ]
+    Link:            .symtab
+    AddressAlign:    0x4
+    Info:            .text
+    Relocations:
+      - Offset:          0x8000012
+        Symbol:          jump6_target
+        Type:            R_ARM_THM_JUMP6
+      - Offset:          0x8000026
+        Symbol:          fixture_halt
+        Type:            R_ARM_THM_JUMP24
+      - Offset:          0x800002A
+        Symbol:          Default_Handler
+        Type:            R_ARM_THM_JUMP24
+  - Type:            SectionHeaderTable
+    Sections:
+      - Name:            .isr_vector
+      - Name:            .rel.isr_vector
+      - Name:            .text
+      - Name:            .rel.text
+      - Name:            .ARM.attributes
+      - Name:            .symtab
+      - Name:            .strtab
+      - Name:            .shstrtab
+Symbols:
+  - Name:            .isr_vector
+    Type:            STT_SECTION
+    Section:         .isr_vector
+    Value:           0x8000000
+  - Name:            .text
+    Type:            STT_SECTION
+    Section:         .text
+    Value:           0x8000010
+  - Name:            .ARM.attributes
+    Type:            STT_SECTION
+    Section:         .ARM.attributes
+  - Name:            '$t'
+    Section:         .text
+    Value:           0x8000010
+  - Name:            '$d'
+    Section:         .isr_vector
+    Value:           0x8000000
+  - Name:            fixture_halt
+    Section:         .text
+    Binding:         STB_GLOBAL
+    Value:           0x8000026
+  - Name:            Reset_Handler
+    Type:            STT_FUNC
+    Section:         .text
+    Binding:         STB_GLOBAL
+    Value:           0x8000011
+    Size:            0x1A
+  - Name:            Default_Handler
+    Type:            STT_FUNC
+    Section:         .text
+    Binding:         STB_GLOBAL
+    Value:           0x800002B
+    Size:            0x4
+  - Name:            g_pfnVectors
+    Section:         .isr_vector
+    Binding:         STB_GLOBAL
+    Value:           0x8000000
+  - Name:            jump6_target
+    Section:         .text
+    Binding:         STB_GLOBAL
+    Value:           0x800001A
+...
