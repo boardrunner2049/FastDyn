@@ -84,6 +84,7 @@ cb_entry_t cb_registry[VIRTUALS_MAX_COUNT] = {
     {"benchmark_start", benchmark_start},
 	{"benchmark_end", benchmark_end},
 	{"bench_tick", bench_tick},
+	{"benchmark_end_after", benchmark_end_after},
 
     {NULL, NULL} //This should always be last entry.
 };
@@ -100,7 +101,8 @@ cb_func_t lookup_callback(const char *name) {
 
 bool virtual_callback_is_observer(cb_func_t callback) {
     return callback == printreg || callback == debug_log ||
-           callback == benchmark_start || callback == bench_tick;
+           callback == benchmark_start || callback == bench_tick ||
+           callback == benchmark_end_after;
 }
 
 // Timer callback
@@ -369,6 +371,46 @@ void bench_tick(unsigned int cpu_index, void *udata) {
     (void)cpu_index;
     (void)udata;
     g_bench_tick_count++;
+}
+
+void benchmark_end_after(unsigned int cpu_index, void *udata) {
+    (void)cpu_index;
+    const char *spec = (const char *)udata;
+    const char *separator;
+    char *end = NULL;
+    unsigned long long threshold;
+
+    if (!g_bench_started) {
+        FD_LOG_ERROR("benchmark_end_after called before benchmark_start");
+        return;
+    }
+    if (!spec || !*spec) {
+        FD_LOG_ERROR("benchmark_end_after requires '<count>:<tag>'");
+        return;
+    }
+    errno = 0;
+    threshold = strtoull(spec, &end, 0);
+    separator = end;
+    if (errno != 0 || threshold == 0 || !separator || *separator != ':') {
+        FD_LOG_ERROR("invalid benchmark_end_after argument '%s'", spec);
+        return;
+    }
+    g_bench_tick_count++;
+    if (g_bench_tick_count < threshold) {
+        return;
+    }
+
+    struct timespec end_ts;
+    clock_gettime(CLOCK_MONOTONIC, &end_ts);
+    int64_t delta_ns = (int64_t)(end_ts.tv_sec - g_bench_start_ts.tv_sec) * 1000000000LL
+                     + (int64_t)(end_ts.tv_nsec - g_bench_start_ts.tv_nsec);
+    const char *tag = separator[1] ? separator + 1 : "fixed-work";
+    printf("[BENCH][%s] elapsed_ns=%lld elapsed_us=%.3f elapsed_s=%.9f work_units=%" PRIu64 "\n",
+           tag, (long long)delta_ns, (double)delta_ns / 1000.0,
+           (double)delta_ns / 1e9, (uint64_t)g_bench_tick_count);
+    fflush(stdout);
+    g_bench_started = false;
+    exit(0);
 }
 
 void printreg(unsigned int cpu_index, void *udata) {
