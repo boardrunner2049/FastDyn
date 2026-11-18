@@ -42,8 +42,16 @@ writes is observed only at the call's own sync event (``may_fault`` selects that
 
 ``table_id`` is the content id of the document without itself. Packaged tables live in
 ``scopt/formats/helper_effects/``; :func:`find_helper_effects` also searches the
-directories in ``$SCOPT_HELPER_EFFECTS_PATH``. :func:`register` binds an in-process table
-to a layout (synthetic layouts of the test suites and mutation suites).
+directories in ``$SCOPT_HELPER_EFFECTS_PATH`` (``:``-separated, searched first).
+:func:`register` binds an in-process table to a layout (synthetic layouts of the test
+suites and mutation suites).
+
+``qemu_source`` records the QEMU sources the rows were checked against: ``files`` (paths
+relative to the QEMU tree), ``commit``, and ``file_sha256`` (``{path: "sha256:…"}`` of
+each file's bytes). A table is bound to one executable, so a rebuilt QEMU starts with
+every helper fail-closed. :func:`rebind_table` (``scopt helper-effects rebind``) copies a
+table to another executable only when every recorded source file is byte-identical in
+the new build's tree; otherwise the rows have to be reviewed again.
 
 Consumers (each one fail-closed when the helper has no row):
 
@@ -75,7 +83,8 @@ __all__ = [
     "ResolvedEffect", "HelperEffectsError", "FAIL_CLOSED", "call_class", "read_helper_effects",
     "find_helper_effects", "packaged_helper_effects", "effects_for_layout",
     "effects_for_envlayout_id", "effects_for_hostops", "register", "unregister",
-    "resolve_fail_closed",
+    "resolve_fail_closed", "SourceMismatch", "source_file_hashes", "recorded_source_hashes",
+    "rebind_table", "helper_effects_text", "default_table_path",
 ]
 
 SCHEMA = "scopt.helper-effects/1"
@@ -602,3 +611,108 @@ def effects_for_envlayout_id(envlayout_id: str | None) -> BoundEffects:
 def effects_for_hostops(h: Any) -> BoundEffects:
     """The bound table of the layout a UnitHostOps was built with (``h.envlayout_id``)."""
     return effects_for_envlayout_id(getattr(h, "envlayout_id", None))
+
+
+# ---------------------------------------------------------------------------
+# rebinding a table to another build of the same sources
+# ---------------------------------------------------------------------------
+
+class SourceMismatch(HelperEffectsError):
+    """The helper sources of the new build differ from the ones the table records."""
+
+    code = "helper_sources_differ"
+
+    def __init__(self, differing: Mapping[str, tuple[str | None, str | None]]):
+        self.differing = dict(differing)
+        lines = [f"  {p}: table {w or 'unknown'}, tree {h or 'missing'}"
+                 for p, (w, h) in sorted(self.differing.items())]
+        super().__init__("helper source files differ from the table's qemu_source:\n"
+                         + "\n".join(lines))
+
+
+def _sha256_bytes(b: bytes) -> str:
+    import hashlib
+
+    return "sha256:" + hashlib.sha256(b).hexdigest()
+
+
+def source_file_hashes(qemu_src: str | os.PathLike, files: Iterable[str]
+                       ) -> dict[str, str | None]:
+    """``{path: sha256 id}`` of ``files`` under ``qemu_src`` (None for a missing file)."""
+    root = Path(qemu_src)
+    out: dict[str, str | None] = {}
+    for f in files:
+        p = root / f
+        out[f] = _sha256_bytes(p.read_bytes()) if p.is_file() else None
+    return out
+
+
+def _git_blob_hashes(repo: Path, commit: str, files: Iterable[str]
+                     ) -> dict[str, str | None] | None:
+    import subprocess
+
+    try:
+        subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{commit}^{{commit}}"],
+                       check=True, capture_output=True)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    out: dict[str, str | None] = {}
+    for f in files:
+        r = subprocess.run(["git", "-C", str(repo), "show", f"{commit}:{f}"],
+                           capture_output=True)
+        out[f] = _sha256_bytes(r.stdout) if r.returncode == 0 else None
+    return out
+
+
+def recorded_source_hashes(table: HelperEffectTable,
+                           qemu_src: str | os.PathLike | None = None) -> dict[str, str | None]:
+    """The source hashes the table was checked against: ``qemu_source.file_sha256``, or,
+    for a table without hashes, the files of ``qemu_source.commit`` read with git from
+    ``qemu_src`` (which must contain that commit)."""
+    src = table.qemu_source or {}
+    files = [str(f) for f in src.get("files") or ()]
+    if not files:
+        raise HelperEffectsError("the table's qemu_source lists no source files")
+    rec = src.get("file_sha256")
+    if isinstance(rec, Mapping):
+        return {f: (str(rec[f]) if rec.get(f) else None) for f in files}
+    commit = src.get("commit")
+    if commit and qemu_src is not None:
+        got = _git_blob_hashes(Path(qemu_src), str(commit), files)
+        if got is not None:
+            return got
+    raise HelperEffectsError(
+        "the table records no file_sha256 and its commit "
+        f"{commit or '(none)'} is not available in {qemu_src}: cannot check the sources")
+
+
+def rebind_table(table: HelperEffectTable, new_exe_sha256: str,
+                 qemu_src: str | os.PathLike) -> HelperEffectTable:
+    """``table``'s rows bound to ``new_exe_sha256``, after checking that every source file
+    in ``table.qemu_source`` is byte-identical under ``qemu_src``. Raises
+    :class:`SourceMismatch` (with the differing files) otherwise. The new table records
+    the checked hashes (``file_sha256``) and ``rebound_from``; ``table_id`` is recomputed."""
+    if not is_sha256_id(new_exe_sha256):
+        raise HelperEffectsError(f"{new_exe_sha256!r} is not a sha256 id")
+    want = recorded_source_hashes(table, qemu_src)
+    have = source_file_hashes(qemu_src, want)
+    diff = {f: (want[f], have[f]) for f in want if want[f] is None or want[f] != have[f]}
+    if diff:
+        raise SourceMismatch(diff)
+    src = dict(table.qemu_source)
+    src["file_sha256"] = dict(sorted(have.items()))
+    src["rebound_from"] = table.exe_sha256
+    return HelperEffectTable.build(new_exe_sha256, table.rows, src)
+
+
+def helper_effects_text(table: HelperEffectTable) -> str:
+    """The table document as written in ``scopt/formats/helper_effects/``."""
+    return json.dumps(table.to_json(), indent=1, sort_keys=True) + "\n"
+
+
+def default_table_path(exe_sha256: str) -> Path | None:
+    """``<first $SCOPT_HELPER_EFFECTS_PATH dir>/<exe hex>.json``, or None when unset."""
+    dirs = [p for p in os.environ.get("SCOPT_HELPER_EFFECTS_PATH", "").split(":") if p]
+    if not dirs:
+        return None
+    return Path(dirs[0]) / f"{exe_sha256.split(':', 1)[-1]}.json"

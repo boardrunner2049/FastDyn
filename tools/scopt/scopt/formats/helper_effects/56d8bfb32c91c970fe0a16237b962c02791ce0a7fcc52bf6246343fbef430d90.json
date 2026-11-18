@@ -2,6 +2,18 @@
  "exe_sha256": "sha256:56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90",
  "qemu_source": {
   "commit": "4671d5ceda033c6a795ec5c4e7e6917ad579bc6a",
+  "file_sha256": {
+   "accel/tcg/cpu-exec-common.c": "sha256:bdaad1f6b12fd335227dc459371e43dabd1e6b3045a319e29d15bb6746ce86eb",
+   "accel/tcg/cpu-exec.c": "sha256:19d724423fff7334209d26c11ef7f40bb0a6203c7c2a970a91c022506663bb8a",
+   "accel/tcg/tcg-runtime.h": "sha256:55ecd6bf746d36d04ed2564f11e72199a9bd54d8e3d129b4a9a97cdd40102940",
+   "hw/intc/armv7m_nvic.c": "sha256:337a3e83f3fb1e30ca745d69fe907a4e636be7c7add9003f08a134206172b8f5",
+   "include/tcg/tcg.h": "sha256:0fcc67bf8674d2c3e865b09596d1cce93f96b5cf72acf7c3def3466b28a57266",
+   "target/arm/internals.h": "sha256:b94fc24510b526564bac5956236b6ff2386353124b9f98d3162480a021d4436b",
+   "target/arm/tcg/helper.h": "sha256:851f35bbb58b61b7f573b136d00f2ff26e85c13a9ea253e96a6ba5d7a710762e",
+   "target/arm/tcg/hflags.c": "sha256:b4c84ec3177d9a34d30845303579108cf068a24860bfcf882f83a4a422ee1d23",
+   "target/arm/tcg/m_helper.c": "sha256:d32b1d8379ad8764c626e4447e93a27943cedd2232d580f509c48dd236b0e77d",
+   "target/arm/tcg/op_helper.c": "sha256:e2515ecbf84dd75a1dafad86a97c5f9d325f7accf95bd4abed31d430087d328b"
+  },
   "files": [
    "include/tcg/tcg.h",
    "accel/tcg/tcg-runtime.h",
@@ -245,5 +257,5 @@
   }
  ],
  "schema": "scopt.helper-effects/1",
- "table_id": "sha256:5f677d92559ed2fb02ad3688b2dd7d9eab1dc743618374f928ef77adcef299ad"
+ "table_id": "sha256:bbcc2bce4c72a5827b02d031108dfa498029b863b8024172540695f0b87cd5fc"
 }
