@@ -1,0 +1,170 @@
+{
+  "artifacts": {
+    "optimized_sha256": "8be7330d8cc8cc7ee3f1d53e0ad09d6f717e2d90dda70812943b039a3e23c496",
+    "original_sha256": "4fe6939264effecbf012f892fd1d43af606b99938d4dcbdf20d2648eebc0028d",
+    "profile_sha256": "3a88d847d06cdd9d9a5aa73703a847cb9a27aa948af2ebd7eca5e7b0a53f3bcb"
+  },
+  "bolt_evidence": {
+    "instrumentation_log": [
+      "BOLT-INFO: Target architecture: x86_64",
+      "BOLT-INFO: BOLT version: 7864c0736a8a09670dfbfc513f1e9649799f2486",
+      "BOLT-INFO: first alloc address is 0x400000",
+      "BOLT-INFO: creating new program header table at address 0x600000, offset 0x200000",
+      "BOLT-INFO: enabling relocation mode",
+      "BOLT-INFO: forcing -jump-tables=move for instrumentation",
+      "BOLT-INFO: enabling lite mode",
+      "BOLT-INFO: 0 out of 14 functions in the binary (0.0%) have non-empty execution profile",
+      "BOLT-INSTRUMENTER: Number of indirect call site descriptors: 2",
+      "BOLT-INSTRUMENTER: Number of indirect call target descriptors: 12",
+      "BOLT-INSTRUMENTER: Number of function descriptors: 11",
+      "BOLT-INSTRUMENTER: Number of branch counters: 6",
+      "BOLT-INSTRUMENTER: Number of ST leaf node counters: 17",
+      "BOLT-INSTRUMENTER: Number of direct call counters: 0",
+      "BOLT-INSTRUMENTER: Total number of counters: 23",
+      "BOLT-INSTRUMENTER: Total size of counters: 184 bytes (static alloc memory)",
+      "BOLT-INSTRUMENTER: Total size of string table emitted: 204 bytes in file",
+      "BOLT-INSTRUMENTER: Total size of descriptors: 1620 bytes in file",
+      "BOLT-INSTRUMENTER: Profile will be saved to file ${REPOSITORY}/third_party/preflight/bolt-pgo-control/training.fdata",
+      "BOLT-INFO: 1 instructions were shortened",
+      "BOLT-INFO: UCE removed 3 blocks and 133 bytes of code",
+      "BOLT-INFO: padding code to 0xa00000 to accommodate hot text",
+      "BOLT-INFO: output linked against instrumentation runtime library, lib entry point is 0xa0c9e0",
+      "BOLT-INFO: clear procedure is 0xa0b910",
+      "BOLT-INFO: patched build-id (flipped first and last bits)",
+      "BOLT-INFO: setting _end to 0xa0f114",
+      "BOLT-INFO: setting __bolt_runtime_start to 0xa0c9e0",
+      "BOLT-INFO: setting __bolt_runtime_fini to 0xa0ca30",
+      "BOLT-INFO: setting __hot_start to 0x800000",
+      "BOLT-INFO: setting __hot_end to 0x800538",
+      "BOLT-INFO: runtime library finalization was hooked via DT_FINI, set to 0xa0ca30",
+      "BOLT-INFO: runtime library initialization was hooked via ELF Header Entry Point, set to 0xa0c9e0"
+    ],
+    "optimization_log": [
+      "BOLT-INFO: Target architecture: x86_64",
+      "BOLT-INFO: BOLT version: 7864c0736a8a09670dfbfc513f1e9649799f2486",
+      "BOLT-INFO: first alloc address is 0x400000",
+      "BOLT-INFO: creating new program header table at address 0x600000, offset 0x200000",
+      "BOLT-INFO: enabling relocation mode",
+      "BOLT-INFO: enabling lite mode",
+      "BOLT-INFO: pre-processing profile using branch profile reader",
+      "BOLT-INFO: 10 out of 14 functions in the binary (71.4%) have non-empty execution profile",
+      "BOLT-INFO: 2 functions with profile could not be optimized",
+      "BOLT-INFO: profile for 1 objects was ignored",
+      "BOLT-INFO: profile quality metrics for the hottest 10 functions (reporting top 5% values): function CFG discontinuity 19.72%; call graph flow conservation gap 100.00%; CFG flow conservation gap 52.36% (weighted) 100.00% (worst); exception handling usage 0.00% (of total BBEC) 0.00% (of total InvokeEC)",
+      "BOLT-INFO: 1 instructions were shortened",
+      "BOLT-INFO: removed 3 empty blocks",
+      "BOLT-INFO: basic block reordering modified layout of 2 functions (20.00% of profiled, 12.50% of total)",
+      "BOLT-INFO: splitting separates 113 hot bytes from 84 cold bytes (57.36% of split functions is hot).",
+      "BOLT-INFO: 0 Functions were reordered by LoopInversionPass",
+      "BOLT-INFO: SCTC: patched 1 tail calls (1 forward) tail calls (0 backward) from a total of 1 while removing 0 double jumps and removing 1 basic blocks totalling 5 bytes of code. CTCs total execution count is 9999999 and the number of times CTCs are taken is 39063",
+      "BOLT-INFO: padding code to 0xa00000 to accommodate hot text",
+      "BOLT-INFO: patched build-id (flipped first and last bits)",
+      "BOLT-INFO: setting _end to 0xa00254",
+      "BOLT-INFO: setting __hot_start to 0x800000",
+      "BOLT-INFO: setting __hot_end to 0x8001e6"
+    ]
+  },
+  "claims": {
+    "cortex_m_result": false,
+    "fastdyn_speedup": false,
+    "hardware_cycle_result": false
+  },
+  "classification": "supported_isa_trained_bolt_control",
+  "commands": {
+    "compile": [
+      "cc",
+      "-O2",
+      "-g",
+      "-fno-pie",
+      "-no-pie",
+      "-Wl,--emit-relocs",
+      "${REPOSITORY}/tests/preflight/bolt_profile_fixture.c",
+      "-o",
+      "${REPOSITORY}/third_party/preflight/bolt-pgo-control/bolt-profile-fixture"
+    ],
+    "instrument": [
+      "${REPOSITORY}/third_party/preflight/llvm-build/bin/llvm-bolt",
+      "${REPOSITORY}/third_party/preflight/bolt-pgo-control/bolt-profile-fixture",
+      "--instrument",
+      "--instrumentation-file=${REPOSITORY}/third_party/preflight/bolt-pgo-control/training.fdata",
+      "-o",
+      "${REPOSITORY}/third_party/preflight/bolt-pgo-control/bolt-profile-fixture.instrumented"
+    ],
+    "optimize": [
+      "${REPOSITORY}/third_party/preflight/llvm-build/bin/llvm-bolt",
+      "${REPOSITORY}/third_party/preflight/bolt-pgo-control/bolt-profile-fixture",
+      "--data=${REPOSITORY}/third_party/preflight/bolt-pgo-control/training.fdata",
+      "--reorder-blocks=ext-tsp",
+      "--reorder-functions=cdsort",
+      "--split-functions",
+      "--split-all-cold",
+      "-o",
+      "${REPOSITORY}/third_party/preflight/bolt-pgo-control/bolt-profile-fixture.bolt"
+    ]
+  },
+  "correct_outputs": {
+    "11": "14698839463887214368",
+    "13": "673225758067121361",
+    "17": "8475025619208713847"
+  },
+  "evaluation": {
+    "iterations_per_sample": 80000000,
+    "measurement": "warm_process_wall_time_ns",
+    "samples": 15,
+    "seeds": [
+      11,
+      13,
+      17
+    ]
+  },
+  "frozen_optimization_options": [
+    "--reorder-blocks=ext-tsp",
+    "--reorder-functions=cdsort",
+    "--split-functions",
+    "--split-all-cold"
+  ],
+  "schema_version": 1,
+  "timings_ns": {
+    "optimized": [
+      100998131,
+      100075041,
+      100876007,
+      100769565,
+      99732952,
+      103351109,
+      98326510,
+      99612577,
+      102964916,
+      100836418,
+      102305493,
+      102091726,
+      104607082,
+      104047885,
+      103179443
+    ],
+    "optimized_median": 100998131,
+    "original": [
+      105784883,
+      101749415,
+      101319344,
+      102285847,
+      104439437,
+      100998553,
+      101688673,
+      103614780,
+      106100376,
+      102976543,
+      102995274,
+      102456685,
+      100112441,
+      105139929,
+      101286661
+    ],
+    "original_median": 102456685,
+    "original_over_optimized": 1.0144413959501883
+  },
+  "training": {
+    "iterations": 10000000,
+    "seed": 7
+  }
+}

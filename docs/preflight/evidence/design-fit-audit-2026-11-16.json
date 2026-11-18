@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-16",
+  "claim": "In the pinned implementations, firmware correctness and profitability are outside information represented by the native transformation, equivalence and cost interfaces; ISA support is necessary but insufficient.",
+  "scope": {
+    "bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "stoke_revision": "98d8a0f028f2daf2052bfe607dbc32ec8d55ba9e",
+    "not_a_claim_about": [
+      "all BOLT extensions",
+      "all STOKE lineage implementations",
+      "impossibility of implementing firmware support"
+    ]
+  },
+  "coverage_matrix": {
+    "requirements": 10,
+    "bolt": {
+      "native": 2,
+      "adaptation": 3,
+      "absent_or_different": 5
+    },
+    "selected_stoke": {
+      "native": 1,
+      "adaptation": 1,
+      "absent_or_different": 8
+    },
+    "requirements_list": [
+      "linked_binary_representation",
+      "machine_code_cfg_transformation_or_search",
+      "exact_cpu_feature_qualification",
+      "fixed_placement_reserved_ranges_and_growth",
+      "relocation_free_literal_and_reference_recovery",
+      "reset_vector_and_exception_semantics",
+      "mmio_device_and_dma_effects",
+      "interrupt_schedule_and_concurrent_observers",
+      "firmware_fault_attribution",
+      "firmware_relevant_cost"
+    ]
+  },
+  "source_anchors": [
+    {
+      "finding": "BOLT target factories cover x86-64, AArch64 and RISC-V but not ARM32",
+      "path": "third_party/preflight/llvm-project/bolt/lib/Rewrite/RewriteInstance.cpp",
+      "lines": "368-410"
+    },
+    {
+      "finding": "BOLT documents that passes are not cleanly partitioned by target and require per-pass auditing",
+      "path": "third_party/preflight/llvm-project/bolt/docs/NewBackend.md",
+      "lines": "17-34"
+    },
+    {
+      "finding": "BOLT StokeInfo is x86-specific, skips exception/indirect-call cases and limits functions to 500 instructions",
+      "path": "third_party/preflight/llvm-project/bolt/lib/Passes/StokeInfo.cpp",
+      "lines": "45-149"
+    },
+    {
+      "finding": "STOKE CpuState contains x86 registers, flags and ordinary memory segments but no device or interrupt transition state",
+      "path": "third_party/preflight/stoke/src/state/cpu_state.h",
+      "lines": "31-60,180-225,280-310"
+    },
+    {
+      "finding": "STOKE testcase correctness returns zero after matching a non-normal signal code",
+      "path": "third_party/preflight/stoke/src/cost/correctness.cc",
+      "lines": "135-159"
+    },
+    {
+      "finding": "STOKE bounded validation assumes no signals",
+      "path": "third_party/preflight/stoke/src/validator/bounded.cc",
+      "lines": "36-58"
+    },
+    {
+      "finding": "STOKE latency and measured objectives use Haswell instruction latency",
+      "path": "third_party/preflight/stoke/src/cost/latency.cc",
+      "lines": "25-51"
+    },
+    {
+      "finding": "STOKE explicitly marks x86 peripheral I/O instructions unsupported",
+      "path": "third_party/preflight/stoke/src/sandbox/tables/unsupported.h",
+      "lines": "179-191"
+    }
+  ],
+  "measured_target_pressure": {
+    "escape32_m0plus_os": {
+      "instructions": 7964,
+      "branches": 1747,
+      "branch_percent": 21.94,
+      "pc_relative_loads": 1154,
+      "pc_relative_percent": 14.49,
+      "wide_thumb": 694,
+      "wide_thumb_percent": 8.71,
+      "relocations": 0,
+      "vector_words": 48,
+      "interrupt_related_symbol_name_matches": 54,
+      "rom_headroom_bytes": 1544
+    },
+    "freertos_m3_os": {
+      "instructions": 11840,
+      "branches": 3238,
+      "branch_percent": 27.35,
+      "pc_relative_loads": 420,
+      "pc_relative_percent": 3.55,
+      "wide_thumb": 3497,
+      "wide_thumb_percent": 29.54,
+      "relocations": 0,
+      "vector_words": 30,
+      "interrupt_related_symbol_name_matches": 73,
+      "rom_headroom_bytes": 4085668
+    },
+    "target_execution_coverage": {
+      "bolt_cortex_m_images_rewritten": 0,
+      "bolt_cortex_m_images_attempted": 7,
+      "stoke_cortex_m_images_extracted": 0,
+      "stoke_cortex_m_images_attempted": 2
+    }
+  },
+  "host_emission_pressure": {
+    "original_file_bytes": 27000,
+    "restricted_bolt_file_bytes": 4203600,
+    "trained_bolt_file_bytes": 6299072,
+    "restricted_file_size_ratio": 155.6889,
+    "trained_file_size_ratio": 233.299,
+    "interpretation": "Sparse host ELF layout artifacts, not ROM growth; evidence that default host placement cannot be reused as a constrained firmware emitter."
+  },
+  "formal_counterexample_shape": {
+    "selected_stoke_projection": [
+      "coarse_error_code",
+      "x86_gp_registers",
+      "x86_sse_registers",
+      "x86_flags",
+      "stack",
+      "heap",
+      "data",
+      "ordinary_memory_segments"
+    ],
+    "missing_observations": [
+      "ordered_device_transactions",
+      "interrupt_schedule",
+      "fault_pc",
+      "fault_access_address_and_width",
+      "architectural_exception_recovery_state"
+    ],
+    "result": "Equality of the represented projection cannot imply firmware observational equivalence because executions can share the projection while differing in a missing observation."
+  },
+  "decision": "Use BOLT as rewriting infrastructure, reuse STOKE only for expressible bounded regions, and make firmware semantics, placement and cost separate first-class acceptance services."
+}

@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-16",
+  "claim_scope": {
+    "cortex_m_speedup": false,
+    "device_fidelity": false,
+    "firmware_equivalence": false,
+    "purpose": "screen BOLT/STOKE design and integration on an O0 LEMIX-rehosted firmware application using their supported x86-64 target"
+  },
+  "artifact": {
+    "name": "LEMIX",
+    "archive_md5": "4ed4916a40f2fe6547361db7560a63bc",
+    "source": "https://zenodo.org/records/15611391",
+    "subject": "FreeRTOS SmartSpeaker_Ported",
+    "source_c_and_header_files": 232,
+    "selection_note": "SmartSpeaker supplies an explicit buildable host application path; an inspected ready ThreadX message-queue executable is i386 and rejected by the pinned BOLT as an unrecognized machine"
+  },
+  "reference": {
+    "compiler_optimization": "-O0 -fno-omit-frame-pointer",
+    "target": "x86_64-linux-gnu",
+    "defined_text_symbols": 1330,
+    "bolt_functions": 1337,
+    "text_bytes": 600250,
+    "data_bytes": 2080,
+    "bss_bytes": 59104,
+    "file_bytes": 1829560,
+    "sha256": "b2ceed21fb5ac2dc2723bc6404822edacfa19675bc0fd93a54e17dc909342e8b"
+  },
+  "execution_fidelity": {
+    "unmodified_result": "fault at NVIC_SetVectorTable fixed-address SCB access",
+    "measurement_shim": "LD_PRELOAD zero-backed fixed-address mappings",
+    "device_model": false,
+    "warning": "addressability shim is not LEMIX MMIO instrumentation or device emulation; retained MCU drivers also produce 32-bit/64-bit pointer-width warnings"
+  },
+  "bolt": {
+    "revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "training_seconds": 12,
+    "profiled_functions": 194,
+    "profiled_function_fraction": 0.1451,
+    "block_layout_changed_functions": 125,
+    "model_executed_instructions_before": 4906696,
+    "model_executed_instructions_after": 4753505,
+    "model_executed_instruction_change_fraction": -0.0312,
+    "model_total_branches_before": 373069,
+    "model_total_branches_after": 349140,
+    "model_total_branch_change_fraction": -0.0641,
+    "trained": {
+      "text_bytes": 709714,
+      "text_growth_fraction": 0.182364,
+      "file_bytes": 6437280,
+      "file_growth_fraction": 2.518485,
+      "median_interrupt_dispatches_5s": 500,
+      "median_cpu_seconds": 0.090457,
+      "reference_over_candidate_cpu_ratio": 0.998740,
+      "bootstrap_95_percent_ratio": [0.897763, 1.074325],
+      "conclusion": "neutral"
+    },
+    "restricted": {
+      "text_bytes": 1058117,
+      "text_growth_fraction": 0.762794,
+      "file_bytes": 4727232,
+      "file_growth_fraction": 1.583808,
+      "median_interrupt_dispatches_5s": 500,
+      "median_cpu_seconds": 0.092031,
+      "reference_over_candidate_cpu_ratio": 0.981658,
+      "bootstrap_95_percent_ratio": [0.869483, 1.106777],
+      "conclusion": "neutral"
+    },
+    "reference_runtime": {
+      "median_interrupt_dispatches_5s": 500,
+      "median_cpu_seconds": 0.090343
+    },
+    "runtime_samples_per_variant": 11,
+    "all_runtime_samples_valid": true
+  },
+  "stoke_info": {
+    "unprofiled_rows": 1318,
+    "unprofiled_static_instructions": 76844,
+    "structural_candidates": 205,
+    "structural_candidate_fraction": 0.15554,
+    "structural_candidate_static_instructions": 4391,
+    "structural_candidate_instruction_fraction": 0.05714,
+    "profiled_rows": 194,
+    "profiled_static_instructions": 9158,
+    "profiled_structural_candidates": 23,
+    "profiled_structural_candidate_fraction": 0.11856,
+    "profiled_structural_candidate_static_instructions": 416,
+    "profiled_structural_candidate_instruction_fraction": 0.04542,
+    "profiled_structural_candidate_score": 685955,
+    "profiled_total_score": 4855284,
+    "profiled_structural_candidate_score_fraction": 0.14128,
+    "classification_gap": "non-push non-PC-relative stores, including ordinary frame spills, are marked HeapOut"
+  },
+  "stoke": {
+    "revision": "98d8a0f028f2daf2052bfe607dbc32ec8d55ba9e",
+    "extract_attempted_named_functions": 1332,
+    "extract_failures": 1323,
+    "extract_emitted_functions": 9,
+    "extract_yield_fraction": 0.006757,
+    "profiled_structural_candidates_reaching_search": 1,
+    "profiled_structural_candidate_search_fraction": 0.04348,
+    "searched_function": "prvGetThreadFromTask",
+    "searched_function_profile_score_fraction": 0.05470,
+    "testcase_generation": "success",
+    "search_proposals": 10000000,
+    "search_attempts": 4,
+    "search_seconds": 148.2,
+    "starting_cost": 2534,
+    "lowest_known_correct_cost": 2005,
+    "new_correct_rewrite": false,
+    "status": "no_candidate"
+  },
+  "raw_local_evidence": {
+    "runtime_report": "build/preflight/lemix-smartspeaker/smartspeaker-report.json",
+    "stoke_extract_stdout": "build/preflight/lemix-smartspeaker/stoke-extract.stdout",
+    "stoke_extract_stderr": "build/preflight/lemix-smartspeaker/stoke-extract.stderr",
+    "stoke_search_stdout": "build/preflight/lemix-smartspeaker/prv-search-10m.stdout",
+    "stoke_search_stderr": "build/preflight/lemix-smartspeaker/prv-search-10m.stderr"
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-16",
+  "decision": "continue a patch-independent firmware optimizer using BOLT infrastructure; first close the supported-ISA extraction/search/import and firmware objective gaps demonstrated on O0 LEMIX SmartSpeaker, pursue a bounded Thumb backend gate separately, and defer FastDyn patch integration to phase two",
+  "design_fit": {
+    "raw_report": "docs/preflight/evidence/design-fit-audit-2026-11-16.json",
+    "finding": "ISA support is necessary but insufficient because firmware observations, placement and cost are outside the pinned tools' native interfaces.",
+    "bolt_requirements": {"native": 2, "adaptation": 3, "absent_or_different": 5},
+    "selected_stoke_requirements": {"native": 1, "adaptation": 1, "absent_or_different": 8},
+    "formal_limit": "The selected STOKE state projection omits device transactions and interrupt schedules, so equality of that projection cannot imply firmware observational equivalence.",
+    "cost_limit": "The selected STOKE latency and measured objectives use Haswell instruction latency."
+  },
+  "source_recovery": {
+    "historical_raw_report": "unavailable from the supplied authenticated-library reference and not found locally",
+    "escape32_revision": "e45fa1630cac1341df74408555ce1aa4b951adf7",
+    "native_function_freertos_worktree_revision": "7aa425290d9c4dae92ffd0ed8a618f7c5bf99551 (dirty distribution worktree; exact list.c SHA-256 is retained in the raw corpus report)",
+    "freertos_distribution_revision": "5cf13754a5547789e4f9a0a14f130a06642cc3f2",
+    "freertos_kernel_revision": "0030d609a4b99118d9a400340d88c3c3c4816f2b",
+    "selection_note": "Three ESCape32 functions were identified exactly. The historical report did not identify its three FreeRTOS list routines, so all five public list.c routines were evaluated.",
+    "configuration_mismatch": "The recovered ESCape32 revision declares 32 KiB total flash (26,624 usable after reservations), while retained E1 reports 64 KiB total (59,392 usable). A labeled 64 KiB linker replica was also built; it is not presented as the unchanged recovered configuration."
+  },
+  "native_corpus": {
+    "raw_report": "third_party/preflight/recovered-corpus/report.json",
+    "raw_report_sha256": "1ae5504dfe57fedc6d2c933463352ea0945bd7a087f724a0bbcec9b38fa9c9ea",
+    "compiler_levels": ["O0", "O1", "O2", "O3", "Os", "Oz"],
+    "samples_per_variant": 11,
+    "combined_o0_over_variant": {
+      "bolt_pgo": 0.9697,
+      "bolt_restricted": 0.9446,
+      "O1": 3.6534,
+      "O2": 10.9221,
+      "O3": 11.1783,
+      "Os": 8.8610,
+      "Oz": 3.0262
+    },
+    "trained_bolt_relative_to_restricted": 1.0266,
+    "interpretation": "Compiler-level ratios show source/compiler headroom only. Trained BOLT improved over the restricted rewrite but regressed against the original on the combined host workload; per-function BOLT results were mixed."
+  },
+  "lemix_o0_application": {
+    "raw_report": "docs/preflight/evidence/lemix-smartspeaker-o0-2026-11-16.json",
+    "raw_report_sha256": "6ba5e45a08c8cc330f8102d4b53df43e043ae46eead6f1e99a98e104aa1cdcd8",
+    "subject": "official LEMIX FreeRTOS SmartSpeaker port compiled at O0 for x86-64",
+    "fidelity": "zero-backed fixed-address mapping only; not a device model or Cortex-M execution",
+    "bolt": {
+      "profiled_functions": "194/1337 (14.5%)",
+      "model_executed_instruction_change": "-3.1%",
+      "model_branch_change": "-6.4%",
+      "trained_text_growth": "+18.24%",
+      "completed_work": "500 interrupt dispatches in every five-second sample for O0, restricted and trained variants",
+      "reference_over_trained_cpu_ratio": 0.9987,
+      "bootstrap_95_percent_ratio": [
+        0.8978,
+        1.0743
+      ],
+      "interpretation": "neutral measured work despite improved BOLT model; no speedup claim"
+    },
+    "stoke": {
+      "hot_structural_candidates": "23/194 functions; 416/9158 static instructions; 14.13% of profile score",
+      "direct_extraction": "9/1332 attempted functions emitted; 1323 parse failures",
+      "hot_candidates_reaching_search": "1/23",
+      "search": "10,000,000 proposals over 148.2 seconds; no new correct rewrite",
+      "interpretation": "measured extraction/state integration gap plus evidence for a deterministic O0 canonicalization baseline; not a general impossibility result"
+    }
+  },
+  "stoke": {
+    "engine_revision": "98d8a0f028f2daf2052bfe607dbc32ec8d55ba9e",
+    "raw_report": "third_party/preflight/stoke-corpus/report.json",
+    "raw_report_sha256": "d068edda067c8803bdeda0cd1b0697918204376cb85cf7bce883d5614acff9df",
+    "budget_per_function": {"proposals": 1000000, "testcases": 64, "wall_timeout_seconds": 120},
+    "statuses": {
+      "dshotcrc": "no_candidate",
+      "vListInitialise": "no_candidate",
+      "vListInitialiseItem": "no_candidate",
+      "crc8": "unsupported_testcase_generation",
+      "crc8dvbs2": "unsupported_testcase_generation",
+      "vListInsertEnd": "unsupported_testcase_generation",
+      "vListInsert": "unsupported_testcase_generation",
+      "uxListRemove": "unsupported_testcase_generation"
+    },
+    "memory_failure": "autogenerated pointer/index testcases failed with 'Could not resize memory'",
+    "trace_failure": "Pin 2.13 aborted on host auxiliary-vector type 51",
+    "arm_extraction": "Both M0+ and M3 produced objdump architecture-UNKNOWN diagnostics and empty extraction directories despite a zero exit status.",
+    "supported_control": "The upstream x86 popcount fixture still passed search, bounded equivalence and binary replacement."
+  },
+  "cortex_m": {
+    "raw_report": "third_party/preflight/cortexm-survey/report.json",
+    "raw_report_sha256": "b704c3f5359819f30770d90af9a02c61aaef20ccfa3b12ba75911f7e7f8f8742",
+    "bolt_result": "All seven M0+/M3 level/configuration cases were rejected with 'BOLT-ERROR: Unrecognized machine in ELF file.'",
+    "relocations": "No retained target ELF contained SHT_REL or SHT_RELA sections.",
+    "escape32_recovered_32k": {"rom_bytes": 25080, "budget_bytes": 26624, "headroom_bytes": 1544, "function_range_instructions": 7964, "pc_relative_loads": 1154},
+    "escape32_64k_replica": {
+      "Os_rom_bytes": 25080,
+      "O0_rom_bytes": 37548,
+      "O3_rom_bytes": 33620,
+      "budget_bytes": 59392
+    },
+    "freertos_m3": {
+      "Os_rom_bytes": 108636,
+      "O0_rom_bytes": 109680,
+      "O3_rom_bytes": 108752,
+      "budget_bytes": 4194304,
+      "vector_base_zero_verified": true
+    },
+    "interpretation": "Identity qualification succeeds, including Thumb reset vectors. Rewrite qualification does not: backend, reference recovery, branch/literal repair and firmware placement remain missing."
+  },
+  "fastdyn": {
+    "raw_baseline_report": "third_party/preflight/fastdyn-minimal-baseline/report.json",
+    "raw_baseline_sha256": "3245cd6d7c99414956c55545ff7f3f2eb91151688c61538c278385533cb53352",
+    "unchanged_m3_samples": 15,
+    "guest_benchmark_ns_median": 1306691,
+    "qemu_wait_seconds_median": 0.031129113005590625,
+    "run_total_seconds_median": 0.11405112799548078,
+    "process_wall_ns_median": 286768524,
+    "freertos_introspection": "passed with third_party/common/qemu/build/qemu-system-arm; default smoke path selected a stale incompatible QEMU/plugin pair",
+    "mmio_effect_experiment": {
+      "raw_report": "third_party/preflight/mmio-eval/summary.json",
+      "raw_report_sha256": "e7f38b773d086e7a6bfdddec30c6c5dc124b71a6efc3d6e314c10659297c95e7",
+      "echo_baseline_over_optimized": 24.2198,
+      "normal_observer_baseline_over_optimized": 0.9985,
+      "late_observer_baseline_over_optimized": 1.1146,
+      "late_observer_fallbacks": 1000012,
+      "interpretation": "This is not a preflight speedup. It demonstrates that the FastDyn objective and profitability change materially with effect/observer policy and fallback work."
+    }
+  },
+  "phase_boundary": {
+    "phase_one": "FirmwareCandidate v1 contains image, target, entries, memory map, origin map and optimization report; it contains no FastDyn patch or runtime material.",
+    "phase_two": "ExecutionBundle v1 imports FastDyn patches, device/instrumentation identity, event validation and runtime cost after consuming a firmware candidate."
+  },
+  "preservation": {
+    "unit_tests": "30 passed: 6 phase-one candidate/boundary tests and 24 phase-two artifact/observation tests",
+    "bolt_guard": "valid exact entry accepted and executed; invalid anchor and unqualified clone policy rejected",
+    "trace_cases": "moved emitted PC accepted; pre-hook state, unused faulting load, event prefix, duplicate trigger, device/callback/detector/coverage/interrupt/time and termination changes rejected; schedule mismatch unknown; unsupported vocabulary unsupported",
+    "limitation": "QEMU normalized trace emission and reference/candidate firmware differential execution are not integrated."
+  },
+  "claims": {
+    "integrated_optimizer": false,
+    "cortex_m_rewrite": false,
+    "standalone_firmware_speedup": false,
+    "fastdyn_phase_two_speedup": false,
+    "hardware_cycles_or_deadlines": false,
+    "unknown_vulnerability_preservation_proof": false
+  }
+}
