@@ -84,7 +84,7 @@ def test_norm_b0_is_independent_of_path_wrapping():
 @pytest.mark.real
 def test_norm_b0_matches_b0_files():
     if not (B0 / "warm1.log").exists():
-        pytest.skip("B0 runs not present")
+        pytest.skip(f"{B0 / 'warm1.log'} not present")
     for name in ("warm1", "warm2", "cold", "nocache"):
         assert norm_b0((B0 / f"{name}.log").read_text()) == norm_b0((B0 / f"{name}.norm").read_text())
     assert norm_b0((B0 / "warm1.log").read_text()) == norm_b0((B0 / "nocache.log").read_text())
@@ -196,7 +196,7 @@ def test_deploy_refusal_and_launch_guard(tmp_path, fake_runtime_qemu):
 
     base = (fastdyn_root() / "src/fastdyn/configs/b0-sc.toml")
     if not base.exists():
-        pytest.skip("b0-sc.toml not present")
+        pytest.skip(f"{base} not present")
     real = create_run_dir(base, tmp_path / "rd")
     (real.root / "deploy.json").write_text(json.dumps({"refused": ["config_mismatch"]}))
     with pytest.raises(RunDirError) as e:

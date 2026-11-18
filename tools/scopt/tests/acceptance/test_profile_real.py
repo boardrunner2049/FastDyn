@@ -111,7 +111,7 @@ def test_real_profile_rejected_on_another_runtimes_sc():
     view refuses it: ``profile_incompatible:runtime``."""
     runs = _runs()
     if not MINIMAL_SC.exists():
-        pytest.skip("no B0 minimal.sc")
+        pytest.skip(f"{MINIMAL_SC} not present")
     ids = _identities()
     bundle, contract, rt = ids
     p = _ingest(runs[0], ids)

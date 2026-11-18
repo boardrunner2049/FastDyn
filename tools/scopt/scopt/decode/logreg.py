@@ -59,7 +59,7 @@ Rules (design §A.2):
    outside the ring extent. Any other ring-base class is refused with the
    stable detail prefix :data:`RING_BASE_REFUSED`. In particular ``abs.heap``
    is refused (closeout2): ``[heap]`` holds the vCPU on the gate binary (env at
-   ``0x5555594951c0``, ``reports/B4-gate.md``) and gate runs pass no
+   ``0x5555594951c0``, the maintainer's B4 gate report) and gate runs pass no
    ``env_abs``, so neither this rule nor V12's ``_abs_violations`` could tell a
    ring pointer from an env pointer there. ``abs.guest_ram``, ``abs.qemu_data``,
    ``abs.plugin_data``, ``arena.*``, ``prologue.*``, ``const``, ``ext.*`` and

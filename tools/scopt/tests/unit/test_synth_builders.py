@@ -1,5 +1,5 @@
 """Synthetic builders (WP4): the .sc and .scm they produce agree with each other,
-with QEMU's layout rules, and with the independent critic parser."""
+with QEMU's layout rules, and with the independent parser."""
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ def test_build_sc_tampering_options():
         B.build_sc([units[0], replace(units[1], tb_offset=units[0].tb_offset + 64)])
 
 
-def test_build_sc_matches_critic_parser(tmp_path, scparse_path):
+def test_build_sc_matches_independent_parser(tmp_path, scparse_path):
     units = B.simple_units(5)
     p = tmp_path / "c.sc"
     B.build_sc(units, path=str(p))

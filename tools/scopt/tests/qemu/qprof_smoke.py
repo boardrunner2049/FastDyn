@@ -359,7 +359,7 @@ class Runner:
         self.toml_nochain = out / "b0-sc-nochain.toml"
         self.expected = norm(EXPECTED_LOG.read_text())
         tpl = TEMPLATE.read_text()
-        old = "/data/extra_copy/fastdyn/runs/b0"
+        old = re.search(r'^supercache\s*=\s*"(.*)/cache/minimal\.sc"', tpl, re.M).group(1)  # the B0 run dir the template names
         assert tpl.count(old) == 4, tpl.count(old)
         s = tpl.replace(old + "/cache/minimal.sc", f"{self.cur}/cache/minimal.sc").replace(old + "/", f"{self.cur}/")
         assert old not in s and "supercache_flat = false" in s

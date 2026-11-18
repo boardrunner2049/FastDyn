@@ -4,7 +4,7 @@ This classifies every native reference in every valid TB of a ``.sc``
 *without* a ``.scm`` capture, using only the ``.sc`` itself, the QEMU binary
 and the plugin. It is the reference the capture-based importer (WP7,
 design §2.7) is compared against; it never decides relocatability for an
-artifact. The heuristics (critic A2, plan WP2):
+artifact. The heuristics (design review item A2, plan WP2):
 
 * **Pool start** = the lowest address hit by a RIP-relative memory operand
   (not LEA), found while sweeping (:func:`scopt.decode.x86.sweep_to_pool`).
@@ -45,21 +45,37 @@ from ..decode.thumb import check_lengths, lengths_from_words
 from ..decode.x86 import (Arena, DecodedRef, Insn, RefKind, bad_insns, extract_refs,
                           sweep_to_pool, tiles)
 from ..formats.sc_v5 import ScFile, ScUnit, read_sc
-from ..paths import fastdyn_root
+from ..paths import fastdyn_root, fastdyn_src
 
 __all__ = [
-    "DEFAULT_QEMU", "DEFAULT_PLUGIN", "DEFAULT_FIRMWARE", "G17", "ClassifiedRef", "TBResult",
-    "MetalessResult", "classify_sc", "infer_plugin_base", "infer_prologue", "g17_tallies",
-    "format_g17",
+    "DEFAULT_QEMU", "DEFAULT_PLUGIN", "DEFAULT_FIRMWARE", "B0_QEMU", "B0_PLUGIN", "B0_FIRMWARE",
+    "G17", "ClassifiedRef", "TBResult", "MetalessResult", "classify_sc", "infer_plugin_base",
+    "infer_prologue", "g17_tallies", "format_g17",
 ]
 
-FASTDYN_ROOT = str(fastdyn_root())  # maintainer B0 layout below it; absent elsewhere
-DEFAULT_QEMU = os.path.join(FASTDYN_ROOT, "src/qemu/build/qemu-system-arm")
-DEFAULT_PLUGIN = os.path.join(FASTDYN_ROOT, "src/fastdyn/build/libfastdyn.so")
-DEFAULT_FIRMWARE = os.path.join(FASTDYN_ROOT,
-                                "src/fastdyn/tests/sample_binaries/RTOS/RTOSDemo.axf")
+#: The B0 pair that recorded ``runs/b0/cache/minimal.sc`` (the G17 reference below):
+#: the maintainer workspace layout under ``$FASTDYN_ROOT/src``; absent elsewhere.
+B0_QEMU = os.fspath(fastdyn_root() / "src/qemu/build/qemu-system-arm")
+B0_PLUGIN = os.fspath(fastdyn_root() / "src/fastdyn/build/libfastdyn.so")
+B0_FIRMWARE = os.fspath(fastdyn_root() / "src/fastdyn/tests/sample_binaries/RTOS/RTOSDemo.axf")
 
-#: design §0 G17 / critic A2, measured on runs/b0/cache/minimal.sc
+
+def _first_existing(*paths: str) -> str:
+    return next((p for p in paths if os.path.exists(p)), paths[-1])
+
+
+#: Defaults of ``scopt inspect metaless``: the B0 pair when it is present, else the
+#: QEMU and plugin built in the FastDyn checkout (``$SCOPT_FASTDYN_SRC``, see
+#: :mod:`scopt.paths`). Pass ``--qemu``/``--plugin`` for a ``.sc`` written by
+#: another build: the classification is only meaningful with the binaries that
+#: wrote it.
+DEFAULT_QEMU = _first_existing(
+    B0_QEMU, os.fspath(fastdyn_src() / "third_party/common/qemu/build/qemu-system-arm"))
+DEFAULT_PLUGIN = _first_existing(B0_PLUGIN, os.fspath(fastdyn_src() / "build/libfastdyn.so"))
+DEFAULT_FIRMWARE = _first_existing(
+    B0_FIRMWARE, os.fspath(fastdyn_src() / "tests/sample_binaries/RTOS/RTOSDemo.axf"))
+
+#: design §0 G17 / review item A2, measured on runs/b0/cache/minimal.sc
 G17: dict[str, Any] = {
     "helper_pool_calls": 394,
     "plugin_rel32_calls": 3,

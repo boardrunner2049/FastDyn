@@ -28,7 +28,7 @@ def _load(name: str):
 @pytest.fixture(scope="module")
 def integ():
     if not (FX / "b3conf.py").is_file():
-        pytest.skip("fixtures/b3 not present")
+        pytest.skip(f"{FX / 'b3conf.py'} not present")
     return _load("wp25_integ")
 
 

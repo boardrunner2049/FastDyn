@@ -27,7 +27,8 @@ R_RET = 0x10002  # f_b3_1_ret (bx lr) in fixtures/b3/b3.elf 3b029618…
 VC = 0x2F4  # vc_b3_1
 QINT = "sha256:8864c72671971cf4488b5afa76eeee02a3e2a472c45af81ec1314464e6035f41"
 
-needs_snap = pytest.mark.skipif(SNAP_DIR is None, reason="F-B3-1 qint base snapshot not present")
+needs_snap = pytest.mark.skipif(SNAP_DIR is None, reason=f"F-B3-1 base snapshot not present: none of "
+                                f"{', '.join(map(str, CANDIDATES))}")
 
 
 @pytest.fixture(scope="module")

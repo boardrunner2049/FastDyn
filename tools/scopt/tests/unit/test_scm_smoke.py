@@ -154,7 +154,7 @@ def test_real_capture_binds_to_its_cache():
     scm = REAL_RUN / "scm/on1.scm"
     sc = REAL_RUN / "sc/on1.sc"
     if not (scm.exists() and sc.exists()):
-        pytest.skip("WP3 identity run not present")
+        pytest.skip(f"{scm} or {sc} not present")
     sm = scm_smoke.run(str(scm), str(sc), False)
     assert sm.failures == []
     assert sm.stats["binding"]["bound_tb_chunks"] == sm.stats["binding"]["sc_record_count"] > 0

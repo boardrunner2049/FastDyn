@@ -687,7 +687,7 @@ def test_create_run_dir_defaults_to_runtime_qemu(tmp_path, base_toml):
     from scopt.run import runtime
     from scopt.run.launcher import FASTDYN_DEFAULT_QEMU, B0_QEMU, create_run_dir
     if not runtime._DEFAULT.is_file():
-        pytest.skip("integrated binary not present")
+        pytest.skip(f"{runtime._DEFAULT} not present (the maintainer's WP-QINT build)")
     rd = create_run_dir(base_toml, tmp_path / "a")
     m = rd.meta
     assert m["qemu"] == str(runtime._DEFAULT.resolve()) and rd.qemu == m["qemu"]

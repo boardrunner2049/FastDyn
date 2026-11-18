@@ -84,7 +84,7 @@ def sha256_file(p: Path) -> str:
 
 def render_toml(out: Path, rd: Path) -> None:
     s = TEMPLATE.read_text()
-    old = "/data/extra_copy/fastdyn/runs/b0"
+    old = re.search(r'^supercache\s*=\s*"(.*)/cache/minimal\.sc"', s, re.M).group(1)  # the B0 run dir the template names
     assert s.count(old) == 4, s.count(old)
     s = s.replace(old + "/cache/minimal.sc", f"{rd}/cache/minimal.sc").replace(old + "/", f"{rd}/")
     assert old not in s and "supercache_flat = false" in s

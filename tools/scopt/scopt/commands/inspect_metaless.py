@@ -39,11 +39,13 @@ def _int(s: str | None) -> int | None:
 @click.command("metaless")
 @click.argument("sc_path", type=click.Path(exists=True, dir_okay=False))
 @click.option("--qemu", default=None, type=click.Path(exists=True, dir_okay=False),
-              help="QEMU binary for helper symbols (default: src/qemu/build/qemu-system-arm).")
+              help="QEMU binary for helper symbols (default: the maintainer's B0 build, "
+                   "else the checkout's third_party/common/qemu/build/qemu-system-arm).")
 @click.option("--qemu-base", default="0x555555554000", show_default=True,
               help="QEMU PIE load bias (setarch -R).")
 @click.option("--plugin", default=None, type=click.Path(exists=True, dir_okay=False),
-              help="Plugin .so (default: src/fastdyn/build/libfastdyn.so).")
+              help="Plugin .so (default: the maintainer's B0 build, else the checkout's "
+                   "build/libfastdyn.so).")
 @click.option("--plugin-base", default=None,
               help="Plugin load base (default: inferred from external call targets).")
 @click.option("--maps", "maps_path", default=None, type=click.Path(exists=True, dir_okay=False),

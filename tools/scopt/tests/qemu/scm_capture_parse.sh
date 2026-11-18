@@ -37,10 +37,10 @@ rd=$out_root/cold
 mkdir -p "$rd/cache"
 toml=$out_root/b0-sc.toml
 python3 - "$template" "$toml" "$rd" <<'EOF'
-import sys
+import re, sys
 tpl, out, rd = sys.argv[1:4]
 s = open(tpl).read()
-old = "/data/extra_copy/fastdyn/runs/b0"
+old = re.search(r'^supercache\s*=\s*"(.*)/cache/minimal\.sc"', s, re.M).group(1)  # the B0 run dir the template names
 assert s.count(old) == 4, s.count(old)
 s = s.replace(old + "/", rd + "/")
 assert old not in s and "supercache_flat = false" in s

@@ -372,7 +372,7 @@ W28 = (fastdyn_root() / "runs/wp28/compute")
 W29 = (fastdyn_root() / "runs/wp29/compute")
 
 
-@pytest.mark.skipif(not (W28 / "prof/merged.profile.json").is_file(), reason="WP28 runs absent")
+@pytest.mark.skipif(not (W28 / "prof/merged.profile.json").is_file(), reason=f"{W28 / 'prof/merged.profile.json'} not present")
 def test_lookup_model_reproduces_pass_stats():
     from scopt.report.b5 import guarded_lookup_model, profile_view
 
@@ -387,7 +387,7 @@ def test_lookup_model_reproduces_pass_stats():
     assert 0.70 < m["share_of_lookups"] < 0.73
 
 
-@pytest.mark.skipif(not (W29 / "store/artifacts").is_dir(), reason="WP29 runs absent")
+@pytest.mark.skipif(not (W29 / "store/artifacts").is_dir(), reason=f"{W29 / 'store/artifacts'} not present")
 def test_store_model_reproduces_class_counts():
     from scopt.report.b5 import removed_store_model
 

@@ -156,7 +156,7 @@ def test_t_b3_42_ucond(v):
         "pass"
 
 
-@pytest.mark.xfail(strict=True, reason="WP28 run (reports/B3-gate.wp28.md; closed by the "
+@pytest.mark.xfail(strict=True, reason="WP28 run (the maintainer's WP28 B3 gate report; closed by the "
                                        "close-out re-gate, runs/closeout/b3): "
                                        "F-B3-23: no validated B3 artifact has a variant under "
                                        "a coverage configuration (LOG_REG block pins HostOps; "

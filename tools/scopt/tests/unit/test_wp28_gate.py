@@ -17,7 +17,7 @@ HERE = Path(__file__).resolve().parent
 QDIR = HERE.parent / "qemu"
 FIX = (fastdyn_root() / "fixtures/b3")
 pytestmark = pytest.mark.skipif(not (FIX / "b3conf.py").is_file(),
-                                reason="fixtures/b3 not present")
+                                reason=f"{FIX / 'b3conf.py'} not present")
 if str(QDIR) not in sys.path:
     sys.path.insert(0, str(QDIR))
 

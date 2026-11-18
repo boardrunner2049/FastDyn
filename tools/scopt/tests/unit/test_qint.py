@@ -89,7 +89,7 @@ def test_with_qemu_path_requires_exactly_one(tmp_path):
 def test_freertos_guest_norm_matches_run_sh():
     d = ROOT / "runs/b0-freertos/qual-icount/nocache-1"
     if not (d / "stdout.log").is_file():
-        pytest.skip("qualified FreeRTOS run not present")
+        pytest.skip(f"{d / 'stdout.log'} not present")
     rc = int((d / "exit_code").read_text())
     got = T.freertos_guest_norm((d / "stdout.log").read_text(errors="replace"), rc)
     assert got == (d / "guest.norm").read_text().splitlines()
@@ -105,7 +105,7 @@ def _patch_id(text: str) -> str:
 @pytest.mark.qemu
 def test_qint_branch_is_the_patch_stack():
     if not (QINT / ".git").exists() or not all(p.is_file() for p in PATCHES):
-        pytest.skip("qemu-int worktree or patches not present")
+        pytest.skip(f"{QINT}/.git or one of {', '.join(map(str, PATCHES))} not present")
     log = subprocess.run(["git", "-C", str(QINT), "log", "--format=%H", "-4", "qint"],
                          capture_output=True, text=True, check=True).stdout.split()
     commits = list(reversed(log))
@@ -124,7 +124,7 @@ def test_runtime_md_records_the_built_binary():
     runtime = ROOT / "RUNTIME.md"
     binary = QINT / "build/qemu-system-arm"
     if not runtime.is_file() or not binary.is_file():
-        pytest.skip("RUNTIME.md or the integrated binary not present")
+        pytest.skip(f"{runtime} or {binary} not present")
     import hashlib
     h = hashlib.sha256(binary.read_bytes()).hexdigest()
     m = re.search(r"qemu-system-arm sha256: `([0-9a-f]{64})`", runtime.read_text())
@@ -138,7 +138,7 @@ def test_runtime_module_matches_runtime_md():
     from scopt.run import runtime
 
     if not runtime.RUNTIME_QEMU.is_file():
-        pytest.skip("integrated binary not present")
+        pytest.skip(f"{runtime.RUNTIME_QEMU} not present")
     assert runtime.runtime_qemu() == runtime.RUNTIME_QEMU
     runtime_md = ROOT / "RUNTIME.md"
     if runtime_md.is_file():

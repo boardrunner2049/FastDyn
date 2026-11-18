@@ -26,7 +26,7 @@ pytestmark = pytest.mark.real
 @pytest.fixture(scope="module")
 def manifest():
     if not (B0_SC.exists() and B0_MANIFEST.exists()):
-        pytest.skip("B0 config/manifest not present")
+        pytest.skip(f"{B0_SC} or {B0_MANIFEST} not present")
     return json.loads(B0_MANIFEST.read_text())
 
 
@@ -105,7 +105,7 @@ def test_runtime_identity(manifest, minimal_sc):
     qemu = manifest["inputs"]["native_files"]["qemu"]["path"]
     plugin = manifest["inputs"]["native_files"]["plugin"]["path"]
     if not (Path(qemu).exists() and Path(plugin).exists()):
-        pytest.skip("B0 QEMU/plugin not present")
+        pytest.skip(f"{qemu} or {plugin} not present")
     h = ScHeader.from_bytes(Path(minimal_sc).open("rb").read(80))
     text = B0_SC.read_text()
     ri = runtime_identity(qemu=qemu, plugin=plugin, config_text=text, sc_header=h)
@@ -127,7 +127,7 @@ def test_runtime_identity_stat_fields(minimal_sc):
     qemu = (fastdyn_root() / "src/qemu/build/qemu-system-arm")
     plugin = (fastdyn_root() / "src/fastdyn/build/libfastdyn.so")
     if not (qemu.exists() and plugin.exists()):
-        pytest.skip("B0 binary/plugin not present")
+        pytest.skip(f"{qemu} or {plugin} not present")
     from scopt.formats.sc_v5 import ScHeader
 
     h = ScHeader.from_bytes(minimal_sc.open("rb").read(80))
@@ -152,7 +152,7 @@ def test_runtime_identity_from_run_info():
     """RUN_INFO fills prologue_sha256/icache_linesize/cpuinfo and must match exe and header."""
     sc_p, scm_p = QINT / "archive/on1.sc", QINT / "scm/on1.scm"
     if not (sc_p.exists() and scm_p.exists() and QINT_QEMU.exists()):
-        pytest.skip("WP-QINT capture evidence not present")
+        pytest.skip(f"{sc_p}, {scm_p} or {QINT_QEMU} not present")
     import hashlib
 
     from scopt.formats.bundle_v1 import run_info_fields

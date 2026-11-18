@@ -12,7 +12,7 @@ design G14) is::
 On a chained edge the 32-bit load follows the predecessor's 16-bit store to the
 same address, which the store buffer cannot forward on Intel cores (a store
 forwarding stall on every TB entry). WP16 measured the fix at +10.8 %
-[+10.1, +11.6] on compute (reports/WP16-probe.md, placement control −0.1 %).
+[+10.1, +11.6] on compute (the maintainer's WP16 probe report, placement control −0.1 %).
 This pass rewrites the entry into a forwardable equivalent::
 
     movzx r32, word [rbp-8]     ; u16.low  (16-bit load: forwards from the 16-bit store)

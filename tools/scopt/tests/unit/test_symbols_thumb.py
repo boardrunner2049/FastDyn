@@ -54,7 +54,7 @@ def test_symbolizer_anonymous_and_heap_mappings():
 @pytest.mark.real
 def test_elf_symbols_match_nm():
     if not QEMU.exists():
-        pytest.skip("qemu binary missing")
+        pytest.skip(f"{QEMU} not present")
     img = load_elf(QEMU)
     assert img.is_pie
     nm = subprocess.run(["nm", "--defined-only", str(QEMU)], capture_output=True, text=True,
@@ -86,7 +86,7 @@ def test_elf_symbols_match_nm():
 @pytest.mark.real
 def test_symbolizer_from_real_maps_text():
     if not (QEMU.exists() and PLUGIN.exists()):
-        pytest.skip("binaries missing")
+        pytest.skip(f"{QEMU} or {PLUGIN} not present")
     text = (f"555555554000-5555558bc000 r--p 00000000 00:00 1 {QEMU}\n"
             f"5555558bc000-55555601d000 r-xp 00368000 00:00 1 {QEMU}\n"
             f"7fff1f000000-7fff1f00a000 r--p 00000000 00:00 2 {PLUGIN}\n"

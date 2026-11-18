@@ -116,7 +116,7 @@ def test_compute_matches_wp16_timed_copy(tmp_path):
     """The rebuild is byte-identical to WP16's timed ``sfb`` copy in every record field
     except end_offset (16-aligned search padding here) and in every code/search byte."""
     if not WP16_SFB.is_file():
-        pytest.skip("WP16 copy not present")
+        pytest.skip(f"{WP16_SFB} not present")
     from scopt.formats.sc_v5 import ScRecord, read_sc, write_sc
 
     s = _snap(COMPUTE)

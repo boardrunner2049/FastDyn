@@ -367,7 +367,7 @@ def run(scm_path: str, sc_path: str | None, allow_flags: bool) -> Smoke:
                              ("target_page_bits", tpb)):
                     c(run_info[k] == v, f"bind: RUN_INFO {k} {run_info[k]:#x} != .sc {v:#x}")
                 # The .sc never persists the prologue (it is a zero hole in the
-                # file, critic A1), so the RUN_INFO copy is the only one; check
+                # file, review item A1), so the RUN_INFO copy is the only one; check
                 # that it is a plausible prologue (non-zero, length matches).
                 c(len(run_info["prologue"]) == prologue_end and any(run_info["prologue"]),
                   "bind: RUN_INFO prologue bytes empty")

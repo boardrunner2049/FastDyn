@@ -26,7 +26,7 @@ GATE_JSON = ROOT / "runs/wp22/gate-binary.json"
 @pytest.fixture(scope="module")
 def W():
     if not (ROOT / "fixtures/b3/b3.nm").is_file():
-        pytest.skip("fixtures/b3 not present")
+        pytest.skip(f"{ROOT / 'fixtures/b3/b3.nm'} not present")
     sys.path.insert(0, str(QEMU_TESTS))
     import wp22_stress
 
@@ -146,7 +146,7 @@ def test_fixture_call_sites(W):
 
 def test_gate_binary_record():
     if not GATE_JSON.is_file():
-        pytest.skip("runs/wp22/gate-binary.json not written yet (WP22 freeze)")
+        pytest.skip(f"{GATE_JSON} not present (the WP22 gate-binary record)")
     g = json.loads(GATE_JSON.read_text())
     sha = g["exe_sha256"].removeprefix("sha256:")
     assert len(sha) == 64 and g["tag"] == "qint-v6-gate-1"

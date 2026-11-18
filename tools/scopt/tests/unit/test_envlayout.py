@@ -223,6 +223,6 @@ def test_parse_ptype_o():
 def test_produce_matches_packaged(qint, tmp_path):
     """Re-run the gdb producer on the qint binary: same EnvLayout id as the packaged one."""
     if shutil.which("gdb") is None or not QINT_EXE.is_file():
-        pytest.skip("gdb or the qint binary is not available")
+        pytest.skip(f"gdb or {QINT_EXE} not present")
     lay = produce_envlayout(QINT_EXE, exe_sha256=QINT_SHA)
     assert lay.envlayout_id == qint.envlayout_id

@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Any
 
 from ..formats.sc_v5 import read_sc, sparse_copy
-from ..paths import fastdyn_root
+from ..paths import fastdyn_root, fastdyn_src
 from .launcher import FASTDYN_SRC, RunDir, qmp_socket_path, scrub_env, write_json
 from .toml_rewrite import memory_banks
 
@@ -71,10 +71,13 @@ __all__ = ["DiagError", "diag_exec", "parse_exec_log", "scan_exec_log", "rewrite
 
 V6_STATS_SCHEMA = "qemu-sc-v6-stats@1"
 V6_STATS_ENV = "QEMU_SC_V6_STATS"
-#: QEMU trees of the maintainer workspace layout (``$FASTDYN_ROOT/wt/qemu*``,
-#: ``$FASTDYN_ROOT/src/qemu``); any other QEMU source tree is recognised by
-#: :func:`_in_qemu_tree`. gdb must not start inside one (its ``.gdbinit``).
-QEMU_TREES = (str(fastdyn_root() / "wt/qemu"), str(fastdyn_root() / "src/qemu"))
+#: Known QEMU trees: the FastDyn checkout's submodule
+#: (``$SCOPT_FASTDYN_SRC/third_party/common/qemu``) and the maintainer workspace
+#: layout (``$FASTDYN_ROOT/wt/qemu*``, ``$FASTDYN_ROOT/src/qemu``); any other QEMU
+#: source tree is recognised by :func:`_in_qemu_tree`. gdb must not start inside
+#: one (its ``.gdbinit``).
+QEMU_TREES = (str(fastdyn_src() / "third_party/common/qemu"), str(fastdyn_root() / "wt/qemu"),
+              str(fastdyn_root() / "src/qemu"))
 
 
 def _in_qemu_tree(p: Path) -> bool:

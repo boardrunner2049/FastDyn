@@ -4,7 +4,8 @@ evidence of ``tests/qemu/wp29_gate.py`` (``runs/wp29/verdict.json``; regenerate 
 
 Items that the gate run found failing are ``xfail(strict=True)`` with the reason, so
 the suite records the known result and a later fix shows up as an XPASS failure that
-forces this file (and ``reports/B4-gate.md``) to be updated.
+forces this file (and the maintainer's B4 gate report, which is not part of the
+repository) to be updated.
 """
 from __future__ import annotations
 
@@ -88,7 +89,7 @@ def test_host_abs_in_env_real_instance_on_f_b4_7(v):
         assert p["hit"] and p["ptr_inside_env"] and "vfp.zregs" in p["field_written"]
 
 
-@pytest.mark.xfail(strict=True, reason="known gap of the WP29 run (reports/B4-gate.wp29.md; "
+@pytest.mark.xfail(strict=True, reason="known gap of the WP29 run (the maintainer's WP29 B4 gate report; "
                    "closed by the close-out re-gate, runs/closeout/b4): "
                    "flag_store_before_helper is not detected by O4 in any of the 18 executed "
                    "instances (every one tried); the image has no mrs/msr of APSR/xPSR, so the "
@@ -120,7 +121,7 @@ def test_item3_compute_v12_host_abs_and_v10(v):
     assert ha["by_arm"]["b4"]["units_not_in_base"] == 0
 
 
-@pytest.mark.xfail(strict=True, reason="known failure of the WP29 run (reports/B4-gate.wp29.md; "
+@pytest.mark.xfail(strict=True, reason="known failure of the WP29 run (the maintainer's WP29 B4 gate report; "
                    "closed by the close-out re-gate, runs/closeout/b4): under coverage every "
                    "unit's LOG_REG block has an unexplained host store and a backward spin "
                    "branch, so B4 deletes nothing on F-B4-10 (vacuous)")

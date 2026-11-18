@@ -45,7 +45,7 @@ def test_fnv_constants_match_qemu(fastdyn_root):
         assert "SUPERCACHE_FNV_PRIME      UINT64_C(1099511628211)" in text
 
 
-def test_fnv_matches_critic_scparse(scparse_path):
+def test_fnv_matches_independent_scparse(scparse_path):
     # scparse.py runs its CLI at import time, so pull out just its fnv() definition
     src = scparse_path.read_text().split("path=sys.argv[1]")[0]
     ns: dict = {}
@@ -208,7 +208,7 @@ def test_minimal_unit_ids_unique(minimal):
     uids = [ids.tb_uid(ScRecord.from_bytes(r).key, *struct.unpack_from("<HH", r, 80),
                        struct.unpack_from("<Q", r, 64)[0]) for r in recs]
     units = ids.unit_ids(uids)
-    assert len(set(uids)) == 163  # no duplicate keys in minimal (critic A1)
+    assert len(set(uids)) == 163  # no duplicate keys in minimal (review item A1)
     assert all(u.endswith("#0") for u in units)
     assert units[0] == GOLDEN[0][0] + "#0" and units[11] == GOLDEN[11][0] + "#0"
 

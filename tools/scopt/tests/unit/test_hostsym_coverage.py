@@ -251,7 +251,7 @@ IDENT = ROOT / "runs/wp17/admission/fault.runtime_identity.v2.json"
 @pytest.fixture(scope="module")
 def b4():
     if not (FAULT / "snapshot.json").is_file() or not IDENT.is_file():
-        pytest.skip("fault snapshot / identity not present")
+        pytest.skip(f"{FAULT / 'snapshot.json'} or {IDENT} not present")
     from scopt.formats.envlayout_v1 import find_envlayout
     from scopt.importer.import_cache import open_snapshot
     from scopt.passes.eliminate_state_sync import propose_b4

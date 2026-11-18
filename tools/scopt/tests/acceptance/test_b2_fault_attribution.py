@@ -40,7 +40,7 @@ _spec.loader.exec_module(bf)
 
 def test_render_config_matches_fdrun():
     if not (FIX / "fault-a.toml.in").is_file():
-        pytest.skip("fault fixture not present")
+        pytest.skip(f"{FIX / 'fault-a.toml.in'} not present")
     t = (FIX / "fault-a.toml.in").read_text()
     q = "/q/qemu-system-arm"
     no = bf.render_config(t, "a", q, "noicount")
@@ -103,7 +103,7 @@ def test_parse_diag_log_attributes_exception_to_last_trace():
 
 def test_fault_reports_on_expected_norms():
     if not (FIX / "expected/fixture.norm").is_file():
-        pytest.skip("fault fixture not present")
+        pytest.skip(f"{FIX / 'expected/fixture.norm'} not present")
     regs = bf.reg_lines((FIX / "expected/fixture.norm").read_text().splitlines())
     r = bf.fault_reports(regs)
     assert [(x["variant"], x["pc"], x["ipsr"]) for x in r] == [(0xA, 0xDA, 6), (0xB, 0xFA, 6),

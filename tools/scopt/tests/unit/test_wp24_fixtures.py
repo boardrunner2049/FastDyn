@@ -34,7 +34,7 @@ from scopt.paths import fastdyn_root
 B3 = str(fastdyn_root() / "fixtures/b3")
 
 pytestmark = pytest.mark.skipif(not os.path.isfile(os.path.join(B3, "b3conf.py")),
-                                reason="WP24 fixture not present")
+                                reason=f"{os.path.join(B3, 'b3conf.py')} not present")
 
 
 def _load(name):
@@ -320,7 +320,7 @@ def test_o3_flash_offset_on_real_cache_reordered(conf):
     file order and with them reversed (an optimizer output may reorder)."""
     sc = str(fastdyn_root() / "runs/wp24/qual-1/icount/1/warm-2/cache/b3-1.sc")
     if not os.path.isfile(sc):
-        pytest.skip("qualification run not present")
+        pytest.skip(f"{sc} not present")
     o3 = _diag("o3_hits")
     rh = conf.symbols("b3.elf")["Reset_Handler"] & ~1
     _, recs = o3.read_records(sc)

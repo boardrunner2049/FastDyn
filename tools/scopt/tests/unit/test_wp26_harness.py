@@ -133,7 +133,7 @@ def test_o2b_with_fixture_invariants():
     """The fixture's named invariants (fixtures/b3/expected.py) run on the artifact
     log; a recorded run passes them, a corrupted result fails them."""
     if not (FIXTURE / "expected.py").is_file():
-        pytest.skip("fixtures/b3 not present")
+        pytest.skip(f"{FIXTURE / 'expected.py'} not present")
     fx = O.load_fixture_expected(FIXTURE / "expected.py")
     ref = _log("7-noicount-nocache-1.norm")
     art = _log("7-noicount-warm-1.norm")

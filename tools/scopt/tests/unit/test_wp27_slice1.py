@@ -128,7 +128,7 @@ def test_recorded_evidence():
     """The recorded slice-1 run (if present): one link armed, C' entered N - 1 times
     with one warm-up fallback, both O4 mutants took the nz path, X-REHY ring equal."""
     if not EVIDENCE.is_file():
-        pytest.skip("runs/wp27/slice1 not recorded")
+        pytest.skip(f"{EVIDENCE} not present")
     d = json.loads(EVIDENCE.read_text())
     assert d["env"]["gate_sha256"].startswith("56d8bfb3") and d["env"]["gate_unchanged"]
     assert d["env"]["timed"] is False

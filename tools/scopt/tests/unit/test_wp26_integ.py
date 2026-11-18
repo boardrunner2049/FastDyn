@@ -14,7 +14,7 @@ QEMU_DIR = Path(__file__).resolve().parents[1] / "qemu"
 FIX = (fastdyn_root() / "fixtures/b3")
 
 pytestmark = pytest.mark.skipif(not (FIX / "expected.py").is_file(),
-                                reason="fixtures/b3 not present")
+                                reason=f"{FIX / 'expected.py'} not present")
 
 
 @pytest.fixture(scope="module")

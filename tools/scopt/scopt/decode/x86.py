@@ -8,7 +8,7 @@ The decoder is capstone 5.0.3 (``CS_ARCH_X86``, ``CS_MODE_64``, detail on).
   problem instead of stopping at the first.
 * :func:`sweep_to_pool` is the meta-less variant: it stops at the lowest
   address any RIP-relative *memory* operand (not LEA) seen so far points to,
-  i.e. at the start of the TB's constant pool (critic A2 heuristic). It never
+  i.e. at the start of the TB's constant pool (review item A2 heuristic). It never
   decodes pool data as code.
 * :func:`extract_refs` lists every reference-bearing operand (§2.7 step 5):
   rel8/rel32 branches and calls, every ``[rip+disp32]`` operand (memory or
@@ -212,7 +212,7 @@ def sweep_to_pool(code: bytes, addr: int) -> tuple[list[Insn], int]:
 
     The pool start is the lowest address hit by a RIP-relative memory operand
     (not LEA) of an already decoded instruction, provided it lies after that
-    instruction and inside ``code`` (critic A2). Without one, the whole of
+    instruction and inside ``code`` (review item A2). Without one, the whole of
     ``code`` is swept. Returns ``(insns, pool_start)`` with ``pool_start``
     absolute.
     """

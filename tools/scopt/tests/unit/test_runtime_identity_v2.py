@@ -76,7 +76,7 @@ def facts(**kw) -> dict:
 def test_compute_config_has_no_tb_start_callback():
     need_plugin()
     if not COMPUTE_TOML.is_file():
-        pytest.skip("compute run TOML not present")
+        pytest.skip(f"{COMPUTE_TOML} not present")
     a = facts(config_text=COMPUTE_TOML.read_text(),
               virtuals_text=COMPUTE_VIRTUALS.read_text() if COMPUTE_VIRTUALS.is_file() else None)
     assert a["tb_start_cb_possible"] is False
@@ -165,7 +165,7 @@ def test_extend_and_read_v2():
 def test_runtime_identity_builder_emits_v2(tmp_path):
     qemu = ROOT / "wt/qemu-int/build/qemu-system-arm"
     if not qemu.is_file():
-        pytest.skip("qint binary not present")
+        pytest.skip(f"{qemu} not present")
     from scopt.formats.bundle_v1 import runtime_identity
 
     adm = facts()
@@ -184,7 +184,7 @@ def _v20(ri, **kw):
 
 def _units():
     if not (MIN_SNAP / "snapshot.json").is_file():
-        pytest.skip("minimal snapshot not present")
+        pytest.skip(f"{MIN_SNAP / 'snapshot.json'} not present")
     from scopt.importer.import_cache import open_snapshot
 
     return list(open_snapshot(MIN_SNAP).units())

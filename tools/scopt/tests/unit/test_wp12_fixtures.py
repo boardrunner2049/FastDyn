@@ -29,7 +29,7 @@ COMPUTE_ELF = os.path.join(COMPUTE, "FreeRTOS/FreeRTOS/Demo/CORTEX_MPS2_QEMU_IAR
 VARIANTS = ["a", "b", "c", "d", "fixture"]
 
 pytestmark = pytest.mark.skipif(not os.path.isdir(FAULT) or not os.path.isdir(COMPUTE),
-                                reason="WP12 fixtures not present")
+                                reason=f"{FAULT} or {COMPUTE} not present")
 
 
 def _load(path, name):

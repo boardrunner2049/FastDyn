@@ -16,7 +16,7 @@ from scopt.decode.symbols import ElfImage, ElfSegment, ElfSymbol, MapEntry, Maps
 from scopt.decode.x86 import tiles
 from scopt.formats.sc_v5 import ScHeader, ScRecord, read_sc, write_sc
 from scopt.formats.layouts import SC_MAGIC, SC_RECORD_COMMIT
-from scopt.importer.metaless import (DEFAULT_FIRMWARE, DEFAULT_PLUGIN, DEFAULT_QEMU, G17,
+from scopt.importer.metaless import (B0_FIRMWARE, B0_PLUGIN, B0_QEMU, G17,
                                      classify_sc, format_g17, infer_plugin_base,
                                      infer_prologue)
 from scopt.paths import fastdyn_root
@@ -123,16 +123,16 @@ def test_infer_plugin_base():
 # --------------------------------------------------------------------------
 
 def _need_real():
-    for p in (DEFAULT_QEMU, DEFAULT_PLUGIN):
+    for p in (B0_QEMU, B0_PLUGIN):
         if not os.path.exists(p):
-            pytest.skip(f"{p} missing")
+            pytest.skip(f"{p} not present (the B0 build that wrote minimal.sc; $FASTDYN_ROOT)")
 
 
 @pytest.fixture(scope="module")
 def minimal_result(minimal_sc):
     _need_real()
-    return classify_sc(minimal_sc, firmware=DEFAULT_FIRMWARE
-                       if os.path.exists(DEFAULT_FIRMWARE) else None)
+    return classify_sc(minimal_sc, qemu=B0_QEMU, plugin=B0_PLUGIN,
+                       firmware=B0_FIRMWARE if os.path.exists(B0_FIRMWARE) else None)
 
 
 @pytest.mark.real
@@ -146,7 +146,7 @@ def test_minimal_g17_exact(minimal_result):
     # nothing is unexplained and every TB tiles [tc, pool_start) with no (bad)
     assert not any(t.problems for t in minimal_result.tbs)
     assert all(t.tiled and not t.bad for t in minimal_result.tbs)
-    # critic A2 extra rows: 491 jmp (336 intra + 155 goto_tb), 544 jcc
+    # review item A2 extra rows: 491 jmp (336 intra + 155 goto_tb), 544 jcc
     kc = minimal_result.kind_class_tallies()
     assert kc["jmp_rel32:intra"] + kc["jmp_rel32:goto_tb"] == 491
     assert kc["jcc_rel32:intra"] == 544
@@ -155,7 +155,7 @@ def test_minimal_g17_exact(minimal_result):
 @pytest.mark.real
 def test_minimal_helpers_match_nm(minimal_result):
     """The 11 pool-called helpers: each slot value - PIE base is an nm T symbol address."""
-    nm = subprocess.run(["nm", "--defined-only", DEFAULT_QEMU], capture_output=True, text=True,
+    nm = subprocess.run(["nm", "--defined-only", B0_QEMU], capture_output=True, text=True,
                         check=True).stdout
     funcs: dict[int, set[str]] = {}
     for line in nm.splitlines():
@@ -189,8 +189,8 @@ def test_minimal_plugin_refs(minimal_result):
 
 @pytest.mark.real
 def test_minimal_guest_binding(minimal_result):
-    if not os.path.exists(DEFAULT_FIRMWARE):
-        pytest.skip("firmware missing")
+    if not os.path.exists(B0_FIRMWARE):
+        pytest.skip(f"{B0_FIRMWARE} not present")
     g = minimal_result.guest_summary
     assert g["delta"] == "0x20080000"
     assert g["elf_verified"] == 163 and g["thumb_lengths_ok"] == 163

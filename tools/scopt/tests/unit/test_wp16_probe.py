@@ -30,7 +30,7 @@ PROF = ROOT / "runs/b2/compute/prof/merged.profile.json"
 ELF = ROOT / ("fixtures/freertos-mps2-compute/FreeRTOS/FreeRTOS/Demo/CORTEX_MPS2_QEMU_IAR_GCC/"
               "build/gcc/output/RTOSDemo.out")
 real = pytest.mark.skipif(not (SNAP.is_dir() and PROF.is_file() and ELF.is_file()),
-                          reason="B2 compute snapshot not present")
+                          reason=f"{SNAP}, {PROF} or {ELF} not present")
 
 
 # ---------------------------------------------------------------------------

@@ -87,7 +87,7 @@ def test_minimal_xcheck_cli(tmp_path):
     from scopt.cli import cli, load_commands
 
     if not (MINIMAL / "snapshot.json").is_file():
-        pytest.skip("minimal snapshot not present")
+        pytest.skip(f"{MINIMAL} not present")
     load_commands()
     out = tmp_path / "x.json"
     r = CliRunner().invoke(cli, ["return-edges", "xcheck", str(MINIMAL), "--out", str(out)])

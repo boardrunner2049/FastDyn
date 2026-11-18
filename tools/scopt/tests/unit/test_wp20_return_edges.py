@@ -615,7 +615,7 @@ def test_analysis_store_wiring_minimal():
     """The analyses run through the AnalysisStore (registry, declared inputs)."""
     p = SNAPS["minimal"]
     if not (p / "snapshot.json").is_file():
-        pytest.skip("minimal snapshot not present")
+        pytest.skip(f"{p / 'snapshot.json'} not present")
     from scopt.analysis.api import ScopeRef
     from scopt.analysis.store import AnalysisStore
     from scopt.importer.import_cache import open_snapshot
@@ -696,7 +696,7 @@ def test_cli_summaries_certify_minimal(tmp_path):
 
     p = SNAPS["minimal"]
     if not (p / "snapshot.json").is_file():
-        pytest.skip("minimal snapshot not present")
+        pytest.skip(f"{p / 'snapshot.json'} not present")
     args = ["return-edges", "summaries", str(p), "--certify", "--out-dir", str(tmp_path)]
     if (PREP["minimal"] / "work/virtuals").is_dir():
         args += ["--prep", str(PREP["minimal"])]

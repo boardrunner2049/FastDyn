@@ -34,7 +34,7 @@ def ev():
     p = {n: QINT / f"archive/{n}.sc" for n in ("on1", "off1")}
     scm = QINT / "scm/on1.scm"
     if not (all(x.exists() for x in p.values()) and scm.exists()):
-        pytest.skip("WP-QINT qualify-capture evidence not present")
+        pytest.skip(f"{p['on1']}, {p['off1']} or {scm} not present")
     on, off = read_sc(p["on1"]), read_sc(p["off1"])
     return on, off, read_scm(scm)
 
@@ -122,7 +122,7 @@ def test_different_binaries_never_compare_equal(ev):
     """Same-binary rule: B0's cache vs the integrated binary differs in helper addresses."""
     on, _, scm = ev
     if not B0_SC.exists():
-        pytest.skip("B0 golden cache not present")
+        pytest.skip(f"{B0_SC} not present")
     c = per_key_compare(unit_images(on), unit_images(read_sc(B0_SC)), scm.tbs)
     assert c["common_units"] == 163 and c["mismatches"] > 0
 
@@ -171,7 +171,7 @@ def test_qualify_capture_gate_per_key_mode(ev, tmp_path, monkeypatch, fake_runti
     _write_relocated(off, scm, relocated, 0x40000)
     base = (fastdyn_root() / "src/fastdyn/configs/b0-sc.toml")
     if not base.exists():
-        pytest.skip("b0-sc.toml not present")
+        pytest.skip(f"{base} not present")
 
     def run_with(sources, out):
         def fake_launch(rd, *, extra_env=None, run_json, **kw):

@@ -24,7 +24,7 @@ def V():
 def G():
     fx = (fastdyn_root() / "fixtures/b3/b3conf.py")
     if not fx.is_file():
-        pytest.skip("fixtures/b3 not present")
+        pytest.skip(f"{fx} not present")
     sys.path.insert(0, str(QDIR))
     return importlib.import_module("wp29_gate")
 
@@ -218,7 +218,7 @@ def test_timing_bootstrap_seed_sensitivity_marks_borderline(tmp_path):
 def test_host_abs_sites_on_the_gate_f_b4_7_base(G):
     out = (fastdyn_root() / "runs/wp29")
     if not (out / "fx" / "icount" / "b4-7" / "snap.json").is_file():
-        pytest.skip("gate F-B4-7 base not present")
+        pytest.skip(f"{out / 'fx/icount/b4-7/snap.json'} not present")
     _sj, s, lay, _ri = G.load(out, "icount", "b4-7")
     sites = G.host_abs_sites(s, lay)
     assert len(sites) == 2
@@ -364,7 +364,7 @@ def test_report_appends_hand_written_sections_verbatim(tmp_path):
     section is appended verbatim, after the generated text."""
     ref = (fastdyn_root() / "runs/wp29")
     if not (ref / "verdict.json").is_file():
-        pytest.skip("no WP29 gate run")
+        pytest.skip(f"{ref / 'verdict.json'} not present")
     sys.path.insert(0, str(QDIR))
     R = importlib.import_module("wp29_report")
     sec = tmp_path / "closeout.md"

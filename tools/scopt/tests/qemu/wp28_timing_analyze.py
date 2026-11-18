@@ -28,6 +28,8 @@ import statistics
 from collections import defaultdict
 from pathlib import Path
 
+from scopt.paths import fastdyn_root
+
 B = 10000
 THRESH = 0.01
 #: (arm, reference) pairs: every arm vs warm
@@ -61,7 +63,7 @@ def cpu_budget(load_log: Path) -> dict | None:
     end = next((x for x in text if x.startswith("end ")), None)
     return {"cores": cores, "n_cores": n, "pinning": "taskset -c " + (cores or "?"),
             "reps": int(m.group(2)) if m else None,
-            "lock": "/data/extra_copy/fastdyn/runs/.timing.lock (flock, held for the whole job)",
+            "lock": f"{fastdyn_root() / 'runs/.timing.lock'} (flock, held for the whole job)",
             "lock_acquired": lock, "start": start, "end": end, "load_log": str(load_log),
             "load1_samples": len(samples),
             "load1_max": max(samples) if samples else None,

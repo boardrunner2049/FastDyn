@@ -122,7 +122,7 @@ def test_basic_string_and_sizes():
 @pytest.mark.real
 def test_b0_config_rewrite():
     if not B0_SC.exists():
-        pytest.skip("b0-sc.toml not present")
+        pytest.skip(f"{B0_SC} not present")
     text = B0_SC.read_text()
     r = _rw(text, "/data/runs/a")
     diff = [i for i, (x, y) in enumerate(zip(text.splitlines(), r.text.splitlines())) if x != y]

@@ -508,7 +508,7 @@ COMPUTE_SNAP = ROOT / ("runs/wp29/compute/store/snapshots/"
 @pytest.mark.real
 def test_compute_b4_artifact_reproduced_and_rebuild_units_still_certified():
     if not (COMPUTE_ART / "cache.sc").is_file() or not (COMPUTE_SNAP / "snapshot.json").is_file():
-        pytest.skip("published compute B4 artifact not present")
+        pytest.skip(f"{COMPUTE_ART / 'cache.sc'} or {COMPUTE_SNAP / 'snapshot.json'} not present")
     from scopt.formats import artifact as A
     from scopt.formats.sc_v5 import read_sc
     from scopt.importer.import_cache import open_snapshot

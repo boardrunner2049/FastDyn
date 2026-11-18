@@ -41,10 +41,10 @@ toml=$out_root/b0-sc.toml
 
 # Render the TOML once: only the run-dir paths change, all via $cur.
 python3 - "$template" "$toml" "$cur" <<'EOF'
-import sys
+import re, sys
 tpl, out, cur = sys.argv[1:4]
 s = open(tpl).read()
-old = "/data/extra_copy/fastdyn/runs/b0"
+old = re.search(r'^supercache\s*=\s*"(.*)/cache/minimal\.sc"', s, re.M).group(1)  # the B0 run dir the template names
 assert s.count(old) == 4, s.count(old)
 s = s.replace(old + "/cache/minimal.sc", cur + "/cache/minimal.sc")
 s = s.replace(old + "/", cur + "/")

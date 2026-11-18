@@ -180,7 +180,7 @@ def test_coverage_compute_steady_weight():
 
     s, lay, _, c = compute()
     if not COMPUTE_PROFILE.is_file():
-        pytest.skip("profile not present")
+        pytest.skip(f"{COMPUTE_PROFILE} not present")
     doc = coverage(s, lay, weights=phase_weights(str(COMPUTE_PROFILE)), contract=c)
     assert doc["weight_total"] == 826110048
     assert doc["weight_coverage"] >= 0.99, doc["reasons"]
