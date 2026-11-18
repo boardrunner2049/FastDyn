@@ -16,6 +16,8 @@ Tools built on FastDyn live in their own repositories:
 - [PhantomSmith](https://github.com/PSecLab/PhantomSmith): rehosts complete
   firmware automatically, including the ArduRover 4.6.2 reference target.
 
+The supercache optimizer scopt lives in [tools/scopt](tools/scopt/README.md); start with [tools/scopt/docs/getting-started.md](tools/scopt/docs/getting-started.md).
+
 Contributions follow [docs/CodingConventions.md](docs/CodingConventions.md).
 
 ## Quick start with Docker

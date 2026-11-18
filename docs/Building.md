@@ -11,7 +11,8 @@ FastDyn builds against dependencies pinned as submodules:
 
 - `third_party/common/qemu`: the patched QEMU fork that hosts the FastDyn
   plugin (FastDyn's `patches/qemu-fastdyn-plugin-icount.patch` is applied on
-  top)
+  top; on this branch the submodule is the QEMU `scopt` branch, which already
+  contains it, see `tools/scopt/docs/qemu.md`)
 - `third_party/common/libhw`: the hardware-probe library (ST-Link / OpenOCD /
   J-Link), needed only to talk to a board (passthrough, twintrace recording)
 - `third_party/common/libvio` (optional): the library device models use for
@@ -99,7 +100,11 @@ make -C third_party/common/libhw
 
 # QEMU (fork) → qemu-system-arm + plugin headers
 cd third_party/common/qemu
-git apply ../../../patches/qemu-fastdyn-plugin-icount.patch
+# Apply the icount patch only if the checkout does not contain it yet. The
+# pinned `scopt` QEMU branch already has it as a commit, so a plain
+# `git apply` fails there; this is what setup.sh checks as well.
+git apply --reverse --check ../../../patches/qemu-fastdyn-plugin-icount.patch 2>/dev/null ||
+  git apply ../../../patches/qemu-fastdyn-plugin-icount.patch
 mkdir build && cd build
 ../configure --target-list=arm-softmmu --enable-plugins
 make qemu-system-arm
