@@ -21,7 +21,7 @@ from scopt.formats.sc_v5 import ScHeader, ScRecord
 
 # QEMU's offset basis is 1469598103934665603, not the standard 0xcbf29ce484222325,
 # so the published FNV-1a-64 vectors do not apply. These were computed with the
-# independent implementation in notes/critic-scripts/scparse.py.
+# independent implementation in independent/scparse.py.
 FNV_VECTORS = [
     (b"", 0x14650FB0739D0383),
     (b"a", 0x44BD8AD473CD9906),

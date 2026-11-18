@@ -10,7 +10,7 @@ import pytest
 
 FASTDYN_ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
 MINIMAL_SC = FASTDYN_ROOT / "runs/b0/cache/minimal.sc"  # read-only golden (B0)
-SCPARSE = FASTDYN_ROOT / "notes/critic-scripts/scparse.py"
+SCPARSE = Path(__file__).resolve().parents[1] / "independent/scparse.py"
 TESTS_DATA = Path(__file__).parent / "data"
 
 

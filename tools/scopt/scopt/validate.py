@@ -27,7 +27,7 @@ Checks (§5.8; ``in`` = the input snapshot, ``out`` = the written artifact):
   ``tc-tb``, disjoint intervals above ``ROUND_UP(prologue_end, 64)``, zero
   bytes outside the records, exact file size); ``max_end < code_size -
   host_page - 1024``; slot order (UnitId per slot) unchanged; the
-  independent ``notes/critic-scripts/scparse.py`` agrees on every header and
+  independent ``independent/scparse.py`` agrees on every header and
   record field.
 * **V2 byte diff** — per unit, ``out[tc':end']`` differs from ``in[tc:end]``
   only inside the unit's declared fixup fields (unmoved units are identical).
@@ -102,9 +102,7 @@ __all__ = [
 
 VALIDATION_SCHEMA = "scopt.validation"
 SCPARSE = Path(os.environ.get(
-    "SCOPT_SCPARSE",
-    Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn")) /
-    "notes/critic-scripts/scparse.py"))
+    "SCOPT_SCPARSE", Path(__file__).resolve().parents[1] / "independent/scparse.py"))
 NONE16 = 0xFFFF
 _MAX_DETAIL = 8
 

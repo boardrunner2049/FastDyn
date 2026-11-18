@@ -34,7 +34,7 @@ an all-zero ``artifact_id8`` is refused.
 :func:`scopt.formats.sc_v5.write_sc` (sparse), and by default re-reads the
 file and refuses to leave one the loader would reject (``ScFormatError`` with
 the loader's reason). The independent parser
-``notes/critic-scripts/sc6parse.py`` (written from the C loader) is run by
+``independent/sc6parse.py`` (written from the C loader) is run by
 :func:`sc6parse_compare` (V11).
 """
 
@@ -91,9 +91,7 @@ _LINK = struct.Struct("<IIQ")
 assert (_EXT_HDR.size, _VARIANT.size, _SLOT.size, _LINK.size) == (64, 64, 32, 16)
 
 SC6PARSE = Path(os.environ.get(
-    "SCOPT_SC6PARSE",
-    Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn")) /
-    "notes/critic-scripts/sc6parse.py"))
+    "SCOPT_SC6PARSE", Path(__file__).resolve().parents[2] / "independent/sc6parse.py"))
 
 
 def max_ext_entries(nv: int, ns: int, nl: int) -> bool:

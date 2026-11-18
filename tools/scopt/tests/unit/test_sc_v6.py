@@ -1,6 +1,6 @@
 """WP18 T-B3-1: ``.sc`` v6 writer, reader and the independent parser (design §5.2-5.4, V11).
 
-Round trip through ``scopt.formats.sc_v6`` and ``notes/critic-scripts/sc6parse.py``
+Round trip through ``scopt.formats.sc_v6`` and ``independent/sc6parse.py``
 (written from the C loader of ``wt/qemu-v6``) on synthetic and real tables;
 every corruption case gives the loader's reason (the message ``sc6_die``
 prints) in both parsers.

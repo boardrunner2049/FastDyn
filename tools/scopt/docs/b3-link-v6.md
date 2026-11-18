@@ -10,7 +10,7 @@ WP18 implementation note at its end. Plan: `design/IMPLEMENTATION-PLAN-B3B4.md` 
 | `scopt/guard.py` | canonical guard template `guard-v1` (§4.1): `emit_guard`, strict `decode_guard`, `guard_key` (Kf/Kf2, THUMB/CONDEXEC/SS rules), `guard_atoms`, `GuardOffsets.from_layout(EnvLayout)` |
 | `scopt/link.py` (v2 part) | `lookup_tails`, `tail_problem`, `exit_class_of`, `free_slots`, `grow_unit`, `apply_pure_rewrite`, `rewrite_unit`, `B3Plan`, `VariantSpec`, `NativeLinkerV2`, `derive_scm_v2` |
 | `scopt/formats/sc_v6.py` | `write_sc6`, `read_sc6`, `ext_problem` (the loader's checks and messages, in its order), `ExtTable`/`VariantEntry`/`SlotEntry`/`LinkEntry`, `sc6_snapshot_id`, `sc6parse_compare` (V11) |
-| `notes/critic-scripts/sc6parse.py` | independent parser written from the C loader (`wt/qemu-v6` `tcg/supercache.c`); stdlib only |
+| `independent/sc6parse.py` | independent parser written from the C loader (`wt/qemu-v6` `tcg/supercache.c`); stdlib only |
 | `scopt/formats/scm_v1.py` | TB chunk v2 (`stub_start` in the low u32 of `reserved`), chunk 9 `VARIANT` (Python-only) |
 | `scopt/formats/region_v1.py` | `guarded_slot` exits of grown units, `build_multi_tb_region` |
 | `scopt/formats/schemas/cache_region.v1.json` | multi_tb branch: `native.members`, typed `GuardAtom`/`FactRef`, `state_fixups: []` |
