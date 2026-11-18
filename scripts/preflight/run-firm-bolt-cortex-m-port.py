@@ -7,9 +7,12 @@ Cortex-M0+ architectural/reference/veneer fixtures, a relocation- and
 execution-checked Cortex-M3 backend fixture, and the real Cortex-M4 FreeRTOS
 image plus a fixed-work FastDyn smoke.
 
-The production policy is intentionally in-place. Unknown or unqualified
-functions remain in their original implementation, and any new allocatable ELF
-range is a hard failure. The report names all remaining capability limits.
+The default production policy is compact in-place publication. A separately
+qualified relocation-complete fixture exercises whole-image function ordering
+inside the original linked .text flash extent. Unknown or unqualified compact
+functions retain their original implementation; relocation-mode rejection is
+atomic, and any new loadable range is a hard failure. The report names all
+remaining capability limits.
 """
 
 from __future__ import annotations
@@ -70,6 +73,16 @@ M3_RODATA_LOAD_SOURCE = (
 )
 M3_RODATA_LOAD_LINKER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_rodata_load.ld"
+)
+M3_FUNCTION_REORDER_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_reorder.s"
+)
+M3_FUNCTION_REORDER_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_reorder.ld"
+)
+M3_FUNCTION_REORDER_ORDER = (
+    ROOT
+    / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_reorder.order"
 )
 M3_LOOP_INVERSION_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_loop_inversion.s"
@@ -745,6 +758,197 @@ def validate_in_place(reference: Path, candidate: Path,
     }
 
 
+def validate_relocated_function_order(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate a relocation-mode Cortex-M image as one atomic artifact.
+
+    This is deliberately stronger than comparing ordinary function output.
+    It proves that code still occupies the linker-qualified input flash span,
+    the reset vector and ELF entry carry the Thumb state bit, every retained
+    code relocation names the moved identity, the alternate completion label
+    moved with its containing function, and the final origin map is exact.
+    """
+    reference_inventory = elf_inventory(reference)
+    candidate_inventory = elf_inventory(candidate)
+    if reference_inventory["segments"] != candidate_inventory["segments"]:
+        raise RuntimeError(
+            "relocation-mode candidate changed the loadable segment map"
+        )
+
+    reference_text = reference_inventory["sections"][".text"]
+    candidate_text = candidate_inventory["sections"][".text"]
+    for field in ("address", "offset", "size", "flags"):
+        if reference_text[field] != candidate_text[field]:
+            raise RuntimeError(
+                f"relocation-mode .text changed qualified {field}"
+            )
+    old_text = candidate_inventory["sections"].get(".bolt.org.text")
+    if old_text is None or int(old_text["size"]) != 0:
+        raise RuntimeError(
+            "relocation-mode candidate retained a live original text body"
+        )
+
+    moved = {
+        name: symbol_address(candidate, name)
+        for name in ("Reset_Handler", "worker_a", "worker_b", "fixture_halt")
+    }
+    expected_moved = {
+        "worker_b": 0x08000100,
+        "Reset_Handler": 0x08000104,
+        "fixture_halt": 0x08000118,
+        "worker_a": 0x0800011C,
+    }
+    if moved != expected_moved:
+        raise RuntimeError(
+            f"unexpected relocation-mode function order: {moved}"
+        )
+    reset_pointer = moved["Reset_Handler"] | 1
+    if candidate_inventory["entry"] != reset_pointer:
+        raise RuntimeError("relocated ELF entry lost its Thumb-state identity")
+    reference_vector = struct.unpack(
+        "<II", virtual_bytes(reference, 0x08000000, 8)
+    )
+    candidate_vector = struct.unpack(
+        "<II", virtual_bytes(candidate, 0x08000000, 8)
+    )
+    if (
+        candidate_vector[0] != reference_vector[0]
+        or candidate_vector[1] != reset_pointer
+    ):
+        raise RuntimeError(
+            "relocated vector does not name the moved Thumb reset entry"
+        )
+
+    text_relocations = static_relocation_records(candidate, ".rel.text")
+    vector_relocations = static_relocation_records(
+        candidate, ".rel.isr_vector"
+    )
+    expected_text_relocations = [
+        (0x0800010C, 10, "worker_a", 0x0800011D),
+        (0x08000112, 10, "worker_b", 0x08000101),
+        (0x08000118, 30, "fixture_halt", 0x08000118),
+    ]
+    observed_text_relocations = [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in text_relocations
+    ]
+    if observed_text_relocations != expected_text_relocations:
+        raise RuntimeError(
+            "relocated .rel.text records do not match moved code identities"
+        )
+    if [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in vector_relocations
+    ] != [(0x08000004, 2, "Reset_Handler", reset_pointer)]:
+        raise RuntimeError(
+            "relocated vector relocation lost the moved Thumb entry"
+        )
+
+    decoder = Cs(CS_ARCH_ARM, CS_MODE_THUMB | CS_MODE_MCLASS)
+    decoder.detail = True
+    repaired_control_transfers = []
+    for address, expected_mnemonic, expected_target in (
+        (0x0800010C, "bl", moved["worker_a"]),
+        (0x08000112, "bl", moved["worker_b"]),
+        (0x08000118, "b.w", moved["fixture_halt"]),
+    ):
+        instruction = decode_one_thumb(decoder, candidate, address)
+        target = (
+            int(instruction.operands[0].imm)
+            if instruction.operands
+            and instruction.operands[0].type == ARM_OP_IMM
+            else None
+        )
+        repaired_control_transfers.append({
+            "address": address,
+            "mnemonic": instruction.mnemonic,
+            "target": target,
+        })
+        if (
+            instruction.mnemonic != expected_mnemonic
+            or target != expected_target
+        ):
+            raise RuntimeError(
+                f"relocated control transfer at 0x{address:x} does not "
+                f"target 0x{expected_target:x}"
+            )
+    with candidate.open("rb") as stream:
+        elf = ELFFile(stream)
+        text_relocation_section = elf.get_section_by_name(".rel.text")
+        if text_relocation_section is None:
+            raise RuntimeError("relocation-mode candidate has no .rel.text")
+        target_section = elf.get_section(
+            int(text_relocation_section["sh_info"])
+        )
+        if target_section.name != ".text":
+            raise RuntimeError(
+                ".rel.text still targets the retired original text section"
+            )
+
+    origin_summary = None
+    if final_layout is not None:
+        expected_origins = {
+            "Reset_Handler": (0x08000100, 0x08000104, 7),
+            "worker_a": (0x08000118, 0x0800011C, 2),
+            "worker_b": (0x0800011C, 0x08000100, 2),
+        }
+        origin_summary = {}
+        for function in final_layout["functions"]:
+            name = function["name"]
+            if name not in expected_origins:
+                continue
+            observed = (
+                int(function["original_address"]),
+                int(function["output_address"]),
+                len(function["instruction_origins"]),
+            )
+            if observed != expected_origins[name]:
+                raise RuntimeError(
+                    f"relocated origin map for {name} is not exact: {observed}"
+                )
+            if any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in function["instruction_origins"]
+            ):
+                raise RuntimeError(
+                    f"relocated origin map for {name} has synthetic entries"
+                )
+            origin_summary[name] = {
+                "original_address": observed[0],
+                "output_address": observed[1],
+                "instruction_origin_count": observed[2],
+            }
+        if set(origin_summary) != set(expected_origins):
+            raise RuntimeError("relocation-mode layout omitted a function map")
+
+    return {
+        "status": "accepted",
+        "placement_policy": "reuse_linker_qualified_input_text",
+        "program_headers_exact": True,
+        "text_range": {
+            "address": candidate_text["address"],
+            "size": candidate_text["size"],
+        },
+        "retained_original_text_bytes": int(old_text["size"]),
+        "entry": candidate_inventory["entry"],
+        "vector_words": list(candidate_vector),
+        "moved_symbols": moved,
+        "text_relocations": text_relocations,
+        "vector_relocations": vector_relocations,
+        "repaired_control_transfers": repaired_control_transfers,
+        "text_relocation_target_section": ".text",
+        "origin_summary": origin_summary,
+    }
+
+
 def build_m3_fixture(output: Path, logs: Path) -> Path:
     image = output / "firm-bolt-cortex-m3-reference.elf"
     command = [
@@ -753,6 +957,24 @@ def build_m3_fixture(output: Path, logs: Path) -> Path:
         "-o", str(image),
     ]
     require_success(run(command, logs / "build-m3.log"), "M3 fixture build")
+    return image
+
+
+def build_m3_function_reorder_fixture(output: Path, logs: Path) -> Path:
+    """Build the relocation-complete whole-image ordering fixture."""
+    object_path = output / "firm-bolt-cortex-m3-function-reorder.o"
+    image = output / "firm-bolt-cortex-m3-function-reorder-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_FUNCTION_REORDER_SOURCE),
+        "-o", str(object_path),
+    ], logs / "build-m3-function-reorder-object.log"),
+        "M3 function-reorder object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "-T",
+        str(M3_FUNCTION_REORDER_LINKER), str(object_path), "-o", str(image),
+    ], logs / "build-m3-function-reorder-image.log"),
+        "M3 function-reorder image build")
     return image
 
 
@@ -1416,6 +1638,7 @@ def m3_config_text(source: Path, image: Path, ram: Path, qmp: Path,
 def validate_m3_execution(reference: Path, candidate: Path, output: Path,
                           fastdyn: Path) -> dict[str, Any]:
     run_root = Path(tempfile.mkdtemp(prefix="m3-fastdyn-semantic-", dir=output))
+    halt = symbol_address(reference, "fixture_halt")
     expected_words = (
         43, 14, 20, 22, 43, 31, 52,
         0x80, 0xFFFFFFFE, 0x8001, 0xFFFFFF80,
@@ -1446,8 +1669,8 @@ def validate_m3_execution(reference: Path, candidate: Path, output: Path,
                 "variant": name,
                 "returncode": process.returncode,
                 "halt_pc": halt,
-                "ram_words": list(struct.unpack("<IIIIIIIIIIII", observed))
-                if len(observed) == 48 else None,
+                "ram_words": list(struct.unpack("<IIIIIIIIIIIII", observed))
+                if len(observed) == 52 else None,
                 "ram_prefix_hex": observed.hex(),
                 "stdout": process.stdout.splitlines(),
                 "stderr": process.stderr.splitlines(),
@@ -2187,6 +2410,9 @@ def main() -> int:
         write_m3_taildup_propagation_profile(output)
     )
     m3_rodata_load_image = build_m3_rodata_load_fixture(output, logs)
+    m3_function_reorder_image = build_m3_function_reorder_fixture(
+        output, logs
+    )
     m3_loop_inversion_image = build_m3_loop_inversion_fixture(output, logs)
     m3_loop_inversion_profile = write_m3_loop_inversion_profile(output)
     m3_peephole_image = build_m3_peephole_fixture(output, logs)
@@ -2320,6 +2546,13 @@ def main() -> int:
          {".isr_vector": None}, [
              "--simplify-rodata-loads",
              "--firmbolt-allow-read-only-load-elision",
+         ]),
+        ("m3_function_reorder", "cortex-m3", m3_function_reorder_image,
+         {}, [
+             "--relocs",
+             "--use-old-text",
+             "--reorder-functions=user",
+             f"--function-order={M3_FUNCTION_REORDER_ORDER}",
          ]),
         ("m3_loop_inversion", "cortex-m3", m3_loop_inversion_image,
          {".isr_vector": None}, [
@@ -2722,7 +2955,11 @@ def main() -> int:
                     or "ICP " in line
                 )
             ],
-            "validation": validate_in_place(image, candidate, protected),
+            "validation": (
+                validate_relocated_function_order(image, candidate)
+                if label == "m3_function_reorder"
+                else validate_in_place(image, candidate, protected)
+            ),
             "mapping_symbol_validation": validate_arm_mapping_symbols(
                 candidate
             ),
@@ -2754,6 +2991,12 @@ def main() -> int:
                     )
                 )
             results[label]["final_layout_report"] = final_layout
+            if label == "m3_function_reorder":
+                results[label]["validation"] = (
+                    validate_relocated_function_order(
+                        image, candidate, final_layout
+                    )
+                )
             results[label]["inline_jump_table_validation"] = (
                 validate_inline_jump_tables(
                     image, candidate, final_layout
@@ -4819,6 +5062,15 @@ def main() -> int:
             expected_words=(0x1234, 0x5678),
         )
     )
+    m3_function_reorder_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_function_reorder_image,
+            candidates["m3_function_reorder"], output,
+            args.fastdyn.resolve(), "whole-image-function-reorder",
+            expected_words=(17, 42),
+        )
+    )
     m3_loop_inversion_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -4913,6 +5165,7 @@ def main() -> int:
             m3_inline_execution, m3_taildup_execution,
             m3_taildup_propagation_execution,
             m3_rodata_load_execution,
+            m3_function_reorder_execution,
             m3_loop_inversion_execution,
             m3_peephole_execution,
             m3_icp_execution,
@@ -5161,6 +5414,8 @@ def main() -> int:
             m3_taildup_propagation_execution,
         "m3_native_read_only_load_architectural_execution":
             m3_rodata_load_execution,
+        "m3_whole_image_function_reorder_architectural_execution":
+            m3_function_reorder_execution,
         "m3_native_loop_inversion_architectural_execution":
             m3_loop_inversion_execution,
         "m3_native_control_flow_peephole_architectural_execution":
@@ -5181,8 +5436,15 @@ def main() -> int:
             m3_detached_abs32_jump_table_icp_execution,
         "fastdyn_execution": execution,
         "scope": {
-            "emission": "in-place existing allocatable ranges only",
-            "unknown_functions": "retain original implementation",
+            "emission": (
+                "compact in-place publication by default; the explicit "
+                "m3_function_reorder gate performs atomic whole-image "
+                "relocation inside the exact original .text PT_LOAD"
+            ),
+            "unknown_functions": (
+                "compact mode retains the original implementation; "
+                "relocation mode rejects the whole candidate atomically"
+            ),
             "patch_contract": "empty in phase one",
             "new_allocatable_sections": "rejected",
             "m0plus_execution": (
@@ -5242,6 +5504,7 @@ def main() -> int:
                 "opt-in native BOLT tail duplication for profiled Thumb blocks with execution-multiplicity admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in register-only constant/copy propagation after Thumb tail duplication under a separate definition-deletion contract, with descriptor-aware Thumb MOV source discovery, encoding-class-checked replacements, exact retained/clone identities, compact publication and Cortex-M3 hot/cold execution",
                 "opt-in native BOLT read-only-load simplification for linked allocatable non-writable relocation-free scalar data on Thumb-2, using flag-preserving MOVW/MOVT materialization under an explicit read/fault/timing-elision contract, exact transformed-source origins, compact in-place emission, and Cortex-M3 execution",
+                "explicit ARM relocation mode with native BOLT user-directed whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
                 "opt-in native BOLT loop inversion for profiled Thumb loops with branch-timing admission, exact moved/synthesized instruction origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT double-jump control-flow peepholes with branch-event admission, exact retained instruction origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT indirect-call promotion for profiled ordinary Thumb-2 register calls under explicit AAPCS and call-event contracts, including r12/IP targets using LR as non-memory guard scratch because both call paths overwrite it, with exact direct/fallback identities, compact in-place emission, and Cortex-M3 execution",
@@ -5274,7 +5537,7 @@ def main() -> int:
                 "Thumb literal islands without a proven non-fallthrough owner",
                 "additional ARM relocation classes beyond the modeled compact set",
                 "out-of-function Thumb veneer placement without explicit typed slots or under arbitrary whole-image layout",
-                "whole-image profile-guided function reordering",
+                "profile-driven whole-image function-order algorithms and splitting beyond the executed relocation-complete user-order gate",
                 "DSP/FPU/MVE-specific optimization rewrites",
             ],
         },
@@ -5311,6 +5574,8 @@ def main() -> int:
         "m3_taildup_propagation_candidate":
             str(candidates["m3_taildup_propagation"]),
         "m3_rodata_load_candidate": str(candidates["m3_rodata_load"]),
+        "m3_function_reorder_candidate":
+            str(candidates["m3_function_reorder"]),
         "m3_loop_inversion_candidate":
             str(candidates["m3_loop_inversion"]),
         "m3_peephole_candidate": str(candidates["m3_peephole"]),

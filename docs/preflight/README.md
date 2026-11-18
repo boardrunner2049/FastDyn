@@ -103,8 +103,10 @@ opt-in profiled ordinary (including target-in-`r12`) and
 tail-indirect-call-promotion Cortex-M3 fixtures,
 an opt-in immutable-vtable method-load-elimination Cortex-M3 fixture,
 opt-in profiled TBB, in-function ABS32 and relocation-complete detached ABS32
-hot-index-promotion Cortex-M3 fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v107 run accepts all twenty-eight without
+hot-index-promotion Cortex-M3 fixtures, an explicit relocation-complete
+whole-image function-ordering Cortex-M3 fixture, and the real Cortex-M4
+FreeRTOS image.
+The 18 November production-parity-v113 run accepts all twenty-nine without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -117,6 +119,20 @@ install one bounded worker.
 These are publication counts,
 not performance results. The narrow-data gate intentionally installs no body:
 it validates typed data-relocation consumption and compact publication.
+
+The twenty-ninth profile exercises BOLT's native `ReorderFunctions` pass in an
+explicit ARM relocation mode rather than the compact per-function publisher.
+`--relocs --use-old-text --reorder-functions=user` consumes a frozen order,
+reuses the linker's exact 32-byte `.text` flash extent and PT_LOAD, and leaves
+`.bolt.org.text` empty. It moves `worker_b`, `Reset_Handler`, `fixture_halt`
+and `worker_a` to `0x08000100`, `0x08000104`, `0x08000118` and `0x0800011c`;
+repairs both calls and the halt branch; preserves the entry/vector Thumb bit;
+retargets `.rel.text` and `.rel.isr_vector` to live sections; and exports exact
+old-to-new instruction origins. Reference and candidate execute under FastDyn
+and write `(17, 42)`. The one-shot elapsed readings are deliberately excluded
+from performance claims. This qualifies user-directed relocation-complete
+ordering, not profile-derived ordering, function splitting or arbitrary
+firmware reference completeness.
 
 The v76 gate retains the firmware gap fix exposed by the earlier M4 run.
 Ordinary BOLT CFG finalization can remove explicit branches to the next block
@@ -665,32 +681,31 @@ The executed production profile uses the
 and its
 [split code/read-only-data linker contract](../../tests/preflight/fixtures/firm_bolt_cortex_m3_detached_abs32_jump_table_icp.ld).
 
-Reproduce the complete gate with:
+Reproduce the current complete gate with:
 
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v107-rodata-load-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v113-function-reorder-2026-11-18
 ```
 
-The complete accepted/rejected stage evidence is in
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v107-rodata-load-2026-11-18/report.json).
-Its SHA-256 is
-`072d7395c4ff5b92b75db9f432c6fdfe492bd14964d07cf9f30a907dc2f9fb5c`.
+The complete accepted/rejected stage evidence is in the current
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v113-function-reorder-2026-11-18/report.json),
+SHA-256 `b23ac53e97cf1c96fc78c296286d559bb133f20a25c40f42469b30c1e8f9216a`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v107-rodata-load-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v113-function-reorder-2026-11-18/validation-manifest.json)
 (SHA-256
-`a7c1624bc8ee619e84939170381a6f3e4219c919b6e10023a1cc37f7ea933984`)
+`f463e20c6cc6b8d0cda2361effea657c93655eda3523ea4186fb0b12c94b1c03`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`3c1ca1b3a329e28a1e2c09dcaedc56038628290881799e0a16c985be928b39bf`),
-which clean-applies across 105 changed/new paths to pinned revision
+`20f162a695f12b2dddb9650cbde385165414eea67fb597cdaecb30ed8513896e`),
+which clean-applies across 107 changed/new paths to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`9a05cd4dbb4a00da95248fbbcbd3e10d86b5ba3133c2cf80527767fd533526d9`.
+`e48340da069efa4a951e025a04c1115ec8d8bee65bbb9b8f1ba1f476b7edeb77`.
 
 Targeted validation completes 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -722,12 +737,24 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
+The current v113 validation supersedes those targeted counts with 56/56 BOLT
+ARM lit tests, 12/12 AArch32 JITLink lit tests, 79 passed plus 129 explicitly
+target-inapplicable BOLT Core parameterizations, and 19/19 AArch32 JITLink
+unit tests. Whole-image emission exposed four mechanisms that are now covered:
+byte-layout addresses remain canonical while Thumb callable state stays in
+symbol metadata; AArch32 data fixups apply ELF `S + A` before restoring the
+Thumb pointer bit; intentionally even ABS32 switch-table entries compensate
+for local function-symbol typing; and origin maps parse locations as canonical
+byte addresses. The final ARM suite includes the switch-table regressions that
+initially caught the low-bit error.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands without a proven non-fallthrough owner, ARM relocation classes
 beyond the now-qualified JUMP6/ABS8/ABS16 set,
 veneer placement without explicit typed slots or under arbitrary
-whole-image layout, profile-guided whole-image function reordering,
+whole-image layout, profile-guided function-order selection and splitting
+beyond the executed user-order relocation gate,
 non-ADR/ambiguous table-base data flow, DSP/FPU/MVE-specific optimization rules,
 Secure/Non-secure and PACBTI-M state transformations. Cortex-M4 DSP/FPU,
 Cortex-M55 MVE and Cortex-M85 PACBTI-M decode/exact retention are qualified

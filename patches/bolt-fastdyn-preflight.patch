@@ -1082,7 +1082,7 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..92453cb11c9b04d9be4c5558c3605f94
  createRelocationHandler(Triple::ArchType Arch);
  
 diff --git a/bolt/lib/Core/AddressMap.cpp b/bolt/lib/Core/AddressMap.cpp
-index eeae878a8aa1a2f0865811d58c96885b792af4d7..a3208a63d5680aba7d88f2fe6bc84cb1876f2ed1 100644
+index eeae878a8aa1a2f0865811d58c96885b792af4d7..e51293c0b32715f2047b927276a90a08092e91eb 100644
 --- a/bolt/lib/Core/AddressMap.cpp
 +++ b/bolt/lib/Core/AddressMap.cpp
 @@ -19,21 +19,23 @@ namespace bolt {
@@ -1180,7 +1180,7 @@ index eeae878a8aa1a2f0865811d58c96885b792af4d7..a3208a63d5680aba7d88f2fe6bc84cb1
      }
    }
  }
-@@ -73,22 +114,25 @@ std::optional<AddressMap> AddressMap::parse(BinaryContext &BC) {
+@@ -73,22 +114,32 @@ std::optional<AddressMap> AddressMap::parse(BinaryContext &BC) {
  
    AddressMap Parsed;
  
@@ -1208,11 +1208,18 @@ index eeae878a8aa1a2f0865811d58c96885b792af4d7..a3208a63d5680aba7d88f2fe6bc84cb1
 -          const uint64_t Input = DE.getUnsigned(Cursor, MapValueSize);
 -          const uint64_t Output = DE.getUnsigned(Cursor, MapValueSize);
 +          const uint64_t Input = DE.getUnsigned(Cursor, InputSize);
-+          const uint64_t Output = DE.getUnsigned(Cursor, AddressSize);
++          uint64_t Output = DE.getUnsigned(Cursor, AddressSize);
++          // These sections describe byte locations, not callable pointer
++          // values. AArch32 JITLink correctly restores bit zero when an
++          // R_ARM_ABS32 relocation denotes a Thumb function pointer, but the
++          // first basic-block label may alias that STT_FUNC symbol. Do not let
++          // the ISA-state bit leak into instruction/layout addresses.
++          if (BC.isARM())
++            Output &= ~uint64_t(1);
            InsertCallback(Input, Output);
          }
  
-@@ -97,18 +141,22 @@ std::optional<AddressMap> AddressMap::parse(BinaryContext &BC) {
+@@ -97,18 +148,22 @@ std::optional<AddressMap> AddressMap::parse(BinaryContext &BC) {
        };
  
    if (AddressMapSection) {
@@ -1539,10 +1546,16 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..33131cdf31846b6e52f8c4f1e0fb46bd
  
    // Create local MC context to isolate the effect of ephemeral code emission.
 diff --git a/bolt/lib/Core/BinaryEmitter.cpp b/bolt/lib/Core/BinaryEmitter.cpp
-index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84368cc0f4 100644
+index 1402531e0f5e731086cca587e141ba9d78e78e0b..061df93644547c068dd5f60e3d493751a57d2575 100644
 --- a/bolt/lib/Core/BinaryEmitter.cpp
 +++ b/bolt/lib/Core/BinaryEmitter.cpp
-@@ -24,6 +24,7 @@
+@@ -19,11 +19,13 @@
+ #include "bolt/Utils/CommandLineOpts.h"
+ #include "bolt/Utils/Utils.h"
+ #include "llvm/DebugInfo/DWARF/DWARFCompileUnit.h"
++#include "llvm/MC/MCObjectStreamer.h"
+ #include "llvm/MC/MCSection.h"
+ #include "llvm/MC/MCStreamer.h"
  #include "llvm/Support/CommandLine.h"
  #include "llvm/Support/LEB128.h"
  #include "llvm/Support/SMLoc.h"
@@ -1550,7 +1563,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
  
  #define DEBUG_TYPE "bolt"
  
-@@ -141,6 +142,11 @@ private:
+@@ -141,6 +143,11 @@ private:
    void emitJumpTable(const JumpTable &JT, MCSection *HotSection,
                       MCSection *ColdSection);
  
@@ -1562,7 +1575,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
    void emitCFIInstruction(const MCCFIInstruction &Inst) const;
  
    /// Emit exception handling ranges for the function fragment.
-@@ -261,7 +267,8 @@ void BinaryEmitter::emitFunctions() {
+@@ -261,7 +268,8 @@ void BinaryEmitter::emitFunctions() {
        Streamer.setAllowAutoPadding(OriginalAllowAutoPadding);
  
        if (Emitted)
@@ -1572,7 +1585,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
      }
    };
  
-@@ -353,10 +360,16 @@ bool BinaryEmitter::emitFunction(BinaryFunction &Function,
+@@ -353,10 +361,16 @@ bool BinaryEmitter::emitFunction(BinaryFunction &Function,
    if (FF.isMainFragment()) {
      for (MCSymbol *Symbol : Function.getSymbols()) {
        Streamer.emitSymbolAttribute(Symbol, MCSA_ELF_TypeFunction);
@@ -1589,7 +1602,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
      Streamer.emitLabel(StartSymbol);
    }
  
-@@ -446,17 +459,118 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -446,17 +460,118 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
      BF.duplicateConstantIslands();
    }
  
@@ -1710,7 +1723,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
      }
  
      SMLoc LastLocSeen;
-@@ -472,6 +586,35 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -472,6 +587,35 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
          continue;
        }
  
@@ -1746,7 +1759,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
        if (!EmitCodeOnly) {
          // A symbol to be emitted before the instruction to mark its location.
          MCSymbol *InstrLabel = BC.MIB->getInstLabel(Instr);
-@@ -515,22 +658,162 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -515,22 +659,162 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
          }
        }
  
@@ -1911,7 +1924,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
  
    // AArch64 requires CI to be aligned to 8 bytes due to access instructions
    // restrictions. E.g. the ldr with imm, where imm must be aligned to 8 bytes.
-@@ -585,6 +868,31 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
+@@ -585,6 +869,31 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
      if (FunctionOffset == EndOffset)
        continue; // Size is zero, nothing to emit
  
@@ -1943,7 +1956,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
      auto emitCI = [&](uint64_t &FunctionOffset, uint64_t EndOffset) {
        if (FunctionOffset >= EndOffset)
          return;
-@@ -635,10 +943,19 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
+@@ -635,10 +944,19 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
              LLVM_DEBUG(dbgs() << "BOLT-DEBUG: emitted label "
                                << IS->second->getName() << " at offset 0x"
                                << Twine::utohexstr(IS->first) << '\n');
@@ -1965,7 +1978,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
            } else if (Islands.ColdSymbols.count(IS->second) != 0) {
              LLVM_DEBUG(dbgs()
                         << "BOLT-DEBUG: emitted label "
-@@ -791,6 +1108,8 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
+@@ -791,6 +1109,8 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
  
    for (auto &JTI : BF.jumpTables()) {
      JumpTable &JT = *JTI.second;
@@ -1974,7 +1987,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
      // Only emit shared jump tables once, when processing the first parent
      if (JT.Parents.size() > 1 && JT.Parents[0] != &BF)
        continue;
-@@ -812,6 +1131,42 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
+@@ -812,6 +1132,42 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
    }
  }
  
@@ -2017,7 +2030,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
  void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
                                    MCSection *ColdSection) {
    // Pre-process entries for aggressive splitting.
-@@ -839,6 +1194,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -839,6 +1195,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
    }
    MCSymbol *JTLabel = nullptr;
    uint64_t Offset = 0;
@@ -2025,7 +2038,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
    for (MCSymbol *Entry : JT.Entries) {
      auto LI = JT.Labels.find(Offset);
      if (LI == JT.Labels.end())
-@@ -876,8 +1232,20 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -876,8 +1233,48 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
        Streamer.emitLabel(JTLabel);
      }
    emitEntry:
@@ -2033,13 +2046,41 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
 -      Streamer.emitSymbolValue(Entry, JT.OutputEntrySize);
 +    if (JT.Type == JumpTable::JTT_NORMAL ||
 +        JT.Type == JumpTable::JTT_THUMB_ABS32) {
-+      const uint64_t Addend =
++      const int64_t Addend =
 +          JT.Type == JumpTable::JTT_THUMB_ABS32 &&
 +                  EntryIndex < JT.EntryAddends.size()
-+              ? JT.EntryAddends[EntryIndex]
++              ? static_cast<int64_t>(JT.EntryAddends[EntryIndex])
 +              : 0;
-+      const MCExpr *Value = MCSymbolRefExpr::create(
-+          Entry, Streamer.getContext());
++      const MCExpr *Value = nullptr;
++      if (JT.Type == JumpTable::JTT_THUMB_ABS32) {
++        // BOLT marks executable local labels as Thumb STT_FUNC symbols so
++        // branch relocations retain ISA state. An ABS32 switch entry is a raw
++        // local code identity, however, and its low bit is independently
++        // recorded in EntryAddends. Express it through the even section base
++        // plus a same-section label difference, preventing the function-type
++        // bit from being silently reintroduced by AArch32 ELF relocation.
++        assert(!JT.Parents.empty() && "Thumb ABS32 table needs an owner");
++        const MCExpr *SectionBase = MCSymbolRefExpr::create(
++            Streamer.getCurrentSectionOnly()->getBeginSymbol(),
++            Streamer.getContext());
++        const MCExpr *RawEntryOffset = MCBinaryExpr::createSub(
++            MCSymbolRefExpr::create(Entry, Streamer.getContext()),
++            MCSymbolRefExpr::create(JT.Parents.front()->getSymbol(),
++                                    Streamer.getContext()),
++            Streamer.getContext());
++        int64_t EntryOffset = 0;
++        if (!RawEntryOffset->evaluateAsAbsolute(
++                EntryOffset,
++                static_cast<MCObjectStreamer &>(Streamer).getAssembler()))
++          report_fatal_error(
++              "cannot resolve emitted Thumb ABS32 table target offset");
++        Value = MCBinaryExpr::createAdd(
++            SectionBase,
++            MCConstantExpr::create(EntryOffset, Streamer.getContext()),
++            Streamer.getContext());
++      } else {
++        Value = MCSymbolRefExpr::create(Entry, Streamer.getContext());
++      }
 +      if (Addend)
 +        Value = MCBinaryExpr::createAdd(
 +            Value, MCConstantExpr::create(Addend, Streamer.getContext()),
@@ -2048,7 +2089,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
      } else { // JTT_PIC
        const MCSymbolRefExpr *JTExpr =
            MCSymbolRefExpr::create(JTLabel, Streamer.getContext());
-@@ -888,6 +1256,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -888,6 +1285,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
        Streamer.emitValue(Value, JT.EntrySize);
      }
      Offset += JT.EntrySize;
@@ -2057,7 +2098,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..d4aed2acb36ab801b1fb3d317290bd84
  }
  
 diff --git a/bolt/lib/Core/BinaryFunction.cpp b/bolt/lib/Core/BinaryFunction.cpp
-index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b859f2aba 100644
+index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4e5a8abe7 100644
 --- a/bolt/lib/Core/BinaryFunction.cpp
 +++ b/bolt/lib/Core/BinaryFunction.cpp
 @@ -25,6 +25,7 @@
@@ -2091,7 +2132,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
    if (!isDataObject())
      return DefaultAlignment;
  
-@@ -806,6 +810,352 @@ IndirectBranchType
+@@ -806,6 +810,355 @@ IndirectBranchType
  BinaryFunction::processIndirectBranch(MCInst &Instruction, unsigned Size,
                                        uint64_t Offset,
                                        uint64_t &TargetAddress) {
@@ -2285,7 +2326,10 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
 +    if (TableInFunctionIsland)
 +      for (uint64_t Index = 0; Index < JT->Entries.size(); ++Index)
 +        addRelocation(TableAddress + 4 * Index, JT->Entries[Index],
-+                      ELF::R_ARM_ABS32, RawEntries[Index] & 1,
++                      // Local executable labels are emitted as Thumb
++                      // STT_FUNC symbols, so S already contains one. Encode
++                      // the exact input low bit through A.
++                      ELF::R_ARM_ABS32, (RawEntries[Index] & 1) - 1,
 +                      RawEntries[Index]);
 +
 +    const bool Annotated = BC.MIB->setJumpTable(
@@ -2444,7 +2488,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
    const unsigned PtrSize = BC.AsmInfo->getCodePointerSize();
  
    // The instruction referencing memory used by the branch instruction.
-@@ -997,6 +1347,11 @@ BinaryFunction::processIndirectBranch(MCInst &Instruction, unsigned Size,
+@@ -997,6 +1350,11 @@ BinaryFunction::processIndirectBranch(MCInst &Instruction, unsigned Size,
      case JumpTable::JTT_PIC:
        MemType = MemoryContentsType::POSSIBLE_PIC_JUMP_TABLE;
        break;
@@ -2456,7 +2500,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
      }
    } else {
      MemType = BC.analyzeMemoryAt(ArrayStart, *this);
-@@ -1036,8 +1391,11 @@ MCSymbol *BinaryFunction::getOrCreateLocalLabel(uint64_t Address) {
+@@ -1036,8 +1394,11 @@ MCSymbol *BinaryFunction::getOrCreateLocalLabel(uint64_t Address) {
    if (LI != Labels.end())
      return LI->second;
  
@@ -2470,7 +2514,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
      if (MCSymbol *IslandSym = getOrCreateIslandAccess(Address)) {
        Labels[Offset] = IslandSym;
        return IslandSym;
-@@ -1364,6 +1722,9 @@ Error BinaryFunction::disassemble() {
+@@ -1364,6 +1725,9 @@ Error BinaryFunction::disassemble() {
        break;
      }
  
@@ -2480,7 +2524,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
      // Check integrity of LLVM assembler/disassembler.
      if (opts::CheckEncoding && !BC.MIB->isBranch(Instruction) &&
          !BC.MIB->isCall(Instruction) && !BC.MIB->isNoop(Instruction)) {
-@@ -1519,12 +1880,20 @@ add_instruction:
+@@ -1519,12 +1883,20 @@ add_instruction:
        }
      }
  
@@ -2505,7 +2549,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
        // NOTE: disassembly loses the correct size information for noops on x86.
        //       E.g. nopw 0x0(%rax,%rax,1) is 9 bytes, but re-encoded it's only
        //       5 bytes. Preserve the size info using annotations.
-@@ -2575,7 +2944,8 @@ void BinaryFunction::postProcessCFG() {
+@@ -2575,7 +2947,8 @@ void BinaryFunction::postProcessCFG() {
      postProcessProfile();
  
      // Eliminate inconsistencies between branch instructions and CFG.
@@ -2515,7 +2559,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
    }
  
    // The final cleanup of intermediate structures.
-@@ -3262,6 +3632,12 @@ bool BinaryFunction::finalizeCFIState() {
+@@ -3262,6 +3635,12 @@ bool BinaryFunction::finalizeCFIState() {
  }
  
  bool BinaryFunction::requiresPreciseAddressMap() const {
@@ -2528,7 +2572,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
    return opts::UpdateDebugSections || opts::EnableBAT || hasSDTMarker() ||
           hasPseudoProbe();
  }
-@@ -3667,8 +4043,39 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3667,8 +4046,39 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
      if (!BB->analyzeBranch(TBB, FBB, CondBranch, UncondBranch))
        continue;
  
@@ -2570,7 +2614,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
        BB->eraseInstruction(BB->findInstruction(UncondBranch));
  
      // Basic block that follows the current one in the final layout.
-@@ -3682,6 +4089,13 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3682,6 +4092,13 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
        // the conditional branch with an unconditional if required.
        if (CondBranch)
          BB->eraseInstruction(BB->findInstruction(CondBranch));
@@ -2584,7 +2628,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
        if (BB->getSuccessor() == NextBB)
          continue;
        BB->addBranchInstruction(BB->getSuccessor());
-@@ -3702,9 +4116,18 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3702,9 +4119,18 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
            continue;
          }
  
@@ -2604,7 +2648,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
          continue;
        }
  
-@@ -3720,6 +4143,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3720,6 +4146,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          }
          std::swap(TSuccessor, FSuccessor);
          BB->swapConditionalSuccessors();
@@ -2617,7 +2661,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
          auto L = BC.scopeLock();
          if (BLI)
            BLI->removeAnnotation(*CondBranch);
-@@ -3731,8 +4160,9 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3731,8 +4163,9 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
  
        // Check whether the next block is a "taken" target and try to swap it
        // with a "fall-through" target.
@@ -2628,7 +2672,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
  
        // Update conditional branch destination if needed.
        if (MIB->getTargetSymbol(*CondBranch) != TSuccessor->getLabel()) {
-@@ -3740,9 +4170,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3740,9 +4173,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          MIB->replaceBranchTarget(*CondBranch, TSuccessor->getLabel(), Ctx);
        }
  
@@ -2645,7 +2689,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
  
        if (BC.isX86()) {
          // We are going to generate two branches. Check if their targets are in
-@@ -3756,7 +4191,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3756,7 +4194,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
            swapSuccessors();
        }
  
@@ -2659,7 +2703,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
      }
      // Cases where the number of successors is 0 (block ends with a
      // terminator) or more than 2 (switch table) don't require branch
-@@ -3831,6 +4271,12 @@ void BinaryFunction::postProcessBranches() {
+@@ -3831,6 +4274,12 @@ void BinaryFunction::postProcessBranches() {
        }
        if (!BC.MIB->isTerminator(*LastInstrRI) &&
            !BC.MIB->isCall(*LastInstrRI)) {
@@ -2672,7 +2716,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
          LLVM_DEBUG(dbgs() << "BOLT-DEBUG: adding return to basic block "
                            << BB.getName() << " in function " << *this << '\n');
          MCInst ReturnInstr;
-@@ -4526,14 +4972,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4526,14 +4975,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
    setOutputAddress(SymbolInfo->Address);
    setOutputSize(SymbolInfo->Size);
  
@@ -2718,7 +2762,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
          BinaryData *BD = BC.getBinaryDataAtAddress(getAddress() + OldOffset);
          if (!BD)
            continue;
-@@ -4608,9 +5080,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4608,9 +5083,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
        // input range. Just assign the BB the output address of the
        // function.
        auto MaybeBBAddress = BC.getIOAddressMap().lookup(BB->getLabel());
@@ -2740,7 +2784,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
        BB->setOutputStartAddress(BBAddress);
  
        if (PrevBB) {
-@@ -4915,7 +5396,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
+@@ -4915,7 +5399,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
    LLVM_DEBUG(dbgs() << "BOLT-DEBUG: addRelocation in "
                      << formatv("{0}@{1:x} against {2}\n", *this, Offset,
                                 (Symbol ? Symbol->getName() : "<undef>")));
@@ -2751,10 +2795,10 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..26b2ade57730696f6d55d562a53c154b
        IsCI ? Islands->Relocations : Relocations;
    if (BC.MIB->shouldRecordCodeRelocation(RelType))
 diff --git a/bolt/lib/Core/JumpTable.cpp b/bolt/lib/Core/JumpTable.cpp
-index 6f588d2b95fd6481f9009d2d6ebf7d7eaf0c4e0d..90102eddaafada1c7951d42ffc34fc54b420bc97 100644
+index 6f588d2b95fd6481f9009d2d6ebf7d7eaf0c4e0d..98e9b6ae017b8d4b3379f574d5655bf157c121ee 100644
 --- a/bolt/lib/Core/JumpTable.cpp
 +++ b/bolt/lib/Core/JumpTable.cpp
-@@ -80,17 +80,25 @@ bool bolt::JumpTable::replaceDestination(uint64_t JTAddress,
+@@ -80,17 +80,28 @@ bool bolt::JumpTable::replaceDestination(uint64_t JTAddress,
  }
  
  void bolt::JumpTable::updateOriginal() {
@@ -2776,7 +2820,10 @@ index 6f588d2b95fd6481f9009d2d6ebf7d7eaf0c4e0d..90102eddaafada1c7951d42ffc34fc54
      const uint64_t RelAddend =
 -        Type == JTT_NORMAL ? 0 : EntryOffset - BaseOffset;
 +        Type == JTT_THUMB_ABS32
-+            ? (Index < EntryAddends.size() ? EntryAddends[Index] : 0)
++            // BOLT's local code labels are emitted as Thumb STT_FUNC symbols,
++            // whose ELF value already contributes one. Compensate in A so
++            // the patched detached table retains its recorded input low bit.
++            ? ((Index < EntryAddends.size() ? EntryAddends[Index] : 0) - 1)
 +            : Type == JTT_NORMAL ? 0 : EntryOffset - BaseOffset;
      // Replace existing relocation with the new one to allow any modifications
      // to the original jump table.
@@ -2785,7 +2832,7 @@ index 6f588d2b95fd6481f9009d2d6ebf7d7eaf0c4e0d..90102eddaafada1c7951d42ffc34fc54
        getOutputSection().removeRelocationAt(EntryOffset);
      getOutputSection().addRelocation(EntryOffset, Entry, RelType, RelAddend);
      EntryOffset += EntrySize;
-@@ -101,6 +109,12 @@ void bolt::JumpTable::print(raw_ostream &OS) const {
+@@ -101,6 +112,12 @@ void bolt::JumpTable::print(raw_ostream &OS) const {
    uint64_t Offset = 0;
    if (Type == JTT_PIC)
      OS << "PIC ";
@@ -3260,10 +3307,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..8ee38fad101b23bfcfee8903e763e3ae364ec477
+index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad10f2a0f8
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4373 @@
+@@ -0,0 +1,4379 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -7234,6 +7281,12 @@ index 0000000000000000000000000000000000000000..8ee38fad101b23bfcfee8903e763e3ae
 +                "synthesized inline-data target %s has no final address",
 +                Target->getName().str().c_str());
 +          }
++          // The layout manifest records the scalar actually stored in the
++          // image, not merely the canonical instruction byte address. ELF32
++          // ARM contributes bit zero through a Thumb STT_FUNC symbol even
++          // when the MC expression has no explicit arithmetic addend.
++          if (BC.isARM() && BC.getFunctionForSymbol(Target))
++            TargetOutput |= 1;
 +
 +          json::Object DataRecord;
 +          DataRecord["owner_instruction_output_address"] =
@@ -9620,7 +9673,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..22993ca29b9ddfcb6cd50473f2451381
        std::make_unique<RetpolineInsertion>(PrintRetpolineInsertion));
  
 diff --git a/bolt/lib/Rewrite/JITLinkLinker.cpp b/bolt/lib/Rewrite/JITLinkLinker.cpp
-index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..257ec018a6e42043bcad38640b89d8aa827afca4 100644
+index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad2465185651752a 100644
 --- a/bolt/lib/Rewrite/JITLinkLinker.cpp
 +++ b/bolt/lib/Rewrite/JITLinkLinker.cpp
 @@ -12,6 +12,7 @@
@@ -9654,40 +9707,15 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..257ec018a6e42043bcad38640b89d8aa
      Config.PrePrunePasses.push_back(markSectionsLive);
      Config.PostAllocationPasses.push_back([this](auto &G) {
        MapSections([&G](const BinarySection &Section, uint64_t Address) {
-@@ -126,6 +143,12 @@ struct JITLinkLinker::Context : jitlink::JITLinkContext {
-       LLVM_DEBUG(dbgs() << "BOLT: looking for " << SymName << "\n");
- 
-       if (auto SymInfo = Linker.lookupSymbolInfo(SymName)) {
-+        if (Linker.BC.isARM()) {
-+          if (const BinaryData *I = Linker.BC.getBinaryDataByName(SymName)) {
-+            if (Linker.BC.getFunctionForSymbol(I->getSymbol()))
-+              SymInfo->Address |= 1;
-+          }
-+        }
-         LLVM_DEBUG(dbgs() << "Resolved to address 0x"
-                           << Twine::utohexstr(SymInfo->Address) << "\n");
-         AllResults[Symbol.first] = orc::ExecutorSymbolDef(
-@@ -137,6 +160,19 @@ struct JITLinkLinker::Context : jitlink::JITLinkContext {
+@@ -137,6 +154,7 @@ struct JITLinkLinker::Context : jitlink::JITLinkContext {
          uint64_t Address = I->isMoved() && !I->isJumpTable()
                                 ? I->getOutputAddress()
                                 : I->getAddress();
 +
-+        // ELF encodes a Thumb function target by setting bit zero of its
-+        // symbol value.  The executable address tracked by BinaryData is the
-+        // naturally aligned instruction address, but ARM JITLink uses the
-+        // symbol value to decide whether an interworking veneer is required.
-+        // Retained Cortex-M functions therefore have to be presented to the
-+        // linker as Thumb targets.  Keep this conversion local to callable
-+        // symbol resolution: data addresses and final firmware placement must
-+        // remain unmodified.
-+        if (Linker.BC.isARM() &&
-+            Linker.BC.getFunctionForSymbol(I->getSymbol()))
-+          Address |= 1;
-+
          LLVM_DEBUG(dbgs() << "Resolved to address 0x"
                            << Twine::utohexstr(Address) << "\n");
          AllResults[Symbol.first] = orc::ExecutorSymbolDef(
-@@ -197,9 +233,13 @@ void JITLinkLinker::loadObject(MemoryBufferRef Obj,
+@@ -197,9 +215,13 @@ void JITLinkLinker::loadObject(MemoryBufferRef Obj,
      exit(1);
    }
  
@@ -11046,10 +11074,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3a4b0d5dc853c898ea36cec1d5773959
      }
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..1f0a6ee251b9ad20281734fcc7ce95b7ab3f4d42
+index 0000000000000000000000000000000000000000..c1af860abbe0af528c2f337ac8b7a7eafc39de7b
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2433 @@
+@@ -0,0 +1,2434 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -12405,9 +12433,10 @@ index 0000000000000000000000000000000000000000..1f0a6ee251b9ad20281734fcc7ce95b7
 +                 .addImm(ARMCC::AL)
 +                 .addReg(0);
 +      setTailCall(Inst);
-+      const MCExpr *TargetExpr = MCBinaryExpr::createAdd(
-+          MCSymbolRefExpr::create(Target, *Ctx),
-+          MCConstantExpr::create(1, *Ctx), *Ctx);
++      // The ELF symbol is Thumb-typed, so AArch32 data relocation semantics
++      // already contribute the state bit through S. Keep A zero here; adding
++      // another one would materialize Target + 2.
++      const MCExpr *TargetExpr = MCSymbolRefExpr::create(Target, *Ctx);
 +      setInlineData(Inst, InlineData{Literal, TargetExpr, 4, 4});
 +      Sequence.push_back(Inst);
 +      return;
@@ -12782,7 +12811,7 @@ index 0000000000000000000000000000000000000000..1f0a6ee251b9ad20281734fcc7ce95b7
 +        if (!LiteralTarget)
 +          return {};
 +        const int64_t LiteralAddend =
-+            LoadElim ? static_cast<int64_t>(VtableSyms[I].second) : 1;
++            LoadElim ? static_cast<int64_t>(VtableSyms[I].second) : 0;
 +        Thumb1TargetExpr = MCSymbolRefExpr::create(LiteralTarget, *Ctx);
 +        if (LiteralAddend)
 +          Thumb1TargetExpr = MCBinaryExpr::createAdd(
@@ -20169,7 +20198,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..68fe1fbf3d9c52bc5bfca7af06ea2631
      return ELF::R_ARM_NONE;
    }
 diff --git a/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp b/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
-index cc606b8278d267fd03e013e697afc38b1ed153c2..acd972e5016fd7a77f751e0658355af38e8d0e56 100644
+index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402fed66fbd 100644
 --- a/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
 +++ b/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
 @@ -219,6 +219,21 @@ struct ThumbRelocation {
@@ -20356,7 +20385,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..acd972e5016fd7a77f751e0658355af3
    default:
      return make_error<JITLinkError>(
          "In graph " + G.getName() + ", section " + B.getSection().getName() +
-@@ -455,12 +585,33 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
+@@ -455,12 +585,36 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
    int64_t Addend = E.getAddend();
    Symbol &TargetSymbol = E.getTarget();
    uint64_t TargetAddress = TargetSymbol.getAddress().getValue();
@@ -20367,6 +20396,9 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..acd972e5016fd7a77f751e0658355af3
 +  // separately and are unaffected by this data-path adjustment.
 +  const uint64_t ThumbPointerBit =
 +      hasTargetFlags(TargetSymbol, ThumbSymbol) ? 1 : 0;
++  // Thumb state is part of the ELF symbol value S, so REL arithmetic is
++  // S + A (or S + A - P). Producers that use a Thumb-typed symbol to encode
++  // an intentionally even local code identity must compensate in A.
  
    // Data relocations have alignment 1, size 4 (except R_ARM_ABS8 and
    // R_ARM_ABS16) and write the full 32-bit result (except R_ARM_PREL31).
@@ -20391,7 +20423,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..acd972e5016fd7a77f751e0658355af3
      if (!isInt<32>(Value))
        return makeTargetOutOfRangeError(G, B, E);
      if (LLVM_LIKELY(G.getEndianness() == endianness::little))
-@@ -470,7 +621,7 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
+@@ -470,7 +624,7 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
      return Error::success();
    }
    case Data_Pointer32: {
@@ -20400,7 +20432,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..acd972e5016fd7a77f751e0658355af3
      if (!isUInt<32>(Value))
        return makeTargetOutOfRangeError(G, B, E);
      if (LLVM_LIKELY(G.getEndianness() == endianness::little))
-@@ -578,9 +729,61 @@ Error applyFixupArm(LinkGraph &G, Block &B, const Edge &E) {
+@@ -578,9 +732,61 @@ Error applyFixupArm(LinkGraph &G, Block &B, const Edge &E) {
  
  Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
                        const ArmConfig &ArmCfg) {
@@ -20463,7 +20495,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..acd972e5016fd7a77f751e0658355af3
    if (Error Err = checkOpcode(G, R, Kind))
      return Err;
  
-@@ -590,6 +793,18 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
+@@ -590,6 +796,18 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
    uint64_t TargetAddress = TargetSymbol.getAddress().getValue();
  
    switch (Kind) {
@@ -20482,7 +20514,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..acd972e5016fd7a77f751e0658355af3
    case Thumb_Jump24: {
      if (!hasTargetFlags(TargetSymbol, ThumbSymbol))
        return make_error<JITLinkError>("Branch relocation needs interworking "
-@@ -667,6 +882,31 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
+@@ -667,6 +885,31 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
      return Error::success();
    }
  
@@ -20514,7 +20546,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..acd972e5016fd7a77f751e0658355af3
    default:
      return make_error<JITLinkError>(
          "In graph " + G.getName() + ", section " + B.getSection().getName() +
-@@ -918,6 +1158,8 @@ const char *getEdgeKindName(Edge::Kind K) {
+@@ -918,6 +1161,8 @@ const char *getEdgeKindName(Edge::Kind K) {
  
    switch (K) {
      KIND_NAME_CASE(Data_Delta32)
@@ -20523,7 +20555,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..acd972e5016fd7a77f751e0658355af3
      KIND_NAME_CASE(Data_Pointer32)
      KIND_NAME_CASE(Data_PRel31)
      KIND_NAME_CASE(Data_RequestGOTAndTransformToDelta32)
-@@ -926,11 +1168,18 @@ const char *getEdgeKindName(Edge::Kind K) {
+@@ -926,11 +1171,18 @@ const char *getEdgeKindName(Edge::Kind K) {
      KIND_NAME_CASE(Arm_MovwAbsNC)
      KIND_NAME_CASE(Arm_MovtAbs)
      KIND_NAME_CASE(Thumb_Call)

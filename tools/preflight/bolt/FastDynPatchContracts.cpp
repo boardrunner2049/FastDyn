@@ -3968,6 +3968,12 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
                 "synthesized inline-data target %s has no final address",
                 Target->getName().str().c_str());
           }
+          // The layout manifest records the scalar actually stored in the
+          // image, not merely the canonical instruction byte address. ELF32
+          // ARM contributes bit zero through a Thumb STT_FUNC symbol even
+          // when the MC expression has no explicit arithmetic addend.
+          if (BC.isARM() && BC.getFunctionForSymbol(Target))
+            TargetOutput |= 1;
 
           json::Object DataRecord;
           DataRecord["owner_instruction_output_address"] =
