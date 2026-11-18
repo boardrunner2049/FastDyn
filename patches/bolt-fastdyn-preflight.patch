@@ -15160,10 +15160,10 @@ index 0000000000000000000000000000000000000000..f92bcc1c85276b812bb9d4cd925b14d2
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-function-reorder-relocs.s b/bolt/test/ARM/thumb-function-reorder-relocs.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..20225b986e3afcc605db38a6a7b3a1f7a22b42e3
+index 0000000000000000000000000000000000000000..7c6c2c0b2a132c5e34c69198b7672f20522b7235
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-function-reorder-relocs.s
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,197 @@
 +## Exercise the first whole-image Cortex-M relocation path.  Unlike compact
 +## publication, this mode may change function addresses.  The test checks the
 +## complete chain: explicit opt-in, typed flash placement, Thumb-state data
@@ -15179,6 +15179,16 @@ index 0000000000000000000000000000000000000000..20225b986e3afcc605db38a6a7b3a1f7
 +# RUN:   --function-order=%t/order.txt \
 +# RUN:   --fastdyn-firmware-report=%t/report.json -o %t/candidate.elf 2>&1 \
 +# RUN:   | FileCheck %s --check-prefix=BOLT
++
++## The same relocation path must accept BOLT's profile-derived ordering rather
++## than depending on a hand-written order.  worker_a is hottest, followed by
++## Reset_Handler and worker_b.
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --reorder-functions=exec-count \
++# RUN:   --fastdyn-firmware-report=%t/profile-report.json \
++# RUN:   -o %t/profile-candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=PROFILE-BOLT
 +
 +## Relocation mode is never implicit for ARM firmware and cannot use BOLT's
 +## generic "allocate after the final PT_LOAD" placement policy.
@@ -15204,10 +15214,21 @@ index 0000000000000000000000000000000000000000..20225b986e3afcc605db38a6a7b3a1f7
 +# RUN: llvm-objdump -d %t/candidate.elf | FileCheck %s --check-prefix=CODE
 +# RUN: %python -c "import json; d=json.load(open('%t/report.json.layout.json')); print([(f['name'],hex(f['original_address']),hex(f['output_address']),len(f['instruction_origins'])) for f in d['functions']])" \
 +# RUN:   | FileCheck %s --check-prefix=ORIGINS
++# RUN: llvm-readelf -hsW %t/profile-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=PROFILE-ELF
++# RUN: llvm-readelf -rW %t/profile-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=PROFILE-RELOCS
++# RUN: llvm-objdump -d %t/profile-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=PROFILE-CODE
++# RUN: %python -c "import json; d=json.load(open('%t/profile-report.json.layout.json')); print([(f['name'],hex(f['original_address']),hex(f['output_address']),len(f['instruction_origins'])) for f in d['functions']])" \
++# RUN:   | FileCheck %s --check-prefix=PROFILE-ORIGINS
 +
 +# BOLT: BOLT-INFO: 3 functions pinned by order file
 +# BOLT: BOLT-INFO: using original .text for new code with 0x40 alignment
 +# BOLT: BOLT-INFO: FastDyn wrote linker-resolved firmware layout
++# PROFILE-BOLT: BOLT-INFO: 3 out of 3 functions in the binary (100.0%) have non-empty execution profile
++# PROFILE-BOLT: BOLT-INFO: using original .text for new code with 0x40 alignment
++# PROFILE-BOLT: BOLT-INFO: FastDyn wrote linker-resolved firmware layout
 +# NO-RELOCS: BOLT-ERROR: function reordering only works when relocations are enabled
 +# NO-PLACEMENT: BOLT-ERROR: Cortex-M relocation mode currently requires --use-old-text so all emitted code remains inside the qualified input flash range
 +# MISSING: BOLT-ERROR: relocations against code are missing from the input file. Cannot proceed in relocations mode (-relocs).
@@ -15246,6 +15267,25 @@ index 0000000000000000000000000000000000000000..20225b986e3afcc605db38a6a7b3a1f7
 +# CODE: 0800011c <worker_a>:
 +
 +# ORIGINS: [('Reset_Handler', '0x8000100', '0x8000104', 7), ('worker_a', '0x8000118', '0x800011c', 2), ('worker_b', '0x800011c', '0x8000100', 2)]
++
++# PROFILE-ELF: Entry point address: 0x8000105
++# PROFILE-ELF: 08000105 24 FUNC {{.*}} Reset_Handler
++# PROFILE-ELF: 08000101 4 FUNC {{.*}} worker_a
++# PROFILE-ELF: 0800011d 4 FUNC {{.*}} worker_b
++# PROFILE-RELOCS: R_ARM_THM_CALL 08000101 worker_a
++# PROFILE-RELOCS: R_ARM_THM_CALL 0800011d worker_b
++# PROFILE-RELOCS: R_ARM_THM_JUMP24 08000118 fixture_halt
++# PROFILE-RELOCS: R_ARM_ABS32 08000105 Reset_Handler
++
++# PROFILE-CODE: 08000100 <worker_a>:
++# PROFILE-CODE: 08000104 <Reset_Handler>:
++# PROFILE-CODE: bl 0x8000100 <worker_a>
++# PROFILE-CODE: bl 0x800011c <worker_b>
++# PROFILE-CODE: 08000118 <fixture_halt>:
++# PROFILE-CODE: b.w 0x8000118 <fixture_halt>
++# PROFILE-CODE: 0800011c <worker_b>:
++
++# PROFILE-ORIGINS: [('Reset_Handler', '0x8000100', '0x8000104', 7), ('worker_a', '0x8000118', '0x8000100', 2), ('worker_b', '0x800011c', '0x800011c', 2)]
 +
 +//--- fixture.s
 +.syntax unified
@@ -15315,6 +15355,12 @@ index 0000000000000000000000000000000000000000..20225b986e3afcc605db38a6a7b3a1f7
 +worker_b
 +Reset_Handler
 +worker_a
++
++//--- profile.fdata
++no_lbr
++1 worker_a 0 1000
++1 Reset_Handler 0 100
++1 worker_b 0 10
 diff --git a/bolt/test/ARM/thumb-jump-table-promotion-flags-live.s b/bolt/test/ARM/thumb-jump-table-promotion-flags-live.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..be9694630c66d306d493dd4feffd9b246130982d

@@ -84,6 +84,10 @@ M3_FUNCTION_REORDER_ORDER = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_reorder.order"
 )
+M3_FUNCTION_REORDER_PROFILE = (
+    ROOT
+    / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_reorder.fdata"
+)
 M3_LOOP_INVERSION_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_loop_inversion.s"
 )
@@ -761,6 +765,7 @@ def validate_in_place(reference: Path, candidate: Path,
 def validate_relocated_function_order(
     reference: Path, candidate: Path,
     final_layout: dict[str, Any] | None = None,
+    *, profile_ordered: bool = False,
 ) -> dict[str, Any]:
     """Validate a relocation-mode Cortex-M image as one atomic artifact.
 
@@ -794,12 +799,21 @@ def validate_relocated_function_order(
         name: symbol_address(candidate, name)
         for name in ("Reset_Handler", "worker_a", "worker_b", "fixture_halt")
     }
-    expected_moved = {
-        "worker_b": 0x08000100,
-        "Reset_Handler": 0x08000104,
-        "fixture_halt": 0x08000118,
-        "worker_a": 0x0800011C,
-    }
+    expected_moved = (
+        {
+            "worker_a": 0x08000100,
+            "Reset_Handler": 0x08000104,
+            "fixture_halt": 0x08000118,
+            "worker_b": 0x0800011C,
+        }
+        if profile_ordered else
+        {
+            "worker_b": 0x08000100,
+            "Reset_Handler": 0x08000104,
+            "fixture_halt": 0x08000118,
+            "worker_a": 0x0800011C,
+        }
+    )
     if moved != expected_moved:
         raise RuntimeError(
             f"unexpected relocation-mode function order: {moved}"
@@ -826,8 +840,8 @@ def validate_relocated_function_order(
         candidate, ".rel.isr_vector"
     )
     expected_text_relocations = [
-        (0x0800010C, 10, "worker_a", 0x0800011D),
-        (0x08000112, 10, "worker_b", 0x08000101),
+        (0x0800010C, 10, "worker_a", moved["worker_a"] | 1),
+        (0x08000112, 10, "worker_b", moved["worker_b"] | 1),
         (0x08000118, 30, "fixture_halt", 0x08000118),
     ]
     observed_text_relocations = [
@@ -897,8 +911,12 @@ def validate_relocated_function_order(
     if final_layout is not None:
         expected_origins = {
             "Reset_Handler": (0x08000100, 0x08000104, 7),
-            "worker_a": (0x08000118, 0x0800011C, 2),
-            "worker_b": (0x0800011C, 0x08000100, 2),
+            "worker_a": (
+                0x08000118, expected_moved["worker_a"], 2
+            ),
+            "worker_b": (
+                0x0800011C, expected_moved["worker_b"], 2
+            ),
         }
         origin_summary = {}
         for function in final_layout["functions"]:
@@ -932,6 +950,9 @@ def validate_relocated_function_order(
     return {
         "status": "accepted",
         "placement_policy": "reuse_linker_qualified_input_text",
+        "order_policy": (
+            "profile_exec_count" if profile_ordered else "explicit_user"
+        ),
         "program_headers_exact": True,
         "text_range": {
             "address": candidate_text["address"],
@@ -960,20 +981,25 @@ def build_m3_fixture(output: Path, logs: Path) -> Path:
     return image
 
 
-def build_m3_function_reorder_fixture(output: Path, logs: Path) -> Path:
+def build_m3_function_reorder_fixture(
+    output: Path, logs: Path, *, profile_ordered: bool = False,
+) -> Path:
     """Build the relocation-complete whole-image ordering fixture."""
-    object_path = output / "firm-bolt-cortex-m3-function-reorder.o"
-    image = output / "firm-bolt-cortex-m3-function-reorder-reference.elf"
+    variant = (
+        "profile-function-reorder" if profile_ordered else "function-reorder"
+    )
+    object_path = output / f"firm-bolt-cortex-m3-{variant}.o"
+    image = output / f"firm-bolt-cortex-m3-{variant}-reference.elf"
     require_success(run([
         str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
         "-mcpu=cortex-m3", str(M3_FUNCTION_REORDER_SOURCE),
         "-o", str(object_path),
-    ], logs / "build-m3-function-reorder-object.log"),
+    ], logs / f"build-m3-{variant}-object.log"),
         "M3 function-reorder object build")
     require_success(run([
         str(LD_LLD), "--emit-relocs", "-T",
         str(M3_FUNCTION_REORDER_LINKER), str(object_path), "-o", str(image),
-    ], logs / "build-m3-function-reorder-image.log"),
+    ], logs / f"build-m3-{variant}-image.log"),
         "M3 function-reorder image build")
     return image
 
@@ -2413,6 +2439,9 @@ def main() -> int:
     m3_function_reorder_image = build_m3_function_reorder_fixture(
         output, logs
     )
+    m3_profile_function_reorder_image = build_m3_function_reorder_fixture(
+        output, logs, profile_ordered=True
+    )
     m3_loop_inversion_image = build_m3_loop_inversion_fixture(output, logs)
     m3_loop_inversion_profile = write_m3_loop_inversion_profile(output)
     m3_peephole_image = build_m3_peephole_fixture(output, logs)
@@ -2553,6 +2582,13 @@ def main() -> int:
              "--use-old-text",
              "--reorder-functions=user",
              f"--function-order={M3_FUNCTION_REORDER_ORDER}",
+         ]),
+        ("m3_profile_function_reorder", "cortex-m3",
+         m3_profile_function_reorder_image, {}, [
+             f"--data={M3_FUNCTION_REORDER_PROFILE}",
+             "--relocs",
+             "--use-old-text",
+             "--reorder-functions=exec-count",
          ]),
         ("m3_loop_inversion", "cortex-m3", m3_loop_inversion_image,
          {".isr_vector": None}, [
@@ -2956,8 +2992,16 @@ def main() -> int:
                 )
             ],
             "validation": (
-                validate_relocated_function_order(image, candidate)
-                if label == "m3_function_reorder"
+                validate_relocated_function_order(
+                    image, candidate,
+                    profile_ordered=(
+                        label == "m3_profile_function_reorder"
+                    ),
+                )
+                if label in {
+                    "m3_function_reorder",
+                    "m3_profile_function_reorder",
+                }
                 else validate_in_place(image, candidate, protected)
             ),
             "mapping_symbol_validation": validate_arm_mapping_symbols(
@@ -2991,10 +3035,16 @@ def main() -> int:
                     )
                 )
             results[label]["final_layout_report"] = final_layout
-            if label == "m3_function_reorder":
+            if label in {
+                "m3_function_reorder",
+                "m3_profile_function_reorder",
+            }:
                 results[label]["validation"] = (
                     validate_relocated_function_order(
-                        image, candidate, final_layout
+                        image, candidate, final_layout,
+                        profile_ordered=(
+                            label == "m3_profile_function_reorder"
+                        ),
                     )
                 )
             results[label]["inline_jump_table_validation"] = (
@@ -5071,6 +5121,15 @@ def main() -> int:
             expected_words=(17, 42),
         )
     )
+    m3_profile_function_reorder_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_profile_function_reorder_image,
+            candidates["m3_profile_function_reorder"], output,
+            args.fastdyn.resolve(), "profile-function-reorder",
+            expected_words=(17, 42),
+        )
+    )
     m3_loop_inversion_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -5166,6 +5225,7 @@ def main() -> int:
             m3_taildup_propagation_execution,
             m3_rodata_load_execution,
             m3_function_reorder_execution,
+            m3_profile_function_reorder_execution,
             m3_loop_inversion_execution,
             m3_peephole_execution,
             m3_icp_execution,
@@ -5284,6 +5344,13 @@ def main() -> int:
                 "sha256": sha256(m3_profile),
                 "format": "BOLT no-LBR function-relative profile",
                 "policy": "ext-tsp",
+            },
+            "m3_profile_function_order": {
+                "path": str(M3_FUNCTION_REORDER_PROFILE),
+                "sha256": sha256(M3_FUNCTION_REORDER_PROFILE),
+                "format": "BOLT no-LBR function-relative profile",
+                "policy": "exec-count whole-image function order inside "
+                          "the linker-qualified input .text flash extent",
             },
             "m3_taildup_worker": {
                 "path": str(m3_taildup_profile),
@@ -5416,6 +5483,8 @@ def main() -> int:
             m3_rodata_load_execution,
         "m3_whole_image_function_reorder_architectural_execution":
             m3_function_reorder_execution,
+        "m3_profile_driven_function_reorder_architectural_execution":
+            m3_profile_function_reorder_execution,
         "m3_native_loop_inversion_architectural_execution":
             m3_loop_inversion_execution,
         "m3_native_control_flow_peephole_architectural_execution":
@@ -5438,8 +5507,9 @@ def main() -> int:
         "scope": {
             "emission": (
                 "compact in-place publication by default; the explicit "
-                "m3_function_reorder gate performs atomic whole-image "
-                "relocation inside the exact original .text PT_LOAD"
+                "m3_function_reorder and m3_profile_function_reorder gates "
+                "perform atomic whole-image relocation inside the exact "
+                "original .text PT_LOAD"
             ),
             "unknown_functions": (
                 "compact mode retains the original implementation; "
@@ -5504,7 +5574,7 @@ def main() -> int:
                 "opt-in native BOLT tail duplication for profiled Thumb blocks with execution-multiplicity admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in register-only constant/copy propagation after Thumb tail duplication under a separate definition-deletion contract, with descriptor-aware Thumb MOV source discovery, encoding-class-checked replacements, exact retained/clone identities, compact publication and Cortex-M3 hot/cold execution",
                 "opt-in native BOLT read-only-load simplification for linked allocatable non-writable relocation-free scalar data on Thumb-2, using flag-preserving MOVW/MOVT materialization under an explicit read/fault/timing-elision contract, exact transformed-source origins, compact in-place emission, and Cortex-M3 execution",
-                "explicit ARM relocation mode with native BOLT user-directed whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
+                "explicit ARM relocation mode with native BOLT user-directed and profile exec-count whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
                 "opt-in native BOLT loop inversion for profiled Thumb loops with branch-timing admission, exact moved/synthesized instruction origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT double-jump control-flow peepholes with branch-event admission, exact retained instruction origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT indirect-call promotion for profiled ordinary Thumb-2 register calls under explicit AAPCS and call-event contracts, including r12/IP targets using LR as non-memory guard scratch because both call paths overwrite it, with exact direct/fallback identities, compact in-place emission, and Cortex-M3 execution",
@@ -5537,7 +5607,7 @@ def main() -> int:
                 "Thumb literal islands without a proven non-fallthrough owner",
                 "additional ARM relocation classes beyond the modeled compact set",
                 "out-of-function Thumb veneer placement without explicit typed slots or under arbitrary whole-image layout",
-                "profile-driven whole-image function-order algorithms and splitting beyond the executed relocation-complete user-order gate",
+                "call-graph-driven whole-image function-order algorithms and function splitting beyond the executed relocation-complete user-order and exec-count gates",
                 "DSP/FPU/MVE-specific optimization rewrites",
             ],
         },
@@ -5576,6 +5646,8 @@ def main() -> int:
         "m3_rodata_load_candidate": str(candidates["m3_rodata_load"]),
         "m3_function_reorder_candidate":
             str(candidates["m3_function_reorder"]),
+        "m3_profile_function_reorder_candidate":
+            str(candidates["m3_profile_function_reorder"]),
         "m3_loop_inversion_candidate":
             str(candidates["m3_loop_inversion"]),
         "m3_peephole_candidate": str(candidates["m3_peephole"]),

@@ -103,10 +103,10 @@ opt-in profiled ordinary (including target-in-`r12`) and
 tail-indirect-call-promotion Cortex-M3 fixtures,
 an opt-in immutable-vtable method-load-elimination Cortex-M3 fixture,
 opt-in profiled TBB, in-function ABS32 and relocation-complete detached ABS32
-hot-index-promotion Cortex-M3 fixtures, an explicit relocation-complete
-whole-image function-ordering Cortex-M3 fixture, and the real Cortex-M4
-FreeRTOS image.
-The 18 November production-parity-v113 run accepts all twenty-nine without
+hot-index-promotion Cortex-M3 fixtures, explicit user-directed and
+profile-execution-count relocation-complete whole-image function-ordering
+Cortex-M3 fixtures, and the real Cortex-M4 FreeRTOS image.
+The 18 November production-parity-v114 run accepts all thirty without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -133,6 +133,14 @@ and write `(17, 42)`. The one-shot elapsed readings are deliberately excluded
 from performance claims. This qualifies user-directed relocation-complete
 ordering, not profile-derived ordering, function splitting or arbitrary
 firmware reference completeness.
+
+The thirtieth profile replaces the order file with a frozen no-LBR profile and
+`--reorder-functions=exec-count`. All three functions are profiled; the 1000,
+100 and 10 execution counts place `worker_a`, `Reset_Handler` and `worker_b`
+at `0x08000100`, `0x08000104` and `0x0800011c`. The same exact PT_LOAD,
+`.text`, vector/entry, SHT_REL, origin and FastDyn `(17, 42)` gates pass. This
+closes profile-driven execution-count ordering for the qualified image. It
+does not yet qualify call-graph-driven HFSort/CDSort or function splitting.
 
 The v76 gate retains the firmware gap fix exposed by the earlier M4 run.
 Ordinary BOLT CFG finalization can remove explicit branches to the next block
@@ -686,22 +694,22 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v113-function-reorder-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v114-profile-function-reorder-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v113-function-reorder-2026-11-18/report.json),
-SHA-256 `b23ac53e97cf1c96fc78c296286d559bb133f20a25c40f42469b30c1e8f9216a`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v114-profile-function-reorder-2026-11-18/report.json),
+SHA-256 `3a46ac5d3b54cc2debeee1c9e6d7620a9a50b2fba4953683188bc56dba1f3225`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v113-function-reorder-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v114-profile-function-reorder-2026-11-18/validation-manifest.json)
 (SHA-256
-`f463e20c6cc6b8d0cda2361effea657c93655eda3523ea4186fb0b12c94b1c03`)
+`9dd3dd800ad614d71bb75a382f3bec306ad006ab8dad6088ba340fc2d8e95605`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`20f162a695f12b2dddb9650cbde385165414eea67fb597cdaecb30ed8513896e`),
+`74a5f7b9cb5081c1350f2bb88c6aedf6e4df4b89ca3ed1c35d1c29be4a7565e4`),
 which clean-applies across 107 changed/new paths to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
@@ -737,10 +745,12 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v113 validation supersedes those targeted counts with 56/56 BOLT
+The current v114 validation retains and extends the v113 counts with 56/56 BOLT
 ARM lit tests, 12/12 AArch32 JITLink lit tests, 79 passed plus 129 explicitly
 target-inapplicable BOLT Core parameterizations, and 19/19 AArch32 JITLink
-unit tests. Whole-image emission exposed four mechanisms that are now covered:
+unit tests. The function-order test now exercises both explicit and
+profile-derived execution-count ordering. Whole-image emission exposed four
+mechanisms that are now covered:
 byte-layout addresses remain canonical while Thumb callable state stays in
 symbol metadata; AArch32 data fixups apply ELF `S + A` before restoring the
 Thumb pointer bit; intentionally even ABS32 switch-table entries compensate
@@ -754,7 +764,7 @@ literal islands without a proven non-fallthrough owner, ARM relocation classes
 beyond the now-qualified JUMP6/ABS8/ABS16 set,
 veneer placement without explicit typed slots or under arbitrary
 whole-image layout, profile-guided function-order selection and splitting
-beyond the executed user-order relocation gate,
+beyond the executed user-order and execution-count relocation gates,
 non-ADR/ambiguous table-base data flow, DSP/FPU/MVE-specific optimization rules,
 Secure/Non-secure and PACBTI-M state transformations. Cortex-M4 DSP/FPU,
 Cortex-M55 MVE and Cortex-M85 PACBTI-M decode/exact retention are qualified
