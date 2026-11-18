@@ -52,6 +52,8 @@ model Copter
   output Real gps[3] "GPS latitude, longitude, altitude";
   output Real vel_ned[3] "GPS velocity NED [m/s]";
   output Real yaw_deg "Yaw [deg]";
+  output Real roll_deg "Roll [deg]";
+  output Real pitch_deg "Pitch [deg]";
   output Real baro_altitude_m "Barometer relative altitude [m]";
   output Real baro_pressure_pa "Barometer pressure [Pa]";
   output Real baro_temperature_c "Barometer temperature [degC]";
@@ -63,6 +65,8 @@ protected
   Real pwm_norm[4];
   Real gps_lat_lon[2];
   Real yaw_rad;
+  Real roll_rad;
+  Real pitch_rad;
 
 equation
   pwm_span = pwm_max - pwm_min;
@@ -91,10 +95,20 @@ equation
   vel_ned[2] = -plant.v_w[2];
   vel_ned[3] = -plant.v_w[3];
 
+
+  // radians are in NWU/FLU, degrees are converted to NED/FRD
+  roll_rad = atan2(2.0 * (plant.q[1] * plant.q[2] + plant.q[3] * plant.q[4]),
+                    1.0 - 2.0 * (plant.q[2] * plant.q[2] + plant.q[3] * plant.q[3]));
+  roll_deg = roll_rad * 180.0 / pi;
+
+  pitch_rad = asin(2.0 * (plant.q[1] * plant.q[3] - plant.q[4] * plant.q[2]));
+  pitch_deg = -pitch_rad * 180.0 / pi;
+
   yaw_rad = atan2(2.0 * (plant.q[1] * plant.q[4] + plant.q[2] * plant.q[3]),
                   1.0 - 2.0 * (plant.q[3] * plant.q[3] + plant.q[4] * plant.q[4]));
   yaw_deg = -yaw_rad * 180.0 / pi;
 
+  
   baro_altitude_m = plant.p[3] + baro_alt_bias;
   baro_temperature_c = 15.0 - 0.0065 * (ground_alt_wgs84 + baro_altitude_m);
   baro_pressure_pa = 101325.0 * (1.0 - 2.25577e-5 * (ground_alt_wgs84 + baro_altitude_m)) ^ 5.25588;
