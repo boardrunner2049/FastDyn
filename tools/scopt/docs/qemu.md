@@ -1,0 +1,148 @@
+# QEMU for scopt
+
+scopt works on the persistent TCG cache ("supercache", `.sc`) of FastDyn's QEMU fork.
+It needs three things from QEMU that the stock FastDyn fork does not have: a capture of
+the relocation metadata of every cached translation block (`.scm`), an exact software
+profile of a warm run (`.qprof`), and a loader for the `.sc` v6 format that B3 artifacts
+use. They live on the `scopt` branch of `https://github.com/boardrunner2049/qemu.git`,
+which is what this repository's `third_party/common/qemu` submodule is pinned to.
+
+Build steps are in `docs/getting-started.md` §3. This page explains the branch, what
+each part is for, and how scopt's data is tied to one QEMU executable.
+
+## The branch
+
+Base: `12f5e68807` "tcg: add persistent supercache support" (branch `fastdyn`), the
+FastDyn QEMU with the supercache backend (`tcg/supercache.c`, `.sc` v5). On top of it:
+
+| commit | title | what it adds | used by |
+|---|---|---|---|
+| `00c19f7ee0` | fastdyn: plugin icount compat patch | FastDyn's `patches/qemu-fastdyn-plugin-icount.patch` as a commit: virtual-time plugin API (`qemu_plugin_set_budget_exact_stop`, virtual-time budget timers), QOM/QMP additions | FastDyn itself (all runs) |
+| `2dfce24b2a` | tcg/supercache: base hooks for scc capture and scp profile | small accessors (`tcg_supercache_buffer`, `tcg_supercache_loaded_max_end`, `tcg_target_tb_ret_addr`) and empty capture/profile modules wired into the build, so the next two commits touch disjoint files | the two commits below |
+| `409e90ca08` | tcg/sc-capture: Tier 0 preparation capture | `QEMU_SC_CAPTURE=/abs/path.scm`: for every TB committed to the `.sc`, record its relocation sites (helper calls, branches, label jumps, exits, pool entries, slow paths), guest exits, code/guest hashes, host maps and RAM blocks, in the chunked `.scm` v1 format; observe only | `scopt prepare`, `scopt import` |
+| `a0681a6ac3` | accel/tcg: supercache exact software profile | `QEMU_SC_PROFILE=/abs/run.qprof` (+ `QEMU_SC_PROFILE_PHASES=name@0xVADDR,...`): run a warm cache with chaining disabled at run time only, count every TB entry and the edge into it, write `.qprof` v1 at exit | `scopt profile run` |
+| `934890ed51` | tcg/supercache: .sc v6 loader | load and arm the `.sc` v6 extension table (variants, guarded slots, SPEC links); disarm on TLB flush, breakpoints, single-step and plugin changes; `QEMU_SC_V6_STATS=/abs/file` counters. v5 files take the unchanged path; this binary still writes v5 | B3 artifacts, the v6 dynamic oracles |
+
+The capture and profile modes run only in preparation runs, are mutually exclusive, and
+refuse a flat supercache. Nothing on the normal vCPU path changes when their variables
+are unset (every hook is behind an `unlikely` flag). scopt sets and clears these
+variables itself and scrubs every `QEMU_SC_*` variable from the environment of other
+runs.
+
+The maintainer's binaries, for reference (their data ships with scopt):
+
+| name | tree | sha256 | role |
+|---|---|---|---|
+| WP-QINT | base + first four commits | `8864c72671971cf4…5f41` | B1/B2 evaluation |
+| gate | the whole branch (`934890ed51`; same tree as the maintainer's tag `qint-v6-gate-1`) | `56d8bfb32c91c970…0d90` | B3, B4, B5 evaluation |
+
+Your own build has a different sha256 even from the same sources; see "Binding" below.
+
+### The icount patch
+
+The FastDyn tree keeps `patches/qemu-fastdyn-plugin-icount.patch` for QEMU checkouts
+that do not have it. On this branch it is already commit `00c19f7ee0`. `setup.sh`
+detects that with `git apply --reverse --check` and skips it. Applying it by hand
+(`git apply`) fails on this branch; that failure is expected.
+
+## Build options
+
+```sh
+cd third_party/common/qemu && mkdir -p build && cd build
+../configure --target-list=arm-softmmu --enable-plugins
+make -j"$(nproc)" qemu-system-arm
+```
+
+- **Debug information is required.** `scopt envlayout produce` reads the layout of
+  `CPUArchState` and `CPUState` from DWARF with `gdb -nx -batch 'ptype/o …'`, and the
+  gdb-based diagnostics need symbols. QEMU's default configuration builds with `-g`
+  (the maintainer's builds report `debug=true`, `optimization=2` in
+  `build/meson-info/intro-buildoptions.json`). Do not strip the binary and do not
+  configure with `--disable-debug-info`.
+- `--enable-debug-tcg` is optional: it adds the profile mode's lookup assertion.
+- Build only `qemu-system-arm`. A full `ninja` fails to link `qemu-storage-daemon`,
+  because the icount commit references `budget_*` symbols that tool does not have.
+- Run gdb from outside the QEMU tree, with `-nx`: the tree has a `.gdbinit`.
+
+## Binding: everything is tied to one executable
+
+The supercache runtime signature covers the QEMU executable, so a `.sc` written by one
+binary is discarded by another. scopt goes further and binds its own per-executable
+data to the sha256 of `qemu-system-arm`:
+
+- **RuntimeIdentity** (`scopt bundle runtime-identity`) records `qemu_sha256`, the plugin
+  and the `.sc` header fields. `import`, `profile`, `deploy` and `validate` compare it
+  with the files in use and refuse a mismatch.
+- **EnvLayout** (`scopt/formats/envlayouts/<sha hex>.json`, plus the directories in
+  `SCOPT_ENVLAYOUT_PATH`): env-relative offset of every field reachable from the TCG
+  env pointer. B3 guards, the observation contract and HostOps typing read field names
+  only through it. Without a layout for the executable, B3/B4 refuse with
+  `guard_layout_unbound`.
+- **Helper effect table** (`scopt/formats/helper_effects/<sha hex>.json`, plus the
+  directories in `SCOPT_HELPER_EFFECTS_PATH`): for each TCG helper, what it may read and
+  write in env, whether it touches host memory, whether it may fault. TCG's call flags
+  (`TCG_CALL_NO_RWG`, ...) only speak about TCG globals, so they are not enough. A
+  helper without a row, or every helper when no table is bound, is "fail closed": it
+  may read and write all of env and host memory and fault. Artifacts stay correct, but
+  B3/B4 then cannot move or drop state across helper calls.
+- **v6 capability**: B3 artifacts are `.sc` v6 and are admitted only for executables
+  listed in `SCOPT_V6_EXES` (comma separated sha256), given with `--v6-exe`, or the
+  maintainer's frozen gate binary record.
+
+Any rebuild (even of the same sources) changes the sha256 and the runtime signature.
+After a rebuild: prepare again (old snapshots and artifacts do not carry over), produce
+the EnvLayout, rebind the helper effect table, and update `SCOPT_V6_EXES`.
+
+### Regenerate the EnvLayout
+
+```sh
+Q=third_party/common/qemu/build/qemu-system-arm
+QSHA=$(sha256sum $Q | cut -d' ' -f1)
+scopt envlayout produce --exe $Q --out "$SCOPT_ENVLAYOUT_PATH/$QSHA.json"
+scopt envlayout show --exe-sha256 sha256:$QSHA
+```
+
+The producer runs gdb from a fresh temporary directory, expands nested structs and
+arrays, and checks `offsetof(ArchCPU, env) == sizeof(CPUState)`. The file name must be
+the executable's sha256 in hex. The layout's `envlayout_id` is a content hash, so the
+same sources and compiler give the same id.
+
+### Adopt the helper effect table for a new build
+
+The rows of a table were checked by hand against the helper sources listed in its
+`qemu_source` (`files`, with a sha256 of each in `file_sha256`; `commit` names the tree
+they were read in). If those files are unchanged in your tree, the rows still hold for
+your build and you can copy the table:
+
+```sh
+scopt helper-effects rebind \
+  --from-exe-sha 56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90 \
+  --exe $Q [--qemu-src third_party/common/qemu] [--out FILE]
+```
+
+- `--qemu-src` defaults to the tree that holds `build/qemu-system-arm`.
+- The command hashes each listed file under `--qemu-src` and compares it with
+  `file_sha256` (for an older table without hashes it reads the files of
+  `qemu_source.commit` with git, which needs that commit in `--qemu-src`). On any
+  difference it writes nothing, lists the differing or missing files, and exits 1.
+- On a match it writes the same rows bound to the new sha256, with `file_sha256` and
+  `rebound_from` recorded and `table_id` recomputed, to `--out` or to
+  `<first SCOPT_HELPER_EFFECTS_PATH directory>/<sha hex>.json`. It refuses to overwrite
+  a different existing file without `--force`.
+- `scopt helper-effects show --exe $Q` prints the table now bound to an executable.
+
+When the sources differ, write a new table: start from a copy, re-read every listed
+file (and the source of any helper your snapshots call that has no row; the `.scm`
+capture lists every helper with its TCG flags: `scopt meta dump --jsonl --type HELPER
+capture.scm`), fix the rows, update `files`/`file_sha256`/`commit`, set `exe_sha256`, and
+recompute `table_id` (`HelperEffectTable.build(...).to_json()` in
+`scopt/analysis/helper_effects.py`). The format and the rules each row must satisfy are
+documented at the top of that module. The design behind the table is
+`docs/design/helper-inlining-design.md` (finding F13).
+
+## Running QEMU directly
+
+Everything above runs through scopt, which launches FastDyn under `setarch x86_64 -R`
+with a scrubbed environment and a fresh run directory. When you run QEMU or FastDyn
+yourself with a supercache, disable ASLR the same way, keep `supercache_flat = false`,
+and use icount `shift = 0` for repeatable runs.
