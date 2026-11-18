@@ -31,3 +31,9 @@ build
 
 # Local documentation
 /docs/local/
+
+# Reproducible Student 1 tool builds and generated evidence workdirs.  The
+# pinned LLVM source itself is a tracked submodule; retained evidence lives
+# under docs/preflight/evidence.
+/third_party/preflight/*
+!/third_party/preflight/llvm-project
