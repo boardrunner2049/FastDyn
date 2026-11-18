@@ -50,7 +50,7 @@ static int init_robustness_trace_csv(void)
     }
     if (fprintf(robustness_trace_csv,
                 // translational accelerations
-                ",vel_n,vel_e,vel_d, pwm") < 0) { // role rate is rate of rotating about x axis
+                ",vel_n,vel_e,vel_d,pwm") < 0) { // role rate is rate of rotating about x axis
         goto write_error;
     }
     if (fputc('\n', robustness_trace_csv) == EOF ||
