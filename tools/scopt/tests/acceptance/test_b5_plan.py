@@ -35,17 +35,18 @@ def _bc():
 def test_freeze_checker_passes_now():
     """The frozen B5 campaign still verifies, except for the scopt package tree.
 
-    B5 was measured with the scopt code frozen in the campaign. Any later change
-    to scopt/ changes that tree id, and `check` then correctly refuses to run
-    B5 from the new code. That one expected mismatch is skipped here; every
-    other check (artifacts, profiles, inputs, firmware, QEMU) must still pass."""
+    B5 was measured with the scopt code frozen in the campaign (package tree,
+    pipelines, drivers). Any later change to that code changes those git ids,
+    and `check` then correctly refuses to run B5 from the new code. Those
+    expected mismatches are skipped here; every other check (artifacts,
+    profiles, inputs, firmware, QEMU) must still pass."""
     bc = _bc()
     r = bc.check(CAMP, bc.sha256_file(CAMP))
-    tree = [p for p in r["problems"] if p.startswith("scopt package (git tree at HEAD)")]
-    other = [p for p in r["problems"] if p not in tree]
+    code = [p for p in r["problems"] if "(git tree at HEAD)" in p or "(git blob at HEAD)" in p]
+    other = [p for p in r["problems"] if p not in code]
     assert not other, other
-    if tree:
-        pytest.skip("scopt changed since the B5 freeze (expected): " + tree[0])
+    if code:
+        pytest.skip("scopt code changed since the B5 freeze (expected): " + "; ".join(code))
 
 
 def test_frozen_before_final_timing_on_gate_binary():

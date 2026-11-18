@@ -182,11 +182,11 @@ def code_identity(wt: Path = WT, def_rel: str = "campaigns/b5-freertos.def.toml"
                   ) -> dict[str, Any]:
     dirty = git("status", "--porcelain", "--", "scopt", "pipelines", DRIVER_REL, def_rel,
                 "tests/qemu/b2_campaign.py", cwd=wt)
-    return {"scopt_tree": git("rev-parse", "HEAD:scopt", cwd=wt),
-            "pipelines_tree": git("rev-parse", "HEAD:pipelines", cwd=wt),
-            "driver_blob": git("rev-parse", f"HEAD:{DRIVER_REL}", cwd=wt),
-            "helper_blob": git("rev-parse", "HEAD:tests/qemu/b2_campaign.py", cwd=wt),
-            "definition_blob": git("rev-parse", f"HEAD:{def_rel}", cwd=wt),
+    return {"scopt_tree": git("rev-parse", "HEAD:./scopt", cwd=wt),
+            "pipelines_tree": git("rev-parse", "HEAD:./pipelines", cwd=wt),
+            "driver_blob": git("rev-parse", f"HEAD:./{DRIVER_REL}", cwd=wt),
+            "helper_blob": git("rev-parse", "HEAD:./tests/qemu/b2_campaign.py", cwd=wt),
+            "definition_blob": git("rev-parse", f"HEAD:./{def_rel}", cwd=wt),
             "dirty": [x for x in dirty.splitlines() if x.strip()]}
 
 

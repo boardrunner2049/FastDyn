@@ -94,9 +94,9 @@ def git(*args: str, cwd: Path = WT) -> str:
 def code_identity(wt: Path = WT) -> dict[str, Any]:
     """Git ids of the scopt package and of this driver at HEAD, plus uncommitted changes."""
     dirty = git("status", "--porcelain", "--", "scopt", "pipelines", DRIVER_REL, cwd=wt)
-    return {"scopt_tree": git("rev-parse", "HEAD:scopt", cwd=wt),
-            "pipelines_tree": git("rev-parse", "HEAD:pipelines", cwd=wt),
-            "driver_blob": git("rev-parse", f"HEAD:{DRIVER_REL}", cwd=wt),
+    return {"scopt_tree": git("rev-parse", "HEAD:./scopt", cwd=wt),
+            "pipelines_tree": git("rev-parse", "HEAD:./pipelines", cwd=wt),
+            "driver_blob": git("rev-parse", f"HEAD:./{DRIVER_REL}", cwd=wt),
             "dirty": [x for x in dirty.splitlines() if x.strip()]}
 
 
