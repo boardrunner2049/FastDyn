@@ -11,6 +11,7 @@ Doxyfile.bak
 *fastdyn_work*
 
 fastdyn-env
+scopt-env
 build
 *.bin
 *bbl.txt

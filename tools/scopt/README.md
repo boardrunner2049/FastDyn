@@ -37,7 +37,12 @@ milestones were evaluated and name places outside the repository:
 
 - `$FASTDYN_ROOT` is the workspace scopt's drivers write to (`runs/...`) and read
   fixtures from (`fixtures/...`). Set it to a directory of your own; tests that need the
-  maintainer's recorded runs or fixtures skip when they are absent.
+  maintainer's recorded runs or fixtures skip when they are absent, with a message that
+  names the missing path. Unset, it defaults to the directory that holds `tools/`
+  (the FastDyn checkout root); `SCOPT_FASTDYN_SRC` (the FastDyn build scopt launches)
+  defaults to that checkout. Both defaults are in `scopt/paths.py`.
+- The campaign files in `campaigns/` are frozen records of the maintainer's evaluation
+  and name the maintainer's paths.
 - "the maintainer's evaluation data", "evaluation report" and "notes" name material that
   is not in the repository.
 - "WP-QINT QEMU" and "gate QEMU" are builds of the QEMU `scopt` branch (`docs/qemu.md`).

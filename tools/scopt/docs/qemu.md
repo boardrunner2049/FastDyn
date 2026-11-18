@@ -111,7 +111,9 @@ same sources and compiler give the same id.
 
 The rows of a table were checked by hand against the helper sources listed in its
 `qemu_source` (`files`, with a sha256 of each in `file_sha256`; `commit` names the tree
-they were read in). If those files are unchanged in your tree, the rows still hold for
+they were read in). For the shipped gate table that commit is `4671d5ceda`, the
+maintainer's commit before the branch was rewritten for publication; it is not on
+GitHub, and `934890ed51` has the same tree. If those files are unchanged in your tree, the rows still hold for
 your build and you can copy the table:
 
 ```sh

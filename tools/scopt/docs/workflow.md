@@ -52,7 +52,7 @@ Held-out and final inputs are never used for training (`fixtures/inputs/README.m
 |---|---|---|---|
 | identity (no-change pass) | `scopt optimize $W/store/snapshots/<id> --pipeline identity --store $W/out/identity` | `.sc` v5, byte-equal to the input (V9) | `docs/link-validate.md` |
 | B2 layout | `scopt optimize ... --pipeline b2-layout --profile $W/prof/merged.profile.json --store $W/out/layout [--disable cluster-hot\|order-cold]` | `.sc` v5 for the unmodified loader | `docs/b2-layout.md` |
-| B3 cross-TB | `scopt optimize ... --pipeline b3 --b3 --runtime-identity $W/runtime_identity.v2.json --prep $W/prep --profile ... --selftest hostsym_selftest.json --store $W/out/b3 [--disable PASS\|--only PASS]` | `.sc` v6 (gate binary only), hostsym-certified (V12/V14/V18) | `docs/b3-passes.md`, `docs/b3-link-v6.md`, `docs/hostsym.md` |
+| B3 cross-TB | `scopt optimize ... --pipeline b3 --b3 --runtime-identity $W/runtime_identity.v2.json --prep $W/prep --profile ... --selftest hostsym_selftest.json --store $W/out/b3 [--disable PASS\|--only PASS]` | `.sc` v6 (a QEMU with the v6 loader: `SCOPT_V6_EXES`, `--v6-exe`; the evaluation used the gate binary), hostsym-certified (V12/V14/V18) | `docs/b3-passes.md`, `docs/b3-link-v6.md`, `docs/hostsym.md` |
 | B4 state sync | `scopt b4 package SNAP --store $W/out/b4 --runtime $W/runtime_identity.v2.json [--classes D1\|D2\|D3]` | `.sc` v5, V12 under the strict call contract | `docs/b4.md` |
 | baseline-TCG fix (not an optimizer result) | `scopt sfb package SNAP --store $W/out/sfb` | `.sc` v5 (+16 B per unit) | `docs/b4.md` |
 
@@ -66,7 +66,7 @@ reported as `skipped_unsupported` (`docs/b5-campaign.md`).
 
 | check | command | notes |
 |---|---|---|
-| static re-validation (V1-V9, MANIFEST) | `scopt validate ARTIFACT --snapshot $W/store/snapshots/<id>` | **v5 artifacts only.** It cannot read a v6 artifact (known gap, B3 gate report §4); for v6, `scopt publish` re-checks instead |
+| static re-validation (V1-V9, MANIFEST) | `scopt validate ARTIFACT --snapshot $W/store/snapshots/<id>` | **move-only artifacts (identity, B2 layout) only.** B3, B4 and `sfb` artifacts change unit bytes and were certified by their own checks (V1-V23, SFB1-SFB9) when packaged; `validate` refuses them with `static_not_applicable`, exit 2, and `scopt publish` re-checks them |
 | publish (verified copy) | `scopt publish ARTIFACT --store $W/pubstore` | refuses negative controls, test-policy artifacts and anything that does not verify |
 | dynamic V10 on held-out inputs | `scopt validate ARTIFACT --dynamic -c $CFG --qemu $Q --baseline $W/store/snapshots/<id> --inputs heldout-{1,2,3}.bin --out $W/v10/<arm>` | guest output, proof `PASS`, no unexpected fallback |
 | B3/B4 dynamic oracles | `scopt validate ARTIFACT --dynamic --oracles O1,O2a,O2b,O3,O5,O6 ...` | fixture oracles (`fixtures/b3/expected.py`); O4 via `--negative-control` |
@@ -88,6 +88,14 @@ $PY tests/qemu/b5_campaign.py diag  --campaign campaigns/b5-freertos.toml --expe
 ```
 
 If `check` fails, stop. Re-freezing would make a new campaign, and it has to be disclosed.
+
+The campaign files in `campaigns/` are frozen records of the maintainer's evaluation:
+they name the maintainer's workspace paths and QEMU builds, and their sha256 is part of
+the record, so they are not edited. To time on your own machine, write a new campaign
+(`docs/timing-and-report.md`).
+
+An untimed single run (no campaign) is `scopt deploy` + `scopt rundir launch`
+(`docs/getting-started.md` §11; `--inputs FILE` for an input bank).
 
 Arms, pairing, sample validity and freeze rules are documented in
 `docs/timing-and-report.md` and `docs/b5-campaign.md`.
