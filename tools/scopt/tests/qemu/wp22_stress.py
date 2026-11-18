@@ -58,7 +58,7 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 WT = HERE.parents[1]
 sys.path.insert(0, str(WT))
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 FIX = ROOT / "fixtures/b3"
 for p in (FIX, FIX / "diag", ROOT / "fixtures/lib"):
     sys.path.insert(0, str(p))

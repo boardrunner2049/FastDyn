@@ -22,8 +22,9 @@ import pytest
 from experiments import b4_probe as B4
 from experiments import gce_probe as G
 from scopt.decode.x86 import sweep
+from scopt.paths import fastdyn_root
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 SNAP = ROOT / "runs/b2/compute/store/snapshots/53b4132fc05526ff2925cd3acc610bf613e8b11e2315e15e520bff7fe080dab2"
 PROF = ROOT / "runs/b2/compute/prof/merged.profile.json"
 ELF = ROOT / ("fixtures/freertos-mps2-compute/FreeRTOS/FreeRTOS/Demo/CORTEX_MPS2_QEMU_IAR_GCC/"

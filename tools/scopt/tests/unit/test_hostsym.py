@@ -23,8 +23,9 @@ from scopt.validate_sym.mutants import (ENV_ABS, MINI_LAYOUT, OFF_R, RAM_PTR, Gu
                                         SynthContract, SynthUnit, grow_guarded, unit_cdio,
                                         unit_cont, unit_mem, unit_ret)
 from scopt.validate_sym.state import ByteMem, binop, lo, zx
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 COMPUTE = ROOT / "runs/b2/compute/store/snapshots/" \
     "53b4132fc05526ff2925cd3acc610bf613e8b11e2315e15e520bff7fe080dab2"
 COMPUTE_PROFILE = ROOT / "runs/b2/compute/store/profiles/" \

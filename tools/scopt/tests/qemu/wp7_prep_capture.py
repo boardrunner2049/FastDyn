@@ -28,7 +28,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 FASTDYN_SRC = ROOT / "src/fastdyn"
 FASTDYN_BIN = FASTDYN_SRC / "fastdyn-env/bin/fastdyn"
 

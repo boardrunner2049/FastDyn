@@ -74,7 +74,7 @@ HERE = Path(__file__).resolve().parent
 WT = HERE.parents[1]
 sys.path.insert(0, str(WT))
 sys.path.insert(0, str(HERE))
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 FIX = ROOT / "fixtures/b3"
 PY = sys.executable
 CPUS = os.environ.get("WP27_CPUS", "16-23")

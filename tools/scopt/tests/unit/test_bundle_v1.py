@@ -15,9 +15,10 @@ from scopt.formats.bundle_v1 import (BundleIdMismatch, BundleMismatch, BundleSch
                                      runtime_identity)
 from scopt.ids import bundle_id
 from scopt.run.toml_rewrite import rewrite_toml
+from scopt.paths import fastdyn_root
 
-B0_SC = Path("/data/extra_copy/fastdyn/src/fastdyn/configs/b0-sc.toml")
-B0_MANIFEST = Path("/data/extra_copy/fastdyn/runs/b0/cache/minimal.sc.fastdyn.json")
+B0_SC = (fastdyn_root() / "src/fastdyn/configs/b0-sc.toml")
+B0_MANIFEST = (fastdyn_root() / "runs/b0/cache/minimal.sc.fastdyn.json")
 
 pytestmark = pytest.mark.real
 
@@ -118,13 +119,13 @@ def test_runtime_identity(manifest, minimal_sc):
     assert check_runtime_identity(ri, ri) == []
 
 
-QINT = Path("/data/extra_copy/fastdyn/runs/qint/t-b1-1-minimal")
-QINT_QEMU = Path("/data/extra_copy/fastdyn/wt/qemu-int/build/qemu-system-arm")
+QINT = (fastdyn_root() / "runs/qint/t-b1-1-minimal")
+QINT_QEMU = (fastdyn_root() / "wt/qemu-int/build/qemu-system-arm")
 
 
 def test_runtime_identity_stat_fields(minimal_sc):
-    qemu = Path("/data/extra_copy/fastdyn/src/qemu/build/qemu-system-arm")
-    plugin = Path("/data/extra_copy/fastdyn/src/fastdyn/build/libfastdyn.so")
+    qemu = (fastdyn_root() / "src/qemu/build/qemu-system-arm")
+    plugin = (fastdyn_root() / "src/fastdyn/build/libfastdyn.so")
     if not (qemu.exists() and plugin.exists()):
         pytest.skip("B0 binary/plugin not present")
     from scopt.formats.sc_v5 import ScHeader

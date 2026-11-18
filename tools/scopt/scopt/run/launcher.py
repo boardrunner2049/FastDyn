@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..paths import fastdyn_root, fastdyn_src
 from .toml_rewrite import memory_banks, rewrite_toml
 
 __all__ = [
@@ -50,8 +51,10 @@ __all__ = [
     "resolve_qemu",
 ]
 
-FASTDYN_ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
-FASTDYN_SRC = Path(os.environ.get("SCOPT_FASTDYN_SRC", str(FASTDYN_ROOT / "src/fastdyn")))
+#: workspace and FastDyn checkout: ``$FASTDYN_ROOT`` / ``$SCOPT_FASTDYN_SRC`` or the
+#: repository-relative defaults of :mod:`scopt.paths`
+FASTDYN_ROOT = fastdyn_root()
+FASTDYN_SRC = fastdyn_src()
 FASTDYN_PY = FASTDYN_SRC / "fastdyn-env/bin/python"
 FASTDYN_BIN = FASTDYN_SRC / "fastdyn-env/bin/fastdyn"
 B0_QEMU = FASTDYN_ROOT / "src/qemu/build/qemu-system-arm"
@@ -158,6 +161,11 @@ def qmp_socket_path(root: Path) -> Path:
 @dataclass(frozen=True)
 class RunDir:
     root: Path
+
+    def __post_init__(self) -> None:
+        # accept str and other path-likes, like every other entry point
+        if not isinstance(self.root, Path):
+            object.__setattr__(self, "root", Path(self.root))
 
     @property
     def toml(self) -> Path:

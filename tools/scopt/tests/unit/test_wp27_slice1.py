@@ -14,10 +14,11 @@ import sys
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
 HERE = Path(__file__).resolve().parent
 QEMU_TESTS = HERE.parent / "qemu"
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 EVIDENCE = ROOT / "runs/wp27/slice1/wp27-slice1.json"
 
 # C = vc_b3_1's TB `cbz r0` on the gate binary (icount base), first 0x30 bytes:

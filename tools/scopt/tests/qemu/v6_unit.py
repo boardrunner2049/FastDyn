@@ -51,7 +51,7 @@ from scopt.run.launcher import file_sha256, launch  # noqa: E402
 
 import v6_synth as V  # noqa: E402
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 PY = sys.executable
 BASE_TOML = ROOT / "src/fastdyn/configs/b0-sc.toml"
 B0_NORM = ROOT / "runs/b0/warm1.log"

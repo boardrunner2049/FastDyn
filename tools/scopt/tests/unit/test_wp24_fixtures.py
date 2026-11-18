@@ -1,6 +1,6 @@
 """WP24 B3/B4 fixture consistency checks (static; no QEMU).
 
-The fixture lives outside this repo in /data/extra_copy/fastdyn/fixtures/b3
+The fixture lives outside this repo in $FASTDYN_ROOT/fixtures/b3
 (like the WP12 fixtures).  These tests check, independently of the
 fixture's own generator where possible (pyelftools + capstone instead of
 b3conf's .nm/.lst parsing), that
@@ -29,8 +29,9 @@ import sys
 import tomllib
 
 import pytest
+from scopt.paths import fastdyn_root
 
-B3 = "/data/extra_copy/fastdyn/fixtures/b3"
+B3 = str(fastdyn_root() / "fixtures/b3")
 
 pytestmark = pytest.mark.skipif(not os.path.isfile(os.path.join(B3, "b3conf.py")),
                                 reason="WP24 fixture not present")
@@ -317,7 +318,7 @@ def test_o3_flash_offset_does_not_assume_record_0():
 def test_o3_flash_offset_on_real_cache_reordered(conf):
     """On a real F-B3-1 warm cache the offset is 0x110000 with the records in
     file order and with them reversed (an optimizer output may reorder)."""
-    sc = "/data/extra_copy/fastdyn/runs/wp24/qual-1/icount/1/warm-2/cache/b3-1.sc"
+    sc = str(fastdyn_root() / "runs/wp24/qual-1/icount/1/warm-2/cache/b3-1.sc")
     if not os.path.isfile(sc):
         pytest.skip("qualification run not present")
     o3 = _diag("o3_hits")
@@ -501,7 +502,7 @@ def test_qemu_rerun_rewrites_a_moved_run_dir(tmp_path):
     location; prepare() must rewrite it (review 3: FastDyn could not open
     virtuals.txt and gdb timed out)."""
     qr = _diag("qemu_rerun")
-    old = "/data/extra_copy/fastdyn/runs/nowhere/old-run"
+    old = "/nonexistent/runs/nowhere/old-run"
     src = tmp_path / "moved-run"
     (src / "work" / "virtuals").mkdir(parents=True)
     (src / "work" / "virtuals" / "virtuals.txt").write_text("x\n")

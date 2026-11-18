@@ -30,6 +30,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ..paths import fastdyn_root
+
 __all__ = ["DEFAULTS", "load_calibration", "ExitSaving", "exit_saving", "simplification_saving",
            "b4_saving", "b4_predicted_unprofitable", "MIN_PASS_SHARE", "CALIBRATION_PATH"]
 
@@ -38,7 +40,7 @@ DEFAULTS: Mapping[str, float] = {"c_lookup": 7.6, "c_guard": 1.5, "c_fail": 0.0,
                                  "ns_per_tb_entry": 10.7}
 MIN_PASS_SHARE = 0.5
 CALIBRATION_PATH = os.environ.get(
-    "SCOPT_B3_CALIBRATION", "/data/extra_copy/fastdyn/runs/b3-explore/wp16/calibration.json")
+    "SCOPT_B3_CALIBRATION", str(fastdyn_root() / "runs/b3-explore/wp16/calibration.json"))
 
 
 def load_calibration(path: str | None = None) -> dict[str, float]:

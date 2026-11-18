@@ -9,7 +9,7 @@
 # per arm. Holds the host-wide timing lock, uses 4 cores (taskset), samples load
 # averages every 30 s. Run from the wp25-int worktree.
 set -u
-F=/data/extra_copy/fastdyn
+F="${FASTDYN_ROOT:-$(cd "$(dirname "$0")/../../../.." && pwd)}"
 OUT=${OUT:-$F/runs/wp25-int/timing}
 LOAD=$F/runs/wp25-int/timing-load.log
 CORES=${CORES:-8-11}

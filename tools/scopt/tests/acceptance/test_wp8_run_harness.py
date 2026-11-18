@@ -22,10 +22,11 @@ from scopt.run.deploy import DeployError, deploy_new, oracle
 from scopt.run.diag import diag_exec
 from scopt.run.launcher import (B0_QEMU, FASTDYN_SRC, RunDir, RunDirError, create_run_dir,
                                  launch)
+from scopt.paths import fastdyn_root
 
 pytestmark = [pytest.mark.qemu, pytest.mark.real, pytest.mark.slow]
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 B0_SC_TOML = FASTDYN_SRC / "configs/b0-sc.toml"
 MINIMAL = ROOT / "runs/b0/cache/minimal.sc"
 WARM1_NORM = ROOT / "runs/b0/warm1.norm"

@@ -31,8 +31,9 @@ import pytest
 from scopt.formats.region_v1 import validate_region
 from scopt.graph import check_graph, export_graph, graph_bytes, load_graph, roundtrip_ok
 from scopt.importer.import_cache import G17, import_snapshot, open_snapshot
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 W7 = Path(os.environ.get("WP7_REAL_DIR", ROOT / "runs/wp7-r2"))
 PREP = W7 / "prep-minimal"
 BUNDLE = W7 / "minimal-bundle.json"

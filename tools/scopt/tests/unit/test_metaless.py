@@ -19,8 +19,9 @@ from scopt.formats.layouts import SC_MAGIC, SC_RECORD_COMMIT
 from scopt.importer.metaless import (DEFAULT_FIRMWARE, DEFAULT_PLUGIN, DEFAULT_QEMU, G17,
                                      classify_sc, format_g17, infer_plugin_base,
                                      infer_prologue)
+from scopt.paths import fastdyn_root
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 CA = 0x7FFF6C000000
 LIB = 0x7FFF00000000  # an executable anonymous mapping standing in for a library
 

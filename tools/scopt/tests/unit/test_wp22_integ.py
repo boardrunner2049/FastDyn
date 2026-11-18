@@ -15,10 +15,11 @@ import sys
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
 HERE = Path(__file__).resolve().parent
 QEMU_TESTS = HERE.parent / "qemu"
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 GATE_JSON = ROOT / "runs/wp22/gate-binary.json"
 
 

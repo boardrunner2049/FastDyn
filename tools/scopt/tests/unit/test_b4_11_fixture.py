@@ -16,8 +16,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
-FX = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn")) / "fixtures" / "b3"
+FX = fastdyn_root() / "fixtures" / "b3"
 WP24_ELFS = {
     "b3.elf": "3b0296188a1f2463d28b7c8fca5d2d11802286b0e8685812edb1a4b37eb0b581",
     "b3_O0.elf": "a522afd25d92436033336b9b6ac7fbd723d732bdb9130e8ef8994c7312a17cc6",

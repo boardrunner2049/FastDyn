@@ -23,8 +23,9 @@ import pytest
 
 from scopt.decode import logreg as L
 from scopt.validate_sym.asm import nop
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 COVER = {
     ("b4-10", "icount"): ROOT / "runs/wp29/fx/icount/b4-10/snap.json",
     ("b4-10", "noicount"): ROOT / "runs/wp29/fx/noicount/b4-10/snap.json",

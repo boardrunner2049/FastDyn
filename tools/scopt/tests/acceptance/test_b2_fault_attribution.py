@@ -20,8 +20,9 @@ import os
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 FIX = ROOT / "fixtures/fault"
 OUT = Path(os.environ.get("B2_FAULT_DIR", ROOT / "runs/wp15b/fault"))
 WT = Path(__file__).resolve().parents[2]

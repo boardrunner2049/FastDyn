@@ -77,7 +77,7 @@ for _p in (WT, HERE):
 
 from b2_campaign import _hex, sha256_file, sha256_sc, toml_dumps  # noqa: E402
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 PY = sys.executable
 SCHEMA = "scopt.b5_campaign/1"
 DEF_SCHEMA = "scopt.b5_definition/1"

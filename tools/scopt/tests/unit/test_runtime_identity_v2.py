@@ -19,8 +19,9 @@ from scopt.formats.envlayout_v1 import find_envlayout
 from scopt.formats.enums import OpMarkKind
 from scopt.model.unit import OpMark
 from scopt.validate import Validation, v20_rows
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 QINT_SHA = "sha256:8864c72671971cf4488b5afa76eeee02a3e2a472c45af81ec1314464e6035f41"
 FASTDYN = ROOT / "src/fastdyn"
 PLUGIN = FASTDYN / "build/libfastdyn.so"

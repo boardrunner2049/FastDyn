@@ -29,10 +29,11 @@ from click.testing import CliRunner
 from scopt.run import oracles as O
 from scopt.run.diag import (FLUSH_FUNCS, artifact_probe_addrs, parse_hits, parse_twin,
                             read_v6_stats, stats_env)
+from scopt.paths import fastdyn_root
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "wp26"
 LOGS = DATA / "logs"
-FIXTURE = Path("/data/extra_copy/fastdyn/fixtures/b3")
+FIXTURE = (fastdyn_root() / "fixtures/b3")
 
 
 def _log(name: str) -> str:

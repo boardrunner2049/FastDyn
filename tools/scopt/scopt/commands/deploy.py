@@ -111,27 +111,41 @@ def rundir_oracle(run_dir, timeout_s):
 @click.argument("run_dir", type=click.Path(exists=True, file_okay=False))
 @click.option("--timeout", "timeout_s", type=float, default=120.0, show_default=True)
 @click.option("--reference-norm", type=click.Path(exists=True, dir_okay=False),
-              help="Compare the B0-normalized output with this .norm/.log file.")
+              help="Compare the B0-normalized output with this .norm/.log file; a "
+                   "mismatch makes the exit status 1.")
+@click.option("--inputs", "input_file", type=click.Path(exists=True, dir_okay=False),
+              help="Input file written into the --input-bank RAM bank after the RAM reset "
+                   "(launch resets every RAM bank, so a file put there by hand is lost).")
+@click.option("--input-bank", default="input", show_default=True,
+              help="Id of the file-backed memory bank that receives --inputs.")
 @click.option("--json", "as_json", is_flag=True)
-def rundir_launch(run_dir, timeout_s, reference_norm, as_json):
+def rundir_launch(run_dir, timeout_s, reference_norm, input_file, input_bank, as_json):
     """Run FastDyn once in RUN_DIR, then the post-run proof; writes run.json.
 
     Exit status 0 only when the verdict is PASS (or NOT_PROVED for an
-    undeployed run that exited 0), else 1.
+    undeployed run that exited 0) and, with --reference-norm, the normalized
+    output equals the reference; else 1. 2 when refused.
     """
     from ..run.launcher import RunDir, RunDirError, launch
 
+    inputs = {input_bank: input_file} if input_file else None
     try:
-        doc = launch(RunDir.open(run_dir), timeout_s=timeout_s, reference_norm=reference_norm)
+        doc = launch(RunDir.open(run_dir), timeout_s=timeout_s, reference_norm=reference_norm,
+                     inputs=inputs)
     except RunDirError as e:
         click.echo(f"refused: {e}", err=True)
         sys.exit(2)
+    ref_equal = (doc.get("reference_norm") or {}).get("equal")
     _emit(doc, as_json, {
         "verdict": doc["verdict"], "exit_code": doc["exit_code"], "appended": doc["appended"],
         "bench": doc["bench"], "proof_failed": (doc["proof"] or {}).get("failed"),
-        "reference_norm_equal": (doc.get("reference_norm") or {}).get("equal"),
+        "reference_norm_equal": ref_equal,
     })
-    sys.exit(0 if doc["verdict"] in ("PASS", "NOT_PROVED") else 1)
+    ok = doc["verdict"] in ("PASS", "NOT_PROVED")
+    if reference_norm is not None and ref_equal is not True:
+        click.echo("output differs from --reference-norm", err=True)
+        ok = False
+    sys.exit(0 if ok else 1)
 
 
 @rundir.command("prove")

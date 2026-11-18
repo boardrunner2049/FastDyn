@@ -85,7 +85,7 @@ sys.path.insert(0, str(WT))
 from scopt.formats.sc_v5 import read_sc, sha256_sparse, sparse_copy, write_sc  # noqa: E402
 from scopt.model.cache_snapshot import snapshot_dir_name  # noqa: E402
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 PY = sys.executable
 INT_QEMU = ROOT / "wt/qemu-int/build/qemu-system-arm"
 INT_QEMU_SHA = "sha256:8864c72671971cf4488b5afa76eeee02a3e2a472c45af81ec1314464e6035f41"

@@ -11,8 +11,9 @@ from scopt.decode.symbols import (SETARCH_R_PIE_BASE, Maps, Module, Symbolizer,
                                   load_elf)
 from scopt.decode.thumb import (check_lengths, lengths_from_words, thumb2_halfword_len,
                                 thumb_lengths)
+from scopt.paths import fastdyn_root
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 QEMU = ROOT / "src/qemu/build/qemu-system-arm"
 PLUGIN = ROOT / "src/fastdyn/build/libfastdyn.so"
 

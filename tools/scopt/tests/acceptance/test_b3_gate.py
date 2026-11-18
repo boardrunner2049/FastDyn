@@ -15,9 +15,10 @@ import os
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
-RUNS = Path(os.environ.get("WP28_RUNS", "/data/extra_copy/fastdyn/runs/wp28"))
-GATE_JSON = Path("/data/extra_copy/fastdyn/runs/wp22/gate-binary.json")
+RUNS = Path(os.environ.get("WP28_RUNS", str(fastdyn_root() / "runs/wp28")))
+GATE_JSON = (fastdyn_root() / "runs/wp22/gate-binary.json")
 pytestmark = pytest.mark.skipif(not (RUNS / "verdict.json").is_file(),
                                 reason=f"no B3 gate run in {RUNS}")
 

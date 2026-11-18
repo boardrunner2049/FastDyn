@@ -12,6 +12,9 @@ import pytest
 from scopt.run import arms as A
 from tests.synth.builders import build_sc, simple_units
 
+# run directories made here name no QEMU; nothing is executed
+pytestmark = pytest.mark.usefixtures("fake_runtime_qemu")
+
 BASE_TOML = """\
 # test base
 [Memory]

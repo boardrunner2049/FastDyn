@@ -21,11 +21,12 @@ from scopt.formats.enums import Encoding, SiteKind
 from scopt.formats.sc_v5 import read_sc
 from scopt.formats.scm_v1 import read_scm
 from scopt.run.identity_cmp import maps_layout, per_key_compare, scm_checks, unit_images
+from scopt.paths import fastdyn_root
 
 pytestmark = pytest.mark.real
 
-QINT = Path("/data/extra_copy/fastdyn/runs/qint/t-b1-1-minimal")
-B0_SC = Path("/data/extra_copy/fastdyn/runs/b0/cache/minimal.sc")
+QINT = (fastdyn_root() / "runs/qint/t-b1-1-minimal")
+B0_SC = (fastdyn_root() / "runs/b0/cache/minimal.sc")
 
 
 @pytest.fixture(scope="module")
@@ -154,7 +155,7 @@ def _write_relocated(src_sc, scm, dst, d):
 
 
 @pytest.mark.slow
-def test_qualify_capture_gate_per_key_mode(ev, tmp_path, monkeypatch):
+def test_qualify_capture_gate_per_key_mode(ev, tmp_path, monkeypatch, fake_runtime_qemu):
     """qualify_capture end to end with the launcher replaced by recorded runs.
 
     off1 and off2 differ as whole files (off2 has every unit moved), so the
@@ -168,7 +169,7 @@ def test_qualify_capture_gate_per_key_mode(ev, tmp_path, monkeypatch):
     on, off, scm = ev
     relocated = tmp_path / "relocated.sc"
     _write_relocated(off, scm, relocated, 0x40000)
-    base = Path("/data/extra_copy/fastdyn/src/fastdyn/configs/b0-sc.toml")
+    base = (fastdyn_root() / "src/fastdyn/configs/b0-sc.toml")
     if not base.exists():
         pytest.skip("b0-sc.toml not present")
 

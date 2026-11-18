@@ -84,7 +84,7 @@ from scopt.run.deploy import deploy_new  # noqa: E402
 from scopt.run.launcher import (B0_QEMU, FASTDYN_SRC, create_run_dir, file_sha256,  # noqa: E402
                                 launch, norm_b0, write_json)
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 NEW_QEMU = ROOT / "wt/qemu-int/build/qemu-system-arm"
 B0_RUNS = ROOT / "runs/b0"
 B0_GOLDEN = B0_RUNS / "cache/minimal.sc"

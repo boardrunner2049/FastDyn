@@ -17,10 +17,11 @@ from click.testing import CliRunner
 from scopt.cli import cli, load_commands
 from scopt.formats.sc_v5 import sha256_sparse
 from scopt.run.launcher import B0_QEMU, FASTDYN_SRC
+from scopt.paths import fastdyn_root
 
 pytestmark = [pytest.mark.qemu, pytest.mark.real, pytest.mark.slow]
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 B0_SC_TOML = FASTDYN_SRC / "configs/b0-sc.toml"
 B0_NOCACHE_TOML = FASTDYN_SRC / "configs/b0-nocache.toml"
 MINIMAL = ROOT / "runs/b0/cache/minimal.sc"

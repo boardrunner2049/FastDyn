@@ -28,8 +28,9 @@ from tests.synth import builders as B
 from tests.synth import rich_tb as RT
 from tests.unit.test_wp10_link import (_identity, _maps, codes, free_offset, make_snapshot,
                                        pipeline, registry, run)
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 
 
 def _ledger_rows(path: Path) -> list[dict]:

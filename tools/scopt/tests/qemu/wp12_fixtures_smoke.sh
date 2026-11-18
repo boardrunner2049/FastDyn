@@ -14,7 +14,7 @@
 # Exit 0 iff everything passes.  Needs ~1 minute.
 set -uo pipefail
 QEMU=$(realpath "$1"); OUT=$(realpath -m "$2")
-FIX=/data/extra_copy/fastdyn/fixtures
+FIX="${FASTDYN_ROOT:-$(cd "$(dirname "$0")/../../../.." && pwd)}/fixtures"
 if [[ -e "$OUT" ]]; then echo "$OUT exists" >&2; exit 2; fi
 mkdir -p "$OUT"
 export FIXTURE_QEMU=$QEMU

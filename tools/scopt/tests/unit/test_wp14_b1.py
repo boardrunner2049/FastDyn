@@ -18,8 +18,9 @@ from scopt.run.prepare import PrepareError, prepare
 from scopt.run.profile_run import ProfileRunError, _diff, profile_run, tree_hashes
 from tests.synth import rich_tb as RT
 from tests.unit.test_wp10_link import make_snapshot, run
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 
 
 # ---------------------------------------------------------------------------

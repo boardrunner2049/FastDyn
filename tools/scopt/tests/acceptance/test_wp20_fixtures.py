@@ -12,8 +12,9 @@ from pathlib import Path
 import pytest
 
 from tests.acceptance.wp20_fixtures import REQUIRED, evaluate
+from scopt.paths import fastdyn_root
 
-FX_ROOT = Path(os.environ.get("WP20_FX_ROOT", "/data/extra_copy/fastdyn/runs/wp20-int/fx"))
+FX_ROOT = Path(os.environ.get("WP20_FX_ROOT", str(fastdyn_root() / "runs/wp20-int/fx")))
 
 pytestmark = [pytest.mark.real, pytest.mark.slow]
 

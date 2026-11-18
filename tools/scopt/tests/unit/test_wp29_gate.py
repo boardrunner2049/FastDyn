@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
 QDIR = Path(__file__).resolve().parents[1] / "qemu"
 
@@ -21,7 +22,7 @@ def V():
 
 @pytest.fixture(scope="module")
 def G():
-    fx = Path("/data/extra_copy/fastdyn/fixtures/b3/b3conf.py")
+    fx = (fastdyn_root() / "fixtures/b3/b3conf.py")
     if not fx.is_file():
         pytest.skip("fixtures/b3 not present")
     sys.path.insert(0, str(QDIR))
@@ -215,7 +216,7 @@ def test_timing_bootstrap_seed_sensitivity_marks_borderline(tmp_path):
 
 @pytest.mark.real
 def test_host_abs_sites_on_the_gate_f_b4_7_base(G):
-    out = Path("/data/extra_copy/fastdyn/runs/wp29")
+    out = (fastdyn_root() / "runs/wp29")
     if not (out / "fx" / "icount" / "b4-7" / "snap.json").is_file():
         pytest.skip("gate F-B4-7 base not present")
     _sj, s, lay, _ri = G.load(out, "icount", "b4-7")
@@ -361,7 +362,7 @@ def test_compute_toml_pins_the_gate_binary(G, tmp_path):
 def test_report_appends_hand_written_sections_verbatim(tmp_path):
     """wp29_report.py on the WP29 evidence (real files; skipped without them): a carried
     section is appended verbatim, after the generated text."""
-    ref = Path("/data/extra_copy/fastdyn/runs/wp29")
+    ref = (fastdyn_root() / "runs/wp29")
     if not (ref / "verdict.json").is_file():
         pytest.skip("no WP29 gate run")
     sys.path.insert(0, str(QDIR))

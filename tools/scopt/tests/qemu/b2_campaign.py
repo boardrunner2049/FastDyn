@@ -58,7 +58,7 @@ from typing import Any
 WT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WT))
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 PY = sys.executable
 SCHEMA = "scopt.b2_campaign/1"
 DRIVER_REL = "tests/qemu/b2_campaign.py"

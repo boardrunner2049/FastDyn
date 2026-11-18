@@ -13,8 +13,9 @@ from scopt.formats.sc_v5 import RECORD_SIZE, ScHeader, sparse_copy
 from scopt.run.launcher import norm_b0, norm_guest, parse_bench, scrub_env
 from scopt.run.proof import (VERDICT_INVALID, VERDICT_PASS, deploy_refusal, deployed_state,
                              prove, prove_run)
+from scopt.paths import fastdyn_root
 
-B0 = Path("/data/extra_copy/fastdyn/runs/b0")
+B0 = (fastdyn_root() / "runs/b0")
 
 
 def test_scrub_env():
@@ -175,7 +176,7 @@ def test_proof_detects(deployed, change, failed):
     assert r["appended"] is None
 
 
-def test_deploy_refusal_and_launch_guard(tmp_path):
+def test_deploy_refusal_and_launch_guard(tmp_path, fake_runtime_qemu):
     """A refused deploy is never launched or proved (review finding on WP8)."""
     from types import SimpleNamespace
 
@@ -193,7 +194,7 @@ def test_deploy_refusal_and_launch_guard(tmp_path):
     (tmp_path / "deploy.json").write_text(json.dumps({"schema": "x"}))
     assert deploy_refusal(rd) == "deploy.json has no deployed state"
 
-    base = Path("/data/extra_copy/fastdyn/src/fastdyn/configs/b0-sc.toml")
+    base = (fastdyn_root() / "src/fastdyn/configs/b0-sc.toml")
     if not base.exists():
         pytest.skip("b0-sc.toml not present")
     real = create_run_dir(base, tmp_path / "rd")

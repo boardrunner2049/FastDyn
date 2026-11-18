@@ -9,8 +9,9 @@ import pytest
 
 from scopt.run.toml_rewrite import (TomlRewriteError, normalized_config_sha256, parse_memory_size,
                                     rewrite_toml, toml_basic_string, verify_rewrite)
+from scopt.paths import fastdyn_root
 
-B0_SC = Path("/data/extra_copy/fastdyn/src/fastdyn/configs/b0-sc.toml")
+B0_SC = (fastdyn_root() / "src/fastdyn/configs/b0-sc.toml")
 
 SAMPLE = '''# comment with supercache = "nope"
 [Memory]

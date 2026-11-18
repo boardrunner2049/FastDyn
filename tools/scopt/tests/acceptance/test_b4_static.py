@@ -12,8 +12,9 @@ import os
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 FAULT = ROOT / ("runs/wp15a/fault/store/snapshots/"
                 "4e404d5e7335399768249ef95453594fe8098647ef7927c1234c5a27dee16841")
 COMPUTE = ROOT / ("runs/b2/compute/store/snapshots/"

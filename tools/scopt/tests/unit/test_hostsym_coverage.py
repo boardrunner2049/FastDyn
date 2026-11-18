@@ -18,6 +18,7 @@ import pytest
 
 from scopt.link import B3Plan, NativeLinkerV2
 from tests.synth import b3 as H
+from scopt.paths import fastdyn_root
 
 pytestmark = pytest.mark.real
 
@@ -241,7 +242,7 @@ def test_validate_b3_coverage_without_package(spec, tmp_path, monkeypatch):
 # B4 (eliminate-state-sync, v5 nop-fill): every rewritten unit needs its own U'
 # ---------------------------------------------------------------------------
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 FAULT = ROOT / ("runs/wp15a/fault/store/snapshots/"
                 "4e404d5e7335399768249ef95453594fe8098647ef7927c1234c5a27dee16841")
 IDENT = ROOT / "runs/wp17/admission/fault.runtime_identity.v2.json"

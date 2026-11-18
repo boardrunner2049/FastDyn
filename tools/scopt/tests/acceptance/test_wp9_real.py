@@ -34,8 +34,9 @@ from scopt.model.view import WorkingSetView
 from scopt.passes.base import EditKind, Outcome, PassDescriptor, PassResult
 from scopt.passes.identity import Identity
 from scopt.passes.move_units import MoveUnits
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 W7 = ROOT / "runs/wp7"
 PREP = W7 / "prep-minimal"
 BUNDLE = W7 / "minimal-bundle.json"

@@ -61,7 +61,7 @@ from scopt.decode.search import decode_search, is_pcrel, unwind  # noqa: E402
 from scopt.formats.sc_v5 import read_sc, sha256_sparse  # noqa: E402
 from scopt.model.cache_snapshot import snapshot_dir_name  # noqa: E402
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 FIX = ROOT / "fixtures/fault"
 PY = sys.executable
 INT_QEMU = ROOT / "wt/qemu-int/build/qemu-system-arm"

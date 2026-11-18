@@ -92,6 +92,7 @@ from .formats.sc_v5 import (ScFile, ScFormatError, ScRecord, read_sc, sha256_spa
                             structural_findings, write_sc)
 from .ids import bundle_id as _bundle_id
 from .ledger import Ledger, LedgerRow, utc_now
+from .paths import fastdyn_root
 from .link import LinkResult, NativeLinker, UnitLink, arena_limit
 
 __all__ = [
@@ -1158,6 +1159,38 @@ def artifact_link(snapshot: Any, art_dir: str | os.PathLike) -> LinkResult:
     return LinkResult(True, out.header, tuple(units))
 
 
+#: codes of the move-only static validator (:func:`validate_static`)
+STATIC_CODES = frozenset(f"V{i}" for i in range(1, 10))
+
+
+def static_not_applicable(info: Any) -> str | None:
+    """Why :func:`validate_artifact` (V1-V9) cannot re-check the artifact ``info``
+    (:func:`scopt.formats.artifact.read_artifact`), or ``None`` when it can.
+
+    V1-V9 re-derive a move-only output (B2 layout): every unit is the input's
+    bytes, moved. Artifacts that change unit bytes were packaged by another
+    validator, recorded in their ``validation.json``: B3 and B4 by
+    :func:`validate_b3` (V1-V23; B3 also writes ``.sc`` v6), the icount-entry
+    fix by its SFB1-SFB9 rows. For those, V2 ("unmoved unit changed") would
+    reject every edit. They are re-checked by ``scopt publish``
+    (:func:`certification_problems`, manifest, stored validation, output
+    SnapshotId) and by ``scopt validate --dynamic``."""
+    side = info.sidecar or {}
+    if side.get("loader_requirement") not in (None, A.LOADER_V5):
+        return (f"loader_requirement {side.get('loader_requirement')!r}: static "
+                "re-validation reads .sc v5 only")
+    val = info.validation or {}
+    codes = set(val.get("codes") or {})
+    codes |= {r.get("code") for r in val.get("rows") or () if isinstance(r, Mapping)}
+    codes.discard(None)
+    other = sorted(codes - STATIC_CODES - {"V10"})
+    if other:
+        return (f"packaged by another validator (validation.json codes "
+                f"{', '.join(other[:6])}{' ...' if len(other) > 6 else ''}); "
+                "V1-V9 re-check move-only artifacts")
+    return None
+
+
 def validate_artifact(art_dir: str | os.PathLike, snapshot: Any, *,
                       scparse: str | os.PathLike | None = None) -> dict[str, Any]:
     """Re-run V1-V9 on a published artifact against its input snapshot, verify
@@ -1390,8 +1423,9 @@ V_ROWS: dict[str, tuple[str, str, str]] = {
     "V24": ("native call correspondence", "host-inline", "implemented"),
 }
 
-V6_GATE_BINARY_JSON = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn")) / \
-    "runs/wp22/gate-binary.json"
+#: the WP22 gate-binary record in the maintainer workspace (optional: absent
+#: elsewhere, then only ``extra`` and ``$SCOPT_V6_EXES`` count)
+V6_GATE_BINARY_JSON = fastdyn_root() / "runs/wp22/gate-binary.json"
 
 
 def v6_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
@@ -2426,7 +2460,7 @@ def relocate_unit_body(u: Any, new_tb: int) -> bytes:
     return relocate_unit(u, new_tb).body
 
 
-__all__ += ["V_ROWS", "validate_b3", "v6_capable_exes", "stub_rows", "relocate_unit_body",
+__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "stub_rows", "relocate_unit_body",
             "multi_tb_rows"]
 
 

@@ -33,8 +33,9 @@ from scopt.passes._b3util import mov_imm32, nops, refusal_result, xor_zero
 from scopt.passes.branch_folding import BranchFolding, fold_jcc
 from scopt.passes.constant_propagation import ConstantPropagation
 from scopt.passes.dead_host_ops import DeadHostOps
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 FX1 = ROOT / "runs/wp20-int/fx/icount/1"
 FX1_SNAP = FX1 / "store/snapshots/7b2d553cc9c895236c5ed2f037ad120367284334cb186769478a620f4499e959"
 FX1_PROFILE = FX1 / "prof/merged.profile.json"

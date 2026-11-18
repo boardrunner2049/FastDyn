@@ -34,6 +34,7 @@ __all__ = ["RUNTIME_QEMU", "RUNTIME_QEMU_SHA256", "RuntimeMismatch", "runtime_qe
 #: integrated binary passes and a different build is refused).
 OVERRIDE_ENV = "SCOPT_RUNTIME_QEMU"
 OVERRIDE_SHA_ENV = "SCOPT_RUNTIME_QEMU_SHA256"
+#: the maintainer's WP-QINT build in the workspace layout; absent on other machines
 _DEFAULT = FASTDYN_ROOT / "wt/qemu-int/build/qemu-system-arm"
 
 RUNTIME_QEMU = Path(os.environ.get(OVERRIDE_ENV, str(_DEFAULT)))
@@ -59,7 +60,9 @@ def runtime_qemu_info(*, check: bool = True) -> dict[str, Any]:
     override = os.environ.get(OVERRIDE_ENV)
     p = Path(override) if override else _DEFAULT
     if not p.is_file():
-        raise RuntimeMismatch(f"{p} does not exist")
+        raise RuntimeMismatch(f"{p} does not exist (no default runtime QEMU: pass the QEMU "
+                              f"explicitly (--qemu), or set {OVERRIDE_ENV} and "
+                              f"{OVERRIDE_SHA_ENV})")
     want_env = os.environ.get(OVERRIDE_SHA_ENV)
     want = _norm(want_env) if (override and want_env) else RUNTIME_QEMU_SHA256
     h = file_sha256(p)

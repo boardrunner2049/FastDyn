@@ -60,6 +60,7 @@ from pathlib import Path
 from typing import Any
 
 from ..formats.sc_v5 import read_sc, sparse_copy
+from ..paths import fastdyn_root
 from .launcher import FASTDYN_SRC, RunDir, qmp_socket_path, scrub_env, write_json
 from .toml_rewrite import memory_banks
 
@@ -70,7 +71,18 @@ __all__ = ["DiagError", "diag_exec", "parse_exec_log", "scan_exec_log", "rewrite
 
 V6_STATS_SCHEMA = "qemu-sc-v6-stats@1"
 V6_STATS_ENV = "QEMU_SC_V6_STATS"
-QEMU_TREES = ("/data/extra_copy/fastdyn/wt/qemu", "/data/extra_copy/fastdyn/src/qemu")
+#: QEMU trees of the maintainer workspace layout (``$FASTDYN_ROOT/wt/qemu*``,
+#: ``$FASTDYN_ROOT/src/qemu``); any other QEMU source tree is recognised by
+#: :func:`_in_qemu_tree`. gdb must not start inside one (its ``.gdbinit``).
+QEMU_TREES = (str(fastdyn_root() / "wt/qemu"), str(fastdyn_root() / "src/qemu"))
+
+
+def _in_qemu_tree(p: Path) -> bool:
+    """Is ``p`` inside a QEMU tree (a listed one, or a directory with QEMU's
+    ``qemu-options.hx`` among ``p`` and its parents)?"""
+    if any(str(p).startswith(t) for t in QEMU_TREES):
+        return True
+    return any((d / "qemu-options.hx").is_file() for d in (p, *p.parents))
 
 DIAG_SCHEMA = "scopt.diag_exec/1"
 
@@ -258,7 +270,7 @@ def prepare_diag(run_dir: str | os.PathLike, out: str | os.PathLike, *, d_items:
         stats_path = out / "v6-stats.json"
         env.update(stats_env(stats_path))
     cwd = Path(FASTDYN_SRC)
-    if any(str(cwd).startswith(t) for t in QEMU_TREES):  # pragma: no cover - layout guard
+    if _in_qemu_tree(cwd):  # pragma: no cover - layout guard
         raise DiagError("cwd_in_qemu_tree", str(cwd))
     return {"src": src, "out": out, "argv": qargv, "env": env, "env_diff": env_diff,
             "sc": str(sc), "inputs": used_inputs, "log_path": log_path,

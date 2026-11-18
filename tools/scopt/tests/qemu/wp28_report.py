@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 #: the WP28 gate run (the reference a close-out re-gate carries evidence from)
 REF = ROOT / "runs/wp28"
 #: B3/B4 audit fix evidence (reports/B3-gate.md §6): the T-B1-9 re-run with the hardened test

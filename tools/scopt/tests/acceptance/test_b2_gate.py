@@ -23,8 +23,9 @@ from pathlib import Path
 import pytest
 
 from scopt.formats.sc_v5 import read_sc, sha256_sparse
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 GATE_ROOT = Path(os.environ.get("B2_GATE_ROOT", ROOT / "runs/wp15a"))
 WT = Path(__file__).resolve().parents[2]
 INT_QEMU_SHA = "sha256:8864c72671971cf4488b5afa76eeee02a3e2a472c45af81ec1314464e6035f41"

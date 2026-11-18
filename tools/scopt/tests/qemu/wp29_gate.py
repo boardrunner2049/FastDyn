@@ -61,7 +61,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 FX = ROOT / "fixtures" / "b3"
 GATE = ROOT / "wt/qemu-v6/build/qemu-system-arm"
 GATE_JSON = ROOT / "runs/wp22/gate-binary.json"

@@ -11,8 +11,9 @@ import pytest
 
 from scopt.analysis.exit_facts import ExitFactSet, FactRow, LookupTail, Refusal, UnitExitFacts
 from scopt.analysis.fact_xcheck import OUTCOMES, xcheck_unit
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 MINIMAL = ROOT / ("runs/wp15a/minimal/store/snapshots/"
                   "f1ed14d98db4bcae54a1c37f07b1d6fabcfcea345a56edf1df1846c4d0aaee44")
 FLAGS = {"NF": 0x40, "ZF": 0x44, "CF": 0x48, "VF": 0x4c}

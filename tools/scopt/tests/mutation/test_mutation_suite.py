@@ -16,8 +16,9 @@ from pathlib import Path
 import pytest
 
 from scopt.validate_sym.mutants import DETECTORS, STATIC_ONLY, real_mutants, synthetic_suite
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 SNAPS = {
     "minimal": ROOT / "runs/wp15a/minimal/store/snapshots/"
     "f1ed14d98db4bcae54a1c37f07b1d6fabcfcea345a56edf1df1846c4d0aaee44",

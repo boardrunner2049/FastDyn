@@ -45,6 +45,7 @@ from ..decode.thumb import check_lengths, lengths_from_words
 from ..decode.x86 import (Arena, DecodedRef, Insn, RefKind, bad_insns, extract_refs,
                           sweep_to_pool, tiles)
 from ..formats.sc_v5 import ScFile, ScUnit, read_sc
+from ..paths import fastdyn_root
 
 __all__ = [
     "DEFAULT_QEMU", "DEFAULT_PLUGIN", "DEFAULT_FIRMWARE", "G17", "ClassifiedRef", "TBResult",
@@ -52,7 +53,7 @@ __all__ = [
     "format_g17",
 ]
 
-FASTDYN_ROOT = os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn")
+FASTDYN_ROOT = str(fastdyn_root())  # maintainer B0 layout below it; absent elsewhere
 DEFAULT_QEMU = os.path.join(FASTDYN_ROOT, "src/qemu/build/qemu-system-arm")
 DEFAULT_PLUGIN = os.path.join(FASTDYN_ROOT, "src/fastdyn/build/libfastdyn.so")
 DEFAULT_FIRMWARE = os.path.join(FASTDYN_ROOT,

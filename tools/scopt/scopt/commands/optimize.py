@@ -229,7 +229,9 @@ def validate_cmd(artifact, snapshot, dynamic, configs, out_dir, reps, qemu, base
     their verdict is pass, fail or incomplete (a requested oracle not run).
     With --negative-control the verdict is O4's (pass = mutant detected).
     Exit status 0 when every check passes, 1 otherwise (incomplete included),
-    2 when refused (a v6 artifact on a QEMU that cannot load v6).
+    2 when refused (a v6 artifact on a QEMU that cannot load v6; without
+    --dynamic, an artifact the static V1-V9 check does not apply to: B3, B4
+    and icount-entry artifacts, which `scopt publish` re-checks).
     """
     from ..formats.artifact import id_hex, read_artifact
     from ..validate import validate_artifact, validate_dynamic
@@ -282,12 +284,24 @@ def validate_cmd(artifact, snapshot, dynamic, configs, out_dir, reps, qemu, base
             for f in doc["failures"]:
                 click.echo(f"  {f}")
         sys.exit(0 if doc["verdict"] == "pass" else 1)
+    from ..formats.sc_v5 import ScFormatError
+    from ..validate import static_not_applicable
+
     info = read_artifact(artifact)
+    why = static_not_applicable(info)
+    if why is not None:
+        click.echo(f"REFUSED: static_not_applicable: {why}. Re-check this artifact with "
+                   "`scopt publish` and `scopt validate --dynamic`.", err=True)
+        sys.exit(2)
     if snapshot is None:
         snapshot = str(Path(artifact).resolve().parent.parent / "snapshots" /
                        id_hex(info.input_snapshot_id))
     snap = _open_snapshot(snapshot, None)
-    doc = validate_artifact(artifact, snap)
+    try:
+        doc = validate_artifact(artifact, snap)
+    except ScFormatError as e:
+        click.echo(f"REFUSED: unreadable_sc: {e}", err=True)
+        sys.exit(2)
     if as_json:
         click.echo(json.dumps(doc, indent=2, sort_keys=True))
     else:

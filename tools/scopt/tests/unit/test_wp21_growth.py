@@ -25,8 +25,9 @@ import pytest
 from scopt.manager_b3 import B3Env, B3State, stub_bytes_estimate
 from scopt.passes.base import Outcome
 from scopt.passes.specialize_returns import _fit_growth, growth_budget
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 FX1 = ROOT / "runs/wp20-int/fx/icount/1"
 FX1_SNAP = FX1 / "store/snapshots/7b2d553cc9c895236c5ed2f037ad120367284334cb186769478a620f4499e959"
 FX6 = ROOT / "runs/wp21-int/base/icount/6"

@@ -13,8 +13,9 @@ import os
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 VERDICT = ROOT / "runs/wp29/verdict.json"
 GATE_SHA = "56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90"
 

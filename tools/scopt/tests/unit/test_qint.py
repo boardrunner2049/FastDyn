@@ -19,10 +19,11 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
 HERE = Path(__file__).resolve().parent
 DRIVER = HERE.parent / "qemu" / "t_b1_0.py"
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 QINT = ROOT / "wt/qemu-int"
 PATCHES = [ROOT / "src/fastdyn/patches/qemu-fastdyn-plugin-icount.patch",
            ROOT / "patches/qemu-sc-base.patch",

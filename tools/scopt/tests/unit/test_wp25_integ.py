@@ -11,9 +11,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from scopt.paths import fastdyn_root
 
 HERE = Path(__file__).resolve().parents[1] / "qemu"
-FX = Path("/data/extra_copy/fastdyn/fixtures/b3")
+FX = (fastdyn_root() / "fixtures/b3")
 
 
 def _load(name: str):

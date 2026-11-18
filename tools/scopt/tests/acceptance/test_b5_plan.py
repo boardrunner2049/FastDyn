@@ -17,9 +17,10 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
 WT = Path(__file__).resolve().parents[2]
-RUNS = Path(os.environ.get("B5_RUNS", "/data/extra_copy/fastdyn/runs/b5"))
+RUNS = Path(os.environ.get("B5_RUNS", str(fastdyn_root() / "runs/b5")))
 CAMP = WT / "campaigns/b5-freertos.toml"
 pytestmark = pytest.mark.skipif(not (RUNS / "plan/b5-plan.json").is_file() or not CAMP.is_file(),
                                 reason="B5 plan evidence absent")

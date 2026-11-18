@@ -64,7 +64,7 @@ HERE = Path(__file__).resolve().parent
 WT = HERE.parents[1]
 sys.path.insert(0, str(WT))
 sys.path.insert(0, str(HERE))
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 FIX = ROOT / "fixtures/b3"
 QINT = ROOT / "wt/qemu-int/build/qemu-system-arm"
 QINT_SHA = "8864c72671971cf4488b5afa76eeee02a3e2a472c45af81ec1314464e6035f41"

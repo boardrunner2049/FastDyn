@@ -25,8 +25,9 @@ from scopt.passes.base import EditKind, Outcome
 from scopt.passes.eliminate_state_sync import (EliminateStateSync, StrictCallContract,
                                                class_ledger_rows, parse_classes, plan_of,
                                                propose_b4, strict_contract)
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 SNAPS = {
     "minimal": ROOT / "runs/wp15a/minimal/store/snapshots/"
     "f1ed14d98db4bcae54a1c37f07b1d6fabcfcea345a56edf1df1846c4d0aaee44",

@@ -33,8 +33,9 @@ from scopt.formats.sc_v5 import HEADER_SIZE, RECORD_SIZE, ScHeader, read_sc, spa
 from scopt.importer.import_cache import ImportRejected, import_snapshot
 from tests.synth import builders as B
 from tests.synth.rich_tb import rich_tb, rich_units, with_meta, write_rich_pair
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 GATE = Path(os.environ.get("B1_GATE_DIR", ROOT / "runs/wp14/gate/minimal"))
 WT = Path(__file__).resolve().parents[2]
 SC_CODE_OFFSET = 0x10000

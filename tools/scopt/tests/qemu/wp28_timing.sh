@@ -14,7 +14,7 @@
 # Holds the host-wide timing lock, pins 4 cores (taskset), samples load averages every 30 s.
 # Run from the wp28 worktree after `wp28_gate.py --steps compute`.
 set -u
-F=/data/extra_copy/fastdyn
+F="${FASTDYN_ROOT:-$(cd "$(dirname "$0")/../../../.." && pwd)}"
 W=$F/runs/wp28
 OUT=${OUT:-$W/timing}
 LOAD=$W/timing-load.log

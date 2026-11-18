@@ -75,7 +75,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from ..canon import canonical_json, fnv1a64, sha256_id
+from ..canon import canonical_json, fnv1a64, hexaddr, sha256_id
 from ..decode.search import SearchRow, decode_search, encode_search, is_pcrel
 from ..decode.x86 import sweep
 from ..formats.sc_v5 import ScRecord
@@ -494,7 +494,11 @@ def link_sfb(snapshot: Any, rebuilt: Mapping[str, SfbUnit], *, derive: bool = Tr
     h = snapshot.header
     units = list(snapshot.units())
     starts = sorted(u.tb_offset for u in units)
-    cursor = round_up(max(u.end_offset for u in units), 64)
+    # the input arena ends here; moved units go at or after it, so an in-place
+    # unit may grow up to it but never into the moved units (the last unit by
+    # address compares with this, not with the cursor, which moves on)
+    arena_end = round_up(max(u.end_offset for u in units), 64)
+    cursor = arena_end
     limit = arena_limit(h)
     links = []
     moved = []
@@ -506,7 +510,7 @@ def link_sfb(snapshot: Any, rebuilt: Mapping[str, SfbUnit], *, derive: bool = Tr
             if su is not None:
                 ln = e.end_offset - e.tb_offset
                 i = bisect.bisect_right(starts, u.tb_offset)
-                nxt = starts[i] if i < len(starts) else cursor
+                nxt = starts[i] if i < len(starts) else arena_end
                 if u.tb_offset + ln > nxt:
                     new_tb = round_up(cursor, 64)
                     cursor = new_tb + ln
@@ -917,7 +921,9 @@ def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
         if not val.accepted:
             return reject(val.first_reason() or "validation", "", val, link)
         out_sid = res.snapshot.snapshot_id if res is not None else None
-        moves = {lk.uid: {"from": lk.old_tb_offset, "to": lk.new_tb_offset}
+        # the sidecar schema's move_map rows (as LinkResult.move_map writes them)
+        moves = {lk.uid: {"slot": lk.slot, "old_tb_offset": hexaddr(lk.old_tb_offset),
+                          "new_tb_offset": hexaddr(lk.new_tb_offset), "delta": lk.delta}
                  for lk in link.units if lk.moved}
         vb = A.write_json_file(stage / A.VALIDATION, val.to_json(
             candidate_id=candidate_id, input_snapshot_id=snapshot.snapshot_id,
@@ -938,6 +944,9 @@ def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
             "x_candidate_id": candidate_id, "x_labels": [LABEL],
             "x_sfb": {"units": len(rebuilt), "moved": len(link.moved),
                       "skips": dict(Counter(prop.skips.values()))}}
+        errs = A.sidecar_errors(sidecar)
+        if errs:  # `scopt publish` refuses such a sidecar; never write one
+            return reject("sidecar_schema", "; ".join(errs[:3]), val, link)
         A.write_json_file(stage / A.SIDECAR, sidecar)
         if res is not None:
             (stage / A.REGIONS).write_bytes(b"".join(canonical_json(r) + b"\n"

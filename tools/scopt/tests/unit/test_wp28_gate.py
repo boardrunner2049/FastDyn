@@ -11,10 +11,11 @@ import sys
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
 HERE = Path(__file__).resolve().parent
 QDIR = HERE.parent / "qemu"
-FIX = Path("/data/extra_copy/fastdyn/fixtures/b3")
+FIX = (fastdyn_root() / "fixtures/b3")
 pytestmark = pytest.mark.skipif(not (FIX / "b3conf.py").is_file(),
                                 reason="fixtures/b3 not present")
 if str(QDIR) not in sys.path:

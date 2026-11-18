@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 WT = Path(__file__).resolve().parents[2]
 #: the WP29 gate run: the timing and the historical deviations below happened there
 REF = ROOT / "runs/wp29"

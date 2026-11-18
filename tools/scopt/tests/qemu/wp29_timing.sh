@@ -12,7 +12,7 @@
 # Holds the host-wide timing lock, pins 4 cores (taskset), samples load averages every 30 s.
 # Run from the wp29 worktree after `wp29_gate.py package-compute package-sfb-b4`.
 set -u
-F=/data/extra_copy/fastdyn
+F="${FASTDYN_ROOT:-$(cd "$(dirname "$0")/../../../.." && pwd)}"
 W=$F/runs/wp29
 OUT=${OUT:-$W/timing}
 LOAD=$W/timing-load.log

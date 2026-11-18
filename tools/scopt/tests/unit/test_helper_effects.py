@@ -37,8 +37,9 @@ from scopt.validate_sym.equiv import certify_fact, check_equiv
 from scopt.validate_sym.mutants import (MINI_LAYOUT, OFF_FLAGS, OFF_FLAGS2, OFF_R,
                                         SynthContract, mini_effects, nrwg_cases, unit_nrwg)
 from scopt.validate_sym.program import HelperRef
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 GATE = "sha256:56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90"
 QINT = "sha256:8864c72671971cf4488b5afa76eeee02a3e2a472c45af81ec1314464e6035f41"
 

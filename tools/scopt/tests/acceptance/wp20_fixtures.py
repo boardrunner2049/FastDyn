@@ -34,8 +34,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from scopt.paths import fastdyn_root
 
-FX = Path("/data/extra_copy/fastdyn/fixtures/b3")
+FX = (fastdyn_root() / "fixtures/b3")
 PATCH_FACT = {"1": ["f_b3_1_ret"], "1p": ["f_b3_1p_ret"], "2": ["f_b3_2_ret"],
               "3": ["f_b3_3_ret"], "3b": ["f_b3_3b_ret", "f_b3_3c_ret"], "4": ["f_b3_4_ret"],
               "8": ["f_b3_8_ret"]}

@@ -8,9 +8,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from scopt.paths import fastdyn_root
 
 QEMU_DIR = Path(__file__).resolve().parents[1] / "qemu"
-FIX = Path("/data/extra_copy/fastdyn/fixtures/b3")
+FIX = (fastdyn_root() / "fixtures/b3")
 
 pytestmark = pytest.mark.skipif(not (FIX / "expected.py").is_file(),
                                 reason="fixtures/b3 not present")

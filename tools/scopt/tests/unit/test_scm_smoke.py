@@ -19,10 +19,11 @@ import pytest
 
 from scopt.canon import fnv1a64
 from scopt.formats import enums, layouts as L
+from scopt.paths import fastdyn_root
 
 HERE = Path(__file__).resolve().parent
 SMOKE = HERE.parent / "qemu" / "scm_smoke.py"
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = fastdyn_root()
 CAPTURE_PATCH = ROOT / "patches/qemu-sc-capture.patch"
 REAL_RUN = ROOT / "runs/wp3/identity-2"
 

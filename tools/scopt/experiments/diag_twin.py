@@ -44,7 +44,9 @@ FLUSH_FUNCS = [
     "tlb_flush_range_by_mmuidx_async_0", "tlb_flush_range_by_mmuidx_async_1",
     "tcg_commit_cpu", "tcg_commit",
 ]
-QEMU_TREES = ("/data/extra_copy/fastdyn/wt/", "/data/extra_copy/fastdyn/src/qemu")
+#: the workspace ($FASTDYN_ROOT, else the directory that holds tools/) and its QEMU trees
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[3])
+QEMU_TREES = (str(ROOT / "wt") + "/", str(ROOT / "src/qemu"))
 SCHEMA = "wp16.diag_twin/1"
 
 
@@ -147,7 +149,7 @@ def twin(run_dir: Path, out: Path, *, timeout_s: float = 300.0, d_int: bool = Fa
     new_argv = [a.replace(src, dst) for a in argv]
     # FastDyn may pass the plugin relative to its own cwd (src/fastdyn); the twin runs
     # elsewhere (never inside a QEMU tree), so make it absolute
-    ocwd = orec.get("cwd") or "/data/extra_copy/fastdyn/src/fastdyn"
+    ocwd = orec.get("cwd") or os.environ.get("SCOPT_FASTDYN_SRC") or str(ROOT / "src/fastdyn")
     for k in range(1, len(new_argv)):
         if new_argv[k - 1] == "--plugin" and not new_argv[k].startswith("/"):
             new_argv[k] = os.path.join(ocwd, new_argv[k])

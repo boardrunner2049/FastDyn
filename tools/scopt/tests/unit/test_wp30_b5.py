@@ -30,6 +30,7 @@ import pytest
 
 from scopt.ids import artifact_id
 from scopt.report.b5 import b5_section, load_b5, render_b5
+from scopt.paths import fastdyn_root
 
 WT = Path(__file__).resolve().parents[2]
 DEF = WT / "campaigns/b5-freertos.def.toml"
@@ -367,8 +368,8 @@ def test_b5_section_r11_flag_null():
 # MODEL on real gate-binary artifacts (skipped when the runs are not on this host)
 # --------------------------------------------------------------------------
 
-W28 = Path("/data/extra_copy/fastdyn/runs/wp28/compute")
-W29 = Path("/data/extra_copy/fastdyn/runs/wp29/compute")
+W28 = (fastdyn_root() / "runs/wp28/compute")
+W29 = (fastdyn_root() / "runs/wp29/compute")
 
 
 @pytest.mark.skipif(not (W28 / "prof/merged.profile.json").is_file(), reason="WP28 runs absent")

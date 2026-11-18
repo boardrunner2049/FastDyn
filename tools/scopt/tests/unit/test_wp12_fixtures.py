@@ -1,6 +1,6 @@
 """WP12 fixture consistency checks (static; no QEMU).
 
-The fixtures live outside this repo in /data/extra_copy/fastdyn/fixtures:
+The fixtures live outside this repo in $FASTDYN_ROOT/fixtures:
   fault/                     fault-attribution images (F-B2-3)
   freertos-mps2-compute/     compute-heavy FreeRTOS workload (F-B2-7)
   inputs/{train,heldout,final}/freertos-mps2-compute/
@@ -19,8 +19,9 @@ import struct
 import tomllib
 
 import pytest
+from scopt.paths import fastdyn_root
 
-FIX = "/data/extra_copy/fastdyn/fixtures"
+FIX = str(fastdyn_root() / "fixtures")
 FAULT = os.path.join(FIX, "fault")
 COMPUTE = os.path.join(FIX, "freertos-mps2-compute")
 INPUTS = os.path.join(FIX, "inputs")

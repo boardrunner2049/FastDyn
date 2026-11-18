@@ -23,8 +23,9 @@ from scopt.importer.import_cache import import_snapshot, open_snapshot
 from scopt.link import round_up
 from scopt.manager import PassManager, default_pass_registry
 from scopt.validate import ValidateAndPackage, optimize, validate_artifact
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 GATE = Path(os.environ.get("B1_GATE_DIR", ROOT / "runs/wp14/gate/minimal"))
 SC_CODE_OFFSET = 0x10000
 BAD = 5

@@ -11,4 +11,4 @@
 set -uo pipefail
 QEMU=$(realpath "$1"); OUT=$(realpath -m "$2"); shift 2
 export FIXTURE_QEMU=$QEMU
-exec /data/extra_copy/fastdyn/fixtures/b3/qualify.sh "$OUT" "$@"
+exec "${FASTDYN_ROOT:-$(cd "$(dirname "$0")/../../../.." && pwd)}/fixtures/b3/qualify.sh" "$OUT" "$@"

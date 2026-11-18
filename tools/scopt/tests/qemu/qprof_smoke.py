@@ -57,7 +57,7 @@ from scopt.canon import fnv1a64  # noqa: E402
 from scopt.formats import layouts as L  # noqa: E402
 from scopt.formats.enums import QprofEdgeKind, QprofHeaderFlag  # noqa: E402
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 FASTDYN_SRC = ROOT / "src/fastdyn"
 FASTDYN_BIN = FASTDYN_SRC / "fastdyn-env/bin/fastdyn"
 TEMPLATE = FASTDYN_SRC / "configs/b0-sc.toml"

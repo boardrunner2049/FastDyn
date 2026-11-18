@@ -16,8 +16,9 @@ import pytest
 from experiments.wp27_inplace import (LABEL, LABEL_FILE, InPlaceError, SimplePatch,
                                       build_inplace_copy, find_units, parse_window_twin,
                                       window_twin_script)
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 SNAP_ID = "7b2d553cc9c895236c5ed2f037ad120367284334cb186769478a620f4499e959"
 CANDIDATES = [ROOT / "runs/wp27/base/icount/1/store/snapshots" / SNAP_ID,
               ROOT / "runs/wp20-int/fx/icount/1/store/snapshots" / SNAP_ID]

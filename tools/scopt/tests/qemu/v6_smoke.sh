@@ -16,7 +16,7 @@ if [[ $# -ne 2 ]]; then sed -n '2,13p' "$0" >&2; exit 2; fi
 qemu=$(realpath "$1")
 out=$(realpath -m "$2")
 here=$(cd "$(dirname "$0")" && pwd)
-py=${PYTHON:-/data/extra_copy/fastdyn/tools-env/bin/python}
+py=${PYTHON:-python3}
 rc=0
 "$py" "$here/v6_unit.py" --qemu "$qemu" --out "$out/v6-unit" || rc=1
 "$py" "$here/v6_gdb_diag.py" --qemu "$qemu" --out "$out/v6-gdb-diag" || rc=1

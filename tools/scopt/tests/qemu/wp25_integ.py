@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -46,7 +47,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-ROOT = Path("/data/extra_copy/fastdyn")
+ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 FX = ROOT / "fixtures" / "b3"
 QINT = ROOT / "wt/qemu-int/build/qemu-system-arm"
 WT = Path(__file__).resolve().parents[2]

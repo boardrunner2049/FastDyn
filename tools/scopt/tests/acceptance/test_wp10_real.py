@@ -35,8 +35,9 @@ from scopt.importer.import_cache import import_snapshot, open_snapshot
 from scopt.link import NativeLinker, round_up
 from scopt.manager import PassManager
 from scopt.validate import optimize, validate_artifact
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 W10 = Path(os.environ.get("WP10_REAL_DIR", ROOT / "runs/wp10"))
 PREP = W10 / "prep-minimal"
 BUNDLE = W10 / "r2/minimal-bundle.json"

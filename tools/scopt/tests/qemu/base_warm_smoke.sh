@@ -23,7 +23,7 @@ if [[ $# -ne 2 ]]; then
 fi
 qemu=$(realpath "$1")
 out_root=$(realpath -m "$2")
-root=/data/extra_copy/fastdyn
+root="${FASTDYN_ROOT:-$(cd "$(dirname "$0")/../../../.." && pwd)}"
 fastdyn_src=$root/src/fastdyn
 fastdyn_bin=$fastdyn_src/fastdyn-env/bin/fastdyn
 template=$fastdyn_src/configs/b0-sc.toml

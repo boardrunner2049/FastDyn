@@ -14,11 +14,12 @@ from scopt.analysis.envlayout import envlayout_for_runtime, parse_ptype_o, produ
 from scopt.formats import schemas
 from scopt.formats.envlayout_v1 import (G21_NAMES, EnvField, EnvLayout, EnvLayoutError,
                                         check_binding, find_envlayout, read_envlayout)
+from scopt.paths import fastdyn_root
 
 QINT_SHA = "sha256:8864c72671971cf4488b5afa76eeee02a3e2a472c45af81ec1314464e6035f41"
-QINT_EXE = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn")) / \
+QINT_EXE = fastdyn_root() / \
     "wt/qemu-int/build/qemu-system-arm"
-OFFSETS_TXT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn")) / \
+OFFSETS_TXT = fastdyn_root() / \
     "runs/b3-explore/judge-soundness/offsets.txt"
 OTHER_SHA = "sha256:" + "ab" * 32
 

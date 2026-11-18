@@ -14,8 +14,9 @@ import pytest
 
 from scopt.decode.x86 import sweep
 from scopt.passes import icount_entry_sfb as F
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 BLINKY = ROOT / ("runs/b2/blinky/store/snapshots/"
                  "4879c8f7d4c10a5af3091555bba1f7744d06d95072bed87a219408dc8935ef2f")
 WP16_SFB = ROOT / "runs/b3-explore/wp16/copies/b4/sfb/cache.sc"
@@ -134,3 +135,43 @@ def test_compute_matches_wp16_timed_copy(tmp_path):
         base = 0x10000
         assert fa[base + A.tc_offset:base + A.tc_offset + A.tc_size] == \
             fb[base + B.tc_offset:base + B.tc_offset + B.tc_size]
+
+
+def test_link_sfb_last_unit_grows_after_a_move(tmp_path):
+    """A rebuilt unit that grows past its neighbour moves to the arena end; the last
+    unit by address, rebuilt after that move, may grow in place only up to the
+    input arena end, never into the moved unit (prepare with several inputs puts
+    warm-appended units last: "units 2014 and 1 overlap")."""
+    from dataclasses import replace
+
+    from scopt.formats.sc_v5 import ScRecord, write_sc
+    from tests.synth.builders import simple_units
+    from tests.unit.test_wp10_link import make_snapshot
+
+    snap = make_snapshot(tmp_path, simple_units(3), identity=False)
+    units = sorted(snap.units(), key=lambda u: u.tb_offset)
+    assert [u.slot for u in units] == [0, 1, 2]
+    arena_end = -(-max(u.end_offset for u in units) // 64) * 64
+
+    def grown(u, extra):
+        code = u.code + b"\x90" * extra
+        rec = ScRecord.from_bytes(u.record)
+        rec = rec.replace(tc_size=len(code), end_offset=u.end_offset + extra)
+        return F.SfbUnit(u.uid, None, b"", (0, 0),
+                         replace(u, code=code, end_offset=u.end_offset + extra,
+                                 record=rec.to_bytes(fix_checksum=True)), u)
+
+    first, last = units[0], units[-1]
+    # slot 0 outgrows its neighbour and moves; the last unit grows past the arena end
+    rebuilt = {first.uid: grown(first, 0x200),
+               last.uid: grown(last, arena_end - last.end_offset + 16)}
+    link = F.link_sfb(snap, rebuilt, derive=False)
+    assert link.ok, link.failure
+    assert set(link.moved) == {first.uid, last.uid}
+    unit = {x.uid: (rebuilt[x.uid].unit if x.uid in rebuilt else x) for x in snap.units()}
+    spans = sorted((lk.new_tb_offset,
+                    lk.new_tb_offset + unit[lk.uid].end_offset - unit[lk.uid].tb_offset)
+                   for lk in link.units)
+    assert all(a[1] <= b[0] for a, b in zip(spans, spans[1:])), spans
+    write_sc(tmp_path / "out.sc", snap.header, [(x.record, x.body) for x in link.units],
+             fsync=False)

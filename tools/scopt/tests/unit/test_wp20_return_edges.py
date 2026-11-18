@@ -28,8 +28,9 @@ from scopt.formats.callee_summary_v1 import (CalleeSummaryError, check_factref, 
                                              write_callee_summaries)
 from scopt.ids import TBKey
 from scopt.passes.base import StaleFact
+from scopt.paths import fastdyn_root
 
-ROOT = Path(os.environ.get("FASTDYN_ROOT", "/data/extra_copy/fastdyn"))
+ROOT = fastdyn_root()
 
 # ---------------------------------------------------------------------------
 # Thumb semantics
