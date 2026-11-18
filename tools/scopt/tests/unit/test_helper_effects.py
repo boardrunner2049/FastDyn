@@ -184,6 +184,18 @@ def test_a_span_the_layout_disagrees_with_fails_closed():
     assert fx.resolved("rebuild_hflags_m32", 1).effect is FAIL_CLOSED
 
 
+def test_a_nrwg_row_whose_fields_cover_a_global_fails_closed():
+    # _check_row cannot see this without a layout: a NO_RWG row that lists a TCG
+    # global (regs[0]) among its written fields contradicts its own flags.
+    row = replace(find_helper_effects(GATE).row("rebuild_hflags_m32", 1),
+                  env_writes=EnvSet("fields", ("hflags.flags", "regs[0]")))
+    fx = BoundEffects(HelperEffectTable.build(MINI_LAYOUT.exe_sha256, [row]), MINI_LAYOUT)
+    r = fx.resolved("rebuild_hflags_m32", 1)
+    assert r.effect is FAIL_CLOSED and not r.rowed
+    assert call_class("rebuild_hflags_m32", 1, fx) == "global"
+    assert not fx.keeps_globals("rebuild_hflags_m32", 1)
+
+
 # ---------------------------------------------------------------------------
 # hostsym: the F13 counterexamples
 # ---------------------------------------------------------------------------

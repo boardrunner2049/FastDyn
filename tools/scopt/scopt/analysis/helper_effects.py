@@ -467,6 +467,12 @@ class BoundEffects:
             row = self.row(name, flags)
             r = _resolve(row, self.layout, True) if row is not None else \
                 _resolve(FAIL_CLOSED, self.layout, False)
+            if r.rowed and r.writes_globals and row.tcg_flags is not None and \
+                    row.tcg_flags & (TCG_CALL_NO_RWG | TCG_CALL_NO_WG):
+                # A NO_RWG/NO_WG row whose resolved write set covers a TCG global
+                # contradicts its own flags (_check_row only sees "all"/"all_except"
+                # without a layout): treat the call as unknown (fail closed).
+                r = _resolve(FAIL_CLOSED, self.layout, False)
             self._cache[k] = r
         return r
 
@@ -498,10 +504,12 @@ def call_class(name: str | None, flags: int | None, fx: BoundEffects | None = No
     if f & TCG_CALL_NO_RETURN:
         return "noreturn"
     if f & TCG_CALL_NO_RWG:
-        row = None if fx is None else fx.row(name, flags)
-        if row is None:
+        if fx is None or fx.row(name, flags) is None:
             return "global"
-        return "raising" if row.may_fault else "pure"
+        r = fx.resolved(name, flags)
+        if not r.rowed:  # the row contradicts its flags or the layout: fail closed
+            return "global"
+        return "raising" if r.effect.may_fault else "pure"
     return "global"
 
 
