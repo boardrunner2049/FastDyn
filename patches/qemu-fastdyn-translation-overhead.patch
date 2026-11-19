@@ -1,0 +1,420 @@
+diff --git a/accel/tcg/fastdyn-fragments.c b/accel/tcg/fastdyn-fragments.c
+--- a/accel/tcg/fastdyn-fragments.c
++++ b/accel/tcg/fastdyn-fragments.c
+@@ -1,4 +1,5 @@
+ #include "qemu/osdep.h"
++#include "qemu/atomic.h"
+ #include "qemu/error-report.h"
+ #include "qemu/bswap.h"
+ #include "qemu/thread.h"
+@@ -8,6 +9,7 @@
+ #define FASTDYN_MAX_FRAGMENTS 1024u
+
+ static FastDynFragment fragments[FASTDYN_MAX_FRAGMENTS];
++static const FastDynFragment *fragments_by_pc[FASTDYN_MAX_FRAGMENTS];
+ static size_t fragment_count;
+ static uint64_t next_fragment_id = 1;
+ static bool registry_sealed;
+@@ -283,30 +285,71 @@
+     return ok;
+ }
+
++static int compare_fragments(const void *a, const void *b)
++{
++    const FastDynFragment *left = *(const FastDynFragment *const *)a;
++    const FastDynFragment *right = *(const FastDynFragment *const *)b;
++
++    if (left->guest_pc != right->guest_pc) {
++        return left->guest_pc < right->guest_pc ? -1 : 1;
++    }
++    return (left->id > right->id) - (left->id < right->id);
++}
++
++static void seal_registry(void)
++{
++    if (g_once_init_enter(&registry_once)) {
++        registry_init();
++        g_once_init_leave(&registry_once, 1);
++    }
++    qemu_mutex_lock(&registry_lock);
++    if (!registry_sealed) {
++        for (size_t i = 0; i < fragment_count; i++) {
++            fragments_by_pc[i] = &fragments[i];
++        }
++        qsort(fragments_by_pc, fragment_count, sizeof(fragments_by_pc[0]),
++              compare_fragments);
++        /* Publish the index and entries once. Registration stops at the
++         * first lookup, including when the registry is empty. */
++        qatomic_store_release(&registry_sealed, true);
++    }
++    qemu_mutex_unlock(&registry_lock);
++}
++
+ const FastDynFragment *fastdyn_fragment_find(
+     uint64_t guest_pc, FastDynGuestISA isa, FastDynCodeMode mode,
+     FastDynInstructionOrder order, size_t *cursor)
+ {
+-    const FastDynFragment *result = NULL;
+-    size_t i;
+-
+-    if (g_once_init_enter(&registry_once)) {
+-        registry_init();
+-        g_once_init_leave(&registry_once, 1);
+-    }
+-    qemu_mutex_lock(&registry_lock);
+-    registry_sealed = true;
+-    for (i = *cursor; i < fragment_count; i++) {
+-        FastDynFragment *f = &fragments[i];
+-        if (f->guest_pc == guest_pc && f->spec.isa == isa &&
+-            f->spec.mode == mode && f->spec.instruction_order == order) {
++    size_t i = *cursor;
++
++    if (unlikely(!qatomic_load_acquire(&registry_sealed))) {
++        seal_registry();
++    }
++    if (i == 0) {
++        size_t end = fragment_count;
++
++        /* Start at the lowest PC match and visit ties in registration order. */
++        while (i < end) {
++            size_t mid = i + (end - i) / 2;
++
++            if (fragments_by_pc[mid]->guest_pc < guest_pc) {
++                i = mid + 1;
++            } else {
++                end = mid;
++            }
++        }
++    }
++    for (; i < fragment_count && fragments_by_pc[i]->guest_pc == guest_pc;
++         i++) {
++        const FastDynFragment *f = fragments_by_pc[i];
++
++        if (f->spec.isa == isa && f->spec.mode == mode &&
++            f->spec.instruction_order == order) {
+             *cursor = i + 1;
+-            result = f;
+-            break;
+-        }
+-    }
+-    qemu_mutex_unlock(&registry_lock);
+-    return result;
++            return f;
++        }
++    }
++    return NULL;
+ }
+
+ void fastdyn_fragment_translation_error(const FastDynFragment *fragment,
+diff --git a/accel/tcg/fastdyn-mmio.c b/accel/tcg/fastdyn-mmio.c
+--- a/accel/tcg/fastdyn-mmio.c
++++ b/accel/tcg/fastdyn-mmio.c
+@@ -1,4 +1,5 @@
+ #include "qemu/osdep.h"
++#include "qemu/atomic.h"
+ #include "qemu/error-report.h"
+ #include "qemu/thread.h"
+ #include "qemu/qemu-plugin.h"
+@@ -7,6 +8,7 @@
+ #define FASTDYN_MAX_MMIO_REPLACEMENTS 4096u
+
+ static FastDynMmioBoundReplacement replacements[FASTDYN_MAX_MMIO_REPLACEMENTS];
++static const FastDynMmioBoundReplacement *replacements_by_pc[FASTDYN_MAX_MMIO_REPLACEMENTS];
+ static size_t replacement_count;
+ static uint64_t next_replacement_id = 1;
+ static bool registry_sealed;
+@@ -115,28 +117,69 @@
+     return ok;
+ }
+
+-const FastDynMmioBoundReplacement *fastdyn_mmio_find(
+-    uint64_t guest_pc, FastDynCodeMode mode, unsigned transfer_size,
+-    size_t *cursor)
++static int compare_replacements(const void *a, const void *b)
+ {
+-    const FastDynMmioBoundReplacement *result = NULL;
+-    size_t i;
++    const FastDynMmioBoundReplacement *left = *(const FastDynMmioBoundReplacement *const *)a;
++    const FastDynMmioBoundReplacement *right = *(const FastDynMmioBoundReplacement *const *)b;
+
++    if (left->replacement.guest_pc != right->replacement.guest_pc) {
++        return left->replacement.guest_pc < right->replacement.guest_pc ? -1 : 1;
++    }
++    return (left->id > right->id) - (left->id < right->id);
++}
++
++static void seal_registry(void)
++{
+     if (g_once_init_enter(&registry_once)) {
+         registry_init();
+         g_once_init_leave(&registry_once, 1);
+     }
+     qemu_mutex_lock(&registry_lock);
+-    registry_sealed = true;
+-    for (i = *cursor; i < replacement_count; i++) {
+-        FastDynMmioReplacement *r = &replacements[i].replacement;
+-        if (r->guest_pc == guest_pc && r->spec.mode == mode &&
+-            r->transfer_size == transfer_size) {
+-            *cursor = i + 1;
+-            result = &replacements[i];
+-            break;
++    if (!registry_sealed) {
++        for (size_t i = 0; i < replacement_count; i++) {
++            replacements_by_pc[i] = &replacements[i];
++        }
++        qsort(replacements_by_pc, replacement_count, sizeof(replacements_by_pc[0]),
++              compare_replacements);
++        /* Publish the index and entries once. Registration stops at the
++         * first lookup, including when the registry is empty. */
++        qatomic_store_release(&registry_sealed, true);
++    }
++    qemu_mutex_unlock(&registry_lock);
++}
++
++const FastDynMmioBoundReplacement *fastdyn_mmio_find(
++    uint64_t guest_pc, FastDynCodeMode mode, unsigned transfer_size,
++    size_t *cursor)
++{
++    size_t i = *cursor;
++
++    if (unlikely(!qatomic_load_acquire(&registry_sealed))) {
++        seal_registry();
++    }
++    if (i == 0) {
++        size_t end = replacement_count;
++
++        /* Start at the lowest PC match and visit ties in registration order. */
++        while (i < end) {
++            size_t mid = i + (end - i) / 2;
++
++            if (replacements_by_pc[mid]->replacement.guest_pc < guest_pc) {
++                i = mid + 1;
++            } else {
++                end = mid;
++            }
+         }
+     }
+-    qemu_mutex_unlock(&registry_lock);
+-    return result;
++    for (; i < replacement_count && replacements_by_pc[i]->replacement.guest_pc == guest_pc;
++         i++) {
++        const FastDynMmioBoundReplacement *f = replacements_by_pc[i];
++
++        if (f->replacement.spec.mode == mode &&
++            f->replacement.transfer_size == transfer_size) {
++            *cursor = i + 1;
++            return f;
++        }
++    }
++    return NULL;
+ }
+diff --git a/accel/tcg/plugin-gen.c b/accel/tcg/plugin-gen.c
+--- a/accel/tcg/plugin-gen.c
++++ b/accel/tcg/plugin-gen.c
+@@ -643,6 +643,26 @@
+     }
+ }
+
++static void gen_mem_value(const TCGOp *op)
++{
++    TCGTemp *low = arg_temp(op->args[1]);
++    ptrdiff_t low_offset = offsetof(CPUState, neg.plugin_mem_value_low) -
++                           sizeof(CPUState);
++
++    if (TCGOP_TYPE(op) == TCG_TYPE_I32) {
++        tcg_gen_st_i32(temp_tcgv_i32(low), tcg_env,
++                       low_offset + HOST_BIG_ENDIAN * 4);
++    } else {
++        tcg_gen_st_i64(temp_tcgv_i64(low), tcg_env, low_offset);
++        if (TCGOP_TYPE(op) == TCG_TYPE_I128) {
++            TCGTemp *high = arg_temp(op->args[2]);
++            tcg_gen_st_i64(temp_tcgv_i64(high), tcg_env,
++                           offsetof(CPUState, neg.plugin_mem_value_high) -
++                           sizeof(CPUState));
++        }
++    }
++}
++
+ static void plugin_gen_inject(struct qemu_plugin_tb *plugin_tb)
+ {
+     TCGOp *op, *next;
+@@ -734,7 +754,7 @@
+         case INDEX_op_plugin_mem_cb:
+         {
+             TCGv_i64 addr = temp_tcgv_i64(arg_temp(op->args[0]));
+-            qemu_plugin_meminfo_t meminfo = op->args[1];
++            qemu_plugin_meminfo_t meminfo = op->args[3];
+             enum qemu_plugin_mem_rw rw =
+                 (qemu_plugin_mem_is_store(meminfo)
+                  ? QEMU_PLUGIN_MEM_W : QEMU_PLUGIN_MEM_R);
+@@ -748,9 +768,19 @@
+             tcg_ctx->emit_before_op = op;
+
+             cbs = insn->mem_cbs;
++            bool have_value = false;
+             for (i = 0, n = (cbs ? cbs->len : 0); i < n; i++) {
+-                inject_mem_cb(&g_array_index(cbs, struct qemu_plugin_dyn_cb, i),
+-                              rw, meminfo, addr);
++                struct qemu_plugin_dyn_cb *cb =
++                    &g_array_index(cbs, struct qemu_plugin_dyn_cb, i);
++
++                /* Inline callbacks use only their scoreboard. A regular
++                 * callback may read the value through the plugin API. */
++                if (!have_value && cb->type == PLUGIN_CB_MEM_REGULAR &&
++                    (rw & cb->regular.rw)) {
++                    gen_mem_value(op);
++                    have_value = true;
++                }
++                inject_mem_cb(cb, rw, meminfo, addr);
+             }
+
+             tcg_ctx->emit_before_op = NULL;
+diff --git a/include/tcg/tcg-op-common.h b/include/tcg/tcg-op-common.h
+--- a/include/tcg/tcg-op-common.h
++++ b/include/tcg/tcg-op-common.h
+@@ -82,7 +82,8 @@
+ void tcg_gen_lookup_and_goto_ptr(void);
+
+ void tcg_gen_plugin_cb(unsigned from);
+-void tcg_gen_plugin_mem_cb(TCGv_i64 addr, unsigned meminfo);
++void tcg_gen_plugin_mem_cb(TCGv_i64 addr, unsigned meminfo, TCGType value_type,
++                           TCGTemp *value_low, TCGTemp *value_high);
+
+ /* 32 bit ops */
+
+diff --git a/include/tcg/tcg-opc.h b/include/tcg/tcg-opc.h
+--- a/include/tcg/tcg-opc.h
++++ b/include/tcg/tcg-opc.h
+@@ -121,7 +121,7 @@
+ DEF(goto_ptr, 0, 1, 0, TCG_OPF_BB_EXIT | TCG_OPF_BB_END)
+
+ DEF(plugin_cb, 0, 0, 1, TCG_OPF_NOT_PRESENT)
+-DEF(plugin_mem_cb, 0, 1, 1, TCG_OPF_NOT_PRESENT)
++DEF(plugin_mem_cb, 0, 3, 1, TCG_OPF_NOT_PRESENT)
+
+ DEF(qemu_ld, 1, 1, 1, TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS | TCG_OPF_INT)
+ DEF(qemu_st, 0, 2, 1, TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS | TCG_OPF_INT)
+diff --git a/target/arm/gdbstub.c b/target/arm/gdbstub.c
+--- a/target/arm/gdbstub.c
++++ b/target/arm/gdbstub.c
+@@ -41,11 +41,10 @@
+
+ bool arm_cpu_read_saved_pc(CPUState *cs, uint64_t *value)
+ {
+-    ARMCPU *cpu = ARM_CPU(cs);
+-    CPUARMState *env = &cpu->env;
++    CPUARMState *env = cpu_env(cs);
+
+ #ifdef TARGET_AARCH64
+-    if (arm_gdbstub_is_aarch64(cpu)) {
++    if (arm_feature(env, ARM_FEATURE_AARCH64)) {
+         *value = env->pc;
+         return true;
+     }
+diff --git a/tcg/tcg-op-ldst.c b/tcg/tcg-op-ldst.c
+--- a/tcg/tcg-op-ldst.c
++++ b/tcg/tcg-op-ldst.c
+@@ -156,26 +156,21 @@
+ #ifdef CONFIG_PLUGIN
+ static void
+ plugin_gen_mem_callbacks(TCGv_i64 copy_addr, TCGTemp *orig_addr, MemOpIdx oi,
+-                         enum qemu_plugin_mem_rw rw)
+-{
+-    if (tcg_ctx->plugin_insn != NULL) {
+-        qemu_plugin_meminfo_t info = make_plugin_meminfo(oi, rw);
+-
+-        if (tcg_ctx->addr_type == TCG_TYPE_I32) {
+-            if (!copy_addr) {
+-                copy_addr = tcg_temp_ebb_new_i64();
+-                tcg_gen_extu_i32_i64(copy_addr, temp_tcgv_i32(orig_addr));
+-            }
+-            tcg_gen_plugin_mem_cb(copy_addr, info);
+-            tcg_temp_free_i64(copy_addr);
+-        } else {
+-            if (copy_addr) {
+-                tcg_gen_plugin_mem_cb(copy_addr, info);
+-                tcg_temp_free_i64(copy_addr);
+-            } else {
+-                tcg_gen_plugin_mem_cb(temp_tcgv_i64(orig_addr), info);
+-            }
+-        }
++                         enum qemu_plugin_mem_rw rw, TCGType value_type,
++                         TCGTemp *value_low, TCGTemp *value_high)
++{
++    qemu_plugin_meminfo_t info = make_plugin_meminfo(oi, rw);
++
++    if (tcg_ctx->addr_type == TCG_TYPE_I32 && !copy_addr) {
++        copy_addr = tcg_temp_ebb_new_i64();
++        tcg_gen_extu_i32_i64(copy_addr, temp_tcgv_i32(orig_addr));
++    }
++    if (copy_addr) {
++        tcg_gen_plugin_mem_cb(copy_addr, info, value_type, value_low, value_high);
++        tcg_temp_free_i64(copy_addr);
++    } else {
++        tcg_gen_plugin_mem_cb(temp_tcgv_i64(orig_addr), info, value_type,
++                              value_low, value_high);
+     }
+ }
+ #endif
+@@ -187,10 +182,8 @@
+ {
+ #ifdef CONFIG_PLUGIN
+     if (tcg_ctx->plugin_insn != NULL) {
+-        tcg_gen_st_i32(val, tcg_env,
+-                       offsetof(CPUState, neg.plugin_mem_value_low) -
+-                       sizeof(CPUState) + (HOST_BIG_ENDIAN * 4));
+-        plugin_gen_mem_callbacks(copy_addr, orig_addr, oi, rw);
++        plugin_gen_mem_callbacks(copy_addr, orig_addr, oi, rw, TCG_TYPE_I32,
++                                 tcgv_i32_temp(val), NULL);
+     }
+ #endif
+ }
+@@ -202,10 +195,8 @@
+ {
+ #ifdef CONFIG_PLUGIN
+     if (tcg_ctx->plugin_insn != NULL) {
+-        tcg_gen_st_i64(val, tcg_env,
+-                       offsetof(CPUState, neg.plugin_mem_value_low) -
+-                       sizeof(CPUState));
+-        plugin_gen_mem_callbacks(copy_addr, orig_addr, oi, rw);
++        plugin_gen_mem_callbacks(copy_addr, orig_addr, oi, rw, TCG_TYPE_I64,
++                                 tcgv_i64_temp(val), NULL);
+     }
+ #endif
+ }
+@@ -217,13 +208,9 @@
+ {
+ #ifdef CONFIG_PLUGIN
+     if (tcg_ctx->plugin_insn != NULL) {
+-        tcg_gen_st_i64(TCGV128_LOW(val), tcg_env,
+-                       offsetof(CPUState, neg.plugin_mem_value_low) -
+-                       sizeof(CPUState));
+-        tcg_gen_st_i64(TCGV128_HIGH(val), tcg_env,
+-                       offsetof(CPUState, neg.plugin_mem_value_high) -
+-                       sizeof(CPUState));
+-        plugin_gen_mem_callbacks(copy_addr, orig_addr, oi, rw);
++        plugin_gen_mem_callbacks(copy_addr, orig_addr, oi, rw, TCG_TYPE_I128,
++                                 tcgv_i64_temp(TCGV128_LOW(val)),
++                                 tcgv_i64_temp(TCGV128_HIGH(val)));
+     }
+ #endif
+ }
+diff --git a/tcg/tcg-op.c b/tcg/tcg-op.c
+--- a/tcg/tcg-op.c
++++ b/tcg/tcg-op.c
+@@ -318,9 +318,12 @@
+     tcg_gen_op1(INDEX_op_plugin_cb, 0, from);
+ }
+
+-void tcg_gen_plugin_mem_cb(TCGv_i64 addr, unsigned meminfo)
+-{
+-    tcg_gen_op2(INDEX_op_plugin_mem_cb, 0, tcgv_i64_arg(addr), meminfo);
++void tcg_gen_plugin_mem_cb(TCGv_i64 addr, unsigned meminfo, TCGType value_type,
++                           TCGTemp *value_low, TCGTemp *value_high)
++{
++    /* The op has a fixed input count. Narrow accesses use only value_low. */
++    tcg_gen_op4(INDEX_op_plugin_mem_cb, value_type, tcgv_i64_arg(addr),
++                temp_arg(value_low), temp_arg(value_high ?: value_low), meminfo);
+ }
+
+ /* 32 bit ops */

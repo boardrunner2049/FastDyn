@@ -16,6 +16,7 @@ Options:
   --clone-qemu          Download missing QEMU sources without building; preserve existing checkouts
   --build-qemu          Build the patched QEMU and the FastDyn QEMU plugin (with device models,
                         the FMU/flight-controller physics, and libhw when it is built)
+  --release             Build the FastDyn plugin at -O0 with MMIO logging compiled out
   --qemu-targets LIST   QEMU target list (default: arm-softmmu). For the fragment matrix use
                         arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu
   --build-gazebo        Build legacy Gazebo/Courbet deps and FastDyn with LIBGZ/LIBHW
@@ -67,6 +68,7 @@ fastdyn_setup_main() {
   local setup_optifuzz="true"
   local clone_qemu="false"
   local build_qemu="false"
+  local release_build="false"
   local qemu_targets="arm-softmmu"
   local build_gazebo="false"
   local build_libhw="false"
@@ -102,6 +104,10 @@ fastdyn_setup_main() {
         ;;
       --build-qemu)
         build_qemu="true"
+        shift
+        ;;
+      --release)
+        release_build="true"
         shift
         ;;
       --qemu-targets)
@@ -243,11 +249,11 @@ fastdyn_setup_main() {
   if [[ "$build_qemu" == "true" ]]; then
     fastdyn_setup_qemu_build "$repo_root" "$qemu_root" "$qemu_targets" || return
     if [[ "$build_gazebo" != "true" ]]; then
-      fastdyn_setup_plugin_build "$repo_root" "$qemu_root" "$libhw_root" || return
+      fastdyn_setup_plugin_build "$repo_root" "$qemu_root" "$libhw_root" "$release_build" || return
     fi
   fi
   if [[ "$build_gazebo" == "true" ]]; then
-    fastdyn_setup_gazebo_plugin_build "$repo_root" "$qemu_root" "$libhw_root" || return
+    fastdyn_setup_gazebo_plugin_build "$repo_root" "$qemu_root" "$libhw_root" "$release_build" || return
   fi
   if [[ "$setup_qemu_workspace" == "true" ]]; then
     fastdyn_setup_qemu_workspace "$qemu_ws" || return
@@ -265,7 +271,7 @@ fastdyn_setup_main() {
   echo "FastDyn Python environment is ready: $FASTDYN_VENV"
   if [[ "$setup_qemu_workspace" == "true" ]]; then
     fastdyn_setup_qemu_hint "$repo_root" "$qemu_root" "$qemu_repo" "$qemu_ref"
-    fastdyn_setup_plugin_hint "$repo_root" "$qemu_root" "$libhw_root"
+    fastdyn_setup_plugin_hint "$repo_root" "$qemu_root" "$libhw_root" "$release_build"
   fi
   if [[ "$build_gazebo" == "true" ]]; then
     echo "Legacy Gazebo wrapper is ready: $repo_root/virtuals/physics/physics_engines/gazebo/build/lib/libgz_wrapper.so"

@@ -5,6 +5,10 @@ project(
   meson_version: '>=0.61.2'
 )
 cc = meson.get_compiler('c')
+release_build = get_option('release')
+if release_build
+  add_project_arguments('-O0', language: 'c')
+endif
 # cpp = meson.get_compiler('cpp')
 
 # suppress MAVLink packed warnings
@@ -151,6 +155,7 @@ configure_file(
     'ENABLE_LIBPY' : ENABLE_LIBPY ? 1 : 0,
     'DEBUG_PRINT' : DEBUG_PRINT ? 1 : 0,
     'ENABLE_LIBDEV' : ENABLE_LIBDEV ? 1:0,
+    'DEV_LOGGER' : ENABLE_LIBDEV and not release_build ? 1 : 0,
 	'ENABLE_FMU' : get_option('enable_fmu') ? 1 : 0,
 	'ENABLE_FLIGHT_CONTROLLERS' : get_option('enable_flight_controllers') ? 1 : 0,
   }
@@ -191,6 +196,9 @@ if ENABLE_LIBDEV
   'device_models/dev.c',
   'device_models/classic/classic.c',
   )
+  if not release_build
+    srcs += files('device_models/mmio_log.c')
+  endif
 
   # elder and twintrace (replay) are pure emulation; recording and
   # passthrough talk to a probe and need libhw.

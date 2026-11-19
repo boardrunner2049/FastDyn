@@ -11,9 +11,6 @@
     #define dev_debug(fmt, ...) do {} while (0)
 #endif
 
-/* Required for Elder model */
-#define DEV_LOGGER
-
 typedef struct AddrRange {
     uint64_t start;
     uint64_t end;   // inclusive
@@ -91,26 +88,22 @@ typedef struct {
 } ModelEntry;
 
 
-//4KB regions for now.
+/* Legacy peripheral read granularity. */
 #define SLOT_SIZE   0x10
 
 #define DEVICE_BASE 0x40000000ULL
 #define DEVICE_SIZE 0x20000000ULL  // 0x40000000 -> 0x5FFFFFFF, ~512 MB
-#define NUM_SLOTS   (DEVICE_SIZE / SLOT_SIZE)
 
 //Interrupt Handling
 #define MAX_INTERRUPTS 240
 
-// System Control Block → system_lut
+/* System control block. */
 #define SYSTEM_BASE 0xE0000000ULL
 #define SYSTEM_SIZE 0x10000000ULL
-#define RAM_BASE 0x20000000ULL
-#define RAM_SIZE 0x10000000ULL
-#define SYSTEM_NUM_SLOTS (SYSTEM_SIZE / SLOT_SIZE)
-#define RAM_NUM_SLOTS (RAM_SIZE / SLOT_SIZE)
 
 
 int dev_init(int argc, char ** argv);
+void dev_flush_logs(void);
 void dev_register_device_model(hwaddr start, hwaddr end, DeviceModel *dev);
 void dev_register_interrupt_device_model(int irq_num, DeviceModel *dev);
 

@@ -70,7 +70,8 @@ source ./setup.sh --build-qemu \
 
 The setup script and Dockerfile apply `qemu-fastdyn-plugin-icount.patch`,
 `qemu-fastdyn-insn-fragments.patch`, `qemu-fastdyn-mmio.patch`,
-`qemu-fastdyn-mmio-pc.patch`, and `qemu-fastdyn-constant-pc.patch` in order,
+`qemu-fastdyn-mmio-pc.patch`, `qemu-fastdyn-constant-pc.patch`, and
+`qemu-fastdyn-translation-overhead.patch` in order,
 detect an already-applied series, and fail rather than reset an incompatible
 checkout. A stale QEMU header fails the FastDyn build at the required
 `qemu/fastdyn-fragments.h` ABI include; it cannot accept and silently omit

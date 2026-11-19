@@ -12,8 +12,8 @@ FastDyn builds against dependencies pinned as submodules:
 - `third_party/common/qemu`: the patched QEMU fork that hosts the FastDyn
   plugin (the ordered `qemu-fastdyn-plugin-icount.patch`,
   `qemu-fastdyn-insn-fragments.patch`, `qemu-fastdyn-mmio.patch`,
-  `qemu-fastdyn-mmio-pc.patch`, and `qemu-fastdyn-constant-pc.patch` series is
-  applied on top)
+  `qemu-fastdyn-mmio-pc.patch`, `qemu-fastdyn-constant-pc.patch`, and
+  `qemu-fastdyn-translation-overhead.patch` series is applied on top)
 - `third_party/common/libhw`: the hardware-probe library (ST-Link / OpenOCD /
   J-Link), needed only to talk to a board (passthrough, twintrace recording)
 - `third_party/common/libvio` (optional): the library device models use for
@@ -47,6 +47,7 @@ Courbet assets), and creates the QEMU RAM backing files. Build options add:
 | --- | --- |
 | `--clone-qemu` | Download missing QEMU sources without patching or compiling; preserve existing checkouts |
 | `--build-qemu` | The patched QEMU, then FastDyn (`build/libfastdyn.so`) with device models (`DEV`), the physics engine with the FMU and flight-controller backends, and libhw (`LIBHW`) when libhw is built |
+| `--release` | Select the `-O0` FastDyn plugin with MMIO logging compiled out when building the plugin |
 | `--build-libhw` | libhw (`out/libhw.so` in the libhw checkout) |
 | `--build-libvio` | LibVIO into `out/libvio/install`, where `fastdyn build-model` looks first |
 | `--build-gazebo` | The legacy Gazebo/Courbet backend and FastDyn with `LIBGZ`/`LIBHW` (needs Gazebo Harmonic) |
@@ -110,6 +111,7 @@ git apply ../../../patches/qemu-fastdyn-insn-fragments.patch
 git apply ../../../patches/qemu-fastdyn-mmio.patch
 git apply ../../../patches/qemu-fastdyn-mmio-pc.patch
 git apply ../../../patches/qemu-fastdyn-constant-pc.patch
+git apply ../../../patches/qemu-fastdyn-translation-overhead.patch
 mkdir build && cd build
 ../configure --target-list=arm-softmmu --enable-plugins
 make qemu-system-arm
@@ -134,6 +136,7 @@ current configuration.
 | `LIBHW` | `false` | Talking to a board via libhw: passthrough and twintrace recording (elder and twintrace replay work without it) |
 | `LIBFUZZ` | `false` | LibAFL fuzzing harness (also builds `virtuals/fuzzer/fastdyn_fuzz_lib` with cargo) |
 | `AFLNET` | `false` | AFLNet harness (`aflnet_path`, default `../aflnet`) |
+| `RELEASE` | `false` | Build the FastDyn plugin at `-O0` and compile out MMIO and IRQ logging |
 | `DEBUG_PRINT` | `false` | Verbose plugin logging |
 | `PHY` | `false` | Physics engine; turned on by `LIBGZ`, `FMU` or `FLIGHT_CONTROLLERS` |
 | `FMU` | `false` | FMI v3 FMU physics |
@@ -145,6 +148,21 @@ current configuration.
 What `setup.sh --build-qemu` builds is
 `make DEV=true PHY=true FLIGHT_CONTROLLERS=true FMU=true`, plus `LIBHW=true`
 when libhw is built.
+
+## Release build
+
+From the repository root:
+
+```bash
+source ./setup.sh --build-qemu --release
+fastdyn run -c configs/minimal_release.toml
+```
+
+With an existing patched QEMU, use `make DEV=true RELEASE=true`. Direct Meson
+builds use `-Drelease=true`. The example uses private anonymous RAM and turns
+off instruction tracing and coverage. Use a regular device-enabled build to
+capture MMIO and IRQ records in `io.log`. The log writer batches records in a
+background thread and drains the queue at normal exit.
 
 ## Finding libfastdyn.so at run time
 

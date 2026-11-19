@@ -75,8 +75,18 @@ const char *twintrace_bin_path = NULL;
 static char run_artifacts_root[PATH_MAX];
 static char guest_target_name[32];
 #define MAX_INSTRUCTION_FRAGMENTS 1024
-static uint64_t instruction_fragment_pcs[MAX_INSTRUCTION_FRAGMENTS];
-static size_t instruction_fragment_pc_count;
+#define FRAGMENT_PC_SLOTS (2 * MAX_INSTRUCTION_FRAGMENTS)
+_Static_assert((FRAGMENT_PC_SLOTS & (FRAGMENT_PC_SLOTS - 1)) == 0,
+               "fragment PC table size must be a power of two");
+
+typedef struct {
+    uint64_t pc;
+    bool occupied;
+} FragmentPc;
+
+/* Fragment PCs are registered during initialization and queried by vCPUs. */
+static FragmentPc instruction_fragment_pcs[FRAGMENT_PC_SLOTS];
+static size_t instruction_fragment_count;
 
 /**
  * @brief Parses a token string into a logger entry.
@@ -181,14 +191,99 @@ bool address_in_any_list(uintptr_t addr, int reg) {
     }
     return false;
 }
-rule_t rules[MAX_RULES];
-size_t rules_count = 0;
+#define RULE_PC_BUCKETS (2 * MAX_RULES)
+_Static_assert((RULE_PC_BUCKETS & (RULE_PC_BUCKETS - 1)) == 0,
+               "virtual rule table size must be a power of two");
+
+/* Append-only buckets preserve first-registered rule precedence and let
+ * fragment validation inspect every rule at a PC, including duplicates. */
+static rule_t rules[MAX_RULES];
+static size_t rules_count;
+static _Atomic unsigned rule_heads[RULE_PC_BUCKETS];
+static _Atomic unsigned rule_next[MAX_RULES];
+static unsigned rule_tails[RULE_PC_BUCKETS];
+static GMutex rule_registration_lock;
+static atomic_bool have_rules;
 
 bool find_rule_by_address(unsigned long long addr, rule_t **out_rule);
 
-// Global storage
-UpdateEntry update_entries[MAX_ENTRIES];
-size_t update_entry_count = 0;
+static unsigned pc_hash(uint64_t pc)
+{
+    uint64_t mixed = (pc ^ (pc >> 33)) * UINT64_C(0x9e3779b97f4a7c15);
+    return mixed ^ (mixed >> 32);
+}
+
+static FragmentPc *instruction_fragment_slot(uint64_t pc)
+{
+    unsigned slot = pc_hash(pc) & (FRAGMENT_PC_SLOTS - 1);
+    while (instruction_fragment_pcs[slot].occupied &&
+           instruction_fragment_pcs[slot].pc != pc) {
+        slot = (slot + 1) & (FRAGMENT_PC_SLOTS - 1);
+    }
+    return &instruction_fragment_pcs[slot];
+}
+
+static unsigned rule_first(uint64_t pc)
+{
+    unsigned bucket = pc_hash(pc) & (RULE_PC_BUCKETS - 1);
+    return atomic_load_explicit(&rule_heads[bucket], memory_order_acquire);
+}
+
+static unsigned rule_following(unsigned index)
+{
+    return atomic_load_explicit(&rule_next[index - 1], memory_order_acquire);
+}
+
+/* A PC maps to its first modifier. Entries at the same PC are linked in
+ * registration order, and their addresses stay valid for translated code. */
+#define UPDATE_PC_SLOTS (2 * MAX_ENTRIES)
+_Static_assert((UPDATE_PC_SLOTS & (UPDATE_PC_SLOTS - 1)) == 0,
+               "modifier table size must be a power of two");
+
+static UpdateEntry update_entries[MAX_ENTRIES];
+static size_t update_entry_count;
+static _Atomic unsigned update_pc_heads[UPDATE_PC_SLOTS];
+static _Atomic unsigned update_next[MAX_ENTRIES];
+static unsigned update_pc_tails[UPDATE_PC_SLOTS];
+static GMutex update_registration_lock;
+static atomic_bool have_updates;
+
+static unsigned update_pc_slot(uint64_t pc)
+{
+    unsigned slot = pc_hash(pc) & (UPDATE_PC_SLOTS - 1);
+
+    for (;;) {
+        unsigned head = atomic_load_explicit(&update_pc_heads[slot],
+                                             memory_order_acquire);
+        if (head == 0 || update_entries[head - 1].update_point == pc) {
+            return slot;
+        }
+        slot = (slot + 1) & (UPDATE_PC_SLOTS - 1);
+    }
+}
+
+static bool register_update(const UpdateEntry *entry)
+{
+    g_mutex_lock(&update_registration_lock);
+    if (update_entry_count == MAX_ENTRIES) {
+        g_mutex_unlock(&update_registration_lock);
+        return false;
+    }
+
+    unsigned slot = update_pc_slot(entry->update_point);
+    unsigned previous = update_pc_tails[slot];
+    update_entries[update_entry_count] = *entry;
+    unsigned index = ++update_entry_count;
+    _Atomic unsigned *link = previous ? &update_next[previous - 1]
+                                      : &update_pc_heads[slot];
+    atomic_store_explicit(link, index, memory_order_release);
+    update_pc_tails[slot] = index;
+    if (index == 1) {
+        atomic_store_explicit(&have_updates, true, memory_order_release);
+    }
+    g_mutex_unlock(&update_registration_lock);
+    return true;
+}
 
 
 
@@ -324,16 +419,13 @@ int load_update_entries(const char *filename) {
         line[strcspn(line, "\r\n")] = 0;
         if (line[0] == '\0' || line[0] == '#') continue;
 
-        if (update_entry_count >= MAX_ENTRIES) {
+        UpdateEntry entry = {0};
+        if (parse_update_line(line, &entry) != 0) {
+            FD_LOG_ERROR("cannot parse line: %s", line);
+        } else if (!register_update(&entry)) {
             FD_LOG_ERROR("too many update entries (at most %d)", MAX_ENTRIES);
             fclose(f);
             return 0;
-        }
-
-        if (parse_update_line(line, &update_entries[update_entry_count]) == 0) {
-            update_entry_count++;
-        } else {
-            FD_LOG_ERROR("cannot parse line: %s", line);
         }
     }
 
@@ -605,22 +697,21 @@ void core_register_tb_trans_hook(core_tb_trans_hook_t cb)
 }
 
 
-// Finds all update entries targeting the given memory address.
-// `matches` is an output array to be filled with pointers to matching entries.
-// `max_matches` limits how many results to return.
-// Returns the number of matches found.
-size_t find_updates_for_address(unsigned long addr,
-                                UpdateEntry **matches,
-                                size_t max_matches);
-size_t find_updates_for_address(unsigned long addr,
-                                UpdateEntry **matches,
-                                size_t max_matches)
+/* Retrieve at most max_matches entries for a PC, in registration order. */
+static size_t find_updates_for_address(uint64_t address, UpdateEntry **matches,
+                                       size_t max_matches)
 {
+    unsigned slot = update_pc_slot(address);
+    unsigned index = atomic_load_explicit(&update_pc_heads[slot],
+                                          memory_order_acquire);
     size_t count = 0;
-    for (size_t i = 0; i < update_entry_count && count < max_matches; ++i) {
-        if (update_entries[i].update_point == addr)
-        {
-            matches[count++] = &update_entries[i];
+
+    /* A different PC can claim an empty slot after the lookup probes it. */
+    if (index != 0 && update_entries[index - 1].update_point == address) {
+        while (index != 0 && count < max_matches) {
+            matches[count++] = &update_entries[index - 1];
+            index = atomic_load_explicit(&update_next[index - 1],
+                                         memory_order_acquire);
         }
     }
     return count;
@@ -824,6 +915,10 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 
     core_tb_trans_dispatch(id, tb);
 
+    /* TB hooks can register rules or modifiers for the block being translated. */
+    bool check_rules = atomic_load_explicit(&have_rules, memory_order_acquire);
+    bool check_updates = atomic_load_explicit(&have_updates, memory_order_acquire);
+
     if (twintrace_mode != TT_OFF) {
         qemu_plugin_register_vcpu_tb_exec_cb(
             tb, tb_exec_cb,
@@ -837,28 +932,20 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
     for (i = 0; i < n; i++) {
         struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
         uint64_t insn_pc = qemu_plugin_insn_vaddr(insn);
-        bool has_fragment = false;
-
-        for (size_t fragment_index = 0;
-             fragment_index < instruction_fragment_pc_count;
-             fragment_index++) {
-            if (instruction_fragment_pcs[fragment_index] == insn_pc) {
-                has_fragment = true;
-                break;
-            }
-        }
-
-        if (has_fragment) {
+        if (instruction_fragment_count &&
+            instruction_fragment_slot(insn_pc)->occupied) {
             UpdateEntry *conflict_updates[MAX_MATCHES];
-            size_t conflict_count = find_updates_for_address(
-                insn_pc, conflict_updates, MAX_MATCHES);
+            size_t conflict_count = check_updates ? find_updates_for_address(
+                insn_pc, conflict_updates, MAX_MATCHES) : 0;
             int pc_reg = !strcmp(guest_target_name, "arm") ? 15 :
                          !strcmp(guest_target_name, "x86_64") ||
                          !strcmp(guest_target_name, "i386") ? 16 : 32;
 
-            for (size_t rule_index = 0; rule_index < rules_count; rule_index++) {
-                if (rules[rule_index].address == insn_pc &&
-                    !virtual_callback_is_observer(rules[rule_index].func)) {
+            for (unsigned index = check_rules ? rule_first(insn_pc) : 0;
+                 index != 0; index = rule_following(index)) {
+                rule_t *candidate = &rules[index - 1];
+                if (candidate->address == insn_pc &&
+                    !virtual_callback_is_observer(candidate->func)) {
                     FD_LOG_ERROR("instruction fragment at 0x%llx conflicts with an unclassified or state-changing virtual callback",
                                  (unsigned long long)insn_pc);
                     utils_die("instruction fragment callback conflict");
@@ -875,7 +962,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                     utils_die("instruction fragment modifier conflict");
                 }
             }
-            if (is_target_address(insn_pc)) {
+            if (num_tuples && is_target_address(insn_pc)) {
                 FD_LOG_ERROR("instruction fragment at 0x%llx conflicts with a detour",
                              (unsigned long long)insn_pc);
                 utils_die("instruction fragment detour conflict");
@@ -883,7 +970,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         }
 
 		//TODO: THis will bite us one day!!
-		if (qemu_plugin_insn_vaddr(insn) == 0x20800050) {
+		if (insn_pc == 0x20800050) {
 				//Magic instruction
 				qemu_plugin_u64 entry_tmp;
                 // In TCG frontend it is already set, if you want to modify it you will have to
@@ -898,12 +985,12 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         if (coverage) {
             if (i == 0) {
 #if DEBUG
-                    FD_LOG_TRACE("instrumenting 0x%lx with %ld instructions", qemu_plugin_insn_vaddr(insn), n);
+                    FD_LOG_TRACE("instrumenting 0x%lx with %ld instructions", insn_pc, n);
                     for (int iter = 0; iter <n; iter++) {
                             FD_LOG_TRACE("  0x%lx", qemu_plugin_insn_vaddr(qemu_plugin_tb_get_insn(tb, iter)));
                     }
 #endif
-                    fuzz_bbl_observe((uint32_t)qemu_plugin_insn_vaddr(insn), (uint32_t)n);
+                    fuzz_bbl_observe((uint32_t)insn_pc, (uint32_t)n);
 
                     qemu_plugin_u64 entry_tmp = {0};
                     entry_tmp.offset = (size_t)&core_cc_ret.list->log_buf;
@@ -913,7 +1000,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                     qemu_plugin_register_vcpu_insn_exec_inline_per_vcpu(insn, QEMU_PLUGIN_INLINE_LOG_REG, entry_tmp, core_cc_ret.entry->reg);
             }
         }
-		LookupResult ret = lookup_addr(qemu_plugin_insn_vaddr(insn));
+		LookupResult ret = listCount ? lookup_addr(insn_pc) : (LookupResult){0};
 		if (ret.list) {
 			qemu_plugin_u64 entry_tmp = {0};
 			if (!ret.list->log_buf.buffer) {
@@ -927,7 +1014,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 
 		//Second Highest prioirity is Virtual instructions
 		rule_t  *rule;
-        if (find_rule_by_address(qemu_plugin_insn_vaddr(insn), &rule)) {
+        if (check_rules && find_rule_by_address(insn_pc, &rule)) {
 				if (rule->args[0] == '*') {
 					qemu_plugin_register_vcpu_insn_exec_cb(
                         insn, rule->func, QEMU_PLUGIN_CB_RW_REGS | QEMU_PLUGIN_CB_RW_CFI, rule->args);
@@ -938,7 +1025,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         }
 
 		//2.5 Inline IO
-		const access_t *a = find_access_by_pc(accesses, count, qemu_plugin_insn_vaddr(insn));
+		const access_t *a = count ? find_access_by_pc(accesses, count, insn_pc) : NULL;
 		if (a) {
 			qemu_plugin_u64 entry_tmp;
 			// TODO: Get Device Memory
@@ -955,9 +1042,10 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 
 		//Third priority: Modifier
 		//void * handle= qemu_plugin_register_vcpu_insn_exec_inline_per_vcpu(insn,  QEMU_PLUGIN_CB_GEN_LABEL, NULL, 0);
-		size_t count = find_updates_for_address(qemu_plugin_insn_vaddr(insn), matches, MAX_MATCHES);
-		if (count > 0) {
-		for (size_t match_idx = 0; match_idx < count; ++match_idx) {
+		size_t match_count = check_updates ?
+            find_updates_for_address(insn_pc, matches, MAX_MATCHES) : 0;
+		if (match_count > 0) {
+		for (size_t match_idx = 0; match_idx < match_count; ++match_idx) {
 			UpdateEntry *e = matches[match_idx];
 
 			FD_LOG_TRACE("update point: 0x%lx", e->update_point);
@@ -971,7 +1059,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 				if (e->type == TARGET_REGISTER &&
 				    e->value_type == VALUE_IMMEDIATE &&
 				    e->enabled == NULL &&
-				    is_target_address(insn_pc) == NULL) {
+				    (!num_tuples || !is_target_address(insn_pc))) {
 					qemu_plugin_register_vcpu_insn_exec_inline_per_vcpu(
 						insn, QEMU_PLUGIN_INLINE_CONST_REG, entry,
 						e->target.reg_num);
@@ -1002,7 +1090,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 		}
 
 		//Lowest priority is detour
-		AddressTuple * tuple = is_target_address(qemu_plugin_insn_vaddr(insn));
+		AddressTuple *tuple = num_tuples ? is_target_address(insn_pc) : NULL;
         if (tuple) {
                 qemu_plugin_u64 entry;
                 // In TCG frontend it is already set, if you want to modify it you will have to
@@ -1096,17 +1184,22 @@ void core_register_exit_hook(void (*cb)(void))
 
 static void plugin_exit(qemu_plugin_id_t id, void *p)
 {
+#if DEV_LOGGER
+    dev_flush_logs();
+#endif
 	FD_LOG_INFO("FastDyn Exit.");
 	core_exit_dispatch();
 }
 
 // lookup_callback function moved to virtuals.c
 
-bool find_rule_by_address(unsigned long long addr, rule_t **out_rule) {
-    for (size_t i = 0; i < rules_count; i++) {
-        if (rules[i].address == addr) {
+bool find_rule_by_address(unsigned long long addr, rule_t **out_rule)
+{
+    for (unsigned index = rule_first(addr); index != 0; index = rule_following(index)) {
+        rule_t *rule = &rules[index - 1];
+        if (rule->address == addr) {
             if (out_rule) {
-                *out_rule = &rules[i];
+                *out_rule = rule;
             }
             return true;
         }
@@ -1117,39 +1210,47 @@ bool find_rule_by_address(unsigned long long addr, rule_t **out_rule) {
 bool core_register_virtual_rule(uint64_t address, cb_func_t func,
                                 const char *args)
 {
-    if (func == NULL || rules_count >= MAX_RULES) {
+    if (!func) {
+        return false;
+    }
+    g_mutex_lock(&rule_registration_lock);
+    if (rules_count == MAX_RULES) {
+        g_mutex_unlock(&rule_registration_lock);
         return false;
     }
 
-    rules[rules_count].address = address;
-    rules[rules_count].func = func;
-    if (args != NULL) {
-        strncpy(rules[rules_count].args, args,
-                sizeof(rules[rules_count].args) - 1U);
-        rules[rules_count].args[sizeof(rules[rules_count].args) - 1U] = '\0';
-    } else {
-        rules[rules_count].args[0] = '\0';
+    rule_t *rule = &rules[rules_count];
+    rule->address = address;
+    rule->func = func;
+    g_strlcpy(rule->args, args ? args : "", sizeof(rule->args));
+
+    unsigned bucket = pc_hash(address) & (RULE_PC_BUCKETS - 1);
+    unsigned previous = rule_tails[bucket];
+    unsigned index = ++rules_count;
+    _Atomic unsigned *link = previous ? &rule_next[previous - 1] : &rule_heads[bucket];
+    atomic_store_explicit(link, index, memory_order_release);
+    rule_tails[bucket] = index;
+    if (index == 1) {
+        atomic_store_explicit(&have_rules, true, memory_order_release);
     }
-    rules_count++;
+    g_mutex_unlock(&rule_registration_lock);
     return true;
 }
 
 bool core_register_register_update(uint64_t address, int reg, uint64_t value)
 {
-    UpdateEntry *entry;
-
-    if (reg < 0 || update_entry_count >= MAX_ENTRIES) {
+    if (reg < 0) {
         return false;
     }
 
-    entry = &update_entries[update_entry_count++];
-    entry->update_point = (unsigned long)address;
-    entry->type = TARGET_REGISTER;
-    entry->target.reg_num = reg;
-    entry->value_type = VALUE_IMMEDIATE;
-    entry->value.imm = (unsigned long)value;
-    entry->enabled = NULL;
-    return true;
+    UpdateEntry entry = {
+        .update_point = (unsigned long)address,
+        .type = TARGET_REGISTER,
+        .target.reg_num = reg,
+        .value_type = VALUE_IMMEDIATE,
+        .value.imm = (unsigned long)value,
+    };
+    return register_update(&entry);
 }
 
 void core_set_guest_target(const char *target_name)
@@ -1207,7 +1308,7 @@ bool core_register_instruction_fragment(uint64_t guest_pc,
                      guest_target_name[0] ? guest_target_name : "unknown");
         return false;
     }
-    if (instruction_fragment_pc_count >= MAX_INSTRUCTION_FRAGMENTS) {
+    if (instruction_fragment_count >= MAX_INSTRUCTION_FRAGMENTS) {
         FD_LOG_ERROR("instruction fragment registry is full");
         return false;
     }
@@ -1215,7 +1316,11 @@ bool core_register_instruction_fragment(uint64_t guest_pc,
                                                code_spec, out_hook_id)) {
         return false;
     }
-    instruction_fragment_pcs[instruction_fragment_pc_count++] = guest_pc;
+    *instruction_fragment_slot(guest_pc) = (FragmentPc) {
+        .pc = guest_pc,
+        .occupied = true,
+    };
+    instruction_fragment_count++;
     return true;
 }
 
@@ -1226,7 +1331,7 @@ bool core_register_gated_modifier(uint64_t address, const char *patch,
     UpdateEntry entry = {0};
     int written;
 
-    if (patch == NULL || enabled == NULL || update_entry_count >= MAX_ENTRIES) {
+    if (patch == NULL || enabled == NULL) {
         return false;
     }
 
@@ -1238,8 +1343,7 @@ bool core_register_gated_modifier(uint64_t address, const char *patch,
     }
 
     entry.enabled = enabled;
-    update_entries[update_entry_count++] = entry;
-    return true;
+    return register_update(&entry);
 }
 
 static const char* safe_arg(const char* s) {
@@ -1363,22 +1467,10 @@ void parse_rules_file(const char *filename) {
             continue;
         }
 
-        if (rules_count >= MAX_RULES) {
+        if (!core_register_virtual_rule(strtoull(addr_str, NULL, 0), cb, args)) {
             FD_LOG_WARN("rules limit reached (%d), skipping the rest", MAX_RULES);
             break;
         }
-
-        rules[rules_count].address = strtoull(addr_str, NULL, 0);
-        rules[rules_count].func = cb;
-
-        if (n == 3) {
-            strncpy(rules[rules_count].args, args, sizeof(rules[rules_count].args) - 1);
-            rules[rules_count].args[sizeof(rules[rules_count].args) - 1] = '\0';
-        } else {
-            rules[rules_count].args[0] = '\0';
-        }
-
-        rules_count++;
     }
 
     fclose(f);

@@ -52,6 +52,7 @@ fastdyn_setup_gazebo_plugin_build() {
   local repo_root="$1"
   local qemu_root="$2"
   local libhw_root="$3"
+  local release_build="${4:-false}"
   local qemu_bin="$qemu_root/build/qemu-system-arm"
 
   if [[ ! -x "$qemu_bin" ]]; then
@@ -75,5 +76,6 @@ EOF
     LIBGZ=true \
     FLIGHT_CONTROLLERS=true \
     DEV=true \
+    RELEASE="$release_build" \
     DEBUG_PRINT=true || return
 }

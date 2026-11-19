@@ -1,7 +1,6 @@
 #include <utils.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdarg.h>
 #include <stdlib.h>
 
 #include <fastdyn/log.h>
@@ -24,15 +23,6 @@ char * utils_get_arg(const char * key, int argc, char **argv) {
     }
 
     return NULL;
-}
-
-void utils_log_to_file(FILE *fp, const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(fp, fmt, args);
-    va_end(args);
-
-	fflush(fp);  // ensure log is flushed to disk
 }
 
 int utils_init(int argc, char** argv) {

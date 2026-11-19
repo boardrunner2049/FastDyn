@@ -66,8 +66,9 @@ fastdyn_setup_cjson() {
 fastdyn_setup_plugin_make_args() {
   local qemu_root="$1"
   local libhw_root="$2"
+  local release_build="${3:-false}"
 
-  fastdyn_setup_make_args=("qemu_path=$qemu_root" DEV=true PHY=true FLIGHT_CONTROLLERS=true FMU=true)
+  fastdyn_setup_make_args=("qemu_path=$qemu_root" DEV=true PHY=true FLIGHT_CONTROLLERS=true FMU=true "RELEASE=$release_build")
   if [[ -f "$libhw_root/out/libhw.so" ]]; then
     fastdyn_setup_make_args+=("libhw_path=$libhw_root" LIBHW=true)
   fi
@@ -77,6 +78,7 @@ fastdyn_setup_plugin_build() {
   local repo_root="$1"
   local qemu_root="$2"
   local libhw_root="$3"
+  local release_build="${4:-false}"
   local qemu_bin="$qemu_root/build/qemu-system-arm"
 
   if [[ ! -x "$qemu_bin" ]]; then
@@ -84,7 +86,7 @@ fastdyn_setup_plugin_build() {
     return 1
   fi
 
-  fastdyn_setup_plugin_make_args "$qemu_root" "$libhw_root"
+  fastdyn_setup_plugin_make_args "$qemu_root" "$libhw_root" "$release_build"
   fastdyn_setup_cjson "$repo_root" || return
   make -C "$repo_root" "${fastdyn_setup_make_args[@]}" || return
 }
@@ -93,6 +95,7 @@ fastdyn_setup_plugin_hint() {
   local repo_root="$1"
   local qemu_root="$2"
   local libhw_root="$3"
+  local release_build="${4:-false}"
   local plugin="$repo_root/build/libfastdyn.so"
 
   if [[ -f "$plugin" ]]; then
@@ -100,7 +103,7 @@ fastdyn_setup_plugin_hint() {
     return 0
   fi
 
-  fastdyn_setup_plugin_make_args "$qemu_root" "$libhw_root"
+  fastdyn_setup_plugin_make_args "$qemu_root" "$libhw_root" "$release_build"
   cat >&2 <<EOF
 FastDyn QEMU plugin is missing: $plugin
 Build it after patched QEMU is ready with:

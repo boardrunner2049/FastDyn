@@ -1,4 +1,5 @@
 #include <qemu/qemu-plugin.h>
+#include <config.h>
 #include <time.h>
 #include <utils.h>
 #include <device.h>
@@ -14,76 +15,115 @@
 #define FD_LOG_SUBSYSTEM "dev"
 #include <fastdyn/log.h>
 
+#if DEV_LOGGER
+#include "mmio_log.h"
+#endif
+
 extern twintrace_mode_t twintrace_mode;
 extern const char *twintrace_bin_path;
-
-// Global current device model
-static FILE * io_logger;
 
 typedef struct DeviceNode {
     DeviceModel *dev;
     struct DeviceNode *next;
 } DeviceNode;
-static const char* read_priority_device_name = "elder";
 
-static struct timespec start_ts;
-static DeviceNode *device_lut[NUM_SLOTS] = {0};
-static DeviceNode *system_lut[SYSTEM_NUM_SLOTS] = {0};
-static DeviceNode *ram_lut[RAM_NUM_SLOTS] = {0};
-
-static inline DeviceNode **dev_select_lut(hwaddr addr) {
-    switch (addr >> 28) { // top 4 bits
-        case 0x4:
-		case 0x5:
-			return device_lut;  // Peripheral MMIO
-        case 0xE:
-			return system_lut;  // System Control Block
-		case 0x2:
-			return ram_lut; //RAM
-        default:
-			return NULL;        // unknown region
+static inline bool dev_in_mmio_window(hwaddr address)
+{
+    switch (address >> 28) {
+    case 0x2:
+    case 0x4:
+    case 0x5:
+    case 0xe:
+        return true;
+    default:
+        return false;
     }
 }
 
-static inline unsigned dev_addr_to_slot(hwaddr addr, hwaddr REGION_BASE)
-{
-    return (addr - REGION_BASE) / SLOT_SIZE;
-}
-
-//Interrupt LUT: each slot is the head of a singly-linked list of DeviceModel
-//handlers registered for that IRQ number. List semantics mirror device_lut
-//(MMIO) registration so that multiple device-model backends (e.g. passthrough
-//+ twintrace, or learned models layered with passthrough fallbacks) can each
-//receive the interrupt event. dev_register_interrupt_device_model dedups the
-//same DeviceModel against the list head; dev_notify_irq / dev_irqret_hook
-//walk the list and dispatch to every registered handler.
+/* Multiple models can handle the same IRQ. Registration deduplicates models
+ * and dispatch visits each subscriber. */
 static DeviceNode *irq_lut[MAX_INTERRUPTS] = {0}; //Initialize all to NULL
 
 typedef struct RangeNode {
     hwaddr start;
     hwaddr end;
+    hwaddr legacy_start;
+    hwaddr legacy_end;
     DeviceModel *dev;
+    bool elder;
     struct RangeNode *next;
 } RangeNode;
 
-static RangeNode *g_dynamic_ranges = NULL;
+typedef struct {
+    hwaddr address;
+    unsigned generation;
+    DeviceModel *read;
+    DeviceModel *write;
+} DeviceRoute;
 
-DeviceModel* find_device_model(const char *name);
+#define ROUTE_CACHE_SIZE 256
+static _Thread_local DeviceRoute route_cache[ROUTE_CACHE_SIZE];
+static unsigned range_generation;
+static RangeNode *g_dynamic_ranges;
 
-static DeviceModel *dev_find_by_range(hwaddr addr)
+static DeviceModel *find_device_model(const char *name);
+
+static DeviceRoute *dev_route(hwaddr address)
 {
-    for (RangeNode *curr = g_dynamic_ranges; curr; curr = curr->next) {
-        if (addr >= curr->start && addr <= curr->end) {
-            return curr->dev;
+    unsigned slot = (address ^ (address >> 10) ^ (address >> 32)) &
+                    (ROUTE_CACHE_SIZE - 1);
+    DeviceRoute *route = &route_cache[slot];
+    if (route->generation == range_generation && route->address == address) {
+        return route;
+    }
+
+    *route = (DeviceRoute) { .address = address, .generation = range_generation };
+    DeviceModel *legacy = NULL;
+    bool legacy_is_elder = false;
+    for (RangeNode *range = g_dynamic_ranges; range; range = range->next) {
+        /* The latest exact range wins for both reads and writes. */
+        if (address >= range->start && address <= range->end) {
+            route->read = route->write = range->dev;
+            return route;
+        }
+
+        /* Preserve the legacy read-only, slot-aligned fallback. */
+        if ((!legacy || (range->elder && !legacy_is_elder)) &&
+            address >= range->legacy_start && address <= range->legacy_end) {
+            legacy = range->dev;
+            legacy_is_elder = range->elder;
         }
     }
-    return NULL;
+    route->read = legacy;
+    return route;
 }
 
-static inline void dev_get_timestamp(time_t *sec, long *usec) {
+static DeviceModel *dev_pcie_model(const char *handler)
+{
+    static const char prefix[] = "generic_pcie_";
+    if (strncmp(handler, prefix, sizeof(prefix) - 1) != 0) {
+        return NULL;
+    }
+
+    const char *start = handler + sizeof(prefix) - 1;
+    const char *bar = strrchr(start, '_');
+    char name[64];
+    if (!bar || bar == start || (size_t)(bar - start) >= sizeof(name)) {
+        return NULL;
+    }
+    size_t len = bar - start;
+    memcpy(name, start, len);
+    name[len] = '\0';
+    return find_device_model(name);
+}
+
+#if DEV_LOGGER
+static struct timespec start_ts;
+
+static void dev_get_timestamp(time_t *sec, long *usec)
+{
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-
     *sec = ts.tv_sec - start_ts.tv_sec;
     *usec = (ts.tv_nsec - start_ts.tv_nsec) / 1000;
     if (*usec < 0) {
@@ -91,6 +131,46 @@ static inline void dev_get_timestamp(time_t *sec, long *usec) {
         *usec += 1000000;
     }
 }
+
+typedef struct {
+    time_t sec;
+    long usec;
+    uint64_t icount;
+} DevLogTimestamp;
+
+static DevLogTimestamp dev_log_timestamp(void)
+{
+    DevLogTimestamp ts;
+    dev_get_timestamp(&ts.sec, &ts.usec);
+    ts.icount = twintrace_mode != TT_OFF ? core_get_icount() : 0;
+    return ts;
+}
+
+static void dev_log_access(const DeviceModel *dev, bool is_write, bool in_window,
+                           hwaddr address, uint64_t value, unsigned size,
+                           uint64_t pc, DevLogTimestamp ts)
+{
+    if (dev && twintrace_mode != TT_OFF) {
+        dev_log_printf("[%5ld.%06ld] icount=%" PRIu64 " [%s] %s: 	 address=0x%08" PRIX64
+                       ", size=%u bytes, value=0x%0*" PRIx64 ", pc=0x%08" PRIx64 "\n",
+                       ts.sec, ts.usec, ts.icount, dev->name, is_write ? "Write" : "Read",
+                       (uint64_t)address, size, (int)(size * 2), value, pc);
+    } else if (dev) {
+        dev_log_printf("[%5ld.%06ld] [%s] %s: 	 address = 0x%08X, size = %u bytes, "
+                       "value = 0x%0*" PRIx64 ", pc=0x%08" PRIx64 "\n",
+                       ts.sec, ts.usec, dev->name, is_write ? "Write" : "Read",
+                       (unsigned)address, size, (int)(size * 2), value, pc);
+    } else if (!is_write) {
+        dev_log_printf("[%5ld.%06ld] IO Read Access NOT Handled: 	 address = 0x%08" PRIx64
+                       ", size = %u bytes, pc=0x%08" PRIx64 " \n",
+                       ts.sec, ts.usec, (uint64_t)address, size, pc);
+    } else if (!in_window) {
+        dev_log_printf("[%5ld.%06ld] IO Write Access NOT Handled (Unknown Region): 	 "
+                       "address = 0x%08X, size = %u bytes, value = 0x%0*" PRIx64 ", pc=0x%08" PRIx64 " \n",
+                       ts.sec, ts.usec, (unsigned)address, size, (int)(size * 2), value, pc);
+    }
+}
+#endif
 
 static uint64_t dev_saved_pc(const qemu_plugin_mmio_context *context)
 {
@@ -103,175 +183,78 @@ static uint64_t dev_saved_pc(const qemu_plugin_mmio_context *context)
 }
 
 static int dev_write(const char *handler, uint64_t address, uint64_t value,
-                     uint64_t size,
-                     const qemu_plugin_mmio_context *context) {
-    uint64_t pc = dev_saved_pc(context);
-#ifdef DEV_LOGGER
-    uint64_t icount = core_get_icount();
-    time_t sec;
-    long usec;
-    dev_get_timestamp(&sec, &usec);
-#endif
-    DeviceNode **lut = dev_select_lut(address);
-    DeviceModel *dev_to_use = NULL;
-
-    /* A. Handler-based routing for PCIe devices */
-    if (handler && strncmp(handler, "generic_pcie_", 13) == 0) {
-        char dev_name[64] = {0};
-        const char *p_bar = strrchr(handler, '_');
-        if (p_bar && p_bar > handler + 13) {
-            size_t len = p_bar - (handler + 13);
-            if (len < sizeof(dev_name)) {
-                strncpy(dev_name, handler + 13, len);
-                dev_name[len] = '\0';
-                dev_to_use = find_device_model(dev_name);
-            }
-        }
-    }
-
-    /* B. Dynamic 64-bit range lookup */
-    if (!dev_to_use) {
-        dev_to_use = dev_find_by_range(address);
-    }
-
-    if (dev_to_use) {
-        dev_to_use->write(dev_to_use->opaque, address, value, size, pc);
-#ifdef DEV_LOGGER
-        if (twintrace_mode != TT_OFF) {
-            utils_log_to_file(io_logger,
-            "[%5ld.%06ld] icount=%" PRIu64 " [%s] Write: \t address=0x%08X, size=%lu bytes, value=0x%0*" PRIx64 ", pc=0x%08" PRIx64 "\n",
-            sec, usec, icount, dev_to_use->name, (unsigned)address, size, (int)(size * 2), value, pc);
-        } else {
-            utils_log_to_file(io_logger,"[%5ld.%06ld] [%s] Write: \t address = 0x%08X, size = %u bytes, value = 0x%0*" PRIx64 ", pc=0x%08X \n",
-                    sec, usec, dev_to_use->name, (unsigned)address, (unsigned)size, (int)(size * 2), value, (unsigned)pc);
-        }
-#endif
-        virtual_notify_mmio(pc, address, value, size, true, true, lut != NULL);
-        if (handler && (handler[0] == 'g')) {
-            return 0;
-        }
+                     uint64_t size, const qemu_plugin_mmio_context *context)
+{
+    bool generic = handler && handler[0] == 'g';
+#if !DEV_LOGGER
+    if (!generic && !g_dynamic_ranges && !virtual_mmio_observer_count) {
         return 1;
     }
-
-    if (!lut) {
-#ifdef DEV_LOGGER
-        utils_log_to_file(io_logger,"[%5ld.%06ld] IO Write Access NOT Handled (Unknown Region): \t address = 0x%08X, size = %u bytes, value = 0x%0*" PRIx64 ", pc=0x%08X \n",
-                        sec, usec, (unsigned)address, (unsigned)size, (int)(size * 2), value, (unsigned)pc);
 #endif
-        virtual_notify_mmio(pc, address, value, size, true, false, false);
-        return 1; // Continue internal operation
+    DeviceModel *dev = generic ? dev_pcie_model(handler) : NULL;
+    if (!dev && g_dynamic_ranges) {
+        dev = dev_route(address)->write;
     }
 
-    bool handled = (dev_to_use != NULL);
-    virtual_notify_mmio(pc, address, value, size, true, handled, true);
-// Filter out QEMU internals ('g') only and we dont filter ('v)
-//It is not always injecting double interrupts every ms
-    // nvic-default is QEMU's RAZ/WI region for the unimplemented PPB
-    // (DWT, ITM, CoreDebug, ...): an access a model handled skips it
-    if (handler && ((handler[0] == 'g') ||
-                    (handled && strcmp(handler, "nvic-default") == 0))) {
-           return 0;
+#if DEV_LOGGER
+    uint64_t pc = dev_saved_pc(context);
+    DevLogTimestamp ts = dev_log_timestamp();
+#else
+    uint64_t pc = (dev || virtual_mmio_observer_count) ? dev_saved_pc(context) : 0;
+#endif
+    if (dev) {
+        dev->write(dev->opaque, address, value, size, pc);
     }
-    // Continue internal operation
-    return 1;
+
+    bool in_window = dev_in_mmio_window(address);
+#if DEV_LOGGER
+    dev_log_access(dev, true, in_window, address, value, size, pc, ts);
+#endif
+    if (virtual_mmio_observer_count) {
+        virtual_notify_mmio(pc, address, value, size, true, dev != NULL, in_window);
+    }
+    return !(generic && (dev || in_window));
 }
 
-// TODO: Change the hardcoded priorty variable.
 static int dev_read(const char *handler, uint64_t address, uint64_t *buf,
-                    uint64_t size,
-                    const qemu_plugin_mmio_context *context) {
+                    uint64_t size, const qemu_plugin_mmio_context *context)
+{
+    bool generic = handler && handler[0] == 'g';
+#if !DEV_LOGGER
+    if (!generic && !g_dynamic_ranges && !virtual_mmio_observer_count) {
+        return 1;
+    }
+#endif
+    DeviceModel *dev = generic ? dev_pcie_model(handler) : NULL;
+    if (!dev && g_dynamic_ranges) {
+        dev = dev_route(address)->read;
+    }
+
+#if DEV_LOGGER
     uint64_t pc = dev_saved_pc(context);
-#ifdef DEV_LOGGER
-    uint64_t icount = core_get_icount();
-    time_t sec;
-    long usec;
-    dev_get_timestamp(&sec, &usec);
+    DevLogTimestamp ts = dev_log_timestamp();
+#else
+    uint64_t pc = (dev || virtual_mmio_observer_count) ? dev_saved_pc(context) : 0;
 #endif
-    uint64_t value = 0; // Default value
-    DeviceNode **lut = dev_select_lut(address);
-    DeviceModel *dev_to_use = NULL;
-
-    /* A. Handler-based routing for PCIe devices */
-    if (handler && strncmp(handler, "generic_pcie_", 13) == 0) {
-        char dev_name[64] = {0};
-        const char *p_bar = strrchr(handler, '_');
-        if (p_bar && p_bar > handler + 13) {
-            size_t len = p_bar - (handler + 13);
-            if (len < sizeof(dev_name)) {
-                strncpy(dev_name, handler + 13, len);
-                dev_name[len] = '\0';
-                dev_to_use = find_device_model(dev_name);
-            }
-        }
+    uint64_t value = 0;
+    if (dev) {
+        value = dev->read(dev->opaque, address, size, pc);
     }
 
-    /* B. Dynamic 64-bit range lookup */
-    if (!dev_to_use) {
-        dev_to_use = dev_find_by_range(address);
-    }
-
-    if (!dev_to_use && lut) {
-        hwaddr region_base = (lut == device_lut) ? DEVICE_BASE : SYSTEM_BASE;
-        unsigned max_slots = (lut == device_lut) ? NUM_SLOTS : SYSTEM_NUM_SLOTS;
-        unsigned idx = dev_addr_to_slot(address, region_base);
-
-        DeviceNode *node = (idx < max_slots) ? lut[idx] : NULL;
-        if (node) {
-            if (node->next == NULL) {
-                dev_to_use = node->dev;
-            } else {
-                DeviceNode *current = node;
-                dev_to_use = node->dev;
-                while (current) {
-                    if (current->dev && current->dev->name && strcmp(current->dev->name, read_priority_device_name) == 0) {
-                        dev_to_use = current->dev;
-                        break;
-                    }
-                    current = current->next;
-                }
-            }
-        }
-    }
-
-    if (dev_to_use) {
-        // A device was selected (either the single one, or the priority one from a list)
-        value = dev_to_use->read(dev_to_use->opaque, address, size, pc);
+    /* Preserve generic-region bypass, with a defined value for unhandled reads.
+     * For the NVIC default region only modelled reads bypass the native handler. */
+    bool bypass = generic || (dev && handler && strcmp(handler, "nvic-default") == 0);
+    if (dev || bypass) {
         *buf = value;
-#ifdef DEV_LOGGER
-    if (twintrace_mode != TT_OFF) {
-        utils_log_to_file(io_logger, "[%5ld.%06ld] icount=%" PRIu64" [%s] Read: \t address = 0x%08X, size = %u bytes, value = 0x%0*" PRIx64 ", pc=0x%08X \n",
-        sec, usec, icount, dev_to_use->name, (unsigned)address,
-        (unsigned)size, (int)(size * 2), value, (unsigned)pc);
-
-    } else {
-    utils_log_to_file(io_logger, "[%5ld.%06ld] [%s] Read: \t address = 0x%08X, size = %u bytes, value = 0x%0*" PRIx64 ", pc=0x%08X \n",
-              sec, usec, dev_to_use->name, (unsigned)address,
-              (unsigned)size, (int)(size * 2), value, (unsigned)pc);
     }
+#if DEV_LOGGER
+    dev_log_access(dev, false, false, address, value, size, pc, ts);
 #endif
-    } else {
-        // This block is reached if:
-        // 1. No devices were registered at all (node was NULL).
-        // 2. Multiple devices were registered, but none matched the priority name.
-#ifdef DEV_LOGGER
-        utils_log_to_file(io_logger,
-            "[%5ld.%06ld] IO Read Access NOT Handled: \t address=0x%08" PRIx64 ", size=%u bytes, pc=0x%08" PRIx64 "\n",
-            sec, usec, (uint64_t)address, (unsigned)size, (uint64_t)pc);
-#endif
-        FD_LOG_DEBUG("IO access not handled");
+    if (virtual_mmio_observer_count) {
+        virtual_notify_mmio(pc, address, value, size, false, dev != NULL,
+                            dev_in_mmio_window(address));
     }
-    virtual_notify_mmio(pc, address, value, size, false, dev_to_use != NULL, lut != NULL);
-
-    // nvic-default is QEMU's RAZ/WI region for the unimplemented PPB
-    // (DWT, ITM, CoreDebug, ...): a value a model returned must not be
-    // overwritten by it
-    if (handler && ((handler[0] == 'g') ||
-                    (dev_to_use != NULL && strcmp(handler, "nvic-default") == 0))) {
-        return 0;
-    }
-
-    // Continue internal operation
-    return 1;
+    return !bypass;
 }
 
 // Base hardware reader and writer
@@ -282,7 +265,7 @@ static const qemu_plugin_unimp_ops_v2 importer = {
         .write = dev_write
 };
 
-DeviceModel* find_device_model(const char *name) {
+static DeviceModel *find_device_model(const char *name) {
     for (int i = 0; i < num_devices; i++) {
         if (strcmp(all_devices[i]->name, name) == 0) {
             return all_devices[i];
@@ -292,11 +275,11 @@ DeviceModel* find_device_model(const char *name) {
 }
 
 void dev_notify_irq(int number) {
-	time_t sec;
+	DeviceNode *head = irq_lut[number];
+#if DEV_LOGGER
+    time_t sec;
     long usec;
     dev_get_timestamp(&sec, &usec);
-	DeviceNode *head = irq_lut[number];
-#ifdef DEV_LOGGER
         if (twintrace_mode != TT_OFF) {
             uint64_t icount = core_get_icount();
             if (number != 15) { //Let's ignore the timer interrupt for now as it is very noisy and not useful for replay
@@ -304,11 +287,11 @@ void dev_notify_irq(int number) {
                  * (twintrace.convert) read a single bracketed tag per line. */
                 const char *dev_name = (head && head->dev && head->dev->name)
                                        ? head->dev->name : "unregistered";
-                utils_log_to_file(io_logger, "[%5ld.%06ld] icount=%" PRIu64" [%s] Interrupt Taken: \t Vector = 0x%08X\n",
+                dev_log_printf("[%5ld.%06ld] icount=%" PRIu64" [%s] Interrupt Taken: \t Vector = 0x%08X\n",
                         sec, usec, icount, dev_name, number);
             }
         } else {
-            utils_log_to_file(io_logger, "[%5ld.%06ld] Interrupt Taken: \t Vector = 0x%08X\n",
+            dev_log_printf("[%5ld.%06ld] Interrupt Taken: \t Vector = 0x%08X\n",
                     sec, usec, number);
         }
 #endif
@@ -320,26 +303,26 @@ void dev_notify_irq(int number) {
 		}
 	}
 	else {
-#ifdef DEV_LOGGER
-		utils_log_to_file(io_logger, "Skipping IRQ NUM %d handling as not registered by the user\n", number);
+#if DEV_LOGGER
+		dev_log_printf("Skipping IRQ NUM %d handling as not registered by the user\n", number);
 #endif
 		FD_LOG_DEBUG("Skipping IRQ NUM %d handling as not registered by the user", number);
 	}
 }
 
 void dev_irqret_hook(int number) {
+#if DEV_LOGGER
     time_t sec;
     long usec;
     dev_get_timestamp(&sec, &usec);
-#ifdef DEV_LOGGER
         if (twintrace_mode != TT_OFF) {
             uint64_t icount = core_get_icount();
             if (number != 0xF) { //Let's ignore the timer interrupt for now as it is very noisy and not useful for replay
-                utils_log_to_file(io_logger, "[%5ld.%06ld] icount=%" PRIu64" Interrupt Served: \t Vector = 0x%08X\n",
+                dev_log_printf("[%5ld.%06ld] icount=%" PRIu64" Interrupt Served: \t Vector = 0x%08X\n",
                         sec, usec, icount, number);
                 }
         } else {
-            utils_log_to_file(io_logger, "[%5ld.%06ld] Interrupt Served: \t Vector = 0x%08X\n",
+            dev_log_printf("[%5ld.%06ld] Interrupt Served: \t Vector = 0x%08X\n",
                     sec, usec, number);
         }
 #endif
@@ -352,8 +335,8 @@ void dev_irqret_hook(int number) {
 		}
 	}
 	else {
-#ifdef DEV_LOGGER
-		utils_log_to_file(io_logger, "Skipping IRQ NUM %d handling as not registered by the user\n", number);
+#if DEV_LOGGER
+		dev_log_printf("Skipping IRQ NUM %d handling as not registered by the user\n", number);
 #endif
 		FD_LOG_DEBUG("Skipping IRQ NUM %d handling as not registered by the user", number);
 	}
@@ -364,35 +347,25 @@ void dev_irqret_hook(int number) {
 void dev_register_device_model(hwaddr start, hwaddr end, DeviceModel *dev) {
     if (!dev) return;
 
-    /* 1. Register in dynamic 64-bit range list */
-    RangeNode *rnode = (RangeNode *)malloc(sizeof(RangeNode));
-    if (rnode) {
-        rnode->start = start;
-        rnode->end = end;
-        rnode->dev = dev;
-        rnode->next = g_dynamic_ranges;
-        g_dynamic_ranges = rnode;
-    }
+    RangeNode *range = g_new(RangeNode, 1);
+    *range = (RangeNode) {
+        .start = start, .end = end, .legacy_start = 1, .legacy_end = 0,
+        .dev = dev, .elder = dev->name && strcmp(dev->name, "elder") == 0,
+        .next = g_dynamic_ranges,
+    };
 
-    /* 2. Also populate legacy slot LUT if within standard slot bounds */
-    DeviceNode **lut = dev_select_lut(start);
-    if (lut) {
-        hwaddr region_base = (lut == device_lut) ? DEVICE_BASE : SYSTEM_BASE;
-        unsigned idx_start = dev_addr_to_slot(start, region_base);
-        hwaddr last_addr = (end > start) ? end - 1 : end;
-        unsigned idx_end = dev_addr_to_slot(last_addr, region_base);
-        unsigned max_slots = (lut == device_lut) ? NUM_SLOTS : SYSTEM_NUM_SLOTS;
-        if (idx_end >= max_slots) idx_end = max_slots - 1;
-
-        for (unsigned i = idx_start; i <= idx_end; i++) {
-            DeviceNode *newNode = (DeviceNode *)malloc(sizeof(DeviceNode));
-            if (newNode) {
-                newNode->dev = dev;
-                newNode->next = lut[i];
-                lut[i] = newNode;
-            }
+    /* These are the legacy peripheral and system slot windows. */
+    hwaddr base = start < SYSTEM_BASE ? DEVICE_BASE : SYSTEM_BASE;
+    hwaddr size = start < SYSTEM_BASE ? DEVICE_SIZE : SYSTEM_SIZE;
+    if (start >= base && start - base < size) {
+        hwaddr last = end > start ? end - 1 : end;
+        if (last >= start) {
+            range->legacy_start = start & ~((hwaddr)SLOT_SIZE - 1);
+            range->legacy_end = MIN(last | (SLOT_SIZE - 1), base + size - 1);
         }
     }
+    g_dynamic_ranges = range;
+    range_generation++;
 }
 
 void dev_register_interrupt_device_model(int irq_num, DeviceModel *dev) {
@@ -413,7 +386,7 @@ void dev_register_interrupt_device_model(int irq_num, DeviceModel *dev) {
         }
     }
 
-    /* Prepend a new node, mirroring dev_register_device_model. */
+    /* Give the most recently registered model the first callback. */
     DeviceNode *newNode = (DeviceNode *)malloc(sizeof(DeviceNode));
     if (!newNode) {
         utils_die("Failed to allocate memory for IRQ device node");
@@ -751,40 +724,24 @@ static inline AppConfig* dev_parse_models(const char *s, ModelEntry *entries, in
 	}
 }
 
-/* The MMIO trace goes to the run's work directory (FASTDYN_WORK_DIR, set by
- * the frontend for every run), next to the run's other results; QEMU started
- * by hand without it writes io.log in its current directory. */
-static FILE *dev_open_io_log(void) {
-	char path[PATH_MAX];
-	const char *work_dir = getenv("FASTDYN_WORK_DIR");
-	if (work_dir && work_dir[0]) {
-		if (snprintf(path, sizeof(path), "%s/io.log", work_dir) >= (int)sizeof(path)) {
-			utils_die("FASTDYN_WORK_DIR is too long for the io.log path");
-		}
-	} else {
-		snprintf(path, sizeof(path), "io.log");
-	}
-	FILE *f = fopen(path, "w");
-	if (!f) {
-		FD_LOG_ERROR("cannot open the MMIO trace %s: %s", path, strerror(errno));
-		utils_die("Cannot open io.log");
-	}
-	return f;
+#if DEV_LOGGER
+void dev_flush_logs(void)
+{
+    dev_log_stop();
 }
+#endif
 
 int dev_init(int argc, char ** argv) {
 	char * dev_model_info = utils_get_arg("dev", argc, argv);
 
 	if (dev_model_info) {
-		// Regisgter IRQ listener for logging
+#if DEV_LOGGER
+        clock_gettime(CLOCK_MONOTONIC, &start_ts);
+        dev_log_start();
+#endif
 	    core_register_irq_hook(dev_notify_irq, dev_irqret_hook);
 		if (!qemu_plugin_unimp_export_device_v2(&importer)) {
 			utils_die("FastDyn QEMU MMIO v2 registration failed; rebuild the pinned QEMU and FastDyn against the same qemu-plugin.h");
-		}
-		io_logger = dev_open_io_log();
-
-		if (start_ts.tv_sec == 0 && start_ts.tv_nsec == 0) {
-			    clock_gettime(CLOCK_MONOTONIC, &start_ts);
 		}
 		ModelEntry entries[10];
 		AppConfig* current_config = dev_parse_models(dev_model_info, entries, 10);
