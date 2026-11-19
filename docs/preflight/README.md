@@ -1774,6 +1774,37 @@ and the
 This establishes recovered deterministic optimization coverage and exact
 installation; it is not a ThreadX runtime-speed or semantic-equivalence claim.
 
+v161 extends the same target-owned frame model to scalar VFP spills without
+treating every decoded floating-point instruction as an emission capability.
+The ARM builder now models `VSTR`/`VLDR` half, single and double transfers as
+typed stack ranges. A range becomes a scalar forwarding source only when the
+exact selected CPU and its feature set can also encode the corresponding
+register move. In particular, Cortex-M4 single precision admits
+`VLDRS` to `VMOVS`, while its decoded D-register transfers remain conservative
+alias barriers. Cortex-M7, M55 and M85 admit double precision only when
+`FeatureFP64` is present. Half-precision transfers remain non-scalar because
+`VMOVH` is not an S-register-to-S-register copy. Multi-register VFP and MVE
+transfers likewise remain non-scalar because one BOLT frame value cannot
+represent their multiple values and fault points.
+
+The executed Cortex-M4 fixture retains `vstr s0,[sp]`, replaces the redundant
+`vldr s1,[sp]` at the same original identity with `vmov.f32 s1,s0`, preserves
+all five worker identities and changes three final executable bytes. Reference
+and candidate both execute on FastDyn's Cortex-M4 model and write exact RAM
+word `0x3f800000`. A paired MC/BOLT negative proves that the same selected M4
+keeps `vstr d4`/`vldr d5`; Cortex-M7/M55/M85 positives perform two forwards
+and emit `vmov.f64 d5,d4`, while M55/M85 retain the half-precision reload.
+The complete production gate is 63/63; 62 applicable
+profiles bind 128,218 final instruction origins in 1,942 functions. ARM BOLT
+lit is 87/87, AArch32 JITLink is 12/12, and BOLT units remain 86 passes plus
+150 explicit target-inapplicable skips, with Pass 5/5 and Profile 39/39.
+Evidence is in
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v161-vfp-frame-r2/report.json)
+and the
+[`validation manifest`](evidence/firmbolt-cortex-m-v161-validation.json).
+This is scalar frame-forwarding and exact-installation evidence, not a broad
+DSP/FPU/MVE optimization or measured performance claim.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

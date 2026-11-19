@@ -1451,9 +1451,29 @@ linked bytes `1246` at `spill_worker` identity `0x080000ac`; the generic gate
 rejects it at that identity. These counts establish final publication
 identity, not semantic equivalence or runtime benefit.
 
+v160 then repairs a target-frame-analysis gap exposed by ThreadX rather than
+relaxing the firmware observation contract. Exact rejection diagnostics show
+that 61 of 65 failed ThreadX functions used the ordinary tied
+`adds r7,#frame_size` epilogue form, whose CPSR operand had hidden the source
+register from the target hook. Modeling that form, scalar pre/post writeback,
+and conservative `LDRD`/`STRD` alias ranges reduces failures to four and
+enables 1,068 store-preserving forwards in 61 functions. The 62/62 matrix and
+exact final-byte gate pass; this establishes recovered analysis coverage and
+installation, not ThreadX performance.
+
+v161 adds exact-CPU-gated scalar VFP frame forwarding. A Cortex-M4 execution
+fixture retains `vstr s0,[sp]`, replaces `vldr s1,[sp]` at the same original
+identity with `vmov.f32 s1,s0`, preserves all five worker identities and
+produces the same `0x3f800000` RAM word in reference and candidate. A negative
+M4 control retains the double transfer even when decoded D registers are
+available; an M7 control emits `vmov.f64` only with `FeatureFP64`. The complete
+gate is 63/63, and 62 applicable profiles bind 128,218 final instruction
+origins in 1,942 functions. Multi-register VFP/MVE and broad DSP/FPU
+optimization remain outside this result.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `2e515778f1de70d73d6994596c7d39748b2df3046f76fed1317be8e573a0b701`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `31528bf54e3fcbf3e559759a9e617f49d37d12f9cca048031123a2cfd432606d`. Regression runs complete 85/85 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v159 validation manifest](evidence/firmbolt-cortex-m-v159-validation.json), SHA-256 `57ad6d9ed16d2dbb6c9f49afe023bdf983accca57703ebaa0e5bd2e131ee7a01`, binds the 62-profile production run, exact linked-byte audit, negative overlay fixture, fixed-work execution, regression XML and clean-apply result.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `24c1e28a915f0d44bda14d6e7c3cd02c2cda38b0afc2bf9d296d0c635bf506ef`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `b1c01409464d1492e4a106d1b59626a5e8e298947372ee411f7c98f8e1fd1b69`. Regression runs complete 87/87 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v161 validation manifest](evidence/firmbolt-cortex-m-v161-validation.json) binds the 63-profile production run, exact linked-byte audit, VFP feature controls and architectural execution, regression XML and clean-apply result. The v159 manifest remains unchanged as historical evidence for the first generic final-byte gate.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

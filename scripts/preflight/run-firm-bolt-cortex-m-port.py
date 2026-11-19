@@ -55,6 +55,9 @@ THREADX_IMAGE = ROOT / "tests/binaries/rtos/threadx.elf"
 ZEPHYR_IMAGE = ROOT / "tests/binaries/rtos/zephyr.elf"
 M3_SOURCE = ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3.s"
 M3_LINKER = ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3.ld"
+M4_VFP_FRAME_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m4_vfp_frame.s"
+)
 M3_HANDLER_BRANCH_ELISION_SOURCE = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_handler_branch_elision.s"
@@ -3513,6 +3516,24 @@ def build_m3_fixture(output: Path, logs: Path) -> Path:
     return image
 
 
+def build_m4_vfp_frame_fixture(output: Path, logs: Path) -> Path:
+    """Build the single-precision Cortex-M4 frame-forwarding fixture."""
+    object_path = output / "firm-bolt-cortex-m4-vfp-frame.o"
+    image = output / "firm-bolt-cortex-m4-vfp-frame-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7em-none-eabi",
+        "-mcpu=cortex-m4", "-mattr=+vfp4d16sp",
+        str(M4_VFP_FRAME_SOURCE), "-o", str(object_path),
+    ], logs / "build-m4-vfp-frame-object.log"),
+        "M4 VFP frame object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "-T", str(M3_LINKER),
+        str(object_path), "-o", str(image),
+    ], logs / "build-m4-vfp-frame-image.log"),
+        "M4 VFP frame image build")
+    return image
+
+
 def build_m3_handler_branch_elision_fixture(
         output: Path, logs: Path) -> Path:
     """Build a real SVC-entry/EXC_RETURN execution fixture."""
@@ -4808,7 +4829,8 @@ def validate_m3_single_word_execution(
 
 def validate_m3_words_execution(
         reference: Path, candidate: Path, output: Path, fastdyn: Path,
-        workload: str, expected_words: tuple[int, ...]) -> dict[str, Any]:
+        workload: str, expected_words: tuple[int, ...],
+        cpu_model: str = "cortex-m3") -> dict[str, Any]:
     """Execute an Armv7-M fixture and compare an exact RAM word sequence."""
     run_root = Path(tempfile.mkdtemp(
         prefix=f"m3-fastdyn-{workload}-", dir=output,
@@ -4829,9 +4851,14 @@ def validate_m3_words_execution(
             text = m3_config_text(
                 ROOT / "configs/minimal.toml", image, ram,
                 directory / "qmp.sock", halt,
-            ).replace(
+            )
+            if cpu_model != "cortex-m3":
+                text = text.replace(
+                    'cpu = "cortex-m3"', f'cpu = "{cpu_model}"', 1,
+                )
+            text = text.replace(
                 'args = ["firm-bolt-m3-semantic"]',
-                f'args = ["firm-bolt-m3-{workload}"]', 1,
+                f'args = ["firm-bolt-{cpu_model}-{workload}"]', 1,
             )
             config.write_text(text)
             process = subprocess.run(
@@ -4861,7 +4888,7 @@ def validate_m3_words_execution(
     return {
         "status": "accepted" if accepted else "rejected",
         "reason": None if accepted else "architectural_result_mismatch",
-        "cpu_model": "cortex-m3",
+        "cpu_model": cpu_model,
         "expected_ram_words": list(expected_words),
         "runs": results,
     }
@@ -5451,6 +5478,7 @@ def main() -> int:
     m0_icp_method_load_profile = write_m0_icp_method_load_profile(output)
     m3_image = build_m3_fixture(output, logs)
     m3_profile = write_m3_profile(output)
+    m4_vfp_frame_image = build_m4_vfp_frame_fixture(output, logs)
     m3_handler_branch_elision_image = (
         build_m3_handler_branch_elision_fixture(output, logs)
     )
@@ -5962,6 +5990,8 @@ def main() -> int:
              "--eliminate-unreachable=true",
          ]),
         ("m4", "cortex-m4", M4_IMAGE, {".isr_vector": None}, ["-v=1"]),
+        ("m4_vfp_frame", "cortex-m4", m4_vfp_frame_image,
+         {".isr_vector": None}, []),
         ("m4_handler_fop_state_equivalence", "cortex-m4", M4_IMAGE,
          {".isr_vector": None}, [
              "--firmbolt-allow-handler-exact-self-forwarding-state-inputs",
@@ -6047,6 +6077,62 @@ def main() -> int:
         handler_fop_state_equivalence_validation = None
         handler_fop_return_equivalence_validation = None
         handler_fop_return_installation_identities = None
+        vfp_frame_validation = None
+        if native_pass_report is not None and label == "m4_vfp_frame":
+            worker = next(
+                function for function in native_pass_report["functions"]
+                if function["name"] == "vfp_frame_worker"
+            )
+            originals = worker["original_instructions"]
+            installed = worker["instructions"]
+            forwarding = native_pass_report["frame_forwardings"]
+            exact = (
+                len(originals) == 5
+                and len(installed) == 5
+                and originals[1]["text"].strip() == "vstr\ts0, [sp]"
+                and originals[1]["may_store"]
+                and originals[2]["text"].strip() == "vldr\ts1, [sp]"
+                and originals[2]["may_load"]
+                and installed[1]["text"].strip() == "vstr\ts0, [sp]"
+                and installed[1]["may_store"]
+                and installed[2]["text"].strip() == "vmov.f32\ts1, s0"
+                and not installed[2]["may_load"]
+                and int(installed[2]["original_address"])
+                    == int(originals[2]["original_address"])
+                and worker["firmware_modified"]
+                and worker["firmware_modification_reasons"]
+                    == ["frame_load_forwarding"]
+                and not worker["firmware_publication_rejections"]
+                and forwarding == [{
+                    "exact_adjacent_self_move": False,
+                    "load_original_address": int(
+                        originals[2]["original_address"]
+                    ),
+                    "replacement_deleted": False,
+                    "store_original_address": int(
+                        originals[1]["original_address"]
+                    ),
+                }]
+            )
+            if not exact:
+                raise RuntimeError(
+                    "Cortex-M4 VFP frame-forwarding contract changed"
+                )
+            vfp_frame_validation = {
+                "status": "accepted",
+                "cpu_model": "cortex-m4",
+                "precision": "single",
+                "store_original_identity": int(
+                    originals[1]["original_address"]
+                ),
+                "load_original_identity": int(
+                    originals[2]["original_address"]
+                ),
+                "replacement": installed[2]["text"].strip(),
+                "store_retained": True,
+                "instruction_count_preserved": True,
+                "double_precision_move_admitted": False,
+            }
         if native_pass_report is not None and label in {
             "chibios", "threadx", "zephyr",
             "zephyr_handler_branch_elision",
@@ -7061,6 +7147,7 @@ def main() -> int:
                 handler_fop_state_equivalence_validation,
             "handler_fop_return_equivalence_validation":
                 handler_fop_return_equivalence_validation,
+            "vfp_frame_validation": vfp_frame_validation,
         }
         if pending_icp_validation is not None:
             results[label]["indirect_call_promotion_validation"] = (
@@ -7123,7 +7210,7 @@ def main() -> int:
                 "chibios", "threadx", "zephyr",
                 "zephyr_handler_branch_elision",
                 "m3_handler_branch_elision",
-                "m4", "m4_handler_fop_state_equivalence",
+                "m4", "m4_handler_fop_state_equivalence", "m4_vfp_frame",
                 "m0plus", "m0plus_handler_fop_return_equivalence",
             }:
                 observed_final_rejections = sorted(
@@ -7150,6 +7237,7 @@ def main() -> int:
                          ("exception_state_input_changed",)),
                     ],
                     "m4_handler_fop_state_equivalence": [],
+                    "m4_vfp_frame": [],
                     "m0plus": [
                         ("usart1_isr",
                          ("exception_return_input_changed",)),
@@ -10924,6 +11012,16 @@ def main() -> int:
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m4_execution(candidates["m4"], output, args.fastdyn.resolve())
     )
+    m4_vfp_frame_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m4_vfp_frame_image,
+            candidates["m4_vfp_frame"], output,
+            args.fastdyn.resolve(), "vfp-frame",
+            expected_words=(0x3F800000,),
+            cpu_model="cortex-m4",
+        )
+    )
     m4_handler_fop_state_equivalence_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m4_execution(
@@ -10979,6 +11077,7 @@ def main() -> int:
             m3_abs32_jump_table_icp_execution,
             m3_detached_abs32_jump_table_icp_execution,
             execution,
+            m4_vfp_frame_execution,
             m4_handler_fop_state_equivalence_execution,
         )
     )
@@ -11483,6 +11582,7 @@ def main() -> int:
             m3_detached_abs32_jump_table_icp_execution,
         "m4_handler_fop_state_equivalence_architectural_execution":
             m4_handler_fop_state_equivalence_execution,
+        "m4_vfp_frame_architectural_execution": m4_vfp_frame_execution,
         "fastdyn_execution": execution,
         "scope": {
             "emission": (

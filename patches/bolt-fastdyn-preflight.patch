@@ -16083,10 +16083,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..75e8a059918cafb304673e9b3467f242
      writeEHFrameHeader();
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..f203a9fe20ec5c7c6021d368b4408d22a9f993e1
+index 0000000000000000000000000000000000000000..b335ebffc0d257d36e103c62b9307944ade37538
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3301 @@
+@@ -0,0 +1,3384 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -16127,6 +16127,29 @@ index 0000000000000000000000000000000000000000..f203a9fe20ec5c7c6021d368b4408d22
 +  }
 +
 +  bool hasThumb2() const { return STI->hasFeature(ARM::FeatureThumb2); }
++
++  bool hasSinglePrecisionFP() const {
++    const bool CPUCanExecuteScalarFP =
++        StringSwitch<bool>(STI->getCPU())
++            .Cases({"cortex-m4", "cortex-m7", "cortex-m33"}, true)
++            .Cases({"cortex-m55", "cortex-m85"}, true)
++            .Default(false);
++    return CPUCanExecuteScalarFP && STI->hasFeature(ARM::FeatureFPRegs);
++  }
++
++  bool hasDoublePrecisionFP() const {
++    // ELF attributes describe instructions present in the input but can
++    // conservatively expose the D-register file even for a single-precision
++    // M4. Emission capability must be the intersection with the selected CPU,
++    // not the union of both feature descriptions. M7, M55 and M85 are the
++    // qualified Cortex-M profiles whose LLVM processor definitions include a
++    // scalar double-precision FPU.
++    const bool CPUCanExecuteDouble =
++        StringSwitch<bool>(STI->getCPU())
++            .Cases({"cortex-m7", "cortex-m55", "cortex-m85"}, true)
++            .Default(false);
++    return CPUCanExecuteDouble && STI->hasFeature(ARM::FeatureFP64);
++  }
 +
 +  bool isMoveToPC(const MCInst &Inst) const {
 +    return (Inst.getOpcode() == ARM::tMOVr ||
@@ -16435,6 +16458,56 @@ index 0000000000000000000000000000000000000000..f203a9fe20ec5c7c6021d368b4408d22
 +      return true;
 +    }
 +
++    // VFP scalar stack transfers use a format-specific scaled immediate.
++    // Treat a single-precision transfer as an ordinary scalar frame
++    // value, so BOLT's existing reaching-value analysis can replace a
++    // redundant VLDRS with the flag-preserving VMOVS. Double precision is
++    // scalar only when the selected CPU can encode the matching VMOVD.
++    // Half-precision VMOVH transfers between an FP scalar register and a core
++    // register; it is not an S-register-to-S-register copy, so VLDRH/VSTRH
++    // always remain conservative alias ranges.
++    //
++    // This is intentionally not extended to VLDM/VSTM or MVE vector accesses:
++    // one MCInst can expose multiple values and fault points, while
++    // FrameIndexEntry represents one scalar value.
++    switch (Inst.getOpcode()) {
++    case ARM::VLDRH:
++    case ARM::VSTRH:
++    case ARM::VLDRS:
++    case ARM::VSTRS:
++    case ARM::VLDRD:
++    case ARM::VSTRD: {
++      if (Inst.getNumOperands() < 3 || !Inst.getOperand(0).isReg() ||
++          !Inst.getOperand(1).isReg() || !Inst.getOperand(2).isImm())
++        return false;
++      const MCPhysReg Base = Inst.getOperand(1).getReg();
++      if (Base != ARM::SP && Base != ARM::R7)
++        return false;
++
++      const bool IsHalf = Inst.getOpcode() == ARM::VLDRH ||
++                          Inst.getOpcode() == ARM::VSTRH;
++      const bool IsDouble = Inst.getOpcode() == ARM::VLDRD ||
++                            Inst.getOpcode() == ARM::VSTRD;
++      IsLoad = Inst.getOpcode() == ARM::VLDRH ||
++               Inst.getOpcode() == ARM::VLDRS ||
++               Inst.getOpcode() == ARM::VLDRD;
++      IsStore = !IsLoad;
++      IsStoreFromReg = IsStore;
++      Reg = Inst.getOperand(0).getReg();
++      StackPtrReg = Base;
++      Size = IsHalf ? 2 : (IsDouble ? 8 : 4);
++      // ARM addrmode5 encodes both S and D offsets in words; only the FP16
++      // addrmode uses halfwords.  The access width and displacement scale are
++      // therefore deliberately separate for double-precision transfers.
++      StackOffset = Inst.getOperand(2).getImm() * (IsHalf ? 2 : 4);
++      IsSimple = (!IsHalf && !IsDouble && hasSinglePrecisionFP()) ||
++                 (IsDouble && hasDoublePrecisionFP());
++      return true;
++    }
++    default:
++      break;
++    }
++
 +    // Model the two writeback forms emitted by ordinary Cortex-M prologues
 +    // and epilogues.  Their memory effect remains non-simple, while stack
 +    // pointer tracking separately evaluates the writeback expression below.
@@ -16715,6 +16788,16 @@ index 0000000000000000000000000000000000000000..f203a9fe20ec5c7c6021d368b4408d22
 +    unsigned ReplacementOpcode = 0;
 +    bool IsWideExtension = false;
 +    switch (Inst.getOpcode()) {
++    case ARM::VLDRS:
++      if (!hasSinglePrecisionFP())
++        return false;
++      ReplacementOpcode = ARM::VMOVS;
++      break;
++    case ARM::VLDRD:
++      if (!hasDoublePrecisionFP())
++        return false;
++      ReplacementOpcode = ARM::VMOVD;
++      break;
 +    case ARM::tLDRspi:
 +    case ARM::tLDRi:
 +    case ARM::t2LDRi12:
@@ -26750,6 +26833,127 @@ index 0000000000000000000000000000000000000000..32cacd19052fce8ce031094e83ee78c1
 +//--- order.txt
 +target_worker
 +Reset_Handler
+diff --git a/bolt/test/ARM/thumb-vfp-frame-forwarding.s b/bolt/test/ARM/thumb-vfp-frame-forwarding.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..1568ceab4ed381e3b6e2131221c0fe97ff2a5c58
+--- /dev/null
++++ b/bolt/test/ARM/thumb-vfp-frame-forwarding.s
+@@ -0,0 +1,115 @@
++## Cortex-M floating-point spills are ordinary frame values only when the
++## selected CPU can encode an equivalent register-to-register move.  M4 has
++## scalar single-precision VMOV but no double-precision VMOV.  Stores remain
++## observable and doubleword memory is retained as an alias barrier instead
++## of being silently treated as a scalar value.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7em-none-eabi -mcpu=cortex-m4 \
++# RUN:   -mattr=+dsp,+vfp4d16sp %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m4 \
++# RUN:   --frame-opt=all --eliminate-unreachable=false -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=BOLT
++# RUN: llvm-objdump -d --mcpu=cortex-m4 --mattr=+dsp,+vfp4d16sp %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=DISASM
++# RUN: llvm-mc -filetype=obj -triple thumbv7em-none-eabi -mcpu=cortex-m7 \
++# RUN:   -mattr=+fp-armv8d16 --defsym=M7=1 %s -o %t.m7.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.m7.o -o %t.m7.exe
++# RUN: llvm-bolt %t.m7.exe --firmbolt-cortex-m-cpu=cortex-m7 \
++# RUN:   --frame-opt=all --eliminate-unreachable=false -o %t.m7.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=M7-BOLT
++# RUN: llvm-objdump -d --mcpu=cortex-m7 --mattr=+fp-armv8d16 %t.m7.bolt \
++# RUN:   | FileCheck %s --check-prefix=M7-DISASM
++# RUN: llvm-mc -filetype=obj -triple thumbv8.1m.main-none-eabi \
++# RUN:   -mcpu=cortex-m55 -mattr=+mve,+mve.fp,+fullfp16 \
++# RUN:   --defsym=M8=1 %s -o %t.m55.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.m55.o -o %t.m55.exe
++# RUN: llvm-bolt %t.m55.exe --firmbolt-cortex-m-cpu=cortex-m55 \
++# RUN:   --frame-opt=all --eliminate-unreachable=false -o %t.m55.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=M8-BOLT
++# RUN: llvm-objdump -d --mcpu=cortex-m55 --mattr=+mve,+mve.fp,+fullfp16 \
++# RUN:   %t.m55.bolt | FileCheck %s --check-prefix=M8-DISASM
++# RUN: llvm-mc -filetype=obj -triple thumbv8.1m.main-none-eabi \
++# RUN:   -mcpu=cortex-m85 -mattr=+mve,+mve.fp,+fullfp16 \
++# RUN:   --defsym=M8=1 %s -o %t.m85.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.m85.o -o %t.m85.exe
++# RUN: llvm-bolt %t.m85.exe --firmbolt-cortex-m-cpu=cortex-m85 \
++# RUN:   --frame-opt=all --eliminate-unreachable=false -o %t.m85.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=M8-BOLT
++# RUN: llvm-objdump -d --mcpu=cortex-m85 --mattr=+mve,+mve.fp,+fullfp16 \
++# RUN:   %t.m85.bolt | FileCheck %s --check-prefix=M8-DISASM
++
++# BOLT: BOLT-INFO: FOP optimized 1 redundant load(s)
++# BOLT: BOLT-INFO: FRAME ANALYSIS: 0 function(s) (0.0% dyn cov) could not have its frame indices restored.
++# DISASM: <Reset_Handler>:
++# DISASM: vstr s0, [sp]
++# DISASM-NEXT: vmov.f32 s1, s0
++# DISASM-NEXT: vstr d4, [sp, #8]
++# DISASM-NEXT: vldr d5, [sp, #8]
++# M7-BOLT: BOLT-INFO: FOP optimized 2 redundant load(s)
++# M7-BOLT: BOLT-INFO: FRAME ANALYSIS: 0 function(s) (0.0% dyn cov) could not have its frame indices restored.
++# M7-DISASM: <Reset_Handler>:
++# M7-DISASM: vstr s0, [sp]
++# M7-DISASM-NEXT: vmov.f32 s1, s0
++# M7-DISASM-NEXT: vstr d4, [sp, #8]
++# M7-DISASM-NEXT: vmov.f64 d5, d4
++# M8-BOLT: BOLT-INFO: FOP optimized 2 redundant load(s)
++# M8-BOLT: BOLT-INFO: FRAME ANALYSIS: 0 function(s) (0.0% dyn cov) could not have its frame indices restored.
++# M8-DISASM: <Reset_Handler>:
++# M8-DISASM: vstr s0, [sp]
++# M8-DISASM-NEXT: vmov.f32 s1, s0
++# M8-DISASM-NEXT: vstr d4, [sp, #8]
++# M8-DISASM-NEXT: vmov.f64 d5, d4
++# M8-DISASM-NEXT: vstr.16 s8, [sp, #16]
++# M8-DISASM-NEXT: vldr.16 s9, [sp, #16]
++
++  .syntax unified
++  .thumb
++  .ifdef M8
++  .eabi_attribute Tag_CPU_arch, 21
++  .eabi_attribute Tag_MVE_arch, 2
++  .else
++  .eabi_attribute Tag_CPU_arch, 13
++  .endif
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .ifdef M7
++  .eabi_attribute Tag_FP_arch, 8
++  .eabi_attribute Tag_ABI_HardFP_use, 3
++  .else
++  .ifdef M8
++  .eabi_attribute Tag_FP_arch, 8
++  .eabi_attribute Tag_ABI_HardFP_use, 3
++  .else
++  .eabi_attribute Tag_FP_arch, 6
++  .eabi_attribute Tag_ABI_HardFP_use, 1
++  .endif
++  .endif
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  sub sp, #24
++  vstr s0, [sp, #0]
++  vldr s1, [sp, #0]
++  vstr d4, [sp, #8]
++  vldr d5, [sp, #8]
++  .ifdef M8
++  vstr.16 s8, [sp, #16]
++  vldr.16 s9, [sp, #16]
++  .endif
++  add sp, #24
++  bx lr
++  .size Reset_Handler, .-Reset_Handler
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb1-absolute-jump-table.s b/bolt/test/ARM/thumb1-absolute-jump-table.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..d32134d6717304b69307aec31934bfe77f6df628
