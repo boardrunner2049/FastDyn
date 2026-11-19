@@ -624,7 +624,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..e23b4cc42fbec7729dd3b3309f58804fb7de547c 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe75d39632 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -866,7 +866,19 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..e23b4cc42fbec7729dd3b3309f58804f
    /// Return true if the instruction is encoded using EVEX (AVX-512).
    virtual bool hasEVEXEncoding(const MCInst &Inst) const { return false; }
  
-@@ -1559,6 +1745,12 @@ public:
+@@ -1297,6 +1483,11 @@ public:
+     return 0;
+   }
+ 
++  /// Return the stack-pointer offset from the canonical frame base at an
++  /// ordinary function entry.  X86 calls place an eight-byte return address
++  /// on the stack; targets with a link register override this with zero.
++  virtual int64_t getInitialFrameBaseOffset() const { return -8; }
++
+   /// Return true if \p Inst is a instruction that copies either the frame
+   /// pointer or the stack pointer to another general purpose register or
+   /// writes it to a memory location.
+@@ -1559,6 +1750,12 @@ public:
      return Expr;
    }
  
@@ -879,7 +891,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..e23b4cc42fbec7729dd3b3309f58804f
    /// Return a BitVector marking all sub or super registers of \p Reg, including
    /// itself.
    virtual const BitVector &getAliases(MCPhysReg Reg,
-@@ -1616,6 +1808,59 @@ public:
+@@ -1616,6 +1813,59 @@ public:
      llvm_unreachable("not implemented");
    }
  
@@ -939,7 +951,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..e23b4cc42fbec7729dd3b3309f58804f
    /// Set of Registers used by the Rep instruction
    virtual void getRepRegs(BitVector &Regs) const {
      llvm_unreachable("not implemented");
-@@ -1700,6 +1945,14 @@ public:
+@@ -1700,6 +1950,14 @@ public:
      return 0;
    }
  
@@ -954,7 +966,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..e23b4cc42fbec7729dd3b3309f58804f
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1751,6 +2004,24 @@ public:
+@@ -1751,6 +2009,24 @@ public:
      return false;
    }
  
@@ -979,7 +991,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..e23b4cc42fbec7729dd3b3309f58804f
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +2060,56 @@ public:
+@@ -1789,6 +2065,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -1455,6 +1467,25 @@ index a7554a1215104275a92e51769e8f84997154c1ca..015a3d026fce6bad5001e154d618e79e
    void setupAggressivePass(BinaryContext &BC,
                             std::map<uint64_t, BinaryFunction> &BFs);
    void setupConservativePass(BinaryContext &BC,
+diff --git a/bolt/include/bolt/Passes/StackPointerTracking.h b/bolt/include/bolt/Passes/StackPointerTracking.h
+index cbb4f88302bc6580a88e97b70aa3e1d9796cafd1..e23a4907b048359132169944c6f5f780dc8be741 100644
+--- a/bolt/include/bolt/Passes/StackPointerTracking.h
++++ b/bolt/include/bolt/Passes/StackPointerTracking.h
+@@ -32,10 +32,12 @@ protected:
+   int getEmpty() { return EMPTY; }
+ 
+   std::pair<int, int> getStartingStateAtBB(const BinaryBasicBlock &BB) {
+-    // Entry BB start with offset 8 from CFA.
++    // The target defines whether an ordinary call changes SP before entry.
++    // X86 starts below its stack return address; link-register targets do not.
+     // All others start with EMPTY (meaning we don't know anything).
+     if (BB.isEntryPoint())
+-      return std::make_pair(-8, getEmpty());
++      return std::make_pair(
++          this->BC.MIB->getInitialFrameBaseOffset(), getEmpty());
+     return std::make_pair(getEmpty(), getEmpty());
+   }
+ 
 diff --git a/bolt/include/bolt/Rewrite/RewriteInstance.h b/bolt/include/bolt/Rewrite/RewriteInstance.h
 index 551c0341b9946c65c318bb4626e9156b1cd855ac..25f179ec3862306342fd1ab1f74ec1cccc679b6a 100644
 --- a/bolt/include/bolt/Rewrite/RewriteInstance.h
@@ -9777,10 +9808,36 @@ index 0000000000000000000000000000000000000000..42a70cd64b4b73e373bd2668d54060c6
 +  return Error::success();
 +}
 diff --git a/bolt/lib/Passes/FrameAnalysis.cpp b/bolt/lib/Passes/FrameAnalysis.cpp
-index b5a50417285ba5d7116e7cb218ed625477bbfbad..b0ef6f3eccb2c8275bc620779f17cb63d2169d6c 100644
+index b5a50417285ba5d7116e7cb218ed625477bbfbad..d2988c940640cce12c9f34a22ff24c4e9be8567e 100644
 --- a/bolt/lib/Passes/FrameAnalysis.cpp
 +++ b/bolt/lib/Passes/FrameAnalysis.cpp
-@@ -564,13 +564,15 @@ FrameAnalysis::FrameAnalysis(BinaryContext &BC, BinaryFunctionCallGraph &CG)
+@@ -100,8 +100,8 @@ class FrameAccessAnalysis {
+   // is used in this function
+   int SPOffset{0};
+   int FPOffset{0};
+-  int64_t CfaOffset{-8};
+-  uint16_t CfaReg{7};
++  int64_t CfaOffset;
++  uint16_t CfaReg;
+   std::stack<std::pair<int64_t, uint16_t>> CFIStack;
+   /// Our pointer to access SPT info
+   const MCInst *Prev{nullptr};
+@@ -163,7 +163,13 @@ class FrameAccessAnalysis {
+ 
+ public:
+   FrameAccessAnalysis(BinaryFunction &BF, StackPointerTracking &SPT)
+-      : SPT(SPT), BC(BF.getBinaryContext()), BF(BF) {}
++      : SPT(SPT), BC(BF.getBinaryContext()), BF(BF),
++        CfaOffset(BC.MIB->getInitialFrameBaseOffset()),
++        CfaReg(BC.MRI->getDwarfRegNum(BC.MIB->getStackPointer(),
++                                     /*IsEH=*/false)) {
++    assert(CfaReg != static_cast<uint16_t>(-1) &&
++           "stack pointer has no DWARF register number");
++  }
+ 
+   void enterNewBB() { Prev = nullptr; }
+   const FrameIndexEntry &getFIE() const { return FIE; }
+@@ -564,13 +570,15 @@ FrameAnalysis::FrameAnalysis(BinaryContext &BC, BinaryFunctionCallGraph &CG)
  }
  
  void FrameAnalysis::printStats() {
@@ -15525,10 +15582,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..b308b0c03e77031496b3539b4a217933
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..147be8a865abfb100bbceff5e75699f634cb4033
+index 0000000000000000000000000000000000000000..f979a6ab11044ded2a6156caae02dc8ea5b761e5
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3136 @@
+@@ -0,0 +1,3163 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -15706,6 +15763,12 @@ index 0000000000000000000000000000000000000000..147be8a865abfb100bbceff5e75699f6
 +
 +  MCPhysReg getFlagsReg() const override { return ARM::CPSR; }
 +
++  int64_t getInitialFrameBaseOffset() const override {
++    // AAPCS calls write the return address to LR, not to the ordinary thread
++    // stack.  The entry SP is therefore the canonical frame base itself.
++    return 0;
++  }
++
 +  MCPhysReg getIntArgRegister(unsigned ArgNo) const override {
 +    static constexpr MCPhysReg ArgRegs[] = {ARM::R0, ARM::R1, ARM::R2,
 +                                            ARM::R3};
@@ -15829,6 +15892,27 @@ index 0000000000000000000000000000000000000000..147be8a865abfb100bbceff5e75699f6
 +    Size = 0;
 +    IsSimple = false;
 +    IsIndexed = false;
++
++    // Treat a multi-register PUSH/POP as one conservative frame range.  The
++    // generic frame model has one value slot per MCInst, so it must not claim
++    // that the individual register values are forwardable.  Describing the
++    // complete range as non-simple is nevertheless essential: otherwise an
++    // R7 save is mistaken for a frame-pointer escape and frame reconstruction
++    // rejects the whole function.
++    if (const int PushSize = getPushSize(Inst)) {
++      IsStore = true;
++      StackPtrReg = ARM::SP;
++      StackOffset = -PushSize;
++      Size = static_cast<uint8_t>(PushSize);
++      return true;
++    }
++    if (const int PopSize = getPopSize(Inst)) {
++      IsLoad = true;
++      StackPtrReg = ARM::SP;
++      StackOffset = 0;
++      Size = static_cast<uint8_t>(PopSize);
++      return true;
++    }
 +
 +    // These Thumb immediate load/store encodings all decode as
 +    //   Rt, base, encoded-offset, predicate, predicate-register.
@@ -21089,6 +21173,81 @@ index 0000000000000000000000000000000000000000..f92bcc1c85276b812bb9d4cd925b14d2
 +  adds r0, #1
 +  add sp, #4
 +  bx lr
++  .size worker, .-worker
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-frame-r7-push-fop.s b/bolt/test/ARM/thumb-frame-r7-push-fop.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..0247cb01ab0b6b4f3fea67535357034ec85715d6
+--- /dev/null
++++ b/bolt/test/ARM/thumb-frame-r7-push-fop.s
+@@ -0,0 +1,69 @@
++## A Thumb frame commonly saves r7 in a multi-register PUSH before making it
++## the frame pointer.  The save is one conservative, non-forwardable frame
++## range; it must not be mistaken for an escaped r7-derived address.  Ordinary
++## FOP can then forward an independent local reload while preserving PUSH,
++## POP and the observable stack store.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv6m-none-eabi -mcpu=cortex-m0plus \
++# RUN:   %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m0plus \
++# RUN:   --frame-opt=all --eliminate-unreachable=false \
++# RUN:   --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=BOLT
++# RUN: llvm-objdump -d --mcpu=cortex-m0plus %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.json')); f=next(x for x in d['functions'] if x['name']=='worker'); print(f['firmware_modified'],','.join(f['firmware_modification_reasons']),f['post_optimization_instruction_count'],len(f['instructions']))" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# BOLT: BOLT-INFO: FOP optimized 1 redundant load(s)
++# BOLT: BOLT-INFO: FRAME ANALYSIS: 0 function(s) (0.0% dyn cov) could not have its frame indices restored.
++# BOLT: BOLT: 1 out of 2 functions were overwritten.
++
++# DISASM: <worker>:
++# DISASM-NEXT: push {r7, lr}
++# DISASM-NEXT: sub sp, #0x4
++# DISASM-NEXT: add r7, sp, #0x0
++# DISASM-NEXT: str r0, [r7]
++# DISASM-NEXT: mov r1, r0
++# DISASM-NEXT: mov sp, r7
++# DISASM-NEXT: add sp, #0x4
++# DISASM-NEXT: pop {r7, pc}
++
++# REPORT: True frame_load_forwarding 8 8
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 12
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl worker
++  bx lr
++  nop
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl worker
++  .type worker,%function
++  .thumb_func
++worker:
++  push {r7, lr}
++  sub sp, #4
++  add r7, sp, #0
++  str r0, [r7]
++  ldr r1, [r7]
++  mov sp, r7
++  add sp, #4
++  pop {r7, pc}
 +  .size worker, .-worker
 +
 +  .section .isr_vector,"a",%progbits
@@ -28516,7 +28675,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..361274c42ae50218a3e810ea57a5d275d02dab17 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..04b5a5f528e6263f63a146faec3e31b334b6b877 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -28586,7 +28745,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..361274c42ae50218a3e810ea57a5d275
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +155,1012 @@ protected:
+@@ -125,6 +155,1051 @@ protected:
  };
  } // namespace
  
@@ -28699,6 +28858,45 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..361274c42ae50218a3e810ea57a5d275
 +  uint16_t Base;
 +  int64_t Offset;
 +  uint8_t Size;
++  EXPECT_EQ(BC->MIB->getInitialFrameBaseOffset(), 0);
++
++  MCInst Push = MCInstBuilder(ARM::tPUSH)
++                    .addImm(ARMCC::AL)
++                    .addReg(0)
++                    .addReg(ARM::R4)
++                    .addReg(ARM::R7)
++                    .addReg(ARM::LR);
++  ASSERT_TRUE(BC->MIB->isStackAccess(
++      Push, IsLoad, IsStore, IsStoreFromReg, Reg, SrcImm, Base, Offset,
++      Size, IsSimple, IsIndexed));
++  EXPECT_FALSE(IsLoad);
++  EXPECT_TRUE(IsStore);
++  EXPECT_FALSE(IsStoreFromReg);
++  EXPECT_EQ(Base, ARM::SP);
++  EXPECT_EQ(Offset, -12);
++  EXPECT_EQ(Size, 12);
++  EXPECT_FALSE(IsSimple);
++  EXPECT_FALSE(IsIndexed);
++  EXPECT_FALSE(BC->MIB->escapesVariable(Push, /*HasFramePointer=*/true));
++
++  MCInst Pop = MCInstBuilder(ARM::tPOP_RET)
++                   .addImm(ARMCC::AL)
++                   .addReg(0)
++                   .addReg(ARM::R4)
++                   .addReg(ARM::R7)
++                   .addReg(ARM::PC);
++  ASSERT_TRUE(BC->MIB->isStackAccess(
++      Pop, IsLoad, IsStore, IsStoreFromReg, Reg, SrcImm, Base, Offset, Size,
++      IsSimple, IsIndexed));
++  EXPECT_TRUE(IsLoad);
++  EXPECT_FALSE(IsStore);
++  EXPECT_EQ(Base, ARM::SP);
++  EXPECT_EQ(Offset, 0);
++  EXPECT_EQ(Size, 12);
++  EXPECT_FALSE(IsSimple);
++  EXPECT_FALSE(IsIndexed);
++  EXPECT_FALSE(BC->MIB->escapesVariable(Pop, /*HasFramePointer=*/true));
++
 +  ASSERT_TRUE(BC->MIB->isStackAccess(
 +      Load, IsLoad, IsStore, IsStoreFromReg, Reg, SrcImm, Base, Offset,
 +      Size, IsSimple, IsIndexed));

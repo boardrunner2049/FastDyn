@@ -310,6 +310,23 @@ LITERAL_POOL_SUMMARY_RE = re.compile(
     r"unreferenced island function\(s\)"
 )
 
+FRAME_OPTIMIZATION_SUMMARY_RES = {
+    "redundant_loads": re.compile(
+        r"FOP optimized (?P<value>\d+) redundant load\(s\)"
+    ),
+    "not_optimized_functions": re.compile(
+        r"FRAME ANALYSIS: (?P<value>\d+) function\(s\) were not optimized"
+    ),
+    "failed_frame_restore_functions": re.compile(
+        r"FRAME ANALYSIS: (?P<value>\d+) function\(s\) .*could not have "
+        r"its frame indices restored"
+    ),
+    "overwritten_functions": re.compile(
+        r"BOLT: (?P<value>\d+) out of (?P<total>\d+) functions were "
+        r"overwritten"
+    ),
+}
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -329,6 +346,21 @@ def parse_literal_pool_summary(output: str) -> dict[str, Any]:
         )
     counts = {key: int(value) for key, value in matches[0].groupdict().items()}
     return {"status": "accepted", **counts}
+
+
+def parse_frame_optimization_summary(output: str) -> dict[str, Any]:
+    """Return final FOP coverage rather than the pre-FOP dynostats stage."""
+    result: dict[str, Any] = {"status": "accepted"}
+    for name, pattern in FRAME_OPTIMIZATION_SUMMARY_RES.items():
+        matches = list(pattern.finditer(output))
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"expected one {name} frame summary, found {len(matches)}"
+            )
+        result[name] = int(matches[0].group("value"))
+        if name == "overwritten_functions":
+            result["total_functions"] = int(matches[0].group("total"))
+    return result
 
 
 def run(command: list[str], log: Path, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
@@ -6016,6 +6048,55 @@ def main() -> int:
                     f"expected {expected_pool_counts}, observed "
                     f"{observed_pool_counts}"
                 )
+        frame_optimization_validation = None
+        expected_frame_counts = {
+            "m0plus": {
+                "redundant_loads": 105,
+                "not_optimized_functions": 4,
+                "failed_frame_restore_functions": 18,
+                "overwritten_functions": 75,
+                "total_functions": 127,
+                "frame_modified_functions": 35,
+                "publication_rejections": 1,
+            },
+            "m4": {
+                "redundant_loads": 1200,
+                "not_optimized_functions": 11,
+                "failed_frame_restore_functions": 58,
+                "overwritten_functions": 376,
+                "total_functions": 607,
+                "frame_modified_functions": 359,
+                "publication_rejections": 1,
+            },
+        }.get(label)
+        if expected_frame_counts is not None:
+            if native_pass_report is None:
+                raise RuntimeError(
+                    f"{label} frame coverage requires a native pass report"
+                )
+            frame_optimization_validation = parse_frame_optimization_summary(
+                process.stdout + process.stderr
+            )
+            summary = native_pass_report["summary"]
+            frame_optimization_validation.update({
+                "frame_modified_functions": int(
+                    summary["firmware_modification_reason_counts"]
+                    ["frame_load_forwarding"]
+                ),
+                "publication_rejections": int(
+                    summary["firmware_publication_rejected_function_count"]
+                ),
+            })
+            observed_frame_counts = {
+                key: frame_optimization_validation[key]
+                for key in expected_frame_counts
+            }
+            if observed_frame_counts != expected_frame_counts:
+                raise RuntimeError(
+                    f"{label} frame/FOP cohort changed unexpectedly: "
+                    f"expected {expected_frame_counts}, observed "
+                    f"{observed_frame_counts}"
+                )
         relocation_order_policy = {
             "m3_function_reorder": "explicit_user",
             "m3_profile_function_reorder": "profile_exec_count",
@@ -6146,6 +6227,7 @@ def main() -> int:
             "exclusive_access_validation": exclusive_access_validation,
             "literal_pool_placement_validation":
                 literal_pool_placement_validation,
+            "frame_optimization_validation": frame_optimization_validation,
         }
         if pending_icp_validation is not None:
             results[label]["indirect_call_promotion_validation"] = (

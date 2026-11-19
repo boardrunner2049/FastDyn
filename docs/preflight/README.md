@@ -138,14 +138,14 @@ caller-saved exchange across qualified leaf and direct-call functions plus
 live-in/call-boundary retention controls, a shared-external-program
 retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v149 run accepts all fifty-five profiles without
+The 19 November v150 run accepts all fifty-five profiles without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
 recorded audited pass and satisfying the firmware publication invariants
 replace input bytes. The per-profile overwrite counts are retained in the
 machine-readable report rather than duplicated here. The headline real-image
-counts are now 55/127 ESCape32 functions and 178/607 FreeRTOS functions; the
+counts are now 75/127 ESCape32 functions and 376/607 FreeRTOS functions; the
 Thumb-1 method, M3 propagation and M3 linked-read-only-load fixtures each
 install one bounded worker.
 These are publication counts,
@@ -774,15 +774,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final
+  --output build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/report.json),
-SHA-256 `c024448ecf22e165d01110b942627fc3590743436306f38b56fab1733e75ea07`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/report.json),
+SHA-256 `6cfa5c4900e2fff107ab85c1dd9a17c8218e45f739733f6f527e913bad9f9717`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/validation-manifest.json),
-SHA-256 `8ddeb9b61a1d93648887bd1f2dcf5472856e11700c79219ed4de36cfe3c56949`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/validation-manifest.json),
+SHA-256 `a8bd4c553dd138e0311deecfc45aa5b6b6e24dad4fb537fe3d77c6160b28ed1f`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -794,25 +794,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`a36bad23bdecb8a8c5408a3a937c7b1c760bf328eadf7c291ff432a7d501f4a5`,
+`0691f16990d4415b2181a9d326f1dcecc29641e117465529999b306367062b22`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`0dcb6a0ca018757d2e1f2810d6489f836676005320503fa767825066ae49c8dd`.
-The current combined ARM BOLT/AArch32 JITLink lit run passes 93/93
-(81 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
+`d4eb53cd4e92392cf6c124155bdad6ab4e25b5b470b9e977174fbf0448f40da8`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 94/94
+(82 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
 explicitly skip 150 target-inapplicable parameterizations: Core is 86/150,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/core-tests.xml)
 has SHA-256
-`850e4cad9fa3d8f96dd4859b70cdd8ed280bc48adcc9d30a50ea314a6c918b12`;
+`b928a37e06a51b190aa00c15e326d4583ba788daed1b9d7b3984ff53371fa03c`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`52b7762711c699c25bfb68d6129e136f221903d9cc016c43d4fc1f8c744560fb`
-and `ba1cc97b5004ed74b530073ac011f9eec851c3e945ecc1c10b75530760967fda`.
+`25b795116a4c9072d93f6692b1cb5365a9cb02ec2a6b4434e3a1cc7f6ad4bfef`
+and `ffdc8f82dd40a861bf7660502ac240cae994e7ef4d33b912e29bfbfefdf94ee4`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1446,6 +1446,29 @@ and the final layout reports zero synthesized control edges. The 55 selected
 bodies are byte-identical, so this is representation and publication coverage,
 not a speedup claim. `SVC` and arbitrary calls remain ineligible without their
 own typed non-return/effect proofs.
+
+v150 fixes a separate target-architecture defect in BOLT's frame analysis.
+The generic stack tracker and frame reconstruction initialized the entry frame
+at `SP-8`, matching x86's stack-pushed return address but not AAPCS, where a
+Thumb call writes `LR` and leaves entry `SP` unchanged. They now obtain the
+entry offset and DWARF stack-pointer register from `MCPlusBuilder`; x86 retains
+`-8`, while ARM supplies zero. ARM also describes multi-register `PUSH` and
+`POP` as conservative stack ranges. This prevents a saved `r7` from being
+misclassified as an escaping frame address without claiming that an
+individual pushed register is a forwardable scalar load.
+
+The focused `push {r7,lr}` fixture now forwards one local stack reload while
+retaining the `PUSH`, stack store, `POP`, and all eight exact origins. On the
+real M0+ image, ordinary FOP forwards 105 loads in 35 functions; frame-restore
+failures fall from 100 to 18 and compact publication rises from 55/127 to
+75/127 functions. On the real M4 image it forwards 1,200 loads in 359
+functions and publishes 376/607 functions. The two handler candidates whose
+forwarded values feed architectural state remain rejected as
+`exception_return_input_changed` and `exception_state_input_changed`.
+Seventeen of the remaining M0+ failures form or escape an SP/r7-derived
+address and one has unresolved frame-pointer state; these retain their input
+under the same conservative alias boundary used by upstream x86 FOP. These
+counts establish analysis and publication coverage, not runtime benefit.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
