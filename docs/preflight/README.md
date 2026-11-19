@@ -138,14 +138,14 @@ caller-saved exchange across qualified leaf and direct-call functions plus
 live-in/call-boundary retention controls, a shared-external-program
 retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v147 run accepts all fifty-five without
+The 19 November v148 run accepts all fifty-five without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
 recorded audited pass and satisfying the firmware publication invariants
 replace input bytes. The per-profile overwrite counts are retained in the
 machine-readable report rather than duplicated here. The headline real-image
-counts remain 26/127 ESCape32 functions and 171/607 FreeRTOS functions; the
+counts are now 51/127 ESCape32 functions and 178/607 FreeRTOS functions; the
 Thumb-1 method, M3 propagation and M3 linked-read-only-load fixtures each
 install one bounded worker.
 These are publication counts,
@@ -774,15 +774,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final
+  --output build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/report.json),
-SHA-256 `31e2895fd34c8242d3d2d6d8874f1e0597d4a1827b98b1893d94d781d3979cae`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/report.json),
+SHA-256 `783244c26e0b43970d1e707cf985a0e841574d1cb2312c62fd20ef5c76b8a19c`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/validation-manifest.json),
-SHA-256 `d5569d73daa4316e60297d2b59b0dfeec60a6f07c1088f9285b469a7b6faaa30`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/validation-manifest.json),
+SHA-256 `116c8086f0a818fcf92bf2383030e84926cb57e9e7ef5c2569f8637d6bb5729d`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -794,25 +794,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`4f2ca5336e630461aba7da41c242dada2a8662f0e7b9fa783b5fb24ff735a9dc`,
+`6076698fd8de7b3c9fb5bfd341de1d4889a0278e5812490c2775126bb5b23a99`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`88cf09d106412c0f3864a0f0f9a8cc1e87c60984bd837153e603c6945f3df2be`.
-The current combined ARM BOLT/AArch32 JITLink lit run passes 90/90
-(78 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
+`21ca1af1dec7bb1b16ddb51f30e3f9f456705aa3e98ddb9640f5c504e922c1df`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 91/91
+(79 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
 explicitly skip 150 target-inapplicable parameterizations: Core is 86/150,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/core-tests.xml)
 has SHA-256
-`92a703d90cf662de0ae5933b5f23ed6eecac2f5949ed28f7e63aff3a1b859f76`;
+`d0eea1117e584d071ca3556768b93c3064ee454602ba7e2424db488e06b7f8ee`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`6bbdd71024b1eb11e7b57a4f9bbc3b31c9224a9f1caa9fa9a6042659f25582c9`
-and `4514437b46fba453f9e790485442c12ae90740d1f8dde506736a911f1852f350`.
+`bc478c8d92a7200e26c1767ec10aec83e87c09f14dcee886c6a0d42ee35fdbfc`
+and `71d87b13bc29129f231d59c61f6b800a689d40bfd2bf96cd87212d0e9cf7e55a`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1411,9 +1411,25 @@ closes register-fed `BX`/move-to-PC forms; stack-consuming `POP`, `LDM` and
 load-to-PC forms remain protected by exact instruction/order and retained-store
 requirements rather than a complete model of stacked architectural state.
 
+v148 closes the dominant real M0+ literal-owner gap. Compiler output commonly
+places a two-byte alignment NOP after `POP {...,pc}` but leaves that NOP in the
+same BOLT basic block as the return. The old owner search inspected only the
+block's final instruction, saw the NOP and retained the pool. It now walks
+backward across exact architectural no-ops, requires an exact-offset return or
+unconditional branch, and treats only the guarded trailing bytes as alignment.
+On ESCape32 this raises qualified pool functions from 28 to 54, attached
+owners from 30 to 56 and rebound PC-relative references from 461 to 920.
+Accepted publication rises from 26 to 51 functions; 52 pools containing 1,424
+bytes and 356 exact labels are emitted at their original addresses. `main`
+remains unchanged because its last pool follows an intra-function `BL` long
+transfer whose non-return behavior is not statically proven. FreeRTOS
+`prvPortStartFirstTask` likewise remains unchanged after `SVC`, which is not
+generally non-fallthrough.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
-literal islands without a proven non-fallthrough owner, ARM relocation classes
+literal islands after calls or exception transfers without a proven
+non-fallthrough contract, ARM relocation classes
 beyond the now-qualified JUMP6/ABS8/ABS16 and paired split MOVW/MOVT set,
 producer forms whose relocation graph does not identify a unique split pair,
 veneer placement without explicit typed slots or under arbitrary

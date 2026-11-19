@@ -4442,10 +4442,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..aa4d5a85297d59873db8503faa3f75d24283c542
+index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707a4968412
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,5075 @@
+@@ -0,0 +1,5107 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -5509,6 +5509,37 @@ index 0000000000000000000000000000000000000000..aa4d5a85297d59873db8503faa3f75d2
 +    for (PoolPlan &Plan : Plans) {
 +      if (Plan.References.empty())
 +        continue;
++      const auto IsArchitecturalNoOp = [&](const MCInst &Inst) {
++        return BC.MIB->isNoop(Inst) ||
++               (BC.MII->getName(Inst.getOpcode()) == StringRef("tMOVr") &&
++                Inst.getNumOperands() >= 2 && Inst.getOperand(0).isReg() &&
++                Inst.getOperand(1).isReg() &&
++                Inst.getOperand(0).getReg() ==
++                    Inst.getOperand(1).getReg());
++      };
++      // Compilers commonly place a two-byte alignment NOP after POP {...,pc}
++      // and before the $d pool marker. BOLT can retain that NOP in the same
++      // CFG block as the return, so getLastNonPseudoInstr() alone loses the
++      // real execution barrier. Walk backward across exact architectural
++      // no-ops only; any other trailing instruction or missing offset keeps
++      // the pool unowned.
++      const auto FindTrailingOwner = [&](BinaryBasicBlock &BB,
++                                         auto IsOwner) -> MCInst * {
++        for (MCInst &Inst : llvm::reverse(BB)) {
++          if (BC.MIB->isPseudo(Inst))
++            continue;
++          const std::optional<uint32_t> Offset = BC.MIB->getOffset(Inst);
++          const std::optional<uint32_t> Size =
++              BC.MIB->getInstructionSize(Inst);
++          if (!Offset || !Size || *Offset + *Size > Plan.StartOffset)
++            return nullptr;
++          if (IsOwner(Inst))
++            return &Inst;
++          if (!IsArchitecturalNoOp(Inst))
++            return nullptr;
++        }
++        return nullptr;
++      };
 +      BinaryBasicBlock *ResumeBB = nullptr;
 +      for (BinaryBasicBlock &BB : BF)
 +        if (BB.getOffset() == Plan.EndOffset) {
@@ -5517,9 +5548,12 @@ index 0000000000000000000000000000000000000000..aa4d5a85297d59873db8503faa3f75d2
 +        }
 +      if (ResumeBB)
 +        for (BinaryBasicBlock &BB : BF) {
-+          MCInst *Branch = BB.getLastNonPseudoInstr();
-+          if (!Branch || !BC.MIB->isUnconditionalBranch(*Branch) ||
-+              BB.succ_size() != 1 || BB.getSuccessor() != ResumeBB ||
++          MCInst *Branch = FindTrailingOwner(
++              BB, [&](const MCInst &Inst) {
++                return BC.MIB->isUnconditionalBranch(Inst);
++              });
++          if (!Branch || BB.succ_size() != 1 ||
++              BB.getSuccessor() != ResumeBB ||
 +              BC.MIB->getInlineData(*Branch) ||
 +              BC.MIB->getInlineDataBlocks(*Branch))
 +            continue;
@@ -5537,10 +5571,12 @@ index 0000000000000000000000000000000000000000..aa4d5a85297d59873db8503faa3f75d2
 +
 +      if (!Plan.OwnerBranch)
 +        for (BinaryBasicBlock &BB : BF) {
-+          MCInst *Terminator = BB.getLastNonPseudoInstr();
++          MCInst *Terminator = FindTrailingOwner(
++              BB, [&](const MCInst &Inst) {
++                return BC.MIB->isReturn(Inst) ||
++                       BC.MIB->isUnconditionalBranch(Inst);
++              });
 +          if (!Terminator || BB.succ_size() > 1 ||
-+              (!BC.MIB->isReturn(*Terminator) &&
-+               !BC.MIB->isUnconditionalBranch(*Terminator)) ||
 +              BC.MIB->getInlineData(*Terminator) ||
 +              BC.MIB->getInlineDataBlocks(*Terminator))
 +            continue;
@@ -5667,15 +5703,11 @@ index 0000000000000000000000000000000000000000..aa4d5a85297d59873db8503faa3f75d2
 +          if (!Offset || !Size || *Offset < Plan.BlockStartOffset ||
 +              *Offset >= Plan.StartOffset)
 +            continue;
-+          const bool IsArchitecturalNoOp =
-+              BC.MIB->isNoop(Inst) ||
-+              (BC.MII->getName(Inst.getOpcode()) == StringRef("tMOVr") &&
-+               Inst.getNumOperands() >= 2 && Inst.getOperand(0).isReg() &&
-+               Inst.getOperand(1).isReg() &&
-+               Inst.getOperand(0).getReg() == Inst.getOperand(1).getReg());
 +          if (*Offset + *Size > Plan.StartOffset ||
-+              !IsArchitecturalNoOp || BB.pred_size() != 0 ||
-+              BF.isEntryPoint(BB)) {
++              !IsArchitecturalNoOp(Inst) ||
++              ((&BB != Plan.OwnerBB ||
++                *Offset < Plan.BlockStartOffset) &&
++               (BB.pred_size() != 0 || BF.isEntryPoint(BB)))) {
 +            RejectReason = "pool alignment bytes are reachable or non-NOP";
 +            Qualified = false;
 +            break;
@@ -27038,6 +27070,83 @@ index 0000000000000000000000000000000000000000..11176e8dd01dd666ed4112ec5a49199c
 +.Lliteral:
 +  .word 7
 +  .size terminal_worker, .-terminal_worker
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb1-terminal-pop-padded-literal-pool.s b/bolt/test/ARM/thumb1-terminal-pop-padded-literal-pool.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..a42d3f3d0c565cc5459f707f9440efc2f306bddc
+--- /dev/null
++++ b/bolt/test/ARM/thumb1-terminal-pop-padded-literal-pool.s
+@@ -0,0 +1,71 @@
++## Compiler-shaped Thumb-1 epilogues can retain an alignment NOP in the same
++## BOLT basic block as POP {...,pc}. The return still guards the literal pool:
++## walk backward across exact no-ops rather than requiring the block's final
++## decoded instruction itself to be the owner.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv6m-none-eabi -mcpu=cortex-m0plus %s -o %t.o
++# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m0plus \
++# RUN:   --fastdyn-firmware-report=%t.report.json -v=1 -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=BOLT
++# RUN: %python -c "import json; d=json.load(open('%t.report.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='padded_pop_worker'); p=f['owned_literal_pools']; print(f['firmware_modified'],len(p),p[0]['owner_instruction_output_address'],p[0]['original_address'],p[0]['output_address'],d['synthesized_inline_data_bytes'])" | FileCheck %s --check-prefix=REPORT
++# RUN: %python -c "import json; d=json.load(open('%t.report.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='non_nop_worker'); print(f['firmware_modified'],len(f['owned_literal_pools']))" | FileCheck %s --check-prefix=NONNOP
++# RUN: llvm-objdump -d --start-address=0x08000008 --stop-address=0x08000018 %t.bolt | FileCheck %s --check-prefix=CODE
++
++# BOLT: BOLT-INFO: Thumb literal-pool placement qualified 1 function(s), attached 1 owner block(s), rebound 1 PC-relative reference(s), and retained 1 function(s)
++# BOLT: BOLT: 1 out of 3 functions were overwritten.
++# BOLT: BOLT-INFO: not adding new segments
++# REPORT: True 1 134217740 134217744 134217744 4
++# NONNOP: False 0
++# CODE: <padded_pop_worker>:
++# CODE: push {r4, lr}
++# CODE-NEXT: ldr r0, [pc, #0x4]
++# CODE-NEXT: pop {r4, pc}
++# CODE-NEXT: nop
++# CODE-NEXT: 8000010: {{.*}}.word 0x00000007
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 12
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl padded_pop_worker
++  bx lr
++  nop
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl padded_pop_worker
++  .type padded_pop_worker,%function
++  .thumb_func
++padded_pop_worker:
++  push {r4, lr}
++  ldr r0, .Lliteral
++  pop {r4, pc}
++  nop
++  .p2align 2
++.Lliteral:
++  .word 7
++  .size padded_pop_worker, .-padded_pop_worker
++
++  .globl non_nop_worker
++  .type non_nop_worker,%function
++  .thumb_func
++non_nop_worker:
++  ldr r1, .Lretained_literal
++  bx lr
++  movs r2, #0
++  .p2align 2
++.Lretained_literal:
++  .word 9
++  .size non_nop_worker, .-non_nop_worker
 +
 +  .section .isr_vector,"a",%progbits
 +  .globl g_pfnVectors

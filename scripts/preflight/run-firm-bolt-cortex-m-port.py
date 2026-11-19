@@ -10476,6 +10476,7 @@ def main() -> int:
                 "Thumb-2 ADR.W and PC-relative MOVW/MOVT instruction references",
                 "fixed-address literal pools and firmware allocated-range preservation",
                 "guarded interleaved/shared and terminal non-fallthrough Thumb-1 literal pools with exact-address prepublication fallback and final validation, typed ARM SHT_REL dependencies, mapping-symbol reconstruction, and Cortex-M0 execution",
+                "compiler-shaped terminal Thumb literal pools whose return or unconditional owner is followed by exact unreachable alignment no-ops in the same CFG block",
                 "retained ARM SHT_REL source-offset remapping for moved instruction-owned data and symbol-index remapping after output symtab rebuilding",
                 "relaxed value-only shared-pool cloning into explicit symbol-bounded typed capacity, with address-producing ADR clones rejected",
                 "retained ARM SHT_REL growth for relocation-bearing value-pool clones, with one record per live copy",

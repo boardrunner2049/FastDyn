@@ -1061,6 +1061,37 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
     for (PoolPlan &Plan : Plans) {
       if (Plan.References.empty())
         continue;
+      const auto IsArchitecturalNoOp = [&](const MCInst &Inst) {
+        return BC.MIB->isNoop(Inst) ||
+               (BC.MII->getName(Inst.getOpcode()) == StringRef("tMOVr") &&
+                Inst.getNumOperands() >= 2 && Inst.getOperand(0).isReg() &&
+                Inst.getOperand(1).isReg() &&
+                Inst.getOperand(0).getReg() ==
+                    Inst.getOperand(1).getReg());
+      };
+      // Compilers commonly place a two-byte alignment NOP after POP {...,pc}
+      // and before the $d pool marker. BOLT can retain that NOP in the same
+      // CFG block as the return, so getLastNonPseudoInstr() alone loses the
+      // real execution barrier. Walk backward across exact architectural
+      // no-ops only; any other trailing instruction or missing offset keeps
+      // the pool unowned.
+      const auto FindTrailingOwner = [&](BinaryBasicBlock &BB,
+                                         auto IsOwner) -> MCInst * {
+        for (MCInst &Inst : llvm::reverse(BB)) {
+          if (BC.MIB->isPseudo(Inst))
+            continue;
+          const std::optional<uint32_t> Offset = BC.MIB->getOffset(Inst);
+          const std::optional<uint32_t> Size =
+              BC.MIB->getInstructionSize(Inst);
+          if (!Offset || !Size || *Offset + *Size > Plan.StartOffset)
+            return nullptr;
+          if (IsOwner(Inst))
+            return &Inst;
+          if (!IsArchitecturalNoOp(Inst))
+            return nullptr;
+        }
+        return nullptr;
+      };
       BinaryBasicBlock *ResumeBB = nullptr;
       for (BinaryBasicBlock &BB : BF)
         if (BB.getOffset() == Plan.EndOffset) {
@@ -1069,9 +1100,12 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
         }
       if (ResumeBB)
         for (BinaryBasicBlock &BB : BF) {
-          MCInst *Branch = BB.getLastNonPseudoInstr();
-          if (!Branch || !BC.MIB->isUnconditionalBranch(*Branch) ||
-              BB.succ_size() != 1 || BB.getSuccessor() != ResumeBB ||
+          MCInst *Branch = FindTrailingOwner(
+              BB, [&](const MCInst &Inst) {
+                return BC.MIB->isUnconditionalBranch(Inst);
+              });
+          if (!Branch || BB.succ_size() != 1 ||
+              BB.getSuccessor() != ResumeBB ||
               BC.MIB->getInlineData(*Branch) ||
               BC.MIB->getInlineDataBlocks(*Branch))
             continue;
@@ -1089,10 +1123,12 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
 
       if (!Plan.OwnerBranch)
         for (BinaryBasicBlock &BB : BF) {
-          MCInst *Terminator = BB.getLastNonPseudoInstr();
+          MCInst *Terminator = FindTrailingOwner(
+              BB, [&](const MCInst &Inst) {
+                return BC.MIB->isReturn(Inst) ||
+                       BC.MIB->isUnconditionalBranch(Inst);
+              });
           if (!Terminator || BB.succ_size() > 1 ||
-              (!BC.MIB->isReturn(*Terminator) &&
-               !BC.MIB->isUnconditionalBranch(*Terminator)) ||
               BC.MIB->getInlineData(*Terminator) ||
               BC.MIB->getInlineDataBlocks(*Terminator))
             continue;
@@ -1219,15 +1255,11 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
           if (!Offset || !Size || *Offset < Plan.BlockStartOffset ||
               *Offset >= Plan.StartOffset)
             continue;
-          const bool IsArchitecturalNoOp =
-              BC.MIB->isNoop(Inst) ||
-              (BC.MII->getName(Inst.getOpcode()) == StringRef("tMOVr") &&
-               Inst.getNumOperands() >= 2 && Inst.getOperand(0).isReg() &&
-               Inst.getOperand(1).isReg() &&
-               Inst.getOperand(0).getReg() == Inst.getOperand(1).getReg());
           if (*Offset + *Size > Plan.StartOffset ||
-              !IsArchitecturalNoOp || BB.pred_size() != 0 ||
-              BF.isEntryPoint(BB)) {
+              !IsArchitecturalNoOp(Inst) ||
+              ((&BB != Plan.OwnerBB ||
+                *Offset < Plan.BlockStartOffset) &&
+               (BB.pred_size() != 0 || BF.isEntryPoint(BB)))) {
             RejectReason = "pool alignment bytes are reachable or non-NOP";
             Qualified = false;
             break;
