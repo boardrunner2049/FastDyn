@@ -4222,6 +4222,33 @@ def symbol_address(image: Path, name: str) -> int:
     raise RuntimeError(f"missing symbol {name} in {image}")
 
 
+def symbol_bytes(image: Path, name: str) -> bytes:
+    """Return the exact linked bytes covered by one non-empty symbol."""
+    with image.open("rb") as stream:
+        elf = ELFFile(stream)
+        symbols = elf.get_section_by_name(".symtab")
+        if symbols is None:
+            raise RuntimeError(f"{image} has no symbol table")
+        matches = [symbol for symbol in symbols.iter_symbols()
+                   if symbol.name == name]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"{image} has {len(matches)} symbols named {name}"
+            )
+        symbol = matches[0]
+        size = int(symbol["st_size"])
+        section_index = symbol["st_shndx"]
+        if not size or not isinstance(section_index, int):
+            raise RuntimeError(f"{image}:{name} has no file-backed body")
+        section = elf.get_section(section_index)
+        address = int(symbol["st_value"]) & ~1
+        offset = address - int(section["sh_addr"])
+        data = section.data()
+        if offset < 0 or offset + size > len(data):
+            raise RuntimeError(f"{image}:{name} exceeds its section")
+        return data[offset:offset + size]
+
+
 def m3_config_text(source: Path, image: Path, ram: Path, qmp: Path,
                    halt: int) -> str:
     start = symbol_address(image, "Reset_Handler")
@@ -5685,7 +5712,7 @@ def main() -> int:
                     "function(s) with unsupported compact, shared or "
                     "generic unwind programs;"
                     not in register_log
-                    or "removed 3 stale linked ARM EHABI relocation(s) "
+                    or "removed 10 stale linked ARM EHABI relocation(s) "
                     "whose input records were merged" not in register_log
                 ):
                     raise RuntimeError(
@@ -5694,10 +5721,10 @@ def main() -> int:
                         "graph"
                     )
                 if int(summary["firmware_modification_reason_counts"]
-                       ["register_reassignment"]) != 2:
+                       ["register_reassignment"]) != 3:
                     raise RuntimeError(
                         "M3 register-reassignment fixture did not publish "
-                        "exactly two target-aware register exchanges"
+                        "exactly three target-aware register exchanges"
                     )
                 if (
                     int(summary[
@@ -6577,7 +6604,7 @@ def main() -> int:
                     )
                     or actual_mappings != expected_mappings
                     or results[label]["pass_publication"]
-                    ["byte_changed_function_count"] != 2
+                    ["byte_changed_function_count"] != 3
                 ):
                     raise RuntimeError(
                         "M3 register-reassignment fixture did not publish "
@@ -6606,6 +6633,64 @@ def main() -> int:
                     function for function in final_layout["functions"]
                     if function["name"] == "aggressive_live_in_worker"
                 )
+                call_worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "call_worker"
+                )
+                call_origins = call_worker["instruction_origins"]
+                call_original_base = call_worker["original_address"]
+                call_output_base = call_worker["output_address"]
+                call_expected_mappings = [
+                    (call_original_base + original_offset,
+                     call_output_base + output_offset)
+                    for original_offset, output_offset in (
+                        (0, 0), (2, 2), (6, 6), (10, 8),
+                        (14, 12), (18, 16), (22, 18),
+                    )
+                ]
+                call_actual_mappings = [
+                    (origin.get("original_address"),
+                     origin["output_address"])
+                    for origin in call_origins
+                ]
+                arg_call_worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "arg_call_worker"
+                )
+                indirect_call_worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "indirect_call_worker"
+                )
+                live_after_call_worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "live_after_call_worker"
+                )
+                tail_call_worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "tail_call_worker"
+                )
+                retained_call_controls = (
+                    "aggressive_live_in_worker",
+                    "arg_call_worker",
+                    "indirect_call_worker",
+                    "live_after_call_worker",
+                    "tail_call_worker",
+                )
+                retained_control_hashes = {
+                    name: {
+                        "reference": hashlib.sha256(
+                            symbol_bytes(image, name)
+                        ).hexdigest(),
+                        "candidate": hashlib.sha256(
+                            symbol_bytes(candidate, name)
+                        ).hexdigest(),
+                    }
+                    for name in retained_call_controls
+                }
+                retained_control_bytes_match = all(
+                    hashes["reference"] == hashes["candidate"]
+                    for hashes in retained_control_hashes.values()
+                )
                 if (
                     not aggressive_worker["firmware_modified"]
                     or aggressive_worker["firmware_modification_reasons"] !=
@@ -6622,13 +6707,39 @@ def main() -> int:
                     or live_in_worker["firmware_modified"]
                     or live_in_worker["original_size"] != 16
                     or live_in_worker["output_size"] != 16
+                    or not call_worker["firmware_modified"]
+                    or call_worker["firmware_modification_reasons"] !=
+                    ["register_reassignment"]
+                    or call_worker["original_size"] != 24
+                    or call_worker["output_size"] != 20
+                    or len(call_origins) != 7
+                    or any(
+                        origin["origin_kind"] != "original_instruction"
+                        for origin in call_origins
+                    )
+                    or call_actual_mappings != call_expected_mappings
+                    or arg_call_worker["firmware_modified"]
+                    or arg_call_worker["original_size"] != 24
+                    or arg_call_worker["output_size"] != 24
+                    or indirect_call_worker["firmware_modified"]
+                    or indirect_call_worker["original_size"] != 22
+                    or indirect_call_worker["output_size"] != 22
+                    or live_after_call_worker["firmware_modified"]
+                    or live_after_call_worker["original_size"] != 20
+                    or live_after_call_worker["output_size"] != 20
+                    or tail_call_worker["firmware_modification_reasons"] !=
+                    ["instruction_shortening"]
+                    or tail_call_worker["original_size"] != 12
+                    or tail_call_worker["output_size"] != 12
+                    or not retained_control_bytes_match
                     or results[label]["pass_publication"]
-                    ["byte_changed_function_count"] != 2
+                    ["byte_changed_function_count"] != 3
                 ):
                     raise RuntimeError(
                         "M3 aggressive register-reassignment fixture did not "
-                        "publish one dead-entry R2/R12 exchange while "
-                        "retaining the R2/R3 live-in control"
+                        "publish the leaf and exact-call R2/R12 exchanges "
+                        "while retaining live-in, observed-call, unknown-call "
+                        "and live-after-call controls"
                     )
                 results[label]["register_reassignment_validation"] = {
                     "status": "accepted",
@@ -6641,8 +6752,24 @@ def main() -> int:
                     "aggressive_static_bytes_saved": 4,
                     "aggressive_identity_mappings":
                         aggressive_actual_mappings,
+                    "direct_call_transformed_function": call_worker,
+                    "direct_call_register_pair": ["r2", "r12"],
+                    "direct_call_static_bytes_saved": 4,
+                    "direct_call_identity_mappings": call_actual_mappings,
                     "live_in_control": live_in_worker,
                     "live_in_r2_r3_rejected": True,
+                    "callee_observed_control": arg_call_worker,
+                    "callee_observed_r2_r3_rejected": True,
+                    "unknown_indirect_call_control": indirect_call_worker,
+                    "unknown_call_summary_rejected": True,
+                    "live_after_call_control": live_after_call_worker,
+                    "live_after_call_candidate_rejected": True,
+                    "tail_call_control": tail_call_worker,
+                    "tail_call_register_reassignment_rejected": True,
+                    "tail_call_final_bytes_retained": True,
+                    "retained_call_control_symbol_hashes":
+                        retained_control_hashes,
+                    "retained_control_body_hashes": retained_control_hashes,
                     "excluded_registers": ["r7", "r9", "r11"],
                     "cantunwind_ehabi_qualified_by_section_type": True,
                     "compact_generic_ehabi_and_cfi_excluded": True,
@@ -9483,7 +9610,7 @@ def main() -> int:
             m3_register_reassignment_image,
             candidates["m3_register_reassignment"], output,
             args.fastdyn.resolve(), "native-register-reassignment",
-            expected_words=(42, 4, 8, 42, 54),
+            expected_words=(42, 4, 8, 42, 54, 43, 12, 43),
         )
     )
     m3_taildup_execution = (
@@ -9934,7 +10061,11 @@ def main() -> int:
                 "must be restored at exit; a separately admitted aggressive "
                 "mode may exchange only ordinary caller-saved R2/R3 with "
                 "R12 after ABI-aware liveness proves both exact names dead "
-                "at every entry and excludes ABI outputs; there is no "
+                "at every entry and excludes ABI outputs; an ordinary direct "
+                "call is crossed only when its exact transitive callee-use "
+                "summary observes neither name and both values are dead after "
+                "the call; indirect, unresolved and tail calls remain "
+                "unchanged; there is no "
                 "instruction-boundary register observer or admitted interrupt "
                 "inside the region; "
                 "R7/R11 frame-pointer roles, R9 platform-register semantics, "

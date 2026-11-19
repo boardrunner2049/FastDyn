@@ -134,10 +134,11 @@ simplification fixture, an opt-in profile-driven Thumb IT conditional-move
 fixture, an Armv6-M conditional-move retention fixture, an opt-in target-aware
 Thumb-2 register-reassignment fixture with separately checked inline and
 uniquely owned external compact EHABI programs, an ABI-liveness-backed
-caller-saved exchange and live-in retention control, a shared-external-program
+caller-saved exchange across qualified leaf and direct-call functions plus
+live-in/call-boundary retention controls, a shared-external-program
 retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v142 run accepts all fifty-five without
+The 19 November v143 run accepts all fifty-five without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -773,15 +774,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v142-aggressive-register-reassignment
+  --output build/preflight/firm-bolt-cortex-m-v143-call-boundary-register-reassignment
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v142-aggressive-register-reassignment/report.json),
-SHA-256 `c924d61476113f88725dc75e26fb5dd710c1723dd1859dfac9f5ca6dbe280c00`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v143-call-boundary-register-reassignment/report.json),
+SHA-256 `6bd9337b1cce62e171d61d44879e0dd70d8ac5063121894f8842484d20e71af0`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v142-aggressive-register-reassignment/validation-manifest.json),
-SHA-256 `3acbbd8b93fa20c4377fa2e7c516fd55ea28561a2434d6d322c7eac421a8bac9`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v143-call-boundary-register-reassignment/validation-manifest.json),
+SHA-256 `b8efed9234f59f0f943dbe94491e80df70d246ae22b841c4be0bb05eb8f22832`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -793,25 +794,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`6bc605fbd545f7f1e510a6d79aa27756bb3de31d3ffda67a1d18419a1dddfb1f`,
+`e87ed5ea5c190f83e1c2fcb9210c190fc63dac201e0d9cd6c55e4a32ff15eb40`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`eb24cd464a664709abb1032940ff61916e5cbd60211931199a62ed714ae62de2`.
+`37927b7cc964934a9abc0bd16d1aea88d70bb3b21e09fe9bc711006ae55cc91f`.
 The current combined ARM BOLT/AArch32 JITLink lit run passes 90/90
 (78 ARM and 12 JITLink). The BOLT unit executables pass 128 tests and
 explicitly skip 144 target-inapplicable parameterizations: Core is 84/144,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v142-aggressive-register-reassignment/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v143-call-boundary-register-reassignment/core-tests.xml)
 has SHA-256
-`4495ba8fa3595da6b8ba8f3e46143b9b44dff203860d8fc396790bd419871da8`;
+`789f7200fc031f1b2f7b76295b7a758effd739776c6a1236851d2fb7ff1bf3f3`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v142-aggressive-register-reassignment/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v143-call-boundary-register-reassignment/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v142-aggressive-register-reassignment/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v143-call-boundary-register-reassignment/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`de68d7c4f2f4a927593135bcede27cad6003cd3c54d84cd8ba9ed3835356e479`
-and `ec4cacfdb8afd4340abe2087acaac3310b25f5e9c574b78f2400ac0e92afc6c1`.
+`136806768d05914eebed255c16e9541bdc630ff57753d1fa02b0f7486540d09b`
+and `04d2ff5eb823096f30c08b67080a116d3d8a1a12b4ed76d3d382bd2757c5a814`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1328,8 +1329,20 @@ produce RAM words `(42, 4, 8, 42, 54)` under FastDyn, with exact origin
 mappings for both accepted bodies.  The aggregate gate remains 55/55; ARM lit
 is 78/78, JITLink lit 12/12 and units 128 passed plus 144 explicit skips.  This
 closes BOLT's leaf-function liveness-backed reassignment path for the qualified
-caller-saved class.  Calls/tail calls, debug locations, asynchronous register
-observers and measured profitability remain outside this result.
+caller-saved class.
+
+v143 extends that same analysis across an ordinary direct call without treating
+ABI convention alone as proof.  The call graph must provide an exact transitive
+callee-use summary, neither candidate name may be observed by the callee graph,
+and neither candidate value may be live after the call.  The executed worker
+shrinks 24→20 bytes and retains all seven original identities and the direct
+target.  Matched live-in, callee-observed, indirect-call and live-after-call
+controls remain byte-identical.  Reference and candidate produce
+`(42, 4, 8, 42, 54, 43, 12, 43)` under FastDyn.  Unknown/external and tail
+calls, debug locations, asynchronous register observers and measured
+profitability remain outside this result.  The full pipeline records an
+instruction-shortening attempt on the tail-call control, but compact
+publication reproduces its original 12 bytes and register identities.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

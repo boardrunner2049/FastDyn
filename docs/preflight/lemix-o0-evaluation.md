@@ -1151,10 +1151,10 @@ PYTHONPATH=src taskset -c 0 \
 The raw commands, logs, samples, disassemblies, inventories, candidate bodies, machine outputs, hashes, counterexamples, and costs are retained separately as supporting data. Primary baseline entry points are [manifest.json](../../build/preflight/lemix-o0-rerun-2026-11-16/manifest.json), [bolt-arm-options.json](../../build/preflight/lemix-o0-rerun-2026-11-16/bolt-arm-options.json), [samples.jsonl](../../build/preflight/lemix-o0-rerun-2026-11-16/samples.jsonl), [paired-results.json](../../build/preflight/lemix-o0-rerun-2026-11-16/paired-results.json), [binary-layout-inventory.json](../../build/preflight/lemix-o0-rerun-2026-11-16/binary-layout-inventory.json), [candidate-universe.csv](../../build/preflight/lemix-o0-rerun-2026-11-16/candidate-universe.csv), [stage-funnel.csv](../../build/preflight/lemix-o0-rerun-2026-11-16/stage-funnel.csv), [search-seeds-and-costs.json](../../build/preflight/lemix-o0-rerun-2026-11-16/search-seeds-and-costs.json), and [budget-and-costs.json](../../build/preflight/lemix-o0-rerun-2026-11-16/budget-and-costs.json). Prototype entry points are [prototype manifest](../../build/preflight/preflight-sdk-v1-2026-11-16/manifest.json), [stage ledger](../../build/preflight/preflight-sdk-v1-2026-11-16/stage-ledger.jsonl), and [pass outcomes](../../build/preflight/preflight-sdk-v1-2026-11-16/pass-outcomes.json). This document consolidates the historical screening experiment, focused rerun, and bounded prototype; historical raw evidence remains unchanged.
 
 The current full Cortex-M production evidence is the
-[v142 machine report](../../build/preflight/firm-bolt-cortex-m-v142-aggressive-register-reassignment/report.json),
-SHA-256 `c924d61476113f88725dc75e26fb5dd710c1723dd1859dfac9f5ca6dbe280c00`;
-its [validation manifest](../../build/preflight/firm-bolt-cortex-m-v142-aggressive-register-reassignment/validation-manifest.json),
-SHA-256 `3acbbd8b93fa20c4377fa2e7c516fd55ea28561a2434d6d322c7eac421a8bac9`,
+[v143 machine report](../../build/preflight/firm-bolt-cortex-m-v143-call-boundary-register-reassignment/report.json),
+SHA-256 `6bd9337b1cce62e171d61d44879e0dd70d8ac5063121894f8842484d20e71af0`;
+its [validation manifest](../../build/preflight/firm-bolt-cortex-m-v143-call-boundary-register-reassignment/validation-manifest.json),
+SHA-256 `b8efed9234f59f0f943dbe94491e80df70d246ae22b841c4be0bb05eb8f22832`,
 binds the exact regression commands and XML evidence. It accepts 55/55
 production and architectural profiles with ordinary FOP enabled. v138 adapted
 BOLT's x86-oriented `RegReAssign` pass through target-owned legality, encoding
@@ -1166,13 +1166,20 @@ R8/R4, shrinks 26→18 bytes and renames every admitted `pop {r8}` to
 
 v142 reuses BOLT's call graph, `RegAnalysis` and `LivenessAnalysis` for the
 separate aggressive path. It considers only caller-saved R2/R3-to-R12 pairs,
-requires `--assume-abi` and an explicit contract, excludes calls/tail calls,
-ABI outputs and callee-saved names, and requires both exact core-register names
-dead at every entry. The executed leaf shrinks 14→10 bytes while an R2/R3
-live-in control stays byte-identical; reference and candidate produce
-`(42, 4, 8, 42, 54)` under FastDyn with exact origins. Generic unwind data,
-debug locations, asynchronous observers and measured profitability remain
-outside this result. The retained v137 conditional-move, v135
+requires `--assume-abi` and an explicit contract, excludes tail calls, ABI
+outputs and callee-saved names, and requires both exact core-register names
+dead at every entry. v143 admits an ordinary direct call only when its exact
+transitive callee-use summary observes neither candidate and both values are
+dead after the call; unknown, indirect and unresolved calls remain unchanged.
+The executed leaf shrinks 14→10 bytes and the direct-call worker 24→20 bytes.
+Live-in, callee-observed, indirect-call and live-after-call controls stay
+byte-identical; reference and candidate produce
+`(42, 4, 8, 42, 54, 43, 12, 43)` under FastDyn with exact origins. Generic
+unwind data, debug locations, asynchronous observers and measured
+profitability remain outside this result. The full pipeline records an
+instruction-shortening attempt on the tail-call control, but compact
+publication reproduces its original 12 bytes. The retained v137
+conditional-move, v135
 conditional-tail-call, v134 three-way-branch, v133 size-one specialization,
 v132 fixed-size copy, v123 jump-table-footprint, v121 generic-personality and
 v122 alignment results remain part of the aggregate gate. These are
@@ -1181,7 +1188,7 @@ speedup, exception-path, callback/patch or arbitrary-firmware proof.
 
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `6bc605fbd545f7f1e510a6d79aa27756bb3de31d3ffda67a1d18419a1dddfb1f`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `eb24cd464a664709abb1032940ff61916e5cbd60211931199a62ed714ae62de2`. Regression runs complete 78/78 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 128 passed plus 144 explicitly skipped BOLT unit parameterizations (Core 84/144, Passes 5/0 and Profile 39/0).
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `e87ed5ea5c190f83e1c2fcb9210c190fc63dac201e0d9cd6c55e4a32ff15eb40`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `37927b7cc964934a9abc0bd16d1aea88d70bb3b21e09fe9bc711006ae55cc91f`. Regression runs complete 78/78 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 128 passed plus 144 explicitly skipped BOLT unit parameterizations (Core 84/144, Passes 5/0 and Profile 39/0).
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 
