@@ -176,3 +176,23 @@ scopt deploy --selection "$RUN/restore-selection/selection.json" -c "$CONFIG" --
 ```
 
 The package contains the checked native cache and a content-addressed `cache.sc.restore-hints`. Deployment verifies the artifact manifest and the sidecar digest. The selector treats a changed hint as a distinct deployment even if the translated code bytes match. Use the same QEMU and plugin builds in both arms. Collect restore counters in separate diagnostic launches so timed runs incur no counter instrumentation.
+
+For a hint-only comparison, the selector runs an untimed guest and cache-reuse check of each arm on each input. The QEMU restore counters must show different numbers of callbacks skipped inside the benchmark window. A build that ignores the hints or a plugin that vetoes them keeps the original warm cache. If both hints skip the same positive count, the receipt records `restore_effect_not_distinguished`.
+
+## Profile-guided native passes
+
+Both pipelines use the exact steady-phase training profile. Supply the original warm snapshot as the comparison for performance selection.
+
+* `b2-arena-slide` moves every relocatable block by the same multiple of 64 bytes. It searches one host page of placements for the lowest predicted number of page crossings between entries, measured exit sites and their targets. All inter-block distances stay the same. The linker resolves the references and verifies the resulting artifact.
+* `irq-entry` fuses the native load and sign test at eligible non-icount translation-block entries. It preserves the interrupt branch and the offsets of all later instructions. The checker requires a dead scratch register on both successors, an identified QEMU return relocation, no incoming reference to the removed instruction, and a whole-block equivalence proof.
+
+```sh
+scopt optimize "$SNAPSHOT" --pipeline b2-arena-slide --profile "$TRAIN_PROFILE" \
+  --store "$STORE" --qemu "$QEMU" --select-with cases.json \
+  --selection-out "$RUN/arena-selection" --pairs 32
+scopt optimize "$SNAPSHOT" --pipeline irq-entry --profile "$TRAIN_PROFILE" \
+  --runtime-identity "$RUNTIME" --selftest "$SELFTEST" --store "$STORE" \
+  --qemu "$QEMU" --select-with cases.json --selection-out "$RUN/irq-selection" --pairs 32
+```
+
+The page-crossing model and the number of eliminated instructions describe the transformation. The `selection.json` receipt records whether the changed artifact was measurably faster.

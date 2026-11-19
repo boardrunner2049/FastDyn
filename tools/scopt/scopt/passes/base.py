@@ -185,6 +185,7 @@ SCALAR_TEMPLATES = ("scalar_repeat_nop", "scalar_test_nop", "scalar_mask_nop", "
                     "scalar_range_branch", "scalar_expression_nop")
 
 PATCH_TEMPLATES = {
+    "irq-entry-mem-compare": ("irq_entry_mem_compare",),
     "region-state-forward": ("region_same_store",),
     "region-state-dse": ("b4_nop_store",),
     "native-scalar-cleanup": SCALAR_TEMPLATES,

@@ -134,6 +134,7 @@ def _paired_evidence(samples: list[dict[str, int | str]], *,
 
 def _trial(
     artifact: str, case: _Case, root: Path, *, qemu: Path | None, timeout_s: float,
+    restore_probe: bool = False,
 ) -> dict[str, Any]:
     rd = create_run_dir(case.config, root, qemu=qemu, label="trial")
     deployment = deploy(artifact, rd, timeout_s=timeout_s)
@@ -141,7 +142,9 @@ def _trial(
     if (identity["checked"] is not True or not identity.get("bundle_id")
             or not identity.get("runtime_identity_id") or identity.get("reasons")):
         raise RunDirError("identity_unchecked", str(root))
-    doc = launch(rd, timeout_s=timeout_s, prove=True, inputs=case.bank_inputs)
+    stats_path = root / "restore-stats.json"
+    extra = {"extra_env": {"QEMU_SC_RESTORE_STATS": str(stats_path)}} if restore_probe else {}
+    doc = launch(rd, timeout_s=timeout_s, prove=True, inputs=case.bank_inputs, **extra)
     if doc["exit_code"] != 0 or doc["timed_out"]:
         raise RunDirError("launch_failed", str(root))
     if doc["verdict"] != "PASS" or doc["appended"] != 0:
@@ -155,9 +158,26 @@ def _trial(
         raise RunDirError("invalid_benchmark_timer", str(root))
     if not doc.get("qemu_sha256"):
         raise RunDirError("runtime_digest_missing", str(root))
-    return {"elapsed_ns": timers[0]["elapsed_ns"], "qemu_sha256": doc["qemu_sha256"],
+    result = {"elapsed_ns": timers[0]["elapsed_ns"], "qemu_sha256": doc["qemu_sha256"],
             "ram_storage": rd.meta.get("ram_storage", "as-configured"),
             "bundle_id": identity["bundle_id"], "runtime_identity_id": identity["runtime_identity_id"]}
+    if restore_probe:
+        result["restore"] = None
+        if stats_path.is_file():
+            try:
+                stats = json.loads(stats_path.read_text())
+                measured = stats["benchmark"]
+                attempted, nominated, skipped = (measured[k] for k in ("attempted", "nominated", "skipped"))
+                if (stats["schema"] == "fastdyn.supercache_restore_stats/1"
+                        and type(stats["hint_file_valid"]) is bool
+                        and all(type(n) is int for n in (attempted, nominated, skipped))
+                        and 0 <= skipped <= nominated <= attempted
+                        and (stats["hint_file_valid"] or nominated == 0)):
+                    result["restore"] = {"hint_file_valid": stats["hint_file_valid"],
+                                         "attempted": attempted, "nominated": nominated, "skipped": skipped}
+            except (KeyError, TypeError, ValueError):
+                pass
+    return result
 
 
 def select_warm_cache(
@@ -171,7 +191,8 @@ def select_warm_cache(
     All case-level tests must support a speedup at the specified alpha. Earlier input
     files are compared by content against timing inputs. A failure of the warm
     control or a changed source invalidates the campaign. Identical logical
-    cache bytes return the original warm path without deploying either arm.
+    deployment inputs return the original warm path without deploying either arm.
+    Hint-only changes must exercise a different restore path in the measured interval.
     """
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -254,9 +275,32 @@ def select_warm_cache(
             fcntl.flock(guard, fcntl.LOCK_EX)
             # Keep the discarded control first so a candidate refusal has a
             # live warm reference on the affected input.
-            for case_name, case in cases.items():
+            for case_index, (case_name, case) in enumerate(cases.items()):
                 samples = []
                 case_ids.clear()
+                if same:
+                    probes = {}
+                    for arm in ARMS:
+                        probe = _trial(artifacts[arm]["path"], case, output / f"probe-{case_index}-{arm}",
+                                       qemu=qemu, timeout_s=timeout_s, restore_probe=True)
+                        observed_runtime = {key: probe[key] for key in ("qemu_sha256", "ram_storage")}
+                        if runtime is None:
+                            runtime = observed_runtime
+                            report["runtime"] = runtime
+                        if observed_runtime != runtime:
+                            return finish("error", None, "runtime_changed", trial_error=observed_runtime)
+                        case_ids[arm] = (probe["bundle_id"], probe["runtime_identity_id"])
+                        probes[arm] = probe["restore"]
+                    report.setdefault("restore_probes", {})[case_name] = probes
+                    if case_ids["warm"][0] != case_ids["candidate"][0]:
+                        return finish("error", None, "comparison_bundle_mismatch", input=case_name)
+                    if not _sources_unchanged(frozen):
+                        return finish("error", None, "source_changed")
+                    if (any(p is None or p["hint_file_valid"] != bool(hints[a]) for a, p in probes.items())
+                            or not any(p["skipped"] for p in probes.values())):
+                        return finish("fallback", "warm", "restore_hints_inactive", input=case_name)
+                    if probes["warm"]["skipped"] == probes["candidate"]["skipped"]:
+                        return finish("fallback", "warm", "restore_effect_not_distinguished", input=case_name)
                 for block, order in enumerate([ARMS, *orders[case_name]], start=-1):
                     sample: dict[str, int | str] = {"first": order[0], "second": order[1]}
                     for arm in order:

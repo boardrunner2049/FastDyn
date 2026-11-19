@@ -228,8 +228,50 @@ def test_auxiliary_hint_with_identical_native_code_must_be_measured(tmp_path, mo
     warm, candidate, _ = args
     (candidate / "cache.sc").write_bytes((warm / "cache.sc").read_bytes())
     (candidate / "cache.sc.restore-hints").write_bytes(b"test hint")
-    monkeypatch.setattr(gate, "_trial", lambda artifact, *unused, **options:
-                        _trial_result(90 if Path(artifact) == candidate else 100))
+    def trial(artifact, *unused, **options):
+        hinted = Path(artifact) == candidate
+        result = _trial_result(90 if hinted else 100)
+        if options.get("restore_probe"):
+            result["restore"] = {"hint_file_valid": hinted, "attempted": 7,
+                                 "nominated": 6 if hinted else 0, "skipped": 4 if hinted else 0}
+        return result
+    monkeypatch.setattr(gate, "_trial", trial)
     result = gate.select_warm_cache(*args, **kwargs)
     assert result["byte_identical"] and not result["deployment_inputs_identical"]
     assert result["selected"] == "candidate" and result["artifacts"]["candidate"]["restore_hints"]
+    assert all(p["candidate"]["skipped"] == 4 for p in result["restore_probes"].values())
+
+
+@pytest.mark.parametrize("unsupported", [False, True])
+def test_inert_hint_cannot_be_promoted_by_timing_noise(tmp_path, monkeypatch, unsupported):
+    args, kwargs = _fixture(tmp_path)
+    warm, candidate, out = args
+    (candidate / "cache.sc").write_bytes((warm / "cache.sc").read_bytes())
+    (candidate / "cache.sc.restore-hints").write_bytes(b"test hint")
+    def trial(artifact, *unused, **options):
+        assert options["restore_probe"]
+        hinted = Path(artifact) == candidate
+        result = _trial_result(70 if hinted else 100)
+        result["restore"] = None if unsupported else {
+            "hint_file_valid": hinted, "attempted": 7, "nominated": 7 if hinted else 0, "skipped": 0}
+        return result
+    monkeypatch.setattr(gate, "_trial", trial)
+    result = gate.select_warm_cache(*args, **kwargs)
+    assert result["selected"] == "warm" and result["reason"] == "restore_hints_inactive"
+    assert not (out / "samples.jsonl").read_text()
+
+
+def test_different_hints_with_same_positive_count_need_distinguishable_effects(tmp_path, monkeypatch):
+    args, kwargs = _fixture(tmp_path)
+    warm, candidate, out = args
+    (candidate / "cache.sc").write_bytes((warm / "cache.sc").read_bytes())
+    for artifact in (warm, candidate):
+        (artifact / "cache.sc.restore-hints").write_bytes(artifact.name.encode())
+    def trial(artifact, *unused, **options):
+        assert options["restore_probe"]
+        return {**_trial_result(70 if Path(artifact) == candidate else 100),
+                "restore": {"hint_file_valid": True, "attempted": 7, "nominated": 4, "skipped": 4}}
+    monkeypatch.setattr(gate, "_trial", trial)
+    result = gate.select_warm_cache(*args, **kwargs)
+    assert result["reason"] == "restore_effect_not_distinguished" and result["selected"] == "warm"
+    assert not (out / "samples.jsonl").read_text()

@@ -1,0 +1,9 @@
+schema = "scopt.pipeline"
+version = 1
+name = "b2-arena-slide"
+description = "Use one profile-guided host page displacement for the entire native arena."
+allowed_capabilities = ["PLACE"]
+
+[[pass]]
+name = "align-trace-pages"
+version = 1

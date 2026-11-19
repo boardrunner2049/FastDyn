@@ -297,8 +297,7 @@ def package_restore_hints(snapshot_dir, config, qemu, store):
         manifest_rows = A.parse_manifest((source / A.MANIFEST).read_bytes())
         require(manifest_rows.get("cache.sc") == cache_hash, "identity package changed the cache bytes")
         produced = Counter(manifest_rows[name] for name in A.derived_captures(source))
-        require(produced == Counter(d[7:] for d in proof["scm_sha256"]),
-                "identity package changed the original SCM")
+        raw_captures = produced != Counter(d[7:] for d in proof["scm_sha256"])
         stage = A.staging_dir(store)
         try:
             for name in manifest_rows:
@@ -308,6 +307,20 @@ def package_restore_hints(snapshot_dir, config, qemu, store):
                     sparse_copy(source / name, destination)
                 else:
                     shutil.copyfile(source / name, destination)
+            if raw_captures:
+                # Ordinary identity may coalesce repeated captures. Keep its
+                # certified SCM and seal the original files alongside it.
+                original_dir = stage / "restore-hint-sources"
+                original_dir.mkdir()
+                original_hashes = {}
+                for path in originals:
+                    destination = original_dir / path.name
+                    shutil.copyfile(path, destination)
+                    original_hashes[destination.relative_to(stage).as_posix()] = sha256_id(
+                        destination.read_bytes())
+                require(Counter(original_hashes.values()) == Counter(proof["scm_sha256"]),
+                        "staged SCM differs from the source")
+                proof["original_capture_files"] = original_hashes
             require(sha256_sparse(stage / "cache.sc") == cache_hash,
                     "staged cache differs from the source")
             sidecar = json.loads((stage / A.SIDECAR).read_bytes())

@@ -629,7 +629,12 @@ def patch_placement(src: Any, cur: bytes, p: Patch, b3: B3Ctx) -> tuple[str, str
         d2 = p.template_id == "b4_nop_store" and any(
             o.off == a and o.end == b and o.is_env_store and o.store_field == "neg.can_do_io"
             for o in h.ops)
-        if not d2:
+        if p.template_id == "irq_entry_mem_compare":
+            from .analysis.irq_entry import matches_irq_patch
+            from .link import tb_ret_abs_of
+            if bytes(cur) != src.code or not matches_irq_patch(src, p, b3.code_address, tb_ret_abs_of(b3.snapshot)):
+                return "edit_in_prefix", "interrupt entry proof failed"
+        elif not d2:
             return "edit_in_prefix", ""
     if kinds & {"ldst_fast", "ldst_slow"}:
         return "edit_inside_ldst_block", ""
@@ -813,6 +818,14 @@ def _compose(src_code: bytes, final: bytes, h: Any, history: Sequence[tuple[str,
              target: str) -> list[Patch]:
     """Final bytes as patches relative to the captured code: one per original host
     instruction that changed (template of the last pass that touched it)."""
+    # Fusing the two IRQ-poll instructions creates one instruction. Splitting
+    # this certificate at the former MOV boundary would cut its displacement.
+    if len(history) == 1:
+        _, patch = history[0]
+        if patch.template_id == "irq_entry_mem_compare":
+            a, b = patch.host_off, patch.host_off + len(patch.old_bytes)
+            if src_code[a:b] == patch.old_bytes and src_code[:a] + patch.new_bytes + src_code[b:] == final:
+                return [replace(patch, target=target)]
     out = []
     for o in h.ops:
         a, b = o.off, o.end

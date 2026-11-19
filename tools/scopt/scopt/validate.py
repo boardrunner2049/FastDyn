@@ -2145,11 +2145,16 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
             if any(lb.overlaps(a, b) for lb in h.log_blocks):
                 bad15.append(f"{who} @{a}: edit_inside_log_block")
             kinds = {bl.kind for bl in blocks if bl.start < b and a < bl.end}
+            if p.template_id == "irq_entry_mem_compare":
+                from .analysis.irq_entry import matches_irq_patch
+                if (len(patches) != 1 or "prefix" not in kinds
+                        or not matches_irq_patch(u, p, ca, tb_ret)):
+                    bad15.append(f"{who} @{a}: interrupt entry proof failed")
             if "prefix" in kinds:
                 ok_d2 = p.template_id == "b4_nop_store" and any(
                     o.off == a and o.end == b and o.is_env_store and
                     o.store_field == "neg.can_do_io" for o in h.ops)
-                if not ok_d2:
+                if not ok_d2 and p.template_id != "irq_entry_mem_compare":
                     bad15.append(f"{who} @{a}: edit_in_prefix")
             for k, code in (("ldst_fast", "edit_inside_ldst_block"),
                             ("ldst_slow", "edit_inside_ldst_block"),

@@ -1,0 +1,9 @@
+schema = "scopt.pipeline"
+version = 1
+name = "irq-entry"
+description = "Fuse hot non-icount IRQ checks with a proved dead scratch register."
+allowed_capabilities = ["PURE_REWRITE"]
+
+[[pass]]
+name = "irq-entry-mem-compare"
+version = 1
