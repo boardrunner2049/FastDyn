@@ -4226,7 +4226,8 @@ def run_bolt(bolt: Path, image: Path, cpu: str, output: Path,
              report_tag: str | None = None,
              extra_args: tuple[str, ...] = (),
              ) -> tuple[Path, subprocess.CompletedProcess[str]]:
-    candidate = output / f"{image.stem}.firm-bolt-{cpu}{image.suffix}"
+    artifact_tag = report_tag or cpu
+    candidate = output / f"{image.stem}.firm-bolt-{artifact_tag}{image.suffix}"
     pass_report = output / f"bolt-pass-report-{report_tag or cpu}.json"
     command = [str(bolt), str(image), f"--firmbolt-cortex-m-cpu={cpu}"]
     if full_pipeline:
@@ -5619,6 +5620,10 @@ def main() -> int:
              "--eliminate-unreachable=true",
          ]),
         ("m4", "cortex-m4", M4_IMAGE, {".isr_vector": None}, []),
+        ("m4_handler_fop_state_equivalence", "cortex-m4", M4_IMAGE,
+         {".isr_vector": None}, [
+             "--firmbolt-allow-handler-exact-self-forwarding-state-inputs",
+         ]),
         ("chibios", "cortex-m4", CHIBIOS_IMAGE, {".vectors": None}, []),
         ("threadx", "cortex-m4", THREADX_IMAGE, {".vectors": None}, []),
         ("zephyr", "cortex-m3", ZEPHYR_IMAGE, {"rom_start": None}, []),
@@ -5681,6 +5686,7 @@ def main() -> int:
             ) if args.full_pipeline else None
         )
         handler_branch_elision_validation = None
+        handler_fop_state_equivalence_validation = None
         if native_pass_report is not None and label in {
             "chibios", "threadx", "zephyr",
             "zephyr_handler_branch_elision",
@@ -5812,6 +5818,105 @@ def main() -> int:
                     "preserved_state_instruction_count": len(candidate_state),
                     "preserved_exception_return_count": len(
                         candidate_returns
+                    ),
+                }
+        if native_pass_report is not None and label in {
+            "m4", "m4_handler_fop_state_equivalence",
+        }:
+            handler = next(
+                function
+                for function in native_pass_report["functions"]
+                if function["name"] == "SysTick_Handler"
+            )
+            expected_rejections = (
+                ["exception_state_input_changed"]
+                if label == "m4" else []
+            )
+            if handler["firmware_publication_rejections"] \
+                    != expected_rejections:
+                raise RuntimeError(
+                    f"{label} SysTick handler publication changed: "
+                    f"expected {expected_rejections}, observed "
+                    f"{handler['firmware_publication_rejections']}"
+                )
+            if label == "m4_handler_fop_state_equivalence":
+                originals = {
+                    int(instruction["original_address"]): instruction
+                    for instruction in handler["original_instructions"]
+                }
+                candidates_by_origin = {
+                    int(instruction["original_address"]): instruction
+                    for instruction in handler["instructions"]
+                    if instruction["original_address"] is not None
+                }
+                exact_records = [
+                    record
+                    for record in native_pass_report["frame_forwardings"]
+                    if record.get("exact_adjacent_self_move")
+                    and int(record["load_original_address"]) in originals
+                    and int(record["store_original_address"]) in originals
+                ]
+                if len(exact_records) != 1:
+                    raise RuntimeError(
+                        "FreeRTOS SysTick handler did not expose exactly one "
+                        "exact adjacent self-forwarding proof"
+                    )
+                forwarding = exact_records[0]
+                load_address = int(forwarding["load_original_address"])
+                store_address = int(forwarding["store_original_address"])
+                store = originals[store_address]
+                load = originals[load_address]
+                replacement = candidates_by_origin.get(load_address)
+                original_sequence = handler["original_instructions"]
+                load_index = next(
+                    index
+                    for index, instruction in enumerate(original_sequence)
+                    if int(instruction["original_address"]) == load_address
+                )
+                state_input = original_sequence[load_index + 1]
+                candidate_state_input = candidates_by_origin.get(
+                    int(state_input["original_address"])
+                )
+                exact_proof = (
+                    store_address + int(store["size"]) == load_address
+                    and "str\tr0, [sp, #0x4]" in store["text"]
+                    and "ldr\tr0, [sp, #0x4]" in load["text"]
+                    and replacement is not None
+                    and replacement["text"].strip() == "mov\tr0, r0"
+                    and state_input["text"].strip() == "msr\tbasepri, r0"
+                    and state_input["cortex_m_state_effect"]
+                        == "special_register"
+                    and candidate_state_input is not None
+                    and candidate_state_input["text"] == state_input["text"]
+                    and candidate_state_input["cortex_m_state_effect"]
+                        == state_input["cortex_m_state_effect"]
+                )
+                if (
+                    not exact_proof
+                    or not handler["firmware_modified"]
+                    or handler["firmware_modification_reasons"]
+                        != ["frame_load_forwarding"]
+                    or handler["firmware_publication_rejections"]
+                ):
+                    raise RuntimeError(
+                        "FreeRTOS SysTick exact self-forwarding contract "
+                        "changed"
+                    )
+                handler_fop_state_equivalence_validation = {
+                    "status": "accepted",
+                    "function": "SysTick_Handler",
+                    "store_original_identity": store_address,
+                    "load_original_identity": load_address,
+                    "state_input_original_identity": int(
+                        state_input["original_address"]
+                    ),
+                    "replacement": replacement["text"].strip(),
+                    "state_input": state_input["text"].strip(),
+                    "same_frame_slot_and_width": True,
+                    "store_load_adjacent": True,
+                    "exact_self_move_retained": True,
+                    "contract": (
+                        "private_stack_and_no_asynchronous_memory_observer"
                     ),
                 }
         provenance_validation = None
@@ -6453,6 +6558,8 @@ def main() -> int:
             "frame_optimization_validation": frame_optimization_validation,
             "handler_branch_elision_validation":
                 handler_branch_elision_validation,
+            "handler_fop_state_equivalence_validation":
+                handler_fop_state_equivalence_validation,
         }
         if pending_icp_validation is not None:
             results[label]["indirect_call_promotion_validation"] = (
@@ -6504,6 +6611,7 @@ def main() -> int:
                 "chibios", "threadx", "zephyr",
                 "zephyr_handler_branch_elision",
                 "m3_handler_branch_elision",
+                "m4", "m4_handler_fop_state_equivalence",
             }:
                 observed_final_rejections = sorted(
                     (
@@ -6524,6 +6632,11 @@ def main() -> int:
                     ],
                     "zephyr_handler_branch_elision": [],
                     "m3_handler_branch_elision": [],
+                    "m4": [
+                        ("SysTick_Handler",
+                         ("exception_state_input_changed",)),
+                    ],
+                    "m4_handler_fop_state_equivalence": [],
                 }[label]
                 if observed_final_rejections != expected_final_rejections:
                     raise RuntimeError(
@@ -10261,6 +10374,13 @@ def main() -> int:
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m4_execution(candidates["m4"], output, args.fastdyn.resolve())
     )
+    m4_handler_fop_state_equivalence_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m4_execution(
+            candidates["m4_handler_fop_state_equivalence"], output,
+            args.fastdyn.resolve(),
+        )
+    )
     accepted = all(
         item["status"] in {"accepted", "skipped_by_request"}
         for item in (
@@ -10308,7 +10428,8 @@ def main() -> int:
             m3_safe_icf_ehabi_relocations_execution,
             m3_abs32_jump_table_icp_execution,
             m3_detached_abs32_jump_table_icp_execution,
-            execution
+            execution,
+            m4_handler_fop_state_equivalence_execution,
         )
     )
     report = {
@@ -10810,6 +10931,8 @@ def main() -> int:
             m3_abs32_jump_table_icp_execution,
         "m3_native_detached_abs32_jump_table_promotion_architectural_execution":
             m3_detached_abs32_jump_table_icp_execution,
+        "m4_handler_fop_state_equivalence_architectural_execution":
+            m4_handler_fop_state_equivalence_execution,
         "fastdyn_execution": execution,
         "scope": {
             "emission": (
@@ -10890,6 +11013,7 @@ def main() -> int:
                 "conservative transitive register-dependency rejection when frame-forwarded data can feed a Cortex-M architectural-state instruction",
                 "conservative transitive register-dependency rejection when frame-forwarded data can feed a possible Cortex-M exception return",
                 "same-count ordinary FOP in exact exception handlers with stores and exception-return instructions retained",
+                "opt-in exact adjacent same-slot/same-width stack forwarding to a retained self-move before a Cortex-M architectural-state input, under an explicit private-stack and no-asynchronous-memory-observer contract, with default rejection and non-self/exception-return negative controls plus real FreeRTOS M4 fixed-work execution",
                 "ordinary redundant stack-load forwarding with stores retained",
                 "opt-in native BOLT inlining for direct Thumb calls with protected call-boundary admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT tail duplication for profiled Thumb blocks with execution-multiplicity admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
@@ -10918,7 +11042,7 @@ def main() -> int:
                 "TBB/TBH bases produced by non-ADR or ambiguous data flow",
                 "switch bounds reloaded across observable memory or asynchronous effects",
                 "experimental stack-store removal",
-                "secondary vector entries and handler transformations beyond the same-count FOP or exact admitted branch-to-next contract; possible exception-return and architectural-state instructions are modeled, while full stacked-state values, nested exception scheduling and device-interrupt arrival remain outside the admitted transformation contract",
+                "secondary vector entries and handler transformations beyond same-count FOP, exact admitted branch-to-next deletion, or the exact adjacent self-forwarding contract; possible exception-return and architectural-state instructions are modeled, while full stacked-state values, nested exception scheduling and device-interrupt arrival remain outside the admitted transformation contract",
                 "TrustZone gateway, security-test, and Secure/Non-secure transition transformations",
                 "PACBTI-M function transformations",
                 "layout changes that violate strict modeled-time state",

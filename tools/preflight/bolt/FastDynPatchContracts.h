@@ -15,8 +15,12 @@ namespace bolt {
 /// Record the exact original store used by BOLT's frame optimizer to replace
 /// an original stack load.  The firmware report exports these dependencies so
 /// the acceptance layer can audit removed memory/fault opportunities.
+/// ExactAdjacentSelfMove is true only when FOP's same-slot/same-width proof is
+/// paired with adjacent original store/load identities and the retained
+/// replacement is a redundant same-register move.
 void recordFastDynFrameForwarding(uint64_t LoadAddress,
-                                  uint64_t StoreAddress, bool Deleted);
+                                  uint64_t StoreAddress, bool Deleted,
+                                  bool ExactAdjacentSelfMove);
 
 /// Mark a synthesized instruction as implementing an exact original source
 /// instruction. This is deliberately separate from the original-address

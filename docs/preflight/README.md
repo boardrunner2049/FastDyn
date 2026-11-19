@@ -1645,6 +1645,35 @@ bind both executed images and RAM results. This establishes real SVC entry and
 nested exception/tail-chaining equivalence, asynchronous device-interrupt
 equivalence or a runtime speedup.
 
+v157 discharges one conservative FOP false positive without weakening the
+default handler policy. In real FreeRTOS M4 `SysTick_Handler`, ordinary FOP
+rewrites the adjacent sequence `str r0,[sp,#4]; ldr r0,[sp,#4]` to the retained
+sequence `str r0,[sp,#4]; mov r0,r0`; the next instruction is the unchanged
+`msr basepri,r0`. FOP already proves the store and load use the same frame slot
+and width. Firm-BOLT additionally requires exact original adjacency, a retained
+same-register self move, and exact identity/text/effect retention for the state
+consumer. Admission is opt-in through
+`--firmbolt-allow-handler-exact-self-forwarding-state-inputs` and asserts a
+private stack with no asynchronous memory observer. Default policy still
+rejects the function as `exception_state_input_changed`. The focused non-self
+`MSR` input and forwarded-`LR` exception-return controls remain rejected under
+the option.
+
+On the real M4 image, default publication remains 374/607 with the one
+`SysTick_Handler` rejection. The explicit contract publishes 375/607 with no
+rejection and changes two additional executable bytes. Both policies complete
+10,000 fixed-work FastDyn units, and two reference runs plus both candidates
+produce the same RAM-prefix SHA-256
+`91d59804ad63d47c033a2557528566a4d4bbd4c0628c23a02fdad2e277126351`.
+The aggregate gate is 61/61; ARM BOLT lit is 85/85, AArch32 JITLink 12/12,
+and units are 130 passes plus 150 explicit target-inapplicable skips. The
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v157-handler-self-forwarding-r1/report.json)
+and
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v157-handler-self-forwarding-r1/validation-manifest.json)
+bind the candidates, fixed-work observations, regression XML and clean apply.
+This is a checked contract-specific publication result, not a general handler
+value-equivalence or speedup claim.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
@@ -1659,8 +1688,10 @@ non-ADR/ambiguous table-base data flow, DSP/FPU/MVE-specific optimization rules,
 Secure/Non-secure and PACBTI-M state transformations. Cortex-M4 DSP/FPU,
 Cortex-M55 MVE and Cortex-M85 PACBTI-M decode/exact retention are qualified
 independently from those optimization rules. Handler rewriting beyond the
-same-count, store-preserving FOP contract and the separately admitted exact
-branch-to-next deletion remains disabled: possible exception-return and
+same-count, store-preserving FOP contract, the separately admitted exact
+branch-to-next deletion, and exact adjacent self-forwarding under the explicit
+private-stack/no-asynchronous-observer contract remains disabled: possible
+exception-return and
 architectural-state instructions are now represented, while stacked values,
 nested-exception timing and external interrupt arrival still need richer state
 contracts. These cases are retained or rejected explicitly; they are not

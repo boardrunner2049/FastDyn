@@ -1389,9 +1389,31 @@ establishes SVC entry and `EXC_RETURN` continuation in the fixture; it does not
 establish full Zephyr execution, nested exception or tail-chaining schedules,
 asynchronous device interrupts, or speedup.
 
+v157 carries the same fail-closed handler model into a real FreeRTOS M4 FOP
+case. Default policy retains `SysTick_Handler` because the forwarded value
+feeds `MSR BASEPRI`. The opt-in
+`--firmbolt-allow-handler-exact-self-forwarding-state-inputs` contract admits
+only an FOP-proven same-slot/same-width store/load pair when the original
+instructions are adjacent and the emitted replacement is a retained exact
+self move. The real sequence at identities `0x080066fa`, `0x080066fc` and
+`0x080066fe` becomes `str r0,[sp,#4]; mov r0,r0; msr basepri,r0`; the state
+consumer retains its identity, text and typed effect. This requires an explicit
+private-stack/no-asynchronous-memory-observer admission. A non-self state input
+and a forwarded-`LR` exception return remain rejected.
+
+Default publication is therefore still 374/607 with one rejection, while the
+admitted profile publishes 375/607 with none and changes two additional
+executable bytes. Two reference executions and both candidates complete 10,000
+fixed-work units and produce the same RAM-prefix digest. The production gate is
+61/61, ARM/JITLink lit is 97/97, and units are 130 passed plus 150 explicit
+target-inapplicable skips. These results establish a precise checked exception
+to a conservative dependency rule; they do not establish general handler
+equivalence, asynchronous stack invisibility without the named contract, or a
+runtime speedup.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `a6d358638c71a84d3b5ed126f3220ddce094a218ef47ab6054c53955d9bc5228`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `cd92986d54730d571f05858f66e358cc7763c35123f567868e2c4fcc4afabfce`. Regression runs complete 84/84 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v156 validation manifest](../../build/preflight/firm-bolt-cortex-m-v156-handler-execution-r2/validation-manifest.json), SHA-256 `255c1c02b3f80b1262046917d4d5aa2b669361dd1fea0bbd610e7fc87d3992ac`, binds the 60-profile production run and SVC execution to the unchanged v155 backend regression evidence.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `06441cd95ed9b795d959b150b278d4309657d273589d37a4a023fc628d614fca`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `3c5ac35b3dd412ab5de814ca557a84ad8b2f47ba21e67f13c353349b40ddc286`. Regression runs complete 85/85 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v157 validation manifest](../../build/preflight/firm-bolt-cortex-m-v157-handler-self-forwarding-r1/validation-manifest.json), SHA-256 `d4a8c475c5bc448d1d54179c521348fc0461ebfaf5c8f3af4c48ba1bb5b14206`, binds the 61-profile production run, exact FreeRTOS handler proof, fixed-work execution, regression XML and clean-apply result.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

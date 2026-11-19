@@ -124,6 +124,13 @@ cl::opt<bool> AllowHandlerFallthroughBranchElision(
              "exception return and architectural-state effect"),
     cl::init(false), cl::cat(FastDynCategory));
 
+cl::opt<bool> AllowHandlerExactSelfForwardingStateInputs(
+    "firmbolt-allow-handler-exact-self-forwarding-state-inputs",
+    cl::desc("allow an adjacent same-register stack store/reload forwarding "
+             "to feed Cortex-M handler architectural state under an explicit "
+             "private-stack and no-asynchronous-memory-observer contract"),
+    cl::init(false), cl::cat(FastDynCategory));
+
 struct OriginalInstructionRecord {
   uint64_t Address;
   uint64_t Size;
@@ -143,6 +150,7 @@ struct FrameForwardingRecord {
   uint64_t LoadAddress;
   uint64_t StoreAddress;
   bool Deleted;
+  bool ExactAdjacentSelfMove;
 };
 
 struct ArithmeticFusionRecord {
@@ -697,9 +705,12 @@ Error CortexMFirmwareConstraints::runOnFunctions(BinaryContext &BC) {
 
 void llvm::bolt::recordFastDynFrameForwarding(uint64_t LoadAddress,
                                               uint64_t StoreAddress,
-                                              bool Deleted) {
-  FrameForwardings.insert_or_assign(
-      LoadAddress, FrameForwardingRecord{LoadAddress, StoreAddress, Deleted});
+                                              bool Deleted,
+                                              bool ExactAdjacentSelfMove) {
+  FrameForwardings.insert_or_assign(LoadAddress,
+                                    FrameForwardingRecord{
+                                        LoadAddress, StoreAddress, Deleted,
+                                        ExactAdjacentSelfMove});
 }
 
 void llvm::bolt::annotateFastDynSynthesizedFrom(BinaryContext &BC,
@@ -2233,14 +2244,19 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
         // value now feeds one of its register operands. Track the conservative
         // transitive register data derived from every FOP-replaced load. This
         // intentionally ignores later kills and therefore may retain a safe
-        // handler, but it cannot admit a state input whose equivalence depends
-        // on an unmodeled private-stack/no-asynchronous-observer assumption.
+        // handler. The sole opt-in exception is an FOP-proven same-slot,
+        // same-width adjacent store/reload whose retained replacement is an
+        // exact self move; that exception requires an explicit private-stack
+        // and no-asynchronous-memory-observer contract.
         BitVector ForwardedData(BC.MRI->getNumRegs(), false);
         for (const BinaryBasicBlock &BB : BF)
           for (const MCInst &Inst : BB) {
             const std::optional<uint64_t> Identity =
                 getFastDynOriginalIdentity(BC, Inst);
             if (!Identity || !FrameForwardings.count(*Identity))
+              continue;
+            if (AllowHandlerExactSelfForwardingStateInputs &&
+                FrameForwardings.at(*Identity).ExactAdjacentSelfMove)
               continue;
             BC.MIB->getWrittenRegs(Inst, ForwardedData);
           }
@@ -4294,6 +4310,8 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
     Forwarding["store_original_address"] =
         static_cast<int64_t>(Record.StoreAddress);
     Forwarding["replacement_deleted"] = Record.Deleted;
+    Forwarding["exact_adjacent_self_move"] =
+        Record.ExactAdjacentSelfMove;
     Forwardings.push_back(std::move(Forwarding));
   }
   Root["frame_forwardings"] = std::move(Forwardings);
