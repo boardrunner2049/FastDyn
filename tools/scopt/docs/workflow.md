@@ -163,7 +163,7 @@ For an existing artifact, `scopt select-warm "$SNAPSHOT" "$CANDIDATE" --cases ca
 }
 ```
 
-For a fixed workload without input banks, supply the configuration and reference transcript with `"bank_inputs": {}`. Caches with identical native bytes and identical optional restore hints retain the original warm source without timing. Changed candidates must pass checked deployment, append zero translation blocks, match the reference transcript, and improve every declared case in balanced randomized pairs. The selection records raw timings and the one-sided randomization test. Freeze a candidate before confirmation and reserve fresh measurements for that decision. A selection supports a claim about the measured host, workload and inputs. Execution times of individual launches vary.
+For a fixed workload without input banks, supply the configuration and reference transcript with `"bank_inputs": {}`. Caches with identical native bytes and identical optional restore hints retain the original warm source without timing. Changed candidates must pass checked deployment, append zero translation blocks, match the reference transcript, and improve every declared case in balanced randomized pairs. The selection records raw timings and the one-sided randomization test. Keep the complete selection directory, the measured artifacts and the input and reference files for candidate deployment. Deployment rechecks the plan, trial caches, output logs and paired result. Freeze a candidate before confirmation and reserve fresh measurements for that decision. A selection supports a claim about the measured host, workload and inputs. Execution times of individual launches vary.
 
 ### Optional restore hints
 

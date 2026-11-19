@@ -24,29 +24,18 @@ def _emit(doc, as_json: bool, summary: dict) -> None:
 
 
 def _selected_cache(path, config):
-    from ..run.launcher import file_sha256
+    from ..run.selection_receipt import verify_candidate_receipt
 
     doc = json.loads(path.read_text())
-    if doc.get("schema") != "scopt.warm_selection/1" or doc.get("status") not in ("ok", "fallback"):
+    if (not isinstance(doc, dict) or doc.get("schema") != "scopt.warm_selection/1"
+            or doc.get("status") not in ("ok", "fallback")):
         raise ValueError("no successful selection")
     selected = doc["selected"]
     chosen = doc["artifacts"][selected]
     if selected not in ("warm", "candidate") or chosen["path"] != doc["selected_artifact"]:
         raise ValueError("selected artifact disagrees with recorded source")
     if selected == "candidate":
-        warm_hint = doc["artifacts"].get("warm", {}).get("restore_hints", {}).get("sha256")
-        chosen_hint = chosen.get("restore_hints", {}).get("sha256")
-        if doc["reason"] != "speedup_established" or (doc["byte_identical"] and warm_hint == chosen_hint):
-            raise ValueError("candidate lacks a measured speedup")
-        cases = doc["plan"]["timing_inputs"]
-        if not cases or set(cases) != set(doc["inputs"]) or not all(
-                result["passes"] is True for result in doc["inputs"].values()):
-            raise ValueError("insufficient performance evidence")
-        if not any(case["config_sha256"] == file_sha256(config) for case in cases.values()):
-            raise ValueError("configuration was not measured")
-        for key in ("bundle", "runtime_identity", "sidecar", "restore_hints"):
-            if key in chosen and file_sha256(chosen[key]["path"]) != chosen[key]["sha256"]:
-                raise ValueError(f"selected {key} changed")
+        verify_candidate_receipt(path, doc, config)
     runtime = doc["runtime"] if selected == "candidate" else None
     return chosen["path"], chosen["cache_sha256"], runtime, chosen.get("restore_hints", {}).get("sha256")
 
@@ -54,7 +43,8 @@ def _selected_cache(path, config):
 @click.command("deploy")
 @click.argument("artifact", required=False, type=click.Path(exists=True))
 @click.option("--selection", type=click.Path(exists=True, dir_okay=False, path_type=Path),
-              help="Use the cache chosen by scopt select-warm and verify its deployed bytes.")
+              help="Verify and use the cache chosen by scopt select-warm. Keep the candidate "
+                   "decision with its complete timing evidence directory.")
 @click.option("-c", "--config", "base_toml", required=True, type=click.Path(exists=True,
               dir_okay=False), help="Base FastDyn TOML.")
 @click.option("--run-dir", required=True, type=click.Path(file_okay=False),
@@ -86,7 +76,7 @@ def deploy_cmd(artifact, selection, base_toml, run_dir, check, method, quiet, qe
     if selection:
         try:
             artifact, cache_digest, measured_runtime, hint_digest = _selected_cache(selection, base_toml)
-        except (ValueError, KeyError, TypeError, OSError) as exc:
+        except (ValueError, KeyError, TypeError, AttributeError, OSError) as exc:
             raise click.ClickException(f"Invalid cache selection: {exc}") from exc
     try:
         rd, doc = deploy_new(artifact, base_toml, run_dir, check=check, method=method,
