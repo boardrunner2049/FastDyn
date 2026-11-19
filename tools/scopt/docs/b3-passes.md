@@ -112,6 +112,16 @@ charges every lookup attempt at the exit, including traffic to unmatched
 targets. Added targets must improve the estimate when the exit already has a
 guard. The SPEC cost model uses its own arming path.
 
+The B3 manager loads calibration once. Set `SCOPT_B3_CALIBRATION` to a
+WP16 JSON file to override the workspace default at
+`$FASTDYN_ROOT/runs/b3-explore/wp16/calibration.json`. The file's
+`constants` entries contain `value_ns` for `c_lookup`, `c_guard`,
+`c_fail`, and optionally `c_link`. Costs must be finite and nonnegative.
+Missing or invalid measurements keep the built-in values. Only GENERAL
+chaining reads `c_link`. Explicit pipeline parameters and then caller
+parameters take precedence. Artifact provenance records each effective
+measured override alongside the pass parameter digest.
+
 Pass parameters `c_link` and `min_target_hits` default to zero. Set `c_link`
 to a measured nonnegative cost in nanoseconds per GENERAL installation.
 `min_target_hits` can require a higher aggregate exact count. The ledger

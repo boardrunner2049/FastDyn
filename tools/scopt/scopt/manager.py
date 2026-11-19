@@ -7,6 +7,8 @@ Per pipeline entry (in order):
 1. **Resolve** the pass class (registry of ``PASSES`` tuples in the
    ``scopt.passes`` modules) and its effective params (pipeline TOML params
    overlaid with ``params[pass_name]``), checked against ``params_schema``.
+   Active B3 guard passes take measured calibration costs before these explicit
+   parameter layers.
 2. **Admission**: domain, unit scope (``region`` only in B3 mode, WP21),
    required analyses and versions, capture level, capabilities ⊆ allowed
    (pipeline ``allowed_capabilities`` ∩ the kinds enabled for B2), profile
@@ -103,6 +105,14 @@ def pipelines_dir() -> Path:
 
 DEFAULT_MIN_PROFILE_MATCH = 0.95
 LEDGER_STAGE = "optimized"
+
+_GUARD_COSTS = ("c_lookup", "c_guard", "c_fail")
+_B3_PASS_COSTS = {
+    ("chain-returns", 1): (*_GUARD_COSTS, "c_link"),
+    ("chain-static", 1): (*_GUARD_COSTS, "c_link"),
+    ("specialize-returns", 1): _GUARD_COSTS,
+    ("specialize-edges", 1): _GUARD_COSTS,
+}
 
 
 class R:
@@ -390,13 +400,17 @@ class PassRecord:
     generation: int = 0  # WorkingSet generation after this pass
     traceback: str | None = field(default=None, repr=False)
     profiles_used: tuple[str, ...] = ()
+    calibrated_costs: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
 
     def to_sidecar(self) -> dict[str, Any]:
         """One ``pipeline`` row of the artifact sidecar (§4.6)."""
-        return {"pass": self.name, "version": self.version, "params_sha256": self.params_sha256,
-                "outcome": self.outcome.value, "reason": self.reason,
-                "affected": list(self.affected), "edit_digest": self.edit_digest,
-                "duration_s": self.duration_s}
+        row = {"pass": self.name, "version": self.version, "params_sha256": self.params_sha256,
+               "outcome": self.outcome.value, "reason": self.reason,
+               "affected": list(self.affected), "edit_digest": self.edit_digest,
+               "duration_s": self.duration_s}
+        if self.calibrated_costs:
+            row["x_calibrated_costs"] = dict(self.calibrated_costs)
+        return row
 
     def to_json(self) -> dict[str, Any]:
         d = self.to_sidecar()
@@ -563,9 +577,18 @@ class PassManager:
         self.ledger = ledger if ledger is not None else Ledger(clock=clock)
         self.b3ctx = None
         self.b3_state = None
+        self._b3_costs: dict[tuple[str, int], dict[str, float]] = {}
         if b3 is not None:
+            from .analysis.profitability import calibration_params
             from .manager_b3 import B3Ctx, B3State
 
+            active = {(entry.name, entry.version) for entry in self.pipeline.passes
+                      if entry.name not in self.disable and (only is None or only == entry.name)}
+            calibrated = active & _B3_PASS_COSTS.keys()
+            if calibrated:
+                costs = calibration_params(b3.calibration)
+                self._b3_costs = {spec: {key: costs[key] for key in _B3_PASS_COSTS[spec] if key in costs}
+                                  for spec in calibrated}
             self.b3ctx = B3Ctx(b3, store)
             self.b3_state = B3State()
 
@@ -612,7 +635,10 @@ class PassManager:
     # ------------------------------------------------------------------
     def _one(self, i: int, entry: PipelineEntry, ws: WorkingSet
              ) -> tuple[PassRecord, list[Edit], WorkingSet]:
-        params = {**entry.params, **self.params.get(entry.name, {})}
+        declared = {**entry.params, **self.params.get(entry.name, {})}
+        calibrated = {key: value for key, value in self._b3_costs.get((entry.name, entry.version), {}).items()
+                      if key not in declared}
+        params = {**calibrated, **declared}
         try:
             psha = sha256_id(canonical_json(params))
         except TypeError:
@@ -622,6 +648,7 @@ class PassManager:
             return PassRecord(index=i, name=entry.name, version=entry.version,
                               params=MappingProxyType(dict(params)), params_sha256=psha,
                               outcome=outcome, reason=reason, detail=detail,
+                              calibrated_costs=MappingProxyType(calibrated),
                               generation=kw.pop("generation", ws.generation), **kw)
 
         if entry.name in self.disable or (self.only is not None and entry.name != self.only):

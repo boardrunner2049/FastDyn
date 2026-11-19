@@ -101,8 +101,9 @@ class B3Env:
 
     ``layout``: EnvLayout of the snapshot's exe (default: the store's ``envlayout@1``).
     ``runtime``/``v6_exes``: the RuntimeIdentity the artifact targets (V7/V20).
-    ``selftest``: the V18 hostsym self-test document. ``calibration``: §10.3 constants
-    (default :data:`scopt.analysis.profitability.DEFAULTS`). ``certify``: run WP19's V14
+    ``selftest``: the V18 hostsym self-test document. ``calibration``: optional §10.3
+    costs overriding workspace calibration. Pipeline and caller pass parameters
+    take precedence. ``certify``: run WP19's V14
     certifier on the CalleeSummary facts (without it no fact is citable).
     """
 
