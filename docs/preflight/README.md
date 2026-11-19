@@ -105,7 +105,8 @@ an opt-in immutable-vtable method-load-elimination Cortex-M3 fixture,
 opt-in profiled TBB, in-function ABS32 and relocation-complete detached ABS32
 hot-index-promotion Cortex-M3 fixtures, an opt-in TBH-to-TBB footprint fixture
 with odd-entry alignment and out-of-byte-range retention controls, an opt-in
-safe identical-code-folding fixture with address-taken controls, explicit user-directed and
+safe identical-code-folding fixture with address-taken controls, a second safe
+ICF fixture with compatible and incompatible ARM EHABI models, explicit user-directed and
 profile-execution-count and CDSort call-graph relocation-complete whole-image
 function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
 Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
@@ -113,7 +114,7 @@ function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
 fixtures, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
 relocation-complete compact and generic ARM EHABI
 function-reordering fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v124 run accepts all forty-two without
+The 18 November production-parity-v125 run accepts all forty-three without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -749,26 +750,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v124-safe-icf-r8-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v125-ehabi-safe-icf-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v124-safe-icf-r8-2026-11-18/report.json),
-SHA-256 `56733cc223aa258e197ed9eaa00aa4343061d0e1b8573d8868068b3e529a2531`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v125-ehabi-safe-icf-2026-11-18/report.json),
+SHA-256 `7601d2cd80e9dd72e4fbca6fedcfaf45272654c2ec6627451bcf1e4421dc2855`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v124-safe-icf-r8-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v125-ehabi-safe-icf-2026-11-18/validation-manifest.json)
 (SHA-256
-`cec3709decb398890fac55a41f7dbac373c6047e38e9646207e088944c5b37f7`)
+`eaa05339d78137faf45b7be7fbe2ede0b6d5565c9da87dacdb666c33b2a21bd6`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`f0e3388895a4344469fe997cbaa063172f0e7e6ce694e512d9184d79f346e3f1`),
+`15d6c7950822de2c2c9af1b613625e663d07fba6db65107e866062ab5483c71f`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`377aacc0c40894b018c5d5bc8343ee22e6c336c2f32605c41cb4299a18efe28f`.
+`22a86a400fb090c2b284b4e16cdaf837b9aa3f3c54d925cf7581b55cd8784bb2`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -800,7 +801,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v124 validation passes 63/63 BOLT ARM lit tests, 12/12 AArch32
+The current v125 validation passes 64/64 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -825,8 +826,10 @@ Cortex-M3 candidate moves all three functions, keeps `.ARM.exidx` at exactly
 mapping and live `.text` link, maps all 12 instructions and matches reference
 RAM `(17, 42)`. The real M4 compact control retains all 595 `CANTUNWIND`
 records and its 4,760-byte index exactly. External `.ARM.extab` personality or
-LSDA records, split/folded fragment records and variable-footprint index growth
-reject explicitly; they are not silently treated as qualified unwind support.
+LSDA records and split fragments outside the qualified models reject
+explicitly; they are not silently treated as unwind support. v125 additionally
+qualifies compatible folded aliases and bounded index shrinkage as described
+below.
 
 v120 extends that path to bounded external ARM-defined compact records. Each
 PREL31 target must resolve to a complete file-backed allocatable `.ARM.extab`
@@ -844,8 +847,10 @@ from Thumb identity `0x08000125` to `0x08000101`; Firm-BOLT rewrites the extab
 header from `0x7ffffffd` to `0x7fffffd9`, preserves all eight opaque bytes
 after it, keeps the 12-byte extab and 32-byte exidx at their original
 addresses, preserves all 13 instruction origins, and matches reference RAM
-`(17, 42)`. Arbitrary language-specific descriptor interpretation,
-split/folded fragment unwind and variable-footprint growth remain unsupported.
+`(17, 42)`. Arbitrary language-specific descriptor interpretation and
+split-fragment unwind remain unsupported. Variable-footprint index growth
+remains unsupported; v125 qualifies only shrinkage caused by removal of
+compatible folded-alias records without retained index relocations.
 
 v122 reuses BOLT's ordinary `AlignerPass` rather than adding a parallel
 alignment algorithm. Cortex-M basic-block alignment is opt-in, requires an
@@ -895,8 +900,24 @@ canonical output PCs. Reference and candidate both produce RAM words
 remain distinct. Program headers and the vector are unchanged, the retired
 original text section is empty, and no segment is added. This is safe-mode
 integration, identity and compact-emission evidence—not a general claim that
-function address equality is unobservable, nor a speedup result. EHABI-covered
-folding remains rejected until duplicate/alias unwind records are qualified.
+function address equality is unobservable, nor a speedup result.
+
+v125 closes the first EHABI-covered folding gap without weakening unwind
+semantics. After safe ICF selects a child/canonical pair, Firm-BOLT resolves
+both original functions to their linker-established EHABI ranges and compares
+the decoded models. `CANTUNWIND` and inline compact models must be exactly
+equal; external records must name the same table and personality identity.
+The executed Cortex-M3 gate folds one four-byte twin, rebuilds `.ARM.exidx`
+from four records/32 bytes to three records/24 bytes, updates the section
+header and `PT_ARM_EXIDX`, and zeroes the retired eight-byte file range. The
+other program headers, vector and exact instruction origins remain unchanged;
+reference and candidate both produce `(42, 42)`. A byte-identical twin with a
+`CANTUNWIND` model on one identity and an inline compact model on the other is
+rejected after linking, and the wrapper removes the disposable partial output
+instead of publishing it. Retained relocation records on an index that would
+need compaction also reject until their offsets can be rebuilt. This qualifies
+compatible unwind aliases and bounded shrinkage, not arbitrary EHABI merging,
+split-fragment unwind, language-specific descriptors or index growth.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
