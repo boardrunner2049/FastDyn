@@ -61,8 +61,13 @@ class FastDynCesiumModule(CesiumModule):
         websocket_port: int | str | None = None,
         server_interface: str = "0.0.0.0",
         websocket_interface: str = "0.0.0.0",
+        flight_view: bool | str | None = None,
         **kwargs,
     ):
+        if flight_view is None:
+            flight_view = os.environ.get("FASTDYN_FLIGHT_VIEW", "0")
+        self.flight_view = str(flight_view).lower() in ("true", "1", "yes")
+        self.flight_server = None
         if msl_to_wgs84_offset_m is not None:
             altitude_offset_m = msl_to_wgs84_offset_m
         self.altitude_offset_m = float(altitude_offset_m)
@@ -76,11 +81,33 @@ class FastDynCesiumModule(CesiumModule):
             )
             kwargs["configuration"] = str(config_path)
         super().__init__(mpstate, **kwargs)
+        if self.flight_view:
+            self.data_stream.extend(["HEARTBEAT", "GPS_RAW_INT"])
         self.description = "FastDyn Cesium map module"
         self.mpstate.console.writeln(
             "FastDyn MAVCesium display altitude offset: "
             f"{self.altitude_offset_m:g} m"
         )
+
+    def start_server(self):
+        if not self.flight_view:
+            return super().start_server()
+        from fastdyn_flight_view import FlightViewServer
+
+        self.flight_server = FlightViewServer(self.config, os.environ.get("FASTDYN_WORK_DIR", ".")).start()
+        self.server_thread = self.flight_server.thread
+
+    def stop_server(self):
+        if self.flight_server is not None:
+            self.flight_server.stop()
+        else:
+            super().stop_server()
+
+    def send_data(self, data, target=None):
+        if self.flight_server is not None:
+            self.flight_server.publish(data)
+        else:
+            super().send_data(data, target=target)
 
     def _display_alt_mm(self, altitude_mm: int | float) -> int:
         return int(round(float(altitude_mm) + self.altitude_offset_m * 1000.0))

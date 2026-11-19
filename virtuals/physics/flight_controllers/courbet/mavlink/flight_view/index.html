@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Betaflight · FastDyn Flight View</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="{{ prefix }}static/Build/Cesium/Widgets/widgets.css">
+  <link rel="stylesheet" href="{{ prefix }}view/flight.css">
+  <script>window.CESIUM_BASE_URL = "{{ prefix }}static/Build/Cesium/"; window.FLIGHT_PREFIX = "{{ prefix }}";</script>
+  <script src="{{ prefix }}static/Build/Cesium/Cesium.js"></script>
+</head>
+<body>
+  <div id="scene" aria-label="3D flight simulation"></div>
+  <header>
+    <div class="brand"><span class="mark">F</span><div><strong>FastDyn <span>/ Betaflight</span></strong><small>Flight view</small></div></div>
+    <div class="connection"><i id="connection-dot"></i><span id="connection">Connecting…</span></div>
+    <nav aria-label="Camera"><button data-camera="overview" class="active">Overview</button><button data-camera="follow">Follow quad</button><button data-camera="top">Top down</button></nav>
+  </header>
+  <aside class="status">
+    <div class="eyebrow">MISSION</div><h1 id="phase">Waiting for aircraft</h1>
+    <div class="route-copy" id="route-copy">Preparing the flight</div>
+    <div class="stage-line"><span id="mode">—</span><span id="arming">Disarmed</span></div>
+    <div class="metrics">
+      <div><label>Height above home</label><strong id="altitude">0.0 <em>m</em></strong></div>
+      <div><label>Ground speed</label><strong id="speed">0.0 <em>m/s</em></strong></div>
+      <div><label>Vertical speed</label><strong id="climb">0.0 <em>m/s</em></strong></div>
+      <div><label>Waypoints reached</label><strong id="waypoints">0 <em>/ 3</em></strong></div>
+    </div>
+    <div class="legend"><span><b class="planned"></b>Planned route</span><span><b class="flown"></b>Flown path</span></div>
+  </aside>
+  <div class="scene-note"><strong>LOCAL SIMULATION FIELD</strong><span>Ground and runway are drawn locally · 10 m grid</span></div>
+  <div class="orientation"><strong>N / E</strong><span>Drag to orbit · scroll to zoom</span></div>
+  <footer>
+    <div class="playback-controls"><button id="replay" disabled>▶ Replay flight</button><button id="live" class="active">Live</button></div>
+    <button id="load-recording">Open recording</button><input id="recording-file" type="file" accept="application/json,.json" hidden>
+    <button id="export-video" disabled title="Download a replay video after the flight completes">Download video</button>
+    <input id="timeline" type="range" min="0" max="1" step="0.01" value="0" aria-label="Flight recording timeline">
+    <span id="elapsed">00:00 / 00:00</span>
+    <select id="playback-speed" aria-label="Replay speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select>
+  </footer>
+  <div id="error" hidden></div>
+  <script src="{{ prefix }}view/flight.js"></script>
+</body>
+</html>
