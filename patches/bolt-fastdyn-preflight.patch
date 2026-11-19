@@ -200,10 +200,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..e64ca158555441cbc797b6274678841753e67996 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..46da358790c0368753d704936c88b4b874cb1b0d 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,70 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,71 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -269,12 +269,13 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..e64ca158555441cbc797b62746788417
 +    InlineDataPlacementInvalid = 1U << 6,
 +    MissingInstructionOrigin = 1U << 7,
 +    ExceptionReturnChanged = 1U << 8,
++    ExceptionStateChanged = 1U << 9,
 +  };
 +
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +256,17 @@ public:
+@@ -192,6 +257,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -292,7 +293,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..e64ca158555441cbc797b62746788417
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +407,70 @@ private:
+@@ -332,6 +408,70 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -363,7 +364,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..e64ca158555441cbc797b62746788417
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1607,79 @@ public:
+@@ -1468,6 +1608,79 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -443,7 +444,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..e64ca158555441cbc797b62746788417
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2146,63 @@ public:
+@@ -1934,6 +2147,63 @@ public:
      return *this;
    }
  
@@ -507,7 +508,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..e64ca158555441cbc797b62746788417
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2600,8 @@ public:
+@@ -2331,6 +2601,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -621,7 +622,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..5a0cbd01faf78fc334c54f7db58545a158425af3 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd5897943da5 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -754,7 +755,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..5a0cbd01faf78fc334c54f7db58545a1
    /// Create and return a target-specific MC symbolizer for the \p Function.
    /// When \p CreateNewSymbols is set, the symbolizer can create new symbols
    /// e.g. for jump table references.
-@@ -595,6 +697,17 @@ public:
+@@ -595,6 +697,40 @@ public:
      return Analysis->isReturn(Inst);
    }
  
@@ -769,10 +770,33 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..5a0cbd01faf78fc334c54f7db58545a1
 +    return false;
 +  }
 +
++  /// Architectural Cortex-M state observed by an instruction independently
++  /// of the ordinary register/memory data-flow model.  These effects are
++  /// especially important in Handler mode: reordering an MSR BASEPRI, a
++  /// barrier, or a floating-point context transfer can change interrupt and
++  /// exception behavior even when ordinary function outputs still match.
++  enum class CortexMStateEffect : uint8_t {
++    None,
++    SpecialRegister,
++    InterruptMask,
++    Barrier,
++    ExclusiveMonitor,
++    ExceptionTrigger,
++    EventSchedule,
++    FloatingPointContext,
++    SecurityState,
++  };
++
++  virtual CortexMStateEffect
++  getCortexMStateEffect(const MCInst &Inst) const {
++    (void)Inst;
++    return CortexMStateEffect::None;
++  }
++
    /// Returns the registers that are trusted at function entry.
    ///
    /// Each register should be treated as if a successfully authenticated
-@@ -1170,6 +1283,18 @@ public:
+@@ -1170,6 +1306,18 @@ public:
      return false;
    }
  
@@ -791,7 +815,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..5a0cbd01faf78fc334c54f7db58545a1
    /// Return a number of the operand representing a memory.
    /// Return -1 if the instruction doesn't have an explicit memory field.
    virtual int getMemoryOperandNo(const MCInst &Inst) const {
-@@ -1177,6 +1302,22 @@ public:
+@@ -1177,6 +1325,22 @@ public:
      return -1;
    }
  
@@ -814,7 +838,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..5a0cbd01faf78fc334c54f7db58545a1
    /// Return true if the instruction is encoded using EVEX (AVX-512).
    virtual bool hasEVEXEncoding(const MCInst &Inst) const { return false; }
  
-@@ -1559,6 +1700,12 @@ public:
+@@ -1559,6 +1723,12 @@ public:
      return Expr;
    }
  
@@ -827,7 +851,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..5a0cbd01faf78fc334c54f7db58545a1
    /// Return a BitVector marking all sub or super registers of \p Reg, including
    /// itself.
    virtual const BitVector &getAliases(MCPhysReg Reg,
-@@ -1616,6 +1763,59 @@ public:
+@@ -1616,6 +1786,59 @@ public:
      llvm_unreachable("not implemented");
    }
  
@@ -887,7 +911,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..5a0cbd01faf78fc334c54f7db58545a1
    /// Set of Registers used by the Rep instruction
    virtual void getRepRegs(BitVector &Regs) const {
      llvm_unreachable("not implemented");
-@@ -1700,6 +1900,14 @@ public:
+@@ -1700,6 +1923,14 @@ public:
      return 0;
    }
  
@@ -902,7 +926,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..5a0cbd01faf78fc334c54f7db58545a1
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1751,6 +1959,24 @@ public:
+@@ -1751,6 +1982,24 @@ public:
      return false;
    }
  
@@ -927,7 +951,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..5a0cbd01faf78fc334c54f7db58545a1
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +2015,56 @@ public:
+@@ -1789,6 +2038,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -4416,10 +4440,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..9743633b74c0707cb0ed1058159ca819b9b51f4e
+index 0000000000000000000000000000000000000000..887a2e99bdd1ddb0228c19035ca8c3e4a07e747b
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4895 @@
+@@ -0,0 +1,4987 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -4549,6 +4573,7 @@ index 0000000000000000000000000000000000000000..9743633b74c0707cb0ed1058159ca819
 +  bool IsUnconditionalBranch;
 +  bool IsReturn;
 +  bool IsPossibleExceptionReturn;
++  MCPlusBuilder::CortexMStateEffect CortexMStateEffect;
 +  std::optional<uint64_t> BranchTargetAddress;
 +};
 +
@@ -4738,7 +4763,7 @@ index 0000000000000000000000000000000000000000..9743633b74c0707cb0ed1058159ca819
 +}
 +
 +static constexpr std::array<
-+    std::pair<FirmwarePublicationRejection, StringLiteral>, 9>
++    std::pair<FirmwarePublicationRejection, StringLiteral>, 10>
 +    FirmwarePublicationRejectionNames = {{
 +        {FirmwarePublicationRejection::InstructionCountChanged,
 +         "instruction_count_changed"},
@@ -4758,7 +4783,35 @@ index 0000000000000000000000000000000000000000..9743633b74c0707cb0ed1058159ca819
 +         "missing_instruction_origin"},
 +        {FirmwarePublicationRejection::ExceptionReturnChanged,
 +         "exception_return_changed"},
++        {FirmwarePublicationRejection::ExceptionStateChanged,
++         "exception_state_changed"},
 +    }};
++
++StringLiteral
++cortexMStateEffectName(MCPlusBuilder::CortexMStateEffect Effect) {
++  using EffectKind = MCPlusBuilder::CortexMStateEffect;
++  switch (Effect) {
++  case EffectKind::None:
++    return "none";
++  case EffectKind::SpecialRegister:
++    return "special_register";
++  case EffectKind::InterruptMask:
++    return "interrupt_mask";
++  case EffectKind::Barrier:
++    return "barrier";
++  case EffectKind::ExclusiveMonitor:
++    return "exclusive_monitor";
++  case EffectKind::ExceptionTrigger:
++    return "exception_trigger";
++  case EffectKind::EventSchedule:
++    return "event_schedule";
++  case EffectKind::FloatingPointContext:
++    return "floating_point_context";
++  case EffectKind::SecurityState:
++    return "security_state";
++  }
++  llvm_unreachable("unknown Cortex-M state effect");
++}
 +
 +json::Array firmwarePublicationRejections(const BinaryFunction &BF) {
 +  json::Array Reasons;
@@ -5251,6 +5304,7 @@ index 0000000000000000000000000000000000000000..9743633b74c0707cb0ed1058159ca819
 +                                               BC.MIB->isUnconditionalBranch(Inst),
 +                                               BC.MIB->isReturn(Inst),
 +                                               BC.MIB->isPossibleExceptionReturn(Inst),
++                                               BC.MIB->getCortexMStateEffect(Inst),
 +                                               TargetBB
 +                                                   ? std::optional<uint64_t>(
 +                                                         BF.getAddress() +
@@ -6244,6 +6298,64 @@ index 0000000000000000000000000000000000000000..9743633b74c0707cb0ed1058159ca819
 +          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
 +                    << BF.getPrintName()
 +                    << ": exception-return identity or instruction changed\n";
++          continue;
++        }
++
++        // Special-register access, interrupt masking, barriers, exclusive
++        // monitor operations, exception/event generation, floating-point
++        // context transfers and security transitions are outside ordinary
++        // register/memory equivalence. Preserve their exact identities,
++        // target effect classes, decoded instructions and relative order.
++        std::vector<uint64_t> ExpectedStateInstructions;
++        for (auto It = OriginalInstructions.lower_bound(BF.getAddress());
++             It != OriginalInstructions.end() && It->first < End; ++It)
++          if (It->second.CortexMStateEffect !=
++              MCPlusBuilder::CortexMStateEffect::None)
++            ExpectedStateInstructions.push_back(It->first);
++
++        std::vector<uint64_t> CandidateStateInstructions;
++        std::set<uint64_t> SeenStateInstructions;
++        bool ChangedExceptionState = false;
++        for (const BinaryBasicBlock &BB : BF)
++          for (const MCInst &Inst : BB) {
++            if (BC.MIB->isPseudo(Inst))
++              continue;
++            const MCPlusBuilder::CortexMStateEffect Effect =
++                BC.MIB->getCortexMStateEffect(Inst);
++            if (Effect == MCPlusBuilder::CortexMStateEffect::None)
++              continue;
++            const std::optional<uint64_t> Identity =
++                getFastDynOriginalIdentity(BC, Inst);
++            if (!Identity || !SeenStateInstructions.insert(*Identity).second) {
++              ChangedExceptionState = true;
++              continue;
++            }
++            CandidateStateInstructions.push_back(*Identity);
++            const auto Original = OriginalInstructions.find(*Identity);
++            if (Original == OriginalInstructions.end() ||
++                Original->second.CortexMStateEffect != Effect) {
++              ChangedExceptionState = true;
++              continue;
++            }
++            std::string Text;
++            raw_string_ostream TextOS(Text);
++            MCInst PrintableInst = Inst;
++            BC.MIB->stripAnnotations(PrintableInst);
++            BC.InstPrinter->printInst(&PrintableInst, 0, "", *BC.STI,
++                                      TextOS);
++            TextOS.flush();
++            ChangedExceptionState |= Text != Original->second.Text;
++          }
++        ChangedExceptionState |=
++            CandidateStateInstructions != ExpectedStateInstructions;
++        if (ChangedExceptionState) {
++          BF.rejectFirmwarePublication(
++              FirmwarePublicationRejection::ExceptionStateChanged);
++          ++RejectedFunctions;
++          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
++                    << BF.getPrintName()
++                    << ": Cortex-M architectural state instruction changed"
++                    << "\n";
 +          continue;
 +        }
 +      }
@@ -7693,6 +7805,8 @@ index 0000000000000000000000000000000000000000..9743633b74c0707cb0ed1058159ca819
 +        OriginalInstruction["is_return"] = Record.IsReturn;
 +        OriginalInstruction["is_possible_exception_return"] =
 +            Record.IsPossibleExceptionReturn;
++        OriginalInstruction["cortex_m_state_effect"] =
++            cortexMStateEffectName(Record.CortexMStateEffect);
 +        if (Record.BranchTargetAddress)
 +          OriginalInstruction["branch_target_original_address"] =
 +              static_cast<int64_t>(*Record.BranchTargetAddress);
@@ -7854,6 +7968,8 @@ index 0000000000000000000000000000000000000000..9743633b74c0707cb0ed1058159ca819
 +          Instruction["is_return"] = BC.MIB->isReturn(Inst);
 +          Instruction["is_possible_exception_return"] =
 +              BC.MIB->isPossibleExceptionReturn(Inst);
++          Instruction["cortex_m_state_effect"] = cortexMStateEffectName(
++              BC.MIB->getCortexMStateEffect(Inst));
 +          Instruction["source_block_original_address"] =
 +              SourceBlockAddress
 +                  ? json::Value(static_cast<int64_t>(*SourceBlockAddress))
@@ -15064,10 +15180,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..b308b0c03e77031496b3539b4a217933
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..f0032b97a7b4e8e7523e07603da0f6a259db979b
+index 0000000000000000000000000000000000000000..e2dbcd5a13961cd75aa284edd0b23e58ec9f99b2
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3067 @@
+@@ -0,0 +1,3129 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -16382,6 +16498,68 @@ index 0000000000000000000000000000000000000000..f0032b97a7b4e8e7523e07603da0f6a2
 +    return Desc.mayLoad() && Inst.getNumOperands() &&
 +           Inst.getOperand(0).isReg() &&
 +           Inst.getOperand(0).getReg() == ARM::PC;
++  }
++
++  CortexMStateEffect
++  getCortexMStateEffect(const MCInst &Inst) const override {
++    // Keep this classification at the target boundary. Generic BOLT analyses
++    // model register and memory dependencies, but do not model Cortex-M
++    // exception masks, special stack selection, event scheduling, exclusive
++    // monitor state or Secure/Non-secure transitions.
++    switch (Inst.getOpcode()) {
++    case ARM::t2MRS_M:
++    case ARM::t2MSR_M:
++      return CortexMStateEffect::SpecialRegister;
++    case ARM::tCPS:
++      return CortexMStateEffect::InterruptMask;
++    case ARM::t2DMB:
++    case ARM::t2DSB:
++    case ARM::t2ISB:
++      return CortexMStateEffect::Barrier;
++    case ARM::t2CLREX:
++      return CortexMStateEffect::ExclusiveMonitor;
++    case ARM::tSVC:
++    case ARM::tBKPT:
++    case ARM::tUDF:
++    case ARM::t2UDF:
++      return CortexMStateEffect::ExceptionTrigger;
++    case ARM::tHINT:
++    case ARM::t2HINT:
++      // Immediate zero is the architectural NOP alias. YIELD, WFE, WFI and
++      // SEV use 1..4 and can change scheduling or event-register state. Other
++      // allocated hint values are conservatively barrier-like observers.
++      if (!Inst.getNumOperands() || !Inst.getOperand(0).isImm() ||
++          Inst.getOperand(0).getImm() == 0)
++        return CortexMStateEffect::None;
++      if (Inst.getOperand(0).getImm() <= 4)
++        return CortexMStateEffect::EventSchedule;
++      return CortexMStateEffect::Barrier;
++    case ARM::VLDMSIA_UPD:
++    case ARM::VLDMSDB_UPD:
++    case ARM::VSTMSIA_UPD:
++    case ARM::VSTMSDB_UPD:
++      return CortexMStateEffect::FloatingPointContext;
++    case ARM::tBXNS:
++    case ARM::tBXNS_RET:
++    case ARM::tBLXNSr:
++    case ARM::tBLXNS_CALL:
++    case ARM::t2SG:
++    case ARM::t2TT:
++    case ARM::t2TTA:
++    case ARM::t2TTAT:
++    case ARM::t2TTT:
++      return CortexMStateEffect::SecurityState;
++    default:
++      break;
++    }
++
++    // FP system-register access has several profile-specific opcodes. The
++    // stable target opcode family is more complete than enumerating only the
++    // variants present in the current real-image corpus.
++    const StringRef Name = Info->getName(Inst.getOpcode());
++    if (Name.starts_with("VMRS") || Name.starts_with("VMSR"))
++      return CortexMStateEffect::FloatingPointContext;
++    return CortexMStateEffect::None;
 +  }
 +
 +  bool isIndirectBranch(const MCInst &Inst) const override {
@@ -18858,10 +19036,10 @@ index 0000000000000000000000000000000000000000..5f7a91ef591e21f1509131027473ae96
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/cortex-m-handler-fop.s b/bolt/test/ARM/cortex-m-handler-fop.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..d4c2db967fd39a8f45d9719ab27036579553f970
+index 0000000000000000000000000000000000000000..e92f6bd0480e68d4fb51905f8ffc2a9839ba21fb
 --- /dev/null
 +++ b/bolt/test/ARM/cortex-m-handler-fop.s
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,161 @@
 +## Exact vector entries may use the narrow exception-entry contract: ordinary
 +## FOP replaces a stack reload with a same-width move while retaining the
 +## stack store, instruction count/order, entry address and BX LR exception
@@ -18874,22 +19052,23 @@ index 0000000000000000000000000000000000000000..d4c2db967fd39a8f45d9719ab2703657
 +# RUN:   --frame-opt=all --eliminate-unreachable=false \
 +# RUN:   --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
 +# RUN:   | FileCheck %s --check-prefix=BOLT
-+# RUN: %python -c "import json; d=json.load(open('%t.json')); fs={x['name']:x for x in d['functions']}; a=fs['Reset_Handler']; b=fs['irq_handler']; c=fs['pop_handler']; d=fs['register_handler']; e=fs['load_handler']; g=fs['unsupported_handler']; f=lambda x:[i for i in x['instructions'] if i['is_possible_exception_return']]; print(a['cortex_m_vector_entry'],a['cortex_m_reset_entry'],a['cortex_m_exception_entry'],len(f(a))); print(b['cortex_m_vector_entry'],b['cortex_m_reset_entry'],b['cortex_m_exception_entry'],b['firmware_modified'],f(b)[0]['text'].strip(),f(b)[0]['original_address']); print(c['cortex_m_vector_entry'],c['cortex_m_reset_entry'],c['cortex_m_exception_entry'],c['firmware_modified'],f(c)[0]['text'].strip(),f(c)[0]['original_address']); print(d['cortex_m_vector_entry'],d['cortex_m_reset_entry'],d['cortex_m_exception_entry'],d['firmware_modified'],f(d)[0]['text'].strip(),f(d)[0]['original_address']); print(e['cortex_m_vector_entry'],e['cortex_m_reset_entry'],e['cortex_m_exception_entry'],e['firmware_modified'],f(e)[0]['text'].strip(),f(e)[0]['original_address']); print(g['cortex_m_vector_entry'],g['firmware_modified'],','.join(g['firmware_modification_reasons']),','.join(g['firmware_publication_rejections']))" | FileCheck %s --check-prefix=REPORT
++# RUN: %python -c "import json; d=json.load(open('%t.json')); fs={x['name']:x for x in d['functions']}; a=fs['Reset_Handler']; b=fs['irq_handler']; c=fs['pop_handler']; d=fs['register_handler']; e=fs['load_handler']; s=fs['state_handler']; g=fs['unsupported_handler']; f=lambda x:[i for i in x['instructions'] if i['is_possible_exception_return']]; q=lambda x:[i['cortex_m_state_effect'] for i in x['instructions'] if i['cortex_m_state_effect'] != 'none']; print(a['cortex_m_vector_entry'],a['cortex_m_reset_entry'],a['cortex_m_exception_entry'],len(f(a))); print(b['cortex_m_vector_entry'],b['cortex_m_reset_entry'],b['cortex_m_exception_entry'],b['firmware_modified'],f(b)[0]['text'].strip(),f(b)[0]['original_address']); print(c['cortex_m_vector_entry'],c['cortex_m_reset_entry'],c['cortex_m_exception_entry'],c['firmware_modified'],f(c)[0]['text'].strip(),f(c)[0]['original_address']); print(d['cortex_m_vector_entry'],d['cortex_m_reset_entry'],d['cortex_m_exception_entry'],d['firmware_modified'],f(d)[0]['text'].strip(),f(d)[0]['original_address']); print(e['cortex_m_vector_entry'],e['cortex_m_reset_entry'],e['cortex_m_exception_entry'],e['firmware_modified'],f(e)[0]['text'].strip(),f(e)[0]['original_address']); print(s['cortex_m_vector_entry'],s['cortex_m_exception_entry'],s['firmware_modified'],','.join(q(s))); print(g['cortex_m_vector_entry'],g['firmware_modified'],','.join(g['firmware_modification_reasons']),','.join(g['firmware_publication_rejections']))" | FileCheck %s --check-prefix=REPORT
 +# RUN: llvm-objdump -d --mcpu=cortex-m3 %t.bolt \
 +# RUN:   | FileCheck %s --check-prefix=DISASM
 +
-+# BOLT: primary-entry-handlers=6
++# BOLT: primary-entry-handlers=7
 +# BOLT-SAME: reset-entry-functions=1
-+# BOLT-SAME: exception-entry-functions=5
-+# BOLT: FOP optimized 3 redundant load(s)
++# BOLT-SAME: exception-entry-functions=6
++# BOLT: FOP optimized 4 redundant load(s)
 +# BOLT: retained original handler unsupported_handler: transformation exceeds the exception-entry contract
-+# BOLT: BOLT: 2 out of 6 functions were overwritten.
++# BOLT: BOLT: 3 out of 7 functions were overwritten.
 +
 +# REPORT: True True False 1
 +# REPORT-NEXT: True False True True bx lr 134217740
 +# REPORT-NEXT: True False True True pop {r4, pc} 134217772
 +# REPORT-NEXT: True False True False bx r4 134217776
 +# REPORT-NEXT: True False True False ldr.w pc, [sp] 134217778
++# REPORT-NEXT: True True True special_register,special_register,interrupt_mask,barrier,barrier,interrupt_mask
 +# REPORT-NEXT: True False cfg_normalization,frame_load_forwarding exception_contract_unsupported
 +
 +# DISASM: <irq_handler>:
@@ -18912,6 +19091,16 @@ index 0000000000000000000000000000000000000000..d4c2db967fd39a8f45d9719ab2703657
 +# DISASM-NEXT: bx r4
 +# DISASM: <load_handler>:
 +# DISASM: ldr.w pc, [sp]
++# DISASM: <state_handler>:
++# DISASM: str r0, [sp]
++# DISASM-NEXT: mov r1, r0
++# DISASM: mrs r2, psp
++# DISASM-NEXT: msr basepri, r2
++# DISASM-NEXT: cpsid i
++# DISASM-NEXT: dsb sy
++# DISASM-NEXT: isb sy
++# DISASM-NEXT: cpsie i
++# DISASM: bx lr
 +
 +  .syntax unified
 +  .thumb
@@ -18983,6 +19172,24 @@ index 0000000000000000000000000000000000000000..d4c2db967fd39a8f45d9719ab2703657
 +  ldr.w pc, [sp]
 +  .size load_handler, .-load_handler
 +
++  .globl state_handler
++  .type state_handler,%function
++  .thumb_func
++state_handler:
++  sub sp, #4
++  str r0, [sp]
++  ldr r1, [sp]
++  mrs r2, psp
++  msr basepri, r2
++  cpsid i
++  dsb sy
++  isb sy
++  cpsie i
++  adds r0, r1, #1
++  add sp, #4
++  bx lr
++  .size state_handler, .-state_handler
++
 +  .section .isr_vector,"a",%progbits
 +  .globl g_pfnVectors
 +g_pfnVectors:
@@ -18993,6 +19200,7 @@ index 0000000000000000000000000000000000000000..d4c2db967fd39a8f45d9719ab2703657
 +  .word pop_handler
 +  .word register_handler
 +  .word load_handler
++  .word state_handler
 diff --git a/bolt/test/ARM/cortex-m-v8-profiles.s b/bolt/test/ARM/cortex-m-v8-profiles.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64b14678a5
@@ -27670,7 +27878,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..435f98431b36ba07bbb0340d2e7a62d4913981c5 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..361274c42ae50218a3e810ea57a5d275d02dab17 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -27740,7 +27948,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..435f98431b36ba07bbb0340d2e7a62d4
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +155,979 @@ protected:
+@@ -125,6 +155,1012 @@ protected:
  };
  } // namespace
  
@@ -27802,6 +28010,39 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..435f98431b36ba07bbb0340d2e7a62d4
 +                            .addImm(ARMCC::AL)
 +                            .addReg(0);
 +  EXPECT_FALSE(BC->MIB->isPossibleExceptionReturn(OrdinaryMove));
++}
++
++TEST_P(MCPlusBuilderTester, ARM_CortexMStateEffects) {
++  if (GetParam() != Triple::thumb)
++    GTEST_SKIP();
++
++  using Effect = MCPlusBuilder::CortexMStateEffect;
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::t2MRS_M)),
++            Effect::SpecialRegister);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::t2MSR_M)),
++            Effect::SpecialRegister);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::tCPS)),
++            Effect::InterruptMask);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::t2DSB)),
++            Effect::Barrier);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::t2CLREX)),
++            Effect::ExclusiveMonitor);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::tSVC)),
++            Effect::ExceptionTrigger);
++  MCInst WaitForEvent = MCInstBuilder(ARM::tHINT).addImm(2);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(WaitForEvent),
++            Effect::EventSchedule);
++  WaitForEvent.getOperand(0).setImm(0);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(WaitForEvent), Effect::None);
++  EXPECT_EQ(
++      BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::VSTMSDB_UPD)),
++      Effect::FloatingPointContext);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::VMRS)),
++            Effect::FloatingPointContext);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::t2SG)),
++            Effect::SecurityState);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::tADDi3)),
++            Effect::None);
 +}
 +
 +TEST_P(MCPlusBuilderTester, ARM_StackLoadForwarding) {

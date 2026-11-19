@@ -138,7 +138,7 @@ caller-saved exchange across qualified leaf and direct-call functions plus
 live-in/call-boundary retention controls, a shared-external-program
 retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v144 run accepts all fifty-five without
+The 19 November v145 run accepts all fifty-five without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -774,15 +774,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v144-exception-return-contract-final
+  --output build/preflight/firm-bolt-cortex-m-v145-exception-state-contract-final2
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v144-exception-return-contract-final/report.json),
-SHA-256 `7905674c159b718917eddca0cc8d16179c40d569da3fcaad030fe1334fa51fd1`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v145-exception-state-contract-final2/report.json),
+SHA-256 `df7844eacca0283198ecfd503659f6cb3ade43763b5d9e2d27a99b67b2c9bd0d`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v144-exception-return-contract-final/validation-manifest.json),
-SHA-256 `5e3e08086667f5ac84d2921c367312d4034d5661ef4b7bd937ff9cb2f3f1f6b4`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v145-exception-state-contract-final2/validation-manifest.json),
+SHA-256 `2654b21b53b6a987c734074b3582fa217dbff09aea601e4d9a41687c55a36910`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -794,25 +794,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`72f09a3b95f30b29b83571789d819bf97f409751fae130bc8ea347eeee80a6e1`,
+`58dfa32afdd9c115092ca8297a052398cd35ebfcd52da7326e77c94e94537b0d`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`59ed2d86219d210caabf039d501c02ac97d92624c4a92b229ad67a22149345af`.
+`51b1b70353b7992001eb9a3d8fb7dcaf6ce49bb0af1ade2973d9f018ec77baf9`.
 The current combined ARM BOLT/AArch32 JITLink lit run passes 90/90
-(78 ARM and 12 JITLink). The BOLT unit executables pass 129 tests and
-explicitly skip 147 target-inapplicable parameterizations: Core is 85/147,
+(78 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
+explicitly skip 150 target-inapplicable parameterizations: Core is 86/150,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v144-exception-return-contract-final/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v145-exception-state-contract-final2/core-tests.xml)
 has SHA-256
-`03b98eb3c06556da6c3d1f39bf42449cafb81a0de00efb70fe513d00f6b5255b`;
+`8c790611f60d35353b919e03144a31b592be714a748303698498bdb403db9329`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v144-exception-return-contract-final/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v145-exception-state-contract-final2/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v144-exception-return-contract-final/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v145-exception-state-contract-final2/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`f7fddcb6742542d5a77467f3867bb0214ad907d3d7c9e3ddff7248dca3feed77`
-and `a577b1735919a6d3bf77ecdbe330b1cc95f39d8736decf4c35ed1e53d5c96985`.
+`88f4e5bb3dcef97056b2a708ca2cc9eee20fd549db3cd391f1d1b6e665973664`
+and `46aa01d1bebce22a9f90a6ed086cdc06a1702ac36b8c8dd7feea342181096d08`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1368,6 +1368,26 @@ passed with 147 explicit target-inapplicable skips.  This models the return
 instruction boundary, not the full exception stack-selection, privilege,
 masking or interrupt-schedule state.
 
+v145 extends that boundary to architectural state that generic BOLT
+register/memory data flow does not model. The ARM target assigns typed effects
+to M-profile special-register access, interrupt masking, barriers,
+exclusive-monitor changes, exception triggers, event scheduling,
+floating-point context transfers and security-state transitions. Publication
+of an exception handler requires every classified instruction to retain its
+stable original identity, target effect class, exact decoded text and relative
+order. The focused FOP-positive handler forwards an ordinary stack reload while
+retaining `MRS PSP`, `MSR BASEPRI`, `CPSID`, `DSB`, `ISB` and `CPSIE` exactly.
+The classifier also distinguishes the `tHINT #0` NOP alias from
+`YIELD`/`WFE`/`WFI`/`SEV`, avoiding a false event-schedule classification.
+
+The real FreeRTOS M4 handlers contain 19 classified state instructions: eight
+special-register accesses, two interrupt-mask changes, seven barriers and two
+conditional floating-point context transfers. The 55/55 production gate and
+real FastDyn execution accept the candidate; ARM/JITLink lit is 90/90 and the
+unit suites pass 130 cases with 150 explicit target-inapplicable skips. This
+preserves the instruction/event boundary, not the actual stacked-state values,
+nested-exception timing or external device interrupt arrival.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands without a proven non-fallthrough owner, ARM relocation classes
@@ -1382,9 +1402,9 @@ Secure/Non-secure and PACBTI-M state transformations. Cortex-M4 DSP/FPU,
 Cortex-M55 MVE and Cortex-M85 PACBTI-M decode/exact retention are qualified
 independently from those optimization rules. Handler rewriting beyond the
 same-count, store-preserving FOP contract remains disabled: possible
-exception-return instructions are now represented, while exception
-stack-selection, privilege, masking and modeled interrupt scheduling still
-need richer state contracts. These cases are retained or rejected explicitly;
+exception-return and architectural-state instructions are now represented,
+while stacked values, nested-exception timing and external interrupt arrival
+still need richer state contracts. These cases are retained or rejected explicitly;
 they are not counted as successful rewrites.
 
 The BOLT-first composition gate then feeds that exact M4 output to the

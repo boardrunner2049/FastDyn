@@ -127,6 +127,7 @@ struct OriginalInstructionRecord {
   bool IsUnconditionalBranch;
   bool IsReturn;
   bool IsPossibleExceptionReturn;
+  MCPlusBuilder::CortexMStateEffect CortexMStateEffect;
   std::optional<uint64_t> BranchTargetAddress;
 };
 
@@ -316,7 +317,7 @@ json::Array firmwareModificationReasons(const BinaryFunction &BF) {
 }
 
 static constexpr std::array<
-    std::pair<FirmwarePublicationRejection, StringLiteral>, 9>
+    std::pair<FirmwarePublicationRejection, StringLiteral>, 10>
     FirmwarePublicationRejectionNames = {{
         {FirmwarePublicationRejection::InstructionCountChanged,
          "instruction_count_changed"},
@@ -336,7 +337,35 @@ static constexpr std::array<
          "missing_instruction_origin"},
         {FirmwarePublicationRejection::ExceptionReturnChanged,
          "exception_return_changed"},
+        {FirmwarePublicationRejection::ExceptionStateChanged,
+         "exception_state_changed"},
     }};
+
+StringLiteral
+cortexMStateEffectName(MCPlusBuilder::CortexMStateEffect Effect) {
+  using EffectKind = MCPlusBuilder::CortexMStateEffect;
+  switch (Effect) {
+  case EffectKind::None:
+    return "none";
+  case EffectKind::SpecialRegister:
+    return "special_register";
+  case EffectKind::InterruptMask:
+    return "interrupt_mask";
+  case EffectKind::Barrier:
+    return "barrier";
+  case EffectKind::ExclusiveMonitor:
+    return "exclusive_monitor";
+  case EffectKind::ExceptionTrigger:
+    return "exception_trigger";
+  case EffectKind::EventSchedule:
+    return "event_schedule";
+  case EffectKind::FloatingPointContext:
+    return "floating_point_context";
+  case EffectKind::SecurityState:
+    return "security_state";
+  }
+  llvm_unreachable("unknown Cortex-M state effect");
+}
 
 json::Array firmwarePublicationRejections(const BinaryFunction &BF) {
   json::Array Reasons;
@@ -829,6 +858,7 @@ Error FastDynOriginTracker::runOnFunctions(BinaryContext &BC) {
                                                BC.MIB->isUnconditionalBranch(Inst),
                                                BC.MIB->isReturn(Inst),
                                                BC.MIB->isPossibleExceptionReturn(Inst),
+                                               BC.MIB->getCortexMStateEffect(Inst),
                                                TargetBB
                                                    ? std::optional<uint64_t>(
                                                          BF.getAddress() +
@@ -1822,6 +1852,64 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
           BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
                     << BF.getPrintName()
                     << ": exception-return identity or instruction changed\n";
+          continue;
+        }
+
+        // Special-register access, interrupt masking, barriers, exclusive
+        // monitor operations, exception/event generation, floating-point
+        // context transfers and security transitions are outside ordinary
+        // register/memory equivalence. Preserve their exact identities,
+        // target effect classes, decoded instructions and relative order.
+        std::vector<uint64_t> ExpectedStateInstructions;
+        for (auto It = OriginalInstructions.lower_bound(BF.getAddress());
+             It != OriginalInstructions.end() && It->first < End; ++It)
+          if (It->second.CortexMStateEffect !=
+              MCPlusBuilder::CortexMStateEffect::None)
+            ExpectedStateInstructions.push_back(It->first);
+
+        std::vector<uint64_t> CandidateStateInstructions;
+        std::set<uint64_t> SeenStateInstructions;
+        bool ChangedExceptionState = false;
+        for (const BinaryBasicBlock &BB : BF)
+          for (const MCInst &Inst : BB) {
+            if (BC.MIB->isPseudo(Inst))
+              continue;
+            const MCPlusBuilder::CortexMStateEffect Effect =
+                BC.MIB->getCortexMStateEffect(Inst);
+            if (Effect == MCPlusBuilder::CortexMStateEffect::None)
+              continue;
+            const std::optional<uint64_t> Identity =
+                getFastDynOriginalIdentity(BC, Inst);
+            if (!Identity || !SeenStateInstructions.insert(*Identity).second) {
+              ChangedExceptionState = true;
+              continue;
+            }
+            CandidateStateInstructions.push_back(*Identity);
+            const auto Original = OriginalInstructions.find(*Identity);
+            if (Original == OriginalInstructions.end() ||
+                Original->second.CortexMStateEffect != Effect) {
+              ChangedExceptionState = true;
+              continue;
+            }
+            std::string Text;
+            raw_string_ostream TextOS(Text);
+            MCInst PrintableInst = Inst;
+            BC.MIB->stripAnnotations(PrintableInst);
+            BC.InstPrinter->printInst(&PrintableInst, 0, "", *BC.STI,
+                                      TextOS);
+            TextOS.flush();
+            ChangedExceptionState |= Text != Original->second.Text;
+          }
+        ChangedExceptionState |=
+            CandidateStateInstructions != ExpectedStateInstructions;
+        if (ChangedExceptionState) {
+          BF.rejectFirmwarePublication(
+              FirmwarePublicationRejection::ExceptionStateChanged);
+          ++RejectedFunctions;
+          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
+                    << BF.getPrintName()
+                    << ": Cortex-M architectural state instruction changed"
+                    << "\n";
           continue;
         }
       }
@@ -3271,6 +3359,8 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
         OriginalInstruction["is_return"] = Record.IsReturn;
         OriginalInstruction["is_possible_exception_return"] =
             Record.IsPossibleExceptionReturn;
+        OriginalInstruction["cortex_m_state_effect"] =
+            cortexMStateEffectName(Record.CortexMStateEffect);
         if (Record.BranchTargetAddress)
           OriginalInstruction["branch_target_original_address"] =
               static_cast<int64_t>(*Record.BranchTargetAddress);
@@ -3432,6 +3522,8 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
           Instruction["is_return"] = BC.MIB->isReturn(Inst);
           Instruction["is_possible_exception_return"] =
               BC.MIB->isPossibleExceptionReturn(Inst);
+          Instruction["cortex_m_state_effect"] = cortexMStateEffectName(
+              BC.MIB->getCortexMStateEffect(Inst));
           Instruction["source_block_original_address"] =
               SourceBlockAddress
                   ? json::Value(static_cast<int64_t>(*SourceBlockAddress))
