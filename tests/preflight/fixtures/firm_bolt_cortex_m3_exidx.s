@@ -20,6 +20,7 @@ g_pfnVectors:
 .thumb_func
 Reset_Handler:
   .fnstart
+  .personalityindex 1
   movw r4, #0
   movt r4, #0x2000
   bl worker_a
@@ -29,9 +30,10 @@ Reset_Handler:
 .global fixture_halt
 fixture_halt:
   b fixture_halt
-  .cantunwind
   .fnend
 .size Reset_Handler, . - Reset_Handler
+
+.weak __aeabi_unwind_cpp_pr1
 
 .align 2
 .global worker_a

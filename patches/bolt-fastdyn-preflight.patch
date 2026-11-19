@@ -1047,7 +1047,7 @@ index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fa
    /// The shortest distance for any branch instruction on AArch64.
    static constexpr size_t ShortestJumpBits = 11;
 diff --git a/bolt/include/bolt/Rewrite/RewriteInstance.h b/bolt/include/bolt/Rewrite/RewriteInstance.h
-index 551c0341b9946c65c318bb4626e9156b1cd855ac..8a0ae0f3389ac20cbe93b9a9d82e4b0ff83b5308 100644
+index 551c0341b9946c65c318bb4626e9156b1cd855ac..d04aa7a417e34a5b63afaeaee1ee4590601688cc 100644
 --- a/bolt/include/bolt/Rewrite/RewriteInstance.h
 +++ b/bolt/include/bolt/Rewrite/RewriteInstance.h
 @@ -243,6 +243,13 @@ private:
@@ -1056,9 +1056,9 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..8a0ae0f3389ac20cbe93b9a9d82e4b0f
  
 +  /// Rebuild linked ARM EHABI index tables after Cortex-M function layout.
 +  /// The first implementation preserves the exact table footprint and admits
-+  /// CANTUNWIND/inline-compact records whose original coverage groups remain
-+  /// contiguous.  Ambiguous groups, split functions and external extab
-+  /// records fail closed before publication.
++  /// CANTUNWIND, inline-compact and bounded external compact records whose
++  /// original coverage groups remain contiguous.  Ambiguous groups, split
++  /// functions and generic personality/LSDA records fail closed.
 +  Error rewriteARMExidxSections();
 +
    /// Return the input file range [Start, End) that BOLT reuses for new
@@ -9887,7 +9887,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..27b3e32d4c9aa3ecc2ff8d7d644f1282a92ff83e 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce506eb6fcd 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -11260,7 +11260,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..27b3e32d4c9aa3ecc2ff8d7d644f1282
  
        OS.seek(Pos);
      }
-@@ -6947,6 +7659,232 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +7659,312 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -11309,6 +11309,8 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..27b3e32d4c9aa3ecc2ff8d7d644f1282
 +    uint64_t InputStart{0};
 +    uint64_t OutputStart{0};
 +    uint32_t UnwindWord{0};
++    const BinarySection *ExtabSection{nullptr};
++    uint64_t ExtabTarget{0};
 +    SmallVector<const BinaryFunction *, 4> Functions;
 +    bool IsSentinel{false};
 +  };
@@ -11334,18 +11336,76 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..27b3e32d4c9aa3ecc2ff8d7d644f1282
 +      if (!InputStart)
 +        return InputStart.takeError();
 +      const uint32_t UnwindWord = ReadWord(Contents.data() + Offset + 4);
-+      if (UnwindWord != 1 && !(UnwindWord & 0x80000000U))
-+        return createStringError(
-+            errc::not_supported,
-+            "ARM EHABI index section %s contains an external .ARM.extab "
-+            "record at 0x%" PRIx64,
-+            Section.getName().str().c_str(), Place);
++      const BinarySection *ExtabSection = nullptr;
++      uint64_t ExtabTarget = 0;
++      if (UnwindWord != 1 && !(UnwindWord & 0x80000000U)) {
++        Expected<uint64_t> Target =
++            DecodePrel31(UnwindWord, Place + sizeof(uint32_t));
++        if (!Target)
++          return Target.takeError();
++        ErrorOr<BinarySection &> TargetSection =
++            BC->getSectionForAddress(*Target);
++        if (!TargetSection || !TargetSection->isAllocatable() ||
++            TargetSection->isText() ||
++            !TargetSection->getName().starts_with(".ARM.extab") ||
++            !TargetSection->containsRange(*Target, sizeof(uint32_t)))
++          return createStringError(
++              errc::executable_format_error,
++              "ARM EHABI index record at 0x%" PRIx64
++              " does not reference a complete allocatable .ARM.extab word",
++              Place);
++
++        const uint64_t ExtabOffset = *Target - TargetSection->getAddress();
++        const StringRef ExtabContents = TargetSection->getContents();
++        if (ExtabOffset > ExtabContents.size() ||
++            ExtabContents.size() - ExtabOffset < sizeof(uint32_t))
++          return createStringError(
++              errc::executable_format_error,
++              "ARM EHABI compact entry at 0x%" PRIx64
++              " has no file-backed header word",
++              *Target);
++        const uint32_t Header =
++            ReadWord(ExtabContents.data() + ExtabOffset);
++        if (!(Header & 0x80000000U))
++          return createStringError(
++              errc::not_supported,
++              "ARM EHABI generic personality/LSDA entry at 0x%" PRIx64
++              " is not qualified for function layout",
++              *Target);
++        if (Header & 0x70000000U)
++          return createStringError(
++              errc::executable_format_error,
++              "ARM EHABI compact entry at 0x%" PRIx64
++              " has reserved header bits set",
++              *Target);
++        const unsigned PersonalityIndex = (Header >> 24) & 0x0f;
++        if (PersonalityIndex > 2)
++          return createStringError(
++              errc::not_supported,
++              "ARM EHABI compact personality index %u at 0x%" PRIx64
++              " is not qualified for function layout",
++              PersonalityIndex, *Target);
++        const uint64_t RequiredBytes =
++            PersonalityIndex == 0
++                ? sizeof(uint32_t)
++                : sizeof(uint32_t) * (1 + ((Header >> 16) & 0xff));
++        if (!TargetSection->containsRange(*Target, RequiredBytes) ||
++            RequiredBytes > ExtabContents.size() - ExtabOffset)
++          return createStringError(
++              errc::executable_format_error,
++              "ARM EHABI compact entry at 0x%" PRIx64
++              " extends beyond section %s",
++              *Target, TargetSection->getName().str().c_str());
++        ExtabSection = &*TargetSection;
++        ExtabTarget = *Target;
++      }
 +      if (!Entries.empty() && *InputStart <= Entries.back().InputStart)
 +        return createStringError(
 +            errc::executable_format_error,
 +            "ARM EHABI index section %s is not strictly address-sorted",
 +            Section.getName().str().c_str());
-+      Entries.push_back({*InputStart, 0, UnwindWord, {}, false});
++      Entries.push_back({*InputStart, 0, UnwindWord, ExtabSection, ExtabTarget,
++                         {}, false});
 +    }
 +
 +    // A linker may append a final CANTUNWIND sentinel at the end of the
@@ -11465,6 +11525,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..27b3e32d4c9aa3ecc2ff8d7d644f1282
 +                               "ARM EHABI entry accounting mismatch");
 +
 +    uint8_t *NewContents = new uint8_t[Contents.size()];
++    size_t ExternalExtabReferences = 0;
 +    for (size_t I = 0; I < OutputEntries.size(); ++I) {
 +      const ExidxEntry &Entry = *OutputEntries[I];
 +      const uint64_t Place = Section.getAddress() + I * 8;
@@ -11476,15 +11537,34 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..27b3e32d4c9aa3ecc2ff8d7d644f1282
 +      }
 +      WriteWord(reinterpret_cast<char *>(NewContents + I * 8),
 +                *FunctionPrel31);
++      uint32_t OutputUnwindWord = Entry.UnwindWord;
++      if (Entry.ExtabSection) {
++        const uint64_t ExtabOffset =
++            Entry.ExtabTarget - Entry.ExtabSection->getAddress();
++        const uint64_t OutputSectionAddress =
++            Entry.ExtabSection->getOutputAddress()
++                ? Entry.ExtabSection->getOutputAddress()
++                : Entry.ExtabSection->getAddress();
++        Expected<uint32_t> ExtabPrel31 =
++            EncodePrel31(OutputSectionAddress + ExtabOffset,
++                         Place + sizeof(uint32_t));
++        if (!ExtabPrel31) {
++          delete[] NewContents;
++          return ExtabPrel31.takeError();
++        }
++        OutputUnwindWord = *ExtabPrel31;
++        ++ExternalExtabReferences;
++      }
 +      WriteWord(reinterpret_cast<char *>(NewContents + I * 8 + 4),
-+                Entry.UnwindWord);
++                OutputUnwindWord);
 +    }
 +    Section.updateContents(NewContents, Contents.size());
 +    Section.setOutputAddress(Section.getAddress());
 +    Section.setOutputFileOffset(Section.getInputFileOffset());
 +    BC->outs() << "BOLT-INFO: rebuilt ARM EHABI index " << Section.getName()
 +               << " with " << Entries.size()
-+               << " fixed-footprint entries after function layout\n";
++               << " fixed-footprint entries and " << ExternalExtabReferences
++               << " external compact reference(s) after function layout\n";
 +  }
 +
 +  return Error::success();
@@ -11493,7 +11573,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..27b3e32d4c9aa3ecc2ff8d7d644f1282
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +7898,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +7978,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -15529,15 +15609,16 @@ index 0000000000000000000000000000000000000000..6ae6e4fb9ea8eb0437e668e8334ec7c0
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-exidx-function-reorder.s b/bolt/test/ARM/thumb-exidx-function-reorder.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..8384362773e179b094d98274a57dadd2cbdc5f1b
+index 0000000000000000000000000000000000000000..883b2f8f807379dde7fd011686b4ac3e0b9205d5
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-exidx-function-reorder.s
-@@ -0,0 +1,190 @@
+@@ -0,0 +1,261 @@
 +## ARM EHABI index entries embed linked PREL31 code addresses and LLD does not
 +## retain their synthetic relocations under --emit-relocs.  Qualify exact,
 +## fixed-footprint reconstruction after Cortex-M function reordering.  The
-+## inline compact unwind word must follow worker_a while CANTUNWIND records
-+## follow worker_b and Reset_Handler; the final sentinel remains last.
++## inline compact unwind word must follow worker_a, the external compact table
++## reference must follow Reset_Handler, and CANTUNWIND follows worker_b; the
++## final sentinel remains last.
 +
 +# RUN: split-file %s %t
 +# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
@@ -15555,9 +15636,22 @@ index 0000000000000000000000000000000000000000..8384362773e179b094d98274a57dadd2
 +# RUN: llvm-readelf -SWl %t/candidate.elf \
 +# RUN:   | FileCheck %s --check-prefix=LAYOUT
 +
-+## External .ARM.extab records contain a second level of PREL31 and opaque
-+## language-specific data.  Keep that unqualified representation fail-closed
-+## instead of moving code under stale personality/LSDA references.
++## Independently exercise the ARM-defined personality-index-2 external
++## compact form through the same reorder/rebind path.
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/compact-pr2.s -o %t/compact-pr2.o
++# RUN: ld.lld --emit-relocs --no-merge-exidx-entries -T %t/link.ld \
++# RUN:   %t/compact-pr2.o -o %t/compact-pr2.elf
++# RUN: llvm-bolt %t/compact-pr2.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --reorder-functions=user \
++# RUN:   --function-order=%t/order.txt -o %t/compact-pr2-candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=PR2-BOLT
++# RUN: llvm-readelf --unwind %t/compact-pr2-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=PR2
++
++## Generic .ARM.extab records contain a second level of PREL31 and opaque
++## language-specific data.  Keep that representation fail-closed instead of
++## moving code under stale personality/LSDA references.
 +# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
 +# RUN:   %t/extab.s -o %t/extab.o
 +# RUN: ld.lld --emit-relocs --no-merge-exidx-entries -T %t/link.ld \
@@ -15567,7 +15661,7 @@ index 0000000000000000000000000000000000000000..8384362773e179b094d98274a57dadd2
 +# RUN:   --function-order=%t/order.txt -o %t/extab-candidate.elf 2>&1 \
 +# RUN:   | FileCheck %s --check-prefix=EXTAB
 +
-+# BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 4 fixed-footprint entries after function layout
++# BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 4 fixed-footprint entries and 1 external compact reference(s) after function layout
 +# BOLT: BOLT-INFO: not adding new segments
 +
 +# ORDER: 08000100 T worker_b
@@ -15578,17 +15672,26 @@ index 0000000000000000000000000000000000000000..8384362773e179b094d98274a57dadd2
 +# UNWIND: FunctionAddress: 0x8000100
 +# UNWIND-NEXT: Model: CantUnwind
 +# UNWIND: FunctionAddress: 0x8000104
-+# UNWIND-NEXT: Model: CantUnwind
++# UNWIND: ExceptionHandlingTable: .ARM.extab
++# UNWIND: Model: Compact
++# UNWIND: PersonalityIndex: 1
 +# UNWIND: FunctionAddress: 0x800011C
 +# UNWIND-NEXT: Model: Compact
 +# UNWIND: FunctionAddress: 0x8000124
 +# UNWIND-NEXT: Model: CantUnwind
 +
 +# LAYOUT: .text {{.*}} 08000100 {{.*}} 000022 {{.*}} AX
-+# LAYOUT: .ARM.exidx ARM_EXIDX 08000124 010124 000020 {{.*}} AL 3
-+# LAYOUT: EXIDX 0x010124 0x08000124 0x08000124 0x00020 0x00020 R 0x4
++# LAYOUT: .ARM.extab PROGBITS 08000124 010124 000008
++# LAYOUT: .ARM.exidx ARM_EXIDX 0800012c 01012c 000020 {{.*}} AL 3
++# LAYOUT: EXIDX 0x01012c 0x0800012c 0x0800012c 0x00020 0x00020 R 0x4
 +
-+# EXTAB: BOLT-ERROR: 'cannot rebuild ARM EHABI index tables': ARM EHABI index section .ARM.exidx contains an external .ARM.extab record
++# PR2-BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 4 fixed-footprint entries and 1 external compact reference(s) after function layout
++
++# PR2: ExceptionHandlingTable: .ARM.extab
++# PR2: Model: Compact
++# PR2: PersonalityIndex: 2
++
++# EXTAB: BOLT-ERROR: 'cannot rebuild ARM EHABI index tables': ARM EHABI generic personality/LSDA entry
 +
 +//--- fixture.s
 +.syntax unified
@@ -15613,6 +15716,7 @@ index 0000000000000000000000000000000000000000..8384362773e179b094d98274a57dadd2
 +.thumb_func
 +Reset_Handler:
 +  .fnstart
++  .personalityindex 1
 +  movw r4, #0
 +  movt r4, #0x2000
 +  bl worker_a
@@ -15622,9 +15726,10 @@ index 0000000000000000000000000000000000000000..8384362773e179b094d98274a57dadd2
 +.global fixture_halt
 +fixture_halt:
 +  b fixture_halt
-+  .cantunwind
 +  .fnend
 +.size Reset_Handler, . - Reset_Handler
++
++.weak __aeabi_unwind_cpp_pr1
 +
 +.align 2
 +.global worker_a
@@ -15650,6 +15755,52 @@ index 0000000000000000000000000000000000000000..8384362773e179b094d98274a57dadd2
 +  .cantunwind
 +  .fnend
 +.size worker_b, . - worker_b
++
++//--- compact-pr2.s
++.syntax unified
++.cpu cortex-m3
++.thumb
++.eabi_attribute Tag_CPU_arch, 10
++.eabi_attribute Tag_CPU_arch_profile, 'M'
++
++.section .isr_vector, "a", %progbits
++.word 0x20001000
++.word Reset_Handler
++
++.section .text, "ax", %progbits
++.global Reset_Handler
++.type Reset_Handler, %function
++.thumb_func
++Reset_Handler:
++  .fnstart
++  .personalityindex 2
++  bl worker_a
++  nop
++  bx lr
++  .fnend
++.size Reset_Handler, . - Reset_Handler
++
++.global worker_a
++.type worker_a, %function
++.thumb_func
++worker_a:
++  .fnstart
++  bx lr
++  .cantunwind
++  .fnend
++.size worker_a, . - worker_a
++
++.global worker_b
++.type worker_b, %function
++.thumb_func
++worker_b:
++  .fnstart
++  bx lr
++  .cantunwind
++  .fnend
++.size worker_b, . - worker_b
++
++.weak __aeabi_unwind_cpp_pr2
 +
 +//--- extab.s
 +.syntax unified

@@ -324,15 +324,57 @@ def arm_exidx_records(path: Path) -> dict[str, Any]:
             delta = raw_prel31 & 0x7FFFFFFF
             if delta & 0x40000000:
                 delta -= 0x80000000
+            model = (
+                "cantunwind" if unwind_word == 1 else
+                "compact_inline" if unwind_word & 0x80000000 else
+                "external_extab"
+            )
+            external = None
+            if model == "external_extab":
+                extab_delta = unwind_word & 0x7FFFFFFF
+                if extab_delta & 0x40000000:
+                    extab_delta -= 0x80000000
+                target = base + offset + 4 + extab_delta
+                target_section = next(
+                    (
+                        item for item in elf.iter_sections()
+                        if (
+                            int(item["sh_addr"]) <= target
+                            and target + 4
+                                <= int(item["sh_addr"])
+                                    + int(item["sh_size"])
+                        )
+                    ),
+                    None,
+                )
+                if target_section is None:
+                    raise RuntimeError(
+                        f"{path} has an external EHABI target outside a "
+                        "section"
+                    )
+                target_offset = target - int(target_section["sh_addr"])
+                extab_header = struct.unpack_from(
+                    "<I", target_section.data(), target_offset
+                )[0]
+                external = {
+                    "target_address": target,
+                    "section_name": target_section.name,
+                    "header_word": extab_header,
+                    "model": (
+                        "compact" if extab_header & 0x80000000
+                        else "generic"
+                    ),
+                    "personality_index": (
+                        (extab_header >> 24) & 0x0F
+                        if extab_header & 0x80000000 else None
+                    ),
+                }
             records.append({
                 "entry_address": base + offset,
                 "function_address": base + offset + delta,
                 "unwind_word": unwind_word,
-                "model": (
-                    "cantunwind" if unwind_word == 1 else
-                    "compact_inline" if unwind_word & 0x80000000 else
-                    "external_extab"
-                ),
+                "model": model,
+                "external": external,
             })
         linked_section = elf.get_section(int(section["sh_link"]))
         exidx_segments = [
@@ -1388,8 +1430,8 @@ def validate_relocated_exidx_function_order(
     reference_exidx = arm_exidx_records(reference)
     candidate_exidx = arm_exidx_records(candidate)
     if (
-        reference_exidx["section_address"] != 0x08000124
-        or reference_exidx["section_offset"] != 0x10124
+        reference_exidx["section_address"] != 0x0800012C
+        or reference_exidx["section_offset"] != 0x1012C
         or reference_exidx["section_size"] != 32
         or candidate_exidx["section_address"]
             != reference_exidx["section_address"]
@@ -1407,7 +1449,7 @@ def validate_relocated_exidx_function_order(
         (record["function_address"], record["model"])
         for record in reference_records
     ] != [
-        (0x08000100, "cantunwind"),
+        (0x08000100, "external_extab"),
         (0x08000118, "compact_inline"),
         (0x08000120, "cantunwind"),
         (0x08000124, "cantunwind"),
@@ -1415,7 +1457,7 @@ def validate_relocated_exidx_function_order(
         raise RuntimeError("reference EHABI cohort is not the frozen input")
     expected_candidate_models = [
         (0x08000100, "cantunwind"),
-        (0x08000104, "cantunwind"),
+        (0x08000104, "external_extab"),
         (0x0800011C, "compact_inline"),
         (0x08000124, "cantunwind"),
     ]
@@ -1429,6 +1471,22 @@ def validate_relocated_exidx_function_order(
         != reference_records[1]["unwind_word"]
     ):
         raise RuntimeError("inline compact unwind bytecode changed")
+    reference_external = reference_records[0]["external"]
+    candidate_external = candidate_records[1]["external"]
+    expected_external = {
+        "target_address": 0x08000124,
+        "section_name": ".ARM.extab",
+        "header_word": 0x8100B0B0,
+        "model": "compact",
+        "personality_index": 1,
+    }
+    if (
+        reference_external != expected_external
+        or candidate_external != expected_external
+    ):
+        raise RuntimeError(
+            "external compact EHABI record did not follow reset identity"
+        )
 
     text_relocations = static_relocation_records(candidate, ".rel.text")
     vector_relocations = static_relocation_records(
@@ -1490,7 +1548,9 @@ def validate_relocated_exidx_function_order(
     return {
         "status": "accepted",
         "placement_policy": "reuse_linker_qualified_input_text",
-        "unwind_policy": "fixed_footprint_cantunwind_and_inline_compact",
+        "unwind_policy": (
+            "fixed_footprint_cantunwind_inline_and_external_compact"
+        ),
         "program_headers_exact": True,
         "live_text_bytes": int(candidate_text["size"]),
         "mapped_text_span_bytes": int(reference_text["size"]),
