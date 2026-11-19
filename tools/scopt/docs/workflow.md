@@ -196,3 +196,17 @@ scopt optimize "$SNAPSHOT" --pipeline irq-entry --profile "$TRAIN_PROFILE" \
 ```
 
 The page-crossing model and the number of eliminated instructions describe the transformation. The `selection.json` receipt records whether the changed artifact was measurably faster.
+
+### Choose among pass configurations
+
+`tune-warm` compares each candidate against ordinary warm on training cases. It ranks candidates by their lowest median paired speedup across those cases. Ordinary warm enters the ranking at 1×. The command freezes the winner and runs one independent confirmation. A failed confirmation selects ordinary warm.
+
+```sh
+scopt tune-warm "$WARM" "$CANDIDATE_A" "$CANDIDATE_B" \
+  --training-cases training-cases.json --cases confirmation-cases.json \
+  --training-pairs 16 --pairs 64 --qemu "$QEMU" --out "$RUN/tuning"
+scopt deploy --selection "$RUN/tuning/confirmation/selection.json" \
+  -c "$CONFIG" --qemu "$QEMU" --run-dir "$RUN/selected"
+```
+
+Both case files use the `select-warm` format. For cases with input banks, give each phase its own bank data and list the original profile inputs under `training_inputs`. For a fixed workload without banks, the two phases use separate launches. The tuning directory records the candidate order, training scores and frozen artifact identity.

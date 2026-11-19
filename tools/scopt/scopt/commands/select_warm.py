@@ -11,6 +11,7 @@ from ..run.warm_selection import DEFAULT_ALPHA, TimingInput, select_warm_cache
 
 def register(group):
     group.add_command(select_warm)
+    group.add_command(tune_warm)
 
 
 def _cases(path):
@@ -61,5 +62,35 @@ def select_warm(warm, candidate, cases, out, qemu, pairs, seed, timeout, alpha, 
         click.echo(json.dumps(result, sort_keys=True, indent=2))
     else:
         click.echo(f"{result['reason']}  {result.get('selected_artifact') or ''}")
+    if result['status'] == 'error':
+        raise click.exceptions.Exit(2)
+
+
+@click.command('tune-warm')
+@click.argument('warm', type=click.Path(path_type=Path, exists=True))
+@click.argument('candidates', nargs=-1, required=True, type=click.Path(path_type=Path, exists=True))
+@click.option('--training-cases', required=True, type=click.Path(path_type=Path, exists=True, dir_okay=False))
+@click.option('--cases', required=True, type=click.Path(path_type=Path, exists=True, dir_okay=False),
+              help='Untouched confirmation cases, in the select-warm JSON format.')
+@click.option('--training-pairs', type=click.IntRange(min=12), default=12, show_default=True)
+@click.option('--out', required=True, type=click.Path(path_type=Path, file_okay=False))
+@selection_timing_options
+@click.option('--json', 'as_json', is_flag=True)
+def tune_warm(warm, candidates, training_cases, cases, training_pairs, out, qemu, pairs, seed,
+              timeout, alpha, as_json):
+    """Rank complete CANDIDATES on training inputs, then confirm the winner against WARM."""
+    from ..run.warm_tuning import tune_warm_cache
+
+    try:
+        training, train_excluded = _cases(training_cases)
+        held_out, confirm_excluded = _cases(cases)
+        result = tune_warm_cache(warm, candidates, out, training=training, confirmation=held_out,
+                                 earlier_inputs=train_excluded, qemu=qemu, pairs=pairs,
+                                 training_pairs=training_pairs, seed=seed, timeout_s=timeout, alpha=alpha,
+                                 confirmation_exclusions=confirm_excluded)
+    except (KeyError, ValueError, TypeError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(json.dumps(result, sort_keys=True, indent=2) if as_json else
+               f"{result['reason']}  {result['selected_artifact'] or ''}\nselection: {result['selection']}")
     if result['status'] == 'error':
         raise click.exceptions.Exit(2)

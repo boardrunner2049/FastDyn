@@ -165,6 +165,7 @@ def verify_candidate_receipt(path, doc, config):
     """
     _require(doc["status"] == "ok" and doc["reason"] == "speedup_established",
              "candidate lacks a measured speedup")
+    _require(doc["plan"].get("purpose") != "training", "training timings require separate confirmation")
     cases = doc["plan"]["timing_inputs"]
     _require(bool(cases) and set(cases) == set(doc["inputs"]),
              "insufficient performance evidence")

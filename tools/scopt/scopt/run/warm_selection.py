@@ -184,6 +184,8 @@ def select_warm_cache(
     warm: Path, candidate: Path, output: Path, *, inputs: Sequence[TimingInput],
     training_inputs: Sequence[Path] = (), qemu: Path | None = None, pairs: int = MIN_PAIRS,
     seed: int = 193483, timeout_s: float = 90, alpha: float = DEFAULT_ALPHA,
+    training_only: bool = False, expected_artifacts: Mapping[str, Any] | None = None,
+    expected_cases: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a predeclared paired campaign; retain warm on weak or invalid candidate evidence.
 
@@ -198,6 +200,8 @@ def select_warm_cache(
     output.mkdir(parents=True, exist_ok=False)
     report: dict[str, Any] = {"schema": "scopt.warm_selection/1", "status": "pending",
                               "selected": None, "selected_artifact": None, "inputs": {}}
+    if training_only:
+        report["schema"] = "scopt.warm_training/1"
     artifacts: dict[str, dict] = {}
     frozen: dict[Path, tuple[int, ...]] = {}
 
@@ -235,6 +239,8 @@ def select_warm_cache(
         if not _sources_unchanged(frozen):
             return finish("error", None, "source_changed")
         if report["deployment_inputs_identical"]:
+            if expected_artifacts is not None:
+                return finish("error", None, "frozen_candidate_changed")
             return finish("ok", "warm", "identical_cache_bytes")
         if type(pairs) is not int or pairs < MIN_PAIRS or pairs % 2:
             raise ValueError(f"pairs must be even and at least {MIN_PAIRS}")
@@ -250,10 +256,14 @@ def select_warm_cache(
             for name, path in documents.items():
                 frozen[path] = _fingerprint(path)
                 report["artifacts"][arm][name] = {"path": str(path), "sha256": file_sha256(path)}
+        if expected_artifacts is not None and report["artifacts"] != expected_artifacts:
+            return finish("error", None, "frozen_candidate_changed")
         if qemu is not None:
             qemu = Path(qemu).resolve(strict=True)
             frozen[qemu] = _fingerprint(qemu)
         cases, specifications = _preflight(inputs, training_inputs, frozen)
+        if expected_cases is not None and specifications != expected_cases:
+            return finish("error", None, "frozen_timing_inputs_changed")
     except (OSError, ValueError) as exc:
         return finish("error", None, "preflight_failed", detail=str(exc))
 
@@ -261,6 +271,8 @@ def select_warm_cache(
     orders = {name: _paired_orders(pairs, rng) for name in cases}
     plan = {"pair_count_per_input": pairs, "seed": seed, "orders": orders, "warmups_per_arm": 1,
             "test": "one-sided-exact-balanced-paired-wins", "alpha": alpha, **specifications}
+    if training_only:
+        plan["purpose"] = "training"
     report["plan"] = plan
     write_json(output / "plan.json", plan)
     trial_id = 0
