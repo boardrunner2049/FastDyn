@@ -81,7 +81,7 @@ model = "ConfiguredQuad"
 model_file = "out/fire/quad/ConfiguredQuad.mo"
 source_roots = ["out/fire/quad/sources"]
 output = "out/fmi3/ConfiguredQuad"
-compose = "third_party/courbet_deps/fire_modelica_models/configs/quad.toml"
+compose = "third_party/courbet_deps/ModelicaCPSLibrary/configs/quad.toml"
 build = true
 release = false
 

@@ -57,6 +57,24 @@ def test_value_references_reject_missing_configured_parameter(tmp_path):
         fmu_build.value_references(build)
 
 
+def test_optional_truth_references_use_artifact_shapes(tmp_path):
+    import xml.etree.ElementTree as ET
+    build = make_build(tmp_path, {})
+    write_model_description(build.output)
+    xml_path = build.output / 'modelDescription.xml'
+    root = ET.parse(xml_path).getroot()
+    variables = root.find('ModelVariables')
+    for index, (name, size) in enumerate(fmu_build.OPTIONAL_VALUE_REFERENCES.items(), 900):
+        variable = ET.SubElement(variables, 'Float64', name=name, valueReference=str(index))
+        ET.SubElement(variable, 'Dimension', start=str(size))
+    refs = fmu_build.value_references(build, xml=ET.tostring(root))
+    assert refs['truth.p_w'] == 900
+    assert refs['truth.q_wb'] == 902
+    variables[-1][0].set('start', '9')
+    with pytest.raises(fmu_build.FmuConfigError, match='incompatible shape'):
+        fmu_build.value_references(build, xml=ET.tostring(root))
+
+
 def test_fire_examples_resolve_generated_sources():
     root = Path(__file__).resolve().parents[2]
     for shape, name in (("quad", "FIREQuad"), ("hexa", "FIREHexa")):
@@ -194,4 +212,4 @@ def test_fire_p0_p1_configs_resolve(profile, model, source, monkeypatch):
     build = fmu_build.resolve(repo / f"configs/copter462_fire_{profile}.toml", repo_root=repo)
     assert build.model == model
     assert build.model_file.name == f"{model}.mo"
-    assert build.compose_config == repo / "third_party/courbet_deps/fire_modelica_models/configs" / source
+    assert build.compose_config == repo / "third_party/courbet_deps/ModelicaCPSLibrary/configs" / source

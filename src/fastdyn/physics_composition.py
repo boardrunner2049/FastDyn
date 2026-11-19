@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 
-FIRE_REL = Path("third_party/courbet_deps/fire_modelica_models")
+FIRE_REL = Path("third_party/courbet_deps/ModelicaCPSLibrary")
 
 
 def input_digest(build) -> str:

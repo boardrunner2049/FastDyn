@@ -92,6 +92,10 @@ typedef struct {
     fmi3ValueReference lon0;
     fmi3ValueReference ground_alt_wgs84;
     fmi3ValueReference earth_radius_m;
+    fmi3ValueReference truth_position;
+    fmi3ValueReference truth_velocity;
+    fmi3ValueReference truth_quaternion;
+    fmi3ValueReference truth_rate;
 } fmu_value_refs_t;
 
 typedef struct {
@@ -111,6 +115,7 @@ typedef struct {
     double pwm[4];
     bool pwm_dirty;
     bool initialized;
+    bool has_truth;
     fmu_value_refs_t vr;
 } fmu_state_t;
 
@@ -319,6 +324,23 @@ static int configure_value_references(void)
         if (status > 0 && env_flag_enabled("FASTDYN_DEBUG_FMU_VR")) {
             printf("FMU value reference override: %s=%u\n", entries[i].name, *entries[i].vr);
         }
+    }
+    struct {
+        const char *name;
+        fmi3ValueReference *vr;
+    } diagnostics[] = {
+        {"truth.p_w", &fmu_state.vr.truth_position},
+        {"truth.v_w", &fmu_state.vr.truth_velocity},
+        {"truth.q_wb", &fmu_state.vr.truth_quaternion},
+        {"truth.omega_b", &fmu_state.vr.truth_rate},
+    };
+    fmu_state.has_truth = true;
+    for (size_t i = 0; i < sizeof(diagnostics) / sizeof(diagnostics[0]); i++) {
+        int status = get_fmu_vr_arg(diagnostics[i].name, diagnostics[i].vr);
+        if (status < 0) {
+            return 0;
+        }
+        fmu_state.has_truth = fmu_state.has_truth && status > 0;
     }
     return 1;
 }

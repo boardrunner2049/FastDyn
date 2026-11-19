@@ -149,6 +149,8 @@ int fmi3SetFloat64(void *s, const uint32_t *vr, size_t nr, const double *v, size
 }
 int fmi3GetFloat64(void *s, const uint32_t *vr, size_t nr, double *v, size_t nv) {
     for (size_t k = 0; k < nv; ++k) v[k] = 0;
+    if (vr[0] == 202 && nv == 3) v[0] = 12;
+    if (vr[0] == 204 && nv == 4) v[0] = 1;
     return 0;
 }
 int fmi3DoStep(void *s, double t, double h, bool no_rollback, bool *event,
@@ -196,6 +198,12 @@ def test_native_loader_uses_xml_token_and_advances(build, tmp_path, native_probe
     result = subprocess.run(args, capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout+result.stderr
     assert "advanced=0.200" in result.stdout
+    assert "truth_valid=0" in result.stdout
+    diagnostic_args = ['fmu_vr_truth.p_w=202', 'fmu_vr_truth.v_w=203',
+                       'fmu_vr_truth.q_wb=204', 'fmu_vr_truth.omega_b=205']
+    result = subprocess.run(args + diagnostic_args, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'truth_valid=1' in result.stdout
     args[1] = "fmu_token=ConfiguredQuad-rumoca"
     result = subprocess.run(args, capture_output=True, text=True, timeout=10)
     assert result.returncode == 2
