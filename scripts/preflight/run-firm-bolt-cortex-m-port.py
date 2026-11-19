@@ -337,6 +337,63 @@ FRAME_OPTIMIZATION_SUMMARY_RES = {
     ),
 }
 
+TARGET_QUALIFICATION_RE = re.compile(
+    r"BOLT-INFO: Cortex-M target CPU (?P<selected>[^,]+), "
+    r"(?:(?:input CPU attribute (?P<input>[^,]+))|"
+    r"(?:no exact input CPU attribute))"
+    r"(?:, input feature evidence (?P<features>.*))?$"
+)
+
+TARGET_INCOMPATIBLE_RE = re.compile(
+    r"BOLT-WARNING: selected Cortex-M CPU (?P<selected>\S+) cannot decode "
+    r"instruction at address 0x(?P<address>[0-9a-f]+) in function "
+    r"(?P<function>.*); retaining the function unchanged$"
+)
+
+
+def parse_target_qualification(output: str, expected_cpu: str) -> dict[str, Any]:
+    matches = [
+        TARGET_QUALIFICATION_RE.fullmatch(line)
+        for line in output.splitlines()
+    ]
+    matches = [match for match in matches if match is not None]
+    if len(matches) != 1:
+        raise RuntimeError(
+            "expected exactly one Cortex-M target qualification diagnostic, "
+            f"observed {len(matches)}"
+        )
+    match = matches[0]
+    selected = match.group("selected")
+    if selected != expected_cpu:
+        raise RuntimeError(
+            f"selected Cortex-M CPU changed: expected {expected_cpu}, "
+            f"observed {selected}"
+        )
+    return {
+        "status": "accepted",
+        "selected_cpu": selected,
+        "input_cpu_attribute": match.group("input"),
+        "input_feature_evidence": match.group("features"),
+        "execution_features_source": "selected_cpu",
+        "input_attributes_authorize_execution_features": False,
+    }
+
+
+def parse_target_incompatible_regions(output: str) -> list[dict[str, Any]]:
+    regions = []
+    for line in output.splitlines():
+        match = TARGET_INCOMPATIBLE_RE.fullmatch(line)
+        if match is None:
+            continue
+        regions.append({
+            "status": "unsupported",
+            "selected_cpu": match.group("selected"),
+            "address": int(match.group("address"), 16),
+            "function": match.group("function"),
+            "publication": "retained_unchanged",
+        })
+    return regions
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -6010,11 +6067,43 @@ def main() -> int:
     results: dict[str, Any] = {}
     candidates: dict[str, Path] = {}
     for label, cpu, image, protected, extra_args in cases:
+        # The historical FreeRTOS image contains BLX instructions targeting
+        # five ARM-state libgcc bodies, which Cortex-M cannot execute.  Keep
+        # those two profiles as explicit unsupported-region retention
+        # controls; require strict whole-image instruction qualification for
+        # every otherwise compatible profile.
+        if label not in {"m4", "m4_handler_fop_state_equivalence"}:
+            extra_args = [
+                *extra_args,
+                "--firmbolt-reject-target-incompatible-input",
+            ]
         candidate, process = run_bolt(
             args.bolt.resolve(), image, cpu, output, logs, args.full_pipeline,
             args.frame_opt, label, extra_args,
         )
         candidates[label] = candidate
+        combined_diagnostics = process.stdout + process.stderr
+        target_qualification = parse_target_qualification(
+            combined_diagnostics, cpu
+        )
+        target_incompatible_regions = parse_target_incompatible_regions(
+            combined_diagnostics
+        )
+        if label in {"m4", "m4_handler_fop_state_equivalence"}:
+            if not any(
+                region["address"] == 0x080084AA
+                and region["function"].startswith("UART_SetConfig")
+                for region in target_incompatible_regions
+            ):
+                raise RuntimeError(
+                    f"{label} no longer exposes the frozen BLX-to-ARM-state "
+                    "target incompatibility"
+                )
+        elif target_incompatible_regions:
+            raise RuntimeError(
+                f"strict profile {label} retained target-incompatible "
+                f"regions: {target_incompatible_regions}"
+            )
         corpus_expectations = {
             "chibios": {
                 "vector": "source=.vectors section, entries=120",
@@ -6046,10 +6135,17 @@ def main() -> int:
                 # back before publication. Target-owned shortening no longer
                 # reports or republishes those false participants. The mixed
                 # TBB/literal-pool z_arm_fault body is now independently
-                # qualified and compactly published.
-                "overwritten": "55 out of 129 functions were overwritten",
+                # qualified and compactly published.  Absolute configuration
+                # symbols are not code boundaries: after excluding the 0xff
+                # CONFIG_BUILD_GAP_FILL_PATTERN constant from zero-size
+                # function inference, __aeabi_uldivmod is decoded at its full
+                # 48-byte extent.  That also restores complete decoding of
+                # __udivmoddi4 and hello_loop, whose independently checked
+                # shortening/literal candidates raise the installed count by
+                # two.
+                "overwritten": "57 out of 129 functions were overwritten",
                 "frame_analysis": (
-                    "6 function(s) (0.0% dyn cov) could not have its frame "
+                    "8 function(s) (0.0% dyn cov) could not have its frame "
                     "indices restored"
                 ),
             },
@@ -6057,11 +6153,11 @@ def main() -> int:
                 "vector": (
                     "source=_vector_table/_vector_end, entries=59"
                 ),
-                "overwritten": "56 out of 129 functions were overwritten",
+                "overwritten": "58 out of 129 functions were overwritten",
             },
         }.get(label)
         if corpus_expectations is not None:
-            diagnostics = process.stdout + process.stderr
+            diagnostics = combined_diagnostics
             for field, expected in corpus_expectations.items():
                 if expected not in diagnostics:
                     raise RuntimeError(
@@ -7051,13 +7147,17 @@ def main() -> int:
         )
         results[label] = {
             "cpu": cpu,
+            "target_qualification": target_qualification,
+            "target_incompatible_regions": target_incompatible_regions,
             "frame_analysis_rejections": parse_frame_analysis_rejections(
-                process.stdout + process.stderr
+                combined_diagnostics
             ),
             "bolt_summary": [
-                line for line in (process.stdout + process.stderr).splitlines()
+                line for line in combined_diagnostics.splitlines()
                 if (
                     "out of" in line or "not adding new segments" in line
+                    or "Cortex-M target CPU" in line
+                    or "cannot decode instruction" in line
                     or "Cortex-M firmware constraints" in line
                     or "ARM-state mapping regions" in line
                     or "FOP optimized" in line or "FOP deleted" in line
@@ -9581,6 +9681,44 @@ def main() -> int:
     if mismatch.returncode == 0 or "CPU/input attribute mismatch" not in mismatch.stderr:
         raise RuntimeError("M4-as-M3 negative qualification did not reject")
 
+    exact_mismatch_output = output / "must-not-emit-m4-as-m7.elf"
+    exact_mismatch = run(
+        [str(args.bolt.resolve()), str(M4_IMAGE),
+         "--firmbolt-cortex-m-cpu=cortex-m7",
+         "-o", str(exact_mismatch_output)],
+        logs / "reject-m4-as-m7-exact-cpu.log",
+    )
+    if (
+        exact_mismatch.returncode == 0
+        or "Cortex-M exact CPU/input attribute mismatch" not in
+        (exact_mismatch.stdout + exact_mismatch.stderr)
+        or exact_mismatch_output.exists()
+    ):
+        raise RuntimeError(
+            "M4-as-M7 same-architecture CPU qualification did not reject "
+            "atomically"
+        )
+
+    incompatible_m4_output = output / "must-not-emit-incompatible-m4.elf"
+    incompatible_m4 = run(
+        [str(args.bolt.resolve()), str(M4_IMAGE),
+         "--firmbolt-cortex-m-cpu=cortex-m4",
+         "--firmbolt-reject-target-incompatible-input",
+         "-o", str(incompatible_m4_output)],
+        logs / "reject-m4-blx-to-arm-state.log",
+    )
+    if (
+        incompatible_m4.returncode == 0
+        or "selected Cortex-M CPU cortex-m4 cannot decode instruction at "
+           "address 0x80084aa in function UART_SetConfig" not in
+        (incompatible_m4.stdout + incompatible_m4.stderr)
+        or incompatible_m4_output.exists()
+    ):
+        raise RuntimeError(
+            "strict target qualification did not atomically reject the "
+            "historical M4 BLX-to-ARM-state input"
+        )
+
     store_removal = run(
         [str(args.bolt.resolve()), str(m3_image),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -11426,6 +11564,25 @@ def main() -> int:
         "negative_controls": {
             "target1_policy": target1_negative_controls,
             "m4_as_m3_rejected": True,
+            "m4_as_m7_exact_cpu_rejected": {
+                "status": "accepted",
+                "reason": "exact_cpu_name_mismatch",
+                "same_architecture_profile": "ARMv7E-M",
+                "selected_cpu": "cortex-m7",
+                "input_cpu_attribute": "cortex-m4",
+                "published_candidate": exact_mismatch_output.exists(),
+            },
+            "m4_blx_to_arm_state_strictly_rejected": {
+                "status": "accepted",
+                "reason": "selected_cpu_cannot_decode_input_instruction",
+                "selected_cpu": "cortex-m4",
+                "address": 0x080084AA,
+                "function": "UART_SetConfig",
+                "target_state": "ARM",
+                "normal_policy": "retain_function_unchanged",
+                "strict_policy": "reject_image_atomically",
+                "published_candidate": incompatible_m4_output.exists(),
+            },
             "experimental_store_removal_rejected": True,
             "unadmitted_read_only_load_elision_rejected": True,
             "unadmitted_inlining_rejected": True,

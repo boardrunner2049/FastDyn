@@ -1471,9 +1471,29 @@ gate is 63/63, and 62 applicable profiles bind 128,218 final instruction
 origins in 1,942 functions. Multi-register VFP/MVE and broad DSP/FPU
 optimization remain outside this result.
 
+v162 then separates the selected execution CPU from input attribute evidence.
+Exact canonical Cortex-M CPU names compare case-insensitively; generic M-profile
+names qualify only the architecture, and their advertised FP features do not
+authorize instructions absent from the selected CPU. A generic `7E-M` FPv5
+double fixture succeeds under M7, is retained unchanged under M4 by default,
+and causes atomic whole-image rejection under the strict publication option.
+The historical FreeRTOS M4 image is now explicitly classified as incompatible:
+six regions contain `BLX` into ARM-state libgcc code, including
+`UART_SetConfig` at `0x080084aa`, even though Cortex-M is Thumb-only. Ordinary
+policy retains those regions; strict policy emits no candidate.
+
+Strict qualification also exposed a non-ISA Zephyr defect. The absolute
+`CONFIG_BUILD_GAP_FILL_PATTERN=0xff` constant had truncated zero-sized
+`__aeabi_uldivmod` to 19 bytes during boundary inference. Excluding absolute
+symbols restores the full 48-byte function and complete decoding of two later
+bodies. Existing shortening and literal-placement passes consequently publish
+57 rather than 55 of 129 Zephyr functions. The complete gate remains 63/63;
+62 applicable profiles bind 130,082 final origins in 1,950 functions. This is
+recovered analysis/publication coverage, not a performance result.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `24c1e28a915f0d44bda14d6e7c3cd02c2cda38b0afc2bf9d296d0c635bf506ef`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `b1c01409464d1492e4a106d1b59626a5e8e298947372ee411f7c98f8e1fd1b69`. Regression runs complete 87/87 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v161 validation manifest](evidence/firmbolt-cortex-m-v161-validation.json) binds the 63-profile production run, exact linked-byte audit, VFP feature controls and architectural execution, regression XML and clean-apply result. The v159 manifest remains unchanged as historical evidence for the first generic final-byte gate.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `78a94283a9346579f9f27793636df5d5c729f95f09f047b32fc11c64bfb62a6c`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `a478cd380dea6951e995e5f6feb42d022798fb7dcf2d9c69d1e14500fc17ca20`. Regression runs complete 89/89 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, 19/19 AArch32 JITLink units, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v162 validation manifest](evidence/firmbolt-cortex-m-v162-validation.json) binds the 63-profile production run, exact linked-byte audit, CPU/feature controls, strict target-incompatibility rejection, regression XML and clean-apply result. The v161 and v159 manifests remain unchanged as historical evidence.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

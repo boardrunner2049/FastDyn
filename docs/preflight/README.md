@@ -1805,6 +1805,43 @@ and the
 This is scalar frame-forwarding and exact-installation evidence, not a broad
 DSP/FPU/MVE optimization or measured performance claim.
 
+v162 makes target qualification a central backend invariant rather than an
+accidental consequence of which decoder accepted the file. The selected
+`--firmbolt-cortex-m-cpu` now owns the execution subtarget. ELF ARM attributes
+remain exact identity and capability evidence, but they cannot silently enable
+instructions absent from that CPU. `Tag_CPU_name` is read through LLVM's object
+API after repairing the ARM attribute parser's missing string storage; canonical
+Cortex-M names compare case-insensitively, while generic `7-M`/`7E-M` tags are
+architecture-level evidence. Floating-point attributes retain their precise
+single/double and D16 variants instead of collapsing to broad VFP generations.
+
+A generic ARMv7E-M fixture containing FPv5 double arithmetic therefore decodes
+under Cortex-M7 but not Cortex-M4. The default policy records the exact address
+and retains that function unchanged; `--firmbolt-reject-target-incompatible-input`
+rejects the complete candidate and leaves no output. Exact Cortex-M4 input under
+a selected Cortex-M7 also rejects despite sharing ARMv7E-M, while the real
+ChibiOS `Cortex-M4` spelling qualifies case-insensitively. The historical
+FreeRTOS image remains a deliberately non-strict corpus control: six regions
+contain `BLX` paths into ARM-state libgcc code, which Cortex-M cannot execute.
+They are retained and reported under ordinary policy; strict publication
+rejects at `UART_SetConfig` address `0x080084aa`.
+
+The strict Zephyr run found a separate representation bug rather than an ISA
+gap. Its absolute `CONFIG_BUILD_GAP_FILL_PATTERN=0xff` symbol had been treated
+as the next file address and truncated zero-sized `__aeabi_uldivmod` to 19
+bytes. Absolute symbols are now excluded from function-boundary inference, so
+the function decodes at its full 48 bytes. Complete decoding also recovers
+existing shortening in `__udivmoddi4` and literal-pool placement in
+`hello_loop`, raising compact publication from 55 to 57 of 129 functions.
+The 63/63 gate binds 130,082 final origins in 1,950 functions, including 98,699
+origins in 1,136 modified functions. ARM BOLT lit is 89/89, AArch32 JITLink lit
+is 12/12, AArch32 JITLink units are 19/19, and BOLT Core/Pass/Profile remain
+86/5/39 passes with 150 target-inapplicable Core skips. Evidence is in the
+[`v162 report`](../../build/preflight/firm-bolt-cortex-m-v162-target-qualification-r7/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v162-validation.json).
+This is target-compatibility and publication evidence, not a speedup or full
+x86-backend parity claim.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
