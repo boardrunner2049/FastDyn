@@ -138,7 +138,7 @@ caller-saved exchange across qualified leaf and direct-call functions plus
 live-in/call-boundary retention controls, a shared-external-program
 retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v153 run accepts all fifty-eight profiles without
+The 19 November v154 run accepts all fifty-eight profiles without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -148,10 +148,12 @@ machine-readable report rather than duplicated here. The headline real-image
 counts are now 75/127 ESCape32 functions and 374/607 FreeRTOS functions; the
 Thumb-1 method, M3 propagation and M3 linked-read-only-load fixtures each
 install one bounded worker. The independent RTOS compatibility cohort adds
-ChibiOS (7/27 overwritten), ThreadX (66/85) and Zephyr (54/129). v153 removes
+ChibiOS (8/27 overwritten), ThreadX (66/85) and Zephyr (55/129). v153 removed
 twelve byte-identical false participants from the FreeRTOS and Zephyr totals;
-it does not remove a linked optimization. These are function-publication and
-representation counts, not runtime benefit.
+v154 then admits one additional real body in ChibiOS and Zephyr by composing
+literal-pool ownership with multi-successor CFG blocks and embedded jump
+tables. These are function-publication and representation counts, not runtime
+benefit.
 These are publication counts,
 not performance results. The narrow-data gate intentionally installs no body:
 it validates typed data-relocation consumption and compact publication.
@@ -778,16 +780,17 @@ Reproduce the current complete gate with:
 
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
+  --bolt third_party/preflight/llvm-build/bin/llvm-bolt \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility
+  --output build/preflight/firm-bolt-cortex-m-v154-literal-pool-composition-r4
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/report.json),
-SHA-256 `8af8810bb87386938941ad791bbbd3385740223706a9adc0e270857a64a2d006`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v154-literal-pool-composition-r4/report.json),
+SHA-256 `01c663b32f2b1445ad11b31442fbadab996cb73d1852472b22531d5eaffb006d`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/validation-manifest.json),
-SHA-256 `1f5c9090f577159ef50c731895b290fcdbfc2e3d0ea5568d359b2d9e8119f8c0`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v154-literal-pool-composition-r4/validation-manifest.json),
+SHA-256 `aef76d427b71288f6d060a425b3304de9ec795cd1013a075597ae26afb9ef2fd`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -799,25 +802,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`615463eba3068b1c99a113c93d690743becd11f7a697184c0161073606b83f36`,
+`186c2c5b55e09f94fb05f97538a3e165c7346d2e616b1b72c577f32fe305a7c4`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`92cd601909d8e54ddd12fdb65204d80f625e55c91d6ff5c617e4d3da66795c20`.
-The current combined ARM BOLT/AArch32 JITLink lit run passes 94/94
-(82 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
+`f16bc2f277fbc18df413796ec67a4b77b0eb64e8f93c892b53135893c33a2157`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 95/95
+(83 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
 explicitly skip 150 target-inapplicable parameterizations: Core is 86/150,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v154-literal-pool-composition-r4/validation/core-tests.xml)
 has SHA-256
-`971261dd4becb9e1570ba5640e2f8685e0c19c1dabf8d533deea07a22e9dc8a4`;
+`b17aad7b43fe43513bec70067953ae6461695e1eadfa037a7b4050ea48995820`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v154-literal-pool-composition-r4/validation/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v154-literal-pool-composition-r4/validation/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`aa9768e457086e148cf8dd5a2340018000a3fe4689c19a766e2f3b0fcb345b9d`
-and `162c03b2db4780984035c85f40abda829d5726f0bb0162ecbdfdcbf6f1051a8c`.
+`520af60fe7104e6ade10b1cac94e5ac0d620a1e7776015eb922bf4d26cc18fa4`
+and `dd6437bc714f8e14a54275ad9b6454c1cbc0929caac1df715598b6f1d156d341`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1559,6 +1562,34 @@ and Zephyr `z_arm_fault` (488 for 460); both retain their input atomically with
 58/58, ARM/JITLink is 94/94, and the BOLT unit split is 130 passes plus 150
 explicit target-inapplicable skips. These results improve activity accounting
 and rejection diagnosis; they are not a runtime speedup claim.
+
+v154 resolves both final-layout overflows by fixing their distinct ownership
+mechanisms rather than increasing the qualified ranges. ChibiOS `main` has a
+conditional transfer followed by the unconditional branch that skips its
+literal pool. The owning block therefore has two CFG successors even though
+execution reaching the final branch cannot enter the data. Literal placement
+now validates the final branch's exact target instead of requiring the whole
+block to have one successor. Its 27 narrow literal loads remain narrow and the
+final body occupies exactly its original 952-byte range.
+
+Zephyr `z_arm_fault` combines an embedded TBB jump table with a literal pool.
+The pass now excludes only the exact range owned by the jump table instead of
+excluding the entire function. Its 48-byte pool remains at `0x10cc`, all 12
+pool labels retain their exact addresses, and the final body occupies its
+original 460-byte range. Literal placement discharges only the
+`ThumbPCRelative` address-stability reason; an unrelated jump-table or
+absolute-address constraint remains active.
+
+The emitter also anchors already-narrow fixed-address external `tB`/`tBcc`
+branches in compact per-function streams. This reduces the conditional-tail
+fixture from 12 to 8 bytes and is tested independently; it is not claimed as
+the cause of either real-corpus overflow. The resulting real-image totals are
+8/27 ChibiOS, 66/85 ThreadX and 55/129 Zephyr with no linked-size rejection.
+Zephyr `z_arm_svc` remains the sole final rejection because its exception
+contract is intentionally unsupported. The full gate remains 58/58; ARM BOLT
+lit is now 83/83, AArch32 JITLink 12/12, and the unit split remains 130 passes
+plus 150 explicit skips. These are correctness and publication results, not a
+runtime-speedup claim.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

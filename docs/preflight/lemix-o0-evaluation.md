@@ -1151,10 +1151,10 @@ PYTHONPATH=src taskset -c 0 \
 The raw commands, logs, samples, disassemblies, inventories, candidate bodies, machine outputs, hashes, counterexamples, and costs are retained separately as supporting data. Primary baseline entry points are [manifest.json](../../build/preflight/lemix-o0-rerun-2026-11-16/manifest.json), [bolt-arm-options.json](../../build/preflight/lemix-o0-rerun-2026-11-16/bolt-arm-options.json), [samples.jsonl](../../build/preflight/lemix-o0-rerun-2026-11-16/samples.jsonl), [paired-results.json](../../build/preflight/lemix-o0-rerun-2026-11-16/paired-results.json), [binary-layout-inventory.json](../../build/preflight/lemix-o0-rerun-2026-11-16/binary-layout-inventory.json), [candidate-universe.csv](../../build/preflight/lemix-o0-rerun-2026-11-16/candidate-universe.csv), [stage-funnel.csv](../../build/preflight/lemix-o0-rerun-2026-11-16/stage-funnel.csv), [search-seeds-and-costs.json](../../build/preflight/lemix-o0-rerun-2026-11-16/search-seeds-and-costs.json), and [budget-and-costs.json](../../build/preflight/lemix-o0-rerun-2026-11-16/budget-and-costs.json). Prototype entry points are [prototype manifest](../../build/preflight/preflight-sdk-v1-2026-11-16/manifest.json), [stage ledger](../../build/preflight/preflight-sdk-v1-2026-11-16/stage-ledger.jsonl), and [pass outcomes](../../build/preflight/preflight-sdk-v1-2026-11-16/pass-outcomes.json). This document consolidates the historical screening experiment, focused rerun, and bounded prototype; historical raw evidence remains unchanged.
 
 The current full Cortex-M production evidence is the
-[v153 machine report](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/report.json),
-SHA-256 `8af8810bb87386938941ad791bbbd3385740223706a9adc0e270857a64a2d006`;
-its [validation manifest](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/validation-manifest.json),
-SHA-256 `1f5c9090f577159ef50c731895b290fcdbfc2e3d0ea5568d359b2d9e8119f8c0`,
+[v154 machine report](../../build/preflight/firm-bolt-cortex-m-v154-literal-pool-composition-r4/report.json),
+SHA-256 `01c663b32f2b1445ad11b31442fbadab996cb73d1852472b22531d5eaffb006d`;
+its [validation manifest](../../build/preflight/firm-bolt-cortex-m-v154-literal-pool-composition-r4/validation-manifest.json),
+SHA-256 `aef76d427b71288f6d060a425b3304de9ec795cd1013a075597ae26afb9ef2fd`,
 binds the exact regression commands and XML evidence. It accepts 58/58
 production and architectural profiles with ordinary FOP enabled. v138 adapted
 BOLT's x86-oriented `RegReAssign` pass through target-owned legality, encoding
@@ -1323,9 +1323,41 @@ installation. The production/FastDyn matrix remains 58/58, ARM/JITLink is
 94/94 and the BOLT unit split remains 130 passes plus 150 explicit skips.
 These are mechanism and accounting results, not a performance claim.
 
+v154 removes both remaining linked-size rejections through two independently
+tested ownership corrections. ChibiOS `main` places an earlier conditional
+transfer and the final unconditional pool-skip branch in the same BOLT basic
+block. The old aggregate `succ_size()==1` condition rejected the pool because
+the block had two CFG successors. The corrected proof instead resolves the
+final branch symbol and requires that exact branch to target the first code
+block after the pool. This admits the compiler pattern without asserting that
+every path from the block is non-fallthrough. The final function is 952 bytes,
+exactly its qualified input range, and its 27 narrow literal loads do not
+widen.
+
+Zephyr `z_arm_fault` exposed a separate composition gap: it contains both an
+embedded TBB jump table and a literal pool. The old pass excluded every
+function with a jump table. The corrected classifier excludes only the exact
+typed range already owned by the jump-table representation and independently
+qualifies the remaining island range. Its 48-byte pool and 12 labels remain at
+the original address `0x10cc`; the function links into its exact 460-byte
+range. If a function has another address-stability reason, successful literal
+placement discharges only `ThumbPCRelative` and retains the independent
+constraint.
+
+A third, separately scoped emitter hook anchors an already-narrow fixed-address
+external `tB`/`tBcc` to the per-function body symbol. The conditional-tail
+fixture consequently falls from 12 to 8 bytes instead of widening an
+unresolved branch during MC assembly. This mechanism is not used to explain
+the two corpus overflows. Final publication is 8/27 ChibiOS, 66/85 ThreadX and
+55/129 Zephyr with no linked-size rejection. Zephyr `z_arm_svc` remains the
+only final rejection (`exception_contract_unsupported`). The aggregate gate
+is 58/58; ARM BOLT lit is 83/83, AArch32 JITLink is 12/12, and BOLT units are
+130 passed plus 150 explicit target-inapplicable skips. These are
+representation and correctness results, not runtime-speedup evidence.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `615463eba3068b1c99a113c93d690743becd11f7a697184c0161073606b83f36`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `92cd601909d8e54ddd12fdb65204d80f625e55c91d6ff5c617e4d3da66795c20`. Regression runs complete 82/82 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v153 validation manifest](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/validation-manifest.json), SHA-256 `1f5c9090f577159ef50c731895b290fcdbfc2e3d0ea5568d359b2d9e8119f8c0`, binds these results to the commands and artifacts.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `186c2c5b55e09f94fb05f97538a3e165c7346d2e616b1b72c577f32fe305a7c4`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `f16bc2f277fbc18df413796ec67a4b77b0eb64e8f93c892b53135893c33a2157`. Regression runs complete 83/83 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v154 validation manifest](../../build/preflight/firm-bolt-cortex-m-v154-literal-pool-composition-r4/validation-manifest.json), SHA-256 `aef76d427b71288f6d060a425b3304de9ec795cd1013a075597ae26afb9ef2fd`, binds these results to the commands and artifacts.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

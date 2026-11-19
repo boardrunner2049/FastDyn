@@ -624,7 +624,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..500a8a24e0598392aeed79a60e4f9991bdfc97ec 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba477573ceb01e 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -980,7 +980,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..500a8a24e0598392aeed79a60e4f9991
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1735,6 +2007,12 @@ public:
+@@ -1735,6 +2007,24 @@ public:
  
    /// Replace instruction with a shorter version that could be relaxed later
    /// if needed.
@@ -990,10 +990,22 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..500a8a24e0598392aeed79a60e4f9991
 +    return true;
 +  }
 +
++  /// Re-express a direct branch to a fixed-address external firmware target
++  /// relative to \p FunctionBodyStart.  Per-function MC streams otherwise see
++  /// the target as unresolved and may widen an already-valid compact branch
++  /// before the final linker places both functions at their guest addresses.
++  /// Return true only when the target-specific encoding was rewritten.
++  virtual bool anchorExternalBranchTarget(MCInst &Inst,
++                                          const MCSymbol *FunctionBodyStart,
++                                          int64_t TargetOffset,
++                                          MCContext &Ctx) const {
++    return false;
++  }
++
    virtual bool shortenInstruction(MCInst &Inst,
                                    const MCSubtargetInfo &STI) const {
      llvm_unreachable("not implemented");
-@@ -1751,6 +2029,24 @@ public:
+@@ -1751,6 +2041,24 @@ public:
      return false;
    }
  
@@ -1018,7 +1030,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..500a8a24e0598392aeed79a60e4f9991
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +2085,56 @@ public:
+@@ -1789,6 +2097,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -2247,7 +2259,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..bf5d89617216806439e9acb058988c0f
  
    // Create local MC context to isolate the effect of ephemeral code emission.
 diff --git a/bolt/lib/Core/BinaryEmitter.cpp b/bolt/lib/Core/BinaryEmitter.cpp
-index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e608889f2e8166 100644
+index 1402531e0f5e731086cca587e141ba9d78e78e0b..df043f0523561a4262164e1d5c2ad7c164ebd5e0 100644
 --- a/bolt/lib/Core/BinaryEmitter.cpp
 +++ b/bolt/lib/Core/BinaryEmitter.cpp
 @@ -19,11 +19,13 @@
@@ -2481,7 +2493,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
        if (!EmitCodeOnly) {
          // A symbol to be emitted before the instruction to mark its location.
          MCSymbol *InstrLabel = BC.MIB->getInstLabel(Instr);
-@@ -515,22 +679,219 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -515,22 +679,244 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
          }
        }
  
@@ -2495,6 +2507,31 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
 +        // annotation sentinel as a register.
 +        MCInst EmissionInst = Instr;
 +        BC.MIB->stripAnnotations(EmissionInst);
++        if (!BC.HasRelocations && BF.isFirmwareModified() && !AddressStable) {
++          // Compact firmware functions are linked back at their exact input
++          // addresses. Preserve an original narrow cross-function branch by
++          // expressing its target relative to this function's local body
++          // label. Otherwise the isolated MC assembler cannot resolve the
++          // external symbol and widens every T1 branch before AArch32 JITLink
++          // sees the fixed guest addresses. Local labels remain on the normal
++          // relaxation path; wide branches and calls need no adaptation.
++          if (const MCSymbol *Target = BC.MIB->getTargetSymbol(Instr)) {
++            const BinaryFunction *TargetFunction =
++                BC.getFunctionForSymbol(Target);
++            if (TargetFunction && TargetFunction != &BF) {
++              const ErrorOr<uint64_t> TargetAddress =
++                  BC.getSymbolValue(*Target);
++              if (TargetAddress) {
++                const int64_t TargetOffset =
++                    static_cast<int64_t>(*TargetAddress) -
++                    static_cast<int64_t>(BF.getAddress());
++                BC.MIB->anchorExternalBranchTarget(
++                    EmissionInst, FunctionBodyStart, TargetOffset,
++                    Streamer.getContext());
++              }
++            }
++          }
++        }
 +        Streamer.emitInstruction(EmissionInst, *BC.STI);
 +      } else {
 +        Streamer.emitInstruction(Instr, *BC.STI);
@@ -2703,7 +2740,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
  
    // AArch64 requires CI to be aligned to 8 bytes due to access instructions
    // restrictions. E.g. the ldr with imm, where imm must be aligned to 8 bytes.
-@@ -585,6 +946,31 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
+@@ -585,6 +971,31 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
      if (FunctionOffset == EndOffset)
        continue; // Size is zero, nothing to emit
  
@@ -2735,7 +2772,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
      auto emitCI = [&](uint64_t &FunctionOffset, uint64_t EndOffset) {
        if (FunctionOffset >= EndOffset)
          return;
-@@ -635,10 +1021,19 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
+@@ -635,10 +1046,19 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
              LLVM_DEBUG(dbgs() << "BOLT-DEBUG: emitted label "
                                << IS->second->getName() << " at offset 0x"
                                << Twine::utohexstr(IS->first) << '\n');
@@ -2757,7 +2794,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
            } else if (Islands.ColdSymbols.count(IS->second) != 0) {
              LLVM_DEBUG(dbgs()
                         << "BOLT-DEBUG: emitted label "
-@@ -791,6 +1186,8 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
+@@ -791,6 +1211,8 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
  
    for (auto &JTI : BF.jumpTables()) {
      JumpTable &JT = *JTI.second;
@@ -2766,7 +2803,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
      // Only emit shared jump tables once, when processing the first parent
      if (JT.Parents.size() > 1 && JT.Parents[0] != &BF)
        continue;
-@@ -812,6 +1209,42 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
+@@ -812,6 +1234,42 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
    }
  }
  
@@ -2809,7 +2846,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
  void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
                                    MCSection *ColdSection) {
    // Pre-process entries for aggressive splitting.
-@@ -839,6 +1272,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -839,6 +1297,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
    }
    MCSymbol *JTLabel = nullptr;
    uint64_t Offset = 0;
@@ -2817,7 +2854,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
    for (MCSymbol *Entry : JT.Entries) {
      auto LI = JT.Labels.find(Offset);
      if (LI == JT.Labels.end())
-@@ -876,8 +1310,48 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -876,8 +1335,48 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
        Streamer.emitLabel(JTLabel);
      }
    emitEntry:
@@ -2868,7 +2905,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
      } else { // JTT_PIC
        const MCSymbolRefExpr *JTExpr =
            MCSymbolRefExpr::create(JTLabel, Streamer.getContext());
-@@ -888,6 +1362,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -888,6 +1387,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
        Streamer.emitValue(Value, JT.EntrySize);
      }
      Offset += JT.EntrySize;
@@ -2877,7 +2914,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e60888
  }
  
 diff --git a/bolt/lib/Core/BinaryFunction.cpp b/bolt/lib/Core/BinaryFunction.cpp
-index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f999af81d9 100644
+index 8955112a95dcbec0398854856935ef0120f0a3df..83bd2c676706dc9e41f1df42fafd2dc4db6521bf 100644
 --- a/bolt/lib/Core/BinaryFunction.cpp
 +++ b/bolt/lib/Core/BinaryFunction.cpp
 @@ -25,6 +25,7 @@
@@ -3363,7 +3400,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
    return opts::UpdateDebugSections || opts::EnableBAT || hasSDTMarker() ||
           hasPseudoProbe();
  }
-@@ -3667,8 +4058,39 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3667,8 +4058,43 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
      if (!BB->analyzeBranch(TBB, FBB, CondBranch, UncondBranch))
        continue;
  
@@ -3372,18 +3409,22 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
 +    // An unconditional branch that owns recovered or synthesized Thumb
 +    // inline data is also the execution barrier around those bytes. It must
 +    // remain explicit even when its successor becomes the physical
-+    // fall-through. Inline-data qualification admits only this one-successor
-+    // form; deleting the branch would both expose data to execution and leave
-+    // any PC-relative user with an undefined label.
++    // fall-through. Inline-data qualification admits either an ordinary
++    // one-successor transfer or a conditional-plus-unconditional pair whose
++    // final branch is the data barrier; deleting that branch would both
++    // expose data to execution and leave any PC-relative user with an
++    // undefined label.
 +    const bool OwnsInlineDataBlock =
 +        UncondBranch && MIB->getInlineDataBlocks(*UncondBranch);
 +    const bool OwnsInlineDataScalar =
 +        UncondBranch && MIB->getInlineData(*UncondBranch);
 +    const bool OwnsInlineData =
 +        OwnsInlineDataBlock || OwnsInlineDataScalar;
-+    if (OwnsInlineDataBlock && BB->succ_size() != 1)
++    if (OwnsInlineDataBlock &&
++        (BB->succ_size() == 0 || BB->succ_size() > 2))
 +      report_fatal_error(
-+          "instruction-owned literal-pool block requires one CFG successor");
++          "instruction-owned literal-pool block requires one or two CFG "
++          "successors");
 +    if (OwnsInlineDataScalar &&
 +        (BB->succ_size() == 0 || BB->succ_size() > 2))
 +      report_fatal_error(
@@ -3405,7 +3446,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
        BB->eraseInstruction(BB->findInstruction(UncondBranch));
  
      // Basic block that follows the current one in the final layout.
-@@ -3682,6 +4104,13 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3682,6 +4108,13 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
        // the conditional branch with an unconditional if required.
        if (CondBranch)
          BB->eraseInstruction(BB->findInstruction(CondBranch));
@@ -3419,7 +3460,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
        if (BB->getSuccessor() == NextBB)
          continue;
        BB->addBranchInstruction(BB->getSuccessor());
-@@ -3702,9 +4131,18 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3702,9 +4135,18 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
            continue;
          }
  
@@ -3439,7 +3480,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
          continue;
        }
  
-@@ -3720,6 +4158,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3720,6 +4162,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          }
          std::swap(TSuccessor, FSuccessor);
          BB->swapConditionalSuccessors();
@@ -3452,7 +3493,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
          auto L = BC.scopeLock();
          if (BLI)
            BLI->removeAnnotation(*CondBranch);
-@@ -3729,10 +4173,28 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3729,10 +4177,28 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          return true;
        };
  
@@ -3482,7 +3523,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
  
        // Update conditional branch destination if needed.
        if (MIB->getTargetSymbol(*CondBranch) != TSuccessor->getLabel()) {
-@@ -3740,9 +4202,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3740,9 +4206,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          MIB->replaceBranchTarget(*CondBranch, TSuccessor->getLabel(), Ctx);
        }
  
@@ -3499,7 +3540,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
  
        if (BC.isX86()) {
          // We are going to generate two branches. Check if their targets are in
-@@ -3756,7 +4223,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3756,7 +4227,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
            swapSuccessors();
        }
  
@@ -3513,7 +3554,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
      }
      // Cases where the number of successors is 0 (block ends with a
      // terminator) or more than 2 (switch table) don't require branch
-@@ -3831,6 +4303,12 @@ void BinaryFunction::postProcessBranches() {
+@@ -3831,6 +4307,12 @@ void BinaryFunction::postProcessBranches() {
        }
        if (!BC.MIB->isTerminator(*LastInstrRI) &&
            !BC.MIB->isCall(*LastInstrRI)) {
@@ -3526,7 +3567,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
          LLVM_DEBUG(dbgs() << "BOLT-DEBUG: adding return to basic block "
                            << BB.getName() << " in function " << *this << '\n');
          MCInst ReturnInstr;
-@@ -4526,14 +5004,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4526,14 +5008,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
    setOutputAddress(SymbolInfo->Address);
    setOutputSize(SymbolInfo->Size);
  
@@ -3572,7 +3613,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
          BinaryData *BD = BC.getBinaryDataAtAddress(getAddress() + OldOffset);
          if (!BD)
            continue;
-@@ -4608,9 +5112,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4608,9 +5116,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
        // input range. Just assign the BB the output address of the
        // function.
        auto MaybeBBAddress = BC.getIOAddressMap().lookup(BB->getLabel());
@@ -3594,7 +3635,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f9
        BB->setOutputStartAddress(BBAddress);
  
        if (PrevBB) {
-@@ -4915,7 +5428,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
+@@ -4915,7 +5432,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
    LLVM_DEBUG(dbgs() << "BOLT-DEBUG: addRelocation in "
                      << formatv("{0}@{1:x} against {2}\n", *this, Offset,
                                 (Symbol ? Symbol->getName() : "<undef>")));
@@ -4660,10 +4701,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..f0033ae615f42d2951911eaa8c5e7c09bf441f34
+index 0000000000000000000000000000000000000000..52443206de8bfcbd5f1d335ab1f772e461630e1a
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,5334 @@
+@@ -0,0 +1,5369 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -5633,7 +5674,7 @@ index 0000000000000000000000000000000000000000..f0033ae615f42d2951911eaa8c5e7c09
 +  for (auto &BFI : BC.getBinaryFunctions()) {
 +    BinaryFunction &BF = BFI.second;
 +    if (!BF.hasCFG() || !BF.isSimple() || BF.isIgnored() || BF.isSplit() ||
-+        BF.isMultiEntry() || BF.isCortexMVectorEntry() || BF.hasJumpTables() ||
++        BF.isMultiEntry() || BF.isCortexMVectorEntry() ||
 +        !BF.hasConstantIsland())
 +      continue;
 +
@@ -5659,6 +5700,22 @@ index 0000000000000000000000000000000000000000..f0033ae615f42d2951911eaa8c5e7c09
 +        BC.outs() << "BOLT-INFO: skipped literal-pool placement in "
 +                  << BF.getPrintName()
 +                  << ": no PC-relative pool references\n";
++      continue;
++    }
++
++    // Successful placement discharges only the Thumb PC-relative reason.
++    // A function pinned for an absolute jump table or another generic layout
++    // dependency must remain on the raw address-stable emission path; attaching
++    // movable inline data while that path is active is neither representable
++    // nor permission to clear the independent constraint.
++    if (BF.requiresAddressStableLayout() &&
++        !BF.hasOnlyAddressStabilityReason(
++            BinaryFunction::AddressStabilityReason::ThumbPCRelative)) {
++      if (opts::Verbosity >= 2)
++        BC.outs() << "BOLT-INFO: retained literal pools in "
++                  << BF.getPrintName()
++                  << ": another address-stability reason remains\n";
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +
@@ -5696,7 +5753,17 @@ index 0000000000000000000000000000000000000000..f0033ae615f42d2951911eaa8c5e7c09
 +        End = std::min(End, *Code);
 +      if (NextData != Islands.DataOffsets.end())
 +        End = std::min(End, *NextData);
-+      if (*Data < End)
++      // Compressed Thumb jump tables and literal pools can coexist in one
++      // function (Zephyr's z_arm_fault is a real example). Jump-table
++      // discovery/emission already owns its exact typed data range; do not
++      // reinterpret that range as a literal pool or use it as clone capacity.
++      // The remaining island ranges can still be qualified independently.
++      const JumpTable *JT = BF.getJumpTableContainingAddress(
++          BF.getAddress() + *Data);
++      if (*Data < End &&
++          !(JT && JT->isThumbEmbedded() &&
++            BF.getAddress() + *Data >= JT->getAddress() &&
++            BF.getAddress() + *Data < JT->getAddress() + JT->getSize()))
 +        Plans.push_back(PoolPlan{*Data, End});
 +    }
 +    if (Plans.empty()) {
@@ -5890,8 +5957,17 @@ index 0000000000000000000000000000000000000000..f0033ae615f42d2951911eaa8c5e7c09
 +              BB, [&](const MCInst &Inst) {
 +                return BC.MIB->isUnconditionalBranch(Inst);
 +              });
-+          if (!Branch || BB.succ_size() != 1 ||
-+              BB.getSuccessor() != ResumeBB ||
++          const MCSymbol *BranchTarget =
++              Branch ? BC.MIB->getTargetSymbol(*Branch) : nullptr;
++          BinaryBasicBlock *BranchTargetBB =
++              BranchTarget ? BF.getBasicBlockForLabel(BranchTarget) : nullptr;
++          // A BOLT basic block may contain an earlier conditional transfer
++          // followed by the unconditional pool-skip branch.  Such a block
++          // legitimately has two CFG successors even though execution that
++          // reaches the final branch cannot fall through into the data.  Tie
++          // ownership to the final branch's exact target instead of treating
++          // the aggregate successor count as a fallthrough proof.
++          if (!Branch || BranchTargetBB != ResumeBB ||
 +              BC.MIB->getInlineData(*Branch) ||
 +              BC.MIB->getInlineDataBlocks(*Branch))
 +            continue;
@@ -5914,7 +5990,7 @@ index 0000000000000000000000000000000000000000..f0033ae615f42d2951911eaa8c5e7c09
 +                return BC.MIB->isReturn(Inst) ||
 +                       BC.MIB->isUnconditionalBranch(Inst);
 +              });
-+          if (!Terminator || BB.succ_size() > 1 ||
++          if (!Terminator ||
 +              BC.MIB->getInlineData(*Terminator) ||
 +              BC.MIB->getInlineDataBlocks(*Terminator))
 +            continue;
@@ -5937,7 +6013,7 @@ index 0000000000000000000000000000000000000000..f0033ae615f42d2951911eaa8c5e7c09
 +                return BC.MIB->isCall(Inst) &&
 +                       ProvesDeadLocalCallContinuation(Inst);
 +              });
-+          if (!LongTransfer || BB.succ_size() > 1 ||
++          if (!LongTransfer ||
 +              BC.MIB->getInlineData(*LongTransfer) ||
 +              BC.MIB->getInlineDataBlocks(*LongTransfer))
 +            continue;
@@ -15809,10 +15885,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4e5367e817df23f397f9fb4c56662153
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..0f988722bad7600ab48606373046cb5fdb92319d
+index 0000000000000000000000000000000000000000..71144f43d2ddf03611f2e737352d6e7abb147f01
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3187 @@
+@@ -0,0 +1,3219 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -17577,6 +17653,38 @@ index 0000000000000000000000000000000000000000..0f988722bad7600ab48606373046cb5f
 +        Target ? Function.getBasicBlockForLabel(Target) : nullptr;
 +    return TargetBlock &&
 +           TargetBlock->getFragmentNum() == Block.getFragmentNum();
++  }
++
++  bool anchorExternalBranchTarget(MCInst &Inst,
++                                  const MCSymbol *FunctionBodyStart,
++                                  int64_t TargetOffset,
++                                  MCContext &Ctx) const override {
++    // These T1 encodings are the forms ARM MC widens solely because an
++    // external function symbol is unresolved in a per-function assembler.
++    // BOLT's compact firmware publisher fixes every function at its input
++    // address, so express the target as a resolved offset from this function's
++    // local body label. MC can then perform its ordinary final-layout range
++    // check after relaxing local instructions. Wide branches and calls do not
++    // need this adapter.
++    switch (Inst.getOpcode()) {
++    case ARM::tB:
++    case ARM::tBcc:
++      break;
++    default:
++      return false;
++    }
++
++    const MCInstrDesc &Desc = Info->get(Inst.getOpcode());
++    for (unsigned I = 0; I < Desc.getNumOperands(); ++I) {
++      if (Desc.operands()[I].OperandType != MCOI::OPERAND_PCREL)
++        continue;
++      const MCExpr *Target = MCBinaryExpr::createAdd(
++          MCSymbolRefExpr::create(FunctionBodyStart, Ctx),
++          MCConstantExpr::create(TargetOffset, Ctx), Ctx);
++      Inst.getOperand(I) = MCOperand::createExpr(Target);
++      return true;
++    }
++    llvm_unreachable("direct narrow Thumb branch has no PC-relative operand");
 +  }
 +
 +  bool shortenInstruction(MCInst &Inst,
@@ -22848,7 +22956,7 @@ index 0000000000000000000000000000000000000000..643b788df08a331eac19766f63b6381c
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-conditional-tail-call.s b/bolt/test/ARM/thumb-native-conditional-tail-call.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..21315ba1312ea2d2a08f032b684aa1d3dc015ade
+index 0000000000000000000000000000000000000000..e4f8d59c5960db69cca6303a15ac9dbe9540fd19
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-native-conditional-tail-call.s
 @@ -0,0 +1,75 @@
@@ -22881,7 +22989,7 @@ index 0000000000000000000000000000000000000000..21315ba1312ea2d2a08f032b684aa1d3
 +# DISASM: movs r0, #0x7
 +# DISASM-NEXT: bx lr
 +# DISASM-NOT: b.w
-+# REPORT: True True 12 10 4 0
++# REPORT: True True 12 8 4 0
 +
 +  .syntax unified
 +  .thumb
@@ -26859,6 +26967,81 @@ index 0000000000000000000000000000000000000000..dac3c694615e3cc6e3cd545b0e47ebce
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb1-multi-successor-literal-owner.s b/bolt/test/ARM/thumb1-multi-successor-literal-owner.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..ccef80dc627ff267298efa4dac8b30afaee373d2
+--- /dev/null
++++ b/bolt/test/ARM/thumb1-multi-successor-literal-owner.s
+@@ -0,0 +1,69 @@
++## A guarded Thumb literal pool can be owned by the final unconditional
++## branch in a block that also contains an earlier conditional branch.  The
++## block has two CFG successors, but execution reaching the final transfer
++## still cannot fall through into the data.  Ownership is therefore tied to
++## the exact terminal branch target, not to the aggregate successor count.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv6m-none-eabi -mcpu=cortex-m0plus %s -o %t.o
++# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m0plus \
++# RUN:   --fastdyn-firmware-report=%t.report.json -v=1 -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=BOLT
++# RUN: %python -c "import json; d=json.load(open('%t.report.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='multi_successor_owner'); p=f['owned_literal_pools']; print(f['firmware_modified'],len(p),p[0]['original_address']==p[0]['output_address'],f['firmware_publication_rejections'],d['synthesized_inline_data_bytes'])" | FileCheck %s --check-prefix=REPORT
++# RUN: llvm-objdump -d --disassemble-symbols=multi_successor_owner %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=CODE
++# RUN: llvm-objdump -s -j .text %t.bolt | FileCheck %s --check-prefix=DATA
++
++# BOLT: BOLT-INFO: Thumb literal-pool placement qualified 1 function(s), attached 1 owner block(s), rebound 1 PC-relative reference(s), and retained 0 function(s)
++# BOLT: BOLT: 1 out of 2 functions were overwritten.
++# BOLT: BOLT-INFO: not adding new segments
++# REPORT: True 1 True [] 4
++# CODE: <multi_successor_owner>:
++# CODE: ldr r1, [pc,
++# CODE: cmp r0, #0x0
++# CODE: beq
++# CODE-NEXT: b
++# CODE-NEXT: {{nop|mov r8, r8|movs r0, r0}}
++# DATA: 07000000
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 12
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  movs r0, #0
++  bl multi_successor_owner
++  bx lr
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl multi_successor_owner
++  .type multi_successor_owner,%function
++  .thumb_func
++multi_successor_owner:
++  ldr r1, .Lpool
++  movs r2, #0
++  cmp r0, #0
++  beq .Lalternate
++  b .Lresume
++  .p2align 2
++.Lpool:
++  .word 7
++  .thumb
++.Lresume:
++  mov r0, r1
++  bx lr
++.Lalternate:
++  adds r0, #1
++  b .Lresume
++  .size multi_successor_owner, .-multi_successor_owner
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb1-native-conditional-move-retention.s b/bolt/test/ARM/thumb1-native-conditional-move-retention.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..04baae36ab36997a72d7dfd4aed7a11ff902778c
@@ -28113,10 +28296,10 @@ index 0000000000000000000000000000000000000000..00ad60dc513e8f74e18a033f82dd2707
 +Reset_Handler
 diff --git a/bolt/test/ARM/thumb2-branch-shortening.s b/bolt/test/ARM/thumb2-branch-shortening.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..f59aacfd261ede5a5a198bc55b3b2014e70107b9
+index 0000000000000000000000000000000000000000..027c6f4804c36b6ee743a36c1560dff684b1d719
 --- /dev/null
 +++ b/bolt/test/ARM/thumb2-branch-shortening.s
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,87 @@
 +## The generic shortening pass used to return immediately on every non-x86
 +## target even though the Cortex-M pass schedule advertised it.  Wide Thumb-2
 +## direct branches can be narrowed without changing architectural effects;
@@ -28139,6 +28322,8 @@ index 0000000000000000000000000000000000000000..f59aacfd261ede5a5a198bc55b3b2014
 +# CODE-NEXT: b{{eq|ne}}
 +# CODE-NEXT: b
 +# CODE-NOT: b{{eq|ne}}.w
++# CODE: b {{.*}} <external_target>
++# CODE-NOT: b.w {{.*}} <external_target>
 +# CODE: <external_tail_worker>:
 +# CODE-NEXT: b.w {{.*}} <external_target>
 +# REPORT: True ['instruction_shortening'] []
@@ -28170,8 +28355,15 @@ index 0000000000000000000000000000000000000000..f59aacfd261ede5a5a198bc55b3b2014
 +  movs r0, #2
 +  bx lr
 +.Lzero:
-+  movs r0, #1
-+  bx lr
++  # This input-narrow cross-function edge shares a function with the local
++  # shortening candidates. It must remain narrow when the body is re-emitted;
++  # the separate worker below proves that an input-wide external edge remains
++  # wide and does not become a false shortening participant.
++  # Keep the assembler-visible target local so llvm-mc emits the requested
++  # T1 encoding.  The global function symbol at the same address is what BOLT
++  # recovers from the linked executable, reproducing a compiler/linker-emitted
++  # narrow cross-function firmware edge without an input relocation.
++  b.n .Lexternal_target
 +  .size shorten_worker, .-shorten_worker
 +
 +  .globl external_tail_worker
@@ -28185,6 +28377,7 @@ index 0000000000000000000000000000000000000000..f59aacfd261ede5a5a198bc55b3b2014
 +  .type external_target,%function
 +  .thumb_func
 +external_target:
++.Lexternal_target:
 +  movs r0, #3
 +  bx lr
 +  .size external_target, .-external_target

@@ -967,7 +967,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
   for (auto &BFI : BC.getBinaryFunctions()) {
     BinaryFunction &BF = BFI.second;
     if (!BF.hasCFG() || !BF.isSimple() || BF.isIgnored() || BF.isSplit() ||
-        BF.isMultiEntry() || BF.isCortexMVectorEntry() || BF.hasJumpTables() ||
+        BF.isMultiEntry() || BF.isCortexMVectorEntry() ||
         !BF.hasConstantIsland())
       continue;
 
@@ -993,6 +993,22 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
         BC.outs() << "BOLT-INFO: skipped literal-pool placement in "
                   << BF.getPrintName()
                   << ": no PC-relative pool references\n";
+      continue;
+    }
+
+    // Successful placement discharges only the Thumb PC-relative reason.
+    // A function pinned for an absolute jump table or another generic layout
+    // dependency must remain on the raw address-stable emission path; attaching
+    // movable inline data while that path is active is neither representable
+    // nor permission to clear the independent constraint.
+    if (BF.requiresAddressStableLayout() &&
+        !BF.hasOnlyAddressStabilityReason(
+            BinaryFunction::AddressStabilityReason::ThumbPCRelative)) {
+      if (opts::Verbosity >= 2)
+        BC.outs() << "BOLT-INFO: retained literal pools in "
+                  << BF.getPrintName()
+                  << ": another address-stability reason remains\n";
+      RetainLiteralPools(BF);
       continue;
     }
 
@@ -1030,7 +1046,17 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
         End = std::min(End, *Code);
       if (NextData != Islands.DataOffsets.end())
         End = std::min(End, *NextData);
-      if (*Data < End)
+      // Compressed Thumb jump tables and literal pools can coexist in one
+      // function (Zephyr's z_arm_fault is a real example). Jump-table
+      // discovery/emission already owns its exact typed data range; do not
+      // reinterpret that range as a literal pool or use it as clone capacity.
+      // The remaining island ranges can still be qualified independently.
+      const JumpTable *JT = BF.getJumpTableContainingAddress(
+          BF.getAddress() + *Data);
+      if (*Data < End &&
+          !(JT && JT->isThumbEmbedded() &&
+            BF.getAddress() + *Data >= JT->getAddress() &&
+            BF.getAddress() + *Data < JT->getAddress() + JT->getSize()))
         Plans.push_back(PoolPlan{*Data, End});
     }
     if (Plans.empty()) {
@@ -1224,8 +1250,17 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
               BB, [&](const MCInst &Inst) {
                 return BC.MIB->isUnconditionalBranch(Inst);
               });
-          if (!Branch || BB.succ_size() != 1 ||
-              BB.getSuccessor() != ResumeBB ||
+          const MCSymbol *BranchTarget =
+              Branch ? BC.MIB->getTargetSymbol(*Branch) : nullptr;
+          BinaryBasicBlock *BranchTargetBB =
+              BranchTarget ? BF.getBasicBlockForLabel(BranchTarget) : nullptr;
+          // A BOLT basic block may contain an earlier conditional transfer
+          // followed by the unconditional pool-skip branch.  Such a block
+          // legitimately has two CFG successors even though execution that
+          // reaches the final branch cannot fall through into the data.  Tie
+          // ownership to the final branch's exact target instead of treating
+          // the aggregate successor count as a fallthrough proof.
+          if (!Branch || BranchTargetBB != ResumeBB ||
               BC.MIB->getInlineData(*Branch) ||
               BC.MIB->getInlineDataBlocks(*Branch))
             continue;
@@ -1248,7 +1283,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
                 return BC.MIB->isReturn(Inst) ||
                        BC.MIB->isUnconditionalBranch(Inst);
               });
-          if (!Terminator || BB.succ_size() > 1 ||
+          if (!Terminator ||
               BC.MIB->getInlineData(*Terminator) ||
               BC.MIB->getInlineDataBlocks(*Terminator))
             continue;
@@ -1271,7 +1306,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
                 return BC.MIB->isCall(Inst) &&
                        ProvesDeadLocalCallContinuation(Inst);
               });
-          if (!LongTransfer || BB.succ_size() > 1 ||
+          if (!LongTransfer ||
               BC.MIB->getInlineData(*LongTransfer) ||
               BC.MIB->getInlineDataBlocks(*LongTransfer))
             continue;

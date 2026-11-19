@@ -5607,7 +5607,7 @@ def main() -> int:
         corpus_expectations = {
             "chibios": {
                 "vector": "source=.vectors section, entries=120",
-                "overwritten": "7 out of 27 functions were overwritten",
+                "overwritten": "8 out of 27 functions were overwritten",
             },
             "threadx": {
                 "vector": "source=.vectors section, entries=51",
@@ -5623,9 +5623,11 @@ def main() -> int:
                 # a manufactured BinaryFunction.
                 # Ten bodies were byte-identical in v152: an unresolved
                 # cross-function branch was tentatively narrowed and widened
-                # back before publication.  Target-owned shortening no longer
-                # reports or republishes those false participants.
-                "overwritten": "54 out of 129 functions were overwritten",
+                # back before publication. Target-owned shortening no longer
+                # reports or republishes those false participants. The mixed
+                # TBB/literal-pool z_arm_fault body is now independently
+                # qualified and compactly published.
+                "overwritten": "55 out of 129 functions were overwritten",
             },
         }.get(label)
         if corpus_expectations is not None:
@@ -6092,7 +6094,11 @@ def main() -> int:
                 "qualified": 55,
                 "owners": 60,
                 "references": 1115,
-                "retained": 0,
+                # Functions that combine a literal pool with an independent
+                # address-stability obligation are now diagnosed explicitly
+                # instead of being silently skipped by the former blanket
+                # jump-table exclusion.
+                "retained": 5,
                 "unreferenced": 0,
             },
             "m4": {
@@ -6100,7 +6106,10 @@ def main() -> int:
                 "owners": 1,
                 "references": 1,
                 "retained": 1,
-                "unreferenced": 1,
+                # Jump-table-bearing functions now enter the typed-range
+                # classifier; seven contain no literal reference and are
+                # reported as such rather than skipped wholesale.
+                "unreferenced": 8,
             },
         }.get(label)
         if expected_pool_counts is not None:
@@ -6356,12 +6365,9 @@ def main() -> int:
                     if function.get("firmware_publication_rejections")
                 )
                 expected_final_rejections = {
-                    "chibios": [
-                        ("main", ("exceeds_qualified_range",)),
-                    ],
+                    "chibios": [],
                     "threadx": [],
                     "zephyr": [
-                        ("z_arm_fault", ("exceeds_qualified_range",)),
                         ("z_arm_svc",
                          ("exception_contract_unsupported",)),
                     ],
@@ -6674,8 +6680,8 @@ def main() -> int:
                 expected_mappings = [
                     (original_base, output_base),
                     (original_base + 2, output_base + 2),
-                    (original_base + 4, output_base + 6),
-                    (original_base + 6, output_base + 8),
+                    (original_base + 4, output_base + 4),
+                    (original_base + 6, output_base + 6),
                 ]
                 actual_mappings = [
                     (origin["original_address"], origin["output_address"])
@@ -6687,7 +6693,7 @@ def main() -> int:
                     or "conditional_tail_call_simplification" not in
                     fused["firmware_modification_reasons"]
                     or fused["original_size"] != 12
-                    or fused["output_size"] != 10
+                    or fused["output_size"] != 8
                     or len(native_calls) != 1
                     or not native_calls[0]["is_branch"]
                     or native_calls[0]["original_address"] !=
