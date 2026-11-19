@@ -169,6 +169,10 @@ M3_JUMP_TABLE_ICP_SOURCE = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_jump_table_icp.s"
 )
+M3_JUMP_TABLE_FOOTPRINT_SOURCE = (
+    ROOT
+    / "tests/preflight/fixtures/firm_bolt_cortex_m3_jump_table_footprint.s"
+)
 M3_ABS32_JUMP_TABLE_ICP_SOURCE = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_abs32_jump_table_icp.s"
@@ -607,7 +611,8 @@ def validate_inline_jump_tables(reference: Path, candidate: Path,
                 int(branch_base_value)
                 if branch_base_value is not None else None
             )
-            entry_size = int(table["entry_size"])
+            original_entry_size = int(table["original_entry_size"])
+            entry_size = int(table["output_entry_size"])
             entry_count = int(table["entry_count"])
             encoded = virtual_bytes(
                 candidate, table_address, entry_size * entry_count
@@ -646,7 +651,7 @@ def validate_inline_jump_tables(reference: Path, candidate: Path,
             else:
                 code_mark = (
                     table_address + entry_size * entry_count
-                    + int(table["trailing_byte_count"])
+                    + int(table["output_trailing_byte_count"])
                 )
                 mapping_exact = (
                     ("$d", table_address) in mapping_symbols
@@ -656,7 +661,14 @@ def validate_inline_jump_tables(reference: Path, candidate: Path,
                 "function": function["name"],
                 "dispatch_original_address": table["dispatch_original_address"],
                 "kind": kind,
+                "original_entry_size": original_entry_size,
                 "entry_size": entry_size,
+                "original_trailing_byte_count": int(
+                    table["original_trailing_byte_count"]
+                ),
+                "output_trailing_byte_count": int(
+                    table["output_trailing_byte_count"]
+                ),
                 "entry_count": entry_count,
                 "emitted_table_address": table_address,
                 "emitted_branch_base_address": branch_base,
@@ -2902,6 +2914,23 @@ def write_m3_jump_table_icp_profile(output: Path) -> Path:
     return profile
 
 
+def build_m3_jump_table_footprint_fixture(
+    output: Path, logs: Path
+) -> Path:
+    """Build the executed TBH-to-TBB footprint-reduction fixture."""
+    image = output / "firm-bolt-cortex-m3-jump-table-footprint-reference.elf"
+    command = [
+        str(ARM_GCC), "-mcpu=cortex-m3", "-mthumb", "-nostdlib",
+        "-Wl,--emit-relocs", f"-Wl,-T,{M3_LINKER}",
+        str(M3_JUMP_TABLE_FOOTPRINT_SOURCE), "-o", str(image),
+    ]
+    require_success(
+        run(command, logs / "build-m3-jump-table-footprint.log"),
+        "M3 jump-table footprint-reduction fixture build",
+    )
+    return image
+
+
 def build_m3_abs32_jump_table_icp_fixture(
     output: Path, logs: Path
 ) -> Path:
@@ -3984,6 +4013,9 @@ def main() -> int:
     m3_icp_tail_profile = write_m3_icp_tail_profile(output)
     m3_jump_table_icp_image = build_m3_jump_table_icp_fixture(output, logs)
     m3_jump_table_icp_profile = write_m3_jump_table_icp_profile(output)
+    m3_jump_table_footprint_image = (
+        build_m3_jump_table_footprint_fixture(output, logs)
+    )
     m3_abs32_jump_table_icp_image = (
         build_m3_abs32_jump_table_icp_fixture(output, logs)
     )
@@ -4264,6 +4296,11 @@ def main() -> int:
              "--firmbolt-allow-jump-table-promotion",
              "--firmbolt-preserve-guest-instruction-count=false",
              "--eliminate-unreachable=true",
+         ]),
+        ("m3_jump_table_footprint", "cortex-m3",
+         m3_jump_table_footprint_image, {".isr_vector": None}, [
+             "--jt-footprint-reduction",
+             "--firmbolt-allow-jump-table-footprint-reduction",
          ]),
         ("m3_abs32_jump_table_icp", "cortex-m3",
          m3_abs32_jump_table_icp_image, {".isr_vector": None}, [
@@ -4560,6 +4597,13 @@ def main() -> int:
                     raise RuntimeError(
                         "M3 native jump-table fixture did not publish exactly "
                         "one TBB hot-index promotion"
+                    )
+            if label == "m3_jump_table_footprint":
+                if int(summary["firmware_modification_reason_counts"]
+                       ["jump_table_footprint_reduction"]) != 1:
+                    raise RuntimeError(
+                        "M3 jump-table footprint fixture did not publish "
+                        "exactly one TBH-to-TBB reduction"
                     )
             if label in {
                 "m3_abs32_jump_table_icp",
@@ -5624,7 +5668,7 @@ def main() -> int:
                     or jump_worker["firmware_publication_rejections"]
                     or observed != expected
                     or int(jump_worker["original_size"]) != 60
-                    or int(jump_worker["output_size"]) != 36
+                    or int(jump_worker["output_size"]) != 34
                     or int(final_layout[
                         "synthesized_jump_table_promotion_instruction_count"
                     ]) != 2
@@ -5645,6 +5689,89 @@ def main() -> int:
                     "mapping_symbols_exact": True,
                     "original_size": int(jump_worker["original_size"]),
                     "output_size": int(jump_worker["output_size"]),
+                }
+            if label == "m3_jump_table_footprint":
+                byte_worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "odd_byte_range_switch"
+                )
+                half_worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "halfword_range_switch"
+                )
+                byte_table = byte_worker["inline_jump_tables"][0]
+                half_table = half_worker["inline_jump_tables"][0]
+                byte_reasons = set(
+                    byte_worker["firmware_modification_reasons"]
+                )
+                byte_start = symbol_address(
+                    m3_jump_table_footprint_image,
+                    "odd_byte_range_switch",
+                )
+                byte_origins = byte_worker["instruction_origins"]
+                half_scaled_delta = (
+                    int(half_table["target_block_original_addresses"][0])
+                    - int(half_table["branch_base_original_address"])
+                ) // 2
+                if (
+                    not byte_worker["firmware_modified"]
+                    or byte_reasons != {"jump_table_footprint_reduction"}
+                    or byte_worker["firmware_publication_rejections"]
+                    or int(byte_worker["original_size"]) != 30
+                    or int(byte_worker["output_size"]) != 28
+                    or byte_table["kind"] != "thumb_tbb"
+                    or int(byte_table["original_entry_size"]) != 2
+                    or int(byte_table["output_entry_size"]) != 1
+                    or int(byte_table["entry_count"]) != 3
+                    or int(byte_table["original_trailing_byte_count"]) != 0
+                    or int(byte_table["output_trailing_byte_count"]) != 1
+                    or len(byte_origins) != 11
+                    or any(
+                        origin["origin_kind"] != "original_instruction"
+                        for origin in byte_origins
+                    )
+                    or int(byte_origins[2]["original_address"])
+                        != byte_start + 4
+                    or half_table["kind"] != "thumb_tbh"
+                    or int(half_table["original_entry_size"]) != 2
+                    or int(half_table["output_entry_size"]) != 2
+                    or half_scaled_delta != 256
+                ):
+                    raise RuntimeError(
+                        "M3 TBH-to-TBB footprint reduction did not preserve "
+                        "exact origins, odd-table alignment, or the "
+                        "out-of-byte-range retention boundary"
+                    )
+                results[label]["jump_table_footprint_validation"] = {
+                    "status": "accepted",
+                    "contract": (
+                        "explicit dispatch-read-width and layout change; "
+                        "all target deltas rechecked after final linking"
+                    ),
+                    "function": "odd_byte_range_switch",
+                    "modification_reasons": sorted(byte_reasons),
+                    "original_size": int(byte_worker["original_size"]),
+                    "output_size": int(byte_worker["output_size"]),
+                    "original_entry_size": int(
+                        byte_table["original_entry_size"]
+                    ),
+                    "output_entry_size": int(
+                        byte_table["output_entry_size"]
+                    ),
+                    "entry_count": int(byte_table["entry_count"]),
+                    "original_trailing_byte_count": int(
+                        byte_table["original_trailing_byte_count"]
+                    ),
+                    "output_trailing_byte_count": int(
+                        byte_table["output_trailing_byte_count"]
+                    ),
+                    "instruction_origin_count": len(byte_origins),
+                    "out_of_range_function": "halfword_range_switch",
+                    "out_of_range_kind": half_table["kind"],
+                    "out_of_range_output_entry_size": int(
+                        half_table["output_entry_size"]
+                    ),
+                    "out_of_range_scaled_delta": half_scaled_delta,
                 }
             if label == "m3_abs32_jump_table_icp":
                 jump_worker = next(
@@ -6798,6 +6925,26 @@ def main() -> int:
             "unadmitted Cortex-M jump-table promotion did not reject"
         )
 
+    footprint_without_contract = run(
+        [str(args.bolt.resolve()), str(m3_jump_table_footprint_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline",
+         "--jt-footprint-reduction",
+         "-o", str(output /
+                   "must-not-emit-unadmitted-jump-table-footprint.elf")],
+        logs / "reject-unadmitted-jump-table-footprint.log",
+    )
+    if (
+        footprint_without_contract.returncode == 0
+        or "jump-table footprint reduction changes the dispatch read width"
+        not in (footprint_without_contract.stdout +
+                footprint_without_contract.stderr)
+    ):
+        raise RuntimeError(
+            "unadmitted Cortex-M jump-table footprint reduction did not "
+            "reject atomically"
+        )
+
     detached_without_contract_report = (
         output / "detached-abs32-without-contract.json"
     )
@@ -7147,6 +7294,15 @@ def main() -> int:
             expected_word=10,
         )
     )
+    m3_jump_table_footprint_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_jump_table_footprint_image,
+            candidates["m3_jump_table_footprint"], output,
+            args.fastdyn.resolve(), "native-jump-table-footprint",
+            expected_words=(10, 20, 30, 42),
+        )
+    )
     m3_abs32_jump_table_icp_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -7199,6 +7355,7 @@ def main() -> int:
             m3_icp_method_load_execution,
             m3_icp_tail_execution,
             m3_jump_table_icp_execution,
+            m3_jump_table_footprint_execution,
             m3_abs32_jump_table_icp_execution,
             m3_detached_abs32_jump_table_icp_execution,
             execution
@@ -7234,7 +7391,9 @@ def main() -> int:
                 "m3_abs32_jump_table_icp plus the relocation-complete "
                 "m3_detached_abs32_jump_table_icp admit "
                 "checked expansions into proven unreachable symbol-bounded "
-                "capacity"
+                "capacity; m3_jump_table_footprint preserves the guest "
+                "instruction count while separately admitting the dispatch "
+                "read-width and table-layout change"
             ),
             "eliminate_unreachable": False,
             "call_boundary_changes": (
@@ -7469,6 +7628,7 @@ def main() -> int:
             "indirect_call_promotion_all_mode_rejected": True,
             "indirect_tail_call_promotion_without_contract_retained": True,
             "unadmitted_jump_table_promotion_rejected": True,
+            "unadmitted_jump_table_footprint_reduction_rejected": True,
             "detached_abs32_without_atomic_update_left_unchanged": True,
         },
         "m0plus_literal_architectural_execution": m0_literal_execution,
@@ -7531,6 +7691,8 @@ def main() -> int:
             m3_icp_tail_execution,
         "m3_native_jump_table_promotion_architectural_execution":
             m3_jump_table_icp_execution,
+        "m3_native_jump_table_footprint_architectural_execution":
+            m3_jump_table_footprint_execution,
         "m3_native_abs32_jump_table_promotion_architectural_execution":
             m3_abs32_jump_table_icp_execution,
         "m3_native_detached_abs32_jump_table_promotion_architectural_execution":
@@ -7624,6 +7786,7 @@ def main() -> int:
                 "opt-in native BOLT virtual-method-load elimination for exact profiled slots in mapped allocatable non-writable vtables under an explicit read-elision contract, with raw data-address guarding, the original method load retained in the cold fallback, exact origin identities, compact in-place emission, and Cortex-M3 hot/cold execution",
                 "opt-in native BOLT indirect-tail-call promotion for profiled Thumb-2 BX epilogues under conservative stack-restore recognition plus AAPCS and tail-call-event contracts, with exact direct/fallback identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT hot-index promotion for recovered inline TBB/TBH and atomic in-function ABS32 switch tables, with exact guard/fallback origins, relocated literal/table references, compact in-place emission, and Cortex-M3 execution",
+                "opt-in native BOLT TBH-to-TBB footprint reduction for exact inline tables under an explicit dispatch-read-width contract, with byte-range proof, odd-entry alignment repair, exact origins, compact in-place emission, out-of-range retention, and Cortex-M3 execution",
                 "opt-in native BOLT hot-index promotion for detached read-only ABS32 switch tables with complete retained pointer/entry relocations and an explicit atomic-update contract, including exact pointer-source remapping, table-entry regeneration, compact in-place emission, and Cortex-M3 hot/cold/default execution",
                 "original-instruction, forwarding-dependency, and per-pass publication ledger",
                 "compact publication of only audited modified functions",
@@ -7721,6 +7884,8 @@ def main() -> int:
         "m3_icp_tail_candidate": str(candidates["m3_icp_tail"]),
         "m3_jump_table_icp_candidate":
             str(candidates["m3_jump_table_icp"]),
+        "m3_jump_table_footprint_candidate":
+            str(candidates["m3_jump_table_footprint"]),
         "m3_abs32_jump_table_icp_candidate":
             str(candidates["m3_abs32_jump_table_icp"]),
         "m3_detached_abs32_jump_table_icp_candidate":

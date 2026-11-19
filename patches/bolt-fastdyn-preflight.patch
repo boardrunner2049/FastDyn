@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..2fe444aec4387343c7a95f48958a0484e3cc92cf 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..016cf9a08e62f5bf79f78561dfcc8399ed1bdba3 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,60 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,61 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -161,6 +161,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..2fe444aec4387343c7a95f48958a0484
 +    ReadOnlyLoadElision = 1U << 18,
 +    FunctionSplitting = 1U << 19,
 +    BlockAlignment = 1U << 20,
++    JumpTableFootprintReduction = 1U << 21,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -191,7 +192,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..2fe444aec4387343c7a95f48958a0484
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +246,17 @@ public:
+@@ -192,6 +247,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -209,7 +210,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..2fe444aec4387343c7a95f48958a0484
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +397,54 @@ private:
+@@ -332,6 +398,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -264,7 +265,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..2fe444aec4387343c7a95f48958a0484
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1581,70 @@ public:
+@@ -1468,6 +1582,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -335,7 +336,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..2fe444aec4387343c7a95f48958a0484
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2111,48 @@ public:
+@@ -1934,6 +2112,48 @@ public:
      return *this;
    }
  
@@ -384,7 +385,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..2fe444aec4387343c7a95f48958a0484
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2550,8 @@ public:
+@@ -2331,6 +2551,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -394,7 +395,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..2fe444aec4387343c7a95f48958a0484
        auto CodeIter = Islands->CodeOffsets.lower_bound(*DataIter);
        if (CodeIter == Islands->CodeOffsets.end() &&
 diff --git a/bolt/include/bolt/Core/JumpTable.h b/bolt/include/bolt/Core/JumpTable.h
-index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..dbe9f1311e3ce137e44b6e56b17919f9be561f42 100644
+index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2a6a9a4db 100644
 --- a/bolt/include/bolt/Core/JumpTable.h
 +++ b/bolt/include/bolt/Core/JumpTable.h
 @@ -49,6 +49,15 @@ public:
@@ -426,7 +427,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..dbe9f1311e3ce137e44b6e56b17919f9
    /// Map <Offset> -> <Label> used for embedded jump tables. Label at 0 offset
    /// is the main label for the jump table.
    using LabelMapType = std::map<unsigned, MCSymbol *>;
-@@ -86,6 +101,51 @@ public:
+@@ -86,6 +101,56 @@ public:
    /// entry in the set).
    std::vector<JumpInfo> Counts;
  
@@ -434,6 +435,11 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..dbe9f1311e3ce137e44b6e56b17919f9
 +  /// mapping symbol.  They are alignment/data-region padding and must remain
 +  /// attached to the inline table when it moves with its dispatch instruction.
 +  SmallVector<uint8_t, 2> InlineTrailingBytes;
++
++  /// Input trailing-byte count before an admitted footprint transformation.
++  /// This keeps input and output occupancy independently auditable when a
++  /// compressed table needs an added byte to preserve Thumb code alignment.
++  size_t OriginalInlineTrailingByteCount{0};
 +
 +  /// Architectural base used to decode TBB/TBH entries.  For a PC-based
 +  /// dispatch this is the address immediately after the branch instruction.
@@ -478,8 +484,22 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..dbe9f1311e3ce137e44b6e56b17919f9
    /// Total number of times this jump table was used.
    uint64_t Count{0};
  
+@@ -103,6 +168,13 @@ public:
+     return std::max(EntriesAsAddress.size(), Entries.size()) * EntrySize;
+   }
+ 
++  /// Size occupied by the emitted table.  EntrySize deliberately remains the
++  /// input width for parsing, stable identities and input-address ranges.
++  uint64_t getOutputSize() const {
++    return std::max(EntriesAsAddress.size(), Entries.size()) *
++           OutputEntrySize;
++  }
++
+   const MCSymbol *getFirstLabel() const {
+     assert(Labels.count(0) != 0 && "labels must have an entry at 0");
+     return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..8ab20c69da38560d56cee0aa11d90cc1170340db 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..6d2f1ad3e4200693778100b32106299b917ca2b1 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -661,7 +681,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..8ab20c69da38560d56cee0aa11d90cc1
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +1926,47 @@ public:
+@@ -1789,6 +1926,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -673,6 +693,15 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..8ab20c69da38560d56cee0aa11d90cc1
 +                                               unsigned &BaseRegNum,
 +                                               unsigned &IndexRegNum) const {
 +    return 0;
++  }
++
++  /// Convert an architecture-defined inline jump-table dispatch from
++  /// InputEntrySize to OutputEntrySize.  Table data is represented by
++  /// JumpTable and emitted separately; this hook changes only the dispatch.
++  virtual bool reduceInlineJumpTableFootprint(MCInst &Instruction,
++                                              unsigned InputEntrySize,
++                                              unsigned OutputEntrySize) const {
++    return false;
 +  }
 +
 +  /// Description of the GCC/Clang Thumb absolute-dispatch idiom:
@@ -1041,6 +1070,22 @@ index 64055bd251729bdc6daa616a9496e1ccec4f96ba..d496b6333d0a3480270ce3629fc25bf1
    DenseSet<const BinaryFunction *> FuncsChanged;
  
    std::mutex FuncsChangedMutex;
+diff --git a/bolt/include/bolt/Passes/JTFootprintReduction.h b/bolt/include/bolt/Passes/JTFootprintReduction.h
+index 4b015e1f96b315abe0116c5de80e29b336045d85..3a55372e8f7f080cdcd9866a9a5fe2667c5fd829 100644
+--- a/bolt/include/bolt/Passes/JTFootprintReduction.h
++++ b/bolt/include/bolt/Passes/JTFootprintReduction.h
+@@ -59,6 +59,11 @@ class JTFootprintReduction : public BinaryFunctionPass {
+   /// Run a pass for \p Function
+   void optimizeFunction(BinaryFunction &Function, DataflowInfoManager &Info);
+ 
++  /// Reduce Cortex-M TBH tables to TBB only when the exact original target
++  /// set fits the byte encoding.  Final linked targets are checked again by
++  /// the firmware publication validator.
++  Error runOnARMFunctions(BinaryContext &BC);
++
+ public:
+   explicit JTFootprintReduction(const cl::opt<bool> &PrintPass)
+       : BinaryFunctionPass(PrintPass) {}
 diff --git a/bolt/include/bolt/Passes/LongJmp.h b/bolt/include/bolt/Passes/LongJmp.h
 index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fad7c18c23 100644
 --- a/bolt/include/bolt/Passes/LongJmp.h
@@ -1577,7 +1622,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..33131cdf31846b6e52f8c4f1e0fb46bd
  
    // Create local MC context to isolate the effect of ephemeral code emission.
 diff --git a/bolt/lib/Core/BinaryEmitter.cpp b/bolt/lib/Core/BinaryEmitter.cpp
-index 1402531e0f5e731086cca587e141ba9d78e78e0b..061df93644547c068dd5f60e3d493751a57d2575 100644
+index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa4214165c 100644
 --- a/bolt/lib/Core/BinaryEmitter.cpp
 +++ b/bolt/lib/Core/BinaryEmitter.cpp
 @@ -19,11 +19,13 @@
@@ -2024,7 +2069,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..061df93644547c068dd5f60e3d493751
  
 +void BinaryEmitter::emitInlineThumbJumpTable(const JumpTable &JT) {
 +  assert(JT.isThumbInline() && "compressed Thumb jump table expected");
-+  assert(JT.EntrySize == 1 || JT.EntrySize == 2);
++  assert(JT.OutputEntrySize == 1 || JT.OutputEntrySize == 2);
 +  // EntriesAsAddress is deliberately cleared after CFG construction by the
 +  // common BOLT pipeline.  The durable symbolic Entries vector is the final
 +  // emission representation.
@@ -2050,7 +2095,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..061df93644547c068dd5f60e3d493751
 +    const MCExpr *Delta = MCBinaryExpr::createSub(Destination, BaseExpr,
 +                                                  Context);
 +    const MCExpr *Encoded = MCBinaryExpr::createDiv(Delta, Scale, Context);
-+    Streamer.emitValue(Encoded, JT.EntrySize);
++    Streamer.emitValue(Encoded, JT.OutputEntrySize);
 +  }
 +  if (!JT.InlineTrailingBytes.empty())
 +    Streamer.emitBytes(StringRef(
@@ -2129,7 +2174,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..061df93644547c068dd5f60e3d493751
  }
  
 diff --git a/bolt/lib/Core/BinaryFunction.cpp b/bolt/lib/Core/BinaryFunction.cpp
-index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4e5a8abe7 100644
+index 8955112a95dcbec0398854856935ef0120f0a3df..5e53ce7b62ef81e4a691e6290ac320f82bda8193 100644
 --- a/bolt/lib/Core/BinaryFunction.cpp
 +++ b/bolt/lib/Core/BinaryFunction.cpp
 @@ -25,6 +25,7 @@
@@ -2163,7 +2208,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
    if (!isDataObject())
      return DefaultAlignment;
  
-@@ -806,6 +810,355 @@ IndirectBranchType
+@@ -806,6 +810,365 @@ IndirectBranchType
  BinaryFunction::processIndirectBranch(MCInst &Instruction, unsigned Size,
                                        uint64_t Offset,
                                        uint64_t &TargetAddress) {
@@ -2507,6 +2552,16 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
 +      JT->Entries.push_back(getOrCreateLocalLabel(Destination));
 +    JT->InlineTrailingBytes.assign(Data.begin() + TableOffset + Cursor,
 +                                   Data.begin() + TableOffset + IslandSize);
++    JT->OriginalInlineTrailingByteCount = JT->InlineTrailingBytes.size();
++
++    // A PC-based TBB/TBH table begins at the architectural branch base and
++    // is emitted immediately after its dispatch instruction.  Keep the input
++    // island marker for code/data identity, but exclude that same range from
++    // aggregate constant-island size accounting and emission.  Otherwise the
++    // non-relocation size guard counts the table twice and rejects a compact
++    // body even when it fits its qualified firmware range.
++    if (JT->isThumbTableAtDispatch())
++      getIslandInfo().InlineOwnedDataOffsets.insert(TableOffset);
 +
 +    const bool Annotated = BC.MIB->setJumpTable(
 +        Instruction, TableAddress, InlineJTIndexReg);
@@ -2519,7 +2574,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
    const unsigned PtrSize = BC.AsmInfo->getCodePointerSize();
  
    // The instruction referencing memory used by the branch instruction.
-@@ -997,6 +1350,11 @@ BinaryFunction::processIndirectBranch(MCInst &Instruction, unsigned Size,
+@@ -997,6 +1360,11 @@ BinaryFunction::processIndirectBranch(MCInst &Instruction, unsigned Size,
      case JumpTable::JTT_PIC:
        MemType = MemoryContentsType::POSSIBLE_PIC_JUMP_TABLE;
        break;
@@ -2531,7 +2586,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
      }
    } else {
      MemType = BC.analyzeMemoryAt(ArrayStart, *this);
-@@ -1036,8 +1394,11 @@ MCSymbol *BinaryFunction::getOrCreateLocalLabel(uint64_t Address) {
+@@ -1036,8 +1404,11 @@ MCSymbol *BinaryFunction::getOrCreateLocalLabel(uint64_t Address) {
    if (LI != Labels.end())
      return LI->second;
  
@@ -2545,7 +2600,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
      if (MCSymbol *IslandSym = getOrCreateIslandAccess(Address)) {
        Labels[Offset] = IslandSym;
        return IslandSym;
-@@ -1364,6 +1725,9 @@ Error BinaryFunction::disassemble() {
+@@ -1364,6 +1735,9 @@ Error BinaryFunction::disassemble() {
        break;
      }
  
@@ -2555,7 +2610,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
      // Check integrity of LLVM assembler/disassembler.
      if (opts::CheckEncoding && !BC.MIB->isBranch(Instruction) &&
          !BC.MIB->isCall(Instruction) && !BC.MIB->isNoop(Instruction)) {
-@@ -1519,12 +1883,20 @@ add_instruction:
+@@ -1519,12 +1893,20 @@ add_instruction:
        }
      }
  
@@ -2580,7 +2635,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
        // NOTE: disassembly loses the correct size information for noops on x86.
        //       E.g. nopw 0x0(%rax,%rax,1) is 9 bytes, but re-encoded it's only
        //       5 bytes. Preserve the size info using annotations.
-@@ -2575,7 +2947,8 @@ void BinaryFunction::postProcessCFG() {
+@@ -2575,7 +2957,8 @@ void BinaryFunction::postProcessCFG() {
      postProcessProfile();
  
      // Eliminate inconsistencies between branch instructions and CFG.
@@ -2590,7 +2645,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
    }
  
    // The final cleanup of intermediate structures.
-@@ -3262,6 +3635,12 @@ bool BinaryFunction::finalizeCFIState() {
+@@ -3262,6 +3645,12 @@ bool BinaryFunction::finalizeCFIState() {
  }
  
  bool BinaryFunction::requiresPreciseAddressMap() const {
@@ -2603,7 +2658,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
    return opts::UpdateDebugSections || opts::EnableBAT || hasSDTMarker() ||
           hasPseudoProbe();
  }
-@@ -3667,8 +4046,39 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3667,8 +4056,39 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
      if (!BB->analyzeBranch(TBB, FBB, CondBranch, UncondBranch))
        continue;
  
@@ -2645,7 +2700,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
        BB->eraseInstruction(BB->findInstruction(UncondBranch));
  
      // Basic block that follows the current one in the final layout.
-@@ -3682,6 +4092,13 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3682,6 +4102,13 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
        // the conditional branch with an unconditional if required.
        if (CondBranch)
          BB->eraseInstruction(BB->findInstruction(CondBranch));
@@ -2659,7 +2714,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
        if (BB->getSuccessor() == NextBB)
          continue;
        BB->addBranchInstruction(BB->getSuccessor());
-@@ -3702,9 +4119,18 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3702,9 +4129,18 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
            continue;
          }
  
@@ -2679,7 +2734,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
          continue;
        }
  
-@@ -3720,6 +4146,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3720,6 +4156,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          }
          std::swap(TSuccessor, FSuccessor);
          BB->swapConditionalSuccessors();
@@ -2692,7 +2747,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
          auto L = BC.scopeLock();
          if (BLI)
            BLI->removeAnnotation(*CondBranch);
-@@ -3731,8 +4163,9 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3731,8 +4173,9 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
  
        // Check whether the next block is a "taken" target and try to swap it
        // with a "fall-through" target.
@@ -2703,7 +2758,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
  
        // Update conditional branch destination if needed.
        if (MIB->getTargetSymbol(*CondBranch) != TSuccessor->getLabel()) {
-@@ -3740,9 +4173,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3740,9 +4183,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          MIB->replaceBranchTarget(*CondBranch, TSuccessor->getLabel(), Ctx);
        }
  
@@ -2720,7 +2775,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
  
        if (BC.isX86()) {
          // We are going to generate two branches. Check if their targets are in
-@@ -3756,7 +4194,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3756,7 +4204,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
            swapSuccessors();
        }
  
@@ -2734,7 +2789,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
      }
      // Cases where the number of successors is 0 (block ends with a
      // terminator) or more than 2 (switch table) don't require branch
-@@ -3831,6 +4274,12 @@ void BinaryFunction::postProcessBranches() {
+@@ -3831,6 +4284,12 @@ void BinaryFunction::postProcessBranches() {
        }
        if (!BC.MIB->isTerminator(*LastInstrRI) &&
            !BC.MIB->isCall(*LastInstrRI)) {
@@ -2747,7 +2802,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
          LLVM_DEBUG(dbgs() << "BOLT-DEBUG: adding return to basic block "
                            << BB.getName() << " in function " << *this << '\n');
          MCInst ReturnInstr;
-@@ -4526,14 +4975,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4526,14 +4985,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
    setOutputAddress(SymbolInfo->Address);
    setOutputSize(SymbolInfo->Size);
  
@@ -2793,7 +2848,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
          BinaryData *BD = BC.getBinaryDataAtAddress(getAddress() + OldOffset);
          if (!BD)
            continue;
-@@ -4608,9 +5083,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4608,9 +5093,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
        // input range. Just assign the BB the output address of the
        // function.
        auto MaybeBBAddress = BC.getIOAddressMap().lookup(BB->getLabel());
@@ -2815,7 +2870,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..3f5773d2ee3a6d1889dd16ddad602bd4
        BB->setOutputStartAddress(BBAddress);
  
        if (PrevBB) {
-@@ -4915,7 +5399,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
+@@ -4915,7 +5409,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
    LLVM_DEBUG(dbgs() << "BOLT-DEBUG: addRelocation in "
                      << formatv("{0}@{1:x} against {2}\n", *this, Offset,
                                 (Symbol ? Symbol->getName() : "<undef>")));
@@ -3465,10 +3520,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971ef033484
+index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109fffc5c39e8
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4464 @@
+@@ -0,0 +1,4507 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -3705,7 +3760,7 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +        }
 +      if (const JumpTable *JT = BF.getJumpTable(Inst);
 +          JT && JT->isThumbInline())
-+        Size += JT->getSize() + JT->InlineTrailingBytes.size();
++        Size += JT->getOutputSize() + JT->InlineTrailingBytes.size();
 +    }
 +  }
 +  return Size;
@@ -3715,7 +3770,7 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 21>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 22>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -3749,6 +3804,8 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +         "read_only_load_elision"},
 +        {FirmwareModification::FunctionSplitting, "function_splitting"},
 +        {FirmwareModification::BlockAlignment, "block_alignment"},
++        {FirmwareModification::JumpTableFootprintReduction,
++         "jump_table_footprint_reduction"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -4963,7 +5020,7 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +        if (const JumpTable *JT = BF.getJumpTable(Inst))
 +          if (JT->isThumbInline())
 +            InlineOffset +=
-+                JT->getSize() + JT->InlineTrailingBytes.size();
++                JT->getOutputSize() + JT->InlineTrailingBytes.size();
 +        if (const InlineData *Data = BC.MIB->getInlineData(Inst)) {
 +          if (!isAligned(Align(Data->Alignment),
 +                         BF.getAddress() + InlineOffset)) {
@@ -5061,7 +5118,7 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +          if (const JumpTable *JT = BF.getJumpTable(Inst))
 +            if (JT->isThumbInline())
 +              EstimatedOffset +=
-+                  JT->getSize() + JT->InlineTrailingBytes.size();
++                  JT->getOutputSize() + JT->InlineTrailingBytes.size();
 +          if (const InlineData *Data = BC.MIB->getInlineData(Inst))
 +            EstimatedOffset += Data->Size;
 +          if (const InlineDataBlocks *Blocks =
@@ -6828,9 +6885,14 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +                    : JT->Type == JumpTable::JTT_THUMB_TBH
 +                          ? "thumb_tbh"
 +                          : "thumb_abs32";
-+            Table["entry_size"] = static_cast<int64_t>(JT->EntrySize);
++            Table["original_entry_size"] =
++                static_cast<int64_t>(JT->EntrySize);
++            Table["output_entry_size"] =
++                static_cast<int64_t>(JT->OutputEntrySize);
 +            Table["entry_count"] = static_cast<int64_t>(JT->Entries.size());
-+            Table["trailing_byte_count"] =
++            Table["original_trailing_byte_count"] = static_cast<int64_t>(
++                JT->OriginalInlineTrailingByteCount);
++            Table["output_trailing_byte_count"] =
 +                static_cast<int64_t>(JT->InlineTrailingBytes.size());
 +            json::Array Targets;
 +            for (const MCSymbol *Target : JT->Entries) {
@@ -6845,7 +6907,7 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +            Table["target_block_original_addresses"] = std::move(Targets);
 +            InlineJumpTables.push_back(std::move(Table));
 +            EstimatedOffset +=
-+                JT->getSize() + JT->InlineTrailingBytes.size();
++                JT->getOutputSize() + JT->InlineTrailingBytes.size();
 +          }
 +        }
 +      }
@@ -7674,6 +7736,7 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +
 +        json::Array TargetOriginals;
 +        json::Array TargetOutputs;
++        SmallVector<uint64_t, 8> TargetOutputAddresses;
 +        for (const MCSymbol *Target : JT->Entries) {
 +          const BinaryBasicBlock *TargetBB = BF.getBasicBlockForLabel(Target);
 +          if (!TargetBB ||
@@ -7694,6 +7757,7 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +                TargetOutput += BF.getOutputAddress();
 +            }
 +          }
++          TargetOutputAddresses.push_back(TargetOutput);
 +          TargetOutputs.push_back(static_cast<int64_t>(TargetOutput));
 +        }
 +        json::Object Table;
@@ -7735,6 +7799,35 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +                TableOutput = *LinkedIsland;
 +          }
 +        }
++        const uint64_t EffectiveEntrySize =
++            PublishedOriginal ? JT->EntrySize : JT->OutputEntrySize;
++        if (JT->isThumbInline()) {
++          if (EffectiveEntrySize != 1 && EffectiveEntrySize != 2)
++            return createStringError(
++                inconvertibleErrorCode(),
++                "embedded Thumb jump table in %s has invalid output entry "
++                "width %" PRIu64,
++                BF.getPrintName().c_str(), EffectiveEntrySize);
++          const uint64_t MaxEncoded =
++              EffectiveEntrySize == 1 ? UINT8_MAX : UINT16_MAX;
++          for (const uint64_t TargetOutput : TargetOutputAddresses) {
++            if (TargetOutput < BranchBaseOutput ||
++                ((TargetOutput - BranchBaseOutput) & 1) ||
++                ((TargetOutput - BranchBaseOutput) >> 1) > MaxEncoded)
++              return createStringError(
++                  inconvertibleErrorCode(),
++                  "embedded Thumb jump table in %s cannot encode final "
++                  "target 0x%" PRIx64 " from branch base 0x%" PRIx64
++                  " in %" PRIu64 " byte(s)",
++                  BF.getPrintName().c_str(), TargetOutput, BranchBaseOutput,
++                  EffectiveEntrySize);
++          }
++          if (EffectiveEntrySize == 2 && (TableOutput & 1))
++            return createStringError(
++                inconvertibleErrorCode(),
++                "embedded Thumb halfword jump table in %s is not aligned",
++                BF.getPrintName().c_str());
++        }
 +        Table["branch_base_original_address"] =
 +            JT->isThumbInline()
 +                ? json::Value(static_cast<int64_t>(JT->ThumbBranchBaseAddress))
@@ -7766,13 +7859,18 @@ index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971
 +                    JT->ThumbTablePointerAddress
 +                ? json::Value(static_cast<int64_t>(TablePointerOutput))
 +                : json::Value(nullptr);
-+        Table["entry_size"] = static_cast<int64_t>(JT->EntrySize);
++        Table["original_entry_size"] =
++            static_cast<int64_t>(JT->EntrySize);
++        Table["output_entry_size"] =
++            static_cast<int64_t>(EffectiveEntrySize);
 +        Table["entry_count"] = static_cast<int64_t>(JT->Entries.size());
 +        Table["reference_relocations_complete"] =
 +            JT->Type == JumpTable::JTT_THUMB_ABS32
 +                ? json::Value(JT->ThumbReferenceRelocationsComplete)
 +                : json::Value(nullptr);
-+        Table["trailing_byte_count"] =
++        Table["original_trailing_byte_count"] =
++            static_cast<int64_t>(JT->OriginalInlineTrailingByteCount);
++        Table["output_trailing_byte_count"] =
 +            static_cast<int64_t>(JT->InlineTrailingBytes.size());
 +        Table["target_block_original_addresses"] =
 +            std::move(TargetOriginals);
@@ -8761,6 +8859,126 @@ index 775e4a36f39ea9054500ce88e4198670aed58e77..bde4026c6b2397759390390cea153ad3
    bool InlinedOnce;
    unsigned NumIters = 0;
    do {
+diff --git a/bolt/lib/Passes/JTFootprintReduction.cpp b/bolt/lib/Passes/JTFootprintReduction.cpp
+index f33481397543acfd2661a612c32a770abd0c8c88..e5883d664ee147dadd9e5f3bb2f017f257270a9c 100644
+--- a/bolt/lib/Passes/JTFootprintReduction.cpp
++++ b/bolt/lib/Passes/JTFootprintReduction.cpp
+@@ -34,6 +34,12 @@ static cl::opt<bool> JTFootprintOnlyPIC(
+              " off other transformations that increase code size"),
+     cl::init(false), cl::cat(BoltOptCategory));
+ 
++static cl::opt<bool> FirmBOLTAllowJumpTableFootprintReduction(
++    "firmbolt-allow-jump-table-footprint-reduction",
++    cl::desc("allow Cortex-M TBH-to-TBB conversion under an admitted table "
++             "read-width/layout contract"),
++    cl::init(false), cl::Hidden, cl::cat(BoltOptCategory));
++
+ } // namespace opts
+ 
+ namespace llvm {
+@@ -246,7 +252,102 @@ void JTFootprintReduction::optimizeFunction(BinaryFunction &Function,
+         ++I;
+ }
+ 
++Error JTFootprintReduction::runOnARMFunctions(BinaryContext &BC) {
++  if (!opts::FirmBOLTAllowJumpTableFootprintReduction)
++    return createStringError(
++        inconvertibleErrorCode(),
++        "Cortex-M jump-table footprint reduction changes the dispatch read "
++        "width and inline-data layout; add "
++        "--firmbolt-allow-jump-table-footprint-reduction only for an "
++        "admitted table memory/layout contract");
++
++  uint64_t Candidates = 0;
++  uint64_t Reduced = 0;
++  uint64_t OutOfRange = 0;
++  uint64_t Unsupported = 0;
++  for (auto &[Address, Function] : BC.getBinaryFunctions()) {
++    (void)Address;
++    if (!Function.hasCFG() || !Function.isSimple() || Function.isIgnored() ||
++        Function.isSplit() || Function.isMultiEntry() ||
++        Function.isCortexMVectorEntry() ||
++        Function.isFirmwareVeneerSlot() ||
++        Function.requiresAddressStableLayout())
++      continue;
++
++    for (BinaryBasicBlock &BB : Function) {
++      for (MCInst &Inst : BB) {
++        JumpTable *JT = Function.getJumpTable(Inst);
++        if (!JT || JT->Type != JumpTable::JTT_THUMB_TBH)
++          continue;
++        ++Candidates;
++
++        if (!JT->isThumbInline() || JT->EntrySize != 2 ||
++            JT->OutputEntrySize != 2 || JT->Entries.empty() ||
++            JT->Parents.size() != 1 || JT->Parents.front() != &Function) {
++          ++Unsupported;
++          continue;
++        }
++
++        bool FitsByteEntries = true;
++        for (const MCSymbol *Target : JT->Entries) {
++          const BinaryBasicBlock *TargetBB =
++              Function.getBasicBlockForLabel(Target);
++          if (!TargetBB) {
++            FitsByteEntries = false;
++            break;
++          }
++          const uint64_t TargetAddress =
++              Function.getAddress() + TargetBB->getOffset();
++          if (TargetAddress < JT->ThumbBranchBaseAddress) {
++            FitsByteEntries = false;
++            break;
++          }
++          const uint64_t Delta = TargetAddress - JT->ThumbBranchBaseAddress;
++          if ((Delta & 1) || (Delta >> 1) > UINT8_MAX) {
++            FitsByteEntries = false;
++            break;
++          }
++        }
++        if (!FitsByteEntries) {
++          ++OutOfRange;
++          continue;
++        }
++
++        if (!BC.MIB->reduceInlineJumpTableFootprint(
++                Inst, JT->EntrySize, /*OutputEntrySize=*/1)) {
++          ++Unsupported;
++          continue;
++        }
++
++        JT->OutputEntrySize = 1;
++        JT->Type = JumpTable::JTT_THUMB_TBB;
++        // Thumb instructions remain halfword aligned.  Compression of an odd
++        // number of entries would otherwise shift the following code to an
++        // odd address, so represent the required byte as typed table padding.
++        if ((JT->getOutputSize() + JT->InlineTrailingBytes.size()) & 1)
++          JT->InlineTrailingBytes.push_back(0);
++        Function.setFirmwareModified(
++            BinaryFunction::FirmwareModification::
++                JumpTableFootprintReduction);
++        Modified.insert(&Function);
++        ++Reduced;
++        BytesSaved += JT->getSize() - JT->getOutputSize();
++      }
++    }
++  }
++
++  BC.outs() << "BOLT-INFO: Cortex-M JT footprint reduction converted "
++            << Reduced << " of " << Candidates
++            << " TBH table(s) to TBB; retained " << OutOfRange
++            << " out-of-range and " << Unsupported
++            << " unsupported table(s); raw entry bytes saved " << BytesSaved
++            << "\n";
++  return Error::success();
++}
++
+ Error JTFootprintReduction::runOnFunctions(BinaryContext &BC) {
++  if (BC.isARM())
++    return runOnARMFunctions(BC);
+   if (!BC.isX86()) {
+     BC.errs() << "BOLT-ERROR: " << getName() << " is supported only on X86\n";
+     exit(1);
 diff --git a/bolt/lib/Passes/LongJmp.cpp b/bolt/lib/Passes/LongJmp.cpp
 index 4f246aca36fa473fe9487e59ab4a75a5ce5256e5..21dc09b56d6db01b95250deca7dec20d7d77971c 100644
 --- a/bolt/lib/Passes/LongJmp.cpp
@@ -9781,7 +9999,7 @@ index c8c9298805268db2cc2c54ac660bd4bedd946879..a8c2e3e4ad1da401a18a5196a6ffa1f6
    }
  
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..87c63a3bbeaecd906942a6019bc07e56535d2c4a 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..76f472c31a1e4de489d4cca2918454778fc2ce1f 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -9805,7 +10023,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..87c63a3bbeaecd906942a6019bc07e56
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +379,133 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -372,6 +379,136 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -9875,6 +10093,9 @@ index 18c84468b04ce23388d824e28c0029be48789a45..87c63a3bbeaecd906942a6019bc07e56
 +    Manager.registerPass(
 +        std::make_unique<SimplifyRODataLoads>(PrintSimplifyROLoads),
 +        opts::SimplifyRODataLoads);
++    Manager.registerPass(
++        std::make_unique<JTFootprintReduction>(PrintJTFootprintReduction),
++        opts::JTFootprintReductionFlag);
 +    Manager.registerPass(std::make_unique<IndirectCallPromotion>(PrintICP));
 +    Manager.registerPass(std::make_unique<Inliner>(PrintInline));
 +    Manager.registerPass(std::make_unique<ShortenInstructions>(NeverPrint),
@@ -9939,7 +10160,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..87c63a3bbeaecd906942a6019bc07e56
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +541,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +544,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -9957,7 +10178,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..87c63a3bbeaecd906942a6019bc07e56
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -554,6 +699,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -554,6 +702,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -9967,7 +10188,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..87c63a3bbeaecd906942a6019bc07e56
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +716,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +719,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -10058,7 +10279,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e046225c0ae 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..2882c20367cbb79dac44c6f73fb5e7343f5a6532 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -11049,7 +11270,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
        uint64_t DataMark = Function.getOutputColdDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5831,11 +6347,77 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5831,11 +6347,78 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -11109,7 +11330,8 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
 +                    Linker->lookupSymbolInfo(JT->getFirstLabel()->getName()))
 +              DataMark = LinkedTable->Address;
 +          const uint64_t CodeMark =
-+              DataMark + JT->getSize() + JT->InlineTrailingBytes.size();
++              DataMark + JT->getOutputSize() +
++              JT->InlineTrailingBytes.size();
 +          ELFSymTy DataMarkSym = FunctionSymbol;
 +          DataMarkSym.st_name = AddToStrTab("$d");
 +          DataMarkSym.st_value = DataMark;
@@ -11128,7 +11350,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
    };
  
    // For regular (non-dynamic) symbol table, exclude symbols referring
-@@ -5866,13 +6448,23 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5866,13 +6449,23 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    };
  
@@ -11154,7 +11376,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
      // In relocation mode, if this is a folded function, use the parent function
      // instead so that the symbol gets updated to the parent's output address.
      // In non-relocation mode, folded functions are emitted at their original
-@@ -5943,9 +6535,17 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5943,9 +6536,17 @@ void RewriteInstance::updateELFSymbolTable(
        // If the symbol matched a function that was not emitted, update the
        // corresponding section index but otherwise leave it unchanged.
        if (Function->isEmitted()) {
@@ -11174,7 +11396,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
          NewSymbol.st_shndx = Function->getCodeSection()->getIndex();
        } else if (Symbol.st_shndx < ELF::SHN_LORESERVE) {
          NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
-@@ -5965,22 +6565,48 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5965,22 +6566,48 @@ void RewriteInstance::updateELFSymbolTable(
          return BC->getMarkerType(Symbol.getType(), Symbol.st_size,
                                   *SymbolName) != MarkerSymType::NONE;
        };
@@ -11232,7 +11454,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
  
          // Remove symbols that cannot be mapped to the output, e.g.
          // data-in-code labels (jump tables) whose addresses BOLT
-@@ -5988,7 +6614,8 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5988,7 +6615,8 @@ void RewriteInstance::updateELFSymbolTable(
          if (!OutputAddress)
            continue;
  
@@ -11242,7 +11464,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
          // Force secondary entry points to have zero size.
          NewSymbol.st_size = 0;
  
-@@ -6001,6 +6628,28 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6001,6 +6629,28 @@ void RewriteInstance::updateELFSymbolTable(
              });
  
          if (FF == Function->getLayout().fragment_end()) {
@@ -11271,7 +11493,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
            assert(
                OutputAddress >= Function->getCodeSection()->getOutputAddress() &&
                OutputAddress < (Function->getCodeSection()->getOutputAddress() +
-@@ -6036,12 +6685,15 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6036,12 +6686,15 @@ void RewriteInstance::updateELFSymbolTable(
              NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
          }
  
@@ -11292,7 +11514,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
            assert(!IsDynSym && "cannot delete symbol");
            continue;
          }
-@@ -6050,11 +6702,13 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6050,11 +6703,13 @@ void RewriteInstance::updateELFSymbolTable(
  
    registerSymbol:
      if (IsDynSym)
@@ -11309,7 +11531,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
    }
  
    if (IsDynSym) {
-@@ -6165,6 +6819,20 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6165,6 +6820,20 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    });
  
@@ -11330,7 +11552,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
    for (const ELFSymTy &Symbol : Symbols)
      Write(0, Symbol);
  }
-@@ -6736,7 +7404,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
+@@ -6736,7 +7405,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
  }
  
  uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
@@ -11346,7 +11568,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
    if (!Function)
      return 0;
  
-@@ -6745,7 +7420,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
+@@ -6745,7 +7421,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
    if (Function->isFolded())
      Function = Function->getFoldedIntoFunction();
  
@@ -11359,7 +11581,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
  }
  
  uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
-@@ -6758,6 +7437,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
+@@ -6758,6 +7438,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
  
    if (const BinaryFunction *BF =
            BC->getBinaryFunctionContainingAddress(OldAddress)) {
@@ -11369,7 +11591,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
      if (BF->isEmitted()) {
        // If OldAddress is another entry point of the function or the target of
        // an indirect goto, then BOLT could get the new address.
-@@ -6796,7 +7478,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6796,7 +7479,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      if (Function->getImageAddress() == 0 || Function->getImageSize() == 0)
        continue;
  
@@ -11389,7 +11611,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
             "Unexpected large function");
  
      const auto HasAddress = [](const FunctionFragment &FF) {
-@@ -6816,6 +7509,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6816,6 +7510,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
        continue;
      }
  
@@ -11412,7 +11634,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
      OverwrittenScore += Function->getFunctionScore();
      ++CountOverwrittenFunctions;
  
-@@ -6826,12 +7535,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6826,12 +7536,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      safePWrite(OS, reinterpret_cast<char *>(Function->getImageAddress()),
                 Function->getImageSize(), Function->getFileOffset());
  
@@ -11431,7 +11653,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
  
        OS.seek(Pos);
      }
-@@ -6947,6 +7659,461 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +7660,461 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -11893,7 +12115,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8127,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8128,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -11910,10 +12132,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e04
      // Overwrite function body to make sure we never execute these instructions.
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..c1af860abbe0af528c2f337ac8b7a7eafc39de7b
+index 0000000000000000000000000000000000000000..121abe3387834ef502157cde884592825dc79287
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2434 @@
+@@ -0,0 +1,2444 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -14333,6 +14555,16 @@ index 0000000000000000000000000000000000000000..c1af860abbe0af528c2f337ac8b7a7ea
 +    BaseRegNum = Instruction.getOperand(0).getReg();
 +    IndexRegNum = Instruction.getOperand(1).getReg();
 +    return EntrySize;
++  }
++
++  bool reduceInlineJumpTableFootprint(MCInst &Instruction,
++                                      unsigned InputEntrySize,
++                                      unsigned OutputEntrySize) const override {
++    if (InputEntrySize != 2 || OutputEntrySize != 1 ||
++        Instruction.getOpcode() != ARM::t2TBH)
++      return false;
++    Instruction.setOpcode(ARM::t2TBB);
++    return true;
 +  }
 +};
 +
@@ -17086,6 +17318,157 @@ index 0000000000000000000000000000000000000000..31e9c020f8f71fdc8fea0ba59a68028c
 +1 split_worker 6 100
 +1 split_worker 8 0
 +1 split_worker a 0
+diff --git a/bolt/test/ARM/thumb-jump-table-footprint-reduction.s b/bolt/test/ARM/thumb-jump-table-footprint-reduction.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..eaabfb9b8c7ee39a22b775c3085ad78788dfd65c
+--- /dev/null
++++ b/bolt/test/ARM/thumb-jump-table-footprint-reduction.s
+@@ -0,0 +1,145 @@
++## Firm-BOLT reuses BOLT's jump-table footprint pass to convert a qualified
++## inline TBH table to TBB.  The memory-width/layout change requires an
++## explicit firmware contract; an otherwise valid target beyond byte range is
++## retained as TBH.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: link_fdata %s %t.exe %t.fdata
++# RUN: llvm-strip --strip-unneeded %t.exe
++# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --data=%t.fdata \
++# RUN:   --jt-footprint-reduction \
++# RUN:   -o %t.no-contract 2>&1 | FileCheck %s --check-prefix=NO-CONTRACT
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --data=%t.fdata \
++# RUN:   --jt-footprint-reduction \
++# RUN:   --firmbolt-allow-jump-table-footprint-reduction \
++# RUN:   --fastdyn-firmware-report=%t.json -v=1 -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='byte_range_switch'); t=f['inline_jump_tables'][0]; print(','.join(f['firmware_modification_reasons']),f['original_size'],f['output_size'],t['kind'],t['original_entry_size'],t['output_entry_size'],t['entry_count'],len(f['instruction_origins'])); g=next(x for x in d['functions'] if x['name']=='halfword_range_switch'); u=g['inline_jump_tables'][0]; print(','.join(g['firmware_modification_reasons']),u['kind'],u['original_entry_size'],u['output_entry_size']); h=next(x for x in d['functions'] if x['name']=='odd_range_switch'); v=h['inline_jump_tables'][0]; print(','.join(h['firmware_modification_reasons']),h['original_size'],h['output_size'],v['kind'],v['original_entry_size'],v['output_entry_size'],v['entry_count'],v['original_trailing_byte_count'],v['output_trailing_byte_count'])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# NO-CONTRACT: Cortex-M jump-table footprint reduction changes the dispatch read width
++# LOG: Cortex-M JT footprint reduction converted 2 of 3 TBH table(s) to TBB; retained 1 out-of-range and 0 unsupported table(s); raw entry bytes saved 7
++# DISASM-LABEL: <byte_range_switch>:
++# DISASM: tbb [pc, r0]
++# DISASM-LABEL: <halfword_range_switch>:
++# DISASM: tbh [pc, r0, lsl #1]
++# DISASM-LABEL: <odd_range_switch>:
++# DISASM: tbb [pc, r0]
++# DISASM: movs r0, #0xb
++# REPORT: jump_table_footprint_reduction 36 32 thumb_tbb 2 1 4 13
++# REPORT-NEXT:  thumb_tbh 2 2
++# REPORT-NEXT: jump_table_footprint_reduction 30 28 thumb_tbb 2 1 3 0 1
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  movs r0, #0
++  bl byte_range_switch
++  movs r0, #0
++  bl halfword_range_switch
++  movs r0, #0
++  bl odd_range_switch
++1:
++  b 1b
++  .size Reset_Handler, .-Reset_Handler
++
++  .p2align 2
++  .globl byte_range_switch
++  .type byte_range_switch,%function
++  .thumb_func
++byte_range_switch:
++  cmp r0, #3
++  bhi .Lbyte_default
++# FDATA: 1 byte_range_switch 2 1 byte_range_switch 4 0 100
++# FDATA: 1 byte_range_switch 2 1 byte_range_switch 20 0 1
++  tbh [pc, r0, lsl #1]
++.Lbyte_table:
++  .hword (.Lbyte_case0 - .Lbyte_table) / 2
++  .hword (.Lbyte_case1 - .Lbyte_table) / 2
++  .hword (.Lbyte_case2 - .Lbyte_table) / 2
++  .hword (.Lbyte_case3 - .Lbyte_table) / 2
++.Lbyte_case0:
++  movs r0, #10
++  bx lr
++.Lbyte_case1:
++  movs r0, #20
++  bx lr
++.Lbyte_case2:
++  movs r0, #30
++  bx lr
++.Lbyte_case3:
++  movs r0, #40
++  bx lr
++.Lbyte_default:
++  movs r0, #0
++  bx lr
++  .size byte_range_switch, .-byte_range_switch
++
++  .p2align 2
++  .globl halfword_range_switch
++  .type halfword_range_switch,%function
++  .thumb_func
++halfword_range_switch:
++  cmp r0, #0
++  bhi .Lhalf_default
++# FDATA: 1 halfword_range_switch 2 1 halfword_range_switch 6 0 100
++# FDATA: 1 halfword_range_switch 2 1 halfword_range_switch 20e 0 1
++  tbh [pc, r0, lsl #1]
++.Lhalf_table:
++  .hword (.Lhalf_case0 - .Lhalf_table) / 2
++  .space 510
++.Lhalf_case0:
++  movs r0, #42
++  bx lr
++.Lhalf_default:
++  movs r0, #0
++  bx lr
++  .size halfword_range_switch, .-halfword_range_switch
++
++  .p2align 2
++  .globl odd_range_switch
++  .type odd_range_switch,%function
++  .thumb_func
++odd_range_switch:
++  cmp r0, #2
++  bhi .Lodd_default
++# FDATA: 1 odd_range_switch 2 1 odd_range_switch 4 0 100
++# FDATA: 1 odd_range_switch 2 1 odd_range_switch 1a 0 1
++  tbh [pc, r0, lsl #1]
++.Lodd_table:
++  .hword (.Lodd_case0 - .Lodd_table) / 2
++  .hword (.Lodd_case1 - .Lodd_table) / 2
++  .hword (.Lodd_case2 - .Lodd_table) / 2
++.Lodd_case0:
++  movs r0, #11
++  bx lr
++.Lodd_case1:
++  movs r0, #22
++  bx lr
++.Lodd_case2:
++  movs r0, #33
++  bx lr
++.Lodd_default:
++  movs r0, #0
++  bx lr
++  .size odd_range_switch, .-odd_range_switch
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-jump-table-promotion-flags-live.s b/bolt/test/ARM/thumb-jump-table-promotion-flags-live.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..be9694630c66d306d493dd4feffd9b246130982d
@@ -17927,7 +18310,7 @@ index 0000000000000000000000000000000000000000..9c9bfffe7e1b7ebef0d8e722eb3aec53
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-jump-table-promotion.s b/bolt/test/ARM/thumb-native-jump-table-promotion.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..836cf30301e61ee6a09cad428dd0c8c3105d17bc
+index 0000000000000000000000000000000000000000..a66f18223a7d720b42bbbd77d454c53be5a8f437
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-native-jump-table-promotion.s
 @@ -0,0 +1,96 @@
@@ -17968,7 +18351,7 @@ index 0000000000000000000000000000000000000000..836cf30301e61ee6a09cad428dd0c8c3
 +# DISASM: movs r0, #0x1e
 +# SYMS-DAG: 08000016 {{.*}} $d
 +# SYMS-DAG: 0800001a {{.*}} $t
-+# REPORT: True {{.*}}jump_table_promotion{{.*}} 60 36 0 2
++# REPORT: True {{.*}}jump_table_promotion{{.*}} 60 34 0 2
 +# REPORT-NEXT: ['original_instruction', 'original_instruction', 'synthesized_jump_table_promotion', 'synthesized_jump_table_promotion', 'original_instruction']
 +
 +  .syntax unified

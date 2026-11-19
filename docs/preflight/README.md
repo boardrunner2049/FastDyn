@@ -103,7 +103,8 @@ opt-in profiled ordinary (including target-in-`r12`) and
 tail-indirect-call-promotion Cortex-M3 fixtures,
 an opt-in immutable-vtable method-load-elimination Cortex-M3 fixture,
 opt-in profiled TBB, in-function ABS32 and relocation-complete detached ABS32
-hot-index-promotion Cortex-M3 fixtures, explicit user-directed and
+hot-index-promotion Cortex-M3 fixtures, an opt-in TBH-to-TBB footprint fixture
+with odd-entry alignment and out-of-byte-range retention controls, explicit user-directed and
 profile-execution-count and CDSort call-graph relocation-complete whole-image
 function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
 Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
@@ -111,7 +112,7 @@ function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
 fixtures, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
 relocation-complete compact and generic ARM EHABI
 function-reordering fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v122 run accepts all forty without
+The 18 November production-parity-v123 run accepts all forty-one without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -747,28 +748,28 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v122-alignment-final3-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v122-alignment-final3-2026-11-18/report.json),
-SHA-256 `7c043174555565e751e037c6a1597365198614fde4da1d00b09241ba85a74d7f`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/report.json),
+SHA-256 `4a05d45940fee19ac313a753cbabb649531b5e132ca460db3ee3e2395c9c174a`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v122-alignment-final3-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json)
 (SHA-256
-`14957fc32d6b269a6afbc236498cef31cb37a9b266999e2e5643986def5d94ae`)
+`3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`f157a7d638044803660ece230ca6f21cba23fda55b1f8762e8473faf7926bc57`),
+`f9c22040a8a6fef4d147cc3ead97d23c01c3521bf5d75b4c87052ba7c1ef7886`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`3d659e138e132123806e0cdd2a4119bbff812696a99899a7e9cf0b5c2744f18a`.
+`9d2f3f162a993a4af46f7276a44f2fd91baa63f1f066275b880084a2ef3936b0`.
 
-Targeted validation completes 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
+An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
 parameterizations and 19/19 AArch32 JITLink units, with zero failures. In the
 Core runner, 79 target-applicable bodies pass and 129 target-inapplicable
@@ -798,7 +799,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v122 validation passes 61/61 BOLT ARM lit tests, 12/12 AArch32
+The current v123 validation passes 62/62 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -858,6 +859,21 @@ unchanged program headers. Reference and candidate both write RAM word `10`.
 Missing admission, the strict instruction-count contract and an over-budget
 placement each reject atomically. This is pass integration and preservation
 evidence, not a runtime-performance claim.
+
+v123 reuses BOLT's existing jump-table footprint pass and adds the missing
+Cortex-M target hook plus firmware publication contract. A TBH table is
+converted to TBB only when every final halfword-scaled target delta fits an
+unsigned byte. The executed odd-entry fixture changes the table width from
+two bytes to one, adds one explicit trailing byte to keep following Thumb code
+halfword-aligned, and shrinks the worker from 30 to 28 bytes while preserving
+all 11 original instruction identities. Reference and candidate both produce
+RAM words `(10, 20, 30, 42)`. A second target at displacement 256 remains TBH,
+and omitting the read-width/layout contract rejects before emission. The
+production gate also found and fixed two shared BOLT integration bugs: adjacent
+inline tables were double-counted as aggregate islands, and final `$t` mapping
+used the input rather than emitted entry width. This is code-size and
+preservation evidence; the one-shot execution times are not a performance
+claim.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

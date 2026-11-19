@@ -234,7 +234,7 @@ uint64_t reportFunctionSize(BinaryContext &BC, const BinaryFunction &BF) {
         }
       if (const JumpTable *JT = BF.getJumpTable(Inst);
           JT && JT->isThumbInline())
-        Size += JT->getSize() + JT->InlineTrailingBytes.size();
+        Size += JT->getOutputSize() + JT->InlineTrailingBytes.size();
     }
   }
   return Size;
@@ -244,7 +244,7 @@ using FirmwareModification = BinaryFunction::FirmwareModification;
 using FirmwarePublicationRejection =
     BinaryFunction::FirmwarePublicationRejection;
 
-static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 21>
+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 22>
     FirmwareModificationNames = {{
         {FirmwareModification::CFGNormalization, "cfg_normalization"},
         {FirmwareModification::UnreachableCodeElimination,
@@ -278,6 +278,8 @@ static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 21>
          "read_only_load_elision"},
         {FirmwareModification::FunctionSplitting, "function_splitting"},
         {FirmwareModification::BlockAlignment, "block_alignment"},
+        {FirmwareModification::JumpTableFootprintReduction,
+         "jump_table_footprint_reduction"},
     }};
 
 json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -1492,7 +1494,7 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
         if (const JumpTable *JT = BF.getJumpTable(Inst))
           if (JT->isThumbInline())
             InlineOffset +=
-                JT->getSize() + JT->InlineTrailingBytes.size();
+                JT->getOutputSize() + JT->InlineTrailingBytes.size();
         if (const InlineData *Data = BC.MIB->getInlineData(Inst)) {
           if (!isAligned(Align(Data->Alignment),
                          BF.getAddress() + InlineOffset)) {
@@ -1590,7 +1592,7 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
           if (const JumpTable *JT = BF.getJumpTable(Inst))
             if (JT->isThumbInline())
               EstimatedOffset +=
-                  JT->getSize() + JT->InlineTrailingBytes.size();
+                  JT->getOutputSize() + JT->InlineTrailingBytes.size();
           if (const InlineData *Data = BC.MIB->getInlineData(Inst))
             EstimatedOffset += Data->Size;
           if (const InlineDataBlocks *Blocks =
@@ -3357,9 +3359,14 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
                     : JT->Type == JumpTable::JTT_THUMB_TBH
                           ? "thumb_tbh"
                           : "thumb_abs32";
-            Table["entry_size"] = static_cast<int64_t>(JT->EntrySize);
+            Table["original_entry_size"] =
+                static_cast<int64_t>(JT->EntrySize);
+            Table["output_entry_size"] =
+                static_cast<int64_t>(JT->OutputEntrySize);
             Table["entry_count"] = static_cast<int64_t>(JT->Entries.size());
-            Table["trailing_byte_count"] =
+            Table["original_trailing_byte_count"] = static_cast<int64_t>(
+                JT->OriginalInlineTrailingByteCount);
+            Table["output_trailing_byte_count"] =
                 static_cast<int64_t>(JT->InlineTrailingBytes.size());
             json::Array Targets;
             for (const MCSymbol *Target : JT->Entries) {
@@ -3374,7 +3381,7 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
             Table["target_block_original_addresses"] = std::move(Targets);
             InlineJumpTables.push_back(std::move(Table));
             EstimatedOffset +=
-                JT->getSize() + JT->InlineTrailingBytes.size();
+                JT->getOutputSize() + JT->InlineTrailingBytes.size();
           }
         }
       }
@@ -4203,6 +4210,7 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
 
         json::Array TargetOriginals;
         json::Array TargetOutputs;
+        SmallVector<uint64_t, 8> TargetOutputAddresses;
         for (const MCSymbol *Target : JT->Entries) {
           const BinaryBasicBlock *TargetBB = BF.getBasicBlockForLabel(Target);
           if (!TargetBB ||
@@ -4223,6 +4231,7 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
                 TargetOutput += BF.getOutputAddress();
             }
           }
+          TargetOutputAddresses.push_back(TargetOutput);
           TargetOutputs.push_back(static_cast<int64_t>(TargetOutput));
         }
         json::Object Table;
@@ -4264,6 +4273,35 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
                 TableOutput = *LinkedIsland;
           }
         }
+        const uint64_t EffectiveEntrySize =
+            PublishedOriginal ? JT->EntrySize : JT->OutputEntrySize;
+        if (JT->isThumbInline()) {
+          if (EffectiveEntrySize != 1 && EffectiveEntrySize != 2)
+            return createStringError(
+                inconvertibleErrorCode(),
+                "embedded Thumb jump table in %s has invalid output entry "
+                "width %" PRIu64,
+                BF.getPrintName().c_str(), EffectiveEntrySize);
+          const uint64_t MaxEncoded =
+              EffectiveEntrySize == 1 ? UINT8_MAX : UINT16_MAX;
+          for (const uint64_t TargetOutput : TargetOutputAddresses) {
+            if (TargetOutput < BranchBaseOutput ||
+                ((TargetOutput - BranchBaseOutput) & 1) ||
+                ((TargetOutput - BranchBaseOutput) >> 1) > MaxEncoded)
+              return createStringError(
+                  inconvertibleErrorCode(),
+                  "embedded Thumb jump table in %s cannot encode final "
+                  "target 0x%" PRIx64 " from branch base 0x%" PRIx64
+                  " in %" PRIu64 " byte(s)",
+                  BF.getPrintName().c_str(), TargetOutput, BranchBaseOutput,
+                  EffectiveEntrySize);
+          }
+          if (EffectiveEntrySize == 2 && (TableOutput & 1))
+            return createStringError(
+                inconvertibleErrorCode(),
+                "embedded Thumb halfword jump table in %s is not aligned",
+                BF.getPrintName().c_str());
+        }
         Table["branch_base_original_address"] =
             JT->isThumbInline()
                 ? json::Value(static_cast<int64_t>(JT->ThumbBranchBaseAddress))
@@ -4295,13 +4333,18 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
                     JT->ThumbTablePointerAddress
                 ? json::Value(static_cast<int64_t>(TablePointerOutput))
                 : json::Value(nullptr);
-        Table["entry_size"] = static_cast<int64_t>(JT->EntrySize);
+        Table["original_entry_size"] =
+            static_cast<int64_t>(JT->EntrySize);
+        Table["output_entry_size"] =
+            static_cast<int64_t>(EffectiveEntrySize);
         Table["entry_count"] = static_cast<int64_t>(JT->Entries.size());
         Table["reference_relocations_complete"] =
             JT->Type == JumpTable::JTT_THUMB_ABS32
                 ? json::Value(JT->ThumbReferenceRelocationsComplete)
                 : json::Value(nullptr);
-        Table["trailing_byte_count"] =
+        Table["original_trailing_byte_count"] =
+            static_cast<int64_t>(JT->OriginalInlineTrailingByteCount);
+        Table["output_trailing_byte_count"] =
             static_cast<int64_t>(JT->InlineTrailingBytes.size());
         Table["target_block_original_addresses"] =
             std::move(TargetOriginals);
