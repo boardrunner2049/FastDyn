@@ -24,7 +24,7 @@ def _transfer_offsets(unit):
     return {kind: sites[0] for kind, sites in matches.items() if len(sites) == 1}
 
 
-def build_cache_directed_request(units, counts, edges, kinds):
+def build_cache_directed_request(units, counts, edges, kinds, *, include_self_loops=False):
     """Return request and count of unlocated profile edges.
 
     Only exact-count units participate. Sizes use aligned arena footprints.
@@ -34,7 +34,9 @@ def build_cache_directed_request(units, counts, edges, kinds):
     between a pair remain separate when their source offsets differ. A lookup
     hit uses a captured goto_ptr only when the source has exactly one such
     native site. A guarded source can bypass its fallback goto_ptr, so the
-    original lookup-hit counts there have no unique transfer offset.
+    original lookup-hit counts there have no unique transfer offset. Local
+    placement may request self-loops to measure a TB's own entry-to-exit
+    span. The LLVM bridge uses the default without self-loops.
     """
     nodes, slots, transfers = [], {}, {}
     for unit in units:
@@ -50,7 +52,8 @@ def build_cache_directed_request(units, counts, edges, kinds):
     weights = Counter()
     for edge in edges:
         src, dst, kind = edge["src"], edge["dst"], edge["kind"]
-        if (kind not in selected or src == dst or src not in slots or dst not in slots
+        if (kind not in selected or (src == dst and not include_self_loops)
+                or src not in slots or dst not in slots
                 or edge["status"] != "exact" or edge["flags"]):
             continue
         offset = transfers[src].get(kind)

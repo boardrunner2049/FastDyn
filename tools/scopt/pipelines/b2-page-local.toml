@@ -1,0 +1,9 @@
+schema = "scopt.pipeline"
+version = 1
+name = "b2-page-local"
+description = "Reduce predicted native prefix page crossings while preserving captured adjacency."
+allowed_capabilities = ["LAYOUT_ORDER"]
+
+[[pass]]
+name = "page-aware-local-layout"
+version = 1
