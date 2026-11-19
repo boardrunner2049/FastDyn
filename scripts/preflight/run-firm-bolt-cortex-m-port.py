@@ -71,6 +71,10 @@ M3_MEMCPY1_SPECIALIZATION_SOURCE = (
 M3_THREE_WAY_BRANCH_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_three_way_branch.s"
 )
+M3_CONDITIONAL_TAIL_CALL_SOURCE = (
+    ROOT
+    / "tests/preflight/fixtures/firm_bolt_cortex_m3_conditional_tail_call.s"
+)
 M3_TAILDUP_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_taildup.s"
 )
@@ -3473,6 +3477,23 @@ def write_m3_three_way_branch_profile(output: Path) -> Path:
     return profile
 
 
+def build_m3_conditional_tail_call_fixture(
+    output: Path, logs: Path,
+) -> Path:
+    """Build the executed native-BOLT conditional tail-call fixture."""
+    image = output / "firm-bolt-cortex-m3-conditional-tail-call-reference.elf"
+    command = [
+        str(ARM_GCC), "-mcpu=cortex-m3", "-mthumb", "-nostdlib",
+        "-Wl,--emit-relocs", f"-Wl,-T,{M3_LINKER}",
+        str(M3_CONDITIONAL_TAIL_CALL_SOURCE), "-o", str(image),
+    ]
+    require_success(
+        run(command, logs / "build-m3-conditional-tail-call.log"),
+        "M3 native conditional tail-call fixture build",
+    )
+    return image
+
+
 def build_m3_taildup_fixture(output: Path, logs: Path) -> Path:
     """Build the executed native-BOLT Thumb tail-duplication fixture."""
     image = output / "firm-bolt-cortex-m3-taildup-reference.elf"
@@ -4931,6 +4952,9 @@ def main() -> int:
     )
     m3_three_way_branch_image = build_m3_three_way_branch_fixture(output, logs)
     m3_three_way_branch_profile = write_m3_three_way_branch_profile(output)
+    m3_conditional_tail_call_image = (
+        build_m3_conditional_tail_call_fixture(output, logs)
+    )
     m3_taildup_image = build_m3_taildup_fixture(output, logs)
     m3_taildup_profile = write_m3_taildup_profile(output)
     m3_taildup_propagation_image = (
@@ -5128,6 +5152,12 @@ def main() -> int:
              f"--data={m3_three_way_branch_profile}",
              "--three-way-branch",
              "--firmbolt-allow-three-way-branch",
+             "--firmbolt-preserve-guest-instruction-count=false",
+         ]),
+        ("m3_conditional_tail_call", "cortex-m3",
+         m3_conditional_tail_call_image, {".isr_vector": None}, [
+             "--simplify-conditional-tail-calls",
+             "--firmbolt-allow-conditional-tail-calls",
              "--firmbolt-preserve-guest-instruction-count=false",
          ]),
         ("m3_taildup", "cortex-m3", m3_taildup_image,
@@ -5496,6 +5526,23 @@ def main() -> int:
                     raise RuntimeError(
                         "M3 three-way branch fixture unexpectedly cloned an "
                         "original instruction identity"
+                    )
+            if label == "m3_conditional_tail_call":
+                if int(summary["firmware_modification_reason_counts"]
+                       ["conditional_tail_call_simplification"]) != 1:
+                    raise RuntimeError(
+                        "M3 conditional tail-call fixture did not publish "
+                        "exactly one native SCTC transformation"
+                    )
+                if (
+                    int(summary[
+                        "synthesized_from_original_instruction_count"
+                    ]) != 0
+                    or int(summary["unmapped_instruction_count"]) != 0
+                ):
+                    raise RuntimeError(
+                        "M3 conditional tail-call fixture unexpectedly "
+                        "synthesized an instruction without original identity"
                     )
             if label in {"m3_taildup", "m3_taildup_propagation"}:
                 if int(summary["cloned_original_instruction_count"]) != 2:
@@ -6205,6 +6252,73 @@ def main() -> int:
                     "output_size": classified["output_size"],
                     "cloned_identity_count": 0,
                     "synthesized_identity_count": 0,
+                }
+            if label == "m3_conditional_tail_call":
+                native_fused = next(
+                    function for function in
+                    results[label]["native_pass_report"]["functions"]
+                    if function["name"] == "conditional_tail"
+                )
+                native_calls = [
+                    instruction
+                    for instruction in native_fused["instructions"]
+                    if instruction["is_call"]
+                ]
+                fused = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "conditional_tail"
+                )
+                origins = fused["instruction_origins"]
+                original_base = fused["original_address"]
+                output_base = fused["output_address"]
+                expected_mappings = [
+                    (original_base, output_base),
+                    (original_base + 2, output_base + 2),
+                    (original_base + 4, output_base + 6),
+                    (original_base + 6, output_base + 8),
+                ]
+                actual_mappings = [
+                    (origin["original_address"], origin["output_address"])
+                    for origin in origins
+                ]
+                publication = results[label]["pass_publication"]
+                if (
+                    not fused["firmware_modified"]
+                    or "conditional_tail_call_simplification" not in
+                    fused["firmware_modification_reasons"]
+                    or fused["original_size"] != 12
+                    or fused["output_size"] != 10
+                    or len(native_calls) != 1
+                    or not native_calls[0]["is_branch"]
+                    or native_calls[0]["original_address"] !=
+                    original_base + 2
+                    or native_calls[0]["symbol_references"] != [{
+                        "addend": 0,
+                        "kind": "control",
+                        "operand_index": 0,
+                        "symbol": "tail_target",
+                        "target_original_address": original_base + 12,
+                    }]
+                    or len(origins) != 4
+                    or any(
+                        origin["origin_kind"] != "original_instruction"
+                        for origin in origins
+                    )
+                    or actual_mappings != expected_mappings
+                    or publication["byte_changed_function_count"] != 1
+                    or int(summary["unmapped_instruction_count"]) != 0
+                ):
+                    raise RuntimeError(
+                        "M3 conditional tail-call fixture did not publish "
+                        "one fully attributed branch/tail-call fusion"
+                    )
+                results[label]["conditional_tail_call_validation"] = {
+                    "status": "accepted",
+                    "transformed_function": fused,
+                    "removed_tail_branch_original_address": original_base + 8,
+                    "fused_conditional_tail_call": native_calls[0],
+                    "retained_original_identity_mappings": actual_mappings,
+                    "incoming_lr_preserved_by_tail_branch": True,
                 }
             if label == "m3_rodata_load":
                 linked = next(
@@ -7951,6 +8065,27 @@ def main() -> int:
             "unadmitted Cortex-M three-way branch reordering did not reject"
         )
 
+    conditional_tail_without_contract = run(
+        [str(args.bolt.resolve()), str(m3_conditional_tail_call_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline",
+         "--simplify-conditional-tail-calls",
+         "--firmbolt-preserve-guest-instruction-count=false",
+         "-o", str(output /
+                   "must-not-emit-unadmitted-conditional-tail-call.elf")],
+        logs / "reject-unadmitted-conditional-tail-call.log",
+    )
+    if (
+        conditional_tail_without_contract.returncode == 0
+        or "Cortex-M conditional tail-call simplification fuses a branch"
+        not in (conditional_tail_without_contract.stdout +
+                conditional_tail_without_contract.stderr)
+    ):
+        raise RuntimeError(
+            "unadmitted Cortex-M conditional tail-call simplification did "
+            "not reject"
+        )
+
     taildup_without_contract = run(
         [str(args.bolt.resolve()), str(m3_taildup_image),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -8833,6 +8968,15 @@ def main() -> int:
             expected_words=(10, 20, 30),
         )
     )
+    m3_conditional_tail_call_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_conditional_tail_call_image,
+            candidates["m3_conditional_tail_call"], output,
+            args.fastdyn.resolve(), "native-conditional-tail-call",
+            expected_words=(42, 7),
+        )
+    )
     m3_taildup_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -9110,6 +9254,7 @@ def main() -> int:
             m3_inline_execution, m3_inline_memcpy_execution,
             m3_memcpy1_specialization_execution,
             m3_three_way_branch_execution,
+            m3_conditional_tail_call_execution,
             m3_taildup_execution,
             m3_taildup_propagation_execution,
             m3_rodata_load_execution,
@@ -9163,7 +9308,7 @@ def main() -> int:
                 "m0plus_call_veneer, m3_taildup and "
                 "m3_taildup_propagation, m3_inline_memcpy and "
                 "m3_memcpy1_specialization and m3_three_way_branch "
-                "fixtures; "
+                "and m3_conditional_tail_call fixtures; "
                 "m3_profile_alignment "
                 "admits executed alignment padding"
                 "; the m3_loop_inversion fixture also admits branch-count "
@@ -9184,7 +9329,8 @@ def main() -> int:
                 "explicitly admitted only for the m3_inline, "
                 "m3_inline_memcpy, m3_memcpy1_specialization, m0plus_icp, "
                 "m0plus_icp_tail, m0plus_icp_method_load, m3_icp, m3_icp_r12, "
-                "m3_icp_method_load and m3_icp_tail fixtures"
+                "m3_icp_method_load, m3_icp_tail and "
+                "m3_conditional_tail_call fixtures"
             ),
             "execution_multiplicity_changes": (
                 "explicitly admitted only for the m3_taildup, "
@@ -9192,6 +9338,9 @@ def main() -> int:
                 "m3_profile_alignment fixtures; profile-driven branch "
                 "identity, path-order and modeled-timing changes are "
                 "separately admitted for m3_three_way_branch; "
+                "branch/tail-call fusion, call identity, event-order and "
+                "modeled-timing changes are separately admitted for "
+                "m3_conditional_tail_call while incoming LR remains exact; "
                 "the propagation fixture separately admits deletion of a "
                 "register-only definition proven not live-out; executed "
                 "branch-identity "
@@ -9238,6 +9387,14 @@ def main() -> int:
                 "state, exact original instruction identities and addresses "
                 "are retained, and branch identity, path order and modeled "
                 "timing changes are admitted"
+            ),
+            "conditional_tail_call": (
+                "explicitly admitted only for m3_conditional_tail_call: one "
+                "conditional branch and one direct tail branch may fuse into "
+                "a conditional tail branch; incoming LR, non-tail return "
+                "behavior and retained instruction origins remain exact, "
+                "while branch/call identity, event order and modeled timing "
+                "changes are admitted"
             ),
         },
         "bolt_revision": revision,
@@ -9427,6 +9584,7 @@ def main() -> int:
             "unadmitted_inline_memcpy_rejected": True,
             "unadmitted_memcpy1_specialization_rejected": True,
             "unadmitted_three_way_branch_rejected": True,
+            "unadmitted_conditional_tail_call_rejected": True,
             "unadmitted_tail_duplication_rejected": True,
             "unadmitted_function_splitting_rejected": True,
             "unadmitted_block_alignment_rejected": True,
@@ -9501,6 +9659,8 @@ def main() -> int:
             m3_memcpy1_specialization_execution,
         "m3_native_three_way_branch_architectural_execution":
             m3_three_way_branch_execution,
+        "m3_native_conditional_tail_call_architectural_execution":
+            m3_conditional_tail_call_execution,
         "m3_native_tail_duplication_architectural_execution":
             m3_taildup_execution,
         "m3_native_tail_duplication_propagation_architectural_execution":
@@ -9717,6 +9877,8 @@ def main() -> int:
             str(candidates["m3_memcpy1_specialization"]),
         "m3_three_way_branch_candidate":
             str(candidates["m3_three_way_branch"]),
+        "m3_conditional_tail_call_candidate":
+            str(candidates["m3_conditional_tail_call"]),
         "m3_taildup_candidate": str(candidates["m3_taildup"]),
         "m3_taildup_propagation_candidate":
             str(candidates["m3_taildup_propagation"]),

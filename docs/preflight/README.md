@@ -129,9 +129,10 @@ function-reordering fixture, a relocation-mode PC-relative `MOVW/MOVT`
 zero-addend fixture and a separately executed non-zero-addend fixture, an
 opt-in fixed-size native `memcpy` inlining fixture, an opt-in guarded
 size-one `memcpy` specialization fixture, an opt-in profile-driven native
-three-way-branch fixture, and the
+three-way-branch fixture, an opt-in native conditional-tail-call
+simplification fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November production-parity-v134 run accepts all fifty-one without
+The 19 November production-parity-v135 run accepts all fifty-two without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -767,12 +768,12 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v134-three-way-final3-2026-11-19
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v135-conditional-tail-call-final1-2026-11-19
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v134-three-way-final3-2026-11-19/report.json),
-SHA-256 `a0327f6f189d692e054070612e7c68f6d1a50b2aad09fe007ffe21952ad53ba2`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v135-conditional-tail-call-final1-2026-11-19/report.json),
+SHA-256 `efa1d4d8ab6b78b14ae7f3ad310f427cbdae5d8510c36d56e696b829fdb61e6c`.
 The preceding v131 machine-readable
 [`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v131-pcrel-nonzero-addends-final2-2026-11-19/validation-manifest.json)
 has SHA-256
@@ -782,13 +783,13 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 has SHA-256
-`29d70b4d5d9775c0b99a0f23e83de7bfba7eb3c798a1cd4d2e6646cc85ced7fe`,
+`fd1bac8ec94da8f4730c1e98fbca1bd1a9c73a571f00675115bd19bcf0657846`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`1b54c287102d4548651b39556aa45567d3ccbf707e3e12012644d2ff7f46d18b`.
-The current combined ARM BOLT/AArch32 JITLink lit run passes 84/84
-(72 ARM and 12 JITLink). The BOLT unit executables pass 126 tests and
+`27036bf9a0c8af075387cd26d05ef22df1f4347d18ebb29431dcf09a9f465be2`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 85/85
+(73 ARM and 12 JITLink). The BOLT unit executables pass 126 tests and
 explicitly skip 138 target-inapplicable parameterizations: Core is 82/138,
 Passes is 5/0 and Profile is 39/0. The retained
 [`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v133-memcpy1-final2-2026-11-19/core-tests.xml)
@@ -1131,6 +1132,29 @@ results, not a throughput claim. The focused source regression is
 [`thumb-native-three-way-branch.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb-native-three-way-branch.s),
 and the executed fixture is
 [`firm_bolt_cortex_m3_three_way_branch.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_three_way_branch.s).
+
+v135 reuses BOLT's `SimplifyConditionalTailCalls` CFG pass, which was
+previously hard-gated to x86 even though the ARM backend now supplies its
+branch analysis, target replacement, condition reversal, tail-call annotation
+and long-branch repair dependencies. Cortex-M schedules it only when the
+ordinary option is explicitly present and
+`--firmbolt-allow-conditional-tail-calls` admits the LR,
+branch/call-identity, event-order and modeled-timing changes. Multi-entry,
+split, EH-range, vector-entry, veneer-slot, jump-table and address-stable
+functions remain excluded. In the executed M3 fixture, one conditional branch
+and one direct tail branch become a wide conditional tail branch. Incoming LR
+is unchanged, the ordinary return path remains intact, the worker shrinks
+12→10 live bytes, four retained instructions preserve exact original
+identities, and the removed tail-branch identity is recorded explicitly.
+Reference and candidate execute both paths to `(42, 7)` under FastDyn. Missing
+admission rejects before publication. The complete FOP-enabled gate is 52/52,
+ARM BOLT lit is 73/73, AArch32 JITLink lit is 12/12, and BOLT units pass 126
+parameterizations with 138 target-inapplicable skips. This is pass-integration
+and preservation evidence, not a throughput claim. The focused source
+regression is
+[`thumb-native-conditional-tail-call.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb-native-conditional-tail-call.s),
+and the executed fixture is
+[`firm_bolt_cortex_m3_conditional_tail_call.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_conditional_tail_call.s).
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

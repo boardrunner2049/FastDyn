@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..01e55620f6c2c79efb2032c8ab672600bdfa604f 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f88e4f5540465631e21e99c6a40a70e7ba0e1c89 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,66 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,67 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -166,6 +166,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..01e55620f6c2c79efb2032c8ab672600
 +    InlineMemcpy = 1U << 23,
 +    Memcpy1Specialization = 1U << 24,
 +    ThreeWayBranch = 1U << 25,
++    ConditionalTailCallSimplification = 1U << 26,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -197,7 +198,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..01e55620f6c2c79efb2032c8ab672600
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +252,17 @@ public:
+@@ -192,6 +253,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -215,7 +216,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..01e55620f6c2c79efb2032c8ab672600
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +403,54 @@ private:
+@@ -332,6 +404,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -270,7 +271,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..01e55620f6c2c79efb2032c8ab672600
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1587,70 @@ public:
+@@ -1468,6 +1588,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -341,7 +342,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..01e55620f6c2c79efb2032c8ab672600
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2117,48 @@ public:
+@@ -1934,6 +2118,48 @@ public:
      return *this;
    }
  
@@ -390,7 +391,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..01e55620f6c2c79efb2032c8ab672600
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2556,8 @@ public:
+@@ -2331,6 +2557,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -3199,7 +3200,7 @@ index ea620bb82184d2bf88d1b9d79d130e0e3d6535a7..5f6b2424f39163db9ff858d8c3590721
    BC.outs() << "BOLT-INFO: Allocation combiner: " << NumCombined
              << " empty spaces coalesced (dyn count: " << DynamicCountCombined
 diff --git a/bolt/lib/Passes/BinaryPasses.cpp b/bolt/lib/Passes/BinaryPasses.cpp
-index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86deb9fa4ff 100644
+index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4caa9f23566 100644
 --- a/bolt/lib/Passes/BinaryPasses.cpp
 +++ b/bolt/lib/Passes/BinaryPasses.cpp
 @@ -14,6 +14,7 @@
@@ -3210,7 +3211,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
  #include "bolt/Passes/RegAnalysis.h"
  #include "bolt/Passes/ReorderAlgorithm.h"
  #include "bolt/Passes/ReorderFunctions.h"
-@@ -111,6 +112,32 @@ static cl::list<Peepholes::PeepholeOpts> Peepholes(
+@@ -111,6 +112,38 @@ static cl::list<Peepholes::PeepholeOpts> Peepholes(
                            "enable all peephole optimizations")),
      cl::cat(BoltOptCategory));
  
@@ -3240,10 +3241,16 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
 +             "caller-clobber, branch/call-event and fault/event contract"),
 +    cl::init(false), cl::Hidden, cl::cat(BoltOptCategory));
 +
++static cl::opt<bool> FirmBOLTAllowConditionalTailCalls(
++    "firmbolt-allow-conditional-tail-calls",
++    cl::desc("allow qualified Cortex-M conditional tail-call fusion under "
++             "an admitted branch/call-event, LR and modeled-timing contract"),
++    cl::init(false), cl::Hidden, cl::cat(BoltOptCategory));
++
  static cl::opt<unsigned>
      PrintFuncStat("print-function-statistics",
                    cl::desc("print statistics about basic block ordering"),
-@@ -243,7 +270,7 @@ namespace bolt {
+@@ -243,7 +276,7 @@ namespace bolt {
  
  bool BinaryFunctionPass::shouldOptimize(const BinaryFunction &BF) const {
    return BF.isSimple() && BF.getState() == BinaryFunction::State::CFG &&
@@ -3252,7 +3259,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
  }
  
  bool BinaryFunctionPass::shouldPrint(const BinaryFunction &BF) const {
-@@ -323,6 +350,10 @@ void NormalizeCFG::runOnFunction(BinaryFunction &BF) {
+@@ -323,6 +356,10 @@ void NormalizeCFG::runOnFunction(BinaryFunction &BF) {
    if (NumDuplicateEdges || NeedsFixBranches)
      BF.fixBranches();
  
@@ -3263,7 +3270,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
    NumDuplicateEdgesMerged += NumDuplicateEdges;
    NumBlocksRemoved += NumRemoved;
  }
-@@ -368,6 +399,9 @@ void EliminateUnreachableBlocks::runOnFunction(BinaryFunction &Function) {
+@@ -368,6 +405,9 @@ void EliminateUnreachableBlocks::runOnFunction(BinaryFunction &Function) {
    if (Count) {
      auto L = BC.scopeLock();
      Modified.insert(&Function);
@@ -3273,7 +3280,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
      if (opts::Verbosity > 0)
        BC.outs() << "BOLT-INFO: removed " << Count
                  << " dead basic block(s) accounting for " << Bytes
-@@ -428,6 +462,9 @@ Error ReorderBasicBlocks::runOnFunctions(BinaryContext &BC) {
+@@ -428,6 +468,9 @@ Error ReorderBasicBlocks::runOnFunctions(BinaryContext &BC) {
      const bool LayoutChanged =
          modifyFunctionLayout(BF, opts::ReorderBlocks, opts::MinBranchClusters);
      if (LayoutChanged) {
@@ -3283,7 +3290,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
        ModifiedFuncCount.fetch_add(1, std::memory_order_relaxed);
        if (opts::PrintFuncStat > 0) {
          const uint64_t Distance = BF.getLayout().getEditDistance(OldBlockOrder);
-@@ -563,18 +600,53 @@ Error FixupBranches::runOnFunctions(BinaryContext &BC) {
+@@ -563,18 +606,53 @@ Error FixupBranches::runOnFunctions(BinaryContext &BC) {
    if (ShouldRunRegisterAnalysis)
      RA.emplace(BC, nullptr, nullptr);
  
@@ -3342,7 +3349,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
    }
    return Error::success();
  }
-@@ -653,7 +725,7 @@ Error FinalizeFunctions::runOnFunctions(BinaryContext &BC) {
+@@ -653,7 +731,7 @@ Error FinalizeFunctions::runOnFunctions(BinaryContext &BC) {
  }
  
  Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
@@ -3351,7 +3358,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
      return Error::success();
  
    // If the function wouldn't fit, mark it as non-simple. Otherwise, we may emit
-@@ -663,17 +735,27 @@ Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
+@@ -663,17 +741,27 @@ Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
      std::tie(HotSize, ColdSize) =
          BC.calculateEmittedSize(BF, /*FixBranches=*/false);
      uint64_t MainFragmentSize = HotSize;
@@ -3386,7 +3393,44 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
        BF.setSimple(false);
      }
    };
-@@ -1138,8 +1220,11 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
+@@ -1104,18 +1192,35 @@ uint64_t SimplifyConditionalTailCalls::fixTailCalls(BinaryFunction &BF) {
+ }
+ 
+ Error SimplifyConditionalTailCalls::runOnFunctions(BinaryContext &BC) {
+-  if (!BC.isX86())
++  if (!BC.isX86() && !BC.isARM())
+     return Error::success();
+ 
++  if (BC.isARM() && !opts::FirmBOLTAllowConditionalTailCalls)
++    return createStringError(
++        inconvertibleErrorCode(),
++        "Cortex-M conditional tail-call simplification fuses a branch and "
++        "tail call and changes branch/call identity, event order and modeled "
++        "timing; add --firmbolt-allow-conditional-tail-calls only for an "
++        "admitted LR, branch/call-event and schedule contract");
++
+   for (auto &It : BC.getBinaryFunctions()) {
+     BinaryFunction &Function = It.second;
+ 
+     if (!shouldOptimize(Function))
+       continue;
++    if (BC.isARM() &&
++        (Function.isMultiEntry() || Function.isSplit() ||
++         Function.hasEHRanges() || Function.isCortexMVectorEntry() ||
++         Function.isFirmwareVeneerSlot() || Function.hasJumpTables()))
++      continue;
+ 
+     if (fixTailCalls(Function)) {
+       Modified.insert(&Function);
+       Function.setHasCanonicalCFG(false);
++      if (BC.isARM())
++        Function.setFirmwareModified(
++            BinaryFunction::FirmwareModification::
++                ConditionalTailCallSimplification);
+     }
+   }
+ 
+@@ -1138,8 +1243,11 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
    const BinaryContext &BC = Function.getBinaryContext();
    for (BinaryBasicBlock &BB : Function) {
      for (MCInst &Inst : BB) {
@@ -3400,7 +3444,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
          continue;
  
        MCInst OriginalInst;
-@@ -1166,12 +1251,28 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
+@@ -1166,12 +1274,28 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
  
  Error ShortenInstructions::runOnFunctions(BinaryContext &BC) {
    std::atomic<uint64_t> NumShortened{0};
@@ -3431,7 +3475,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
        nullptr, "ShortenInstructions");
  
    if (NumShortened)
-@@ -1226,15 +1327,42 @@ Error Peepholes::runOnFunctions(BinaryContext &BC) {
+@@ -1226,15 +1350,42 @@ Error Peepholes::runOnFunctions(BinaryContext &BC) {
    if (Opts == PEEP_NONE)
      return Error::success();
  
@@ -3475,7 +3519,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
        assert(Function.validateCFG());
      }
    }
-@@ -1303,6 +1431,8 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1303,6 +1454,8 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
            BC.getSectionForAddress(TargetAddress);
        if (!DataSection || DataSection->isWritable())
          continue;
@@ -3484,7 +3528,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
  
        if (DataSection->isText()) {
          // If data is not part of a function, check if it is part of a global CI
-@@ -1320,9 +1450,23 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1320,9 +1473,23 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
            continue;
        }
  
@@ -3510,7 +3554,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
  
        ++NumLocalLoadsFound;
        if (BB->hasProfile())
-@@ -1330,11 +1474,18 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1330,11 +1497,18 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
  
        uint32_t Offset = TargetAddress - DataSection->getAddress();
        StringRef ConstantData = DataSection->getContents();
@@ -3530,7 +3574,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
        It = std::next(BB->replaceInstruction(It, Instrs), Instrs.size() - 1);
  
        ++NumLocalLoadsSimplified;
-@@ -1352,8 +1503,20 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1352,8 +1526,20 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
  }
  
  Error SimplifyRODataLoads::runOnFunctions(BinaryContext &BC) {
@@ -3551,7 +3595,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
      if (shouldOptimize(Function) && simplifyRODataLoads(Function))
        Modified.insert(&Function);
    }
-@@ -1918,21 +2081,41 @@ Error StripRepRet::runOnFunctions(BinaryContext &BC) {
+@@ -1918,21 +2104,41 @@ Error StripRepRet::runOnFunctions(BinaryContext &BC) {
  }
  
  Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
@@ -3596,7 +3640,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
          if (CalleeSymbol->getName() != "memcpy" &&
              CalleeSymbol->getName() != "memcpy@PLT" &&
              CalleeSymbol->getName() != "_memcpy8")
-@@ -1941,23 +2124,55 @@ Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
+@@ -1941,23 +2147,55 @@ Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
          const bool IsMemcpy8 = (CalleeSymbol->getName() == "_memcpy8");
          const bool IsTailCall = BC.MIB->isTailCall(Inst);
  
@@ -3658,7 +3702,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
  
          ++NumInlined;
          NumInlinedDyno += BB.getKnownExecutionCount();
-@@ -2014,12 +2229,20 @@ std::set<size_t> SpecializeMemcpy1::getCallSitesToOptimize(
+@@ -2014,12 +2252,20 @@ std::set<size_t> SpecializeMemcpy1::getCallSitesToOptimize(
  }
  
  Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
@@ -3681,7 +3725,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
    uint64_t NumSpecialized = 0;
    uint64_t NumSpecializedDyno = 0;
    for (auto &BFI : BC.getBinaryFunctions()) {
-@@ -2038,11 +2261,16 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2038,11 +2284,16 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
        for (auto II = CurBB->begin(); II != CurBB->end(); ++II) {
          MCInst &Inst = *II;
  
@@ -3700,7 +3744,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
          if (CalleeSymbol->getName() != "memcpy" &&
              CalleeSymbol->getName() != "memcpy@PLT")
            continue;
-@@ -2057,6 +2285,7 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2057,6 +2308,7 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
  
          // Create a copy of a call to memcpy(dest, src, size).
          MCInst MemcpyInstr = Inst;
@@ -3708,7 +3752,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
  
          BinaryBasicBlock *OneByteMemcpyBB = CurBB->splitAt(II);
  
-@@ -2075,6 +2304,9 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2075,6 +2327,9 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
          InstructionListType CmpJCC =
              BC.MIB->createCmpJE(BC.MIB->getIntArgRegister(2), 1,
                                  OneByteMemcpyBB->getLabel(), BC.Ctx.get());
@@ -3718,7 +3762,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
          CurBB->addInstructions(CmpJCC);
          CurBB->addSuccessor(MemcpyBB);
  
-@@ -2089,8 +2321,15 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2089,8 +2344,15 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
            MemcpyBB->setExecutionCount(1);
  
          InstructionListType OneByteMemcpy = BC.MIB->createOneByteMemcpy();
@@ -3734,7 +3778,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86d
          ++NumSpecialized;
          NumSpecializedDyno += CurBB->getKnownExecutionCount();
  
-@@ -2115,13 +2354,18 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2115,13 +2377,18 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
  
  void RemoveNops::runOnFunction(BinaryFunction &BF) {
    const BinaryContext &BC = BF.getBinaryContext();
@@ -3768,10 +3812,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..1fd36ce5143d4052314dc28872f88f5066b28614
+index 0000000000000000000000000000000000000000..588429e29ebfd217b4b80e4e90ec10a30fc5666e
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4810 @@
+@@ -0,0 +1,4812 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -4030,7 +4074,7 @@ index 0000000000000000000000000000000000000000..1fd36ce5143d4052314dc28872f88f50
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 26>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 27>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -4072,6 +4116,8 @@ index 0000000000000000000000000000000000000000..1fd36ce5143d4052314dc28872f88f50
 +        {FirmwareModification::Memcpy1Specialization,
 +         "memcpy1_specialization"},
 +        {FirmwareModification::ThreeWayBranch, "three_way_branch"},
++        {FirmwareModification::ConditionalTailCallSimplification,
++         "conditional_tail_call_simplification"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -10704,7 +10750,7 @@ index 8f95ddb0fc630d07a9eddc056a51dfe109c23885..093908fbda28277266f1913f32ec59b2
      BinaryFunction &Function = It.second;
      if (!shouldRunOnFunction(Function))
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..fd71e1de100b1da59daea3a5eeaed328c6ca3a6b 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..23d468d73eaf33b4367f3f622f4907577a6b5059 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -10736,7 +10782,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..fd71e1de100b1da59daea3a5eeaed328
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +380,163 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -372,6 +380,170 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -10786,7 +10832,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..fd71e1de100b1da59daea3a5eeaed328
 +             "firmware constraints, reference validation, admitted native "
 +             "indirect-call promotion, inlining, fixed-size and size-one "
 +             "specialized memcpy, three-way branch reordering, tail "
-+             "duplication and "
++             "duplication, conditional tail-call simplification and "
 +             "control-flow peepholes, "
 +             "shortening, NOP "
 +             "cleanup, CFG normalization, block layout, unreachable-code "
@@ -10862,6 +10908,13 @@ index 18c84468b04ce23388d824e28c0029be48789a45..fd71e1de100b1da59daea3a5eeaed328
 +    if (BC.HasRelocations)
 +      Manager.registerPass(
 +          std::make_unique<ReorderFunctions>(PrintReorderedFunctions));
++    // The hosted pipeline enables SCTC by default. Firmware instead requires
++    // an explicit request because fusing the local branch with the tail call
++    // removes one guest event and changes the original call identity.
++    if (opts::SimplifyConditionalTailCalls.getNumOccurrences() &&
++        opts::SimplifyConditionalTailCalls)
++      Manager.registerPass(
++          std::make_unique<SimplifyConditionalTailCalls>(PrintSCTC));
 +    Manager.registerPass(std::make_unique<PopulateOutputFunctions>());
 +    if (BC.HasRelocations)
 +      Manager.registerPass(std::make_unique<SplitFunctions>(PrintSplit));
@@ -10900,7 +10953,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..fd71e1de100b1da59daea3a5eeaed328
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +572,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +579,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -10918,7 +10971,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..fd71e1de100b1da59daea3a5eeaed328
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -454,6 +630,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -454,6 +637,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
                         opts::RegReAssign);
  
    Manager.registerPass(std::make_unique<Inliner>(PrintInline));
@@ -10928,7 +10981,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..fd71e1de100b1da59daea3a5eeaed328
  
    Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
                         opts::ICF != IdenticalCodeFolding::ICFLevel::None);
-@@ -554,6 +733,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -554,6 +740,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -10938,7 +10991,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..fd71e1de100b1da59daea3a5eeaed328
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +750,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +757,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -19323,6 +19376,87 @@ index 0000000000000000000000000000000000000000..be9694630c66d306d493dd4feffd9b24
 +  movs r0, #0
 +  bx lr
 +  .size flags_live_switch, .-flags_live_switch
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-native-conditional-tail-call.s b/bolt/test/ARM/thumb-native-conditional-tail-call.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..21315ba1312ea2d2a08f032b684aa1d3dc015ade
+--- /dev/null
++++ b/bolt/test/ARM/thumb-native-conditional-tail-call.s
+@@ -0,0 +1,75 @@
++## BOLT's SimplifyConditionalTailCalls pass fuses a conditional branch with
++## a one-instruction tail-call block. Firm-BOLT qualifies the generic pass for
++## Cortex-M only when LR and the changed branch/call event sequence are admitted.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --simplify-conditional-tail-calls \
++# RUN:   -o %t.denied 2>&1 | FileCheck %s --check-prefix=DENIED
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --simplify-conditional-tail-calls \
++# RUN:   --firmbolt-allow-conditional-tail-calls \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=conditional_tail \
++# RUN:   %t.bolt | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.json')); l=json.load(open('%t.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='conditional_tail'); lf=next(x for x in l['functions'] if x['name']=='conditional_tail'); print(f['firmware_modified'],'conditional_tail_call_simplification' in f['firmware_modification_reasons'],f['original_size'],lf['output_size'],len(lf['instruction_origins']),d['summary']['unmapped_instruction_count'])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# DENIED: Cortex-M conditional tail-call simplification fuses a branch and tail call
++# LOG: BOLT-INFO: SCTC: patched 1 tail calls
++# DISASM: <conditional_tail>:
++# DISASM: cmp r0, #0x0
++# DISASM-NEXT: beq
++# DISASM: movs r0, #0x7
++# DISASM-NEXT: bx lr
++# DISASM-NOT: b.w
++# REPORT: True True 12 10 4 0
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  movs r0, #0
++  bl conditional_tail
++  movs r0, #1
++  bl conditional_tail
++1:
++  b 1b
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl conditional_tail
++  .type conditional_tail,%function
++  .thumb_func
++conditional_tail:
++  cmp r0, #0
++  beq 1f
++  movs r0, #7
++  bx lr
++1:
++  b tail_target
++  .size conditional_tail, .-conditional_tail
++
++  .globl tail_target
++  .type tail_target,%function
++  .thumb_func
++tail_target:
++  movs r0, #42
++  bx lr
++  .size tail_target, .-tail_target
 +
 +  .section .isr_vector,"a",%progbits
 +  .globl g_pfnVectors
