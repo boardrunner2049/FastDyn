@@ -131,9 +131,10 @@ opt-in fixed-size native `memcpy` inlining fixture, an opt-in guarded
 size-one `memcpy` specialization fixture, an opt-in profile-driven native
 three-way-branch fixture, an opt-in native conditional-tail-call
 simplification fixture, an opt-in profile-driven Thumb IT conditional-move
-fixture, an Armv6-M conditional-move retention fixture, and the
+fixture, an Armv6-M conditional-move retention fixture, an opt-in target-aware
+Thumb-2 register-reassignment fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November production-parity-v137 run accepts all fifty-four without
+The 19 November production-parity-v138 run accepts all fifty-five without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -769,15 +770,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v137-thumb1-conditional-move
+  --output build/preflight/firm-bolt-cortex-m-v138-register-reassignment
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v137-thumb1-conditional-move/report.json),
-SHA-256 `5b82f48746679cf0de8a358df70b77bc3510e051410ba9c0d18a938f4f2ac4f4`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/report.json),
+SHA-256 `5fe5513eb2732d22329cb366b45f20818929c2a80daae70f113c8caa96077844`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v137-thumb1-conditional-move/validation-manifest.json),
-SHA-256 `ab4afb33bfb4a7e525504265868ef071dc0462b45dd5df33e58e609072f30d5d`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/validation-manifest.json),
+SHA-256 `29982bc6baf157c5f21a7288a5b4c41998cc440b3d1910cad94758f9c3295cda`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -789,22 +790,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`bcb226c9e789e79d437f3f3388e1d84f6f97fc6c421f4c48c59306090d4291b8`,
+`892c36950fafff1678bf7673495a809c70c06fb5777f5d25d3d8d8ed8f905c54`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`77546a76b66a5e75835f5485e636d7d9a92d7a08cc8bc11f67a67dcede5d39b8`.
-The current combined ARM BOLT/AArch32 JITLink lit run passes 87/87
-(75 ARM and 12 JITLink). The BOLT unit executables pass 127 tests and
-explicitly skip 141 target-inapplicable parameterizations: Core is 83/141,
+`317c6b15c783f9deb74a31c8757b7f719b81a0b1b9300c00489db66c81ff8b78`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 88/88
+(76 ARM and 12 JITLink). The BOLT unit executables pass 128 tests and
+explicitly skip 144 target-inapplicable parameterizations: Core is 84/144,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v133-memcpy1-final2-2026-11-19/core-tests.xml)
-has SHA-256 (the immediately preceding v133 run)
-`982d7f70982916a555646edbf238f7e39eef2611a63efab53d93aa32db3eb5ed`;
-the combined
-[`arm-and-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v133-memcpy1-final2-2026-11-19/arm-and-jitlink-lit.xml)
-has SHA-256 (the immediately preceding v133 run)
-`e8ea1420ab774122b56f85e5b26b3681cb5dd03797169f5770f0ee6747faa461`.
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/core-tests.xml)
+has SHA-256
+`9b164ebcb106df52189cf51edb4a659abee2ce5c98075bd1aba768d084b74f5c`;
+the ARM and JITLink results are
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/arm-bolt-lit.xml)
+and
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/aarch32-jitlink-lit.xml),
+with SHA-256 values
+`074fb8ea1d8b2fa409a16cad91fedacacf6102da5abced5cfd194a51a9c4bcdb`
+and `77faefcc63286dd1099fd782de0814ae883a3b5e8742617e55942312caba0a9c`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1203,6 +1207,33 @@ and the executed fixtures are
 [`firm_bolt_cortex_m3_conditional_move.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_conditional_move.s)
 and
 [`firm_bolt_cortex_m0plus_conditional_move.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m0plus_conditional_move.s).
+
+v138 adapts BOLT's existing `RegReAssign` pass instead of introducing a
+parallel optimizer.  The upstream profitability model is x86-specific: it
+ranks classic and extended registers by REX-prefix cost.  Firm-BOLT adds a
+target interface for candidate register pairs, exact operand-class legality,
+target re-encoding and per-instruction byte savings.  The first qualified
+Thumb-2 policy exchanges only ordinary AAPCS callee-saved R4--R6 with R8 or
+R10.  It excludes R7/R11 frame-pointer roles, the possible R9 platform
+register, implicit uses/defs, CFI, ARM EHABI, vector handlers, multi-entry or
+split functions, jump tables, veneers and address-stable layouts.  Narrow
+instructions that cannot encode the exchanged high register reject the whole
+function rather than being partially renamed.  The option remains off unless
+`--firmbolt-allow-register-reassignment` admits transient register-state,
+interrupt-opportunity and modeled-timing changes.
+
+The executed Cortex-M3 worker exchanges R8 with R4 and narrows four wide
+load/store encodings.  Its live body shrinks 26→18 bytes, all eight original
+instruction identities remain mapped, and reference/candidate execution both
+produce RAM words `(42, 4, 8)`, including exact final R4 and R8 values.  The
+missing-contract control rejects before publication.  The complete gate is
+55/55; ARM BOLT lit is 76/76, AArch32 JITLink lit is 12/12, and BOLT units
+report 128 passes plus 144 target-inapplicable skips.  This demonstrates a
+real target-specific compact-encoding mechanism and preservation boundary; it
+does not establish a whole-firmware speedup.  The focused source regression is
+[`thumb-native-register-reassignment.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb-native-register-reassignment.s),
+and the executed fixture is
+[`firm_bolt_cortex_m3_register_reassignment.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_register_reassignment.s).
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

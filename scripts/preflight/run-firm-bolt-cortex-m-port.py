@@ -78,6 +78,10 @@ M3_CONDITIONAL_TAIL_CALL_SOURCE = (
 M3_CONDITIONAL_MOVE_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_conditional_move.s"
 )
+M3_REGISTER_REASSIGNMENT_SOURCE = (
+    ROOT
+    / "tests/preflight/fixtures/firm_bolt_cortex_m3_register_reassignment.s"
+)
 M3_TAILDUP_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_taildup.s"
 )
@@ -3528,6 +3532,23 @@ def write_m3_conditional_move_profile(output: Path) -> Path:
     return profile
 
 
+def build_m3_register_reassignment_fixture(
+    output: Path, logs: Path,
+) -> Path:
+    """Build the executed target-aware register-reassignment fixture."""
+    image = output / "firm-bolt-cortex-m3-register-reassignment-reference.elf"
+    command = [
+        str(ARM_GCC), "-mcpu=cortex-m3", "-mthumb", "-nostdlib",
+        "-Wl,--emit-relocs", f"-Wl,-T,{M3_LINKER}",
+        str(M3_REGISTER_REASSIGNMENT_SOURCE), "-o", str(image),
+    ]
+    require_success(
+        run(command, logs / "build-m3-register-reassignment.log"),
+        "M3 native register-reassignment fixture build",
+    )
+    return image
+
+
 def build_m3_taildup_fixture(output: Path, logs: Path) -> Path:
     """Build the executed native-BOLT Thumb tail-duplication fixture."""
     image = output / "firm-bolt-cortex-m3-taildup-reference.elf"
@@ -5020,6 +5041,9 @@ def main() -> int:
     )
     m3_conditional_move_image = build_m3_conditional_move_fixture(output, logs)
     m3_conditional_move_profile = write_m3_conditional_move_profile(output)
+    m3_register_reassignment_image = (
+        build_m3_register_reassignment_fixture(output, logs)
+    )
     m3_taildup_image = build_m3_taildup_fixture(output, logs)
     m3_taildup_profile = write_m3_taildup_profile(output)
     m3_taildup_propagation_image = (
@@ -5242,6 +5266,11 @@ def main() -> int:
              "--cmov-conversion-bias-threshold=-1",
              "--firmbolt-allow-conditional-moves",
              "--firmbolt-preserve-guest-instruction-count=false",
+         ]),
+        ("m3_register_reassignment", "cortex-m3",
+         m3_register_reassignment_image, {".isr_vector": None}, [
+             "--reg-reassign",
+             "--firmbolt-allow-register-reassignment",
          ]),
         ("m3_taildup", "cortex-m3", m3_taildup_image,
          {".isr_vector": None}, [
@@ -5643,6 +5672,23 @@ def main() -> int:
                     raise RuntimeError(
                         "M3 conditional-move fixture did not attribute its "
                         "IT instruction to the removed branch identity"
+                    )
+            if label == "m3_register_reassignment":
+                if int(summary["firmware_modification_reason_counts"]
+                       ["register_reassignment"]) != 1:
+                    raise RuntimeError(
+                        "M3 register-reassignment fixture did not publish "
+                        "exactly one target-aware register exchange"
+                    )
+                if (
+                    int(summary[
+                        "synthesized_from_original_instruction_count"
+                    ]) != 0
+                    or int(summary["unmapped_instruction_count"]) != 0
+                ):
+                    raise RuntimeError(
+                        "M3 register-reassignment fixture changed exact "
+                        "instruction identity cardinality"
                     )
             if label == "m0plus_conditional_move":
                 if (
@@ -6477,6 +6523,55 @@ def main() -> int:
                     "retained_original_identity_count": len(originals),
                     "flag_setting_moves_rejected": True,
                     "maximum_it_slots": 4,
+                }
+            if label == "m3_register_reassignment":
+                worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "worker"
+                )
+                origins = worker["instruction_origins"]
+                original_base = worker["original_address"]
+                output_base = worker["output_address"]
+                expected_mappings = [
+                    (original_base + original_offset,
+                     output_base + output_offset)
+                    for original_offset, output_offset in (
+                        (0, 0), (2, 2), (6, 4), (10, 8),
+                        (14, 10), (18, 12), (22, 14), (24, 16),
+                    )
+                ]
+                actual_mappings = [
+                    (origin.get("original_address"),
+                     origin["output_address"])
+                    for origin in origins
+                ]
+                if (
+                    not worker["firmware_modified"]
+                    or worker["firmware_modification_reasons"] !=
+                    ["register_reassignment"]
+                    or worker["original_size"] != 26
+                    or worker["output_size"] != 18
+                    or len(origins) != 8
+                    or any(
+                        origin["origin_kind"] != "original_instruction"
+                        for origin in origins
+                    )
+                    or actual_mappings != expected_mappings
+                    or results[label]["pass_publication"]
+                    ["byte_changed_function_count"] != 1
+                ):
+                    raise RuntimeError(
+                        "M3 register-reassignment fixture did not publish "
+                        "one fully attributed 26-to-18-byte exchange"
+                    )
+                results[label]["register_reassignment_validation"] = {
+                    "status": "accepted",
+                    "transformed_function": worker,
+                    "register_pair": ["r4", "r8"],
+                    "static_bytes_saved": 8,
+                    "retained_original_identity_mappings": actual_mappings,
+                    "excluded_registers": ["r7", "r9", "r11"],
+                    "cfi_ehabi_and_vector_entries_excluded": True,
                 }
             if label == "m0plus_conditional_move":
                 selected = next(
@@ -8310,6 +8405,24 @@ def main() -> int:
             "unadmitted Cortex-M conditional-move conversion did not reject"
         )
 
+    register_reassignment_without_contract = run(
+        [str(args.bolt.resolve()), str(m3_register_reassignment_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline", "--reg-reassign",
+         "-o", str(output /
+                   "must-not-emit-unadmitted-register-reassignment.elf")],
+        logs / "reject-unadmitted-register-reassignment.log",
+    )
+    if (
+        register_reassignment_without_contract.returncode == 0
+        or "Cortex-M register reassignment changes transient register state"
+        not in (register_reassignment_without_contract.stdout +
+                register_reassignment_without_contract.stderr)
+    ):
+        raise RuntimeError(
+            "unadmitted Cortex-M register reassignment did not reject"
+        )
+
     m0_conditional_move_without_contract = run(
         [str(args.bolt.resolve()), str(m0_conditional_move_image),
          "--firmbolt-cortex-m-cpu=cortex-m0plus",
@@ -9243,6 +9356,15 @@ def main() -> int:
             expected_words=(42, 7),
         )
     )
+    m3_register_reassignment_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_register_reassignment_image,
+            candidates["m3_register_reassignment"], output,
+            args.fastdyn.resolve(), "native-register-reassignment",
+            expected_words=(42, 4, 8),
+        )
+    )
     m3_taildup_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -9523,6 +9645,7 @@ def main() -> int:
             m3_three_way_branch_execution,
             m3_conditional_tail_call_execution,
             m3_conditional_move_execution,
+            m3_register_reassignment_execution,
             m3_taildup_execution,
             m3_taildup_propagation_execution,
             m3_rodata_load_execution,
@@ -9681,6 +9804,17 @@ def main() -> int:
                 "Mainline CPUs are limited to one-slot IT blocks, while "
                 "Armv6-M and Armv8-M Baseline CPUs have no IT instruction "
                 "and retain the original branch"
+            ),
+            "register_reassignment": (
+                "explicitly admitted only for m3_register_reassignment: "
+                "whole-function R4-R6/R8-R10 name exchanges may change "
+                "transient register state and instruction widths, but both "
+                "AAPCS callee-saved values and exact instruction identities "
+                "must be restored at exit; there is no instruction-boundary "
+                "register observer or admitted interrupt inside the region; "
+                "R7/R11 frame-pointer roles, R9 platform-register semantics, "
+                "CFI, EHABI, vector entries, split/multi-entry functions, "
+                "jump tables and address-stable layouts remain unchanged"
             ),
         },
         "bolt_revision": revision,
@@ -9888,6 +10022,7 @@ def main() -> int:
             "unadmitted_three_way_branch_rejected": True,
             "unadmitted_conditional_tail_call_rejected": True,
             "unadmitted_conditional_move_rejected": True,
+            "unadmitted_register_reassignment_rejected": True,
             "unadmitted_thumb1_conditional_move_rejected": True,
             "unadmitted_tail_duplication_rejected": True,
             "unadmitted_function_splitting_rejected": True,
@@ -9969,6 +10104,8 @@ def main() -> int:
             m3_conditional_tail_call_execution,
         "m3_native_conditional_move_architectural_execution":
             m3_conditional_move_execution,
+        "m3_native_register_reassignment_architectural_execution":
+            m3_register_reassignment_execution,
         "m3_native_tail_duplication_architectural_execution":
             m3_taildup_execution,
         "m3_native_tail_duplication_propagation_architectural_execution":
@@ -10104,6 +10241,7 @@ def main() -> int:
                 "opt-in native BOLT inlining for direct Thumb calls with protected call-boundary admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT tail duplication for profiled Thumb blocks with execution-multiplicity admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in register-only constant/copy propagation after Thumb tail duplication under a separate definition-deletion contract, with descriptor-aware Thumb MOV source discovery, encoding-class-checked replacements, exact retained/clone identities, compact publication and Cortex-M3 hot/cold execution",
+                "opt-in native BOLT register reassignment for qualified Thumb-2 AAPCS callee-saved R4-R6/R8-R10 pairs, using exact target operand-class validation and wide-to-narrow load/store re-encoding under an explicit transient-register/interrupt-observer contract, with R7/R9/R11, CFI, EHABI, vector, split, multi-entry, jump-table and address-stable exclusions, exact origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT read-only-load simplification for linked allocatable non-writable relocation-free scalar data on Thumb-2, using flag-preserving MOVW/MOVT materialization under an explicit read/fault/timing-elision contract, exact transformed-source origins, compact in-place emission, and Cortex-M3 execution",
                 "explicit ARM relocation mode with native BOLT user-directed, profile exec-count and call-graph CDSort whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
                 "native BOLT HFSort and Pettis-Hansen call-graph clustering, distinguished from exec-count and CDSort under one frozen profile, with linked caller/callee adjacency, repaired direct calls, exact relocation/origin ledgers, separately accounted linker alignment slack, unchanged executable PT_LOAD ranges, and Cortex-M3 execution",
@@ -10191,6 +10329,8 @@ def main() -> int:
             str(candidates["m3_conditional_tail_call"]),
         "m3_conditional_move_candidate":
             str(candidates["m3_conditional_move"]),
+        "m3_register_reassignment_candidate":
+            str(candidates["m3_register_reassignment"]),
         "m3_taildup_candidate": str(candidates["m3_taildup"]),
         "m3_taildup_propagation_candidate":
             str(candidates["m3_taildup_propagation"]),

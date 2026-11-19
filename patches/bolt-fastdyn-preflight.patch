@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..02084c89613325b2b2c17bdc2ed648789841f2b9 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..fce13f3d79c2379c8f1fab96f7db3f192908dace 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,68 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,69 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -168,6 +168,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..02084c89613325b2b2c17bdc2ed64878
 +    ThreeWayBranch = 1U << 25,
 +    ConditionalTailCallSimplification = 1U << 26,
 +    ConditionalMoveConversion = 1U << 27,
++    RegisterReassignment = 1U << 28,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -199,7 +200,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..02084c89613325b2b2c17bdc2ed64878
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +254,17 @@ public:
+@@ -192,6 +255,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -217,7 +218,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..02084c89613325b2b2c17bdc2ed64878
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +405,54 @@ private:
+@@ -332,6 +406,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -272,7 +273,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..02084c89613325b2b2c17bdc2ed64878
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1589,70 @@ public:
+@@ -1468,6 +1590,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -343,7 +344,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..02084c89613325b2b2c17bdc2ed64878
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2119,48 @@ public:
+@@ -1934,6 +2120,48 @@ public:
      return *this;
    }
  
@@ -392,7 +393,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..02084c89613325b2b2c17bdc2ed64878
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2558,8 @@ public:
+@@ -2331,6 +2559,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -506,7 +507,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a172af7971 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..97d43d99616016f83e8e4bb944f3a30402d87695 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -517,7 +518,15 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a1
  #include "llvm/ADT/StringMap.h"
  #include "llvm/CodeGen/TargetOpcodes.h"
  #include "llvm/MC/MCAsmBackend.h"
-@@ -53,6 +54,77 @@ class BinaryBasicBlock;
+@@ -38,6 +39,7 @@
+ #include <map>
+ #include <optional>
+ #include <system_error>
++#include <utility>
+ #include <unordered_map>
+ #include <unordered_set>
+ 
+@@ -53,6 +55,77 @@ class BinaryBasicBlock;
  class BinaryContext;
  class BinaryFunction;
  
@@ -595,7 +604,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a1
  /// Different types of indirect branches encountered during disassembly.
  enum class IndirectBranchType : char {
    UNKNOWN = 0,             /// Unable to determine type.
-@@ -367,6 +439,35 @@ public:
+@@ -367,6 +440,35 @@ public:
      initSizeMap();
    }
  
@@ -631,7 +640,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a1
    /// Create and return a target-specific MC symbolizer for the \p Function.
    /// When \p CreateNewSymbols is set, the symbolizer can create new symbols
    /// e.g. for jump table references.
-@@ -1170,6 +1271,18 @@ public:
+@@ -1170,6 +1272,18 @@ public:
      return false;
    }
  
@@ -650,7 +659,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a1
    /// Return a number of the operand representing a memory.
    /// Return -1 if the instruction doesn't have an explicit memory field.
    virtual int getMemoryOperandNo(const MCInst &Inst) const {
-@@ -1177,6 +1290,22 @@ public:
+@@ -1177,6 +1291,22 @@ public:
      return -1;
    }
  
@@ -673,7 +682,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a1
    /// Return true if the instruction is encoded using EVEX (AVX-512).
    virtual bool hasEVEXEncoding(const MCInst &Inst) const { return false; }
  
-@@ -1559,6 +1688,12 @@ public:
+@@ -1559,6 +1689,12 @@ public:
      return Expr;
    }
  
@@ -686,7 +695,32 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a1
    /// Return a BitVector marking all sub or super registers of \p Reg, including
    /// itself.
    virtual const BitVector &getAliases(MCPhysReg Reg,
-@@ -1700,6 +1835,14 @@ public:
+@@ -1616,6 +1752,24 @@ public:
+     llvm_unreachable("not implemented");
+   }
+ 
++  /// Return ordered pairs of architecturally interchangeable registers for
++  /// the target's register-reassignment cost model.  The first register is
++  /// from the compact encoding class and the second from the expensive class.
++  /// Empty means that the target has not qualified this transformation.
++  virtual void getRegisterReassignmentCandidates(
++      SmallVectorImpl<std::pair<MCPhysReg, MCPhysReg>> &Candidates) const {}
++
++  /// Apply the exact \p A / \p B register-name exchange to \p Inst and perform
++  /// any target-required opcode re-encoding.  Return the number of bytes saved
++  /// by this instruction, zero for an unaffected/size-neutral instruction, or
++  /// std::nullopt when the exchange cannot be represented without changing
++  /// architectural effects.  Implementations must leave annotations intact.
++  virtual std::optional<int64_t>
++  applyRegisterReassignment(MCInst &Inst, MCPhysReg A,
++                            MCPhysReg B) const {
++    return std::nullopt;
++  }
++
+   /// Set of Registers used by the Rep instruction
+   virtual void getRepRegs(BitVector &Regs) const {
+     llvm_unreachable("not implemented");
+@@ -1700,6 +1854,14 @@ public:
      return 0;
    }
  
@@ -701,7 +735,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a1
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1751,6 +1894,24 @@ public:
+@@ -1751,6 +1913,24 @@ public:
      return false;
    }
  
@@ -726,7 +760,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a1
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +1950,56 @@ public:
+@@ -1789,6 +1969,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -1161,6 +1195,18 @@ index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fa
  
    /// The shortest distance for any branch instruction on AArch64.
    static constexpr size_t ShortestJumpBits = 11;
+diff --git a/bolt/include/bolt/Passes/RegReAssign.h b/bolt/include/bolt/Passes/RegReAssign.h
+index a7554a1215104275a92e51769e8f84997154c1ca..d9537cc43b6f5eea58efdd8388d646ef02c48f5b 100644
+--- a/bolt/include/bolt/Passes/RegReAssign.h
++++ b/bolt/include/bolt/Passes/RegReAssign.h
+@@ -38,6 +38,7 @@ class RegReAssign : public BinaryFunctionPass {
+   void rankRegisters(BinaryFunction &Function);
+   void aggressivePassOverFunction(BinaryFunction &Function);
+   bool conservativePassOverFunction(BinaryFunction &Function);
++  bool cortexMPassOverFunction(BinaryFunction &Function);
+   void setupAggressivePass(BinaryContext &BC,
+                            std::map<uint64_t, BinaryFunction> &BFs);
+   void setupConservativePass(BinaryContext &BC,
 diff --git a/bolt/include/bolt/Rewrite/RewriteInstance.h b/bolt/include/bolt/Rewrite/RewriteInstance.h
 index 551c0341b9946c65c318bb4626e9156b1cd855ac..25f179ec3862306342fd1ab1f74ec1cccc679b6a 100644
 --- a/bolt/include/bolt/Rewrite/RewriteInstance.h
@@ -3978,10 +4024,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..86701db443bb9f9e1bc2674605491ba4c8acc2c7
+index 0000000000000000000000000000000000000000..3fe8d8d3308b0fbb06e450382242e54365c8e50b
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4814 @@
+@@ -0,0 +1,4816 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -4240,7 +4286,7 @@ index 0000000000000000000000000000000000000000..86701db443bb9f9e1bc2674605491ba4
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 28>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 29>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -4286,6 +4332,8 @@ index 0000000000000000000000000000000000000000..86701db443bb9f9e1bc2674605491ba4
 +         "conditional_tail_call_simplification"},
 +        {FirmwareModification::ConditionalMoveConversion,
 +         "conditional_move_conversion"},
++        {FirmwareModification::RegisterReassignment,
++         "register_reassignment"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -10615,6 +10663,162 @@ index 66ca6800b1a5fabbeca2e5e5f09b5289599f7912..2c28baca1b1598b39f4cd9809c920d45
        RegIdx = RegsUsed.find_first();
        while (RegIdx != -1) {
          dbgs() << "\tREG" << RegIdx;
+diff --git a/bolt/lib/Passes/RegReAssign.cpp b/bolt/lib/Passes/RegReAssign.cpp
+index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..360e9f5215323250d641b79a26f9e431c887474c 100644
+--- a/bolt/lib/Passes/RegReAssign.cpp
++++ b/bolt/lib/Passes/RegReAssign.cpp
+@@ -31,6 +31,12 @@ static cl::opt<bool> AggressiveReAssign(
+     cl::desc("use register liveness analysis to try to find more opportunities "
+              "for -reg-reassign optimization"),
+     cl::cat(BoltOptCategory));
++
++static cl::opt<bool> FirmBOLTAllowRegisterReassignment(
++    "firmbolt-allow-register-reassignment",
++    cl::desc("admit Cortex-M callee-saved register renaming, transient "
++             "register-state changes, and target-checked re-encoding"),
++    cl::cat(BoltOptCategory));
+ }
+ 
+ namespace llvm {
+@@ -404,6 +410,84 @@ bool RegReAssign::conservativePassOverFunction(BinaryFunction &Function) {
+   return true;
+ }
+ 
++bool RegReAssign::cortexMPassOverFunction(BinaryFunction &Function) {
++  BinaryContext &BC = Function.getBinaryContext();
++  if (!Function.isSimple() || Function.isIgnored() || Function.isFragment() ||
++      Function.isMultiEntry() || Function.isSplit() || Function.hasEHRanges() ||
++      Function.hasCFI() || Function.isCortexMVectorEntry() ||
++      Function.isFirmwareVeneerSlot() || Function.hasJumpTables() ||
++      Function.requiresAddressStableLayout() || !Function.getFragments().empty())
++    return false;
++
++  SmallVector<std::pair<MCPhysReg, MCPhysReg>, 8> Candidates;
++  BC.MIB->getRegisterReassignmentCandidates(Candidates);
++  if (Candidates.empty())
++    return false;
++
++  struct Choice {
++    MCPhysReg Compact{0};
++    MCPhysReg Expensive{0};
++    int64_t StaticBytesSaved{0};
++    int64_t DynamicBytesSaved{0};
++  } Best;
++
++  for (const auto &[Compact, Expensive] : Candidates) {
++    int64_t CandidateStatic = 0;
++    int64_t CandidateDynamic = 0;
++    bool Touched = false;
++    bool Valid = true;
++    for (const BinaryBasicBlock &BB : Function) {
++      const uint64_t Count = std::max<uint64_t>(1, BB.getKnownExecutionCount());
++      for (const MCInst &Original : BB) {
++        for (const MCOperand &Operand : MCPlus::primeOperands(Original))
++          if (Operand.isReg() &&
++              (Operand.getReg() == Compact || Operand.getReg() == Expensive))
++            Touched = true;
++        MCInst Rewritten(Original);
++        std::optional<int64_t> Saved =
++            BC.MIB->applyRegisterReassignment(Rewritten, Compact, Expensive);
++        if (!Saved) {
++          Valid = false;
++          break;
++        }
++        CandidateStatic += *Saved;
++        CandidateDynamic += *Saved * static_cast<int64_t>(Count);
++      }
++      if (!Valid)
++        break;
++    }
++    if (!Valid || !Touched || CandidateStatic <= 0 || CandidateDynamic <= 0)
++      continue;
++    if (CandidateDynamic > Best.DynamicBytesSaved ||
++        (CandidateDynamic == Best.DynamicBytesSaved &&
++         CandidateStatic > Best.StaticBytesSaved))
++      Best = {Compact, Expensive, CandidateStatic, CandidateDynamic};
++  }
++
++  if (!Best.Compact)
++    return false;
++
++  for (BinaryBasicBlock &BB : Function)
++    for (MCInst &Inst : BB) {
++      std::optional<int64_t> Saved = BC.MIB->applyRegisterReassignment(
++          Inst, Best.Compact, Best.Expensive);
++      assert(Saved && "validated Cortex-M register reassignment changed");
++      (void)Saved;
++    }
++
++  Function.setFirmwareModified(
++      BinaryFunction::FirmwareModification::RegisterReassignment);
++  FuncsChanged.insert(&Function);
++  StaticBytesSaved += Best.StaticBytesSaved;
++  DynBytesSaved += Best.DynamicBytesSaved;
++  LLVM_DEBUG(dbgs() << "Cortex-M register reassignment in "
++                    << Function.getPrintName() << ": "
++                    << BC.MRI->getName(Best.Expensive) << " <-> "
++                    << BC.MRI->getName(Best.Compact) << ", saved "
++                    << Best.StaticBytesSaved << " static byte(s)\n");
++  return true;
++}
++
+ void RegReAssign::setupAggressivePass(BinaryContext &BC,
+                                       std::map<uint64_t, BinaryFunction> &BFs) {
+   setupConservativePass(BC, BFs);
+@@ -449,11 +533,52 @@ void RegReAssign::setupConservativePass(
+ }
+ 
+ Error RegReAssign::runOnFunctions(BinaryContext &BC) {
+-  if (!BC.isX86()) {
++  if (!BC.isX86() && !BC.isARM()) {
+     BC.errs() << "BOLT-ERROR: reg-reassign is specific to X86\n";
+     exit(1);
+   }
+ 
++  if (BC.isARM()) {
++    if (!opts::FirmBOLTAllowRegisterReassignment)
++      return createStringError(
++          inconvertibleErrorCode(),
++          "Cortex-M register reassignment changes transient register state "
++          "and may change instruction widths; add "
++          "--firmbolt-allow-register-reassignment only for an admitted "
++          "AAPCS, register-observer, interrupt and modeled-timing contract");
++    if (opts::AggressiveReAssign)
++      return createStringError(
++          inconvertibleErrorCode(),
++          "aggressive Cortex-M register reassignment is not qualified");
++    if (opts::UpdateDebugSections)
++      return createStringError(
++          inconvertibleErrorCode(),
++          "Cortex-M register reassignment cannot update debug register "
++          "locations");
++    if (ErrorOr<BinarySection &> Exidx =
++            BC.getUniqueSectionByName(".ARM.exidx")) {
++      if (Exidx->getSize()) {
++        BC.outs() << "BOLT-INFO: Reg Reassignment Pass: retained all "
++                     "Cortex-M functions because ARM EHABI register-mask "
++                     "rewriting is not qualified.\n";
++        return Error::success();
++      }
++    }
++
++    for (auto &I : BC.getBinaryFunctions())
++      cortexMPassOverFunction(I.second);
++
++    if (FuncsChanged.empty()) {
++      BC.outs() << "BOLT-INFO: Reg Reassignment Pass: no changes were made.\n";
++      return Error::success();
++    }
++    BC.outs() << "BOLT-INFO: Reg Reassignment Pass Stats:\n";
++    BC.outs() << "\t   " << FuncsChanged.size() << " functions affected.\n";
++    BC.outs() << "\t   " << StaticBytesSaved << " static bytes saved.\n";
++    BC.outs() << "\t   " << DynBytesSaved << " dynamic bytes saved.\n";
++    return Error::success();
++  }
++
+   RegScore = std::vector<int64_t>(BC.MRI->getNumRegs(), 0);
+   RankedRegs = std::vector<size_t>(BC.MRI->getNumRegs(), 0);
+ 
 diff --git a/bolt/lib/Passes/SplitFunctions.cpp b/bolt/lib/Passes/SplitFunctions.cpp
 index 2fc8b0654f4b6828f6d13f200b196fc53006ded7..08d69c7677fe0c9e2e1ff85c91cc21cee5d43e56 100644
 --- a/bolt/lib/Passes/SplitFunctions.cpp
@@ -10918,7 +11122,7 @@ index 8f95ddb0fc630d07a9eddc056a51dfe109c23885..093908fbda28277266f1913f32ec59b2
      BinaryFunction &Function = It.second;
      if (!shouldRunOnFunction(Function))
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..d75308444a1ed234bc6724f24a168844ceac3766 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..e4b527098e0bd5284cab5548443f5c9e7ed607b0 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -10950,7 +11154,16 @@ index 18c84468b04ce23388d824e28c0029be48789a45..d75308444a1ed234bc6724f24a168844
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +380,173 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -234,7 +242,7 @@ static cl::opt<bool>
+ static cl::opt<bool> RegReAssign(
+     "reg-reassign",
+     cl::desc(
+-        "reassign registers so as to avoid using REX prefixes in hot code"),
++        "reassign registers to favor target compact encodings in hot code"),
+     cl::cat(BoltOptCategory));
+ 
+ static cl::opt<bool> SimplifyConditionalTailCalls(
+@@ -372,6 +380,175 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -11002,7 +11215,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..d75308444a1ed234bc6724f24a168844
 +             "specialized memcpy, three-way branch reordering, Thumb "
 +             "conditional-move conversion, tail "
 +             "duplication, conditional tail-call simplification and "
-+             "control-flow peepholes, "
++             "control-flow peepholes, target-aware register reassignment, "
 +             "shortening, NOP "
 +             "cleanup, CFG normalization, block layout, unreachable-code "
 +             "elimination, branch repair/relaxation, ordinary FOP, allocation "
@@ -11034,6 +11247,8 @@ index 18c84468b04ce23388d824e28c0029be48789a45..d75308444a1ed234bc6724f24a168844
 +    Manager.registerPass(
 +        std::make_unique<JTFootprintReduction>(PrintJTFootprintReduction),
 +        opts::JTFootprintReductionFlag);
++    Manager.registerPass(std::make_unique<RegReAssign>(PrintRegReAssign),
++                         opts::RegReAssign);
 +    Manager.registerPass(std::make_unique<IndirectCallPromotion>(PrintICP));
 +    // Recover fixed memcpy sizes before the generic inliner splits blocks at
 +    // call sites; the size definition and BL must remain in one straight-line
@@ -11124,7 +11339,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..d75308444a1ed234bc6724f24a168844
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +582,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +584,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -11142,17 +11357,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..d75308444a1ed234bc6724f24a168844
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -454,6 +640,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
-                        opts::RegReAssign);
- 
-   Manager.registerPass(std::make_unique<Inliner>(PrintInline));
-+    Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
-+                         opts::ICF !=
-+                             IdenticalCodeFolding::ICFLevel::None);
- 
-   Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
-                        opts::ICF != IdenticalCodeFolding::ICFLevel::None);
-@@ -554,6 +743,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -554,6 +742,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -11162,7 +11367,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..d75308444a1ed234bc6724f24a168844
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +760,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +759,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -13771,10 +13976,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..d077386c4b38993568c8dd53a828dacecf6dd00a
+index 0000000000000000000000000000000000000000..0826fcd491061cc08eb82a93dfb5387cc0f9b6f1
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2779 @@
+@@ -0,0 +1,2918 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -14758,6 +14963,145 @@ index 0000000000000000000000000000000000000000..d077386c4b38993568c8dd53a828dace
 +      else
 +        Regs.set(Reg);
 +    }
++  }
++
++  void getRegisterReassignmentCandidates(
++      SmallVectorImpl<std::pair<MCPhysReg, MCPhysReg>> &Candidates) const
++      override {
++    if (!hasThumb2())
++      return;
++    // R4-R6 are compact callee-saved registers.  R7 and R11 are possible
++    // frame pointers and R9 may be a platform register, so none of those are
++    // eligible without a stronger firmware ABI contract.  R8 and R10 are the
++    // remaining ordinary high callee-saved registers.
++    for (MCPhysReg Low : {ARM::R4, ARM::R5, ARM::R6})
++      for (MCPhysReg High : {ARM::R8, ARM::R10})
++        Candidates.emplace_back(Low, High);
++  }
++
++  std::optional<int64_t>
++  applyRegisterReassignment(MCInst &Inst, MCPhysReg A,
++                            MCPhysReg B) const override {
++    if (!hasThumb2() || A == B || A < ARM::R4 || A > ARM::R6 ||
++        (B != ARM::R8 && B != ARM::R10))
++      return std::nullopt;
++
++    const MCInstrDesc &Desc = Info->get(Inst.getOpcode());
++    const unsigned PrimeOperands = MCPlus::getNumPrimeOperands(Inst);
++    bool Changed = false;
++
++    // Implicit operands cannot be renamed in an MCInst.  Reject instead of
++    // silently changing only the explicit half of an architectural use/def.
++    for (MCPhysReg Reg : Desc.implicit_uses())
++      if (Reg == A || Reg == B)
++        return std::nullopt;
++    for (MCPhysReg Reg : Desc.implicit_defs())
++      if (Reg == A || Reg == B)
++        return std::nullopt;
++
++    for (unsigned I = 0; I < PrimeOperands; ++I) {
++      MCOperand &Operand = Inst.getOperand(I);
++      if (!Operand.isReg() ||
++          (Operand.getReg() != A && Operand.getReg() != B))
++        continue;
++      if (I >= Desc.getNumOperands())
++        return std::nullopt;
++      const MCPhysReg Replacement = Operand.getReg() == A ? B : A;
++      const MCOperandInfo &OperandInfo = Desc.operands()[I];
++      if (OperandInfo.OperandType == MCOI::OPERAND_REGISTER) {
++        if (OperandInfo.RegClass < 0 ||
++            static_cast<unsigned>(OperandInfo.RegClass) >=
++                RegInfo->getNumRegClasses() ||
++            !RegInfo->getRegClass(OperandInfo.RegClass).contains(Replacement))
++          return std::nullopt;
++      } else {
++        // TableGen expands the base of these immediate memory operands into
++        // an explicit MC register but keeps the descriptor operand typed as a
++        // compound memory operand.  Qualify only that exact expansion; a
++        // narrow Thumb memory operand still rejects a low-to-high exchange.
++        const bool SupportedWideMemoryBase =
++            I == 1 &&
++            (Inst.getOpcode() == ARM::t2LDRi12 ||
++             Inst.getOpcode() == ARM::t2STRi12 ||
++             Inst.getOpcode() == ARM::t2LDRBi12 ||
++             Inst.getOpcode() == ARM::t2STRBi12 ||
++             Inst.getOpcode() == ARM::t2LDRHi12 ||
++             Inst.getOpcode() == ARM::t2STRHi12);
++        if (!SupportedWideMemoryBase)
++          return std::nullopt;
++      }
++      Operand.setReg(Replacement);
++      Changed = true;
++    }
++
++    if (!Changed)
++      return int64_t{0};
++
++    // A low-register reassignment can make a wide immediate load/store fit a
++    // flag-neutral Thumb-1 encoding.  The wide offset is stored in bytes;
++    // narrow MC operands retain the architecturally scaled field.
++    unsigned NarrowOpcode = 0;
++    unsigned Scale = 1;
++    unsigned MaxEncodedOffset = 31;
++    switch (Inst.getOpcode()) {
++    case ARM::t2LDRi12:
++      NarrowOpcode = ARM::tLDRi;
++      Scale = 4;
++      break;
++    case ARM::t2STRi12:
++      NarrowOpcode = ARM::tSTRi;
++      Scale = 4;
++      break;
++    case ARM::t2LDRBi12:
++      NarrowOpcode = ARM::tLDRBi;
++      break;
++    case ARM::t2STRBi12:
++      NarrowOpcode = ARM::tSTRBi;
++      break;
++    case ARM::t2LDRHi12:
++      NarrowOpcode = ARM::tLDRHi;
++      Scale = 2;
++      break;
++    case ARM::t2STRHi12:
++      NarrowOpcode = ARM::tSTRHi;
++      Scale = 2;
++      break;
++    default:
++      return int64_t{0};
++    }
++
++    if (Inst.getNumOperands() < 5 || !Inst.getOperand(0).isReg() ||
++        !Inst.getOperand(1).isReg() || !Inst.getOperand(2).isImm() ||
++        !Inst.getOperand(3).isImm() || !Inst.getOperand(4).isReg())
++      return int64_t{0};
++    const MCPhysReg TransferReg = Inst.getOperand(0).getReg();
++    const MCPhysReg BaseReg = Inst.getOperand(1).getReg();
++    const int64_t Offset = Inst.getOperand(2).getImm();
++    if (!isARMLowRegister(TransferReg) || Offset < 0 || Offset % Scale)
++      return int64_t{0};
++
++    if (Scale == 4 && BaseReg == ARM::SP) {
++      NarrowOpcode = Inst.getOpcode() == ARM::t2LDRi12 ? ARM::tLDRspi
++                                                       : ARM::tSTRspi;
++      MaxEncodedOffset = 255;
++    } else if (!isARMLowRegister(BaseReg)) {
++      return int64_t{0};
++    }
++
++    const uint64_t EncodedOffset = static_cast<uint64_t>(Offset / Scale);
++    if (EncodedOffset > MaxEncodedOffset)
++      return int64_t{0};
++
++    MCInst Replacement = MCInstBuilder(NarrowOpcode)
++                             .addReg(TransferReg)
++                             .addReg(BaseReg)
++                             .addImm(EncodedOffset)
++                             .addImm(Inst.getOperand(3).getImm())
++                             .addReg(Inst.getOperand(4).getReg());
++    moveAnnotations(std::move(Inst), Replacement);
++    setSize(Replacement, 2);
++    Inst = std::move(Replacement);
++    return int64_t{2};
 +  }
 +
 +  void removeNonScavengeableRegs(BitVector &Regs) const override {
@@ -21142,6 +21486,85 @@ index 0000000000000000000000000000000000000000..762c4853da15350f46eb320ae9786a2d
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-native-register-reassignment.s b/bolt/test/ARM/thumb-native-register-reassignment.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..ca9522639da0a503a63145047f438e89f5060240
+--- /dev/null
++++ b/bolt/test/ARM/thumb-native-register-reassignment.s
+@@ -0,0 +1,73 @@
++## BOLT's original RegReAssign profitability model is x86-specific. Firm-BOLT
++## provides a target hook that swaps only qualified AAPCS callee-saved register
++## pairs and accounts for the exact Thumb encodings unlocked by that swap.
++## The contract is explicit because transient register state changes between
++## the function entry and exit even though both callee-saved values are restored.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --reg-reassign -o %t.denied 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=DENIED
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --reg-reassign \
++# RUN:   --firmbolt-allow-register-reassignment \
++# RUN:   --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=worker \
++# RUN:   %t.bolt | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.json')); f={x['name']:x for x in d['functions']}['worker']; print(f['firmware_modified'],f['firmware_modification_reasons'],d['summary']['unmapped_instruction_count'])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# DENIED: Cortex-M register reassignment changes transient register state
++# LOG: BOLT-INFO: Reg Reassignment Pass Stats:
++# LOG-NEXT: 1 functions affected.
++# LOG-NEXT: 8 static bytes saved.
++# DISASM-LABEL: <worker>:
++# DISASM-NEXT: sub sp, #0x8
++# DISASM-NEXT: str r4, [sp, #0x4]
++# DISASM-NEXT: mov.w r4, r1
++# DISASM-NEXT: ldr r0, [r4]
++# DISASM-NEXT: str r0, [r4, #0x4]
++# DISASM-NEXT: ldr r4, [sp, #0x4]
++# DISASM-NEXT: add sp, #0x8
++# DISASM-NEXT: bx lr
++# REPORT: True ['register_reassignment'] 0
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  movs r0, #0
++  bl worker
++1:
++  b 1b
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl worker
++  .type worker,%function
++  .thumb_func
++worker:
++  sub sp, #8
++  str.w r8, [sp, #4]
++  mov.w r8, r1
++  ldr.w r0, [r8, #0]
++  str.w r0, [r8, #4]
++  ldr.w r8, [sp, #4]
++  add sp, #8
++  bx lr
++  .size worker, .-worker
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-simplify-rodata-loads.s b/bolt/test/ARM/thumb-native-simplify-rodata-loads.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..09a61a714c47138ecf9fa075cb9d1c215168ff50
@@ -25489,7 +25912,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..95ffa0db40583adb007ffdb34639ca68ca326fb1 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ed11691f5f3d9e14be6f1f47a33107e5a9513b36 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -25551,7 +25974,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..95ffa0db40583adb007ffdb34639ca68
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +154,799 @@ protected:
+@@ -125,6 +154,864 @@ protected:
  };
  } // namespace
  
@@ -25670,6 +26093,71 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..95ffa0db40583adb007ffdb34639ca68
 +      Offset, Size, IsSimple, IsIndexed));
 +  EXPECT_EQ(Offset, 6);
 +  EXPECT_EQ(Size, 2);
++}
++
++TEST_P(MCPlusBuilderTester, ARM_RegisterReassignment) {
++  if (GetParam() != Triple::thumb)
++    GTEST_SKIP();
++
++  SmallVector<std::pair<MCPhysReg, MCPhysReg>, 8> Candidates;
++  BC->MIB->getRegisterReassignmentCandidates(Candidates);
++  EXPECT_TRUE(llvm::is_contained(
++      Candidates, std::pair<MCPhysReg, MCPhysReg>{ARM::R4, ARM::R8}));
++  EXPECT_TRUE(llvm::is_contained(
++      Candidates, std::pair<MCPhysReg, MCPhysReg>{ARM::R6, ARM::R10}));
++  EXPECT_FALSE(llvm::any_of(Candidates, [](const auto &Candidate) {
++    return Candidate.first == ARM::R7 || Candidate.first == ARM::R11 ||
++           Candidate.second == ARM::R9;
++  }));
++
++  MCInst Load = MCInstBuilder(ARM::t2LDRi12)
++                    .addReg(ARM::R0)
++                    .addReg(ARM::R8)
++                    .addImm(4)
++                    .addImm(ARMCC::AL)
++                    .addReg(0);
++  BC->MIB->setSize(Load, 4);
++  std::optional<int64_t> LoadSaving =
++      BC->MIB->applyRegisterReassignment(Load, ARM::R4, ARM::R8);
++  ASSERT_TRUE(LoadSaving);
++  EXPECT_EQ(*LoadSaving, 2);
++  EXPECT_EQ(Load.getOpcode(), ARM::tLDRi);
++  EXPECT_EQ(Load.getOperand(0).getReg(), ARM::R0);
++  EXPECT_EQ(Load.getOperand(1).getReg(), ARM::R4);
++  EXPECT_EQ(Load.getOperand(2).getImm(), 1);
++  EXPECT_EQ(BC->MIB->getInstructionSize(Load), 2u);
++
++  MCInst Store = MCInstBuilder(ARM::t2STRi12)
++                     .addReg(ARM::R8)
++                     .addReg(ARM::SP)
++                     .addImm(4)
++                     .addImm(ARMCC::AL)
++                     .addReg(0);
++  BC->MIB->setSize(Store, 4);
++  std::optional<int64_t> StoreSaving =
++      BC->MIB->applyRegisterReassignment(Store, ARM::R4, ARM::R8);
++  ASSERT_TRUE(StoreSaving);
++  EXPECT_EQ(*StoreSaving, 2);
++  EXPECT_EQ(Store.getOpcode(), ARM::tSTRspi);
++  EXPECT_EQ(Store.getOperand(0).getReg(), ARM::R4);
++  EXPECT_EQ(Store.getOperand(1).getReg(), ARM::SP);
++  EXPECT_EQ(Store.getOperand(2).getImm(), 1);
++  EXPECT_EQ(BC->MIB->getInstructionSize(Store), 2u);
++
++  // A Thumb-1 low-register encoding cannot represent the reverse half of the
++  // exchange.  The target hook must reject the complete function candidate
++  // instead of silently leaving this instruction unswapped.
++  MCInst Narrow = MCInstBuilder(ARM::tLDRi)
++                      .addReg(ARM::R0)
++                      .addReg(ARM::R4)
++                      .addImm(1)
++                      .addImm(ARMCC::AL)
++                      .addReg(0);
++  BC->MIB->setSize(Narrow, 2);
++  EXPECT_FALSE(
++      BC->MIB->applyRegisterReassignment(Narrow, ARM::R4, ARM::R8));
++  EXPECT_EQ(Narrow.getOpcode(), ARM::tLDRi);
++  EXPECT_EQ(Narrow.getOperand(1).getReg(), ARM::R4);
 +}
 +
 +TEST_P(MCPlusBuilderTester, ARM_TailDuplicationPropagationReplacements) {
