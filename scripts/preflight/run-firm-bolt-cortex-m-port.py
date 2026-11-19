@@ -11784,7 +11784,10 @@ def main() -> int:
         },
         "backend_capabilities": {
             "qualified": [
-                "Cortex-M0/M0+ Armv6-M, M3 Armv7-M, M4/M7 Armv7E-M, M23 Armv8-M Baseline, M33 Armv8-M Mainline, and M55/M85 Armv8.1-M Mainline CPU matching",
+                "Cortex-M0/M0+/M1 Armv6-M, M3 Armv7-M, M4/M7 "
+                "Armv7E-M, M23 Armv8-M Baseline, M33/M35P Armv8-M "
+                "Mainline, and M52/M55/M85 Armv8.1-M Mainline CPU "
+                "matching for every Cortex-M CPU in the pinned LLVM target",
                 "ARM/Thumb/data mapping-symbol separation",
                 "direct calls and conditional/unconditional Thumb branches",
                 "ABS/REL/PREL and qualified Thumb branch/literal/MOVW/MOVT relocations",
@@ -11809,9 +11812,9 @@ def main() -> int:
                 "exact synthesized-call-veneer attribution and linker-resolved output PCs",
                 "Cortex-M4 DSP/FPU feature-qualified decode and re-emission",
                 "profile-driven Profile2 hot/cold and cache-directed CDSplit hot/warm/cold function splitting inside exact linker-owned flash capacity, with compact-model branch repair, protected vector entries, exact fragment/origin ledgers, and Cortex-M3 execution of trained and held-out paths",
-                "Cortex-M33 TrustZone instruction decode with whole-function preservation",
-                "Cortex-M55 MVE integer/floating-point decode and exact re-emission",
-                "Cortex-M85 PACBTI-M decode with whole-function preservation",
+                "Cortex-M33/M35P TrustZone instruction decode with whole-function preservation",
+                "Cortex-M52/M55 MVE integer/floating-point decode and exact re-emission",
+                "Cortex-M52/M85 PACBTI-M decode with whole-function preservation",
                 "Cortex-M vector import with distinct reset and Handler-mode exception-entry contracts",
                 "opt-in exact conditional branch-to-next deletion in a primary Cortex-M handler with all surviving identities ordered, typed state effects and possible exception returns retained, plus Cortex-M3 SVC entry, IPSR=11 and EXC_RETURN execution",
                 "target-classified Cortex-M possible exception returns through BX LR, BX register, MOV PC, register, POP/LDM PC and single-load-to-PC forms, with exact original identity and instruction retention",

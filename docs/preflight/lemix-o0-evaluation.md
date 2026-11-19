@@ -1491,9 +1491,19 @@ bodies. Existing shortening and literal-placement passes consequently publish
 62 applicable profiles bind 130,082 final origins in 1,950 functions. This is
 recovered analysis/publication coverage, not a performance result.
 
+v163 closes the CPU-name coverage gap against the pinned LLVM ARM target by
+adding M1, M35P and M52, bringing FirmBOLT to all twelve exposed Cortex-M CPUs.
+The M1 fixture reveals that Armv6-M objects use a Thumb triple: the previous
+`isARM()` gate silently skipped CPU-name and feature import for M0/M0+/M1.
+Treating ARM or Thumb as AArch32 restores exact M1 and generic real-M0+
+evidence. M35P separately proves single-only scalar VFP forwarding plus opaque
+security-transition retention; M52 proves scalar FP64 forwarding, exact MVE
+re-emission and opaque PACBTI-M retention. The 63/63 matrix and final-origin
+counts remain unchanged. This is target-family coverage, not new performance.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `78a94283a9346579f9f27793636df5d5c729f95f09f047b32fc11c64bfb62a6c`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `a478cd380dea6951e995e5f6feb42d022798fb7dcf2d9c69d1e14500fc17ca20`. Regression runs complete 89/89 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, 19/19 AArch32 JITLink units, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v162 validation manifest](evidence/firmbolt-cortex-m-v162-validation.json) binds the 63-profile production run, exact linked-byte audit, CPU/feature controls, strict target-incompatibility rejection, regression XML and clean-apply result. The v161 and v159 manifests remain unchanged as historical evidence.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `d3cd2061064837e2b1f525abecb438f1c400330a7b38cbc82030d74ad934318a`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `dce0c6ffa52708da74095f5631718bb9e17a3ef3d26accaa82879522551a1cfa`. Regression runs complete 89/89 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, 19/19 AArch32 JITLink units, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v163 validation manifest](evidence/firmbolt-cortex-m-v163-validation.json) binds the all-pinned-CPU qualification, 63-profile production run, exact linked-byte audit, regression XML and clean-apply result. The v162, v161 and v159 manifests remain unchanged as historical evidence.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

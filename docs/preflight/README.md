@@ -1842,6 +1842,28 @@ and [validation manifest](evidence/firmbolt-cortex-m-v162-validation.json).
 This is target-compatibility and publication evidence, not a speedup or full
 x86-backend parity claim.
 
+v163 closes the remaining CPU-family gap relative to the pinned LLVM ARM
+target. FirmBOLT now accepts all twelve of its Cortex-M CPUs by adding M1,
+M35P and M52. The first M1 gate exposed a shared import defect: Armv6-M ELF is
+represented by a Thumb triple, but CPU-name and feature import tested only
+`Triple::isARM()`. Treating ARM or Thumb as AArch32 restores the exact M1 tag;
+the real M0+ corpus now reports generic `6S-M` identity and `+mclass` evidence
+without allowing those attributes to broaden the selected execution CPU.
+
+The new profiles have capability-specific gates rather than name-only
+acceptance. Cortex-M35P decodes and retains security-transition code as one
+opaque function, forwards scalar single-precision VFP spills, and retains the
+double reload. Cortex-M52 decodes and exactly re-emits integer/floating MVE,
+retains PACBTI-M functions whole, and admits scalar single/double VFP
+forwarding. The 63/63 real/architectural matrix and exact final-byte counts
+remain 130,082 origins in 1,950 functions. The complete regression results
+remain 89/89 ARM lit, 12/12 JITLink lit, 19/19 JITLink units and 130 BOLT unit
+passes plus 150 explicit skips. Evidence is in the
+[`v163 report`](../../build/preflight/firm-bolt-cortex-m-v163-cpu-family-r2/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v163-validation.json).
+CPU-family completeness is relative to pinned LLVM and does not authorize
+MVE/security/PAC transformations or establish performance parity.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

@@ -1984,10 +1984,10 @@ index a6d0ca94811540361916aefd3b59633d3b0296bc..31df428351f12f26190801e8de267190
  
  BinaryBasicBlock::BinaryBranchInfo &
 diff --git a/bolt/lib/Core/BinaryContext.cpp b/bolt/lib/Core/BinaryContext.cpp
-index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd371958caa800 100644
+index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e321692ee 100644
 --- a/bolt/lib/Core/BinaryContext.cpp
 +++ b/bolt/lib/Core/BinaryContext.cpp
-@@ -103,6 +103,13 @@ static cl::opt<bool> DropDWOPageCache(
+@@ -103,6 +103,14 @@ static cl::opt<bool> DropDWOPageCache(
               "pages as soon as BOLT is done reading each one. Keeps the "
               "file-backed footprint of large split-DWARF inputs bounded."),
      cl::Hidden, cl::init(false), cl::cat(BoltCategory));
@@ -1995,13 +1995,14 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
 +static cl::opt<std::string> FirmBOLTCortexMCPU(
 +    "firmbolt-cortex-m-cpu",
 +    cl::desc("qualified Cortex-M CPU for the Firm-BOLT ARM backend "
-+             "(cortex-m0, cortex-m0plus, cortex-m3, cortex-m4, cortex-m7, "
-+             "cortex-m23, cortex-m33, cortex-m55, or cortex-m85)"),
++             "(cortex-m0, cortex-m0plus, cortex-m1, cortex-m3, cortex-m4, "
++             "cortex-m7, cortex-m23, cortex-m33, cortex-m35p, cortex-m52, "
++             "cortex-m55, or cortex-m85)"),
 +    cl::init(""), cl::cat(BoltCategory));
  } // namespace opts
  
  namespace llvm {
-@@ -140,12 +147,24 @@ Error createFatalBOLTError(const Twine &S) {
+@@ -140,12 +148,24 @@ Error createFatalBOLTError(const Twine &S) {
  }
  
  void BinaryContext::logBOLTErrorsAndQuitOnFatal(Error E) {
@@ -2031,7 +2032,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
  }
  
  BinaryContext::BinaryContext(std::unique_ptr<MCContext> Ctx,
-@@ -171,8 +190,17 @@ BinaryContext::BinaryContext(std::unique_ptr<MCContext> Ctx,
+@@ -171,8 +191,17 @@ BinaryContext::BinaryContext(std::unique_ptr<MCContext> Ctx,
        STI(std::move(STI)), InstPrinter(std::move(InstPrinter)),
        MIA(std::move(MIA)), MIB(std::move(MIB)), MRI(std::move(MRI)),
        DisAsm(std::move(DisAsm)), Logger(Logger), InitialDynoStats(isAArch64()) {
@@ -2051,7 +2052,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
  }
  
  BinaryContext::~BinaryContext() {
-@@ -190,8 +218,10 @@ BinaryContext::~BinaryContext() {
+@@ -190,8 +219,10 @@ BinaryContext::~BinaryContext() {
  Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
      Triple TheTriple, std::shared_ptr<orc::SymbolStringPool> SSP,
      StringRef InputFileName, SubtargetFeatures *Features, bool IsPIC,
@@ -2063,7 +2064,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
    std::string FeaturesStr = "";
    switch (TheTriple.getArch()) {
    case llvm::Triple::x86_64:
-@@ -208,6 +238,79 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
+@@ -208,6 +239,87 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
      ArchName = "aarch64";
      FeaturesStr = "+all";
      break;
@@ -2075,24 +2076,29 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
 +    ArchName = "arm";
 +    CPUName = opts::FirmBOLTCortexMCPU;
 +    if (CPUName != "cortex-m0" && CPUName != "cortex-m0plus" &&
++        CPUName != "cortex-m1" &&
 +        CPUName != "cortex-m3" && CPUName != "cortex-m4" &&
 +        CPUName != "cortex-m7" && CPUName != "cortex-m23" &&
-+        CPUName != "cortex-m33" && CPUName != "cortex-m55" &&
++        CPUName != "cortex-m33" && CPUName != "cortex-m35p" &&
++        CPUName != "cortex-m52" && CPUName != "cortex-m55" &&
 +        CPUName != "cortex-m85")
 +      return createFatalBOLTError(
 +          "ARM input requires --firmbolt-cortex-m-cpu=cortex-m0, "
-+          "cortex-m0plus, cortex-m3, cortex-m4, cortex-m7, cortex-m23, "
-+          "cortex-m33, cortex-m55, or cortex-m85");
++          "cortex-m0plus, cortex-m1, cortex-m3, cortex-m4, cortex-m7, "
++          "cortex-m23, cortex-m33, cortex-m35p, cortex-m52, cortex-m55, "
++          "or cortex-m85");
 +
 +    const Triple::SubArchType InputArch = TheTriple.getSubArch();
 +    const Triple::SubArchType ExpectedArch =
-+        (CPUName == "cortex-m0" || CPUName == "cortex-m0plus")
++        (CPUName == "cortex-m0" || CPUName == "cortex-m0plus" ||
++         CPUName == "cortex-m1")
 +            ? Triple::ARMSubArch_v6m
 +        : CPUName == "cortex-m3" ? Triple::ARMSubArch_v7m
 +        : (CPUName == "cortex-m4" || CPUName == "cortex-m7")
 +            ? Triple::ARMSubArch_v7em
 +        : CPUName == "cortex-m23" ? Triple::ARMSubArch_v8m_baseline
-+        : CPUName == "cortex-m33" ? Triple::ARMSubArch_v8m_mainline
++        : (CPUName == "cortex-m33" || CPUName == "cortex-m35p")
++            ? Triple::ARMSubArch_v8m_mainline
 +                                   : Triple::ARMSubArch_v8_1m_mainline;
 +    if (InputArch != ExpectedArch)
 +      return createFatalBOLTError(
@@ -2108,11 +2114,14 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
 +    const auto IsExactCortexMCPU = [](StringRef Name) {
 +      return Name.equals_insensitive("cortex-m0") ||
 +             Name.equals_insensitive("cortex-m0plus") ||
++             Name.equals_insensitive("cortex-m1") ||
 +             Name.equals_insensitive("cortex-m3") ||
 +             Name.equals_insensitive("cortex-m4") ||
 +             Name.equals_insensitive("cortex-m7") ||
 +             Name.equals_insensitive("cortex-m23") ||
 +             Name.equals_insensitive("cortex-m33") ||
++             Name.equals_insensitive("cortex-m35p") ||
++             Name.equals_insensitive("cortex-m52") ||
 +             Name.equals_insensitive("cortex-m55") ||
 +             Name.equals_insensitive("cortex-m85");
 +    };
@@ -2143,7 +2152,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
    case llvm::Triple::riscv64:
    case llvm::Triple::riscv32: {
      ArchName = TheTriple.getArchName();
-@@ -257,7 +360,7 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
+@@ -257,7 +369,7 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
    AsmInfo->setAllowAtInName(true);
  
    std::unique_ptr<const MCSubtargetInfo> STI(
@@ -2152,7 +2161,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
    if (!STI)
      return createStringError(
          make_error_code(std::errc::not_supported),
-@@ -566,6 +669,23 @@ BinaryContext::getSubBinaryData(BinaryData *BD) {
+@@ -566,6 +678,23 @@ BinaryContext::getSubBinaryData(BinaryData *BD) {
  std::pair<const MCSymbol *, uint64_t>
  BinaryContext::handleAddressRef(uint64_t Address, BinaryFunction &BF,
                                  bool IsPCRel) {
@@ -2176,7 +2185,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
    if (isAArch64()) {
      // Check if this is an access to a constant island and create bookkeeping
      // to keep track of it and emit it later as part of this function.
-@@ -613,7 +733,8 @@ BinaryContext::handleAddressRef(uint64_t Address, BinaryFunction &BF,
+@@ -613,7 +742,8 @@ BinaryContext::handleAddressRef(uint64_t Address, BinaryFunction &BF,
    // a section, it could be an absolute address too.
    ErrorOr<BinarySection &> Section = getSectionForAddress(Address);
    if (Section && Section->isText()) {
@@ -2186,7 +2195,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
        if (Address != BF.getAddress()) {
          // The address could potentially escape. Mark it as another entry
          // point into the function.
-@@ -888,9 +1009,30 @@ void BinaryContext::populateJumpTables() {
+@@ -888,9 +1018,30 @@ void BinaryContext::populateJumpTables() {
      if (NextJTI != JTE)
        NextJTAddress = NextJTI->second->getAddress();
  
@@ -2220,7 +2229,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
      if (!Success) {
        // Re-analysis here is stricter than during disassembly (the referenced
        // function is now disassembled), so it may fail on a table we accepted
-@@ -1104,6 +1246,10 @@ BinaryContext::duplicateJumpTable(BinaryFunction &Function, JumpTable *JT,
+@@ -1104,6 +1255,10 @@ BinaryContext::duplicateJumpTable(BinaryFunction &Function, JumpTable *JT,
                      *getSectionForAddress(JT->getAddress()));
    NewJT->Parents = JT->Parents;
    NewJT->Entries = JT->Entries;
@@ -2231,7 +2240,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
    NewJT->Counts = JT->Counts;
    uint64_t JumpTableID = ++DuplicatedJumpTables;
    // Invert it to differentiate from regular jump tables whose IDs are their
-@@ -1616,7 +1762,23 @@ void BinaryContext::processInterproceduralReferences() {
+@@ -1616,7 +1771,23 @@ void BinaryContext::processInterproceduralReferences() {
      }
  
      ErrorOr<BinarySection &> Section = getSectionForAddress(Address);
@@ -2256,7 +2265,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
  
      if (!Section->isText())
        continue;
-@@ -2399,9 +2561,9 @@ void BinaryContext::printCFI(raw_ostream &OS, const MCCFIInstruction &Inst) {
+@@ -2399,9 +2570,9 @@ void BinaryContext::printCFI(raw_ostream &OS, const MCCFIInstruction &Inst) {
  MarkerSymType BinaryContext::getMarkerType(unsigned SymbolType,
                                             uint64_t SymbolSize,
                                             StringRef SymbolName) const {
@@ -2269,7 +2278,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
    if (isX86() || SymbolSize)
      return MarkerSymType::NONE;
  
-@@ -2411,6 +2573,14 @@ MarkerSymType BinaryContext::getMarkerType(unsigned SymbolType,
+@@ -2411,6 +2582,14 @@ MarkerSymType BinaryContext::getMarkerType(unsigned SymbolType,
    if (SymbolName == "$x" || SymbolName.starts_with("$x."))
      return MarkerSymType::CODE;
  
@@ -2284,7 +2293,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
    // $x<ISA>
    if (isRISCV() && SymbolName.starts_with("$x"))
      return MarkerSymType::CODE;
-@@ -2640,7 +2810,11 @@ BinarySection &BinaryContext::registerSection(BinarySection *Section) {
+@@ -2640,7 +2819,11 @@ BinarySection &BinaryContext::registerSection(BinarySection *Section) {
    assert(Res.second && "can't register the same section twice.");
  
    // Only register allocatable sections in the AddressToSection map.
@@ -2297,7 +2306,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..8e878c0abcab0a9776ae0524fbbd3719
      AddressToSection.insert(std::make_pair(Section->getAddress(), Section));
    NameToSection.insert(
        std::make_pair(std::string(Section->getName()), Section));
-@@ -2974,7 +3148,7 @@ BinaryContext::calculateEmittedSize(BinaryFunction &BF, bool FixBranches) {
+@@ -2974,7 +3157,7 @@ BinaryContext::calculateEmittedSize(BinaryFunction &BF, bool FixBranches) {
      return std::make_pair(BF.getSize(), 0);
  
    // Adjust branch instruction to match the current layout.
@@ -13334,7 +13343,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc236d8452d6 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc16184683275bb7f79 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -8,6 +8,7 @@
@@ -13406,7 +13415,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  #ifdef RISCV_AVAILABLE
    if (Arch == Triple::riscv32)
      return createRISCVRelocationHandler(false);
-@@ -494,10 +512,14 @@ RewriteInstance::RewriteInstance(ELFObjectFileBase *File, const int Argc,
+@@ -494,10 +512,15 @@ RewriteInstance::RewriteInstance(ELFObjectFileBase *File, const int Argc,
    Stderr.SetUnbuffered();
    LLVM_DEBUG(dbgs().SetUnbuffered());
  
@@ -13419,20 +13428,21 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
 +  std::optional<StringRef> InputCPUName;
    Triple TheTriple = File->makeTriple();
 -  if (TheTriple.isRISCV()) {
-+  if (TheTriple.isRISCV() || TheTriple.isARM()) {
++  const bool IsAArch32 = TheTriple.isARM() || TheTriple.isThumb();
++  if (TheTriple.isRISCV() || IsAArch32) {
      Expected<SubtargetFeatures> FeaturesOrErr = File->getFeatures();
      if (auto E = FeaturesOrErr.takeError()) {
        Err = std::move(E);
-@@ -506,6 +528,8 @@ RewriteInstance::RewriteInstance(ELFObjectFileBase *File, const int Argc,
+@@ -506,6 +529,8 @@ RewriteInstance::RewriteInstance(ELFObjectFileBase *File, const int Argc,
        Features.reset(new SubtargetFeatures(*FeaturesOrErr));
      }
    }
-+  if (TheTriple.isARM())
++  if (IsAArch32)
 +    InputCPUName = File->tryGetCPUName();
  
    if (opts::UpdateDebugSections) {
      if (Error E = validateCompressedDebugSections(*File)) {
-@@ -521,7 +545,7 @@ RewriteInstance::RewriteInstance(ELFObjectFileBase *File, const int Argc,
+@@ -521,7 +546,7 @@ RewriteInstance::RewriteInstance(ELFObjectFileBase *File, const int Argc,
                             nullptr, opts::DWPPathName,
                             WithColor::defaultErrorHandler,
                             WithColor::defaultWarningHandler, true),
@@ -13441,7 +13451,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    if (Error E = BCOrErr.takeError()) {
      Err = std::move(E);
      return;
-@@ -812,7 +836,12 @@ Error RewriteInstance::discoverStorage(ELFObjectFile<ELFT> *ELFObjFile) {
+@@ -812,7 +837,12 @@ Error RewriteInstance::discoverStorage(ELFObjectFile<ELFT> *ELFObjFile) {
    NewTextSegmentAddress = NextAvailableAddress;
    NewTextSegmentOffset = NextAvailableOffset;
  
@@ -13455,7 +13465,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      // This is where the black magic happens. Creating PHDR table in a segment
      // other than that containing ELF header is tricky. Some loaders and/or
      // parts of loaders will apply e_phoff from ELF header assuming both are in
-@@ -1070,8 +1099,8 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1070,8 +1100,8 @@ void RewriteInstance::discoverFileObjects() {
    if (!SortedSymbols.empty())
      --LastSymbol;
  
@@ -13466,7 +13476,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    // Compilers usually merge multiple data objects in a single $d-$x interval,
    // but we need every data object to be marked with $d. Because of that we
    // keep track of marker symbols with all locations of data objects.
-@@ -1099,7 +1128,17 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1099,7 +1129,17 @@ void RewriteInstance::discoverFileObjects() {
                         << " lacks code marker\n";
            }
          }
@@ -13485,7 +13495,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
        }
  
        if (MarkerType != MarkerSymType::NONE) {
-@@ -1116,7 +1155,7 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1116,7 +1156,7 @@ void RewriteInstance::discoverFileObjects() {
      }
    };
  
@@ -13494,7 +13504,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      addExtraDataMarkerPerSymbol();
      LastSymbol = std::stable_partition(
          SortedSymbols.begin(), SortedSymbols.end(),
-@@ -1140,7 +1179,13 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1140,7 +1180,13 @@ void RewriteInstance::discoverFileObjects() {
        continue;
  
      StringRef SymName = cantFail(Symbol.getName(), "cannot get symbol name");
@@ -13509,7 +13519,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
        if (opts::Verbosity >= 1 && SymbolType == SymbolRef::ST_Function)
          BC->errs() << "BOLT-WARNING: function with 0 address seen\n";
        continue;
-@@ -1249,6 +1294,15 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1249,6 +1295,15 @@ void RewriteInstance::discoverFileObjects() {
        continue;
      }
  
@@ -13525,7 +13535,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      LLVM_DEBUG(dbgs() << "BOLT-DEBUG: considering symbol " << UniqueName
                        << " for function\n");
  
-@@ -1271,6 +1325,18 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1271,6 +1326,18 @@ void RewriteInstance::discoverFileObjects() {
        continue;
      }
  
@@ -13544,7 +13554,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      // Assembly functions could be ST_NONE with 0 size. Check that the
      // corresponding section is a code section and they are not inside any
      // other known function to consider them.
-@@ -1488,7 +1554,8 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1488,7 +1555,8 @@ void RewriteInstance::discoverFileObjects() {
    adjustFunctionBoundaries(MarkerSymbols);
    splitUnmarkedTailFunctions(MarkerSymbols);
  
@@ -13554,7 +13564,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    for (auto &[Address, Type] : MarkerSymbols) {
      auto *BF = BC->getBinaryFunctionContainingAddress(Address,
                                                        /*CheckPastEnd*/ false,
-@@ -1499,10 +1566,22 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1499,10 +1567,22 @@ void RewriteInstance::discoverFileObjects() {
        continue;
      }
      const auto EntryOffset = Address - BF->getAddress();
@@ -13578,7 +13588,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      if (Type == MarkerSymType::DATA) {
        BF->markDataAtOffset(EntryOffset);
        BC->AddressToConstantIslandMap[Address] = BF;
-@@ -1510,8 +1589,12 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1510,8 +1590,12 @@ void RewriteInstance::discoverFileObjects() {
      }
      llvm_unreachable("Unknown marker");
    }
@@ -13592,7 +13602,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      [[maybe_unused]] const RelocationHandler &RH = BC->getRelocationHandler();
      // Check for dynamic relocations that might be contained in
      // constant islands.
-@@ -2403,9 +2486,40 @@ void RewriteInstance::adjustFunctionBoundaries(
+@@ -2403,9 +2487,40 @@ void RewriteInstance::adjustFunctionBoundaries(
        const uint64_t SymbolAddress = NextSymRefI->first;
        const uint64_t SymbolSize = ELFSymbolRef(Symbol).getSize();
  
@@ -13633,7 +13643,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
        if (!Function.isSymbolValidInScope(Symbol, SymbolSize))
          break;
  
-@@ -2522,7 +2636,6 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2522,7 +2637,6 @@ Error RewriteInstance::readSpecialSections() {
    NamedRegionTimer T("readSpecialSections", "read special sections",
                       TimerGroupName, TimerGroupDesc, opts::TimeRewrite);
  
@@ -13641,7 +13651,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    bool HasSymbolTable = false;
    bool HasDebugInfo = false;
  
-@@ -2547,6 +2660,16 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2547,6 +2661,16 @@ Error RewriteInstance::readSpecialSections() {
                 << "\n");
    }
  
@@ -13658,7 +13668,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    // Set IsRelro section attribute based on PT_GNU_RELRO segment.
    markGnuRelroSections();
  
-@@ -2562,11 +2685,14 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2562,11 +2686,14 @@ Error RewriteInstance::readSpecialSections() {
      BC->updateLSDAEncoding();
    }
  
@@ -13674,7 +13684,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    HasSymbolTable = (bool)BC->getUniqueSectionByName(".symtab");
    EHFrameSection = BC->getUniqueSectionByName(".eh_frame");
  
-@@ -2589,15 +2715,31 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2589,15 +2716,31 @@ Error RewriteInstance::readSpecialSections() {
    }
  
    if (opts::RelocationMode == cl::boolOrDefault::BOU_TRUE &&
@@ -13709,7 +13719,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  
    if (BC->IsLinuxKernel && BC->HasRelocations) {
      BC->outs() << "BOLT-INFO: disabling relocation mode for Linux kernel\n";
-@@ -2644,11 +2786,121 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2644,11 +2787,121 @@ Error RewriteInstance::readSpecialSections() {
    return readELFDynamic();
  }
  
@@ -13831,7 +13841,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    // RV32 support is currently limited to statically linked, non-PIE
    // programs. Reject anything that requires features still out of scope
    // (PLT, GOT, dynamic relocations, TLS, instrumentation runtime).
-@@ -2680,7 +2932,7 @@ void RewriteInstance::adjustCommandLineOptions() {
+@@ -2680,7 +2933,7 @@ void RewriteInstance::adjustCommandLineOptions() {
      opts::SplitEH = false;
    }
  
@@ -13840,7 +13850,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
        opts::SplitStrategy == opts::SplitFunctionsStrategy::CDSplit) {
      BC->errs() << "BOLT-ERROR: CDSplit is not supported with LongJmp. Try with "
                    "'--compact-code-model'\n";
-@@ -2864,6 +3116,23 @@ int64_t getRelocationAddend(const ELFObjectFileBase *Obj,
+@@ -2864,6 +3117,23 @@ int64_t getRelocationAddend(const ELFObjectFileBase *Obj,
    return getRelocationAddend(cast<ELF64LEObjectFile>(Obj), Rel);
  }
  
@@ -13864,7 +13874,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  template <typename ELFT>
  uint32_t getRelocationSymbol(const ELFObjectFile<ELFT> *Obj,
                               const RelocationRef &RelRef) {
-@@ -2892,6 +3161,133 @@ uint32_t getRelocationSymbol(const ELFObjectFileBase *Obj,
+@@ -2892,6 +3162,133 @@ uint32_t getRelocationSymbol(const ELFObjectFileBase *Obj,
      return getRelocationSymbol(ELF32LE, Rel);
    return getRelocationSymbol(cast<ELF64LEObjectFile>(Obj), Rel);
  }
@@ -13998,7 +14008,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  } // anonymous namespace
  
  bool RewriteInstance::analyzeRelocation(
-@@ -2911,6 +3307,7 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2911,6 +3308,7 @@ bool RewriteInstance::analyzeRelocation(
    };
  
    const bool IsAArch64 = BC->isAArch64();
@@ -14006,7 +14016,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    const bool IsRISCV = BC->isRISCV();
  
    const size_t RelSize = RH.getSizeForType(RType);
-@@ -2923,8 +3320,10 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2923,8 +3321,10 @@ bool RewriteInstance::analyzeRelocation(
    Addend = getRelocationAddend(InputFile, Rel);
  
    const bool IsPCRelative = RH.isPCRelative(RType);
@@ -14018,7 +14028,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    auto SymbolIter = Rel.getSymbol();
    if (SymbolIter == InputFile->symbol_end()) {
      SymbolAddress = ExtractedValue - Addend + PCRelOffset;
-@@ -2936,9 +3335,22 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2936,9 +3336,22 @@ bool RewriteInstance::analyzeRelocation(
      const SymbolRef &Symbol = *SymbolIter;
      SymbolName = std::string(cantFail(Symbol.getName()));
      SymbolAddress = cantFail(Symbol.getAddress());
@@ -14043,7 +14053,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      // Check for PLT entry registered with symbol name
      // LLD may give a defined RISC-V IFUNC symbol the .iplt entry address.
      // R_RISCV_CALL_PLT must still resolve it through the registered @PLT
-@@ -2952,6 +3364,71 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2952,6 +3365,71 @@ bool RewriteInstance::analyzeRelocation(
        SymbolAddress = BD ? BD->getAddress() : 0;
      }
    }
@@ -14115,7 +14125,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    // For PIE or dynamic libs, the linker may choose not to put the relocation
    // result at the address if it is a X86_64_64 one because it will emit a
    // dynamic relocation (X86_RELATIVE) for the dynamic linker and loader to
-@@ -3007,7 +3484,7 @@ bool RewriteInstance::analyzeRelocation(
+@@ -3007,7 +3485,7 @@ bool RewriteInstance::analyzeRelocation(
      if (SkipVerification)
        return true;
  
@@ -14124,7 +14134,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
        return true;
  
      if (SymbolName == "__hot_start" || SymbolName == "__hot_end")
-@@ -3087,7 +3564,7 @@ void RewriteInstance::processDynamicRelocations() {
+@@ -3087,7 +3565,7 @@ void RewriteInstance::processDynamicRelocations() {
  }
  
  void RewriteInstance::processRelocations() {
@@ -14133,7 +14143,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      return;
  
    for (const SectionRef &Section : InputFile->sections()) {
-@@ -3292,6 +3769,19 @@ void RewriteInstance::readRelocations(const SectionRef &Section) {
+@@ -3292,6 +3770,19 @@ void RewriteInstance::readRelocations(const SectionRef &Section) {
                        << "non-allocatable section\n");
      return;
    }
@@ -14153,7 +14163,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    const bool SkipRelocs = StringSwitch<bool>(RelocatedSectionName)
                                .Cases({".plt", ".rela.plt", ".got.plt",
                                        ".eh_frame", ".gcc_except_table"},
-@@ -3312,7 +3802,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3312,7 +3803,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    const RelocationHandler &RH = BC->getRelocationHandler();
    const bool IsAArch64 = BC->isAArch64();
    const bool IsX86 = BC->isX86();
@@ -14166,7 +14176,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    const bool IsWritable = BinarySection(*BC, RelocatedSection).isWritable();
  
    SmallString<16> TypeName;
-@@ -3354,6 +3848,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3354,6 +3849,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    bool IsSectionRelocation;
    if (!analyzeRelocation(Rel, RType, SymbolName, IsSectionRelocation,
                           SymbolAddress, Addend, ExtractedValue)) {
@@ -14177,7 +14187,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      LLVM_DEBUG({
        dbgs() << "BOLT-WARNING: failed to analyze relocation @ offset = "
               << formatv("{0:x}; type name = {1}\n", Rel.getOffset(), TypeName);
-@@ -3361,6 +3859,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3361,6 +3860,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
      ++NumFailedRelocations;
      return;
    }
@@ -14187,7 +14197,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  
    if (!IsFromCode && !IsWritable && (IsX86 || IsAArch64) &&
        RH.isPCRelative(RType)) {
-@@ -3384,6 +3885,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3384,6 +3886,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    }
  
    const uint64_t Address = SymbolAddress + Addend;
@@ -14197,7 +14207,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  
    LLVM_DEBUG({
      dbgs() << "BOLT-DEBUG: ";
-@@ -3396,7 +3900,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3396,7 +3901,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          BC->getBinaryFunctionContainingAddress(Rel.getOffset(),
                                                 /*CheckPastEnd*/ false,
                                                 /*UseMaxSize*/ true);
@@ -14229,7 +14239,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      if (!IsAArch64 && !ContainingBF->containsAddress(Rel.getOffset())) {
        if (opts::Verbosity >= 1)
          BC->outs() << formatv(
-@@ -3421,8 +3948,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3421,8 +3949,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
  
    ErrorOr<BinarySection &> ReferencedSection{std::errc::bad_address};
    symbol_iterator SymbolIter = Rel.getSymbol();
@@ -14240,7 +14250,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      section_iterator Section =
          cantFail(Symbol.getSection(), "cannot get symbol section");
      if (Section != InputFile->section_end()) {
-@@ -3493,11 +4022,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3493,11 +4023,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    // Only look for a referenced function when the symbol itself denotes code
    // or it is a section relocation.
    BinaryFunction *ReferencedBF = nullptr;
@@ -14255,7 +14265,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      if (BinaryFunction *BF =
              BC->getBinaryFunctionContainingAddress(SymbolAddress)) {
        if (BF != ReferencedBF) {
-@@ -3562,8 +4091,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3562,8 +4092,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
      uint64_t RefFunctionOffset = 0;
  
      // Adjust the point of reference to a code location inside a function.
@@ -14267,7 +14277,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
        if (RH.isInstructionReference(RType)) {
          // Instruction labels are created while disassembling so we just leave
          // the symbol empty for now. Since the extracted value is typically
-@@ -3573,21 +4103,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3573,21 +4104,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          // address in order to be able to correctly reconstruct the reference
          // later.
          ReferencedSymbol = nullptr;
@@ -14296,7 +14306,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
              ReferencedBF->registerInternalRefDataRelocation(RefFunctionOffset,
                                                              Rel.getOffset());
            }
-@@ -3599,12 +4131,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3599,12 +4132,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
                << formatv("function {0} detected at address {1:x}\n",
                           *ReferencedBF, Rel.getOffset());
        }
@@ -14314,7 +14324,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
          dbgs() << formatv(" at offset {0:x}", RefFunctionOffset);
        dbgs() << '\n';
      });
-@@ -3709,6 +4243,38 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3709,6 +4244,38 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    if (IsFromCode)
      ContainingBF->addRelocation(Rel.getOffset(), ReferencedSymbol, RType,
                                  Addend, ExtractedValue);
@@ -14353,7 +14363,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    else if (IsToCode || ForceRelocation)
      BC->addRelocation(Rel.getOffset(), ReferencedSymbol, RType, Addend,
                        ExtractedValue);
-@@ -4379,6 +4945,18 @@ void RewriteInstance::emitAndLink() {
+@@ -4379,6 +4946,18 @@ void RewriteInstance::emitAndLink() {
    // two instances.
    std::unique_ptr<MCStreamer> Streamer = BC->createStreamer(OS);
  
@@ -14372,7 +14382,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    if (EHFrameSection) {
      if (opts::UseOldText || opts::StrictMode) {
        // The section is going to be regenerated from scratch.
-@@ -4773,7 +5351,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
+@@ -4773,7 +5352,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
      MapSection(*FuncSection, Function.getAddress());
      Function.setImageAddress(FuncSection->getAllocAddress());
      Function.setImageSize(FuncSection->getOutputSize());
@@ -14386,7 +14396,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
             "Unexpected large function");
  
      if (!Function.isSplit())
-@@ -4945,8 +5528,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4945,8 +5529,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
    if (std::optional<AddressMap> Map = AddressMap::parse(*BC))
      BC->setIOAddressMap(std::move(*Map));
  
@@ -14441,7 +14451,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  }
  
  void RewriteInstance::updateSegmentInfo() {
-@@ -4959,6 +5587,15 @@ void RewriteInstance::updateSegmentInfo() {
+@@ -4959,6 +5588,15 @@ void RewriteInstance::updateSegmentInfo() {
      NewWritableSegmentSize = NextAvailableAddress - NewWritableSegmentAddress;
    }
  
@@ -14457,7 +14467,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    if (NewTextSegmentSize) {
      SegmentInfo TextSegment = {NewTextSegmentAddress,
                                 NewTextSegmentSize,
-@@ -5026,7 +5663,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5026,7 +5664,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
  
    Phnum = Obj.getHeader().e_phnum;
  
@@ -14476,7 +14486,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      BC->outs() << "BOLT-INFO: not adding new segments\n";
      return;
    }
-@@ -5103,6 +5750,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5103,6 +5751,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
        }
        break;
      }
@@ -14515,7 +14525,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      case ELF::PT_GNU_STACK:
        if (opts::UseGnuStack) {
          assert(BC->NewSegments.size() == 1 &&
-@@ -5217,6 +5896,7 @@ writeCompressedDebugSection(StringRef SectionName,
+@@ -5217,6 +5897,7 @@ writeCompressedDebugSection(StringRef SectionName,
  template <typename ELFT>
  void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
    using ShdrTy = typename ELFT::Shdr;
@@ -14523,7 +14533,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  
    const ELFFile<ELFT> &Obj = File->getELFFile();
    raw_fd_ostream &OS = Out->os();
-@@ -5254,15 +5934,172 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
+@@ -5254,15 +5935,172 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
        Size = Section.sh_size;
        StringRef Dataref = InputFile->getData().substr(Section.sh_offset, Size);
        std::string Data;
@@ -14700,7 +14710,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
          Size = 0;
        } else {
          OS << Dataref;
-@@ -5459,7 +6296,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
+@@ -5459,7 +6297,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
      if (BinSec->isAnonymous())
        continue;
  
@@ -14718,7 +14728,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    }
  
    for (BinarySection &Section : BC->allocatableSections()) {
-@@ -5658,9 +6504,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
+@@ -5658,9 +6505,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
  
    // Write all section header entries while patching section references.
    for (ELFShdrTy &Section : OutputSections) {
@@ -14765,7 +14775,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      OS.write(reinterpret_cast<const char *>(&Section), sizeof(Section));
    }
  
-@@ -5715,6 +6595,25 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5715,6 +6596,25 @@ void RewriteInstance::updateELFSymbolTable(
  
    // Symbols for the new symbol table.
    std::vector<ELFSymTy> Symbols;
@@ -14791,7 +14801,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  
    bool EmittedColdFileSymbol = false;
  
-@@ -5804,7 +6703,9 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5804,7 +6704,9 @@ void RewriteInstance::updateELFSymbolTable(
          }
        }
      }
@@ -14802,7 +14812,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
        uint64_t DataMark = Function.getOutputDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5815,12 +6716,108 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5815,12 +6717,108 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -14913,7 +14923,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
        uint64_t DataMark = Function.getOutputColdDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5831,11 +6828,78 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5831,11 +6829,78 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -14993,7 +15003,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    };
  
    // For regular (non-dynamic) symbol table, exclude symbols referring
-@@ -5866,13 +6930,23 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5866,13 +6931,23 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    };
  
@@ -15019,7 +15029,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      // In relocation mode, if this is a folded function, use the parent function
      // instead so that the symbol gets updated to the parent's output address.
      // In non-relocation mode, folded functions are emitted at their original
-@@ -5943,9 +7017,17 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5943,9 +7018,17 @@ void RewriteInstance::updateELFSymbolTable(
        // If the symbol matched a function that was not emitted, update the
        // corresponding section index but otherwise leave it unchanged.
        if (Function->isEmitted()) {
@@ -15039,7 +15049,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
          NewSymbol.st_shndx = Function->getCodeSection()->getIndex();
        } else if (Symbol.st_shndx < ELF::SHN_LORESERVE) {
          NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
-@@ -5965,22 +7047,48 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5965,22 +7048,48 @@ void RewriteInstance::updateELFSymbolTable(
          return BC->getMarkerType(Symbol.getType(), Symbol.st_size,
                                   *SymbolName) != MarkerSymType::NONE;
        };
@@ -15097,7 +15107,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  
          // Remove symbols that cannot be mapped to the output, e.g.
          // data-in-code labels (jump tables) whose addresses BOLT
-@@ -5988,7 +7096,8 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5988,7 +7097,8 @@ void RewriteInstance::updateELFSymbolTable(
          if (!OutputAddress)
            continue;
  
@@ -15107,7 +15117,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
          // Force secondary entry points to have zero size.
          NewSymbol.st_size = 0;
  
-@@ -6001,6 +7110,28 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6001,6 +7111,28 @@ void RewriteInstance::updateELFSymbolTable(
              });
  
          if (FF == Function->getLayout().fragment_end()) {
@@ -15136,7 +15146,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
            assert(
                OutputAddress >= Function->getCodeSection()->getOutputAddress() &&
                OutputAddress < (Function->getCodeSection()->getOutputAddress() +
-@@ -6036,12 +7167,15 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6036,12 +7168,15 @@ void RewriteInstance::updateELFSymbolTable(
              NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
          }
  
@@ -15157,7 +15167,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
            assert(!IsDynSym && "cannot delete symbol");
            continue;
          }
-@@ -6050,11 +7184,13 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6050,11 +7185,13 @@ void RewriteInstance::updateELFSymbolTable(
  
    registerSymbol:
      if (IsDynSym)
@@ -15174,7 +15184,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    }
  
    if (IsDynSym) {
-@@ -6165,6 +7301,20 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6165,6 +7302,20 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    });
  
@@ -15195,7 +15205,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    for (const ELFSymTy &Symbol : Symbols)
      Write(0, Symbol);
  }
-@@ -6736,7 +7886,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
+@@ -6736,7 +7887,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
  }
  
  uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
@@ -15211,7 +15221,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    if (!Function)
      return 0;
  
-@@ -6745,7 +7902,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
+@@ -6745,7 +7903,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
    if (Function->isFolded())
      Function = Function->getFoldedIntoFunction();
  
@@ -15224,7 +15234,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  }
  
  uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
-@@ -6758,6 +7919,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
+@@ -6758,6 +7920,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
  
    if (const BinaryFunction *BF =
            BC->getBinaryFunctionContainingAddress(OldAddress)) {
@@ -15234,7 +15244,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      if (BF->isEmitted()) {
        // If OldAddress is another entry point of the function or the target of
        // an indirect goto, then BOLT could get the new address.
-@@ -6796,7 +7960,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6796,7 +7961,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      if (Function->getImageAddress() == 0 || Function->getImageSize() == 0)
        continue;
  
@@ -15254,7 +15264,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
             "Unexpected large function");
  
      const auto HasAddress = [](const FunctionFragment &FF) {
-@@ -6816,6 +7991,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6816,6 +7992,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
        continue;
      }
  
@@ -15277,7 +15287,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      OverwrittenScore += Function->getFunctionScore();
      ++CountOverwrittenFunctions;
  
-@@ -6826,12 +8017,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6826,12 +8018,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      safePWrite(OS, reinterpret_cast<char *>(Function->getImageAddress()),
                 Function->getImageSize(), Function->getFileOffset());
  
@@ -15296,7 +15306,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  
        OS.seek(Pos);
      }
-@@ -6947,6 +8141,862 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +8142,862 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -16159,7 +16169,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6958,7 +9008,23 @@ void RewriteInstance::rewriteFile() {
+@@ -6958,7 +9009,23 @@ void RewriteInstance::rewriteFile() {
    // Copy allocatable part of the input.
    OS << InputFile->getData().substr(0, FirstNonAllocatableOffset);
  
@@ -16184,7 +16194,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
  
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
-@@ -7002,6 +9068,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +9069,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -16194,7 +16204,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
    }
  
    for (BinarySection &Section : BC->allocatableSections())
-@@ -7009,6 +9078,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7009,6 +9079,9 @@ void RewriteInstance::rewriteFile() {
        return getNewValueForSymbol(S->getName());
      });
  
@@ -16206,10 +16216,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..50f0d68a6696ecf385e6b50a30a6fc23
      writeEHFrameHeader();
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..b335ebffc0d257d36e103c62b9307944ade37538
+index 0000000000000000000000000000000000000000..3ad593fe1b241522d0b004f4e85bcb890058713f
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3384 @@
+@@ -0,0 +1,3386 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -16255,7 +16265,8 @@ index 0000000000000000000000000000000000000000..b335ebffc0d257d36e103c62b9307944
 +    const bool CPUCanExecuteScalarFP =
 +        StringSwitch<bool>(STI->getCPU())
 +            .Cases({"cortex-m4", "cortex-m7", "cortex-m33"}, true)
-+            .Cases({"cortex-m55", "cortex-m85"}, true)
++            .Cases({"cortex-m35p", "cortex-m52", "cortex-m55"}, true)
++            .Case("cortex-m85", true)
 +            .Default(false);
 +    return CPUCanExecuteScalarFP && STI->hasFeature(ARM::FeatureFPRegs);
 +  }
@@ -16269,7 +16280,8 @@ index 0000000000000000000000000000000000000000..b335ebffc0d257d36e103c62b9307944
 +    // scalar double-precision FPU.
 +    const bool CPUCanExecuteDouble =
 +        StringSwitch<bool>(STI->getCPU())
-+            .Cases({"cortex-m7", "cortex-m55", "cortex-m85"}, true)
++            .Cases({"cortex-m7", "cortex-m52", "cortex-m55"}, true)
++            .Case("cortex-m85", true)
 +            .Default(false);
 +    return CPUCanExecuteDouble && STI->hasFeature(ARM::FeatureFP64);
 +  }
@@ -16328,7 +16340,7 @@ index 0000000000000000000000000000000000000000..b335ebffc0d257d36e103c62b9307944
 +    // the generic "arm--" triple even though its CPU/features are precise.
 +    const bool RestrictedIT =
 +        StringSwitch<bool>(STI->getCPU())
-+            .Case("cortex-m33", true)
++            .Cases({"cortex-m33", "cortex-m35p", "cortex-m52"}, true)
 +            .Cases({"cortex-m55", "cortex-m85"}, true)
 +            .Default(false);
 +    return NumMoves <= (RestrictedIT ? 1U : 4U);
@@ -20281,20 +20293,28 @@ index 0000000000000000000000000000000000000000..291bff4f92cdbd42657d70c4ef949526
 +}
 diff --git a/bolt/test/ARM/cortex-m-cpu-profiles.s b/bolt/test/ARM/cortex-m-cpu-profiles.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..fcd34043e401f431eb05db6b6714c911bdc8d251
+index 0000000000000000000000000000000000000000..be2eea26d8284cbb8a99732e09fbf604fc0bb602
 --- /dev/null
 +++ b/bolt/test/ARM/cortex-m-cpu-profiles.s
-@@ -0,0 +1,65 @@
-+## Qualify the remaining architecture-equivalent Cortex-M CPUs without
-+## pretending that untested Armv8-M/security/MVE profiles are covered.  M0 and
-+## M0+ share Armv6-M; M4 and M7 share Armv7E-M.  The explicit CPU still drives
-+## LLVM feature selection, while ELF attributes must match its architecture.
+@@ -0,0 +1,78 @@
++## Qualify architecture-equivalent Cortex-M CPUs without conflating their
++## identities. M0/M0+/M1 share Armv6-M; M4/M7 share Armv7E-M. The explicit CPU
++## still drives LLVM feature selection, while ELF attributes provide exact or
++## architecture-level evidence. The M1 arm also proves that Thumb triples take
++## the same AArch32 attribute-import path as ARM triples.
 +
 +# RUN: llvm-mc -filetype=obj -triple thumbv6m-none-eabi -mcpu=cortex-m0 %s -o %t.m0.o
 +# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.m0.o -o %t.m0.exe
 +# RUN: llvm-bolt %t.m0.exe --firmbolt-cortex-m-cpu=cortex-m0 \
 +# RUN:   --frame-opt=none -o %t.m0.bolt
 +# RUN: llvm-objdump -d --mcpu=cortex-m0 %t.m0.bolt | FileCheck %s --check-prefix=DISASM
++# RUN: llvm-mc -filetype=obj -triple thumbv6m-none-eabi -mcpu=cortex-m1 \
++# RUN:   -defsym=M1=1 %s -o %t.m1.o
++# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.m1.o -o %t.m1.exe
++# RUN: llvm-bolt %t.m1.exe --firmbolt-cortex-m-cpu=cortex-m1 \
++# RUN:   --firmbolt-reject-target-incompatible-input --frame-opt=none \
++# RUN:   -o %t.m1.bolt 2>&1 | FileCheck %s --check-prefix=M1
++# RUN: llvm-objdump -d --mcpu=cortex-m1 %t.m1.bolt | FileCheck %s --check-prefix=DISASM
 +# RUN: not llvm-bolt %t.m0.exe --firmbolt-cortex-m-cpu=cortex-m7 \
 +# RUN:   --frame-opt=none -o %t.bad 2>&1 | FileCheck %s --check-prefix=MISMATCH
 +# RUN: llvm-mc -filetype=obj -triple thumbv7em-none-eabi -mcpu=cortex-m7 \
@@ -20320,6 +20340,7 @@ index 0000000000000000000000000000000000000000..fcd34043e401f431eb05db6b6714c911
 +# EXACT-MISMATCH: Cortex-M exact CPU/input attribute mismatch
 +# EXACT-MISMATCH: --firmbolt-cortex-m-cpu=cortex-m4 does not match Tag_CPU_name=cortex-m7
 +# GENERIC: BOLT-INFO: Cortex-M target CPU cortex-m4, input CPU attribute 7E-M
++# M1: BOLT-INFO: Cortex-M target CPU cortex-m1, input CPU attribute cortex-m1
 +
 +  .syntax unified
 +  .thumb
@@ -20332,7 +20353,11 @@ index 0000000000000000000000000000000000000000..fcd34043e401f431eb05db6b6714c911
 +  .endif
 +  .else
 +  .eabi_attribute Tag_CPU_arch, 12
++  .ifdef M1
++  .eabi_attribute Tag_CPU_name, "cortex-m1"
++  .else
 +  .eabi_attribute Tag_CPU_name, "cortex-m0"
++  .endif
 +  .endif
 +  .eabi_attribute Tag_CPU_arch_profile, 'M'
 +  .text
@@ -20812,15 +20837,16 @@ index 0000000000000000000000000000000000000000..ac1bf0a5812720509e5c8657ff64dfd0
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/cortex-m-v8-profiles.s b/bolt/test/ARM/cortex-m-v8-profiles.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64b14678a5
+index 0000000000000000000000000000000000000000..5f59dfd2f4ab09330090202780c222eadbe54db7
 --- /dev/null
 +++ b/bolt/test/ARM/cortex-m-v8-profiles.s
-@@ -0,0 +1,149 @@
-+## Qualify one CPU from each M-profile Armv8 generation.  Ordinary code may
-+## use the audited native pipeline; TrustZone transition/gateway code is decoded
-+## but retained as an opaque semantic unit; MVE integer and floating-point
-+## instructions are decoded and exactly re-emitted on Cortex-M55.  PACBTI-M
-+## instructions are decoded and retained as an opaque function on Cortex-M85.
+@@ -0,0 +1,211 @@
++## Qualify every Cortex-M CPU in the pinned LLVM target across the M-profile
++## Armv8 generations. Ordinary code may use the audited native pipeline;
++## TrustZone transition/gateway code is decoded but retained as an opaque
++## semantic unit on M33/M35P; MVE integer and floating-point instructions are
++## decoded and exactly re-emitted on M52/M55; PACBTI-M instructions are decoded
++## and retained as an opaque function on M52/M85.
 +
 +# RUN: llvm-mc -filetype=obj -triple thumbv8m.base-none-eabi \
 +# RUN:   -mcpu=cortex-m23 -defsym=M23=1 %s -o %t.m23.o
@@ -20832,7 +20858,8 @@ index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64
 +# RUN:   | FileCheck %s --check-prefix=M23-DISASM
 +
 +# RUN: llvm-mc -filetype=obj -triple thumbv8m.main-none-eabi \
-+# RUN:   -mcpu=cortex-m33 -mattr=+8msecext -defsym=M33=1 %s -o %t.m33.o
++# RUN:   -mcpu=cortex-m33 -mattr=+8msecext -defsym=M33=1 \
++# RUN:   -defsym=M8M_MAIN=1 -defsym=SECURITY=1 %s -o %t.m33.o
 +# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.m33.o -o %t.m33.exe
 +# RUN: llvm-bolt %t.m33.exe --firmbolt-cortex-m-cpu=cortex-m33 \
 +# RUN:   --frame-opt=all --fastdyn-firmware-report=%t.m33.json \
@@ -20841,8 +20868,21 @@ index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64
 +# RUN: llvm-objdump -d --mcpu=cortex-m33 --mattr=+8msecext %t.m33.bolt \
 +# RUN:   | FileCheck %s --check-prefix=M33-DISASM
 +
++# RUN: llvm-mc -filetype=obj -triple thumbv8m.main-none-eabi \
++# RUN:   -mcpu=cortex-m35p -mattr=+8msecext -defsym=M35P=1 \
++# RUN:   -defsym=M8M_MAIN=1 -defsym=SECURITY=1 %s -o %t.m35p.o
++# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.m35p.o -o %t.m35p.exe
++# RUN: llvm-bolt %t.m35p.exe --firmbolt-cortex-m-cpu=cortex-m35p \
++# RUN:   --firmbolt-reject-target-incompatible-input --frame-opt=all \
++# RUN:   --fastdyn-firmware-report=%t.m35p.json -o %t.m35p.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=M35P-BOLT
++# RUN: %python -c "import json; d=json.load(open('%t.m35p.json')); f=next(x for x in d['functions'] if x['name']=='secure_gateway'); print(f['simple'],f['firmware_modified'])" | FileCheck %s --check-prefix=M35P-REPORT
++# RUN: llvm-objdump -d --mcpu=cortex-m35p --mattr=+8msecext %t.m35p.bolt \
++# RUN:   | FileCheck %s --check-prefix=M35P-DISASM
++
 +# RUN: llvm-mc -filetype=obj -triple thumbv8.1m.main-none-eabi \
-+# RUN:   -mcpu=cortex-m55 -mattr=+mve,+mve.fp -defsym=M55=1 %s -o %t.m55.o
++# RUN:   -mcpu=cortex-m55 -mattr=+mve,+mve.fp -defsym=M55=1 \
++# RUN:   -defsym=MVE_PROFILE=1 %s -o %t.m55.o
 +# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.m55.o -o %t.m55.exe
 +# RUN: llvm-bolt %t.m55.exe --firmbolt-cortex-m-cpu=cortex-m55 \
 +# RUN:   --frame-opt=none -o %t.m55.bolt
@@ -20850,7 +20890,8 @@ index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64
 +# RUN:   | FileCheck %s --check-prefix=M55-DISASM
 +
 +# RUN: llvm-mc -filetype=obj -triple thumbv8.1m.main-none-eabi \
-+# RUN:   -mcpu=cortex-m85 -mattr=+pacbti,+mve,+mve.fp -defsym=M85=1 %s -o %t.m85.o
++# RUN:   -mcpu=cortex-m85 -mattr=+pacbti,+mve,+mve.fp -defsym=M85=1 \
++# RUN:   -defsym=PAC_PROFILE=1 %s -o %t.m85.o
 +# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.m85.o -o %t.m85.exe
 +# RUN: llvm-bolt %t.m85.exe --firmbolt-cortex-m-cpu=cortex-m85 \
 +# RUN:   --frame-opt=all --fastdyn-firmware-report=%t.m85.json \
@@ -20858,6 +20899,18 @@ index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64
 +# RUN: %python -c "import json; d=json.load(open('%t.m85.json')); f=next(x for x in d['functions'] if x['name']=='pacbti_worker'); print(f['simple'],f['firmware_modified'])" | FileCheck %s --check-prefix=M85-REPORT
 +# RUN: llvm-objdump -d --mcpu=cortex-m85 --mattr=+pacbti %t.m85.bolt \
 +# RUN:   | FileCheck %s --check-prefix=M85-DISASM
++
++# RUN: llvm-mc -filetype=obj -triple thumbv8.1m.main-none-eabi \
++# RUN:   -mcpu=cortex-m52 -mattr=+pacbti,+mve,+mve.fp -defsym=M52=1 \
++# RUN:   -defsym=MVE_PROFILE=1 -defsym=PAC_PROFILE=1 %s -o %t.m52.o
++# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.m52.o -o %t.m52.exe
++# RUN: llvm-bolt %t.m52.exe --firmbolt-cortex-m-cpu=cortex-m52 \
++# RUN:   --firmbolt-reject-target-incompatible-input --frame-opt=all \
++# RUN:   --fastdyn-firmware-report=%t.m52.json -o %t.m52.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=M52-BOLT
++# RUN: %python -c "import json; d=json.load(open('%t.m52.json')); f=next(x for x in d['functions'] if x['name']=='pacbti_worker'); print(f['simple'],f['firmware_modified'])" | FileCheck %s --check-prefix=M52-REPORT
++# RUN: llvm-objdump -d --mcpu=cortex-m52 --mattr=+pacbti,+mve,+mve.fp \
++# RUN:   %t.m52.bolt | FileCheck %s --check-prefix=M52-DISASM
 +
 +# RUN: not llvm-bolt %t.m23.exe --firmbolt-cortex-m-cpu=cortex-m33 \
 +# RUN:   --frame-opt=none -o %t.bad 2>&1 | FileCheck %s --check-prefix=MISMATCH
@@ -20873,6 +20926,13 @@ index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64
 +# M33-DISASM-NEXT: sg
 +# M33-DISASM-NEXT: bxns lr
 +
++# M35P-BOLT: BOLT-INFO: Cortex-M target CPU cortex-m35p, input CPU attribute cortex-m35p
++# M35P-BOLT: security-state-functions=1
++# M35P-REPORT: False False
++# M35P-DISASM: <secure_gateway>:
++# M35P-DISASM-NEXT: sg
++# M35P-DISASM-NEXT: bxns lr
++
 +# M55-DISASM: <mve_worker>:
 +# M55-DISASM-NEXT: vadd.i32 q0, q1, q2
 +# M55-DISASM-NEXT: vadd.f32 q0, q1, q2
@@ -20886,19 +20946,46 @@ index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64
 +# M85-DISASM-NEXT: aut r12, lr, sp
 +# M85-DISASM-NEXT: bx lr
 +
++# M52-BOLT: BOLT-INFO: Cortex-M target CPU cortex-m52, input CPU attribute cortex-m52
++# M52-BOLT: security-state-functions=1
++# M52-REPORT: False False
++# M52-DISASM: <mve_worker>:
++# M52-DISASM-NEXT: vadd.i32 q0, q1, q2
++# M52-DISASM-NEXT: vadd.f32 q0, q1, q2
++# M52-DISASM: <pacbti_worker>:
++# M52-DISASM-NEXT: pacbti r12, lr, sp
++# M52-DISASM-NEXT: bti
++# M52-DISASM-NEXT: aut r12, lr, sp
++# M52-DISASM-NEXT: bx lr
++
 +# MISMATCH: Cortex-M CPU/input attribute mismatch
 +
 +  .syntax unified
 +  .thumb
 +  .ifdef M23
 +  .eabi_attribute Tag_CPU_arch, 16
++  .eabi_attribute Tag_CPU_name, "cortex-m23"
 +  .else
-+  .ifdef M33
++  .ifdef M8M_MAIN
 +  .eabi_attribute Tag_CPU_arch, 17
++  .ifdef M35P
++  .eabi_attribute Tag_CPU_name, "cortex-m35p"
++  .else
++  .eabi_attribute Tag_CPU_name, "cortex-m33"
++  .endif
 +  .else
 +  .eabi_attribute Tag_CPU_arch, 21
 +  .eabi_attribute Tag_MVE_arch, 2
++  .ifdef M52
++  .eabi_attribute Tag_CPU_name, "cortex-m52"
++  .else
 +  .ifdef M85
++  .eabi_attribute Tag_CPU_name, "cortex-m85"
++  .else
++  .eabi_attribute Tag_CPU_name, "cortex-m55"
++  .endif
++  .endif
++  .ifdef PAC_PROFILE
 +  .eabi_attribute Tag_PAC_extension, 1
 +  .eabi_attribute Tag_BTI_extension, 1
 +  .endif
@@ -20927,7 +21014,7 @@ index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64
 +  bx lr
 +  .size ordinary_worker, .-ordinary_worker
 +
-+  .ifdef M33
++  .ifdef SECURITY
 +  .globl secure_gateway
 +  .type secure_gateway,%function
 +  .thumb_func
@@ -20937,7 +21024,7 @@ index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64
 +  .size secure_gateway, .-secure_gateway
 +  .endif
 +
-+  .ifdef M55
++  .ifdef MVE_PROFILE
 +  .globl mve_worker
 +  .type mve_worker,%function
 +  .thumb_func
@@ -20948,7 +21035,7 @@ index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64
 +  .size mve_worker, .-mve_worker
 +  .endif
 +
-+  .ifdef M85
++  .ifdef PAC_PROFILE
 +  .globl pacbti_worker
 +  .type pacbti_worker,%function
 +  .thumb_func
@@ -27050,10 +27137,10 @@ index 0000000000000000000000000000000000000000..32cacd19052fce8ce031094e83ee78c1
 +Reset_Handler
 diff --git a/bolt/test/ARM/thumb-vfp-frame-forwarding.s b/bolt/test/ARM/thumb-vfp-frame-forwarding.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..2a1469ca59e48d4987d521674008e0ee24895283
+index 0000000000000000000000000000000000000000..e02bdace31317aecbb30f85f2cc9dd42cc5257bf
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-vfp-frame-forwarding.s
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,168 @@
 +## Cortex-M floating-point spills are ordinary frame values only when the
 +## selected CPU can encode an equivalent register-to-register move.  M4 has
 +## scalar single-precision VMOV but no double-precision VMOV.  Stores remain
@@ -27078,9 +27165,20 @@ index 0000000000000000000000000000000000000000..2a1469ca59e48d4987d521674008e0ee
 +# RUN:   | FileCheck %s --check-prefix=M7-BOLT
 +# RUN: llvm-objdump -d --mcpu=cortex-m7 --mattr=+fp-armv8d16 %t.m7.bolt \
 +# RUN:   | FileCheck %s --check-prefix=M7-DISASM
++# RUN: llvm-mc -filetype=obj -triple thumbv8m.main-none-eabi \
++# RUN:   -mcpu=cortex-m35p -mattr=+fp-armv8d16sp --defsym=M35P=1 \
++# RUN:   %s -o %t.m35p.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.m35p.o -o %t.m35p.exe
++# RUN: llvm-bolt %t.m35p.exe --firmbolt-cortex-m-cpu=cortex-m35p \
++# RUN:   --firmbolt-reject-target-incompatible-input --frame-opt=all \
++# RUN:   --eliminate-unreachable=false -o %t.m35p.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=M35P-BOLT
++# RUN: llvm-objdump -d --mcpu=cortex-m35p --mattr=+fp-armv8d16sp \
++# RUN:   %t.m35p.bolt | FileCheck %s --check-prefix=M35P-DISASM
 +# RUN: llvm-mc -filetype=obj -triple thumbv8.1m.main-none-eabi \
 +# RUN:   -mcpu=cortex-m55 -mattr=+mve,+mve.fp,+fullfp16 \
-+# RUN:   --defsym=M8=1 %s -o %t.m55.o
++# RUN:   --defsym=M8=1 --defsym=M55=1 %s -o %t.m55.o
 +# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
 +# RUN:   %t.m55.o -o %t.m55.exe
 +# RUN: llvm-bolt %t.m55.exe --firmbolt-cortex-m-cpu=cortex-m55 \
@@ -27090,7 +27188,7 @@ index 0000000000000000000000000000000000000000..2a1469ca59e48d4987d521674008e0ee
 +# RUN:   %t.m55.bolt | FileCheck %s --check-prefix=M8-DISASM
 +# RUN: llvm-mc -filetype=obj -triple thumbv8.1m.main-none-eabi \
 +# RUN:   -mcpu=cortex-m85 -mattr=+mve,+mve.fp,+fullfp16 \
-+# RUN:   --defsym=M8=1 %s -o %t.m85.o
++# RUN:   --defsym=M8=1 --defsym=M85=1 %s -o %t.m85.o
 +# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
 +# RUN:   %t.m85.o -o %t.m85.exe
 +# RUN: llvm-bolt %t.m85.exe --firmbolt-cortex-m-cpu=cortex-m85 \
@@ -27098,6 +27196,18 @@ index 0000000000000000000000000000000000000000..2a1469ca59e48d4987d521674008e0ee
 +# RUN:   | FileCheck %s --check-prefix=M8-BOLT
 +# RUN: llvm-objdump -d --mcpu=cortex-m85 --mattr=+mve,+mve.fp,+fullfp16 \
 +# RUN:   %t.m85.bolt | FileCheck %s --check-prefix=M8-DISASM
++# RUN: llvm-mc -filetype=obj -triple thumbv8.1m.main-none-eabi \
++# RUN:   -mcpu=cortex-m52 -mattr=+pacbti,+mve,+mve.fp,+fullfp16 \
++# RUN:   --defsym=M8=1 --defsym=M52=1 %s -o %t.m52.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.m52.o -o %t.m52.exe
++# RUN: llvm-bolt %t.m52.exe --firmbolt-cortex-m-cpu=cortex-m52 \
++# RUN:   --firmbolt-reject-target-incompatible-input --frame-opt=all \
++# RUN:   --eliminate-unreachable=false -o %t.m52.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefixes=M52-BOLT,M8-BOLT
++# RUN: llvm-objdump -d --mcpu=cortex-m52 \
++# RUN:   --mattr=+pacbti,+mve,+mve.fp,+fullfp16 %t.m52.bolt \
++# RUN:   | FileCheck %s --check-prefix=M8-DISASM
 +
 +# BOLT: BOLT-INFO: FOP optimized 1 redundant load(s)
 +# BOLT: BOLT-INFO: FRAME ANALYSIS: 0 function(s) (0.0% dyn cov) could not have its frame indices restored.
@@ -27114,6 +27224,14 @@ index 0000000000000000000000000000000000000000..2a1469ca59e48d4987d521674008e0ee
 +# M7-DISASM-NEXT: vmov.f32 s1, s0
 +# M7-DISASM-NEXT: vstr d4, [sp, #8]
 +# M7-DISASM-NEXT: vmov.f64 d5, d4
++# M35P-BOLT: BOLT-INFO: Cortex-M target CPU cortex-m35p, input CPU attribute cortex-m35p, input feature evidence +mclass,+fp-armv8d16sp
++# M35P-BOLT: BOLT-INFO: FOP optimized 1 redundant load(s)
++# M35P-DISASM: <Reset_Handler>:
++# M35P-DISASM: vstr s0, [sp]
++# M35P-DISASM-NEXT: vmov.f32 s1, s0
++# M35P-DISASM-NEXT: vstr d4, [sp, #8]
++# M35P-DISASM-NEXT: vldr d5, [sp, #8]
++# M52-BOLT: BOLT-INFO: Cortex-M target CPU cortex-m52, input CPU attribute cortex-m52
 +# M8-BOLT: BOLT-INFO: FOP optimized 2 redundant load(s)
 +# M8-BOLT: BOLT-INFO: FRAME ANALYSIS: 0 function(s) (0.0% dyn cov) could not have its frame indices restored.
 +# M8-DISASM: <Reset_Handler>:
@@ -27126,25 +27244,44 @@ index 0000000000000000000000000000000000000000..2a1469ca59e48d4987d521674008e0ee
 +
 +  .syntax unified
 +  .thumb
++  .ifdef M35P
++  .eabi_attribute Tag_CPU_arch, 17
++  .else
 +  .ifdef M8
 +  .eabi_attribute Tag_CPU_arch, 21
 +  .eabi_attribute Tag_MVE_arch, 2
 +  .else
 +  .eabi_attribute Tag_CPU_arch, 13
 +  .endif
++  .endif
 +  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .ifdef M35P
++  .eabi_attribute Tag_CPU_name, "cortex-m35p"
++  .eabi_attribute Tag_FP_arch, 8
++  .eabi_attribute Tag_ABI_HardFP_use, 1
++  .else
 +  .ifdef M7
 +  .eabi_attribute Tag_CPU_name, "cortex-m7"
 +  .eabi_attribute Tag_FP_arch, 8
 +  .eabi_attribute Tag_ABI_HardFP_use, 3
 +  .else
 +  .ifdef M8
++  .ifdef M52
++  .eabi_attribute Tag_CPU_name, "cortex-m52"
++  .else
++  .ifdef M85
++  .eabi_attribute Tag_CPU_name, "cortex-m85"
++  .else
++  .eabi_attribute Tag_CPU_name, "cortex-m55"
++  .endif
++  .endif
 +  .eabi_attribute Tag_FP_arch, 8
 +  .eabi_attribute Tag_ABI_HardFP_use, 3
 +  .else
 +  .eabi_attribute Tag_CPU_name, "cortex-m4"
 +  .eabi_attribute Tag_FP_arch, 6
 +  .eabi_attribute Tag_ABI_HardFP_use, 1
++  .endif
 +  .endif
 +  .endif
 +  .text
@@ -30250,7 +30387,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..42e4eece9e434b57d6e609e4dd3c66c87f40aacd 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..d10ce73f947d0e318485b1b3de2521f3ac621692 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -30289,7 +30426,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..42e4eece9e434b57d6e609e4dd3c66c8
      ELF64LE::Ehdr *EHdr = reinterpret_cast<typename ELF64LE::Ehdr *>(ElfBuf);
      EHdr->e_ident[llvm::ELF::EI_CLASS] = llvm::ELF::ELFCLASS64;
      EHdr->e_ident[llvm::ELF::EI_DATA] = llvm::ELF::ELFDATA2LSB;
-@@ -81,13 +96,28 @@ protected:
+@@ -81,13 +96,31 @@ protected:
    }
  
    void initializeBolt() {
@@ -30316,11 +30453,14 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..42e4eece9e434b57d6e609e4dd3c66c8
          TheTriple, std::make_shared<orc::SymbolStringPool>(),
 -        ObjFile->getFileName(), TheTriple.isRISCV() ? &Features : nullptr, true,
 +        ObjFile->getFileName(),
-+        (TheTriple.isRISCV() || TheTriple.isARM()) ? &Features : nullptr, true,
++        (TheTriple.isRISCV() || TheTriple.isARM() || TheTriple.isThumb())
++            ? &Features
++            : nullptr,
++        true,
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +155,1122 @@ protected:
+@@ -125,6 +158,1122 @@ protected:
  };
  } // namespace
  

@@ -1,0 +1,130 @@
+{
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "milestone": "v163-complete-pinned-llvm-cortex-m-cpu-family",
+  "generated_at_utc": "2026-11-19T23:35:37Z",
+  "repository_base_commit": "cbb9af16f91a99d8d5e7ee32d88c9ed952424a28",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-v163-cpu-family-r2"
+  ],
+  "production_status": "accepted",
+  "production_profiles": {
+    "accepted": 63,
+    "total": 63,
+    "linked_byte_validation_applicable": 62,
+    "linked_byte_validation_not_applicable": 1,
+    "functions": 1950,
+    "modified_functions": 1136,
+    "instruction_origins": 130082,
+    "modified_function_instruction_origins": 98699,
+    "potentially_faulting_load_store_origins": 57582
+  },
+  "cpu_family": {
+    "pinned_llvm_cortex_m_cpus": [
+      "cortex-m0",
+      "cortex-m0plus",
+      "cortex-m1",
+      "cortex-m3",
+      "cortex-m4",
+      "cortex-m7",
+      "cortex-m23",
+      "cortex-m33",
+      "cortex-m35p",
+      "cortex-m52",
+      "cortex-m55",
+      "cortex-m85"
+    ],
+    "firmbolt_accepted_cpus": [
+      "cortex-m0",
+      "cortex-m0plus",
+      "cortex-m1",
+      "cortex-m3",
+      "cortex-m4",
+      "cortex-m7",
+      "cortex-m23",
+      "cortex-m33",
+      "cortex-m35p",
+      "cortex-m52",
+      "cortex-m55",
+      "cortex-m85"
+    ],
+    "missing_pinned_llvm_cpus": [],
+    "subarchitecture_mapping": {
+      "Armv6-M": ["cortex-m0", "cortex-m0plus", "cortex-m1"],
+      "Armv7-M": ["cortex-m3"],
+      "Armv7E-M": ["cortex-m4", "cortex-m7"],
+      "Armv8-M Baseline": ["cortex-m23"],
+      "Armv8-M Mainline": ["cortex-m33", "cortex-m35p"],
+      "Armv8.1-M Mainline": ["cortex-m52", "cortex-m55", "cortex-m85"]
+    }
+  },
+  "thumb_attribute_import_fix": {
+    "mechanism": "RewriteInstance gated ARM build-attribute import on Triple::isARM(), excluding Thumb triples such as Armv6-M",
+    "fix": "treat Triple::isARM() or Triple::isThumb() as AArch32 for CPU-name and feature import",
+    "observed_before": "the exact cortex-m1 tag and Armv6-M feature evidence were absent",
+    "observed_after": "the cortex-m1 fixture reports its exact CPU tag; the real M0+ corpus reports generic 6S-M identity evidence and +mclass features",
+    "input_attributes_authorize_execution_features": false
+  },
+  "new_cpu_gates": {
+    "cortex_m1": {
+      "architecture": "Armv6-M",
+      "exact_cpu_attribute": "cortex-m1",
+      "strict_rewrite": "accepted",
+      "instruction_emission": "byte-exact ordinary Thumb-1"
+    },
+    "cortex_m35p": {
+      "architecture": "Armv8-M Mainline",
+      "exact_cpu_attribute": "cortex-m35p",
+      "security_transition_code": "decoded and retained whole",
+      "scalar_single_precision_fop": "accepted",
+      "scalar_double_precision_fop": "retained as unsupported on this CPU"
+    },
+    "cortex_m52": {
+      "architecture": "Armv8.1-M Mainline",
+      "exact_cpu_attribute": "cortex-m52",
+      "mve_integer_and_float": "decoded and exactly re-emitted",
+      "pacbti_m": "decoded and retained whole",
+      "scalar_single_and_double_precision_fop": "accepted",
+      "fp16_memory_reload": "retained because no equivalent FP-register copy is modeled"
+    }
+  },
+  "regressions": {
+    "arm_bolt_lit": {"passed": 89, "failed": 0},
+    "aarch32_jitlink_lit": {"passed": 12, "failed": 0},
+    "aarch32_jitlink_units": {"passed": 19, "failed": 0},
+    "core_units": {
+      "passed": 86,
+      "skipped_target_inapplicable": 150,
+      "failed": 0
+    },
+    "pass_units": {"passed": 5, "failed": 0},
+    "profile_units": {"passed": 39, "failed": 0},
+    "clean_apply_to_pinned_revision": true
+  },
+  "scope_limits": [
+    "CPU-family completeness is relative to the pinned LLVM revision, not future Arm CPUs",
+    "M35P security-transition and M52 PACBTI-M functions are retained whole; this milestone does not authorize transformations across those state boundaries",
+    "M52 MVE is exact decode/re-emission coverage rather than an MVE-specific optimization",
+    "the milestone does not establish a runtime speedup or complete x86-backend parity"
+  ],
+  "sha256": {
+    "patches/bolt-fastdyn-preflight.patch": "d3cd2061064837e2b1f525abecb438f1c400330a7b38cbc82030d74ad934318a",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py": "0bb959c42b7a89002a9ff56a85ebdf80a786c6f0b2d832dcb22d216190064cdb",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "dce0c6ffa52708da74095f5631718bb9e17a3ef3d26accaa82879522551a1cfa",
+    "report.json": "f8a28493edda7292ec4d244fdf97d6d7d419a2c39be1f03a4b57fad73338b092",
+    "arm-bolt-lit.xml": "a4b9f43f47ce75786c2f04961f86a3ca0e7ba58bc8bb1974cbc843e031d63ba3",
+    "aarch32-jitlink-lit.xml": "d52598840d36f0711e2f8747ee19a44d489b6ca8599d958725d5fa13eb95fd05",
+    "jitlink-tests.xml": "0283f66235a352fd993b0472f1b6d6a8a267890580cbbcd0d7cf812e14783ebd",
+    "core-tests.xml": "8193a8f44f48a8db03530f82b724cab6c8a4cee47df68689a98ac912143dd591",
+    "pass-tests.xml": "6b681037e4e45edb999930c9176f00f6a614ae85c09ff3c4da06e964d74eeb2d",
+    "profile-tests.xml": "9a3c33a06ad0662b9da052bf8e17b5a71a330a2d1556079f8554a44ac8696965"
+  }
+}
