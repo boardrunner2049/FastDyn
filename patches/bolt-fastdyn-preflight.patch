@@ -1118,7 +1118,7 @@ index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fa
    /// The shortest distance for any branch instruction on AArch64.
    static constexpr size_t ShortestJumpBits = 11;
 diff --git a/bolt/include/bolt/Rewrite/RewriteInstance.h b/bolt/include/bolt/Rewrite/RewriteInstance.h
-index 551c0341b9946c65c318bb4626e9156b1cd855ac..b023ae5866bd31f7b0bbf2e2f886248f5b5239e4 100644
+index 551c0341b9946c65c318bb4626e9156b1cd855ac..b328b12e4ad4ce427fcd488405f239f48a78ea1b 100644
 --- a/bolt/include/bolt/Rewrite/RewriteInstance.h
 +++ b/bolt/include/bolt/Rewrite/RewriteInstance.h
 @@ -243,6 +243,14 @@ private:
@@ -1136,7 +1136,7 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..b023ae5866bd31f7b0bbf2e2f886248f
    /// Return the input file range [Start, End) that BOLT reuses for new
    /// content (like with --use-old-text). Return std::nullopt when no input
    /// region is being reused.
-@@ -537,6 +545,19 @@ private:
+@@ -537,6 +545,27 @@ private:
    uint64_t NextAvailableAddress{0};
  
    /// Location and size of dynamic relocations.
@@ -1147,6 +1147,14 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..b023ae5866bd31f7b0bbf2e2f886248f
 +  /// global relocation-layout mode.
 +  bool HasInputTextRelocations{false};
 +
++  /// Exact input-to-output field mapping for linked ARM EHABI index records.
++  /// A present key with no output address means that ICF removed the complete
++  /// index entry.  The non-allocatable SHT_REL rewriter consumes this ledger
++  /// so retained .rel.ARM.exidx metadata follows record sorting/compaction
++  /// instead of naming stale or retired bytes.
++  DenseMap<uint64_t, SmallVector<uint64_t, 1>>
++      ARMExidxRelocationAddressMap;
++
 +  /// Input regular-symbol index to the index assigned by the rebuilt output
 +  /// .symtab. Cortex-M retains static SHT_REL sections in compact mode, so
 +  /// their r_info fields must follow symbol removal, insertion and local-first
@@ -1156,7 +1164,7 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..b023ae5866bd31f7b0bbf2e2f886248f
    std::optional<uint64_t> DynamicRelocationsAddress;
    uint64_t DynamicRelocationsSize{0};
    uint64_t DynamicRelativeRelocationsCount{0};
-@@ -657,6 +678,11 @@ MCPlusBuilder *createMCPlusBuilder(const Triple::ArchType Arch,
+@@ -657,6 +686,11 @@ MCPlusBuilder *createMCPlusBuilder(const Triple::ArchType Arch,
                                     const MCRegisterInfo *RegInfo,
                                     const MCSubtargetInfo *STI);
  
@@ -10587,7 +10595,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752ea6c0c67 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2da747179 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -11352,7 +11360,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
  
    const ELFFile<ELFT> &Obj = File->getELFFile();
    raw_fd_ostream &OS = Out->os();
-@@ -5254,15 +5585,97 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
+@@ -5254,15 +5585,146 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
        Size = Section.sh_size;
        StringRef Dataref = InputFile->getData().substr(Section.sh_offset, Size);
        std::string Data;
@@ -11371,10 +11379,55 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
 +          uint64_t RemappedOffsets = 0;
 +          uint64_t RemappedSymbols = 0;
 +          uint64_t AddedRelocations = 0;
++          uint64_t RemovedRelocations = 0;
++          const bool IsARMExidxRelocations =
++              RelocatedSection->sh_type == ELF::SHT_ARM_EXIDX;
 +          for (uint64_t Offset = 0; Offset < Dataref.size();
 +               Offset += sizeof(RelTy)) {
 +            RelTy Rel;
 +            memcpy(&Rel, Dataref.data() + Offset, sizeof(Rel));
++
++            const uint64_t InputAddress = Rel.r_offset;
++            SmallVector<uint64_t, 2> OutputAddresses;
++            bool HasExactExidxMapping = false;
++            if (IsARMExidxRelocations) {
++              // GNU ld 13 emits ordinary ET_EXEC relocation offsets as
++              // addresses, but its synthesized terminal EHABI sentinel uses
++              // a section-relative offset.  Normalize only an offset inside
++              // this exact index section and preserve that input convention
++              // in the rebuilt record.
++              const bool IsSectionRelative =
++                  InputAddress < RelocatedSection->sh_addr &&
++                  InputAddress < RelocatedSection->sh_size;
++              const uint64_t InputFieldAddress =
++                  IsSectionRelative
++                      ? RelocatedSection->sh_addr + InputAddress
++                      : InputAddress;
++              const auto MapIt =
++                  ARMExidxRelocationAddressMap.find(InputFieldAddress);
++              if (MapIt == ARMExidxRelocationAddressMap.end())
++                report_fatal_error(
++                    Twine("ARM EHABI SHT_REL entry in ") + SectionName +
++                    " names unmodeled index field 0x" +
++                    Twine::utohexstr(InputAddress));
++              HasExactExidxMapping = true;
++              for (const uint64_t OutputFieldAddress : MapIt->second) {
++                if (IsSectionRelative) {
++                  if (OutputFieldAddress < RelocatedSection->sh_addr)
++                    report_fatal_error(
++                        Twine("ARM EHABI output relocation underflows ") +
++                        SectionName);
++                  OutputAddresses.push_back(
++                      OutputFieldAddress - RelocatedSection->sh_addr);
++                } else {
++                  OutputAddresses.push_back(OutputFieldAddress);
++                }
++              }
++              if (OutputAddresses.empty()) {
++                ++RemovedRelocations;
++                continue;
++              }
++            }
 +
 +            const uint32_t InputSymbol =
 +                Rel.getSymbol(Obj.isMips64EL());
@@ -11392,19 +11445,19 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
 +              ++RemappedSymbols;
 +            }
 +
-+            const uint64_t InputAddress = Rel.r_offset;
-+            SmallVector<uint64_t, 2> OutputAddresses;
-+            if (BinaryFunction *BF =
-+                    BC->getBinaryFunctionContainingAddress(InputAddress)) {
-+              if (BC->HasRelocations || BF->isFirmwareModified()) {
-+                ArrayRef<uint64_t> DataAddresses =
-+                    BF->translateFirmwareDataRelocationAddresses(
-+                        InputAddress);
-+                OutputAddresses.append(DataAddresses.begin(),
-+                                       DataAddresses.end());
-+                if (OutputAddresses.empty())
-+                  OutputAddresses.push_back(
-+                      BF->translateInputToOutputAddress(InputAddress));
++            if (!HasExactExidxMapping) {
++              if (BinaryFunction *BF =
++                      BC->getBinaryFunctionContainingAddress(InputAddress)) {
++                if (BC->HasRelocations || BF->isFirmwareModified()) {
++                  ArrayRef<uint64_t> DataAddresses =
++                      BF->translateFirmwareDataRelocationAddresses(
++                          InputAddress);
++                  OutputAddresses.append(DataAddresses.begin(),
++                                         DataAddresses.end());
++                  if (OutputAddresses.empty())
++                    OutputAddresses.push_back(
++                        BF->translateInputToOutputAddress(InputAddress));
++                }
 +              }
 +            }
 +            if (OutputAddresses.empty())
@@ -11429,11 +11482,15 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
 +          }
 +          Dataref = Data;
 +          if (opts::Verbosity >= 1 &&
-+              (RemappedOffsets || RemappedSymbols || AddedRelocations))
++              (RemappedOffsets || RemappedSymbols || AddedRelocations ||
++               RemovedRelocations)) {
 +            BC->outs() << "BOLT-INFO: remapped " << RemappedOffsets
 +                       << " ARM SHT_REL offset(s) and " << RemappedSymbols
-+                       << " symbol index(es), adding " << AddedRelocations
-+                       << " relocation record(s) in " << SectionName << '\n';
++                       << " symbol index(es), adding " << AddedRelocations;
++            if (RemovedRelocations)
++              BC->outs() << " and removing " << RemovedRelocations;
++            BC->outs() << " relocation record(s) in " << SectionName << '\n';
++          }
 +        }
 +      }
        if (BSec->getPatcher()) {
@@ -11454,7 +11511,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
          Size = 0;
        } else {
          OS << Dataref;
-@@ -5459,7 +5872,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
+@@ -5459,7 +5921,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
      if (BinSec->isAnonymous())
        continue;
  
@@ -11472,7 +11529,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
    }
  
    for (BinarySection &Section : BC->allocatableSections()) {
-@@ -5658,9 +6080,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
+@@ -5658,9 +6129,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
  
    // Write all section header entries while patching section references.
    for (ELFShdrTy &Section : OutputSections) {
@@ -11519,7 +11576,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
      OS.write(reinterpret_cast<const char *>(&Section), sizeof(Section));
    }
  
-@@ -5715,6 +6171,25 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5715,6 +6220,25 @@ void RewriteInstance::updateELFSymbolTable(
  
    // Symbols for the new symbol table.
    std::vector<ELFSymTy> Symbols;
@@ -11545,7 +11602,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
  
    bool EmittedColdFileSymbol = false;
  
-@@ -5804,7 +6279,9 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5804,7 +6328,9 @@ void RewriteInstance::updateELFSymbolTable(
          }
        }
      }
@@ -11556,7 +11613,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
        uint64_t DataMark = Function.getOutputDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5815,12 +6292,103 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5815,12 +6341,103 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -11662,7 +11719,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
        uint64_t DataMark = Function.getOutputColdDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5831,11 +6399,78 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5831,11 +6448,78 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -11742,7 +11799,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
    };
  
    // For regular (non-dynamic) symbol table, exclude symbols referring
-@@ -5866,13 +6501,23 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5866,13 +6550,23 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    };
  
@@ -11768,7 +11825,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
      // In relocation mode, if this is a folded function, use the parent function
      // instead so that the symbol gets updated to the parent's output address.
      // In non-relocation mode, folded functions are emitted at their original
-@@ -5943,9 +6588,17 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5943,9 +6637,17 @@ void RewriteInstance::updateELFSymbolTable(
        // If the symbol matched a function that was not emitted, update the
        // corresponding section index but otherwise leave it unchanged.
        if (Function->isEmitted()) {
@@ -11788,7 +11845,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
          NewSymbol.st_shndx = Function->getCodeSection()->getIndex();
        } else if (Symbol.st_shndx < ELF::SHN_LORESERVE) {
          NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
-@@ -5965,22 +6618,48 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5965,22 +6667,48 @@ void RewriteInstance::updateELFSymbolTable(
          return BC->getMarkerType(Symbol.getType(), Symbol.st_size,
                                   *SymbolName) != MarkerSymType::NONE;
        };
@@ -11846,7 +11903,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
  
          // Remove symbols that cannot be mapped to the output, e.g.
          // data-in-code labels (jump tables) whose addresses BOLT
-@@ -5988,7 +6667,8 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5988,7 +6716,8 @@ void RewriteInstance::updateELFSymbolTable(
          if (!OutputAddress)
            continue;
  
@@ -11856,7 +11913,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
          // Force secondary entry points to have zero size.
          NewSymbol.st_size = 0;
  
-@@ -6001,6 +6681,28 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6001,6 +6730,28 @@ void RewriteInstance::updateELFSymbolTable(
              });
  
          if (FF == Function->getLayout().fragment_end()) {
@@ -11885,7 +11942,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
            assert(
                OutputAddress >= Function->getCodeSection()->getOutputAddress() &&
                OutputAddress < (Function->getCodeSection()->getOutputAddress() +
-@@ -6036,12 +6738,15 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6036,12 +6787,15 @@ void RewriteInstance::updateELFSymbolTable(
              NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
          }
  
@@ -11906,7 +11963,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
            assert(!IsDynSym && "cannot delete symbol");
            continue;
          }
-@@ -6050,11 +6755,13 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6050,11 +6804,13 @@ void RewriteInstance::updateELFSymbolTable(
  
    registerSymbol:
      if (IsDynSym)
@@ -11923,7 +11980,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
    }
  
    if (IsDynSym) {
-@@ -6165,6 +6872,20 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6165,6 +6921,20 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    });
  
@@ -11944,7 +12001,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
    for (const ELFSymTy &Symbol : Symbols)
      Write(0, Symbol);
  }
-@@ -6736,7 +7457,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
+@@ -6736,7 +7506,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
  }
  
  uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
@@ -11960,7 +12017,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
    if (!Function)
      return 0;
  
-@@ -6745,7 +7473,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
+@@ -6745,7 +7522,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
    if (Function->isFolded())
      Function = Function->getFoldedIntoFunction();
  
@@ -11973,7 +12030,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
  }
  
  uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
-@@ -6758,6 +7490,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
+@@ -6758,6 +7539,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
  
    if (const BinaryFunction *BF =
            BC->getBinaryFunctionContainingAddress(OldAddress)) {
@@ -11983,7 +12040,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
      if (BF->isEmitted()) {
        // If OldAddress is another entry point of the function or the target of
        // an indirect goto, then BOLT could get the new address.
-@@ -6796,7 +7531,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6796,7 +7580,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      if (Function->getImageAddress() == 0 || Function->getImageSize() == 0)
        continue;
  
@@ -12003,7 +12060,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
             "Unexpected large function");
  
      const auto HasAddress = [](const FunctionFragment &FF) {
-@@ -6816,6 +7562,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6816,6 +7611,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
        continue;
      }
  
@@ -12026,7 +12083,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
      OverwrittenScore += Function->getFunctionScore();
      ++CountOverwrittenFunctions;
  
-@@ -6826,12 +7588,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6826,12 +7637,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      safePWrite(OS, reinterpret_cast<char *>(Function->getImageAddress()),
                 Function->getImageSize(), Function->getFileOffset());
  
@@ -12045,7 +12102,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
  
        OS.seek(Pos);
      }
-@@ -6947,6 +7712,541 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +7761,564 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -12091,6 +12148,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
 +  };
 +
 +  struct ExidxEntry {
++    uint64_t InputOffset{0};
 +    uint64_t InputStart{0};
 +    uint64_t OutputStart{0};
 +    uint32_t UnwindWord{0};
@@ -12249,8 +12307,8 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
 +            errc::executable_format_error,
 +            "ARM EHABI index section %s is not strictly address-sorted",
 +            Section.getName().str().c_str());
-+      Entries.push_back({*InputStart, 0, UnwindWord, ExtabSection, ExtabTarget,
-+                         ExtabSize, PersonalityTarget, {}, false});
++      Entries.push_back({Offset, *InputStart, 0, UnwindWord, ExtabSection,
++                         ExtabTarget, ExtabSize, PersonalityTarget, {}, false});
 +    }
 +
 +    // A linker may append a final CANTUNWIND sentinel at the end of the
@@ -12437,6 +12495,34 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
 +      OutputEntries.push_back(&Entries.back());
 +    }
 +
++    // Retained SHT_REL records use the address of one of the two words in an
++    // input index entry.  Record the exact corresponding output word after
++    // sorting and ICF compaction.  An empty destination list deliberately
++    // removes relocations for a folded child entry.  This mapping is consumed
++    // while copying the non-allocatable relocation section later; rewriting
++    // only the allocatable bytes would leave misleading stale metadata.
++    DenseMap<const ExidxEntry *, size_t> OutputEntryIndices;
++    for (size_t I = 0; I < OutputEntries.size(); ++I)
++      OutputEntryIndices[OutputEntries[I]] = I;
++    for (const ExidxEntry &Entry : Entries) {
++      for (const uint64_t FieldOffset : {uint64_t(0), uint64_t(4)}) {
++        const uint64_t InputFieldAddress =
++            Section.getAddress() + Entry.InputOffset + FieldOffset;
++        auto [It, Inserted] = ARMExidxRelocationAddressMap.try_emplace(
++            InputFieldAddress, SmallVector<uint64_t, 1>());
++        if (!Inserted)
++          return createStringError(
++              errc::executable_format_error,
++              "ARM EHABI relocation field 0x%" PRIx64
++              " belongs to multiple index sections",
++              InputFieldAddress);
++        const auto OutputIt = OutputEntryIndices.find(&Entry);
++        if (OutputIt != OutputEntryIndices.end())
++          It->second.push_back(Section.getAddress() + OutputIt->second * 8 +
++                               FieldOffset);
++      }
++    }
++
 +    // Generic entries carry a personality PREL31 in .ARM.extab and may be
 +    // followed by language-specific bytes.  Admit them only when the linked
 +    // personality relocation survived as an exact symbolic identity, its
@@ -12523,12 +12609,6 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
 +    }
 +
 +    const size_t OutputSize = OutputEntries.size() * 8;
-+    if (OutputSize != Contents.size() && Section.hasRelocations())
-+      return createStringError(
-+          errc::not_supported,
-+          "ARM EHABI index %s requires entry compaction but retains "
-+          "unmodeled relocation records",
-+          Section.getName().str().c_str());
 +    uint8_t *NewContents = new uint8_t[OutputSize];
 +    size_t ExternalCompactReferences = 0;
 +    size_t ExternalGenericReferences = 0;
@@ -12587,7 +12667,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8260,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8332,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -12602,7 +12682,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
      // Overwrite function body to make sure we never execute these instructions.
-@@ -7002,6 +8310,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +8382,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -19692,6 +19772,256 @@ index 0000000000000000000000000000000000000000..75938b5d67f468b21fefcd87f4abc088
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-safe-icf-ehabi-relocations.test b/bolt/test/ARM/thumb-safe-icf-ehabi-relocations.test
+new file mode 100644
+index 0000000000000000000000000000000000000000..a25eaaa3c4cf38b41fd156a5ac7753cb551ed81a
+--- /dev/null
++++ b/bolt/test/ARM/thumb-safe-icf-ehabi-relocations.test
+@@ -0,0 +1,244 @@
++## GNU ld retains input ARM EHABI relocation metadata in ET_EXEC firmware,
++## unlike LLD's synthetic table path.  Safe ICF removes one index record, so
++## Firm-BOLT must remove that record's three relocation entries and move the
++## section-relative sentinel relocation from offset 0x18 to 0x10.  Keeping the
++## original eight records would make .rel.ARM.exidx name retired bytes.
++
++# RUN: yaml2obj %s -o %t.elf
++# RUN: llvm-bolt %t.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --icf=safe \
++# RUN:   --firmbolt-allow-identical-code-folding --align-functions=4 \
++# RUN:   --align-text=4 -v=1 -o %t.candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=BOLT
++# RUN: llvm-readelf -SW %t.candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=SECTIONS
++# RUN: llvm-readelf -r %t.candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=RELOCS
++# RUN: llvm-readelf --unwind %t.candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=UNWIND
++
++# BOLT: BOLT-INFO: ICF folded 1 out of 3 functions
++# BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 3 live entries from 4 input entries, 1 compatible folded alias(es), 1 external compact reference(s), and 0 relocation-complete generic reference(s) after function layout
++# BOLT: BOLT-INFO: remapped 1 ARM SHT_REL offset(s) and 0 symbol index(es), adding 0 and removing 3 relocation record(s) in .rel.ARM.exidx
++
++# SECTIONS: .ARM.exidx ARM_EXIDX 0800012c 00112c 000018
++# SECTIONS: .rel.ARM.exidx REL 00000000 {{[0-9a-f]+}} 000028 08
++
++# RELOCS: Relocation section '.rel.ARM.exidx' {{.*}} contains 5 entries:
++# RELOCS-NEXT: Offset
++# RELOCS-NEXT: 0800012c {{.*}} R_ARM_PREL31 {{.*}} {{.*}}text
++# RELOCS-NEXT: 08000134 {{.*}} R_ARM_NONE {{.*}} __aeabi_unwind_cpp_pr1
++# RELOCS-NEXT: 08000134 {{.*}} R_ARM_PREL31 {{.*}} {{.*}}text
++# RELOCS-NEXT: 08000138 {{.*}} R_ARM_PREL31 {{.*}} .ARM.extab
++# RELOCS-NEXT: 00000010 {{.*}} R_ARM_PREL31 {{.*}} {{.*}}text
++# RELOCS-NOT: 0800013c
++# RELOCS-NOT: 08000140
++
++# UNWIND: FunctionAddress: 0x8000100
++# UNWIND-NEXT: Model: CantUnwind
++# UNWIND: FunctionAddress: 0x8000114
++# UNWIND: TableEntryAddress: 0x800011C
++# UNWIND: PersonalityIndex: 1
++# UNWIND: FunctionAddress: 0x800011C
++# UNWIND-NEXT: Model: CantUnwind
++# UNWIND-NOT: FunctionAddress:
++
++--- !ELF
++FileHeader:
++  Class:           ELFCLASS32
++  Data:            ELFDATA2LSB
++  Type:            ET_EXEC
++  Machine:         EM_ARM
++  Flags:           [ EF_ARM_SOFT_FLOAT, EF_ARM_EABI_VER5 ]
++  Entry:           0x8000101
++ProgramHeaders:
++  - Type:            0x70000001
++    Flags:           [ PF_R ]
++    FirstSec:        .ARM.exidx
++    LastSec:         .ARM.exidx
++    VAddr:           0x800012C
++    Align:           0x4
++    Offset:          0x112C
++  - Type:            PT_LOAD
++    Flags:           [ PF_X, PF_R ]
++    FirstSec:        .isr_vector
++    LastSec:         .ARM.exidx
++    VAddr:           0x8000000
++    Align:           0x1000
++    Offset:          0x1000
++Sections:
++  - Name:            .isr_vector
++    Type:            SHT_PROGBITS
++    Flags:           [ SHF_ALLOC ]
++    Address:         0x8000000
++    AddressAlign:    0x4
++    Offset:          0x1000
++    Content:         '0010002001010008'
++  - Name:            .text
++    Type:            SHT_PROGBITS
++    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
++    Address:         0x8000100
++    AddressAlign:    0x4
++    Offset:          0x1100
++    Content:         4FF0005400F006F8206000F005F86060FFF7FEBF1120704711207047
++  - Name:            .ARM.extab
++    Type:            SHT_PROGBITS
++    Flags:           [ SHF_ALLOC ]
++    Address:         0x800011C
++    AddressAlign:    0x4
++    Content:         B0B0008100000000B0B0008100000000
++  - Name:            .ARM.exidx
++    Type:            SHT_ARM_EXIDX
++    Flags:           [ SHF_ALLOC, SHF_LINK_ORDER ]
++    Address:         0x800012C
++    Link:            .text
++    AddressAlign:    0x4
++    Entries:
++      - Offset:          0x7FFFFFD4
++        Value:           EXIDX_CANTUNWIND
++      - Offset:          0x7FFFFFE0
++        Value:           0x7FFFFFE4
++      - Offset:          0x7FFFFFDC
++        Value:           0x7FFFFFE4
++      - Offset:          0x7FFFFFD8
++        Value:           EXIDX_CANTUNWIND
++  - Name:            .ARM.attributes
++    Type:            SHT_ARM_ATTRIBUTES
++    AddressAlign:    0x1
++    Content:         411E000000616561626900011400000005636F727465782D6D3300060A074D
++  - Name:            .rel.isr_vector
++    Type:            SHT_REL
++    Flags:           [ SHF_INFO_LINK ]
++    Link:            .symtab
++    AddressAlign:    0x4
++    Info:            .isr_vector
++    Relocations:
++      - Offset:          0x8000004
++        Symbol:          Reset_Handler
++        Type:            R_ARM_ABS32
++  - Name:            .rel.text
++    Type:            SHT_REL
++    Flags:           [ SHF_INFO_LINK ]
++    Link:            .symtab
++    AddressAlign:    0x4
++    Info:            .text
++    Relocations:
++      - Offset:          0x8000104
++        Symbol:          external_call_a
++        Type:            R_ARM_THM_CALL
++      - Offset:          0x800010A
++        Symbol:          external_call_b
++        Type:            R_ARM_THM_CALL
++      - Offset:          0x8000110
++        Symbol:          fixture_halt
++        Type:            R_ARM_THM_JUMP24
++  - Name:            .rel.ARM.exidx
++    Type:            SHT_REL
++    Flags:           [ SHF_INFO_LINK ]
++    Link:            .symtab
++    AddressAlign:    0x4
++    Info:            .ARM.exidx
++    Relocations:
++      - Offset:          0x800012C
++        Symbol:          .text
++        Type:            R_ARM_PREL31
++      - Offset:          0x8000134
++        Symbol:          __aeabi_unwind_cpp_pr1
++        Type:            R_ARM_NONE
++      - Offset:          0x8000134
++        Symbol:          .text
++        Type:            R_ARM_PREL31
++      - Offset:          0x8000138
++        Symbol:          .ARM.extab
++        Type:            R_ARM_PREL31
++      - Offset:          0x800013C
++        Symbol:          __aeabi_unwind_cpp_pr1
++        Type:            R_ARM_NONE
++      - Offset:          0x800013C
++        Symbol:          .text
++        Type:            R_ARM_PREL31
++      - Offset:          0x8000140
++        Symbol:          .ARM.extab
++        Type:            R_ARM_PREL31
++      - Offset:          0x18
++        Symbol:          .text
++        Type:            R_ARM_PREL31
++  - Type:            SectionHeaderTable
++    Sections:
++      - Name:            .isr_vector
++      - Name:            .rel.isr_vector
++      - Name:            .text
++      - Name:            .rel.text
++      - Name:            .ARM.extab
++      - Name:            .ARM.exidx
++      - Name:            .rel.ARM.exidx
++      - Name:            .ARM.attributes
++      - Name:            .symtab
++      - Name:            .strtab
++      - Name:            .shstrtab
++Symbols:
++  - Name:            .isr_vector
++    Type:            STT_SECTION
++    Section:         .isr_vector
++    Value:           0x8000000
++  - Name:            .text
++    Type:            STT_SECTION
++    Section:         .text
++    Value:           0x8000100
++  - Name:            .ARM.extab
++    Type:            STT_SECTION
++    Section:         .ARM.extab
++    Value:           0x800011C
++  - Name:            .ARM.exidx
++    Type:            STT_SECTION
++    Section:         .ARM.exidx
++    Value:           0x800012C
++  - Name:            .ARM.attributes
++    Type:            STT_SECTION
++    Section:         .ARM.attributes
++  - Name:            fixture.o
++    Type:            STT_FILE
++    Index:           SHN_ABS
++  - Name:            '$t'
++    Section:         .text
++    Value:           0x8000100
++  - Name:            '$d'
++    Section:         .isr_vector
++    Value:           0x8000000
++  - Name:            '$d (1)'
++    Section:         .ARM.exidx
++    Value:           0x800012C
++  - Name:            '$d (2)'
++    Section:         .ARM.extab
++    Value:           0x800011C
++  - Name:            external_call_b
++    Type:            STT_FUNC
++    Section:         .text
++    Binding:         STB_GLOBAL
++    Value:           0x8000119
++    Size:            0x4
++  - Name:            fixture_halt
++    Section:         .text
++    Binding:         STB_GLOBAL
++    Value:           0x8000110
++  - Name:            Reset_Handler
++    Type:            STT_FUNC
++    Section:         .text
++    Binding:         STB_GLOBAL
++    Value:           0x8000101
++    Size:            0x14
++  - Name:            g_pfnVectors
++    Type:            STT_OBJECT
++    Section:         .isr_vector
++    Binding:         STB_GLOBAL
++    Value:           0x8000000
++    Size:            0x8
++  - Name:            external_call_a
++    Type:            STT_FUNC
++    Section:         .text
++    Binding:         STB_GLOBAL
++    Value:           0x8000115
++    Size:            0x4
++  - Name:            __aeabi_unwind_cpp_pr1
++    Binding:         STB_WEAK
++...
 diff --git a/bolt/test/ARM/thumb-safe-icf-ehabi.s b/bolt/test/ARM/thumb-safe-icf-ehabi.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..3edb1e2b68f2dff6024a8383021776d957175440

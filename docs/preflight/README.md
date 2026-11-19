@@ -108,6 +108,7 @@ with odd-entry alignment and out-of-byte-range retention controls, an opt-in
 safe identical-code-folding fixture with address-taken controls, a second safe
 ICF fixture with compatible and incompatible ARM EHABI models, a third safe
 ICF fixture with distinct but byte-identical external compact EHABI records,
+and a GNU-linked safe-ICF fixture with retained `.rel.ARM.exidx` metadata,
 explicit user-directed and
 profile-execution-count and CDSort call-graph relocation-complete whole-image
 function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
@@ -116,7 +117,7 @@ function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
 fixtures, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
 relocation-complete compact and generic ARM EHABI
 function-reordering fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v126 run accepts all forty-four without
+The 18 November production-parity-v127 run accepts all forty-five without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -752,26 +753,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v126-external-ehabi-icf-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v127-exidx-relocations-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v126-external-ehabi-icf-2026-11-18/report.json),
-SHA-256 `108f85ce5e4c9ed2a50ff56e41c892bcdae907e5b458bfda7a0b8148a914b9c1`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v127-exidx-relocations-2026-11-18/report.json),
+SHA-256 `08ac9567075feaf10358986cb113272379832dcf530fc5c03596c3ab61d8fce9`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v126-external-ehabi-icf-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v127-exidx-relocations-2026-11-18/validation-manifest.json)
 (SHA-256
-`2c52f1bcb3585e793630158babaa9aa418653d830b84cf0c85b17af231399502`)
+`e1a423ef68fb7b3bdca6ea90e394f901ce03244688f37fb8871f37ee6f0a4bfb`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`79860109eb589c58fb328096b8f4b4eb14ba55a4d498bb3ddb6f47cc876de824`),
+`bf684df85f6f4c802e7f1008aa7f483920c5f104343cb54752089dc453782c68`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`ad34aff348679ded01b2bb5350d58f54a30321761d92a8784829f7eebff6c023`.
+`6770bb8df43dd2dd5f2ce1df7f70f26fd2e2f311790ee0b878bfd30e17bf68df`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -803,7 +804,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v126 validation passes 64/64 BOLT ARM lit tests, 12/12 AArch32
+The current v127 validation passes 65/65 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -851,8 +852,8 @@ after it, keeps the 12-byte extab and 32-byte exidx at their original
 addresses, preserves all 13 instruction origins, and matches reference RAM
 `(17, 42)`. Arbitrary language-specific descriptor interpretation and
 split-fragment unwind remain unsupported. Variable-footprint index growth
-remains unsupported; v126 qualifies only shrinkage caused by removal of
-compatible folded-alias records without retained index relocations.
+remains unsupported; v127 qualifies shrinkage caused by removal of compatible
+folded-alias records both with and without retained GNU `SHT_REL` metadata.
 
 v122 reuses BOLT's ordinary `AlignerPass` rather than adding a parallel
 alignment algorithm. Cortex-M basic-block alignment is opt-in, requires an
@@ -937,6 +938,22 @@ The unchanged external-table bytes can include an orphaned duplicate after the
 index alias is removed; compacting that allocated data is a separate
 reference-completeness problem outside the current claim. These are layout,
 identity and preservation results, not runtime-performance results.
+
+v127 closes the retained-index-relocation defect exposed by GNU ld. GNU ld
+13.3/2.42 preserves `.rel.ARM.exidx` in the final ET_EXEC image, whereas LLD's
+synthetic table path does not. Before this milestone, Firm-BOLT correctly
+compacted the allocated index but copied all eight relocation records: three
+still named the eliminated child entry, and GNU ld's section-relative sentinel
+record still named input offset `0x18`. The rewriter now records an exact map
+for both words of every input index entry, removes relocations for an eliminated
+entry and remaps retained fields after sorting/compaction. The executed gate
+rebuilds `.rel.ARM.exidx` from eight records/64 bytes to five records/40 bytes,
+removes exactly the child's `R_ARM_NONE` and two `R_ARM_PREL31` dependencies,
+and changes the sentinel offset to `0x10`. The allocated `.ARM.exidx` remains
+three records/24 bytes, `.ARM.extab` remains byte-exact, and reference and
+candidate again produce `(17, 17)`. A YAML regression makes the GNU relocation
+graph reproducible without requiring GNU ld in the lit environment; the
+production profile separately builds the same graph with the pinned GNU linker.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
