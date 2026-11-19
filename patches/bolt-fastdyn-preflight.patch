@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..552c2fa33a7317be5cc6ebe0820bbc4c85f2c847 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f90616256981af3e1999a443a95c7b8865566c60 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,63 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,65 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -164,6 +164,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..552c2fa33a7317be5cc6ebe0820bbc4c
 +    JumpTableFootprintReduction = 1U << 21,
 +    IdenticalCodeFolding = 1U << 22,
 +    InlineMemcpy = 1U << 23,
++    Memcpy1Specialization = 1U << 24,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -189,12 +190,13 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..552c2fa33a7317be5cc6ebe0820bbc4c
 +    MissingEmittedBody = 1U << 4,
 +    UnmappedSplitFragment = 1U << 5,
 +    InlineDataPlacementInvalid = 1U << 6,
++    MissingInstructionOrigin = 1U << 7,
 +  };
 +
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +249,17 @@ public:
+@@ -192,6 +251,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -212,7 +214,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..552c2fa33a7317be5cc6ebe0820bbc4c
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +400,54 @@ private:
+@@ -332,6 +402,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -267,7 +269,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..552c2fa33a7317be5cc6ebe0820bbc4c
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1584,70 @@ public:
+@@ -1468,6 +1586,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -338,7 +340,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..552c2fa33a7317be5cc6ebe0820bbc4c
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2114,48 @@ public:
+@@ -1934,6 +2116,48 @@ public:
      return *this;
    }
  
@@ -387,7 +389,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..552c2fa33a7317be5cc6ebe0820bbc4c
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2553,8 @@ public:
+@@ -2331,6 +2555,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -3196,7 +3198,7 @@ index ea620bb82184d2bf88d1b9d79d130e0e3d6535a7..5f6b2424f39163db9ff858d8c3590721
    BC.outs() << "BOLT-INFO: Allocation combiner: " << NumCombined
              << " empty spaces coalesced (dyn count: " << DynamicCountCombined
 diff --git a/bolt/lib/Passes/BinaryPasses.cpp b/bolt/lib/Passes/BinaryPasses.cpp
-index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347bc77890f0 100644
+index 5c8208f96bc4abbce40038105e206f7afb040b9a..5cfe3f7b86c82dcc3afdae78fdadd86deb9fa4ff 100644
 --- a/bolt/lib/Passes/BinaryPasses.cpp
 +++ b/bolt/lib/Passes/BinaryPasses.cpp
 @@ -14,6 +14,7 @@
@@ -3207,7 +3209,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
  #include "bolt/Passes/RegAnalysis.h"
  #include "bolt/Passes/ReorderAlgorithm.h"
  #include "bolt/Passes/ReorderFunctions.h"
-@@ -111,6 +112,25 @@ static cl::list<Peepholes::PeepholeOpts> Peepholes(
+@@ -111,6 +112,32 @@ static cl::list<Peepholes::PeepholeOpts> Peepholes(
                            "enable all peephole optimizations")),
      cl::cat(BoltOptCategory));
  
@@ -3230,10 +3232,17 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
 +             "AAPCS caller-clobber, call-event and fault/event contract"),
 +    cl::init(false), cl::Hidden, cl::cat(BoltOptCategory));
 +
++static cl::opt<bool> FirmBOLTAllowMemcpy1Specialization(
++    "firmbolt-allow-memcpy1-specialization",
++    cl::desc("allow selected unknown-size Cortex-M memcpy calls to gain a "
++             "one-byte fast path under an admitted ordinary-RAM, AAPCS "
++             "caller-clobber, branch/call-event and fault/event contract"),
++    cl::init(false), cl::Hidden, cl::cat(BoltOptCategory));
++
  static cl::opt<unsigned>
      PrintFuncStat("print-function-statistics",
                    cl::desc("print statistics about basic block ordering"),
-@@ -243,7 +263,7 @@ namespace bolt {
+@@ -243,7 +270,7 @@ namespace bolt {
  
  bool BinaryFunctionPass::shouldOptimize(const BinaryFunction &BF) const {
    return BF.isSimple() && BF.getState() == BinaryFunction::State::CFG &&
@@ -3242,7 +3251,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
  }
  
  bool BinaryFunctionPass::shouldPrint(const BinaryFunction &BF) const {
-@@ -323,6 +343,10 @@ void NormalizeCFG::runOnFunction(BinaryFunction &BF) {
+@@ -323,6 +350,10 @@ void NormalizeCFG::runOnFunction(BinaryFunction &BF) {
    if (NumDuplicateEdges || NeedsFixBranches)
      BF.fixBranches();
  
@@ -3253,7 +3262,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
    NumDuplicateEdgesMerged += NumDuplicateEdges;
    NumBlocksRemoved += NumRemoved;
  }
-@@ -368,6 +392,9 @@ void EliminateUnreachableBlocks::runOnFunction(BinaryFunction &Function) {
+@@ -368,6 +399,9 @@ void EliminateUnreachableBlocks::runOnFunction(BinaryFunction &Function) {
    if (Count) {
      auto L = BC.scopeLock();
      Modified.insert(&Function);
@@ -3263,7 +3272,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
      if (opts::Verbosity > 0)
        BC.outs() << "BOLT-INFO: removed " << Count
                  << " dead basic block(s) accounting for " << Bytes
-@@ -428,6 +455,9 @@ Error ReorderBasicBlocks::runOnFunctions(BinaryContext &BC) {
+@@ -428,6 +462,9 @@ Error ReorderBasicBlocks::runOnFunctions(BinaryContext &BC) {
      const bool LayoutChanged =
          modifyFunctionLayout(BF, opts::ReorderBlocks, opts::MinBranchClusters);
      if (LayoutChanged) {
@@ -3273,7 +3282,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
        ModifiedFuncCount.fetch_add(1, std::memory_order_relaxed);
        if (opts::PrintFuncStat > 0) {
          const uint64_t Distance = BF.getLayout().getEditDistance(OldBlockOrder);
-@@ -563,18 +593,53 @@ Error FixupBranches::runOnFunctions(BinaryContext &BC) {
+@@ -563,18 +600,53 @@ Error FixupBranches::runOnFunctions(BinaryContext &BC) {
    if (ShouldRunRegisterAnalysis)
      RA.emplace(BC, nullptr, nullptr);
  
@@ -3332,7 +3341,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
    }
    return Error::success();
  }
-@@ -653,7 +718,7 @@ Error FinalizeFunctions::runOnFunctions(BinaryContext &BC) {
+@@ -653,7 +725,7 @@ Error FinalizeFunctions::runOnFunctions(BinaryContext &BC) {
  }
  
  Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
@@ -3341,7 +3350,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
      return Error::success();
  
    // If the function wouldn't fit, mark it as non-simple. Otherwise, we may emit
-@@ -663,17 +728,27 @@ Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
+@@ -663,17 +735,27 @@ Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
      std::tie(HotSize, ColdSize) =
          BC.calculateEmittedSize(BF, /*FixBranches=*/false);
      uint64_t MainFragmentSize = HotSize;
@@ -3376,7 +3385,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
        BF.setSimple(false);
      }
    };
-@@ -1138,8 +1213,11 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
+@@ -1138,8 +1220,11 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
    const BinaryContext &BC = Function.getBinaryContext();
    for (BinaryBasicBlock &BB : Function) {
      for (MCInst &Inst : BB) {
@@ -3390,7 +3399,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
          continue;
  
        MCInst OriginalInst;
-@@ -1166,12 +1244,28 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
+@@ -1166,12 +1251,28 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
  
  Error ShortenInstructions::runOnFunctions(BinaryContext &BC) {
    std::atomic<uint64_t> NumShortened{0};
@@ -3421,7 +3430,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
        nullptr, "ShortenInstructions");
  
    if (NumShortened)
-@@ -1226,15 +1320,42 @@ Error Peepholes::runOnFunctions(BinaryContext &BC) {
+@@ -1226,15 +1327,42 @@ Error Peepholes::runOnFunctions(BinaryContext &BC) {
    if (Opts == PEEP_NONE)
      return Error::success();
  
@@ -3465,7 +3474,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
        assert(Function.validateCFG());
      }
    }
-@@ -1303,6 +1424,8 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1303,6 +1431,8 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
            BC.getSectionForAddress(TargetAddress);
        if (!DataSection || DataSection->isWritable())
          continue;
@@ -3474,7 +3483,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
  
        if (DataSection->isText()) {
          // If data is not part of a function, check if it is part of a global CI
-@@ -1320,9 +1443,23 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1320,9 +1450,23 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
            continue;
        }
  
@@ -3500,7 +3509,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
  
        ++NumLocalLoadsFound;
        if (BB->hasProfile())
-@@ -1330,11 +1467,18 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1330,11 +1474,18 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
  
        uint32_t Offset = TargetAddress - DataSection->getAddress();
        StringRef ConstantData = DataSection->getContents();
@@ -3520,7 +3529,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
        It = std::next(BB->replaceInstruction(It, Instrs), Instrs.size() - 1);
  
        ++NumLocalLoadsSimplified;
-@@ -1352,8 +1496,20 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1352,8 +1503,20 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
  }
  
  Error SimplifyRODataLoads::runOnFunctions(BinaryContext &BC) {
@@ -3541,7 +3550,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
      if (shouldOptimize(Function) && simplifyRODataLoads(Function))
        Modified.insert(&Function);
    }
-@@ -1918,21 +2074,41 @@ Error StripRepRet::runOnFunctions(BinaryContext &BC) {
+@@ -1918,21 +2081,41 @@ Error StripRepRet::runOnFunctions(BinaryContext &BC) {
  }
  
  Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
@@ -3586,7 +3595,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
          if (CalleeSymbol->getName() != "memcpy" &&
              CalleeSymbol->getName() != "memcpy@PLT" &&
              CalleeSymbol->getName() != "_memcpy8")
-@@ -1941,23 +2117,55 @@ Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
+@@ -1941,23 +2124,55 @@ Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
          const bool IsMemcpy8 = (CalleeSymbol->getName() == "_memcpy8");
          const bool IsTailCall = BC.MIB->isTailCall(Inst);
  
@@ -3648,7 +3657,83 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347b
  
          ++NumInlined;
          NumInlinedDyno += BB.getKnownExecutionCount();
-@@ -2115,13 +2323,18 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2014,12 +2229,20 @@ std::set<size_t> SpecializeMemcpy1::getCallSitesToOptimize(
+ }
+ 
+ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+-  if (!BC.isX86()) {
++  if (!BC.isX86() && !BC.isARM()) {
+     BC.errs() << "BOLT-ERROR: " << getName()
+-              << " is currently supported only on X86\n";
++              << " is currently supported only on X86 and qualified ARM\n";
+     exit(1);
+   }
+ 
++  if (BC.isARM() && !opts::FirmBOLTAllowMemcpy1Specialization)
++    return createStringError(
++        inconvertibleErrorCode(),
++        "Cortex-M memcpy size-one specialization adds a branch and changes "
++        "call, memory-access and fault/event observations; add "
++        "--firmbolt-allow-memcpy1-specialization only for an admitted "
++        "ordinary-RAM and AAPCS contract");
++
+   uint64_t NumSpecialized = 0;
+   uint64_t NumSpecializedDyno = 0;
+   for (auto &BFI : BC.getBinaryFunctions()) {
+@@ -2038,11 +2261,16 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+       for (auto II = CurBB->begin(); II != CurBB->end(); ++II) {
+         MCInst &Inst = *II;
+ 
+-        if (!BC.MIB->isCall(Inst) || MCPlus::getNumPrimeOperands(Inst) != 1 ||
+-            !Inst.getOperand(0).isExpr())
++        if (!BC.MIB->isCall(Inst))
++          continue;
++        if (!BC.isARM() &&
++            (MCPlus::getNumPrimeOperands(Inst) != 1 ||
++             !Inst.getOperand(0).isExpr()))
+           continue;
+ 
+         const MCSymbol *CalleeSymbol = BC.MIB->getTargetSymbol(Inst);
++        if (!CalleeSymbol)
++          continue;
+         if (CalleeSymbol->getName() != "memcpy" &&
+             CalleeSymbol->getName() != "memcpy@PLT")
+           continue;
+@@ -2057,6 +2285,7 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+ 
+         // Create a copy of a call to memcpy(dest, src, size).
+         MCInst MemcpyInstr = Inst;
++        MCInst OriginSource = Inst;
+ 
+         BinaryBasicBlock *OneByteMemcpyBB = CurBB->splitAt(II);
+ 
+@@ -2075,6 +2304,9 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+         InstructionListType CmpJCC =
+             BC.MIB->createCmpJE(BC.MIB->getIntArgRegister(2), 1,
+                                 OneByteMemcpyBB->getLabel(), BC.Ctx.get());
++        if (BC.isARM())
++          for (MCInst &GuardInst : CmpJCC)
++            annotateFastDynTransformedFrom(BC, OriginSource, GuardInst);
+         CurBB->addInstructions(CmpJCC);
+         CurBB->addSuccessor(MemcpyBB);
+ 
+@@ -2089,8 +2321,15 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+           MemcpyBB->setExecutionCount(1);
+ 
+         InstructionListType OneByteMemcpy = BC.MIB->createOneByteMemcpy();
++        if (BC.isARM())
++          for (MCInst &CopyInst : OneByteMemcpy)
++            annotateFastDynTransformedFrom(BC, OriginSource, CopyInst);
+         OneByteMemcpyBB->addInstructions(OneByteMemcpy);
+ 
++        if (BC.isARM())
++          Function.setFirmwareModified(
++              BinaryFunction::FirmwareModification::Memcpy1Specialization);
++
+         ++NumSpecialized;
+         NumSpecializedDyno += CurBB->getKnownExecutionCount();
+ 
+@@ -2115,13 +2354,18 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
  
  void RemoveNops::runOnFunction(BinaryFunction &BF) {
    const BinaryContext &BC = BF.getBinaryContext();
@@ -3682,10 +3767,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..6c765ff6df4373ceac53c415808cfe5992acc8a2
+index 0000000000000000000000000000000000000000..572b8dcae79f7efc4e563da6c73c81897a9979cd
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4689 @@
+@@ -0,0 +1,4809 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -3944,7 +4029,7 @@ index 0000000000000000000000000000000000000000..6c765ff6df4373ceac53c415808cfe59
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 24>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 25>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -3983,6 +4068,8 @@ index 0000000000000000000000000000000000000000..6c765ff6df4373ceac53c415808cfe59
 +        {FirmwareModification::IdenticalCodeFolding,
 +         "identical_code_folding"},
 +        {FirmwareModification::InlineMemcpy, "inline_memcpy"},
++        {FirmwareModification::Memcpy1Specialization,
++         "memcpy1_specialization"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -3994,7 +4081,7 @@ index 0000000000000000000000000000000000000000..6c765ff6df4373ceac53c415808cfe59
 +}
 +
 +static constexpr std::array<
-+    std::pair<FirmwarePublicationRejection, StringLiteral>, 7>
++    std::pair<FirmwarePublicationRejection, StringLiteral>, 8>
 +    FirmwarePublicationRejectionNames = {{
 +        {FirmwarePublicationRejection::InstructionCountChanged,
 +         "instruction_count_changed"},
@@ -4010,6 +4097,8 @@ index 0000000000000000000000000000000000000000..6c765ff6df4373ceac53c415808cfe59
 +         "unmapped_split_fragment"},
 +        {FirmwarePublicationRejection::InlineDataPlacementInvalid,
 +         "inline_data_placement_invalid"},
++        {FirmwarePublicationRejection::MissingInstructionOrigin,
++         "missing_instruction_origin"},
 +    }};
 +
 +json::Array firmwarePublicationRejections(const BinaryFunction &BF) {
@@ -5224,6 +5313,122 @@ index 0000000000000000000000000000000000000000..6c765ff6df4373ceac53c415808cfe59
 +    if (!BF.hasCFG() || !BF.hasFirmwareModificationAttempt())
 +      continue;
 +    ++AttemptedFunctions;
++
++    // SpecializeMemcpy1 introduces a guarded fast block, a retained fallback
++    // call and merge edges that FixupBranches materializes after the pass has
++    // returned. Recover those later branch origins from an exact call identity
++    // in the same block or a unique predecessor chain. With more than one
++    // possible source call, fail closed instead of assigning nearest-address
++    // provenance.
++    if (BF.hasFirmwareModification(
++            FirmwareModification::Memcpy1Specialization)) {
++      const unsigned OriginalIndex =
++          BC.MIB->getOrCreateAnnotationIndex(FastDynOriginalAddressAnnotation);
++      const unsigned SynthesizedIndex = BC.MIB->getOrCreateAnnotationIndex(
++          FastDynSynthesizedFromAnnotation);
++      const unsigned TransformedIndex = BC.MIB->getOrCreateAnnotationIndex(
++          FastDynTransformedFromAnnotation);
++      const unsigned CallPromotionIndex = BC.MIB->getOrCreateAnnotationIndex(
++          FastDynCallPromotionFromAnnotation);
++      const unsigned JumpTablePromotionIndex =
++          BC.MIB->getOrCreateAnnotationIndex(
++              FastDynJumpTablePromotionFromAnnotation);
++      const unsigned ControlEdgeIndex = BC.MIB->getOrCreateAnnotationIndex(
++          FastDynSynthesizedControlEdgeFromAnnotation);
++      const auto AddIdentity = [&](std::optional<uint64_t> &Identity,
++                                   uint64_t Candidate) {
++        if (!Identity) {
++          Identity = Candidate;
++          return true;
++        }
++        return *Identity == Candidate;
++      };
++      const auto FindCallIdentity = [&](const BinaryBasicBlock &Start)
++          -> std::optional<uint64_t> {
++        SmallVector<const BinaryBasicBlock *, 8> Worklist{&Start};
++        DenseSet<const BinaryBasicBlock *> Seen;
++        std::optional<uint64_t> Identity;
++        while (!Worklist.empty()) {
++          const BinaryBasicBlock *Cursor = Worklist.pop_back_val();
++          if (!Seen.insert(Cursor).second)
++            continue;
++          for (const MCInst &Inst : *Cursor) {
++            if (BC.MIB->hasAnnotation(Inst, TransformedIndex) &&
++                !AddIdentity(
++                    Identity, BC.MIB->getAnnotationAs<uint64_t>(
++                                  Inst, TransformedIndex)))
++              return std::nullopt;
++            if (!BC.MIB->isCall(Inst) ||
++                !BC.MIB->hasAnnotation(Inst, OriginalIndex))
++              continue;
++            const MCSymbol *Target = BC.MIB->getTargetSymbol(Inst);
++            if (!Target || (Target->getName() != "memcpy" &&
++                            Target->getName() != "memcpy@PLT"))
++              continue;
++            if (!AddIdentity(
++                    Identity, BC.MIB->getAnnotationAs<uint64_t>(
++                                  Inst, OriginalIndex)))
++              return std::nullopt;
++          }
++          llvm::append_range(Worklist, Cursor->predecessors());
++        }
++        if (Identity)
++          return Identity;
++
++        // A branch-only merge block can be materialized after CFG successor
++        // rewrites without retaining a predecessor relation. Admit it only
++        // when the complete function has exactly one specialization identity;
++        // multiple selected call sites remain deliberately ambiguous.
++        for (const BinaryBasicBlock &BB : BF)
++          for (const MCInst &Inst : BB)
++            if (BC.MIB->hasAnnotation(Inst, TransformedIndex) &&
++                !AddIdentity(
++                    Identity, BC.MIB->getAnnotationAs<uint64_t>(
++                                  Inst, TransformedIndex)))
++              return std::nullopt;
++        return Identity;
++      };
++
++      for (BinaryBasicBlock &BB : BF)
++        for (MCInst &Inst : BB) {
++          if (!BC.MIB->isBranch(Inst) ||
++              BC.MIB->hasAnnotation(Inst, OriginalIndex) ||
++              BC.MIB->hasAnnotation(Inst, SynthesizedIndex) ||
++              BC.MIB->hasAnnotation(Inst, TransformedIndex) ||
++              BC.MIB->hasAnnotation(Inst, CallPromotionIndex) ||
++              BC.MIB->hasAnnotation(Inst, JumpTablePromotionIndex) ||
++              BC.MIB->hasAnnotation(Inst, ControlEdgeIndex))
++            continue;
++          if (std::optional<uint64_t> Identity = FindCallIdentity(BB))
++            BC.MIB->addAnnotation(Inst, TransformedIndex, *Identity);
++        }
++
++      bool MissingOrigin = false;
++      for (const BinaryBasicBlock &BB : BF)
++        for (const MCInst &Inst : BB) {
++          if (BC.MIB->isPseudo(Inst))
++            continue;
++          if (!BC.MIB->hasAnnotation(Inst, OriginalIndex) &&
++              !BC.MIB->hasAnnotation(Inst, SynthesizedIndex) &&
++              !BC.MIB->hasAnnotation(Inst, TransformedIndex) &&
++              !BC.MIB->hasAnnotation(Inst, CallPromotionIndex) &&
++              !BC.MIB->hasAnnotation(Inst, JumpTablePromotionIndex) &&
++              !BC.MIB->hasAnnotation(Inst, ControlEdgeIndex)) {
++            MissingOrigin = true;
++            break;
++          }
++        }
++      if (MissingOrigin) {
++        BF.rejectFirmwarePublication(
++            FirmwarePublicationRejection::MissingInstructionOrigin);
++        ++RejectedFunctions;
++        BC.outs() << "BOLT-INFO: Firm-BOLT retained original "
++                  << BF.getPrintName()
++                  << ": memcpy specialization has an instruction without "
++                     "exact origin provenance\n";
++        continue;
++      }
++    }
 +
 +    // Synthesized scalar data is emitted immediately after its owner branch.
 +    // Recompute that exact in-place address after all ordinary layout passes,
@@ -10430,7 +10635,7 @@ index c8c9298805268db2cc2c54ac660bd4bedd946879..a8c2e3e4ad1da401a18a5196a6ffa1f6
    }
  
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..404c7531a92adfbc9a7bac44ecd1c873591e2b96 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..532facd7d33161e174f221fe75227328dcab5abe 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -10462,7 +10667,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..404c7531a92adfbc9a7bac44ecd1c873
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +380,153 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -372,6 +380,161 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -10510,7 +10715,8 @@ index 18c84468b04ce23388d824e28c0029be48789a45..404c7531a92adfbc9a7bac44ecd1c873
 +      BC.outs()
 +          << "BOLT-INFO: Cortex-M audited pass schedule: profile import/stats, "
 +             "firmware constraints, reference validation, admitted native "
-+             "indirect-call promotion, inlining, fixed-size memcpy, tail "
++             "indirect-call promotion, inlining, fixed-size and size-one "
++             "specialized memcpy, tail "
 +             "duplication and "
 +             "control-flow peepholes, "
 +             "shortening, NOP "
@@ -10550,6 +10756,13 @@ index 18c84468b04ce23388d824e28c0029be48789a45..404c7531a92adfbc9a7bac44ecd1c873
 +    // block for the target hook's reaching-definition proof.
 +    Manager.registerPass(std::make_unique<InlineMemcpy>(NeverPrint),
 +                         opts::StringOps);
++    // Exact constant sizes are handled by InlineMemcpy first.  The explicit
++    // call-site specialization option then applies only to retained calls and
++    // adds a one-byte fast path without obscuring a known-size rewrite.
++    Manager.registerPass(
++        std::make_unique<SpecializeMemcpy1>(NeverPrint,
++                                            opts::SpecializeMemcpy1),
++        !opts::SpecializeMemcpy1.empty());
 +    Manager.registerPass(std::make_unique<Inliner>(PrintInline));
 +    Manager.registerPass(std::make_unique<ShortenInstructions>(NeverPrint),
 +                         opts::ShortenInstructions);
@@ -10616,7 +10829,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..404c7531a92adfbc9a7bac44ecd1c873
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +562,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +570,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -10634,7 +10847,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..404c7531a92adfbc9a7bac44ecd1c873
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -454,6 +620,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -454,6 +628,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
                         opts::RegReAssign);
  
    Manager.registerPass(std::make_unique<Inliner>(PrintInline));
@@ -10644,7 +10857,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..404c7531a92adfbc9a7bac44ecd1c873
  
    Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
                         opts::ICF != IdenticalCodeFolding::ICFLevel::None);
-@@ -554,6 +723,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -554,6 +731,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -10654,7 +10867,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..404c7531a92adfbc9a7bac44ecd1c873
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +740,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +748,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -13263,10 +13476,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..6c06f98dc2572968818c97069b41cbca1ac79a93
+index 0000000000000000000000000000000000000000..d6cab429b99d3d02d7e47798e0e239a82d645dc0
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2589 @@
+@@ -0,0 +1,2610 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -13432,6 +13645,27 @@ index 0000000000000000000000000000000000000000..6c06f98dc2572968818c97069b41cbca
 +                            .addImm(ARMCC::AL)
 +                            .addReg(0));
 +    }
++    return Code;
++  }
++
++  InstructionListType createOneByteMemcpy() const override {
++    return createInlineMemcpy(/*ReturnEnd=*/false, /*KnownSize=*/1);
++  }
++
++  InstructionListType createCmpJE(MCPhysReg RegNo, int64_t Imm,
++                                  const MCSymbol *Target,
++                                  MCContext *Ctx) const override {
++    assert(RegNo >= ARM::R0 && RegNo <= ARM::R7 && isUInt<8>(Imm) &&
++           "narrow Cortex-M compare requires a low register and imm8");
++    InstructionListType Code;
++    Code.emplace_back(MCInstBuilder(ARM::tCMPi8)
++                          .addReg(RegNo)
++                          .addImm(Imm)
++                          .addImm(ARMCC::AL)
++                          .addReg(0));
++    MCInst Branch;
++    createCondBranch(Branch, Target, ARMCC::EQ, Ctx);
++    Code.push_back(std::move(Branch));
 +    return Code;
 +  }
 +
@@ -20026,6 +20260,132 @@ index 0000000000000000000000000000000000000000..b3466a130a018b5d8d1ab5f5dd10608c
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-native-memcpy1-specialization.s b/bolt/test/ARM/thumb-native-memcpy1-specialization.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..762c4853da15350f46eb320ae9786a2d8db5b4c3
+--- /dev/null
++++ b/bolt/test/ARM/thumb-native-memcpy1-specialization.s
+@@ -0,0 +1,120 @@
++## BOLT's SpecializeMemcpy1 pass adds a guarded one-byte fast path to selected
++## memcpy call sites. Firm-BOLT qualifies the same pass for Cortex-M only under
++## an explicit RAM/AAPCS/observation contract and preserves the fallback call.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline \
++# RUN:   --memcpy1-spec=copy_runtime \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   -o %t.denied 2>&1 | FileCheck %s --check-prefix=DENIED
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline \
++# RUN:   --memcpy1-spec=copy_runtime \
++# RUN:   --firmbolt-allow-memcpy1-specialization \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   --fastdyn-firmware-report=%t.json \
++# RUN:   -o %t.bolt 2>&1 | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 \
++# RUN:   --disassemble-symbols=copy_runtime %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=COPY
++# RUN: llvm-objdump -d --mcpu=cortex-m3 \
++# RUN:   --disassemble-symbols=copy_unselected %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=UNSELECTED
++# RUN: %python -c "import json; d=json.load(open('%t.json')); l=json.load(open('%t.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='copy_runtime'); lf=next(x for x in l['functions'] if x['name']=='copy_runtime'); t=[x for x in lf['instruction_origins'] if x['origin_kind']=='synthesized_from_original_instruction']; o=[x for x in lf['instruction_origins'] if x['origin_kind']=='original_instruction' and x.get('is_call')]; print(f['firmware_modified'],f['firmware_modification_reasons'],len(t),len(set(x['source_original_address'] for x in t)),sum(x['may_load'] for x in t),sum(x['may_store'] for x in t),len(o))" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline \
++# RUN:   --memcpy1-spec=copy_twice \
++# RUN:   --firmbolt-allow-memcpy1-specialization \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   --fastdyn-firmware-report=%t.ambiguous.json \
++# RUN:   -o %t.ambiguous 2>&1 | FileCheck %s --check-prefix=AMBIGUOUS
++# RUN: %python -c "import json; d=json.load(open('%t.ambiguous.json')); f=next(x for x in d['functions'] if x['name']=='copy_twice'); print(f['firmware_modified'],f['firmware_modification_attempted'],f['firmware_publication_rejections'])" \
++# RUN:   | FileCheck %s --check-prefix=AMBIGUOUS-REPORT
++
++# DENIED: Cortex-M memcpy size-one specialization adds a branch and changes call, memory-access and fault/event observations
++# LOG: specialized 1 memcpy() call sites for size 1
++# COPY: <copy_runtime>:
++# COPY: cmp r2, #0x1
++# COPY: beq
++# COPY: ldrb r3, [r1]
++# COPY-NEXT: strb r3, [r0]
++# COPY: bl {{.*}}<memcpy>
++# UNSELECTED: <copy_unselected>:
++# UNSELECTED: bl {{.*}}<memcpy>
++# REPORT: True ['unreachable_code_elimination', 'memcpy1_specialization'] 7 1 1 1 1
++# AMBIGUOUS: retained original copy_twice: memcpy specialization has an instruction without exact origin provenance
++# AMBIGUOUS-REPORT: False True ['missing_instruction_origin']
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl copy_runtime
++  bl copy_unselected
++1:
++  b 1b
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl copy_runtime
++  .type copy_runtime,%function
++  .thumb_func
++copy_runtime:
++  push {lr}
++  bl memcpy
++  b 1f
++  /* Symbol-bounded, non-entry capacity for the guarded fast path. */
++  .rept 8
++  nop
++  .endr
++1:
++  pop {pc}
++  .size copy_runtime, .-copy_runtime
++
++  .globl copy_unselected
++  .type copy_unselected,%function
++  .thumb_func
++copy_unselected:
++  push {lr}
++  bl memcpy
++  pop {pc}
++  .size copy_unselected, .-copy_unselected
++
++  .globl copy_twice
++  .type copy_twice,%function
++  .thumb_func
++copy_twice:
++  push {lr}
++  bl memcpy
++  bl memcpy
++  b 1f
++  /* Two transformed call identities make a detached merge ambiguous. */
++  .rept 20
++  nop
++  .endr
++1:
++  pop {pc}
++  .size copy_twice, .-copy_twice
++
++  .globl memcpy
++  .type memcpy,%function
++  .thumb_func
++memcpy:
++  bx lr
++  .size memcpy, .-memcpy
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-simplify-rodata-loads.s b/bolt/test/ARM/thumb-native-simplify-rodata-loads.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..09a61a714c47138ecf9fa075cb9d1c215168ff50
@@ -24178,7 +24538,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..de71815fd0aaa8eaa8f49c767ee48c59983f82f1 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..0522a97dfe1a5277778512f691833490fbad0ceb 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -24240,7 +24600,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..de71815fd0aaa8eaa8f49c767ee48c59
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +154,687 @@ protected:
+@@ -125,6 +154,718 @@ protected:
  };
  } // namespace
  
@@ -24575,6 +24935,37 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..de71815fd0aaa8eaa8f49c767ee48c59
 +    EXPECT_EQ(It->getOperand(2).getImm(), Offset);
 +    ++It;
 +  }
++}
++
++TEST_P(MCPlusBuilderTester, ARM_Memcpy1SpecializationSequence) {
++  if (GetParam() != Triple::thumb)
++    GTEST_SKIP();
++
++  MCSymbol *FastPath = BC->Ctx->createTempSymbol();
++  InstructionListType Guard =
++      BC->MIB->createCmpJE(ARM::R2, 1, FastPath, BC->Ctx.get());
++  ASSERT_EQ(Guard.size(), 2u);
++  auto GuardIt = Guard.begin();
++  EXPECT_EQ(GuardIt->getOpcode(), ARM::tCMPi8);
++  EXPECT_EQ(GuardIt->getOperand(0).getReg(), ARM::R2);
++  EXPECT_EQ(GuardIt->getOperand(1).getImm(), 1);
++  ++GuardIt;
++  EXPECT_EQ(GuardIt->getOpcode(), ARM::tBcc);
++  EXPECT_EQ(BC->MIB->getTargetSymbol(*GuardIt), FastPath);
++  EXPECT_EQ(GuardIt->getOperand(1).getImm(), ARMCC::EQ);
++
++  InstructionListType Copy = BC->MIB->createOneByteMemcpy();
++  ASSERT_EQ(Copy.size(), 2u);
++  auto CopyIt = Copy.begin();
++  EXPECT_EQ(CopyIt->getOpcode(), ARM::tLDRBi);
++  EXPECT_EQ(CopyIt->getOperand(0).getReg(), ARM::R3);
++  EXPECT_EQ(CopyIt->getOperand(1).getReg(), ARM::R1);
++  EXPECT_EQ(CopyIt->getOperand(2).getImm(), 0);
++  ++CopyIt;
++  EXPECT_EQ(CopyIt->getOpcode(), ARM::tSTRBi);
++  EXPECT_EQ(CopyIt->getOperand(0).getReg(), ARM::R3);
++  EXPECT_EQ(CopyIt->getOperand(1).getReg(), ARM::R0);
++  EXPECT_EQ(CopyIt->getOperand(2).getImm(), 0);
 +}
 +
 +TEST_P(MCPlusBuilderTester, ARM_StackOffsetExpressions) {

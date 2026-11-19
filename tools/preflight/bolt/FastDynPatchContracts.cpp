@@ -256,7 +256,7 @@ using FirmwareModification = BinaryFunction::FirmwareModification;
 using FirmwarePublicationRejection =
     BinaryFunction::FirmwarePublicationRejection;
 
-static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 24>
+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 25>
     FirmwareModificationNames = {{
         {FirmwareModification::CFGNormalization, "cfg_normalization"},
         {FirmwareModification::UnreachableCodeElimination,
@@ -295,6 +295,8 @@ static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 24>
         {FirmwareModification::IdenticalCodeFolding,
          "identical_code_folding"},
         {FirmwareModification::InlineMemcpy, "inline_memcpy"},
+        {FirmwareModification::Memcpy1Specialization,
+         "memcpy1_specialization"},
     }};
 
 json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -306,7 +308,7 @@ json::Array firmwareModificationReasons(const BinaryFunction &BF) {
 }
 
 static constexpr std::array<
-    std::pair<FirmwarePublicationRejection, StringLiteral>, 7>
+    std::pair<FirmwarePublicationRejection, StringLiteral>, 8>
     FirmwarePublicationRejectionNames = {{
         {FirmwarePublicationRejection::InstructionCountChanged,
          "instruction_count_changed"},
@@ -322,6 +324,8 @@ static constexpr std::array<
          "unmapped_split_fragment"},
         {FirmwarePublicationRejection::InlineDataPlacementInvalid,
          "inline_data_placement_invalid"},
+        {FirmwarePublicationRejection::MissingInstructionOrigin,
+         "missing_instruction_origin"},
     }};
 
 json::Array firmwarePublicationRejections(const BinaryFunction &BF) {
@@ -1536,6 +1540,122 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
     if (!BF.hasCFG() || !BF.hasFirmwareModificationAttempt())
       continue;
     ++AttemptedFunctions;
+
+    // SpecializeMemcpy1 introduces a guarded fast block, a retained fallback
+    // call and merge edges that FixupBranches materializes after the pass has
+    // returned. Recover those later branch origins from an exact call identity
+    // in the same block or a unique predecessor chain. With more than one
+    // possible source call, fail closed instead of assigning nearest-address
+    // provenance.
+    if (BF.hasFirmwareModification(
+            FirmwareModification::Memcpy1Specialization)) {
+      const unsigned OriginalIndex =
+          BC.MIB->getOrCreateAnnotationIndex(FastDynOriginalAddressAnnotation);
+      const unsigned SynthesizedIndex = BC.MIB->getOrCreateAnnotationIndex(
+          FastDynSynthesizedFromAnnotation);
+      const unsigned TransformedIndex = BC.MIB->getOrCreateAnnotationIndex(
+          FastDynTransformedFromAnnotation);
+      const unsigned CallPromotionIndex = BC.MIB->getOrCreateAnnotationIndex(
+          FastDynCallPromotionFromAnnotation);
+      const unsigned JumpTablePromotionIndex =
+          BC.MIB->getOrCreateAnnotationIndex(
+              FastDynJumpTablePromotionFromAnnotation);
+      const unsigned ControlEdgeIndex = BC.MIB->getOrCreateAnnotationIndex(
+          FastDynSynthesizedControlEdgeFromAnnotation);
+      const auto AddIdentity = [&](std::optional<uint64_t> &Identity,
+                                   uint64_t Candidate) {
+        if (!Identity) {
+          Identity = Candidate;
+          return true;
+        }
+        return *Identity == Candidate;
+      };
+      const auto FindCallIdentity = [&](const BinaryBasicBlock &Start)
+          -> std::optional<uint64_t> {
+        SmallVector<const BinaryBasicBlock *, 8> Worklist{&Start};
+        DenseSet<const BinaryBasicBlock *> Seen;
+        std::optional<uint64_t> Identity;
+        while (!Worklist.empty()) {
+          const BinaryBasicBlock *Cursor = Worklist.pop_back_val();
+          if (!Seen.insert(Cursor).second)
+            continue;
+          for (const MCInst &Inst : *Cursor) {
+            if (BC.MIB->hasAnnotation(Inst, TransformedIndex) &&
+                !AddIdentity(
+                    Identity, BC.MIB->getAnnotationAs<uint64_t>(
+                                  Inst, TransformedIndex)))
+              return std::nullopt;
+            if (!BC.MIB->isCall(Inst) ||
+                !BC.MIB->hasAnnotation(Inst, OriginalIndex))
+              continue;
+            const MCSymbol *Target = BC.MIB->getTargetSymbol(Inst);
+            if (!Target || (Target->getName() != "memcpy" &&
+                            Target->getName() != "memcpy@PLT"))
+              continue;
+            if (!AddIdentity(
+                    Identity, BC.MIB->getAnnotationAs<uint64_t>(
+                                  Inst, OriginalIndex)))
+              return std::nullopt;
+          }
+          llvm::append_range(Worklist, Cursor->predecessors());
+        }
+        if (Identity)
+          return Identity;
+
+        // A branch-only merge block can be materialized after CFG successor
+        // rewrites without retaining a predecessor relation. Admit it only
+        // when the complete function has exactly one specialization identity;
+        // multiple selected call sites remain deliberately ambiguous.
+        for (const BinaryBasicBlock &BB : BF)
+          for (const MCInst &Inst : BB)
+            if (BC.MIB->hasAnnotation(Inst, TransformedIndex) &&
+                !AddIdentity(
+                    Identity, BC.MIB->getAnnotationAs<uint64_t>(
+                                  Inst, TransformedIndex)))
+              return std::nullopt;
+        return Identity;
+      };
+
+      for (BinaryBasicBlock &BB : BF)
+        for (MCInst &Inst : BB) {
+          if (!BC.MIB->isBranch(Inst) ||
+              BC.MIB->hasAnnotation(Inst, OriginalIndex) ||
+              BC.MIB->hasAnnotation(Inst, SynthesizedIndex) ||
+              BC.MIB->hasAnnotation(Inst, TransformedIndex) ||
+              BC.MIB->hasAnnotation(Inst, CallPromotionIndex) ||
+              BC.MIB->hasAnnotation(Inst, JumpTablePromotionIndex) ||
+              BC.MIB->hasAnnotation(Inst, ControlEdgeIndex))
+            continue;
+          if (std::optional<uint64_t> Identity = FindCallIdentity(BB))
+            BC.MIB->addAnnotation(Inst, TransformedIndex, *Identity);
+        }
+
+      bool MissingOrigin = false;
+      for (const BinaryBasicBlock &BB : BF)
+        for (const MCInst &Inst : BB) {
+          if (BC.MIB->isPseudo(Inst))
+            continue;
+          if (!BC.MIB->hasAnnotation(Inst, OriginalIndex) &&
+              !BC.MIB->hasAnnotation(Inst, SynthesizedIndex) &&
+              !BC.MIB->hasAnnotation(Inst, TransformedIndex) &&
+              !BC.MIB->hasAnnotation(Inst, CallPromotionIndex) &&
+              !BC.MIB->hasAnnotation(Inst, JumpTablePromotionIndex) &&
+              !BC.MIB->hasAnnotation(Inst, ControlEdgeIndex)) {
+            MissingOrigin = true;
+            break;
+          }
+        }
+      if (MissingOrigin) {
+        BF.rejectFirmwarePublication(
+            FirmwarePublicationRejection::MissingInstructionOrigin);
+        ++RejectedFunctions;
+        BC.outs() << "BOLT-INFO: Firm-BOLT retained original "
+                  << BF.getPrintName()
+                  << ": memcpy specialization has an instruction without "
+                     "exact origin provenance\n";
+        continue;
+      }
+    }
 
     // Synthesized scalar data is emitted immediately after its owner branch.
     // Recompute that exact in-place address after all ordinary layout passes,

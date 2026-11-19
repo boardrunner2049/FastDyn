@@ -127,9 +127,10 @@ relocation-complete compact and generic ARM EHABI function-reordering
 fixtures, a platform-qualified absolute `R_ARM_TARGET1` dispatch-table
 function-reordering fixture, a relocation-mode PC-relative `MOVW/MOVT`
 zero-addend fixture and a separately executed non-zero-addend fixture, an
-opt-in fixed-size native `memcpy` inlining fixture, and the
+opt-in fixed-size native `memcpy` inlining fixture, an opt-in guarded
+size-one `memcpy` specialization fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November production-parity-v132 run accepts all forty-nine without
+The 19 November production-parity-v133 run accepts all fifty without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -765,12 +766,12 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v132-inline-memcpy-final1-2026-11-19
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v133-memcpy1-final2-2026-11-19
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v132-inline-memcpy-final1-2026-11-19/report.json),
-SHA-256 `58b82e5e2257c99d50a01946739f68f3367e83c16da98b655461dee8a5c27778`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v133-memcpy1-final2-2026-11-19/report.json),
+SHA-256 `4f7a1100a15ff1e0672e7bbc85e2664665941f127cb47604a5bae63e9ea5a957`.
 The preceding v131 machine-readable
 [`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v131-pcrel-nonzero-addends-final2-2026-11-19/validation-manifest.json)
 has SHA-256
@@ -780,22 +781,22 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 has SHA-256
-`954f40c28b0412e3a9c0490cea739e10a1806764af7caeb8e0f08a58d599ca06`,
+`ec34d2b8e0221b6260f00830c0a99f91ca11277ebbd850c6f1faa8ff7bd611d5`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`f10676919a6b65c9493657d4b71180f22aeee5cc193887f9bb748f9b32106c05`.
-The current combined ARM BOLT/AArch32 JITLink lit run passes 82/82
-(70 ARM and 12 JITLink). The BOLT unit executables pass 124 tests and
-explicitly skip 132 target-inapplicable parameterizations: Core is 80/132,
+`fe9effc19d81de8983ba0065681bb92539f12dd01b2ecc978f8fa454f3d11e2e`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 83/83
+(71 ARM and 12 JITLink). The BOLT unit executables pass 125 tests and
+explicitly skip 135 target-inapplicable parameterizations: Core is 81/135,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v132-inline-memcpy-final1-2026-11-19/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v133-memcpy1-final2-2026-11-19/core-tests.xml)
 has SHA-256
-`1d49c99e12fc5905e1d772bf87186620dc66dc9164d92036fe149f5545175550`;
+`982d7f70982916a555646edbf238f7e39eef2611a63efab53d93aa32db3eb5ed`;
 the combined
-[`arm-and-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v132-inline-memcpy-final1-2026-11-19/arm-and-jitlink-lit.xml)
+[`arm-and-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v133-memcpy1-final2-2026-11-19/arm-and-jitlink-lit.xml)
 has SHA-256
-`d44c0991446a22f943d36d045532569c2af2c3873a47a962f11f93b850b5936b`.
+`e8ea1420ab774122b56f85e5b26b3681cb5dd03797169f5770f0ee6747faa461`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1085,6 +1086,29 @@ qualification. The focused source regression is
 [`thumb-native-inline-memcpy.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb-native-inline-memcpy.s),
 and the executed fixture is
 [`firm_bolt_cortex_m3_inline_memcpy.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_inline_memcpy.s).
+
+v133 qualifies BOLT's existing `SpecializeMemcpy1` pass after fixed-size
+inlining. For a selected call whose size remains dynamic, it adds a guarded
+one-byte fast path and retains the original call for every other size. The
+pass is off unless `--firmbolt-allow-memcpy1-specialization` explicitly admits
+the added guard and changed call, access, fault and event shape under AAPCS and
+valid, disjoint, byte-addressable ordinary RAM. Compact publication shrinks
+the executed `copy_runtime` body from 30 to 22 live bytes. The fixture executes
+size one through the fast path, size two through the retained fallback and an
+unselected size-one call through the unchanged control; reference and
+candidate both produce `0x44332211`. All seven generated compare, branch,
+load, store and merge instructions map to the exact original call identity.
+The first integration attempt exposed three late-materialized branches without
+origins; v133 now reconstructs them only from a unique call/predecessor graph
+and rejects the complete function as `missing_instruction_origin` when that
+proof is unavailable. Missing contract also rejects before publication. The
+complete FOP-enabled gate is 50/50 and adds no segment. This is integration,
+compact-emission and preservation evidence, not a throughput result or a claim
+about overlapping, MMIO or partially valid memory ranges. The focused source
+regression is
+[`thumb-native-memcpy1-specialization.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb-native-memcpy1-specialization.s),
+and the executed fixture is
+[`firm_bolt_cortex_m3_memcpy1_specialization.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_memcpy1_specialization.s).
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

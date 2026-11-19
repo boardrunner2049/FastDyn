@@ -64,6 +64,10 @@ M3_INLINE_SOURCE = (
 M3_INLINE_MEMCPY_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_inline_memcpy.s"
 )
+M3_MEMCPY1_SPECIALIZATION_SOURCE = (
+    ROOT
+    / "tests/preflight/fixtures/firm_bolt_cortex_m3_memcpy1_specialization.s"
+)
 M3_TAILDUP_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_taildup.s"
 )
@@ -3420,6 +3424,23 @@ def build_m3_inline_memcpy_fixture(output: Path, logs: Path) -> Path:
     return image
 
 
+def build_m3_memcpy1_specialization_fixture(
+    output: Path, logs: Path,
+) -> Path:
+    """Build the executed native-BOLT size-one memcpy fixture."""
+    image = output / "firm-bolt-cortex-m3-memcpy1-specialization-reference.elf"
+    command = [
+        str(ARM_GCC), "-mcpu=cortex-m3", "-mthumb", "-nostdlib",
+        "-Wl,--emit-relocs", f"-Wl,-T,{M3_LINKER}",
+        str(M3_MEMCPY1_SPECIALIZATION_SOURCE), "-o", str(image),
+    ]
+    require_success(
+        run(command, logs / "build-m3-memcpy1-specialization.log"),
+        "M3 native size-one memcpy specialization fixture build",
+    )
+    return image
+
+
 def build_m3_taildup_fixture(output: Path, logs: Path) -> Path:
     """Build the executed native-BOLT Thumb tail-duplication fixture."""
     image = output / "firm-bolt-cortex-m3-taildup-reference.elf"
@@ -4873,6 +4894,9 @@ def main() -> int:
     m3_narrow_data_image = build_m3_narrow_data_fixture(output, logs)
     m3_inline_image = build_m3_inline_fixture(output, logs)
     m3_inline_memcpy_image = build_m3_inline_memcpy_fixture(output, logs)
+    m3_memcpy1_specialization_image = (
+        build_m3_memcpy1_specialization_fixture(output, logs)
+    )
     m3_taildup_image = build_m3_taildup_fixture(output, logs)
     m3_taildup_profile = write_m3_taildup_profile(output)
     m3_taildup_propagation_image = (
@@ -5055,6 +5079,13 @@ def main() -> int:
          {".isr_vector": None}, [
              "--inline-memcpy",
              "--firmbolt-allow-inline-memcpy",
+             "--firmbolt-preserve-guest-instruction-count=false",
+             "--eliminate-unreachable=true",
+         ]),
+        ("m3_memcpy1_specialization", "cortex-m3",
+         m3_memcpy1_specialization_image, {".isr_vector": None}, [
+             "--memcpy1-spec=copy_runtime",
+             "--firmbolt-allow-memcpy1-specialization",
              "--firmbolt-preserve-guest-instruction-count=false",
              "--eliminate-unreachable=true",
          ]),
@@ -5398,6 +5429,20 @@ def main() -> int:
                     raise RuntimeError(
                         "M3 fixed-size memcpy fixture did not retain six "
                         "exact call-derived load/store origins"
+                    )
+            if label == "m3_memcpy1_specialization":
+                if int(summary["firmware_modification_reason_counts"]
+                       ["memcpy1_specialization"]) != 1:
+                    raise RuntimeError(
+                        "M3 size-one memcpy fixture did not publish exactly "
+                        "one native SpecializeMemcpy1 transformation"
+                    )
+                if int(summary[
+                    "synthesized_from_original_instruction_count"
+                ]) != 7:
+                    raise RuntimeError(
+                        "M3 size-one memcpy fixture did not retain seven "
+                        "exact call-derived guard/copy/merge origins"
                     )
             if label in {"m3_taildup", "m3_taildup_propagation"}:
                 if int(summary["cloned_original_instruction_count"]) != 2:
@@ -6006,6 +6051,63 @@ def main() -> int:
                     "source_call_identity": next(iter(source_identities)),
                     "byte_load_count": 3,
                     "byte_store_count": 3,
+                }
+            if label == "m3_memcpy1_specialization":
+                specialized = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "copy_runtime"
+                )
+                unselected = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "copy_unselected"
+                )
+                transformed = [
+                    origin for origin in specialized["instruction_origins"]
+                    if origin["origin_kind"] ==
+                    "synthesized_from_original_instruction"
+                ]
+                source_identities = {
+                    origin["source_original_address"]
+                    for origin in transformed
+                }
+                retained_calls = [
+                    origin for origin in specialized["instruction_origins"]
+                    if origin["origin_kind"] == "original_instruction"
+                    and origin.get("is_call")
+                ]
+                if (
+                    not specialized["firmware_modified"]
+                    or "memcpy1_specialization" not in
+                    specialized["firmware_modification_reasons"]
+                    or len(transformed) != 7
+                    or len(source_identities) != 1
+                    or sum(bool(origin["may_load"])
+                           for origin in transformed) != 1
+                    or sum(bool(origin["may_store"])
+                           for origin in transformed) != 1
+                    or len(retained_calls) != 1
+                    or unselected["firmware_modification_attempted"]
+                    or any(
+                        origin["origin_kind"] != "original_instruction"
+                        for origin in unselected["instruction_origins"]
+                    )
+                    or results[label]["pass_publication"]
+                    ["byte_changed_function_count"] != 1
+                ):
+                    raise RuntimeError(
+                        "M3 size-one memcpy fixture did not publish one "
+                        "fully attributed guarded fast path while retaining "
+                        "the selected fallback and unselected original call"
+                    )
+                results[label]["memcpy1_specialization_validation"] = {
+                    "status": "accepted",
+                    "transformed_function": specialized,
+                    "unchanged_control": unselected,
+                    "source_call_identity": next(iter(source_identities)),
+                    "synthesized_instruction_count": len(transformed),
+                    "byte_load_count": 1,
+                    "byte_store_count": 1,
+                    "retained_fallback_call_count": len(retained_calls),
                 }
             if label == "m3_rodata_load":
                 linked = next(
@@ -7710,6 +7812,27 @@ def main() -> int:
             "unadmitted Cortex-M fixed-size memcpy inlining did not reject"
         )
 
+    memcpy1_without_contract = run(
+        [str(args.bolt.resolve()), str(m3_memcpy1_specialization_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline",
+         "--memcpy1-spec=copy_runtime",
+         "--firmbolt-preserve-guest-instruction-count=false",
+         "-o", str(output /
+                   "must-not-emit-unadmitted-memcpy1-specialization.elf")],
+        logs / "reject-unadmitted-memcpy1-specialization.log",
+    )
+    if (
+        memcpy1_without_contract.returncode == 0
+        or "Cortex-M memcpy size-one specialization adds a branch and "
+           "changes call, memory-access and fault/event observations" not in
+        (memcpy1_without_contract.stdout + memcpy1_without_contract.stderr)
+    ):
+        raise RuntimeError(
+            "unadmitted Cortex-M size-one memcpy specialization did not "
+            "reject"
+        )
+
     taildup_without_contract = run(
         [str(args.bolt.resolve()), str(m3_taildup_image),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -8574,6 +8697,15 @@ def main() -> int:
             expected_word=0x00332211,
         )
     )
+    m3_memcpy1_specialization_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_single_word_execution(
+            m3_memcpy1_specialization_image,
+            candidates["m3_memcpy1_specialization"], output,
+            args.fastdyn.resolve(), "native-memcpy1-specialization",
+            expected_word=0x44332211,
+        )
+    )
     m3_taildup_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -8849,6 +8981,7 @@ def main() -> int:
             m0_icp_method_load_execution,
             m3_execution, m3_jump6_execution, m3_narrow_data_execution,
             m3_inline_execution, m3_inline_memcpy_execution,
+            m3_memcpy1_specialization_execution,
             m3_taildup_execution,
             m3_taildup_propagation_execution,
             m3_rodata_load_execution,
@@ -8900,7 +9033,8 @@ def main() -> int:
                 "default; explicitly disabled only for the "
                 "m0plus_relocation_clone, m0plus_branch, "
                 "m0plus_call_veneer, m3_taildup and "
-                "m3_taildup_propagation and m3_inline_memcpy fixtures; "
+                "m3_taildup_propagation, m3_inline_memcpy and "
+                "m3_memcpy1_specialization fixtures; "
                 "m3_profile_alignment "
                 "admits executed alignment padding"
                 "; the m3_loop_inversion fixture also admits branch-count "
@@ -8919,7 +9053,7 @@ def main() -> int:
             "eliminate_unreachable": False,
             "call_boundary_changes": (
                 "explicitly admitted only for the m3_inline, "
-                "m3_inline_memcpy, m0plus_icp, "
+                "m3_inline_memcpy, m3_memcpy1_specialization, m0plus_icp, "
                 "m0plus_icp_tail, m0plus_icp_method_load, m3_icp, m3_icp_r12, "
                 "m3_icp_method_load and m3_icp_tail fixtures"
             ),
@@ -8958,6 +9092,13 @@ def main() -> int:
                 "caller-clobber behavior, disjoint byte-addressable ordinary "
                 "RAM, three valid bytes, and removal of the call plus its "
                 "original access/fault event shape"
+            ),
+            "memcpy1_specialization": (
+                "explicitly admitted only for "
+                "m3_memcpy1_specialization: AAPCS caller-clobber behavior, "
+                "valid disjoint byte-addressable ordinary RAM, and addition "
+                "of the size guard plus changed call/access/fault event "
+                "shape; non-size-one execution retains the original call"
             ),
         },
         "bolt_revision": revision,
@@ -9206,6 +9347,8 @@ def main() -> int:
             m3_inline_execution,
         "m3_native_inline_memcpy_architectural_execution":
             m3_inline_memcpy_execution,
+        "m3_native_memcpy1_specialization_architectural_execution":
+            m3_memcpy1_specialization_execution,
         "m3_native_tail_duplication_architectural_execution":
             m3_taildup_execution,
         "m3_native_tail_duplication_propagation_architectural_execution":
@@ -9418,6 +9561,8 @@ def main() -> int:
         "m3_inline_candidate": str(candidates["m3_inline"]),
         "m3_inline_memcpy_candidate":
             str(candidates["m3_inline_memcpy"]),
+        "m3_memcpy1_specialization_candidate":
+            str(candidates["m3_memcpy1_specialization"]),
         "m3_taildup_candidate": str(candidates["m3_taildup"]),
         "m3_taildup_propagation_candidate":
             str(candidates["m3_taildup_propagation"]),
