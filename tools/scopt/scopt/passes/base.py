@@ -192,7 +192,7 @@ PATCH_TEMPLATES = {
     "constant-propagation": ("cp_xor_zero", "cp_mov_imm"),
     "branch-folding": ("bf_jcc_to_jmp", "bf_jcc_to_nop"),
     "dead-host-ops": ("dho_nop",),
-    "eliminate-state-sync": ("b4_nop_store",),
+    "eliminate-state-sync": ("b4_nop_store", "b4_nop_pair", "b4_absorb_nop"),
 }
 _SHA = _re.compile(r"^sha256:[0-9a-f]{64}$")
 _FIELDS = tuple(f"r{i}" for i in range(13)) + ("NF", "ZF", "CF", "VF")

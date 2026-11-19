@@ -1545,6 +1545,42 @@ def _b4_deletion_problems(h: Any, p: Any, contract: Any) -> list[str]:
     return out
 
 
+def _b4_pair_problems(unit: Any, hostops: Any, patch: Any, contract: Any,
+                      anchors: frozenset[int]) -> list[str]:
+    from .analysis.syncdead import b4_pair_allowed, b4_widen_move, nop_bytes
+
+    start, end = patch.host_off, patch.host_off + len(patch.old_bytes)
+    if not b4_pair_allowed(unit, start, end, anchors):
+        return ["b4 pair must have no independent interior target"]
+    ops = [op for op in hostops.ops if start <= op.off and op.end <= end]
+    if not (len(ops) == 2 and ops[0].off == start
+            and ops[0].end == ops[1].off and ops[1].end == end):
+        return ["b4 pair must cover two consecutive host instructions"]
+    if patch.template_id == "b4_absorb_nop":
+        side = patch.justification.rsplit(":", 1)[-1]
+        if side not in ("left", "right"):
+            return ["b4 absorption must identify the dead store"]
+        victim, keep = ops if side == "left" else reversed(ops)
+        expected = b4_widen_move(unit.code[keep.off:keep.end], victim.end - victim.off)
+        if expected is None or patch.new_bytes != expected:
+            return ["b4 absorption must preserve the neighboring MOV"]
+        ops = [victim]
+    elif patch.new_bytes != nop_bytes(end - start):
+        return ["b4 pair must be one canonical NOP"]
+    problems = []
+    classes = []
+    for op in ops:
+        original = unit.code[op.off:op.end]
+        part = type(patch)(patch.target, op.off, original, nop_bytes(len(original)) or b"",
+                           "b4_nop_store", "")
+        problems.extend(_b4_deletion_problems(hostops, part, contract))
+        classes.append(contract.deletable_class(op.store_field))
+    claim = [part.split(":", 1)[0] for part in patch.justification.split("|")]
+    if classes != claim:
+        problems.append("b4 pair admission classes do not match the original stores")
+    return problems
+
+
 def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
                 plan: Any = None, sidecar: Mapping[str, Any] | None = None,
                 layout: Any = None, v6_exes: Iterable[str] = (),
@@ -2095,11 +2131,12 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
                          "snapshot): edit_inside_log_block")
 
     def placement(u: Any, patches: Sequence[Any], who: str) -> None:
-        nonlocal npat
+        nonlocal npat, need_d2, need_d3
         if not patches:
             return
         h = build_hostops(u, layout, ca)
         blocks = h.blocks
+        pair_anchors = None
         for p in patches:
             npat += 1
             a, b = p.host_off, p.host_off + len(p.old_bytes)
@@ -2129,6 +2166,19 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
             if p.template_id == "b4_nop_store":
                 # WP25: "deletions only of deletable classes" (§9.1 V15, §7.2, §7.5)
                 bad15.extend(f"{who} @{a}: {e}" for e in _b4_deletion_problems(h, p, contract15))
+            elif p.template_id in ("b4_nop_pair", "b4_absorb_nop"):
+                from .analysis.syncdead import b4_pair_anchors
+
+                if pair_anchors is None:
+                    pair_anchors = b4_pair_anchors(u, ca)
+                problems = _b4_pair_problems(u, h, p, contract15, pair_anchors)
+                bad15.extend(f"{who} @{a}: {e}" for e in problems)
+                if not problems:
+                    # The checker matched each declared class against the actual
+                    # store. Require its runtime conditions even for a raw plan.
+                    classes = {part.split(":", 1)[0] for part in p.justification.split("|")}
+                    need_d2 |= "D2" in classes
+                    need_d3 |= "D3" in classes
         # re-decode tiles
         code = bytearray(u.code)
         for p in patches:

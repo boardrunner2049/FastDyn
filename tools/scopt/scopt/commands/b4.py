@@ -81,17 +81,22 @@ def census_cmd(snapshot, runtime, mode, all_units, d3_all_calls, tb_start_cb, ou
 @click.option("--store", required=True, type=click.Path(file_okay=False))
 @_RT
 @click.option("--classes", default="D1|D2|D3", show_default=True)
+@click.option("--coalesce-nops", is_flag=True,
+              help="Encode adjacent certified dead stores as one NOP where possible.")
+@click.option("--absorb-nops", is_flag=True,
+              help="Absorb individual certified NOPs into a wider neighboring MOV.")
 @click.option("--candidate-id", default=None)
 @click.option("--selftest", "selftest_path", type=click.Path(dir_okay=False),
               help="V18 document cache (scopt hostsym selftest --cache).")
 @click.option("--out", type=click.Path(dir_okay=False))
-def package_cmd(snapshot, store, runtime, classes, candidate_id, selftest_path, out):
+def package_cmd(snapshot, store, runtime, classes, coalesce_nops, absorb_nops, candidate_id, selftest_path, out):
     """Propose (eliminate-state-sync@1), link (v5), validate and publish a B4 artifact."""
     from ..passes.eliminate_state_sync import class_ledger_rows, package_b4, propose_b4
     from ..validate_sym.selftest import load_or_run
 
     s, lay, ri = _load(snapshot, runtime)
-    prop = propose_b4(s, layout=lay, runtime=ri, classes=classes)
+    prop = propose_b4(s, layout=lay, runtime=ri, classes=classes,
+                      coalesce_nops=coalesce_nops, absorb_nops=absorb_nops)
     Path(store).mkdir(parents=True, exist_ok=True)
     cid = candidate_id or f"b4-{'-'.join(prop.classes)}-{s.snapshot_id[7:19]}"
     doc = {"proposal": {"outcome": prop.result.outcome.value, "reason": prop.result.reason,

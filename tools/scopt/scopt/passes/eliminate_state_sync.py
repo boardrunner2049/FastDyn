@@ -14,6 +14,11 @@ Params (``params_schema``):
 * ``classes``: ``"D1|D2|D3"`` (default all; ``|`` or ``,`` separated). The
   per-class ablation of T-B4-11 (``--param classes=D1`` …). A store of an
   unselected class is reported as ``class_not_selected``.
+* ``coalesce_nops``: replace adjacent, independently deletable
+  stores in one guest instruction with a single NOP when no entry or
+  recovery target lies inside the pair (default false).
+* ``absorb_nops``: absorb an individual store's NOP into a wider encoding
+  of an adjacent same-guest CPU-state MOV (default false).
 * ``max_units``: the work budget (units edited, hot-first when the context
   offers unit weights, else slot order); the rest is ``budget_exhausted``-free
   ``no_change`` (reported in ``stats.units_over_budget``).
@@ -43,7 +48,8 @@ from typing import Any
 
 from ..analysis.api import AnalysisResult, ScopeRef
 from ..analysis.obs_contract import D2_FIELDS, D3_FIELDS, ObsContract, build_contract
-from ..analysis.syncdead import B4Reason, SyncDead, TrackedBytes, nop_bytes, syncdead_of
+from ..analysis.syncdead import (B4Reason, SyncDead, TrackedBytes, b4_pair_allowed,
+                                 b4_pair_anchors, b4_widen_move, nop_bytes, syncdead_of)
 from ..canon import canonical_json, sha256_id
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult, Patch
 
@@ -53,6 +59,8 @@ __all__ = ["EliminateStateSync", "PASSES", "TEMPLATE", "parse_classes", "StrictC
 
 PASS_NAME = "eliminate-state-sync"
 TEMPLATE = "b4_nop_store"
+PAIR_TEMPLATE = "b4_nop_pair"
+ABSORB_TEMPLATE = "b4_absorb_nop"
 ALL_CLASSES = ("D1", "D2", "D3")
 
 log = logging.getLogger("scopt.pass.eliminate-state-sync")
@@ -79,7 +87,8 @@ class EliminateStateSync:
         budgets=Budgets(max_wall_s=900.0),
         preserves=frozenset({"envlayout", "obs-contract"}),
         invalidates=frozenset({"code"}),
-        params_schema={"classes": str, "max_units": int})
+        params_schema={"classes": str, "max_units": int,
+                       "coalesce_nops": bool, "absorb_nops": bool})
 
     def run(self, snap: Any, ctx: Any, edits: Any) -> PassResult:
         try:
@@ -123,15 +132,27 @@ class EliminateStateSync:
                 continue
             n_edit_units += 1
             affected.append(uid)
-            for d in take:
-                new = nop_bytes(d.size)
-                assert new is not None  # syncdead refuses sizes without a NOP
-                edits.pure_rewrite(Patch(target=uid, host_off=d.off, old_bytes=d.old,
-                                         new_bytes=new, template_id=TEMPLATE,
-                                         justification=f"{d.cls}:{d.field}:{d.origin}"),
-                                   reads=[res] if isinstance(res, AnalysisResult) else ())
-                stats[f"{d.cls}:deleted"] += 1
-                stats[f"{d.cls}:deleted_bytes"] += d.size
+            groups = list(_store_groups(snap, uid, take, coalesce=ctx.params.get("coalesce_nops", False)))
+            absorbed = (_absorbed_moves(snap, uid, groups)
+                        if ctx.params.get("absorb_nops", False) else {})
+            for group in groups:
+                first = group[0]
+                patch = absorbed.get(first.off)
+                if patch is not None:
+                    stats["absorbed_nops"] += 1
+                else:
+                    old = b"".join(d.old for d in group)
+                    new = nop_bytes(len(old))
+                    assert new is not None  # the store/group has an exact one-NOP encoding
+                    template = PAIR_TEMPLATE if len(group) == 2 else TEMPLATE
+                    justification = "|".join(f"{d.cls}:{d.field}:{d.origin}" for d in group)
+                    patch = Patch(uid, first.off, old, new, template, justification)
+                edits.pure_rewrite(patch, reads=[res] if isinstance(res, AnalysisResult) else ())
+                for d in group:
+                    stats[f"{d.cls}:deleted"] += 1
+                    stats[f"{d.cls}:deleted_bytes"] += d.size
+                if len(group) == 2:
+                    stats["coalesced_pairs"] += 1
         stats["units_edited"] = n_edit_units
         stats["units_over_budget"] = over_budget
         st = {k: float(v) for k, v in sorted(stats.items())}
@@ -142,6 +163,62 @@ class EliminateStateSync:
         return PassResult(Outcome.CANDIDATE, "dead_stores",
                           f"{n} stores in {n_edit_units} units (classes {'|'.join(classes)}; "
                           f"snapshot {str(sid)[:23]})", affected=tuple(affected), stats=st)
+
+
+def _store_groups(snap, uid, stores, *, coalesce):
+    if not coalesce or len(stores) < 2:
+        yield from ((store,) for store in stores)
+        return
+    unit = snap.unit(uid)
+    anchors = b4_pair_anchors(unit, snap.header.code_address)
+    stores = sorted(stores, key=lambda store: store.off)
+    index = 0
+    while index < len(stores):
+        first = stores[index]
+        if index + 1 < len(stores):
+            second = stores[index + 1]
+            if (first.off + first.size == second.off
+                    and b4_pair_allowed(unit, first.off, second.off + second.size, anchors)):
+                yield first, second
+                index += 2
+                continue
+        yield (first,)
+        index += 1
+
+
+def _absorbed_moves(snap, uid, groups):
+    from ..decode.x86 import sweep
+
+    unit = snap.unit(uid)
+    end = unit.pool_start if unit.pool_start is not None else unit.tc_size
+    decoded = sweep(unit.code[:end], 0)
+    index_by_off = {op.address: i for i, op in enumerate(decoded)}
+    used = {store.off for group in groups for store in group}
+    anchors = b4_pair_anchors(unit, snap.header.code_address)
+    output = {}
+    for group in groups:
+        if len(group) != 1:
+            continue
+        store = group[0]
+        index = index_by_off[store.off]
+        for j in (index - 1, index + 1):
+            if not 0 <= j < len(decoded):
+                continue
+            other = decoded[j]
+            if other.address in used:
+                continue
+            start, end = min(store.off, other.address), max(store.off + store.size, other.end)
+            if not b4_pair_allowed(unit, start, end, anchors):
+                continue
+            wide = b4_widen_move(other.raw, store.size)
+            if wide is None:
+                continue
+            side = "left" if store.off == start else "right"
+            why = f"{store.cls}:{store.field}:{store.origin}:{side}"
+            output[store.off] = Patch(uid, start, unit.code[start:end], wide, ABSORB_TEMPLATE, why)
+            used.add(other.address)
+            break
+    return output
 
 
 PASSES = (EliminateStateSync,)
@@ -241,6 +318,11 @@ class B4Context:
         return dict(self._cache)
 
 
+def _patch_classes(patch: Patch) -> tuple[str, ...]:
+    parts = patch.justification.split("|") if patch.template_id == PAIR_TEMPLATE else (patch.justification,)
+    return tuple(part.split(":", 1)[0] for part in parts)
+
+
 @dataclass
 class B4Proposal:
     result: PassResult
@@ -249,6 +331,8 @@ class B4Proposal:
     contract: ObsContract
     syncdead: dict[str, SyncDead] = field(default_factory=dict)
     edit_digest: str | None = None
+    coalesce_nops: bool = False
+    absorb_nops: bool = False
 
     @property
     def n_patches(self) -> int:
@@ -258,7 +342,7 @@ class B4Proposal:
         c: Counter[str] = Counter()
         for ps in self.patches.values():
             for p in ps:
-                c[p.justification.split(":", 1)[0]] += 1
+                c.update(_patch_classes(p))
         return {k: c.get(k, 0) for k in ALL_CLASSES}
 
     def need_d2(self) -> bool:
@@ -270,13 +354,14 @@ class B4Proposal:
 
 def propose_b4(snapshot: Any, *, layout: Any, runtime: Mapping[str, Any] | None,
                classes: Any = None, max_units: int | None = None,
-               weights: Mapping[str, int] | None = None, **kw: Any) -> B4Proposal:
+               weights: Mapping[str, int] | None = None, coalesce_nops: bool = False,
+               absorb_nops: bool = False, **kw: Any) -> B4Proposal:
     """Run :class:`EliminateStateSync` on ``snapshot`` with PURE_REWRITE enabled."""
     from ..model.snapshot import WorkingSet
     from ..model.view import WorkingSetView
     from ..proposal import ProposalBuilder
 
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = {"coalesce_nops": coalesce_nops, "absorb_nops": absorb_nops}
     if classes is not None:
         params["classes"] = "|".join(parse_classes(classes))
     if max_units is not None:
@@ -292,7 +377,7 @@ def propose_b4(snapshot: Any, *, layout: Any, runtime: Mapping[str, Any] | None,
         pt = e.payload
         patches.setdefault(pt.target, []).append(pt)
     return B4Proposal(res, {k: tuple(v) for k, v in patches.items()},
-                      parse_classes(classes), ctx.contract, ctx.results(), b.digest())
+                      parse_classes(classes), ctx.contract, ctx.results(), b.digest(), coalesce_nops, absorb_nops)
 
 
 def plan_of(prop: B4Proposal | Mapping[str, Sequence[Patch]]) -> Any:
@@ -313,13 +398,14 @@ def class_ledger_rows(prop: B4Proposal, *, ledger: Any = None) -> Any:
             led.emit("pass", f"{PASS_NAME}@1/{c}", "optimized", Outcome.SKIPPED_UNSUPPORTED.value,
                      B4Reason.CLASS_NOT_SELECTED, None, counts={"stores": 0})
             continue
-        ps = sorted(([uid, p.host_off, p.old_bytes.hex()] for uid, v in prop.patches.items()
-                     for p in v if p.justification.startswith(c + ":")))
+        records = [(uid, p, _patch_classes(p).count(c)) for uid, v in prop.patches.items() for p in v]
+        matches = [(uid, p, count) for uid, p, count in records if count]
+        ps = sorted([uid, p.host_off, p.old_bytes.hex()] for uid, p, _ in matches)
         ev = sha256_id(canonical_json(ps)) if ps else None
         led.emit("pass", f"{PASS_NAME}@1/{c}", "optimized",
                  Outcome.CANDIDATE.value if ps else Outcome.NO_CHANGE.value,
                  "dead_stores" if ps else B4Reason.NO_DEAD_STORE, ev,
-                 counts={"stores": len(ps), "units": len({x[0] for x in ps})})
+                 counts={"stores": sum(count for _, _, count in matches), "units": len({x[0] for x in ps})})
     return led
 
 
@@ -337,8 +423,13 @@ def package_b4(snapshot: Any, prop: B4Proposal, store: Any, *, candidate_id: str
     plan = plan_of(prop)
     sc = strict_contract(prop.contract)
     hs = hostsym_inputs(layout=layout, contract=sc, selftest=selftest, env_abs=env_abs)
+    params = {"classes": "|".join(prop.classes)}
+    if prop.coalesce_nops:
+        params["coalesce_nops"] = True
+    if prop.absorb_nops:
+        params["absorb_nops"] = True
     pipeline = [{"pass": PASS_NAME, "version": 1,
-                 "params_sha256": sha256_id(canonical_json({"classes": "|".join(prop.classes)})),
+                 "params_sha256": sha256_id(canonical_json(params)),
                  "outcome": prop.result.outcome.value, "reason": prop.result.reason,
                  "affected": sorted(prop.patches), "edit_digest": prop.edit_digest,
                  "duration_s": 0.0, "x_classes": prop.by_class()}]

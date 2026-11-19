@@ -135,6 +135,56 @@ def nop_bytes(n: int) -> bytes | None:
     return None if h is None else bytes.fromhex(h)
 
 
+def b4_pair_anchors(unit: Any, code_address: int) -> frozenset[int]:
+    """Offsets that must remain independently addressable inside a B4 store pair."""
+    from ..decode.x86 import sweep
+
+    base = code_address + unit.tc_offset
+    end = unit.pool_start if unit.pool_start is not None else unit.tc_size
+    targets = {off for i in sweep(unit.code[:end], 0)
+               for off in (i.branch_target, i.rip_target) if off is not None}
+    targets.update(f.target_abs - base for f in unit.reloc.fixups if f.target_abs is not None)
+    targets.update(x.insn_off for x in unit.sites)
+    targets.update(x.host_off for x in unit.opmarks)
+    targets.update(x.host_return_offset for x in unit.recovery)
+    targets.update(off for i in unit.insns for off in (i.host_start, i.host_end))
+    return frozenset(targets)
+
+
+def b4_pair_allowed(unit: Any, start: int, end: int, anchors: frozenset[int]) -> bool:
+    return (unit.meta_status == "ok" and unit.reloc.relocatable
+            and nop_bytes(end - start) is not None
+            and any(i.host_start <= start < end <= i.host_end for i in unit.insns)
+            and not any(start < off < end for off in anchors))
+
+
+def b4_widen_move(raw: bytes, width: int) -> bytes | None:
+    """Lengthen a plain RBP-relative MOV without changing its operands."""
+    from capstone import x86 as X
+
+    from .hconst import decode_one
+
+    op = decode_one(raw, 0, len(raw))
+    if (width not in (3, 4) or op is None or op.mnemonic != "mov" or any(op.prefix)
+            or op.disp_size != 1 or (width == 4 and op.rex)):
+        return None
+    if not any(operand.type == X.X86_OP_MEM and operand.mem.base == X.X86_REG_RBP
+               and not operand.mem.index and not operand.mem.segment for operand in op.operands):
+        return None
+    m, d = op.modrm_offset, op.disp_offset
+    if m == 0 or not m < d < len(raw) or raw[m] & 0xc0 != 0x40:
+        return None
+    disp = int.from_bytes(raw[d:d + 1], "little", signed=True)
+    wide = raw[:m] + bytes([(raw[m] & 0x3f) | 0x80]) + raw[m + 1:d]
+    wide += disp.to_bytes(4, "little", signed=True) + raw[d + 1:]
+    if width == 4:
+        wide = b"\x40" + wide
+    decoded = decode_one(wide, 0, len(wide))
+    if decoded is None or decoded.mnemonic != "mov" or decoded.op_str != op.op_str:
+        return None
+    return wide
+
+
 class B4Reason:
     """Stable B4 reason codes (design §7.3, §7.5). Every code keeps the baseline
     store (``skipped_unsupported``) except :data:`UNKNOWN` ones
