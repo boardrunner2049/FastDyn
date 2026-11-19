@@ -45,7 +45,8 @@ DEFAULTS: Mapping[str, float] = {"c_lookup": 7.6, "c_guard": 1.5, "c_fail": 0.0,
                                  "ns_per_tb_entry": 10.7}
 MIN_PASS_SHARE = 0.5
 _CALIBRATION_FILE = Path("runs/b3-explore/wp16/calibration.json")
-CALIBRATION_PATH = str(fastdyn_root() / _CALIBRATION_FILE)
+# Keep the public import-time path alongside the loader's runtime lookup.
+CALIBRATION_PATH = os.environ.get("SCOPT_B3_CALIBRATION", str(fastdyn_root() / _CALIBRATION_FILE))
 _COSTS = ("c_lookup", "c_guard", "c_fail", "c_link")
 
 

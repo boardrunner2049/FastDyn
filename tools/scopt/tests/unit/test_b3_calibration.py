@@ -1,5 +1,7 @@
 from dataclasses import replace
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -36,6 +38,17 @@ def _manager(snap, *, env=None, pipeline_params=None, caller=None, only=None):
         {"name": n, "version": 1, "params": (pipeline_params or {}).get(n, {})} for n in NAMES]}
     return PassManager(snap, pipeline, params=caller, only=only, b3=env,
                        passes=PassRegistry(classes)), seen
+
+
+def test_exported_calibration_path_is_an_import_time_hint(tmp_path, monkeypatch):
+    path = _file(tmp_path / "calibration.json", c_guard=3)
+    monkeypatch.setenv("SCOPT_B3_CALIBRATION", str(path))
+    value = subprocess.check_output(
+        [sys.executable, "-c",
+         "from scopt.analysis.profitability import CALIBRATION_PATH; print(CALIBRATION_PATH)"],
+        text=True,
+    )
+    assert value.strip() == str(path)
 
 
 def test_calibration_is_frozen_and_applied_before_explicit_parameters(tmp_path, monkeypatch):
