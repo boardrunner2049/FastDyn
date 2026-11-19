@@ -10587,7 +10587,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb37cb3df2e 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..905ebf7971b8b97ae4ce433c8137e752ea6c0c67 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -10748,17 +10748,17 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
    for (auto &[Address, Type] : MarkerSymbols) {
      auto *BF = BC->getBinaryFunctionContainingAddress(Address,
                                                        /*CheckPastEnd*/ false,
-@@ -1499,8 +1546,20 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1499,10 +1546,22 @@ void RewriteInstance::discoverFileObjects() {
        continue;
      }
      const auto EntryOffset = Address - BF->getAddress();
 -    if (Type == MarkerSymType::CODE) {
 +    if (Type == MarkerSymType::CODE || Type == MarkerSymType::THUMB_CODE) {
-+      BF->markCodeAtOffset(EntryOffset);
-+      continue;
-+    }
-+    if (Type == MarkerSymType::ARM_CODE) {
        BF->markCodeAtOffset(EntryOffset);
+       continue;
+     }
++    if (Type == MarkerSymType::ARM_CODE) {
++      BF->markCodeAtOffset(EntryOffset);
 +      // Cortex-M implements Thumb execution only.  A few firmware images
 +      // nevertheless contain unreachable ARM-state library bodies.  Preserve
 +      // the containing function byte-for-byte instead of feeding those bytes
@@ -10767,9 +10767,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
 +        BF->setSimple(false);
 +        ++UnsupportedARMModeRegions;
 +      }
-       continue;
-     }
++      continue;
++    }
      if (Type == MarkerSymType::DATA) {
+       BF->markDataAtOffset(EntryOffset);
+       BC->AddressToConstantIslandMap[Address] = BF;
 @@ -1510,8 +1569,12 @@ void RewriteInstance::discoverFileObjects() {
      }
      llvm_unreachable("Unknown marker");
@@ -12043,7 +12045,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
  
        OS.seek(Pos);
      }
-@@ -6947,6 +7712,521 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +7712,541 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -12094,6 +12096,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
 +    uint32_t UnwindWord{0};
 +    BinarySection *ExtabSection{nullptr};
 +    uint64_t ExtabTarget{0};
++    uint64_t ExtabSize{0};
 +    uint64_t PersonalityTarget{0};
 +    SmallVector<const BinaryFunction *, 4> Functions;
 +    bool IsSentinel{false};
@@ -12122,6 +12125,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
 +      const uint32_t UnwindWord = ReadWord(Contents.data() + Offset + 4);
 +      BinarySection *ExtabSection = nullptr;
 +      uint64_t ExtabTarget = 0;
++      uint64_t ExtabSize = 0;
 +      uint64_t PersonalityTarget = 0;
 +      if (UnwindWord != 1 && !(UnwindWord & 0x80000000U)) {
 +        Expected<uint64_t> Target =
@@ -12235,6 +12239,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
 +                "ARM EHABI compact entry at 0x%" PRIx64
 +                " extends beyond section %s",
 +                *Target, TargetSection->getName().str().c_str());
++          ExtabSize = RequiredBytes;
 +        }
 +        ExtabSection = &*TargetSection;
 +        ExtabTarget = *Target;
@@ -12245,7 +12250,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
 +            "ARM EHABI index section %s is not strictly address-sorted",
 +            Section.getName().str().c_str());
 +      Entries.push_back({*InputStart, 0, UnwindWord, ExtabSection, ExtabTarget,
-+                         PersonalityTarget, {}, false});
++                         ExtabSize, PersonalityTarget, {}, false});
 +    }
 +
 +    // A linker may append a final CANTUNWIND sentinel at the end of the
@@ -12316,9 +12321,26 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
 +      const bool BInline = B.UnwindWord & 0x80000000U;
 +      if (AInline || BInline)
 +        return AInline && BInline && A.UnwindWord == B.UnwindWord;
-+      return A.ExtabSection == B.ExtabSection &&
-+             A.ExtabTarget == B.ExtabTarget &&
-+             A.PersonalityTarget == B.PersonalityTarget;
++      if (A.ExtabSection == B.ExtabSection &&
++          A.ExtabTarget == B.ExtabTarget &&
++          A.PersonalityTarget == B.PersonalityTarget)
++        return true;
++      // ARM-defined external compact entries are self-contained opcode
++      // records.  Linkers commonly emit one byte-identical table per source
++      // function instead of coalescing them.  Treat those records as the same
++      // unwind model only when their complete, already range-validated byte
++      // sequences match.  Generic entries have PersonalityTarget set and may
++      // carry language-specific data of unknown extent, so they continue to
++      // require the exact same table identity above.
++      if (A.PersonalityTarget || B.PersonalityTarget || !A.ExtabSection ||
++          !B.ExtabSection || !A.ExtabSize || A.ExtabSize != B.ExtabSize)
++        return false;
++      const uint64_t AOffset =
++          A.ExtabTarget - A.ExtabSection->getAddress();
++      const uint64_t BOffset =
++          B.ExtabTarget - B.ExtabSection->getAddress();
++      return A.ExtabSection->getContents().substr(AOffset, A.ExtabSize) ==
++             B.ExtabSection->getContents().substr(BOffset, B.ExtabSize);
 +    };
 +
 +    size_t FoldedAliases = 0;
@@ -12565,7 +12587,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8240,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8260,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -12580,7 +12602,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea605de7328c63a5dcb9dcff5d9ccb3
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
      // Overwrite function body to make sure we never execute these instructions.
-@@ -7002,6 +8290,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +8310,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -19672,10 +19694,10 @@ index 0000000000000000000000000000000000000000..75938b5d67f468b21fefcd87f4abc088
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-safe-icf-ehabi.s b/bolt/test/ARM/thumb-safe-icf-ehabi.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..16def52ddeafeb6051a8045aa85d1760c1789678
+index 0000000000000000000000000000000000000000..3edb1e2b68f2dff6024a8383021776d957175440
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-safe-icf-ehabi.s
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,329 @@
 +## Safe Cortex-M ICF must preserve ARM EHABI semantics, not merely code bytes.
 +## Equal linker-established CANTUNWIND models may share one canonical output
 +## range; the duplicate index record is removed and both the section header and
@@ -19698,6 +19720,36 @@ index 0000000000000000000000000000000000000000..16def52ddeafeb6051a8045aa85d1760
 +# RUN:   | FileCheck %s --check-prefix=UNWIND
 +# RUN: llvm-readelf -SWl %t/candidate.elf \
 +# RUN:   | FileCheck %s --check-prefix=LAYOUT
++
++## Independently qualify two separately emitted but byte-identical external
++## compact tables.  The canonical index record must retain its exact table;
++## the unreferenced child table remains opaque allocated data.
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/external.s -o %t/external.o
++# RUN: ld.lld --emit-relocs --no-merge-exidx-entries -T %t/link.ld \
++# RUN:   %t/external.o -o %t/external.elf
++# RUN: llvm-bolt %t/external.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --icf=safe \
++# RUN:   --firmbolt-allow-identical-code-folding --align-functions=4 \
++# RUN:   --align-text=4 -o %t/external-candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=EXTERNAL-BOLT
++# RUN: llvm-readelf --unwind %t/external-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=EXTERNAL-UNWIND
++# RUN: llvm-objdump -s -j .ARM.extab %t/external-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=EXTERNAL-EXTAB
++
++## A personality-index-1/index-2 pair has identical machine code but different
++## complete compact records and must fail closed.
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/external-mismatch.s -o %t/external-mismatch.o
++# RUN: ld.lld --emit-relocs --no-merge-exidx-entries -T %t/link.ld \
++# RUN:   %t/external-mismatch.o -o %t/external-mismatch.elf
++# RUN: not llvm-bolt %t/external-mismatch.elf \
++# RUN:   --firmbolt-cortex-m-cpu=cortex-m3 --relocs --use-old-text \
++# RUN:   --icf=safe --firmbolt-allow-identical-code-folding \
++# RUN:   --align-functions=4 --align-text=4 \
++# RUN:   -o %t/external-mismatch-candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=EXTERNAL-MISMATCH
 +
 +# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
 +# RUN:   %t/mismatch.s -o %t/mismatch.o
@@ -19727,6 +19779,20 @@ index 0000000000000000000000000000000000000000..16def52ddeafeb6051a8045aa85d1760
 +# LAYOUT: EXIDX 0x01011c 0x0800011c 0x0800011c 0x00018 0x00018 R 0x4
 +
 +# MISMATCH: BOLT-ERROR: 'cannot rebuild ARM EHABI index tables': ARM EHABI-covered folded function {{.*}}direct_call_b{{.*}} and canonical function {{.*}}direct_call_a{{.*}} have incompatible unwind models
++
++# EXTERNAL-BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 3 live entries from 4 input entries, 1 compatible folded alias(es), 1 external compact reference(s), and 0 relocation-complete generic reference(s) after function layout
++
++# EXTERNAL-UNWIND: FunctionAddress: 0x8000114
++# EXTERNAL-UNWIND: ExceptionHandlingTable: .ARM.extab
++# EXTERNAL-UNWIND: TableEntryAddress: 0x800011C
++# EXTERNAL-UNWIND: Model: Compact
++# EXTERNAL-UNWIND: PersonalityIndex: 1
++# EXTERNAL-UNWIND-NOT: FunctionAddress: 0x8000118
++
++# EXTERNAL-EXTAB: Contents of section .ARM.extab:
++# EXTERNAL-EXTAB-NEXT: 800011c b0b00081 00000000 b0b00081 00000000
++
++# EXTERNAL-MISMATCH: BOLT-ERROR: 'cannot rebuild ARM EHABI index tables': ARM EHABI-covered folded function {{.*}}external_call_b{{.*}} and canonical function {{.*}}external_call_a{{.*}} have incompatible unwind models
 +
 +//--- fixture.s
 +.syntax unified
@@ -19836,6 +19902,116 @@ index 0000000000000000000000000000000000000000..16def52ddeafeb6051a8045aa85d1760
 +  bx lr
 +  .fnend
 +.size direct_call_b, . - direct_call_b
++
++//--- external.s
++.syntax unified
++.cpu cortex-m3
++.thumb
++.eabi_attribute Tag_CPU_arch, 10
++.eabi_attribute Tag_CPU_arch_profile, 'M'
++
++.section .isr_vector, "a", %progbits
++.p2align 2
++.word 0x20001000
++.word Reset_Handler
++
++.section .text, "ax", %progbits
++.p2align 2
++.global Reset_Handler
++.type Reset_Handler, %function
++.thumb_func
++Reset_Handler:
++  .fnstart
++  ldr r4, =0x20000000
++  bl external_call_a
++  str r0, [r4]
++  bl external_call_b
++  str r0, [r4, #4]
++external_halt:
++  b external_halt
++  .cantunwind
++  .fnend
++.size Reset_Handler, . - Reset_Handler
++
++.weak __aeabi_unwind_cpp_pr1
++
++.p2align 2
++.global external_call_a
++.type external_call_a, %function
++.thumb_func
++external_call_a:
++  .fnstart
++  .personalityindex 1
++  movs r0, #17
++  bx lr
++  .fnend
++.size external_call_a, . - external_call_a
++
++.p2align 2
++.global external_call_b
++.type external_call_b, %function
++.thumb_func
++external_call_b:
++  .fnstart
++  .personalityindex 1
++  movs r0, #17
++  bx lr
++  .fnend
++.size external_call_b, . - external_call_b
++
++//--- external-mismatch.s
++.syntax unified
++.cpu cortex-m3
++.thumb
++.eabi_attribute Tag_CPU_arch, 10
++.eabi_attribute Tag_CPU_arch_profile, 'M'
++
++.section .isr_vector, "a", %progbits
++.p2align 2
++.word 0x20001000
++.word Reset_Handler
++
++.section .text, "ax", %progbits
++.p2align 2
++.global Reset_Handler
++.type Reset_Handler, %function
++.thumb_func
++Reset_Handler:
++  .fnstart
++  bl external_call_a
++  bl external_call_b
++external_mismatch_halt:
++  b external_mismatch_halt
++  .cantunwind
++  .fnend
++.size Reset_Handler, . - Reset_Handler
++
++.weak __aeabi_unwind_cpp_pr1
++.weak __aeabi_unwind_cpp_pr2
++
++.p2align 2
++.global external_call_a
++.type external_call_a, %function
++.thumb_func
++external_call_a:
++  .fnstart
++  .personalityindex 1
++  movs r0, #17
++  bx lr
++  .fnend
++.size external_call_a, . - external_call_a
++
++.p2align 2
++.global external_call_b
++.type external_call_b, %function
++.thumb_func
++external_call_b:
++  .fnstart
++  .personalityindex 2
++  movs r0, #17
++  bx lr
++  .fnend
++.size external_call_b, . - external_call_b
 +
 +//--- link.ld
 +ENTRY(Reset_Handler)

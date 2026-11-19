@@ -106,7 +106,9 @@ opt-in profiled TBB, in-function ABS32 and relocation-complete detached ABS32
 hot-index-promotion Cortex-M3 fixtures, an opt-in TBH-to-TBB footprint fixture
 with odd-entry alignment and out-of-byte-range retention controls, an opt-in
 safe identical-code-folding fixture with address-taken controls, a second safe
-ICF fixture with compatible and incompatible ARM EHABI models, explicit user-directed and
+ICF fixture with compatible and incompatible ARM EHABI models, a third safe
+ICF fixture with distinct but byte-identical external compact EHABI records,
+explicit user-directed and
 profile-execution-count and CDSort call-graph relocation-complete whole-image
 function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
 Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
@@ -114,7 +116,7 @@ function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
 fixtures, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
 relocation-complete compact and generic ARM EHABI
 function-reordering fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v125 run accepts all forty-three without
+The 18 November production-parity-v126 run accepts all forty-four without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -750,26 +752,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v125-ehabi-safe-icf-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v126-external-ehabi-icf-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v125-ehabi-safe-icf-2026-11-18/report.json),
-SHA-256 `7601d2cd80e9dd72e4fbca6fedcfaf45272654c2ec6627451bcf1e4421dc2855`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v126-external-ehabi-icf-2026-11-18/report.json),
+SHA-256 `108f85ce5e4c9ed2a50ff56e41c892bcdae907e5b458bfda7a0b8148a914b9c1`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v125-ehabi-safe-icf-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v126-external-ehabi-icf-2026-11-18/validation-manifest.json)
 (SHA-256
-`eaa05339d78137faf45b7be7fbe2ede0b6d5565c9da87dacdb666c33b2a21bd6`)
+`2c52f1bcb3585e793630158babaa9aa418653d830b84cf0c85b17af231399502`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`15d6c7950822de2c2c9af1b613625e663d07fba6db65107e866062ab5483c71f`),
+`79860109eb589c58fb328096b8f4b4eb14ba55a4d498bb3ddb6f47cc876de824`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`22a86a400fb090c2b284b4e16cdaf837b9aa3f3c54d925cf7581b55cd8784bb2`.
+`ad34aff348679ded01b2bb5350d58f54a30321761d92a8784829f7eebff6c023`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -801,7 +803,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v125 validation passes 64/64 BOLT ARM lit tests, 12/12 AArch32
+The current v126 validation passes 64/64 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -827,7 +829,7 @@ mapping and live `.text` link, maps all 12 instructions and matches reference
 RAM `(17, 42)`. The real M4 compact control retains all 595 `CANTUNWIND`
 records and its 4,760-byte index exactly. External `.ARM.extab` personality or
 LSDA records and split fragments outside the qualified models reject
-explicitly; they are not silently treated as unwind support. v125 additionally
+explicitly; they are not silently treated as unwind support. v126 additionally
 qualifies compatible folded aliases and bounded index shrinkage as described
 below.
 
@@ -849,7 +851,7 @@ after it, keeps the 12-byte extab and 32-byte exidx at their original
 addresses, preserves all 13 instruction origins, and matches reference RAM
 `(17, 42)`. Arbitrary language-specific descriptor interpretation and
 split-fragment unwind remain unsupported. Variable-footprint index growth
-remains unsupported; v125 qualifies only shrinkage caused by removal of
+remains unsupported; v126 qualifies only shrinkage caused by removal of
 compatible folded-alias records without retained index relocations.
 
 v122 reuses BOLT's ordinary `AlignerPass` rather than adding a parallel
@@ -918,6 +920,23 @@ instead of publishing it. Retained relocation records on an index that would
 need compaction also reject until their offsets can be rebuilt. This qualifies
 compatible unwind aliases and bounded shrinkage, not arbitrary EHABI merging,
 split-fragment unwind, language-specific descriptors or index growth.
+
+v126 extends that comparison to separately emitted ARM-defined external
+compact records. Distinct `.ARM.extab` targets may alias only when neither is
+a generic personality/LSDA record and their complete, length-validated bytes
+are equal. The executed personality-index-1 fixture folds one four-byte twin,
+leaves `.ARM.extab` byte-exact, rebuilds `.ARM.exidx` from four records/32
+bytes to three records/24 bytes, updates `PT_ARM_EXIDX`, zeroes the retired
+eight-byte index range and preserves the exact vector and all non-index
+segments. Reference and candidate both produce `(17, 17)` under FastDyn. A
+byte-identical code pair with personality indexes 1 and 2 is rejected after
+linking; the wrapper deletes BOLT's disposable partial candidate and publishes
+nothing. Generic/LSDA aliases still require exact table identity because their
+opaque language-specific payload and retained dependencies are not yet modeled.
+The unchanged external-table bytes can include an orphaned duplicate after the
+index alias is removed; compacting that allocated data is a separate
+reference-completeness problem outside the current claim. These are layout,
+identity and preservation results, not runtime-performance results.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

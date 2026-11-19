@@ -189,6 +189,14 @@ M3_SAFE_ICF_EHABI_MISMATCH_SOURCE = (
 M3_SAFE_ICF_EHABI_LINKER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_safe_icf_ehabi.ld"
 )
+M3_SAFE_ICF_EHABI_EXTERNAL_SOURCE = (
+    ROOT / "tests/preflight/fixtures/"
+    "firm_bolt_cortex_m3_safe_icf_ehabi_external.s"
+)
+M3_SAFE_ICF_EHABI_EXTERNAL_MISMATCH_SOURCE = (
+    ROOT / "tests/preflight/fixtures/"
+    "firm_bolt_cortex_m3_safe_icf_ehabi_external_mismatch.s"
+)
 M3_ABS32_JUMP_TABLE_ICP_SOURCE = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_abs32_jump_table_icp.s"
@@ -1353,6 +1361,117 @@ def validate_relocated_safe_icf_ehabi(
         "candidate_function_addresses": out_addresses,
         "pt_arm_exidx": out_exidx["segments"],
         "retired_index_bytes_zeroed": len(retired),
+        "protected_vector_exact": True,
+        "non_exidx_program_headers_exact": True,
+    }
+
+
+def validate_relocated_safe_icf_ehabi_external(
+    reference: Path, candidate: Path
+) -> dict[str, Any]:
+    """Validate ICF across separately emitted equal external compact tables."""
+    ref = elf_inventory(reference)
+    out = elf_inventory(candidate)
+    if ref["entry"] != out["entry"]:
+        raise RuntimeError("external-EHABI safe ICF changed the reset entry")
+    if section_bytes(reference, ".isr_vector") != section_bytes(
+        candidate, ".isr_vector"
+    ):
+        raise RuntimeError("external-EHABI safe ICF changed vector bytes")
+    if section_bytes(reference, ".ARM.extab") != section_bytes(
+        candidate, ".ARM.extab"
+    ):
+        raise RuntimeError("external-EHABI safe ICF changed compact tables")
+
+    ref_non_exidx = [
+        segment for segment in ref["segments"]
+        if segment["type"] != "PT_ARM_EXIDX"
+    ]
+    out_non_exidx = [
+        segment for segment in out["segments"]
+        if segment["type"] != "PT_ARM_EXIDX"
+    ]
+    if ref_non_exidx != out_non_exidx:
+        raise RuntimeError("external-EHABI ICF changed a non-EXIDX segment")
+
+    ref_exidx = arm_exidx_records(reference)
+    out_exidx = arm_exidx_records(candidate)
+    if (
+        ref_exidx["section_address"] != out_exidx["section_address"]
+        or ref_exidx["section_offset"] != out_exidx["section_offset"]
+        or ref_exidx["section_size"] != 32
+        or out_exidx["section_size"] != 24
+        or len(ref_exidx["records"]) != 4
+        or len(out_exidx["records"]) != 3
+    ):
+        raise RuntimeError("external-EHABI ICF emitted an invalid index size")
+    if [record["model"] for record in ref_exidx["records"]] != [
+        "cantunwind", "external_extab", "external_extab", "cantunwind",
+    ] or [record["model"] for record in out_exidx["records"]] != [
+        "cantunwind", "external_extab", "cantunwind",
+    ]:
+        raise RuntimeError("external-EHABI ICF changed unwind model classes")
+
+    ref_external = ref_exidx["records"][1:3]
+    out_external = out_exidx["records"][1]
+    ref_models = [record["external"] for record in ref_external]
+    out_model = out_external["external"]
+    if (
+        any(model is None for model in ref_models)
+        or out_model is None
+        or any(model["model"] != "compact" for model in ref_models)
+        or any(model["personality_index"] != 1 for model in ref_models)
+        or out_model["model"] != "compact"
+        or out_model["personality_index"] != 1
+        or ref_models[0]["target_address"] == ref_models[1]["target_address"]
+        or out_model["target_address"] != ref_models[0]["target_address"]
+        or ref_models[0]["header_word"] != ref_models[1]["header_word"]
+        or out_model["header_word"] != ref_models[0]["header_word"]
+    ):
+        raise RuntimeError(
+            "external-EHABI ICF did not preserve one exact compact model"
+        )
+
+    canonical = symbol_address(candidate, "external_call_a") & ~1
+    alias = symbol_address(candidate, "external_call_b") & ~1
+    if (
+        canonical != alias
+        or int(out_external["function_address"]) != canonical
+    ):
+        raise RuntimeError("external-EHABI ICF lost canonical code identity")
+    expected_segment = [{
+        **ref_exidx["segments"][0],
+        "file_size": 24,
+        "memory_size": 24,
+    }]
+    if out_exidx["segments"] != expected_segment:
+        raise RuntimeError("external-EHABI ICF did not resize PT_ARM_EXIDX")
+    with candidate.open("rb") as stream:
+        stream.seek(out_exidx["section_offset"] + out_exidx["section_size"])
+        retired = stream.read(8)
+    if retired != bytes(8):
+        raise RuntimeError("external-EHABI ICF retained stale index bytes")
+
+    return {
+        "status": "accepted",
+        "contract": (
+            "safe code folding across distinct external compact records "
+            "only when every validated record byte is equal"
+        ),
+        "reference_exidx_bytes": 32,
+        "candidate_exidx_bytes": 24,
+        "reference_entry_count": 4,
+        "candidate_entry_count": 3,
+        "canonical_output_address": canonical,
+        "reference_extab_targets": [
+            int(model["target_address"]) for model in ref_models
+        ],
+        "candidate_extab_target": int(out_model["target_address"]),
+        "compact_header_word": int(out_model["header_word"]),
+        "personality_index": int(out_model["personality_index"]),
+        "extab_bytes_exact": True,
+        "pt_arm_exidx": out_exidx["segments"],
+        "retired_index_bytes_zeroed": 8,
         "protected_vector_exact": True,
         "non_exidx_program_headers_exact": True,
     }
@@ -3153,6 +3272,37 @@ def build_m3_safe_icf_ehabi_fixture(
     return image
 
 
+def build_m3_safe_icf_ehabi_external_fixture(
+    output: Path, logs: Path, *, mismatch: bool = False
+) -> Path:
+    """Build equal or incompatible external-compact EHABI ICF fixtures."""
+    stem = "firm-bolt-cortex-m3-safe-icf-ehabi-external"
+    if mismatch:
+        stem += "-mismatch"
+    source = (
+        M3_SAFE_ICF_EHABI_EXTERNAL_MISMATCH_SOURCE
+        if mismatch else M3_SAFE_ICF_EHABI_EXTERNAL_SOURCE
+    )
+    obj = output / f"{stem}.o"
+    image = output / f"{stem}-reference.elf"
+    require_success(
+        run([
+            str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+            "-mcpu=cortex-m3", str(source), "-o", str(obj),
+        ], logs / f"build-{stem}-object.log"),
+        f"M3 external EHABI ICF {'mismatch ' if mismatch else ''}object build",
+    )
+    require_success(
+        run([
+            str(LD_LLD), "--emit-relocs", "--no-merge-exidx-entries",
+            "-T", str(M3_SAFE_ICF_EHABI_LINKER), str(obj), "-o",
+            str(image),
+        ], logs / f"build-{stem}-image.log"),
+        f"M3 external EHABI ICF {'mismatch ' if mismatch else ''}image build",
+    )
+    return image
+
+
 def build_m3_abs32_jump_table_icp_fixture(
     output: Path, logs: Path
 ) -> Path:
@@ -4243,6 +4393,14 @@ def main() -> int:
     m3_safe_icf_ehabi_mismatch_image = build_m3_safe_icf_ehabi_fixture(
         output, logs, mismatch=True,
     )
+    m3_safe_icf_ehabi_external_image = (
+        build_m3_safe_icf_ehabi_external_fixture(output, logs)
+    )
+    m3_safe_icf_ehabi_external_mismatch_image = (
+        build_m3_safe_icf_ehabi_external_fixture(
+            output, logs, mismatch=True,
+        )
+    )
     m3_abs32_jump_table_icp_image = (
         build_m3_abs32_jump_table_icp_fixture(output, logs)
     )
@@ -4536,6 +4694,12 @@ def main() -> int:
          ]),
         ("m3_safe_icf_ehabi", "cortex-m3", m3_safe_icf_ehabi_image,
          {".isr_vector": None}, [
+             "--relocs", "--use-old-text", "--icf=safe",
+             "--firmbolt-allow-identical-code-folding",
+             "--align-functions=4", "--align-text=4",
+         ]),
+        ("m3_safe_icf_ehabi_external", "cortex-m3",
+         m3_safe_icf_ehabi_external_image, {".isr_vector": None}, [
              "--relocs", "--use-old-text", "--icf=safe",
              "--firmbolt-allow-identical-code-folding",
              "--align-functions=4", "--align-text=4",
@@ -4843,7 +5007,10 @@ def main() -> int:
                         "M3 jump-table footprint fixture did not publish "
                         "exactly one TBH-to-TBB reduction"
                     )
-            if label in {"m3_safe_icf", "m3_safe_icf_ehabi"}:
+            if label in {
+                "m3_safe_icf", "m3_safe_icf_ehabi",
+                "m3_safe_icf_ehabi_external",
+            }:
                 if int(summary["firmware_modification_reason_counts"]
                        ["identical_code_folding"]) != 2:
                     raise RuntimeError(
@@ -4915,8 +5082,14 @@ def main() -> int:
             "m3_cdsplit": validate_relocated_cdsplit,
         }.get(label)
         alignment_validation = label == "m3_profile_alignment"
-        safe_icf_layout = label in {"m3_safe_icf", "m3_safe_icf_ehabi"}
+        safe_icf_layout = label in {
+            "m3_safe_icf", "m3_safe_icf_ehabi",
+            "m3_safe_icf_ehabi_external",
+        }
         safe_icf_ehabi_layout = label == "m3_safe_icf_ehabi"
+        safe_icf_ehabi_external_layout = (
+            label == "m3_safe_icf_ehabi_external"
+        )
         results[label] = {
             "cpu": cpu,
             "bolt_summary": [
@@ -4954,6 +5127,10 @@ def main() -> int:
                 if clustering_order_policy is not None
                 else validate_profile_guided_alignment(image, candidate)
                 if alignment_validation
+                else validate_relocated_safe_icf_ehabi_external(
+                    image, candidate
+                )
+                if safe_icf_ehabi_external_layout
                 else validate_relocated_safe_icf_ehabi(image, candidate)
                 if safe_icf_ehabi_layout
                 else validate_relocated_safe_icf(image, candidate)
@@ -6095,7 +6272,17 @@ def main() -> int:
                     "address_taken_outputs": [taken_a, taken_b],
                     "address_table_outputs": [pointer_a, pointer_b],
                 }
-            if label == "m3_safe_icf_ehabi":
+            if label in {
+                "m3_safe_icf_ehabi",
+                "m3_safe_icf_ehabi_external",
+            }:
+                external_model = label.endswith("_external")
+                child_name = (
+                    "external_call_b" if external_model else "direct_call_b"
+                )
+                canonical_name = (
+                    "external_call_a" if external_model else "direct_call_a"
+                )
                 folds = final_layout["identical_code_folds"]
                 if (
                     int(final_layout["identical_code_fold_count"]) != 1
@@ -6109,12 +6296,12 @@ def main() -> int:
                         "folded original body"
                     )
                 fold = folds[0]
-                direct_a = symbol_address(candidate, "direct_call_a") & ~1
-                direct_b = symbol_address(candidate, "direct_call_b") & ~1
+                direct_a = symbol_address(candidate, canonical_name) & ~1
+                direct_b = symbol_address(candidate, child_name) & ~1
                 origins = fold["instruction_origins"]
                 if (
-                    fold["child_name"] != "direct_call_b"
-                    or fold["immediate_parent_name"] != "direct_call_a"
+                    fold["child_name"] != child_name
+                    or fold["immediate_parent_name"] != canonical_name
                     or direct_a != direct_b
                     or len(origins) != 2
                     or any(
@@ -6131,7 +6318,13 @@ def main() -> int:
                     "status": "accepted",
                     "contract": (
                         "compatible exact EHABI model plus safe code-address "
-                        "coalescing and compact index reconstruction"
+                        "coalescing and compact index reconstruction; "
+                        + (
+                            "distinct external compact tables compared by "
+                            "complete validated bytes"
+                            if external_model else
+                            "CANTUNWIND models compared exactly"
+                        )
                     ),
                     "child": fold["child_name"],
                     "canonical": fold["immediate_parent_name"],
@@ -6140,6 +6333,7 @@ def main() -> int:
                     "instruction_origin_count": len(origins),
                     "reference_index_entries": 4,
                     "candidate_index_entries": 3,
+                    "external_compact_model": external_model,
                 }
             if label == "m3_abs32_jump_table_icp":
                 jump_worker = next(
@@ -7372,6 +7566,34 @@ def main() -> int:
     # it; only a completely accepted image is a publishable artifact.
     incompatible_ehabi_output.unlink(missing_ok=True)
 
+    incompatible_external_ehabi_output = (
+        output / "temporary-incompatible-external-ehabi-safe-icf.elf"
+    )
+    incompatible_external_ehabi_icf = run(
+        [str(args.bolt.resolve()),
+         str(m3_safe_icf_ehabi_external_mismatch_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline", "--relocs", "--use-old-text",
+         "--icf=safe", "--firmbolt-allow-identical-code-folding",
+         "--align-functions=4", "--align-text=4", "-o",
+         str(incompatible_external_ehabi_output)],
+        logs / "reject-incompatible-external-ehabi-safe-icf.log",
+    )
+    incompatible_external_ehabi_partial_bytes = (
+        incompatible_external_ehabi_output.stat().st_size
+        if incompatible_external_ehabi_output.exists() else 0
+    )
+    if (
+        incompatible_external_ehabi_icf.returncode == 0
+        or "have incompatible unwind models" not in
+        (incompatible_external_ehabi_icf.stdout +
+         incompatible_external_ehabi_icf.stderr)
+    ):
+        raise RuntimeError(
+            "safe ICF did not reject unequal external EHABI compact models"
+        )
+    incompatible_external_ehabi_output.unlink(missing_ok=True)
+
     detached_without_contract_report = (
         output / "detached-abs32-without-contract.json"
     )
@@ -7747,6 +7969,15 @@ def main() -> int:
             expected_words=(42, 42),
         )
     )
+    m3_safe_icf_ehabi_external_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_safe_icf_ehabi_external_image,
+            candidates["m3_safe_icf_ehabi_external"], output,
+            args.fastdyn.resolve(), "native-safe-icf-ehabi-external",
+            expected_words=(17, 17),
+        )
+    )
     m3_abs32_jump_table_icp_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -7802,6 +8033,7 @@ def main() -> int:
             m3_jump_table_footprint_execution,
             m3_safe_icf_execution,
             m3_safe_icf_ehabi_execution,
+            m3_safe_icf_ehabi_external_execution,
             m3_abs32_jump_table_icp_execution,
             m3_detached_abs32_jump_table_icp_execution,
             execution
@@ -8086,6 +8318,16 @@ def main() -> int:
                 ),
                 "published_candidate": False,
             },
+            "incompatible_external_ehabi_safe_icf_rejected": {
+                "status": "accepted",
+                "reason": "unequal_external_compact_unwind_models",
+                "temporary_candidate_bytes":
+                    incompatible_external_ehabi_partial_bytes,
+                "temporary_candidate_removed": (
+                    not incompatible_external_ehabi_output.exists()
+                ),
+                "published_candidate": False,
+            },
             "detached_abs32_without_atomic_update_left_unchanged": True,
         },
         "m0plus_literal_architectural_execution": m0_literal_execution,
@@ -8154,6 +8396,8 @@ def main() -> int:
             m3_safe_icf_execution,
         "m3_safe_icf_ehabi_architectural_execution":
             m3_safe_icf_ehabi_execution,
+        "m3_safe_icf_ehabi_external_architectural_execution":
+            m3_safe_icf_ehabi_external_execution,
         "m3_native_abs32_jump_table_promotion_architectural_execution":
             m3_abs32_jump_table_icp_execution,
         "m3_native_detached_abs32_jump_table_promotion_architectural_execution":
@@ -8248,7 +8492,7 @@ def main() -> int:
                 "opt-in native BOLT indirect-tail-call promotion for profiled Thumb-2 BX epilogues under conservative stack-restore recognition plus AAPCS and tail-call-event contracts, with exact direct/fallback identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT hot-index promotion for recovered inline TBB/TBH and atomic in-function ABS32 switch tables, with exact guard/fallback origins, relocated literal/table references, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT TBH-to-TBB footprint reduction for exact inline tables under an explicit dispatch-read-width contract, with byte-range proof, odd-entry alignment repair, exact origins, compact in-place emission, out-of-range retention, and Cortex-M3 execution",
-                "opt-in native BOLT safe identical-code folding for relocation-complete Cortex-M functions under an explicit function-address-coalescing contract, with protected/vector/address-stable exclusions, relocation-backed address-taken retention, exact many-original-to-one-emitted instruction origins, rewritten data pointers, exact compatible ARM EHABI alias-model validation, bounded .ARM.exidx/PT_ARM_EXIDX compaction with retired-byte clearing, aggressive/incompatible-model rejection, fixed flash mappings, and Cortex-M3 execution",
+                "opt-in native BOLT safe identical-code folding for relocation-complete Cortex-M functions under an explicit function-address-coalescing contract, with protected/vector/address-stable exclusions, relocation-backed address-taken retention, exact many-original-to-one-emitted instruction origins, rewritten data pointers, exact compatible ARM EHABI alias-model validation including separately emitted byte-identical external compact tables, bounded .ARM.exidx/PT_ARM_EXIDX compaction with retired-byte clearing, aggressive/incompatible-model rejection, fixed flash mappings, and Cortex-M3 execution",
                 "opt-in native BOLT hot-index promotion for detached read-only ABS32 switch tables with complete retained pointer/entry relocations and an explicit atomic-update contract, including exact pointer-source remapping, table-entry regeneration, compact in-place emission, and Cortex-M3 hot/cold/default execution",
                 "original-instruction, forwarding-dependency, and per-pass publication ledger",
                 "compact publication of only audited modified functions",
@@ -8277,7 +8521,7 @@ def main() -> int:
                 "additional ARM relocation classes beyond the modeled compact set",
                 "out-of-function Thumb veneer placement without explicit typed slots or under arbitrary whole-image layout",
                 "function clustering and splitting for jump-table, address-stable, veneer-slot or secondary-entry functions",
-                "ARM EHABI language-specific descriptor interpretation, compatible external-table alias folding, variable-footprint growth and split-fragment unwind-record generation",
+                "ARM EHABI language-specific descriptor interpretation, generic/LSDA alias folding, variable-footprint growth and split-fragment unwind-record generation",
                 "DSP/FPU/MVE-specific optimization rewrites",
             ],
         },
@@ -8352,6 +8596,8 @@ def main() -> int:
         "m3_safe_icf_candidate": str(candidates["m3_safe_icf"]),
         "m3_safe_icf_ehabi_candidate":
             str(candidates["m3_safe_icf_ehabi"]),
+        "m3_safe_icf_ehabi_external_candidate":
+            str(candidates["m3_safe_icf_ehabi_external"]),
         "m3_abs32_jump_table_icp_candidate":
             str(candidates["m3_abs32_jump_table_icp"]),
         "m3_detached_abs32_jump_table_icp_candidate":
