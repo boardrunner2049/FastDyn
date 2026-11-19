@@ -271,6 +271,10 @@ M0_RELOCATION_CLONE_SOURCE = (
 M0_BRANCH_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m0plus_branch_relaxation.s"
 )
+M0_CONDITIONAL_MOVE_SOURCE = (
+    ROOT
+    / "tests/preflight/fixtures/firm_bolt_cortex_m0plus_conditional_move.s"
+)
 M0_CALL_VENEER_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m0plus_call_veneer.s"
 )
@@ -4082,6 +4086,33 @@ def build_m0_branch_fixture(output: Path, logs: Path) -> Path:
     return image
 
 
+def build_m0_conditional_move_fixture(output: Path, logs: Path) -> Path:
+    """Build the executed Armv6-M conditional-move retention fixture."""
+    image = output / "firm-bolt-cortex-m0plus-conditional-move-reference.elf"
+    command = [
+        str(ARM_GCC), "-mcpu=cortex-m0plus", "-mthumb", "-nostdlib",
+        "-Wl,--emit-relocs", f"-Wl,-T,{M3_LINKER}",
+        str(M0_CONDITIONAL_MOVE_SOURCE), "-o", str(image),
+    ]
+    require_success(
+        run(command, logs / "build-m0plus-conditional-move.log"),
+        "M0+ conditional-move retention fixture build",
+    )
+    return image
+
+
+def write_m0_conditional_move_profile(output: Path) -> Path:
+    """Freeze a profile that would form a hammock on an IT-capable CPU."""
+    profile = output / "firm-bolt-cortex-m0plus-conditional-move.fdata"
+    profile.write_text(
+        "no_lbr\n"
+        "1 select_value 0 100\n"
+        "1 select_value 4 50\n"
+        "1 select_value 6 100\n"
+    )
+    return profile
+
+
 def build_m0_call_veneer_fixture(output: Path, logs: Path) -> Path:
     image = output / "firm-bolt-cortex-m0plus-call-veneer-reference.elf"
     command = [
@@ -4963,6 +4994,8 @@ def main() -> int:
     m0_moved_relocation_image = build_m0_moved_relocation_fixture(output, logs)
     m0_relocation_clone_image = build_m0_relocation_clone_fixture(output, logs)
     m0_branch_image = build_m0_branch_fixture(output, logs)
+    m0_conditional_move_image = build_m0_conditional_move_fixture(output, logs)
+    m0_conditional_move_profile = write_m0_conditional_move_profile(output)
     m0_call_veneer_image = build_m0_call_veneer_fixture(output, logs)
     m0_reserved_veneer_image = build_m0_reserved_veneer_fixture(output, logs)
     m0_icp_image = build_m0_icp_fixture(output, logs)
@@ -5098,6 +5131,15 @@ def main() -> int:
         ("m0plus_branch", "cortex-m0plus", m0_branch_image,
          {".isr_vector": None}, [
              "--reorder-blocks=reverse",
+             "--firmbolt-preserve-guest-instruction-count=false",
+         ]),
+        ("m0plus_conditional_move", "cortex-m0plus",
+         m0_conditional_move_image, {".isr_vector": None}, [
+             f"--data={m0_conditional_move_profile}",
+             "--cmov-conversion",
+             "--cmov-conversion-misprediction-threshold=-1",
+             "--cmov-conversion-bias-threshold=-1",
+             "--firmbolt-allow-conditional-moves",
              "--firmbolt-preserve-guest-instruction-count=false",
          ]),
         ("m0plus_call_veneer", "cortex-m0plus", m0_call_veneer_image,
@@ -5589,8 +5631,8 @@ def main() -> int:
                 if int(summary["firmware_modification_reason_counts"]
                        ["conditional_move_conversion"]) != 1:
                     raise RuntimeError(
-                        "M3 conditional-move fixture did not publish exactly "
-                        "one native CMOVConversion transformation"
+                        "M3 conditional-move fixture did not publish "
+                        "exactly one native CMOVConversion transformation"
                     )
                 if (
                     int(summary[
@@ -5601,6 +5643,19 @@ def main() -> int:
                     raise RuntimeError(
                         "M3 conditional-move fixture did not attribute its "
                         "IT instruction to the removed branch identity"
+                    )
+            if label == "m0plus_conditional_move":
+                if (
+                    int(summary["firmware_modification_reason_counts"]
+                        ["conditional_move_conversion"]) != 0
+                    or int(summary[
+                        "synthesized_from_original_instruction_count"
+                    ]) != 0
+                    or int(summary["unmapped_instruction_count"]) != 0
+                ):
+                    raise RuntimeError(
+                        "M0+ conditional-move retention fixture attempted "
+                        "to publish an unavailable Armv6-M IT conversion"
                     )
             if label in {"m3_taildup", "m3_taildup_propagation"}:
                 if int(summary["cloned_original_instruction_count"]) != 2:
@@ -6422,6 +6477,49 @@ def main() -> int:
                     "retained_original_identity_count": len(originals),
                     "flag_setting_moves_rejected": True,
                     "maximum_it_slots": 4,
+                }
+            if label == "m0plus_conditional_move":
+                selected = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "select_value"
+                )
+                origins = selected["instruction_origins"]
+                original_base = selected["original_address"]
+                output_base = selected["output_address"]
+                expected_mappings = [
+                    (original_base + offset, output_base + offset)
+                    for offset in (0, 2, 4, 6, 8)
+                ]
+                actual_mappings = [
+                    (origin.get("original_address"),
+                     origin["output_address"])
+                    for origin in origins
+                ]
+                if (
+                    selected["firmware_modified"]
+                    or selected["firmware_modification_reasons"]
+                    or selected["firmware_publication_rejections"]
+                    or selected["original_size"] != 10
+                    or selected["output_size"] != 10
+                    or len(origins) != 5
+                    or any(
+                        origin["origin_kind"] != "original_instruction"
+                        for origin in origins
+                    )
+                    or actual_mappings != expected_mappings
+                    or results[label]["pass_publication"]
+                    ["byte_changed_function_count"] != 0
+                ):
+                    raise RuntimeError(
+                        "M0+ conditional-move fixture did not retain its "
+                        "exact Armv6-M branch body and identities"
+                    )
+                results[label]["conditional_move_validation"] = {
+                    "status": "retained_target_unsupported",
+                    "reason": "armv6_m_has_no_it_instruction",
+                    "transformed_function": selected,
+                    "retained_original_identity_mappings": actual_mappings,
+                    "maximum_it_slots": 0,
                 }
             if label == "m3_rodata_load":
                 linked = next(
@@ -8212,6 +8310,29 @@ def main() -> int:
             "unadmitted Cortex-M conditional-move conversion did not reject"
         )
 
+    m0_conditional_move_without_contract = run(
+        [str(args.bolt.resolve()), str(m0_conditional_move_image),
+         "--firmbolt-cortex-m-cpu=cortex-m0plus",
+         "--firmbolt-arm-full-pipeline",
+         f"--data={m0_conditional_move_profile}",
+         "--cmov-conversion",
+         "--cmov-conversion-misprediction-threshold=-1",
+         "--cmov-conversion-bias-threshold=-1",
+         "--firmbolt-preserve-guest-instruction-count=false",
+         "-o", str(output /
+                   "must-not-emit-unadmitted-thumb1-conditional-move.elf")],
+        logs / "reject-unadmitted-thumb1-conditional-move.log",
+    )
+    if (
+        m0_conditional_move_without_contract.returncode == 0
+        or "Cortex-M conditional-move conversion removes a branch" not in
+        (m0_conditional_move_without_contract.stdout +
+         m0_conditional_move_without_contract.stderr)
+    ):
+        raise RuntimeError(
+            "unadmitted Thumb-1 conditional-move conversion did not reject"
+        )
+
     taildup_without_contract = run(
         [str(args.bolt.resolve()), str(m3_taildup_image),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -9002,6 +9123,16 @@ def main() -> int:
             args.fastdyn.resolve(),
         )
     )
+    m0_conditional_move_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m0_two_word_execution(
+            m0_conditional_move_image,
+            candidates["m0plus_conditional_move"], output,
+            args.fastdyn.resolve(),
+            run_label="armv6m-conditional-move-retention",
+            expected_words=(42, 7),
+        )
+    )
     m0_call_veneer_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m0_call_veneer_execution(
@@ -9382,6 +9513,7 @@ def main() -> int:
             m0_literal_execution, m0_movable_literals_execution,
             m0_relocation_clone_execution,
             m0_branch_execution,
+            m0_conditional_move_execution,
             m0_call_veneer_execution, m0_reserved_veneer_execution,
             m0_icp_execution, m0_icp_tail_execution,
             m0_icp_method_load_execution,
@@ -9441,6 +9573,7 @@ def main() -> int:
             "preserve_guest_instruction_count_scope": (
                 "default; explicitly disabled only for the "
                 "m0plus_relocation_clone, m0plus_branch, "
+                "m0plus_conditional_move, "
                 "m0plus_call_veneer, m3_taildup and "
                 "m3_taildup_propagation, m3_inline_memcpy and "
                 "m3_memcpy1_specialization and m3_three_way_branch "
@@ -9544,7 +9677,10 @@ def main() -> int:
                 "effects and exact origins are preserved, while branch "
                 "identity, interrupt opportunities and modeled timing "
                 "changes are admitted; flag-setting, PC/SP, memory and "
-                "over-four-slot sequences remain unchanged"
+                "over-four-slot sequences remain unchanged; Armv8-M "
+                "Mainline CPUs are limited to one-slot IT blocks, while "
+                "Armv6-M and Armv8-M Baseline CPUs have no IT instruction "
+                "and retain the original branch"
             ),
         },
         "bolt_revision": revision,
@@ -9555,6 +9691,14 @@ def main() -> int:
         "host": {"platform": platform.platform(), "python": sys.version},
         "profiles": results,
         "training_profiles": {
+            "m0plus_conditional_move": {
+                "path": str(m0_conditional_move_profile),
+                "sha256": sha256(m0_conditional_move_profile),
+                "format": "BOLT no-LBR function-relative profile",
+                "policy": "Armv6-M target-capability retention control; "
+                          "the profiled hammock remains a branch because "
+                          "Cortex-M0+ has no IT instruction",
+            },
             "m0plus_indirect_caller": {
                 "path": str(m0_icp_profile),
                 "sha256": sha256(m0_icp_profile),
@@ -9744,6 +9888,7 @@ def main() -> int:
             "unadmitted_three_way_branch_rejected": True,
             "unadmitted_conditional_tail_call_rejected": True,
             "unadmitted_conditional_move_rejected": True,
+            "unadmitted_thumb1_conditional_move_rejected": True,
             "unadmitted_tail_duplication_rejected": True,
             "unadmitted_function_splitting_rejected": True,
             "unadmitted_block_alignment_rejected": True,
@@ -9796,6 +9941,8 @@ def main() -> int:
         "m0plus_relocation_clone_architectural_execution":
             m0_relocation_clone_execution,
         "m0plus_branch_architectural_execution": m0_branch_execution,
+        "m0plus_conditional_move_retention_architectural_execution":
+            m0_conditional_move_execution,
         "m0plus_call_veneer_architectural_execution":
             m0_call_veneer_execution,
         "m0plus_reserved_veneer_architectural_execution":
@@ -10020,6 +10167,8 @@ def main() -> int:
             candidates["m0plus_relocation_clone"]
         ),
         "m0plus_branch_candidate": str(candidates["m0plus_branch"]),
+        "m0plus_conditional_move_candidate":
+            str(candidates["m0plus_conditional_move"]),
         "m0plus_call_veneer_candidate":
             str(candidates["m0plus_call_veneer"]),
         "m0plus_reserved_veneer_candidate":

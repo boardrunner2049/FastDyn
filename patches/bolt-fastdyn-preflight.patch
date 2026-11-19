@@ -13771,10 +13771,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..75b93c6dc220e0c612e22945240a33bcaa0b6fdb
+index 0000000000000000000000000000000000000000..d077386c4b38993568c8dd53a828dacecf6dd00a
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2775 @@
+@@ -0,0 +1,2779 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -13847,7 +13847,11 @@ index 0000000000000000000000000000000000000000..75b93c6dc220e0c612e22945240a33bc
 +
 +  bool canMaterializeConditionalMoveSequence(unsigned CC,
 +                                             unsigned NumMoves) const override {
-+    if (!isValidCondCode(CC) || NumMoves == 0)
++    // Armv6-M (Cortex-M0/M0+) and Armv8-M Baseline (Cortex-M23) have no IT
++    // instruction.  Do not let the generic pass mutate their CFG and rely on
++    // the MC layer to reject an unencodable body later: publication must be
++    // target-capability checked before transformation.
++    if (!hasThumb2() || !isValidCondCode(CC) || NumMoves == 0)
 +      return false;
 +    // Armv8-M permits only the single-instruction form under the restricted
 +    // IT policy. Earlier Cortex-M profiles admit the architectural four-slot
@@ -13859,7 +13863,7 @@ index 0000000000000000000000000000000000000000..75b93c6dc220e0c612e22945240a33bc
 +    // the generic "arm--" triple even though its CPU/features are precise.
 +    const bool RestrictedIT =
 +        StringSwitch<bool>(STI->getCPU())
-+            .Cases({"cortex-m23", "cortex-m33"}, true)
++            .Case("cortex-m33", true)
 +            .Cases({"cortex-m55", "cortex-m85"}, true)
 +            .Default(false);
 +    return NumMoves <= (RestrictedIT ? 1U : 4U);
@@ -23448,6 +23452,111 @@ index 0000000000000000000000000000000000000000..dac3c694615e3cc6e3cd545b0e47ebce
 +external_object:
 +  .word 0x12345678
 +  .size external_object, .-external_object
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb1-native-conditional-move-retention.s b/bolt/test/ARM/thumb1-native-conditional-move-retention.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..04baae36ab36997a72d7dfd4aed7a11ff902778c
+--- /dev/null
++++ b/bolt/test/ARM/thumb1-native-conditional-move-retention.s
+@@ -0,0 +1,99 @@
++## Armv6-M has no IT instruction.  Even under an explicit firmware contract,
++## Firm-BOLT must reject the hammock before mutating the CFG and retain the
++## original Thumb-1 branch rather than producing a body the MC layer cannot
++## encode.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv6m-none-eabi \
++# RUN:   -mcpu=cortex-m0plus %s -o %t.o
++# RUN: link_fdata %s %t.o %t.fdata --no-lbr
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m0plus \
++# RUN:   --firmbolt-arm-full-pipeline --data=%t.fdata --cmov-conversion \
++# RUN:   --cmov-conversion-misprediction-threshold=-1 \
++# RUN:   --cmov-conversion-bias-threshold=-1 \
++# RUN:   --firmbolt-allow-conditional-moves \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m0plus \
++# RUN:   --disassemble-symbols=select_value %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.json')); f=next(x for x in d['functions'] if x['name']=='select_value'); print(f['firmware_modified'],f['firmware_modification_reasons'],d['summary']['unmapped_instruction_count'])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++# RUN: llvm-mc -filetype=obj -triple thumbv8m.base-none-eabi \
++# RUN:   -mcpu=cortex-m23 -defsym=M23=1 %s -o %t.m23.o
++# RUN: link_fdata %s %t.m23.o %t.m23.fdata --no-lbr
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.m23.o -o %t.m23.exe
++# RUN: llvm-bolt %t.m23.exe --firmbolt-cortex-m-cpu=cortex-m23 \
++# RUN:   --firmbolt-arm-full-pipeline --data=%t.m23.fdata --cmov-conversion \
++# RUN:   --cmov-conversion-misprediction-threshold=-1 \
++# RUN:   --cmov-conversion-bias-threshold=-1 \
++# RUN:   --firmbolt-allow-conditional-moves \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   --fastdyn-firmware-report=%t.m23.json -o %t.m23.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m23 \
++# RUN:   --disassemble-symbols=select_value %t.m23.bolt \
++# RUN:   | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.m23.json')); f=next(x for x in d['functions'] if x['name']=='select_value'); print(f['firmware_modified'],f['firmware_modification_reasons'],d['summary']['unmapped_instruction_count'])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# LOG: CMOVConversion total: converted static 0/0
++# DISASM-LABEL: <select_value>:
++# DISASM: cmp r0, #0x0
++# DISASM-NEXT: bne
++# DISASM-NEXT: mov r12, r2
++# DISASM-NEXT: mov r0, r12
++# DISASM-NEXT: bx lr
++# DISASM-NOT: it
++# REPORT: False [] 0
++
++  .syntax unified
++  .ifdef M23
++  .cpu cortex-m23
++  .eabi_attribute Tag_CPU_arch, 16
++  .else
++  .cpu cortex-m0plus
++  .eabi_attribute Tag_CPU_arch, 12
++  .endif
++  .thumb
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  movs r0, #0
++  movs r1, #7
++  movs r2, #42
++  mov r12, r1
++  bl select_value
++1:
++  b 1b
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl select_value
++  .type select_value,%function
++  .thumb_func
++select_value:
++  cmp r0, #0
++.Lbranch:
++  bne .Lmerge
++  mov r12, r2
++.Lmerge:
++  mov r0, r12
++  bx lr
++  .size select_value, .-select_value
++
++# FDATA: 1 select_value 0 100
++# FDATA: 1 select_value 4 50
++# FDATA: 1 select_value 6 100
 +
 +  .section .isr_vector,"a",%progbits
 +  .globl g_pfnVectors
