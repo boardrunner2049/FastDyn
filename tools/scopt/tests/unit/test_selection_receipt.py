@@ -93,6 +93,16 @@ def test_existing_candidate_receipt_with_complete_trial_data(campaign):
     assert _selected_cache(receipt, config)[0] == str(candidate)
 
 
+def test_pre_hint_deployment_records_remain_verifiable(campaign):
+    run, receipt, config, _, candidate, _ = campaign
+    assert run()["selected"] == "candidate"
+    for path in receipt.parent.glob("trial-*/deploy.json"):
+        deployment = json.loads(path.read_bytes())
+        del deployment["artifact"]["restore_hints"]
+        write_json(path, deployment)
+    assert _selected_cache(receipt, config)[0] == str(candidate)
+
+
 def test_hint_only_candidate_requires_the_live_probe(campaign):
     run, receipt, config, warm, candidate, _ = campaign
     (candidate / "cache.sc").write_bytes((warm / "cache.sc").read_bytes())

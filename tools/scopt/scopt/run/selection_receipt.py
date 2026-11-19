@@ -87,7 +87,8 @@ def _trial_evidence(path, artifact, case, expected_inputs, expected_guest, runti
     run = _read(path / "run.json")
     rundir = _read(path / "rundir.json")
     _require(deploy["run_dir"] == run["run_dir"] and Path(run["run_dir"]).name == path.name
-             and deploy["artifact"] == artifact and not deploy.get("refused"),
+             and all(deploy["artifact"].get(key) == value for key, value in artifact.items())
+             and not deploy.get("refused"),
              f"{path.name}: deployment does not match the measured arm")
     ids = deploy["identity"]
     _require(ids["checked"] is True and not ids["reasons"] and ids["bundle_id"]
