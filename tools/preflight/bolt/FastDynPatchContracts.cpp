@@ -907,6 +907,17 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
   uint64_t ClonedPools = 0;
   uint64_t ConsumedCapacityBytes = 0;
 
+  const auto RetainLiteralPools = [&](BinaryFunction &BF) {
+    // Rejected ownership is not a transformation, but it also must not block
+    // an independent pass that can eliminate the reference under its own
+    // contract. The ARM object path preserves final-address PC-relative
+    // relocations for both aggregate and instruction-owned pools, and compact
+    // publication retains the immutable input body unless an audited pass
+    // produces a fully linked candidate.
+    (void)BF;
+    ++RetainedFunctions;
+  };
+
   for (auto &BFI : BC.getBinaryFunctions()) {
     BinaryFunction &BF = BFI.second;
     if (!BF.hasCFG() || !BF.isSimple() || BF.isIgnored() || BF.isSplit() ||
@@ -940,7 +951,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
     }
 
     if (Islands.HasDynamicRelocations || !Islands.Dependency.empty()) {
-      ++RetainedFunctions;
+      RetainLiteralPools(BF);
       continue;
     }
     const StringRef OriginName = BF.getOriginSection()->getName();
@@ -957,7 +968,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
         BC.outs() << "BOLT-INFO: retained literal pools in "
                   << BF.getPrintName()
                   << ": input relocation section is not modeled\n";
-      ++RetainedFunctions;
+      RetainLiteralPools(BF);
       continue;
     }
 
@@ -977,7 +988,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
         Plans.push_back(PoolPlan{*Data, End});
     }
     if (Plans.empty()) {
-      ++RetainedFunctions;
+      RetainLiteralPools(BF);
       continue;
     }
 
@@ -1048,7 +1059,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
       if (opts::Verbosity >= 2)
         BC.outs() << "BOLT-INFO: retained literal pools in " << BF.getPrintName()
                   << ": " << RejectReason << "\n";
-      ++RetainedFunctions;
+      RetainLiteralPools(BF);
       continue;
     }
 
@@ -1091,6 +1102,69 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
             return nullptr;
         }
         return nullptr;
+      };
+      // GCC uses BL as a Thumb-1 long intra-function transfer when the narrow
+      // unconditional branch cannot reach. It may place a terminal literal
+      // pool at the architectural link continuation. Accept that shape only
+      // when the target is an exact block in this function and every CFG path
+      // kills the call-created link value before reading it. An unknown exit,
+      // return, indirect transfer, or read-before-write rejects the proof.
+      // Ordinary calls therefore remain ineligible.
+      const auto ProvesDeadLocalCallContinuation = [&](const MCInst &Call) {
+        if (!BC.MIB->isCall(Call) || BC.MIB->isIndirectCall(Call))
+          return false;
+        const MCSymbol *TargetSymbol = BC.MIB->getTargetSymbol(Call);
+        BinaryBasicBlock *Target =
+            TargetSymbol ? BF.getBasicBlockForLabel(TargetSymbol) : nullptr;
+        const std::optional<MCPhysReg> LinkReg =
+            BC.MIB->getArchitecturalCallLinkRegister(Call);
+        if (!Target || !LinkReg || *LinkReg == BC.MIB->getNoRegister())
+          return false;
+
+        const BitVector &LinkAliases = BC.MIB->getAliases(*LinkReg);
+        SmallVector<BinaryBasicBlock *, 16> Worklist{Target};
+        DenseSet<BinaryBasicBlock *> Visited;
+        while (!Worklist.empty()) {
+          BinaryBasicBlock *Current = Worklist.pop_back_val();
+          if (!Visited.insert(Current).second)
+            continue;
+
+          bool LinkKilled = false;
+          for (const MCInst &Inst : *Current) {
+            if (BC.MIB->isPseudo(Inst))
+              continue;
+
+            BitVector Used(BC.MRI->getNumRegs(), false);
+            BC.MIB->getUsedRegs(Inst, Used);
+            if (Used.anyCommon(LinkAliases) || BC.MIB->isReturn(Inst) ||
+                BC.MIB->isPossibleExceptionReturn(Inst))
+              return false;
+
+            BitVector Written(BC.MRI->getNumRegs(), false);
+            BC.MIB->getWrittenRegs(Inst, Written);
+            if (std::optional<MCPhysReg> WrittenLink =
+                    BC.MIB->getArchitecturalCallLinkRegister(Inst))
+              Written |= BC.MIB->getAliases(*WrittenLink,
+                                            /*OnlySmaller=*/true);
+            if (Written.anyCommon(LinkAliases)) {
+              LinkKilled = true;
+              break;
+            }
+
+            // A direct local branch is represented by CFG successors. Any
+            // indirect transfer while the original link is live can escape
+            // the modeled graph and later return through that value.
+            if (BC.MIB->isIndirectBranch(Inst))
+              return false;
+          }
+          if (LinkKilled)
+            continue;
+          if (Current->succ_size() == 0)
+            return false;
+          for (BinaryBasicBlock *Successor : Current->successors())
+            Worklist.push_back(Successor);
+        }
+        return true;
       };
       BinaryBasicBlock *ResumeBB = nullptr;
       for (BinaryBasicBlock &BB : BF)
@@ -1142,6 +1216,31 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
           Plan.BlockStartOffset = *Offset + *Size;
           Plan.OwnerBB = &BB;
           Plan.OwnerBranch = Terminator;
+          break;
+        }
+      if (!Plan.OwnerBranch)
+        for (BinaryBasicBlock &BB : BF) {
+          MCInst *LongTransfer = FindTrailingOwner(
+              BB, [&](const MCInst &Inst) {
+                return BC.MIB->isCall(Inst) &&
+                       ProvesDeadLocalCallContinuation(Inst);
+              });
+          if (!LongTransfer || BB.succ_size() > 1 ||
+              BC.MIB->getInlineData(*LongTransfer) ||
+              BC.MIB->getInlineDataBlocks(*LongTransfer))
+            continue;
+          const std::optional<uint32_t> Offset =
+              BC.MIB->getOffset(*LongTransfer);
+          const std::optional<uint32_t> Size =
+              BC.MIB->getInstructionSize(*LongTransfer);
+          if (!Offset || !Size || *Offset + *Size > Plan.StartOffset ||
+              Plan.StartOffset - (*Offset + *Size) > 3)
+            continue;
+          Plan.BlockStartOffset = *Offset + *Size;
+          Plan.OwnerBB = &BB;
+          Plan.OwnerBranch = LongTransfer;
+          Plan.Block.OwnerKind =
+              InlineDataBlockOwnerKind::ProvenLocalCallTransfer;
           break;
         }
       if (!Plan.OwnerBranch) {
@@ -1255,10 +1354,23 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
           if (!Offset || !Size || *Offset < Plan.BlockStartOffset ||
               *Offset >= Plan.StartOffset)
             continue;
+          const bool IsProvenCallPadding =
+              Plan.Block.OwnerKind ==
+                  InlineDataBlockOwnerKind::ProvenLocalCallTransfer &&
+              !BF.isEntryPoint(BB) &&
+              llvm::all_of(BB.predecessors(), [&](BinaryBasicBlock *Pred) {
+                if (Pred == Plan.OwnerBB)
+                  return true;
+                const uint64_t PredStart = Pred->getOffset();
+                const uint64_t PredEnd = PredStart + Pred->getOriginalSize();
+                return PredStart >= Plan.BlockStartOffset &&
+                       PredEnd <= Plan.StartOffset;
+              });
           if (*Offset + *Size > Plan.StartOffset ||
               !IsArchitecturalNoOp(Inst) ||
               ((&BB != Plan.OwnerBB ||
                 *Offset < Plan.BlockStartOffset) &&
+               !IsProvenCallPadding &&
                (BB.pred_size() != 0 || BF.isEntryPoint(BB)))) {
             RejectReason = "pool alignment bytes are reachable or non-NOP";
             Qualified = false;
@@ -1274,7 +1386,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
       if (opts::Verbosity >= 2)
         BC.outs() << "BOLT-INFO: retained literal pools in " << BF.getPrintName()
                   << ": " << RejectReason << "\n";
-      ++RetainedFunctions;
+      RetainLiteralPools(BF);
       continue;
     }
 
@@ -1322,7 +1434,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
       if (opts::Verbosity >= 2)
         BC.outs() << "BOLT-INFO: retained literal pools in "
                   << BF.getPrintName() << ": " << RejectReason << "\n";
-      ++RetainedFunctions;
+      RetainLiteralPools(BF);
       continue;
     }
 
@@ -1411,13 +1523,13 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
       if (opts::Verbosity >= 2)
         BC.outs() << "BOLT-INFO: retained literal pools in " << BF.getPrintName()
                   << ": " << RejectReason << "\n";
-      ++RetainedFunctions;
+      RetainLiteralPools(BF);
       continue;
     }
 
     ErrorOr<ArrayRef<uint8_t>> FunctionData = BF.getData();
     if (!FunctionData) {
-      ++RetainedFunctions;
+      RetainLiteralPools(BF);
       continue;
     }
 
@@ -1504,7 +1616,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
       if (opts::Verbosity >= 2)
         BC.outs() << "BOLT-INFO: retained literal pools in " << BF.getPrintName()
                   << ": " << RejectReason << "\n";
-      ++RetainedFunctions;
+      RetainLiteralPools(BF);
       continue;
     }
 
@@ -3685,6 +3797,11 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
               json::Object Pool;
               Pool["original_address"] =
                   static_cast<int64_t>(Block.OriginalAddress);
+              Pool["owner_kind"] =
+                  Block.OwnerKind ==
+                          InlineDataBlockOwnerKind::ProvenLocalCallTransfer
+                      ? "proven_local_call_transfer"
+                      : "nonfallthrough_control";
               Pool["estimated_output_offset"] =
                   static_cast<int64_t>(BlockCursor);
               Pool["size"] =
@@ -4558,14 +4675,23 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
         }
         if (const InlineDataBlocks *DataBlocks =
                 BC.MIB->getInlineDataBlocks(Inst)) {
-          if (!BC.MIB->isUnconditionalBranch(Inst) &&
-              !BC.MIB->isReturn(Inst))
-            return createStringError(
-                inconvertibleErrorCode(),
-                "instruction-owned literal pool in %s has no proven "
-                "non-fallthrough owner",
-                BF.getPrintName().c_str());
           for (const InlineDataBlock &Block : *DataBlocks) {
+            const bool ValidOwner =
+                Block.OwnerKind ==
+                        InlineDataBlockOwnerKind::NonFallthroughControl
+                    ? (BC.MIB->isUnconditionalBranch(Inst) ||
+                       BC.MIB->isReturn(Inst))
+                    : (Block.OwnerKind ==
+                               InlineDataBlockOwnerKind::
+                                   ProvenLocalCallTransfer &&
+                       BC.MIB->isCall(Inst) &&
+                       BC.MIB->getTargetSymbol(Inst));
+            if (!ValidOwner)
+              return createStringError(
+                  inconvertibleErrorCode(),
+                  "instruction-owned literal pool in %s has no matching "
+                  "non-fallthrough owner proof",
+                  BF.getPrintName().c_str());
             NextOutput = alignTo(NextOutput, Block.Alignment);
             const uint64_t BlockOutput = NextOutput;
             json::Array Labels;
@@ -4611,6 +4737,11 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
                 static_cast<int64_t>(Output);
             Pool["original_address"] =
                 static_cast<int64_t>(Block.OriginalAddress);
+            Pool["owner_kind"] =
+                Block.OwnerKind ==
+                        InlineDataBlockOwnerKind::ProvenLocalCallTransfer
+                    ? "proven_local_call_transfer"
+                    : "nonfallthrough_control";
             Pool["output_address"] =
                 static_cast<int64_t>(BlockOutput);
             Pool["size"] =

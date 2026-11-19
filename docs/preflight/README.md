@@ -138,14 +138,14 @@ caller-saved exchange across qualified leaf and direct-call functions plus
 live-in/call-boundary retention controls, a shared-external-program
 retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v148 run accepts all fifty-five without
+The 19 November v149 run accepts all fifty-five profiles without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
 recorded audited pass and satisfying the firmware publication invariants
 replace input bytes. The per-profile overwrite counts are retained in the
 machine-readable report rather than duplicated here. The headline real-image
-counts are now 51/127 ESCape32 functions and 178/607 FreeRTOS functions; the
+counts are now 55/127 ESCape32 functions and 178/607 FreeRTOS functions; the
 Thumb-1 method, M3 propagation and M3 linked-read-only-load fixtures each
 install one bounded worker.
 These are publication counts,
@@ -774,15 +774,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final
+  --output build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/report.json),
-SHA-256 `783244c26e0b43970d1e707cf985a0e841574d1cb2312c62fd20ef5c76b8a19c`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/report.json),
+SHA-256 `c024448ecf22e165d01110b942627fc3590743436306f38b56fab1733e75ea07`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/validation-manifest.json),
-SHA-256 `116c8086f0a818fcf92bf2383030e84926cb57e9e7ef5c2569f8637d6bb5729d`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/validation-manifest.json),
+SHA-256 `8ddeb9b61a1d93648887bd1f2dcf5472856e11700c79219ed4de36cfe3c56949`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -794,25 +794,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`6076698fd8de7b3c9fb5bfd341de1d4889a0278e5812490c2775126bb5b23a99`,
+`a36bad23bdecb8a8c5408a3a937c7b1c760bf328eadf7c291ff432a7d501f4a5`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`21ca1af1dec7bb1b16ddb51f30e3f9f456705aa3e98ddb9640f5c504e922c1df`.
-The current combined ARM BOLT/AArch32 JITLink lit run passes 91/91
-(79 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
+`0dcb6a0ca018757d2e1f2810d6489f836676005320503fa767825066ae49c8dd`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 93/93
+(81 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
 explicitly skip 150 target-inapplicable parameterizations: Core is 86/150,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/core-tests.xml)
 has SHA-256
-`d0eea1117e584d071ca3556768b93c3064ee454602ba7e2424db488e06b7f8ee`;
+`850e4cad9fa3d8f96dd4859b70cdd8ed280bc48adcc9d30a50ea314a6c918b12`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v148-trailing-nop-literal-owner-final/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v149-local-call-transfer-final/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`bc478c8d92a7200e26c1767ec10aec83e87c09f14dcee886c6a0d42ee35fdbfc`
-and `71d87b13bc29129f231d59c61f6b800a689d40bfd2bf96cd87212d0e9cf7e55a`.
+`52b7762711c699c25bfb68d6129e136f221903d9cc016c43d4fc1f8c744560fb`
+and `ba1cc97b5004ed74b530073ac011f9eec851c3e945ecc1c10b75530760967fda`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1425,6 +1425,27 @@ remains unchanged because its last pool follows an intra-function `BL` long
 transfer whose non-return behavior is not statically proven. FreeRTOS
 `prvPortStartFirstTask` likewise remains unchanged after `SVC`, which is not
 generally non-fallthrough.
+
+v149 closes the remaining ESCape32 owner without treating calls as generally
+non-fallthrough. GCC used a Thumb-1 `BL` as a long local transfer and placed a
+terminal pool at its link continuation. The new typed
+`proven_local_call_transfer` owner begins at an exact intra-function target and
+follows every modeled CFG path while that call-created `LR` value is live. It
+rejects any `LR` read, return, possible exception return, indirect transfer or
+unknown terminal exit; every accepted path must overwrite `LR` first. A paired
+negative reads `LR` before overwriting it and remains unchanged. The emitter
+also aligns instruction-owned data by the final guest address and retains BOLT
+literal relocations until AArch32 JITLink knows the final firmware-PC residue.
+Exact conditional-plus-unconditional firmware branch pairs stay in their
+original order, avoiding four formerly synthesized repair branches in `main`.
+
+On ESCape32 the final result is 55 qualified pool functions, 60 owners, 1,115
+PC-relative references and zero retained pool functions. All 60 pools, 2,328
+bytes and 582 labels retain their exact addresses; `main` remains 3,220 bytes
+and the final layout reports zero synthesized control edges. The 55 selected
+bodies are byte-identical, so this is representation and publication coverage,
+not a speedup claim. `SVC` and arbitrary calls remain ineligible without their
+own typed non-return/effect proofs.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

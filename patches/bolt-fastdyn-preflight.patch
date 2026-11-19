@@ -624,7 +624,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd5897943da5 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..e23b4cc42fbec7729dd3b3309f58804fb7de547c 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -643,7 +643,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
  #include <unordered_map>
  #include <unordered_set>
  
-@@ -53,6 +55,77 @@ class BinaryBasicBlock;
+@@ -53,6 +55,89 @@ class BinaryBasicBlock;
  class BinaryContext;
  class BinaryFunction;
  
@@ -683,14 +683,25 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
 +  }
 +};
 +
++/// The proof which permits an instruction to own an inline data block. Keep
++/// this in the emitted record rather than as a loose instruction annotation:
++/// the emitter must distinguish an ordinary call from a direct local transfer
++/// whose link continuation has been proven dead.
++enum class InlineDataBlockOwnerKind : uint8_t {
++  NonFallthroughControl,
++  ProvenLocalCallTransfer,
++};
++
 +/// A typed range of input data that is emitted immediately after its owner
-+/// instruction.  Unlike InlineData (one synthesized scalar), this preserves a
++/// instruction. Unlike InlineData (one synthesized scalar), this preserves a
 +/// complete compiler-emitted Thumb literal-pool range: raw bytes, internal
-+/// labels, relocations, required alignment and original identity.  The owner
-+/// must be a proven non-fallthrough branch or return, so the bytes are never
-+/// executed.
++/// labels, relocations, required alignment and original identity. The owner
++/// must carry one of the checked non-fallthrough proofs above, so the bytes are
++/// never executed.
 +struct InlineDataBlock {
 +  uint64_t OriginalAddress{0};
++  InlineDataBlockOwnerKind OwnerKind{
++      InlineDataBlockOwnerKind::NonFallthroughControl};
 +  uint32_t Alignment{1};
 +  uint32_t EstimatedAlignmentPadding{0};
 +  uint16_t AlignmentFillValue{0};
@@ -703,6 +714,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
 +
 +  bool operator==(const InlineDataBlock &Other) const {
 +    return OriginalAddress == Other.OriginalAddress &&
++           OwnerKind == Other.OwnerKind &&
 +           Alignment == Other.Alignment &&
 +           EstimatedAlignmentPadding == Other.EstimatedAlignmentPadding &&
 +           AlignmentFillValue == Other.AlignmentFillValue &&
@@ -721,7 +733,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
  /// Different types of indirect branches encountered during disassembly.
  enum class IndirectBranchType : char {
    UNKNOWN = 0,             /// Unable to determine type.
-@@ -367,6 +440,35 @@ public:
+@@ -367,6 +452,35 @@ public:
      initSizeMap();
    }
  
@@ -757,7 +769,21 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
    /// Create and return a target-specific MC symbolizer for the \p Function.
    /// When \p CreateNewSymbols is set, the symbolizer can create new symbols
    /// e.g. for jump table references.
-@@ -595,6 +697,40 @@ public:
+@@ -591,10 +705,54 @@ public:
+     return Analysis->isCall(Inst) || isTailCall(Inst);
+   }
+ 
++  /// Return the architectural register written with a call's continuation
++  /// address, when the target has one. Stack-link targets such as x86 return
++  /// no register. This is instruction-sensitive so clients cannot assume that
++  /// every call encoding on an architecture has identical link semantics.
++  virtual std::optional<MCPhysReg>
++  getArchitecturalCallLinkRegister(const MCInst &Inst) const {
++    (void)Inst;
++    return std::nullopt;
++  }
++
+   virtual bool isReturn(const MCInst &Inst) const {
      return Analysis->isReturn(Inst);
    }
  
@@ -798,7 +824,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
    /// Returns the registers that are trusted at function entry.
    ///
    /// Each register should be treated as if a successfully authenticated
-@@ -1170,6 +1306,18 @@ public:
+@@ -1170,6 +1328,18 @@ public:
      return false;
    }
  
@@ -817,7 +843,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
    /// Return a number of the operand representing a memory.
    /// Return -1 if the instruction doesn't have an explicit memory field.
    virtual int getMemoryOperandNo(const MCInst &Inst) const {
-@@ -1177,6 +1325,22 @@ public:
+@@ -1177,6 +1347,22 @@ public:
      return -1;
    }
  
@@ -840,7 +866,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
    /// Return true if the instruction is encoded using EVEX (AVX-512).
    virtual bool hasEVEXEncoding(const MCInst &Inst) const { return false; }
  
-@@ -1559,6 +1723,12 @@ public:
+@@ -1559,6 +1745,12 @@ public:
      return Expr;
    }
  
@@ -853,7 +879,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
    /// Return a BitVector marking all sub or super registers of \p Reg, including
    /// itself.
    virtual const BitVector &getAliases(MCPhysReg Reg,
-@@ -1616,6 +1786,59 @@ public:
+@@ -1616,6 +1808,59 @@ public:
      llvm_unreachable("not implemented");
    }
  
@@ -913,7 +939,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
    /// Set of Registers used by the Rep instruction
    virtual void getRepRegs(BitVector &Regs) const {
      llvm_unreachable("not implemented");
-@@ -1700,6 +1923,14 @@ public:
+@@ -1700,6 +1945,14 @@ public:
      return 0;
    }
  
@@ -928,7 +954,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1751,6 +1982,24 @@ public:
+@@ -1751,6 +2004,24 @@ public:
      return false;
    }
  
@@ -953,7 +979,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..c4efe7f93bb77cb729889f9b9820dd58
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +2038,56 @@ public:
+@@ -1789,6 +2060,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -2150,7 +2176,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..33131cdf31846b6e52f8c4f1e0fb46bd
  
    // Create local MC context to isolate the effect of ephemeral code emission.
 diff --git a/bolt/lib/Core/BinaryEmitter.cpp b/bolt/lib/Core/BinaryEmitter.cpp
-index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa4214165c 100644
+index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01bdf3c1344 100644
 --- a/bolt/lib/Core/BinaryEmitter.cpp
 +++ b/bolt/lib/Core/BinaryEmitter.cpp
 @@ -19,11 +19,13 @@
@@ -2206,11 +2232,17 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
      Streamer.emitLabel(StartSymbol);
    }
  
-@@ -446,17 +460,118 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -446,17 +460,129 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
      BF.duplicateConstantIslands();
    }
  
 +  const bool AddressStable = BF.requiresAddressStableLayout();
++  // MC alignment directives are relative to the temporary per-function
++  // fragment. Firmware functions are subsequently placed at fixed guest
++  // addresses which need not have the same residue. Track the architectural
++  // byte offset so instruction-owned data can emit its exact guest-address
++  // padding explicitly.
++  uint64_t EmittedOffset = 0;
 +  if (AddressStable) {
 +    if (!FF.isMainFragment() || BF.isSplit())
 +      report_fatal_error("address-stable firmware function cannot be split");
@@ -2306,12 +2338,18 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
    bool FirstInstr = true;
    for (BinaryBasicBlock *const BB : FF) {
 -    if ((BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
+-        BB->getAlignment() > 1)
 +    if (AddressStable)
 +      emitStableRawTo(BB->getInputOffset());
 +    if (!AddressStable && (BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
-         BB->getAlignment() > 1)
++        BB->getAlignment() > 1) {
++      const uint64_t Padding = offsetToAlignment(
++          BF.getAddress() + EmittedOffset, BB->getAlign());
++      if (Padding <= BB->getAlignmentMaxBytes())
++        EmittedOffset += Padding;
        Streamer.emitCodeAlignment(BB->getAlign(), *BC.STI,
                                   BB->getAlignmentMaxBytes());
++    }
 +    if (BC.isARM())
 +      static_cast<ARMTargetStreamer *>(Streamer.getTargetStreamer())
 +          ->emitThumbFunc(BB->getLabel());
@@ -2327,7 +2365,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
      }
  
      SMLoc LastLocSeen;
-@@ -472,6 +587,35 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -472,6 +598,35 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
          continue;
        }
  
@@ -2363,7 +2401,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
        if (!EmitCodeOnly) {
          // A symbol to be emitted before the instruction to mark its location.
          MCSymbol *InstrLabel = BC.MIB->getInstLabel(Instr);
-@@ -515,22 +659,162 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -515,22 +670,192 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
          }
        }
  
@@ -2382,6 +2420,14 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
 +        Streamer.emitInstruction(Instr, *BC.STI);
 +      }
 +
++      if (!AddressStable && !BC.MIB->isPseudo(Instr)) {
++        const std::optional<uint32_t> Size =
++            BC.MIB->getInstructionSize(Instr);
++        if (!Size)
++          report_fatal_error("instruction-owned data owner has unknown size");
++        EmittedOffset += *Size;
++      }
++
 +      if (const JumpTable *JT = BF.getJumpTable(Instr)) {
 +        if (JT->isThumbInline()) {
 +          assert(JT->ThumbBranchBaseLabel &&
@@ -2389,6 +2435,8 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
 +          Streamer.emitLabel(JT->ThumbBranchBaseLabel);
 +          if (JT->isThumbTableAtDispatch())
 +            emitInlineThumbJumpTable(*JT);
++          EmittedOffset +=
++              JT->getOutputSize() + JT->InlineTrailingBytes.size();
 +        }
 +      }
 +
@@ -2405,6 +2453,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
 +        // prove final guest alignment.
 +        Streamer.emitLabel(Data->Label);
 +        Streamer.emitValue(Data->Value, Data->Size);
++        EmittedOffset += Data->Size;
 +      }
 +
 +      if (const InlineDataBlocks *Blocks =
@@ -2412,11 +2461,21 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
 +        if (AddressStable)
 +          report_fatal_error(
 +              "cannot move a literal-pool block in address-stable code");
-+        if (!BC.MIB->isUnconditionalBranch(Instr) &&
-+            !BC.MIB->isReturn(Instr))
-+          report_fatal_error(
-+              "instruction-owned literal-pool block requires a "
-+              "non-fallthrough owner");
++        for (const InlineDataBlock &Block : *Blocks) {
++          const bool ValidOwner =
++              Block.OwnerKind ==
++                      InlineDataBlockOwnerKind::NonFallthroughControl
++                  ? (BC.MIB->isUnconditionalBranch(Instr) ||
++                     BC.MIB->isReturn(Instr))
++                  : (Block.OwnerKind ==
++                             InlineDataBlockOwnerKind::
++                                 ProvenLocalCallTransfer &&
++                     BC.MIB->isCall(Instr) &&
++                     BC.MIB->getTargetSymbol(Instr));
++          if (!ValidOwner)
++            report_fatal_error("instruction-owned literal-pool block has no "
++                               "matching non-fallthrough owner proof");
++        }
 +
 +        const RelocationHandler &RH = BC.getRelocationHandler();
 +        for (const InlineDataBlock &Block : *Blocks) {
@@ -2424,9 +2483,17 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
 +              Block.Bytes.empty() ||
 +              Block.DataStartOffset >= Block.Bytes.size())
 +            report_fatal_error("invalid instruction-owned data block");
-+          Streamer.emitValueToAlignment(Align(Block.Alignment),
-+                                        Block.AlignmentFillValue,
-+                                        Block.AlignmentFillValueSize);
++          const uint64_t Padding = offsetToAlignment(
++              BF.getAddress() + EmittedOffset, Align(Block.Alignment));
++          if (!Block.AlignmentFillValueSize ||
++              Padding % Block.AlignmentFillValueSize)
++            report_fatal_error(
++                "instruction-owned data has unencodable guest alignment");
++          for (uint64_t Cursor = 0; Cursor < Padding;
++               Cursor += Block.AlignmentFillValueSize)
++            Streamer.emitIntValue(Block.AlignmentFillValue,
++                                  Block.AlignmentFillValueSize);
++          EmittedOffset += Padding;
 +
 +          uint32_t Cursor = 0;
 +          auto Label = Block.Labels.begin();
@@ -2469,6 +2536,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
 +                Next - Cursor));
 +            Cursor = Next;
 +          }
++          EmittedOffset += Block.Bytes.size();
 +          while (Label != Block.Labels.end() &&
 +                 Label->first == Block.Bytes.size()) {
 +            if (!Label->second || !Label->second->isUndefined())
@@ -2528,7 +2596,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
  
    // AArch64 requires CI to be aligned to 8 bytes due to access instructions
    // restrictions. E.g. the ldr with imm, where imm must be aligned to 8 bytes.
-@@ -585,6 +869,31 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
+@@ -585,6 +910,31 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
      if (FunctionOffset == EndOffset)
        continue; // Size is zero, nothing to emit
  
@@ -2560,7 +2628,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
      auto emitCI = [&](uint64_t &FunctionOffset, uint64_t EndOffset) {
        if (FunctionOffset >= EndOffset)
          return;
-@@ -635,10 +944,19 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
+@@ -635,10 +985,19 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
              LLVM_DEBUG(dbgs() << "BOLT-DEBUG: emitted label "
                                << IS->second->getName() << " at offset 0x"
                                << Twine::utohexstr(IS->first) << '\n');
@@ -2582,7 +2650,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
            } else if (Islands.ColdSymbols.count(IS->second) != 0) {
              LLVM_DEBUG(dbgs()
                         << "BOLT-DEBUG: emitted label "
-@@ -791,6 +1109,8 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
+@@ -791,6 +1150,8 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
  
    for (auto &JTI : BF.jumpTables()) {
      JumpTable &JT = *JTI.second;
@@ -2591,7 +2659,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
      // Only emit shared jump tables once, when processing the first parent
      if (JT.Parents.size() > 1 && JT.Parents[0] != &BF)
        continue;
-@@ -812,6 +1132,42 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
+@@ -812,6 +1173,42 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
    }
  }
  
@@ -2634,7 +2702,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
  void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
                                    MCSection *ColdSection) {
    // Pre-process entries for aggressive splitting.
-@@ -839,6 +1195,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -839,6 +1236,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
    }
    MCSymbol *JTLabel = nullptr;
    uint64_t Offset = 0;
@@ -2642,7 +2710,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
    for (MCSymbol *Entry : JT.Entries) {
      auto LI = JT.Labels.find(Offset);
      if (LI == JT.Labels.end())
-@@ -876,8 +1233,48 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -876,8 +1274,48 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
        Streamer.emitLabel(JTLabel);
      }
    emitEntry:
@@ -2693,7 +2761,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
      } else { // JTT_PIC
        const MCSymbolRefExpr *JTExpr =
            MCSymbolRefExpr::create(JTLabel, Streamer.getContext());
-@@ -888,6 +1285,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -888,6 +1326,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
        Streamer.emitValue(Value, JT.EntrySize);
      }
      Offset += JT.EntrySize;
@@ -2702,7 +2770,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..eaa7c4ac2671115f98802d38d40d29aa
  }
  
 diff --git a/bolt/lib/Core/BinaryFunction.cpp b/bolt/lib/Core/BinaryFunction.cpp
-index 8955112a95dcbec0398854856935ef0120f0a3df..06fba964a7bd4a1b207187dc56a063f67222e964 100644
+index 8955112a95dcbec0398854856935ef0120f0a3df..88d5c9e08437aa6120b61517ba33b5f999af81d9 100644
 --- a/bolt/lib/Core/BinaryFunction.cpp
 +++ b/bolt/lib/Core/BinaryFunction.cpp
 @@ -25,6 +25,7 @@
@@ -3277,8 +3345,27 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..06fba964a7bd4a1b207187dc56a063f6
          auto L = BC.scopeLock();
          if (BLI)
            BLI->removeAnnotation(*CondBranch);
-@@ -3731,8 +4175,9 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3729,10 +4173,28 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+         return true;
+       };
  
++      // Under the firmware instruction-schedule contract, an explicit
++      // conditional-plus-unconditional pair is observable: the originally
++      // taken path executes one branch while the other executes two. If the
++      // conditional target already follows in layout, ordinary BOLT would
++      // invert the condition and swap those path costs. Preserve both exact
++      // targets instead. Besides retaining modeled work, this prevents a
++      // later repair pass from appending a third, unreachable branch.
++      if (TSuccessor == NextBB && PreserveUncondBranch) {
++        if (MIB->getTargetSymbol(*CondBranch) != TSuccessor->getLabel()) {
++          auto L = BC.scopeLock();
++          MIB->replaceBranchTarget(*CondBranch, TSuccessor->getLabel(), Ctx);
++        }
++        if (MIB->getTargetSymbol(*UncondBranch) != FSuccessor->getLabel())
++          MIB->replaceBranchTarget(*UncondBranch, FSuccessor->getLabel(), Ctx);
++        continue;
++      }
++
        // Check whether the next block is a "taken" target and try to swap it
        // with a "fall-through" target.
 -      if (TSuccessor == NextBB && swapSuccessors())
@@ -3288,7 +3375,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..06fba964a7bd4a1b207187dc56a063f6
  
        // Update conditional branch destination if needed.
        if (MIB->getTargetSymbol(*CondBranch) != TSuccessor->getLabel()) {
-@@ -3740,9 +4185,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3740,9 +4202,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          MIB->replaceBranchTarget(*CondBranch, TSuccessor->getLabel(), Ctx);
        }
  
@@ -3305,7 +3392,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..06fba964a7bd4a1b207187dc56a063f6
  
        if (BC.isX86()) {
          // We are going to generate two branches. Check if their targets are in
-@@ -3756,7 +4206,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3756,7 +4223,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
            swapSuccessors();
        }
  
@@ -3319,7 +3406,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..06fba964a7bd4a1b207187dc56a063f6
      }
      // Cases where the number of successors is 0 (block ends with a
      // terminator) or more than 2 (switch table) don't require branch
-@@ -3831,6 +4286,12 @@ void BinaryFunction::postProcessBranches() {
+@@ -3831,6 +4303,12 @@ void BinaryFunction::postProcessBranches() {
        }
        if (!BC.MIB->isTerminator(*LastInstrRI) &&
            !BC.MIB->isCall(*LastInstrRI)) {
@@ -3332,7 +3419,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..06fba964a7bd4a1b207187dc56a063f6
          LLVM_DEBUG(dbgs() << "BOLT-DEBUG: adding return to basic block "
                            << BB.getName() << " in function " << *this << '\n');
          MCInst ReturnInstr;
-@@ -4526,14 +4987,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4526,14 +5004,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
    setOutputAddress(SymbolInfo->Address);
    setOutputSize(SymbolInfo->Size);
  
@@ -3378,7 +3465,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..06fba964a7bd4a1b207187dc56a063f6
          BinaryData *BD = BC.getBinaryDataAtAddress(getAddress() + OldOffset);
          if (!BD)
            continue;
-@@ -4608,9 +5095,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4608,9 +5112,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
        // input range. Just assign the BB the output address of the
        // function.
        auto MaybeBBAddress = BC.getIOAddressMap().lookup(BB->getLabel());
@@ -3400,7 +3487,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..06fba964a7bd4a1b207187dc56a063f6
        BB->setOutputStartAddress(BBAddress);
  
        if (PrevBB) {
-@@ -4915,7 +5411,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
+@@ -4915,7 +5428,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
    LLVM_DEBUG(dbgs() << "BOLT-DEBUG: addRelocation in "
                      << formatv("{0}@{1:x} against {2}\n", *this, Offset,
                                 (Symbol ? Symbol->getName() : "<undef>")));
@@ -3474,10 +3561,10 @@ index 6f588d2b95fd6481f9009d2d6ebf7d7eaf0c4e0d..98e9b6ae017b8d4b3379f574d5655bf1
  
    OS << "Jump table " << getName() << " for function ";
 diff --git a/bolt/lib/Core/MCPlusBuilder.cpp b/bolt/lib/Core/MCPlusBuilder.cpp
-index 1bcae94214909b267d57cf7d4efcc01905edbf29..dade3fa69c71b7f3188cf3b9a290054e1d7824ce 100644
+index 1bcae94214909b267d57cf7d4efcc01905edbf29..2e7dcae0c9718d3bb45620acc4bb906a93b66ad6 100644
 --- a/bolt/lib/Core/MCPlusBuilder.cpp
 +++ b/bolt/lib/Core/MCPlusBuilder.cpp
-@@ -29,6 +29,27 @@ using namespace llvm;
+@@ -29,6 +29,32 @@ using namespace llvm;
  using namespace bolt;
  using namespace MCPlus;
  
@@ -3493,6 +3580,11 @@ index 1bcae94214909b267d57cf7d4efcc01905edbf29..dade3fa69c71b7f3188cf3b9a290054e
 +  OS << "owned-data-blocks(" << Blocks.size() << ")";
 +  for (const InlineDataBlock &Block : Blocks)
 +    OS << " [original=0x" << Twine::utohexstr(Block.OriginalAddress)
++       << ", owner="
++       << (Block.OwnerKind ==
++                   InlineDataBlockOwnerKind::ProvenLocalCallTransfer
++               ? "proven-local-call-transfer"
++               : "non-fallthrough-control")
 +       << ", size=" << Block.Bytes.size()
 +       << ", align=" << Block.Alignment
 +       << ", estimated-padding=" << Block.EstimatedAlignmentPadding
@@ -4442,10 +4534,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707a4968412
+index 0000000000000000000000000000000000000000..42a70cd64b4b73e373bd2668d54060c65b6252b9
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,5107 @@
+@@ -0,0 +1,5238 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -5355,6 +5447,17 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +  uint64_t ClonedPools = 0;
 +  uint64_t ConsumedCapacityBytes = 0;
 +
++  const auto RetainLiteralPools = [&](BinaryFunction &BF) {
++    // Rejected ownership is not a transformation, but it also must not block
++    // an independent pass that can eliminate the reference under its own
++    // contract. The ARM object path preserves final-address PC-relative
++    // relocations for both aggregate and instruction-owned pools, and compact
++    // publication retains the immutable input body unless an audited pass
++    // produces a fully linked candidate.
++    (void)BF;
++    ++RetainedFunctions;
++  };
++
 +  for (auto &BFI : BC.getBinaryFunctions()) {
 +    BinaryFunction &BF = BFI.second;
 +    if (!BF.hasCFG() || !BF.isSimple() || BF.isIgnored() || BF.isSplit() ||
@@ -5388,7 +5491,7 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +    }
 +
 +    if (Islands.HasDynamicRelocations || !Islands.Dependency.empty()) {
-+      ++RetainedFunctions;
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +    const StringRef OriginName = BF.getOriginSection()->getName();
@@ -5405,7 +5508,7 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +        BC.outs() << "BOLT-INFO: retained literal pools in "
 +                  << BF.getPrintName()
 +                  << ": input relocation section is not modeled\n";
-+      ++RetainedFunctions;
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +
@@ -5425,7 +5528,7 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +        Plans.push_back(PoolPlan{*Data, End});
 +    }
 +    if (Plans.empty()) {
-+      ++RetainedFunctions;
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +
@@ -5496,7 +5599,7 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +      if (opts::Verbosity >= 2)
 +        BC.outs() << "BOLT-INFO: retained literal pools in " << BF.getPrintName()
 +                  << ": " << RejectReason << "\n";
-+      ++RetainedFunctions;
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +
@@ -5539,6 +5642,69 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +            return nullptr;
 +        }
 +        return nullptr;
++      };
++      // GCC uses BL as a Thumb-1 long intra-function transfer when the narrow
++      // unconditional branch cannot reach. It may place a terminal literal
++      // pool at the architectural link continuation. Accept that shape only
++      // when the target is an exact block in this function and every CFG path
++      // kills the call-created link value before reading it. An unknown exit,
++      // return, indirect transfer, or read-before-write rejects the proof.
++      // Ordinary calls therefore remain ineligible.
++      const auto ProvesDeadLocalCallContinuation = [&](const MCInst &Call) {
++        if (!BC.MIB->isCall(Call) || BC.MIB->isIndirectCall(Call))
++          return false;
++        const MCSymbol *TargetSymbol = BC.MIB->getTargetSymbol(Call);
++        BinaryBasicBlock *Target =
++            TargetSymbol ? BF.getBasicBlockForLabel(TargetSymbol) : nullptr;
++        const std::optional<MCPhysReg> LinkReg =
++            BC.MIB->getArchitecturalCallLinkRegister(Call);
++        if (!Target || !LinkReg || *LinkReg == BC.MIB->getNoRegister())
++          return false;
++
++        const BitVector &LinkAliases = BC.MIB->getAliases(*LinkReg);
++        SmallVector<BinaryBasicBlock *, 16> Worklist{Target};
++        DenseSet<BinaryBasicBlock *> Visited;
++        while (!Worklist.empty()) {
++          BinaryBasicBlock *Current = Worklist.pop_back_val();
++          if (!Visited.insert(Current).second)
++            continue;
++
++          bool LinkKilled = false;
++          for (const MCInst &Inst : *Current) {
++            if (BC.MIB->isPseudo(Inst))
++              continue;
++
++            BitVector Used(BC.MRI->getNumRegs(), false);
++            BC.MIB->getUsedRegs(Inst, Used);
++            if (Used.anyCommon(LinkAliases) || BC.MIB->isReturn(Inst) ||
++                BC.MIB->isPossibleExceptionReturn(Inst))
++              return false;
++
++            BitVector Written(BC.MRI->getNumRegs(), false);
++            BC.MIB->getWrittenRegs(Inst, Written);
++            if (std::optional<MCPhysReg> WrittenLink =
++                    BC.MIB->getArchitecturalCallLinkRegister(Inst))
++              Written |= BC.MIB->getAliases(*WrittenLink,
++                                            /*OnlySmaller=*/true);
++            if (Written.anyCommon(LinkAliases)) {
++              LinkKilled = true;
++              break;
++            }
++
++            // A direct local branch is represented by CFG successors. Any
++            // indirect transfer while the original link is live can escape
++            // the modeled graph and later return through that value.
++            if (BC.MIB->isIndirectBranch(Inst))
++              return false;
++          }
++          if (LinkKilled)
++            continue;
++          if (Current->succ_size() == 0)
++            return false;
++          for (BinaryBasicBlock *Successor : Current->successors())
++            Worklist.push_back(Successor);
++        }
++        return true;
 +      };
 +      BinaryBasicBlock *ResumeBB = nullptr;
 +      for (BinaryBasicBlock &BB : BF)
@@ -5590,6 +5756,31 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +          Plan.BlockStartOffset = *Offset + *Size;
 +          Plan.OwnerBB = &BB;
 +          Plan.OwnerBranch = Terminator;
++          break;
++        }
++      if (!Plan.OwnerBranch)
++        for (BinaryBasicBlock &BB : BF) {
++          MCInst *LongTransfer = FindTrailingOwner(
++              BB, [&](const MCInst &Inst) {
++                return BC.MIB->isCall(Inst) &&
++                       ProvesDeadLocalCallContinuation(Inst);
++              });
++          if (!LongTransfer || BB.succ_size() > 1 ||
++              BC.MIB->getInlineData(*LongTransfer) ||
++              BC.MIB->getInlineDataBlocks(*LongTransfer))
++            continue;
++          const std::optional<uint32_t> Offset =
++              BC.MIB->getOffset(*LongTransfer);
++          const std::optional<uint32_t> Size =
++              BC.MIB->getInstructionSize(*LongTransfer);
++          if (!Offset || !Size || *Offset + *Size > Plan.StartOffset ||
++              Plan.StartOffset - (*Offset + *Size) > 3)
++            continue;
++          Plan.BlockStartOffset = *Offset + *Size;
++          Plan.OwnerBB = &BB;
++          Plan.OwnerBranch = LongTransfer;
++          Plan.Block.OwnerKind =
++              InlineDataBlockOwnerKind::ProvenLocalCallTransfer;
 +          break;
 +        }
 +      if (!Plan.OwnerBranch) {
@@ -5703,10 +5894,23 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +          if (!Offset || !Size || *Offset < Plan.BlockStartOffset ||
 +              *Offset >= Plan.StartOffset)
 +            continue;
++          const bool IsProvenCallPadding =
++              Plan.Block.OwnerKind ==
++                  InlineDataBlockOwnerKind::ProvenLocalCallTransfer &&
++              !BF.isEntryPoint(BB) &&
++              llvm::all_of(BB.predecessors(), [&](BinaryBasicBlock *Pred) {
++                if (Pred == Plan.OwnerBB)
++                  return true;
++                const uint64_t PredStart = Pred->getOffset();
++                const uint64_t PredEnd = PredStart + Pred->getOriginalSize();
++                return PredStart >= Plan.BlockStartOffset &&
++                       PredEnd <= Plan.StartOffset;
++              });
 +          if (*Offset + *Size > Plan.StartOffset ||
 +              !IsArchitecturalNoOp(Inst) ||
 +              ((&BB != Plan.OwnerBB ||
 +                *Offset < Plan.BlockStartOffset) &&
++               !IsProvenCallPadding &&
 +               (BB.pred_size() != 0 || BF.isEntryPoint(BB)))) {
 +            RejectReason = "pool alignment bytes are reachable or non-NOP";
 +            Qualified = false;
@@ -5722,7 +5926,7 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +      if (opts::Verbosity >= 2)
 +        BC.outs() << "BOLT-INFO: retained literal pools in " << BF.getPrintName()
 +                  << ": " << RejectReason << "\n";
-+      ++RetainedFunctions;
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +
@@ -5770,7 +5974,7 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +      if (opts::Verbosity >= 2)
 +        BC.outs() << "BOLT-INFO: retained literal pools in "
 +                  << BF.getPrintName() << ": " << RejectReason << "\n";
-+      ++RetainedFunctions;
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +
@@ -5859,13 +6063,13 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +      if (opts::Verbosity >= 2)
 +        BC.outs() << "BOLT-INFO: retained literal pools in " << BF.getPrintName()
 +                  << ": " << RejectReason << "\n";
-+      ++RetainedFunctions;
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +
 +    ErrorOr<ArrayRef<uint8_t>> FunctionData = BF.getData();
 +    if (!FunctionData) {
-+      ++RetainedFunctions;
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +
@@ -5952,7 +6156,7 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +      if (opts::Verbosity >= 2)
 +        BC.outs() << "BOLT-INFO: retained literal pools in " << BF.getPrintName()
 +                  << ": " << RejectReason << "\n";
-+      ++RetainedFunctions;
++      RetainLiteralPools(BF);
 +      continue;
 +    }
 +
@@ -8133,6 +8337,11 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +              json::Object Pool;
 +              Pool["original_address"] =
 +                  static_cast<int64_t>(Block.OriginalAddress);
++              Pool["owner_kind"] =
++                  Block.OwnerKind ==
++                          InlineDataBlockOwnerKind::ProvenLocalCallTransfer
++                      ? "proven_local_call_transfer"
++                      : "nonfallthrough_control";
 +              Pool["estimated_output_offset"] =
 +                  static_cast<int64_t>(BlockCursor);
 +              Pool["size"] =
@@ -9006,14 +9215,23 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +        }
 +        if (const InlineDataBlocks *DataBlocks =
 +                BC.MIB->getInlineDataBlocks(Inst)) {
-+          if (!BC.MIB->isUnconditionalBranch(Inst) &&
-+              !BC.MIB->isReturn(Inst))
-+            return createStringError(
-+                inconvertibleErrorCode(),
-+                "instruction-owned literal pool in %s has no proven "
-+                "non-fallthrough owner",
-+                BF.getPrintName().c_str());
 +          for (const InlineDataBlock &Block : *DataBlocks) {
++            const bool ValidOwner =
++                Block.OwnerKind ==
++                        InlineDataBlockOwnerKind::NonFallthroughControl
++                    ? (BC.MIB->isUnconditionalBranch(Inst) ||
++                       BC.MIB->isReturn(Inst))
++                    : (Block.OwnerKind ==
++                               InlineDataBlockOwnerKind::
++                                   ProvenLocalCallTransfer &&
++                       BC.MIB->isCall(Inst) &&
++                       BC.MIB->getTargetSymbol(Inst));
++            if (!ValidOwner)
++              return createStringError(
++                  inconvertibleErrorCode(),
++                  "instruction-owned literal pool in %s has no matching "
++                  "non-fallthrough owner proof",
++                  BF.getPrintName().c_str());
 +            NextOutput = alignTo(NextOutput, Block.Alignment);
 +            const uint64_t BlockOutput = NextOutput;
 +            json::Array Labels;
@@ -9059,6 +9277,11 @@ index 0000000000000000000000000000000000000000..6e8f80f5135e0e0c275aef619e4e2707
 +                static_cast<int64_t>(Output);
 +            Pool["original_address"] =
 +                static_cast<int64_t>(Block.OriginalAddress);
++            Pool["owner_kind"] =
++                Block.OwnerKind ==
++                        InlineDataBlockOwnerKind::ProvenLocalCallTransfer
++                    ? "proven_local_call_transfer"
++                    : "nonfallthrough_control";
 +            Pool["output_address"] =
 +                static_cast<int64_t>(BlockOutput);
 +            Pool["size"] =
@@ -15302,10 +15525,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..b308b0c03e77031496b3539b4a217933
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..e2dbcd5a13961cd75aa284edd0b23e58ec9f99b2
+index 0000000000000000000000000000000000000000..147be8a865abfb100bbceff5e75699f634cb4033
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3129 @@
+@@ -0,0 +1,3136 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -15357,6 +15580,13 @@ index 0000000000000000000000000000000000000000..e2dbcd5a13961cd75aa284edd0b23e58
 +
 +  bool isBranch(const MCInst &Inst) const override {
 +    return isMoveToPC(Inst) || Analysis->isBranch(Inst);
++  }
++
++  std::optional<MCPhysReg>
++  getArchitecturalCallLinkRegister(const MCInst &Inst) const override {
++    if (!isCall(Inst))
++      return std::nullopt;
++    return ARM::LR;
 +  }
 +
 +  bool isTerminator(const MCInst &Inst) const override {
@@ -20735,6 +20965,70 @@ index 0000000000000000000000000000000000000000..c024e339984ba4cd9ad7dd58f707aab4
 +worker_b
 +Reset_Handler
 +worker_a
+diff --git a/bolt/test/ARM/thumb-firmware-branch-pair-preservation.s b/bolt/test/ARM/thumb-firmware-branch-pair-preservation.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..4b94fe4f200a309f28e78498934b6db2376ac77c
+--- /dev/null
++++ b/bolt/test/ARM/thumb-firmware-branch-pair-preservation.s
+@@ -0,0 +1,58 @@
++## With guest instruction-count preservation enabled, do not invert a
++## conditional branch whose taken target is the next block when an explicit
++## unconditional false edge follows it. Inversion swaps the one-branch and
++## two-branch path costs; retaining the old unconditional target and appending
++## a third branch is both semantically wrong and larger.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --fastdyn-firmware-report=%t.report.json -o %t.bolt
++# RUN: llvm-objdump -d --start-address=0x08000008 --stop-address=0x08000016 %t.bolt | FileCheck %s --check-prefix=CODE
++# RUN: %python -c "import json; d=json.load(open('%t.report.json')); f=next(x for x in d['functions'] if x['name']=='branch_pair'); s=[i for i in f['instructions'] if i['provenance_kind']=='synthesized_control_edge']; print(f['firmware_modified'],len(s),f['post_optimization_instruction_count'],f['original_size'],f['estimated_post_optimization_size'])" | FileCheck %s --check-prefix=REPORT
++
++# CODE: <branch_pair>:
++# CODE-NEXT: cmp r0, #0x0
++# CODE-NEXT: beq 0x800000e
++# CODE-NEXT: b 0x8000012
++# CODE-NEXT: movs r0, #0x1
++# CODE-NEXT: bx lr
++# CODE-NEXT: movs r0, #0x2
++# CODE-NEXT: bx lr
++# REPORT: False 0 7 14 14
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl branch_pair
++  bx lr
++  nop
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl branch_pair
++  .type branch_pair,%function
++  .thumb_func
++branch_pair:
++  cmp r0, #0
++  beq .Ltrue
++  b .Lfalse
++.Ltrue:
++  movs r0, #1
++  bx lr
++.Lfalse:
++  movs r0, #2
++  bx lr
++  .size branch_pair, .-branch_pair
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-firmware-publication-policy.s b/bolt/test/ARM/thumb-firmware-publication-policy.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..f92bcc1c85276b812bb9d4cd925b14d2af3ad2a2
@@ -25936,6 +26230,110 @@ index 0000000000000000000000000000000000000000..6583e469d8ca0e090cee3c457c383df6
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb1-local-call-transfer-literal-pool.s b/bolt/test/ARM/thumb1-local-call-transfer-literal-pool.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..2cd15d47a13764f1fc105314ca5ad850cf2fc2ec
+--- /dev/null
++++ b/bolt/test/ARM/thumb1-local-call-transfer-literal-pool.s
+@@ -0,0 +1,98 @@
++## GCC can use BL as a Thumb-1 long intra-function transfer and place a
++## terminal literal pool at its link continuation. Admit that pool only when
++## every path from the exact local target kills LR before reading it. The
++## negative function reads LR first and must retain its original body.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv6m-none-eabi -mcpu=cortex-m0plus %s -o %t.o
++# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m0plus \
++# RUN:   --fastdyn-firmware-report=%t.report.json -v=1 -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=BOLT
++# RUN: %python -c "import json; d=json.load(open('%t.report.json')); p=next(x for x in d['functions'] if x['name']=='proven_transfer'); n=next(x for x in d['functions'] if x['name']=='lr_read_transfer'); q=[r for i in p['instructions'] for r in i.get('owned_literal_pool_ranges',[])]; print(p['firmware_modified'],len(q),q[0]['owner_kind'],q[0]['original_address'],q[0]['estimated_output_offset']); print(n['firmware_modified'],sum(len(i.get('owned_literal_pool_ranges',[])) for i in n['instructions']))" | FileCheck %s --check-prefix=REPORT
++# RUN: llvm-objdump -d %t.bolt | FileCheck %s --check-prefix=CODE
++
++# BOLT: BOLT-INFO: Thumb literal-pool placement qualified 1 function(s), attached 1 owner block(s), rebound 1 PC-relative reference(s), and retained 1 function(s)
++# BOLT: BOLT: 1 out of 4 functions were overwritten.
++# BOLT: BOLT-INFO: not adding new segments
++# REPORT: True 1 proven_local_call_transfer
++# REPORT-NEXT: False 0
++# CODE: <proven_transfer>:
++# CODE: ldr r1
++# CODE-NEXT: bl
++# CODE-NEXT: nop
++# CODE-NEXT: {{.*}}.word 0x11223344
++# CODE: <lr_read_transfer>:
++# CODE: mov r0, lr
++# CODE: ldr r1
++# CODE-NEXT: bl
++# CODE-NEXT: {{.*}}.word 0x55667788
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 12
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl proven_transfer
++  bl lr_read_transfer
++  bx lr
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl proven_transfer
++  .type proven_transfer,%function
++  .thumb_func
++proven_transfer:
++  cmp r2, #0
++  beq .Lproven_target
++  b .Lproven_owner
++.Lproven_target:
++  movs r2, #1
++  bl clobber_link
++.Lproven_loop:
++  b .Lproven_loop
++.Lproven_owner:
++  ldr r1, .Lproven_literal
++  bl .Lproven_target
++  nop
++  .p2align 2
++.Lproven_literal:
++  .word 0x11223344
++  .size proven_transfer, .-proven_transfer
++
++  .p2align 2
++  .globl lr_read_transfer
++  .type lr_read_transfer,%function
++  .thumb_func
++lr_read_transfer:
++  cmp r2, #0
++  beq .Lread_target
++  b .Lread_owner
++.Lread_target:
++  mov r0, lr
++  bl clobber_link
++.Lread_loop:
++  b .Lread_loop
++.Lread_owner:
++  ldr r1, .Lread_literal
++  bl .Lread_target
++  .p2align 2
++.Lread_literal:
++  .word 0x55667788
++  .size lr_read_transfer, .-lr_read_transfer
++
++  .globl clobber_link
++  .type clobber_link,%function
++  .thumb_func
++clobber_link:
++  bx lr
++  .size clobber_link, .-clobber_link
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb1-moved-literal-pool-relocation.s b/bolt/test/ARM/thumb1-moved-literal-pool-relocation.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..dac3c694615e3cc6e3cd545b0e47ebce3bfd872b
@@ -29913,7 +30311,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
    default:
      return getGenericEdgeKindName(K);
 diff --git a/llvm/lib/Target/ARM/MCTargetDesc/ARMAsmBackend.cpp b/llvm/lib/Target/ARM/MCTargetDesc/ARMAsmBackend.cpp
-index b4f549e3306e60344e98000bfe36c3c987b0ec09..356d6e6900fc8eb1961d1d5988430bfaea474142 100644
+index b4f549e3306e60344e98000bfe36c3c987b0ec09..45ca2f7dccf4c4326806901c35a582c659bed9be 100644
 --- a/llvm/lib/Target/ARM/MCTargetDesc/ARMAsmBackend.cpp
 +++ b/llvm/lib/Target/ARM/MCTargetDesc/ARMAsmBackend.cpp
 @@ -210,7 +210,7 @@ bool ARMAsmBackend::mayNeedRelaxation(unsigned Opcode, ArrayRef<MCOperand>,
@@ -30032,14 +30430,16 @@ index b4f549e3306e60344e98000bfe36c3c987b0ec09..356d6e6900fc8eb1961d1d5988430bfa
        return 0;
      }
      Value |= isAdd << 23;
-@@ -933,10 +943,35 @@ unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
+@@ -933,10 +943,37 @@ unsigned ARMAsmBackend::adjustFixupValue(const MCAssembler &Asm,
    }
  }
  
 +static bool isBOLTFirmwarePCFixup(const MCFixup &Fixup,
 +                                  const MCValue &Target) {
 +  const MCSymbol *Sym = Target.getAddSym();
-+  if (!Sym || !Sym->getName().starts_with("ARM_LITERALat"))
++  if (!Sym ||
++      !(Sym->getName().starts_with("ARM_LITERALat") ||
++        Sym->getName().starts_with(".LThumbLiteralClone")))
 +    return false;
 +  switch (Fixup.getKind()) {
 +  case ARM::fixup_t2_ldst_pcrel_12:
@@ -30068,13 +30468,20 @@ index b4f549e3306e60344e98000bfe36c3c987b0ec09..356d6e6900fc8eb1961d1d5988430bfa
    // Create relocations for unconditional branches to function symbols with
    // different execution mode in ELF binaries.
    if (needsInterworking(*Asm, Sym, Fixup.getKind()))
-@@ -1110,8 +1145,26 @@ std::optional<bool> ARMAsmBackend::evaluateFixup(const MCFragment &F,
+@@ -1110,8 +1147,33 @@ std::optional<bool> ARMAsmBackend::evaluateFixup(const MCFragment &F,
  void ARMAsmBackend::applyFixup(const MCFragment &F, const MCFixup &Fixup,
                                 const MCValue &Target, uint8_t *Data,
                                 uint64_t Value, bool IsResolved) {
 -  if (IsResolved && shouldForceRelocation(Fixup, Target))
 +  const bool BOLTFirmwarePCFixup = isBOLTFirmwarePCFixup(Fixup, Target);
-+  if (IsResolved && shouldForceRelocation(Fixup, Target)) {
++  const bool ForceRelocation = shouldForceRelocation(Fixup, Target);
++  if (ForceRelocation) {
++    // MCOrg fragments used by address-stable firmware bodies can make a
++    // same-section target appear unresolved before applyFixup().  Normalize
++    // BOLT's implicit REL addend in both cases: limiting this to an initially
++    // resolved expression leaves the fragment-relative displacement in a
++    // narrow Thumb literal instruction and can diagnose a spurious
++    // misalignment before JITLink places the function at its guest address.
      IsResolved = false;
 +    // The value computed for a same-section target is the already-resolved
 +    // displacement.  A REL relocation needs only the expression's explicit

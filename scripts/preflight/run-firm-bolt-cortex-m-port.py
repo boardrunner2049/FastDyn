@@ -5989,21 +5989,30 @@ def main() -> int:
         literal_pool_placement_validation = parse_literal_pool_summary(
             process.stdout + process.stderr
         )
-        if label == "m4":
-            expected_pool_counts = {
+        expected_pool_counts = {
+            "m0plus": {
+                "qualified": 55,
+                "owners": 60,
+                "references": 1115,
+                "retained": 0,
+                "unreferenced": 0,
+            },
+            "m4": {
                 "qualified": 1,
                 "owners": 1,
                 "references": 1,
                 "retained": 1,
                 "unreferenced": 1,
-            }
+            },
+        }.get(label)
+        if expected_pool_counts is not None:
             observed_pool_counts = {
                 key: literal_pool_placement_validation[key]
                 for key in expected_pool_counts
             }
             if observed_pool_counts != expected_pool_counts:
                 raise RuntimeError(
-                    "M4 FreeRTOS literal-pool cohort changed unexpectedly: "
+                    f"{label} literal-pool cohort changed unexpectedly: "
                     f"expected {expected_pool_counts}, observed "
                     f"{observed_pool_counts}"
                 )
@@ -8276,14 +8285,30 @@ def main() -> int:
                     r"relaxed (\d+) Thumb-1 local branch\(es\)",
                     process.stdout + process.stderr,
                 )
-                if match is None or int(match.group(1)) == 0:
-                    raise RuntimeError(
-                        "real M0+ corpus did not exercise Thumb-1 branch "
-                        "relaxation"
-                    )
-                results[label]["thumb1_local_branches_relaxed"] = int(
-                    match.group(1)
+                synthesized_edges = int(
+                    final_layout[
+                        "synthesized_control_edge_instruction_count"
+                    ]
                 )
+                if (
+                    match is None
+                    or int(match.group(1)) != 0
+                    or synthesized_edges != 0
+                ):
+                    raise RuntimeError(
+                        "real M0+ corpus changed an exact firmware branch "
+                        "pair or synthesized a repair edge"
+                    )
+                results[label]["thumb1_branch_pair_validation"] = {
+                    "status": "accepted",
+                    "relaxed_local_branch_count": int(match.group(1)),
+                    "synthesized_control_edge_instruction_count":
+                        synthesized_edges,
+                    "contract": (
+                        "preserve the exact conditional plus explicit "
+                        "unconditional successor pair"
+                    ),
+                }
             if label == "m0plus_branch":
                 match = re.search(
                     r"relaxed (\d+) Thumb-1 local branch\(es\)",
