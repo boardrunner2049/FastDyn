@@ -5271,6 +5271,9 @@ def main() -> int:
          m3_register_reassignment_image, {".isr_vector": None}, [
              "--reg-reassign",
              "--firmbolt-allow-register-reassignment",
+             "--firmbolt-allow-aggressive-register-reassignment",
+             "--use-aggr-reg-reassign",
+             "--assume-abi",
          ]),
         ("m3_taildup", "cortex-m3", m3_taildup_image,
          {".isr_vector": None}, [
@@ -5682,7 +5685,7 @@ def main() -> int:
                     "function(s) with unsupported compact, shared or "
                     "generic unwind programs;"
                     not in register_log
-                    or "removed 1 stale linked ARM EHABI relocation(s) "
+                    or "removed 3 stale linked ARM EHABI relocation(s) "
                     "whose input records were merged" not in register_log
                 ):
                     raise RuntimeError(
@@ -5691,10 +5694,10 @@ def main() -> int:
                         "graph"
                     )
                 if int(summary["firmware_modification_reason_counts"]
-                       ["register_reassignment"]) != 1:
+                       ["register_reassignment"]) != 2:
                     raise RuntimeError(
                         "M3 register-reassignment fixture did not publish "
-                        "exactly one target-aware register exchange"
+                        "exactly two target-aware register exchanges"
                     )
                 if (
                     int(summary[
@@ -6574,11 +6577,58 @@ def main() -> int:
                     )
                     or actual_mappings != expected_mappings
                     or results[label]["pass_publication"]
-                    ["byte_changed_function_count"] != 1
+                    ["byte_changed_function_count"] != 2
                 ):
                     raise RuntimeError(
                         "M3 register-reassignment fixture did not publish "
                         "one fully attributed 26-to-18-byte exchange"
+                    )
+                aggressive_worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "aggressive_worker"
+                )
+                aggressive_origins = aggressive_worker["instruction_origins"]
+                aggressive_original_base = aggressive_worker["original_address"]
+                aggressive_output_base = aggressive_worker["output_address"]
+                aggressive_expected_mappings = [
+                    (aggressive_original_base + original_offset,
+                     aggressive_output_base + output_offset)
+                    for original_offset, output_offset in (
+                        (0, 0), (4, 4), (8, 6), (12, 8),
+                    )
+                ]
+                aggressive_actual_mappings = [
+                    (origin.get("original_address"),
+                     origin["output_address"])
+                    for origin in aggressive_origins
+                ]
+                live_in_worker = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "aggressive_live_in_worker"
+                )
+                if (
+                    not aggressive_worker["firmware_modified"]
+                    or aggressive_worker["firmware_modification_reasons"] !=
+                    ["register_reassignment"]
+                    or aggressive_worker["original_size"] != 14
+                    or aggressive_worker["output_size"] != 10
+                    or len(aggressive_origins) != 4
+                    or any(
+                        origin["origin_kind"] != "original_instruction"
+                        for origin in aggressive_origins
+                    )
+                    or aggressive_actual_mappings !=
+                    aggressive_expected_mappings
+                    or live_in_worker["firmware_modified"]
+                    or live_in_worker["original_size"] != 16
+                    or live_in_worker["output_size"] != 16
+                    or results[label]["pass_publication"]
+                    ["byte_changed_function_count"] != 2
+                ):
+                    raise RuntimeError(
+                        "M3 aggressive register-reassignment fixture did not "
+                        "publish one dead-entry R2/R12 exchange while "
+                        "retaining the R2/R3 live-in control"
                     )
                 results[label]["register_reassignment_validation"] = {
                     "status": "accepted",
@@ -6586,6 +6636,13 @@ def main() -> int:
                     "register_pair": ["r4", "r8"],
                     "static_bytes_saved": 8,
                     "retained_original_identity_mappings": actual_mappings,
+                    "aggressive_transformed_function": aggressive_worker,
+                    "aggressive_register_pair": ["r2", "r12"],
+                    "aggressive_static_bytes_saved": 4,
+                    "aggressive_identity_mappings":
+                        aggressive_actual_mappings,
+                    "live_in_control": live_in_worker,
+                    "live_in_r2_r3_rejected": True,
                     "excluded_registers": ["r7", "r9", "r11"],
                     "cantunwind_ehabi_qualified_by_section_type": True,
                     "compact_generic_ehabi_and_cfi_excluded": True,
@@ -8441,6 +8498,52 @@ def main() -> int:
             "unadmitted Cortex-M register reassignment did not reject"
         )
 
+    aggressive_register_reassignment_without_contract = run(
+        [str(args.bolt.resolve()), str(m3_register_reassignment_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline", "--reg-reassign",
+         "--firmbolt-allow-register-reassignment",
+         "--use-aggr-reg-reassign", "--assume-abi",
+         "-o", str(output /
+                   "must-not-emit-unadmitted-aggressive-register-"
+                   "reassignment.elf")],
+        logs / "reject-unadmitted-aggressive-register-reassignment.log",
+    )
+    if (
+        aggressive_register_reassignment_without_contract.returncode == 0
+        or "aggressive Cortex-M register reassignment requires "
+        "--firmbolt-allow-aggressive-register-reassignment" not in
+        (aggressive_register_reassignment_without_contract.stdout +
+         aggressive_register_reassignment_without_contract.stderr)
+    ):
+        raise RuntimeError(
+            "unadmitted aggressive Cortex-M register reassignment did not "
+            "reject"
+        )
+
+    aggressive_register_reassignment_without_abi = run(
+        [str(args.bolt.resolve()), str(m3_register_reassignment_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline", "--reg-reassign",
+         "--firmbolt-allow-register-reassignment",
+         "--firmbolt-allow-aggressive-register-reassignment",
+         "--use-aggr-reg-reassign",
+         "-o", str(output /
+                   "must-not-emit-aggressive-register-reassignment-without-"
+                   "abi.elf")],
+        logs / "reject-aggressive-register-reassignment-without-abi.log",
+    )
+    if (
+        aggressive_register_reassignment_without_abi.returncode == 0
+        or "aggressive Cortex-M register reassignment requires --assume-abi"
+        not in (aggressive_register_reassignment_without_abi.stdout +
+                aggressive_register_reassignment_without_abi.stderr)
+    ):
+        raise RuntimeError(
+            "aggressive Cortex-M register reassignment without ABI liveness "
+            "did not reject"
+        )
+
     m0_conditional_move_without_contract = run(
         [str(args.bolt.resolve()), str(m0_conditional_move_image),
          "--firmbolt-cortex-m-cpu=cortex-m0plus",
@@ -9380,7 +9483,7 @@ def main() -> int:
             m3_register_reassignment_image,
             candidates["m3_register_reassignment"], output,
             args.fastdyn.resolve(), "native-register-reassignment",
-            expected_words=(42, 4, 8),
+            expected_words=(42, 4, 8, 42, 54),
         )
     )
     m3_taildup_execution = (
@@ -9828,11 +9931,16 @@ def main() -> int:
                 "whole-function R4-R6/R8-R10 name exchanges may change "
                 "transient register state and instruction widths, but both "
                 "AAPCS callee-saved values and exact instruction identities "
-                "must be restored at exit; there is no instruction-boundary "
-                "register observer or admitted interrupt inside the region; "
+                "must be restored at exit; a separately admitted aggressive "
+                "mode may exchange only ordinary caller-saved R2/R3 with "
+                "R12 after ABI-aware liveness proves both exact names dead "
+                "at every entry and excludes ABI outputs; there is no "
+                "instruction-boundary register observer or admitted interrupt "
+                "inside the region; "
                 "R7/R11 frame-pointer roles, R9 platform-register semantics, "
-                "CFI, EHABI, vector entries, split/multi-entry functions, "
-                "jump tables and address-stable layouts remain unchanged"
+                "CFI, unsupported/shared/generic EHABI, vector entries, "
+                "split/multi-entry functions, jump tables and address-stable "
+                "layouts remain unchanged"
             ),
         },
         "bolt_revision": revision,
@@ -10041,6 +10149,8 @@ def main() -> int:
             "unadmitted_conditional_tail_call_rejected": True,
             "unadmitted_conditional_move_rejected": True,
             "unadmitted_register_reassignment_rejected": True,
+            "unadmitted_aggressive_register_reassignment_rejected": True,
+            "aggressive_register_reassignment_without_abi_rejected": True,
             "unadmitted_thumb1_conditional_move_rejected": True,
             "unadmitted_tail_duplication_rejected": True,
             "unadmitted_function_splitting_rejected": True,

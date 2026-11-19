@@ -596,7 +596,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..464fe5f3d1d66a1c8dd2c9e81ce7ba3d87654a55 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..52c738043e8f75417d5d57dd080768bfe162cb98 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -784,7 +784,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..464fe5f3d1d66a1c8dd2c9e81ce7ba3d
    /// Return a BitVector marking all sub or super registers of \p Reg, including
    /// itself.
    virtual const BitVector &getAliases(MCPhysReg Reg,
-@@ -1616,6 +1752,51 @@ public:
+@@ -1616,6 +1752,59 @@ public:
      llvm_unreachable("not implemented");
    }
  
@@ -793,6 +793,14 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..464fe5f3d1d66a1c8dd2c9e81ce7ba3d
 +  /// from the compact encoding class and the second from the expensive class.
 +  /// Empty means that the target has not qualified this transformation.
 +  virtual void getRegisterReassignmentCandidates(
++      SmallVectorImpl<std::pair<MCPhysReg, MCPhysReg>> &Candidates) const {}
++
++  /// Return additional whole-function register-name exchanges that are safe
++  /// to consider only after liveness proves both names dead at every entry
++  /// and the ABI live-out set is excluded.  These are separate from the
++  /// conservative candidates because they may cross caller/callee encoding
++  /// classes or otherwise rely on dataflow facts.
++  virtual void getAggressiveRegisterReassignmentCandidates(
 +      SmallVectorImpl<std::pair<MCPhysReg, MCPhysReg>> &Candidates) const {}
 +
 +  /// Apply the exact \p A / \p B register-name exchange to \p Inst and perform
@@ -836,7 +844,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..464fe5f3d1d66a1c8dd2c9e81ce7ba3d
    /// Set of Registers used by the Rep instruction
    virtual void getRepRegs(BitVector &Regs) const {
      llvm_unreachable("not implemented");
-@@ -1700,6 +1881,14 @@ public:
+@@ -1700,6 +1889,14 @@ public:
      return 0;
    }
  
@@ -851,7 +859,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..464fe5f3d1d66a1c8dd2c9e81ce7ba3d
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1751,6 +1940,24 @@ public:
+@@ -1751,6 +1948,24 @@ public:
      return false;
    }
  
@@ -876,7 +884,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..464fe5f3d1d66a1c8dd2c9e81ce7ba3d
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +1996,56 @@ public:
+@@ -1789,6 +2004,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -1312,7 +1320,7 @@ index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fa
    /// The shortest distance for any branch instruction on AArch64.
    static constexpr size_t ShortestJumpBits = 11;
 diff --git a/bolt/include/bolt/Passes/RegReAssign.h b/bolt/include/bolt/Passes/RegReAssign.h
-index a7554a1215104275a92e51769e8f84997154c1ca..d813776a57508fcc8c08c88b692431b2cf1837b5 100644
+index a7554a1215104275a92e51769e8f84997154c1ca..015a3d026fce6bad5001e154d618e79e37b4b555 100644
 --- a/bolt/include/bolt/Passes/RegReAssign.h
 +++ b/bolt/include/bolt/Passes/RegReAssign.h
 @@ -31,6 +31,11 @@ class RegReAssign : public BinaryFunctionPass {
@@ -1331,7 +1339,7 @@ index a7554a1215104275a92e51769e8f84997154c1ca..d813776a57508fcc8c08c88b692431b2
    void rankRegisters(BinaryFunction &Function);
    void aggressivePassOverFunction(BinaryFunction &Function);
    bool conservativePassOverFunction(BinaryFunction &Function);
-+  bool cortexMPassOverFunction(BinaryFunction &Function);
++  bool cortexMPassOverFunction(BinaryFunction &Function, bool Aggressive);
    void setupAggressivePass(BinaryContext &BC,
                             std::map<uint64_t, BinaryFunction> &BFs);
    void setupConservativePass(BinaryContext &BC,
@@ -10988,7 +10996,7 @@ index 66ca6800b1a5fabbeca2e5e5f09b5289599f7912..2c28baca1b1598b39f4cd9809c920d45
        while (RegIdx != -1) {
          dbgs() << "\tREG" << RegIdx;
 diff --git a/bolt/lib/Passes/RegReAssign.cpp b/bolt/lib/Passes/RegReAssign.cpp
-index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..330b69cf5162661319d3f6828dabb5ecfd0c69ea 100644
+index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..ac0845d362695f65a5fa7ad7a8637bc952240938 100644
 --- a/bolt/lib/Passes/RegReAssign.cpp
 +++ b/bolt/lib/Passes/RegReAssign.cpp
 @@ -11,11 +11,16 @@
@@ -11008,15 +11016,21 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..330b69cf5162661319d3f6828dabb5ec
  #include <numeric>
  
  #define DEBUG_TYPE "regreassign"
-@@ -31,11 +36,154 @@ static cl::opt<bool> AggressiveReAssign(
+@@ -31,11 +36,160 @@ static cl::opt<bool> AggressiveReAssign(
      cl::desc("use register liveness analysis to try to find more opportunities "
               "for -reg-reassign optimization"),
      cl::cat(BoltOptCategory));
 +
 +static cl::opt<bool> FirmBOLTAllowRegisterReassignment(
 +    "firmbolt-allow-register-reassignment",
-+    cl::desc("admit Cortex-M callee-saved register renaming, transient "
++    cl::desc("admit target-qualified Cortex-M register renaming, transient "
 +             "register-state changes, and target-checked re-encoding"),
++    cl::cat(BoltOptCategory));
++
++static cl::opt<bool> FirmBOLTAllowAggressiveRegisterReassignment(
++    "firmbolt-allow-aggressive-register-reassignment",
++    cl::desc("admit Cortex-M liveness-backed whole-function exchanges of "
++             "ordinary caller-saved register names"),
 +    cl::cat(BoltOptCategory));
  }
  
@@ -11163,25 +11177,76 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..330b69cf5162661319d3f6828dabb5ec
  void RegReAssign::swap(BinaryFunction &Function, MCPhysReg A, MCPhysReg B) {
    BinaryContext &BC = Function.getBinaryContext();
    const BitVector &AliasA = BC.MIB->getAliases(A, false);
-@@ -404,6 +552,94 @@ bool RegReAssign::conservativePassOverFunction(BinaryFunction &Function) {
+@@ -404,6 +558,165 @@ bool RegReAssign::conservativePassOverFunction(BinaryFunction &Function) {
    return true;
  }
  
-+bool RegReAssign::cortexMPassOverFunction(BinaryFunction &Function) {
++bool RegReAssign::cortexMPassOverFunction(BinaryFunction &Function,
++                                          bool Aggressive) {
 +  BinaryContext &BC = Function.getBinaryContext();
 +  if (!Function.isSimple() || Function.isIgnored() || Function.isFragment() ||
 +      Function.isMultiEntry() || Function.isSplit() || Function.hasEHRanges() ||
 +      Function.hasCFI() || Function.isCortexMVectorEntry() ||
 +      Function.isFirmwareVeneerSlot() || Function.hasJumpTables() ||
-+      Function.requiresAddressStableLayout() || !Function.getFragments().empty())
++      Function.requiresAddressStableLayout() ||
++      !Function.getFragments().empty()) {
++    LLVM_DEBUG(dbgs() << "Cortex-M register reassignment retained "
++                      << Function.getPrintName()
++                      << " because its structural contract is ineligible\n");
 +    return false;
-+  if (CortexMUnwindBlockedFunctions.contains(&Function))
++  }
++  if (CortexMUnwindBlockedFunctions.contains(&Function)) {
++    LLVM_DEBUG(dbgs() << "Cortex-M register reassignment retained "
++                      << Function.getPrintName()
++                      << " because its unwind program is ineligible\n");
 +    return false;
++  }
++  if (Aggressive && llvm::any_of(Function, [&](const BinaryBasicBlock &BB) {
++        return llvm::any_of(BB, [&](const MCInst &Inst) {
++          return BC.MIB->isCall(Inst) || BC.MIB->isTailCall(Inst);
++        });
++      })) {
++    LLVM_DEBUG(dbgs() << "Cortex-M aggressive register reassignment retained "
++                      << Function.getPrintName()
++                      << " because call-boundary register identities are not "
++                         "local liveness facts\n");
++    return false;
++  }
 +
 +  SmallVector<std::pair<MCPhysReg, MCPhysReg>, 8> Candidates;
-+  BC.MIB->getRegisterReassignmentCandidates(Candidates);
++  if (Aggressive)
++    BC.MIB->getAggressiveRegisterReassignmentCandidates(Candidates);
++  else
++    BC.MIB->getRegisterReassignmentCandidates(Candidates);
 +  if (Candidates.empty())
 +    return false;
++
++  BitVector AliveAtEntry;
++  if (Aggressive) {
++    assert(RA && "aggressive Cortex-M register reassignment needs analysis");
++    DataflowInfoManager Info(Function, RA.get(), nullptr);
++    LivenessAnalysis &Liveness = Info.getLivenessAnalysis();
++    AliveAtEntry = *Liveness.getStateAt(
++        ProgramPoint::getFirstPointAt(*Function.begin()));
++    for (BinaryBasicBlock &BB : Function)
++      if (BB.pred_size() == 0)
++        AliveAtEntry |= *Liveness.getStateAt(
++            ProgramPoint::getFirstPointAt(BB));
++
++    // Entry liveness can be killed by a local definition.  ABI results and
++    // callee-saved values are nevertheless externally named state and cannot
++    // participate in a whole-function exchange with caller-saved names.
++    BC.MIB->getDefaultLiveOut(AliveAtEntry);
++    BC.MIB->getCalleeSavedRegs(AliveAtEntry);
++    AliveAtEntry |= BC.MIB->getAliases(BC.MIB->getFramePointer(), false);
++    LLVM_DEBUG({
++      RegStatePrinter Printer(BC);
++      dbgs() << "Cortex-M aggressive entry/exit live state for "
++             << Function.getPrintName() << ": ";
++      Printer.print(dbgs(), AliveAtEntry);
++      dbgs() << "\n";
++    });
++  }
 +
 +  struct Choice {
 +    MCPhysReg Compact{0};
@@ -11191,6 +11256,20 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..330b69cf5162661319d3f6828dabb5ec
 +  } Best;
 +
 +  for (const auto &[Compact, Expensive] : Candidates) {
++    // ARM's register graph contains tuple super-registers such as R12_SP.
++    // SP being live therefore marks the tuple but not the independent R12
++    // name.  Test the exact core-register bits: an actual tuple use also marks
++    // its constituent R12 bit, while alias intersection would reject every
++    // R12 candidate merely because SP is an ABI boundary.
++    if (Aggressive &&
++        (AliveAtEntry.test(Compact) || AliveAtEntry.test(Expensive))) {
++      LLVM_DEBUG(dbgs() << "Cortex-M aggressive register reassignment retained "
++                        << Function.getPrintName() << " candidate "
++                        << BC.MRI->getName(Compact) << " <-> "
++                        << BC.MRI->getName(Expensive)
++                        << " because an ABI boundary keeps a name live\n");
++      continue;
++    }
 +    if (auto It = CortexMCompactUnwindPrograms.find(&Function);
 +        It != CortexMCompactUnwindPrograms.end()) {
 +      SmallVector<uint8_t, 8> Rewritten = It->second;
@@ -11213,6 +11292,11 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..330b69cf5162661319d3f6828dabb5ec
 +        std::optional<int64_t> Saved =
 +            BC.MIB->applyRegisterReassignment(Rewritten, Compact, Expensive);
 +        if (!Saved) {
++          LLVM_DEBUG(dbgs() << "Cortex-M register reassignment retained "
++                            << Function.getPrintName() << " candidate "
++                            << BC.MRI->getName(Compact) << " <-> "
++                            << BC.MRI->getName(Expensive)
++                            << " because an instruction cannot be re-encoded\n");
 +          Valid = false;
 +          break;
 +        }
@@ -11251,14 +11335,15 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..330b69cf5162661319d3f6828dabb5ec
 +                    << Function.getPrintName() << ": "
 +                    << BC.MRI->getName(Best.Expensive) << " <-> "
 +                    << BC.MRI->getName(Best.Compact) << ", saved "
-+                    << Best.StaticBytesSaved << " static byte(s)\n");
++                    << Best.StaticBytesSaved << " static byte(s)"
++                    << (Aggressive ? " using entry/exit liveness\n" : "\n"));
 +  return true;
 +}
 +
  void RegReAssign::setupAggressivePass(BinaryContext &BC,
                                        std::map<uint64_t, BinaryFunction> &BFs) {
    setupConservativePass(BC, BFs);
-@@ -449,11 +685,61 @@ void RegReAssign::setupConservativePass(
+@@ -449,11 +762,78 @@ void RegReAssign::setupConservativePass(
  }
  
  Error RegReAssign::runOnFunctions(BinaryContext &BC) {
@@ -11276,10 +11361,18 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..330b69cf5162661319d3f6828dabb5ec
 +          "and may change instruction widths; add "
 +          "--firmbolt-allow-register-reassignment only for an admitted "
 +          "AAPCS, register-observer, interrupt and modeled-timing contract");
-+    if (opts::AggressiveReAssign)
++    if (opts::AggressiveReAssign &&
++        !opts::FirmBOLTAllowAggressiveRegisterReassignment)
 +      return createStringError(
 +          inconvertibleErrorCode(),
-+          "aggressive Cortex-M register reassignment is not qualified");
++          "aggressive Cortex-M register reassignment requires "
++          "--firmbolt-allow-aggressive-register-reassignment and an admitted "
++          "whole-function ABI/live-state contract");
++    if (opts::AggressiveReAssign && !opts::AssumeABI)
++      return createStringError(
++          inconvertibleErrorCode(),
++          "aggressive Cortex-M register reassignment requires --assume-abi "
++          "for conservative call and function live-state boundaries");
 +    if (opts::UpdateDebugSections)
 +      return createStringError(
 +          inconvertibleErrorCode(),
@@ -11304,8 +11397,17 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..330b69cf5162661319d3f6828dabb5ec
 +                << " single-function compact program(s) remain "
 +                   "candidate-qualified.\n";
 +
-+    for (auto &I : BC.getBinaryFunctions())
-+      cortexMPassOverFunction(I.second);
++    if (opts::AggressiveReAssign) {
++      CG.reset(new BinaryFunctionCallGraph(buildCallGraph(BC)));
++      RA.reset(new RegAnalysis(BC, &BC.getBinaryFunctions(), &*CG));
++    }
++
++    for (auto &I : BC.getBinaryFunctions()) {
++      if (cortexMPassOverFunction(I.second, /*Aggressive=*/false))
++        continue;
++      if (opts::AggressiveReAssign)
++        cortexMPassOverFunction(I.second, /*Aggressive=*/true);
++    }
 +
 +    if (FuncsChanged.empty()) {
 +      BC.outs() << "BOLT-INFO: Reg Reassignment Pass: no changes were made.\n";
@@ -14739,10 +14841,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..b308b0c03e77031496b3539b4a217933
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..5c05ec4981af6940b5ea960af7c67b5ba16d7eb8
+index 0000000000000000000000000000000000000000..387dd7dc922770aa467caf4c7623220c4ff1606c
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3033 @@
+@@ -0,0 +1,3050 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -15742,11 +15844,28 @@ index 0000000000000000000000000000000000000000..5c05ec4981af6940b5ea960af7c67b5b
 +        Candidates.emplace_back(Low, High);
 +  }
 +
++  void getAggressiveRegisterReassignmentCandidates(
++      SmallVectorImpl<std::pair<MCPhysReg, MCPhysReg>> &Candidates) const
++      override {
++    if (!hasThumb2())
++      return;
++    // R0/R1 are ABI result registers and R4-R11 are callee-saved or special
++    // under the qualified platform contract.  R2/R3 and R12 are the ordinary
++    // caller-saved names whose different Thumb encoding classes can expose a
++    // size win after whole-function entry/exit liveness has been checked.
++    for (MCPhysReg Low : {ARM::R2, ARM::R3})
++      Candidates.emplace_back(Low, ARM::R12);
++  }
++
 +  std::optional<int64_t>
 +  applyRegisterReassignment(MCInst &Inst, MCPhysReg A,
 +                            MCPhysReg B) const override {
-+    if (!hasThumb2() || A == B || A < ARM::R4 || A > ARM::R6 ||
-+        (B != ARM::R8 && B != ARM::R10))
++    const bool ConservativePair =
++        A >= ARM::R4 && A <= ARM::R6 && (B == ARM::R8 || B == ARM::R10);
++    const bool AggressivePair =
++        (A == ARM::R2 || A == ARM::R3) && B == ARM::R12;
++    if (!hasThumb2() || A == B ||
++        (!ConservativePair && !AggressivePair))
 +      return std::nullopt;
 +
 +    const MCInstrDesc &Desc = Info->get(Inst.getOpcode());
@@ -19331,6 +19450,112 @@ index 0000000000000000000000000000000000000000..ba8e4c796fba8c7cb947c5f9c4d7ee02
 +  nop
 +  .endr
 +  .size switch_worker, .-switch_worker
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-aggressive-register-reassignment.s b/bolt/test/ARM/thumb-aggressive-register-reassignment.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..79ee731f5c9985e5df904f9c6f48400e6943846f
+--- /dev/null
++++ b/bolt/test/ARM/thumb-aggressive-register-reassignment.s
+@@ -0,0 +1,100 @@
++## Qualify the liveness-backed Cortex-M half of BOLT RegReAssign.  R2/R3 and
++## R12 are ordinary caller-saved AAPCS names, but exchanging them is legal only
++## when both are dead at every function entry and no ABI output names either
++## register.  A live-in control must remain unchanged.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: ld.lld --emit-relocs --no-merge-exidx-entries -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.o -o %t.exe
++# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --reg-reassign \
++# RUN:   --firmbolt-allow-register-reassignment --use-aggr-reg-reassign \
++# RUN:   --assume-abi -o %t.denied 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=DENIED
++# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --reg-reassign \
++# RUN:   --firmbolt-allow-register-reassignment \
++# RUN:   --firmbolt-allow-aggressive-register-reassignment \
++# RUN:   --use-aggr-reg-reassign -o %t.noabi 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=NOABI
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --reg-reassign \
++# RUN:   --firmbolt-allow-register-reassignment \
++# RUN:   --firmbolt-allow-aggressive-register-reassignment \
++# RUN:   --use-aggr-reg-reassign --assume-abi -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=worker \
++# RUN:   %t.bolt | FileCheck %s --check-prefix=WORKER
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=live_in_worker \
++# RUN:   %t.bolt | FileCheck %s --check-prefix=LIVE
++
++# DENIED: aggressive Cortex-M register reassignment requires --firmbolt-allow-aggressive-register-reassignment
++# NOABI: aggressive Cortex-M register reassignment requires --assume-abi
++# LOG: BOLT-INFO: Reg Reassignment Pass Stats:
++# LOG-NEXT: 1 functions affected.
++# LOG-NEXT: 4 static bytes saved.
++# WORKER-LABEL: <worker>:
++# WORKER-NEXT: mov.w r2, r1
++# WORKER-NEXT: ldr r0, [r2]
++# WORKER-NEXT: str r0, [r2, #0x4]
++# WORKER-NEXT: bx lr
++# LIVE-LABEL: <live_in_worker>:
++# LIVE-NEXT: add.w r0, r2, r3
++# LIVE-NEXT: mov.w r12, r1
++# LIVE-NEXT: ldr.w r1, [r12]
++# LIVE-NEXT: add r0, r1
++# LIVE-NEXT: bx lr
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  .fnstart
++  movs r0, #0
++  bl worker
++1:
++  b 1b
++  .cantunwind
++  .fnend
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl worker
++  .type worker,%function
++  .thumb_func
++worker:
++  .fnstart
++  mov.w r12, r1
++  ldr.w r0, [r12, #0]
++  str.w r0, [r12, #4]
++  bx lr
++  .cantunwind
++  .fnend
++  .size worker, .-worker
++
++  .globl live_in_worker
++  .type live_in_worker,%function
++  .thumb_func
++live_in_worker:
++  .fnstart
++  add.w r0, r2, r3
++  mov.w r12, r1
++  ldr.w r1, [r12, #0]
++  add r0, r1
++  bx lr
++  .cantunwind
++  .fnend
++  .size live_in_worker, .-live_in_worker
 +
 +  .section .isr_vector,"a",%progbits
 +  .globl g_pfnVectors
@@ -27015,7 +27240,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..356dd4fdeb503e5611b762e21c0599202389c3b4 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..91bb0cb003c5216db002649e5550474ac0a14d5f 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -27085,7 +27310,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..356dd4fdeb503e5611b762e21c059920
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +155,905 @@ protected:
+@@ -125,6 +155,940 @@ protected:
  };
  } // namespace
  
@@ -27221,6 +27446,13 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..356dd4fdeb503e5611b762e21c059920
 +           Candidate.second == ARM::R9;
 +  }));
 +
++  SmallVector<std::pair<MCPhysReg, MCPhysReg>, 4> AggressiveCandidates;
++  BC->MIB->getAggressiveRegisterReassignmentCandidates(
++      AggressiveCandidates);
++  EXPECT_EQ(AggressiveCandidates,
++            (SmallVector<std::pair<MCPhysReg, MCPhysReg>, 4>{
++                {ARM::R2, ARM::R12}, {ARM::R3, ARM::R12}}));
++
 +  MCInst Load = MCInstBuilder(ARM::t2LDRi12)
 +                    .addReg(ARM::R0)
 +                    .addReg(ARM::R8)
@@ -27237,6 +27469,34 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..356dd4fdeb503e5611b762e21c059920
 +  EXPECT_EQ(Load.getOperand(1).getReg(), ARM::R4);
 +  EXPECT_EQ(Load.getOperand(2).getImm(), 1);
 +  EXPECT_EQ(BC->MIB->getInstructionSize(Load), 2u);
++
++  MCInst AggressiveLoad = MCInstBuilder(ARM::t2LDRi12)
++                              .addReg(ARM::R0)
++                              .addReg(ARM::R12)
++                              .addImm(4)
++                              .addImm(ARMCC::AL)
++                              .addReg(0);
++  BC->MIB->setSize(AggressiveLoad, 4);
++  std::optional<int64_t> AggressiveLoadSaving =
++      BC->MIB->applyRegisterReassignment(AggressiveLoad, ARM::R2,
++                                         ARM::R12);
++  ASSERT_TRUE(AggressiveLoadSaving);
++  EXPECT_EQ(*AggressiveLoadSaving, 2);
++  EXPECT_EQ(AggressiveLoad.getOpcode(), ARM::tLDRi);
++  EXPECT_EQ(AggressiveLoad.getOperand(1).getReg(), ARM::R2);
++
++  MCInst AggressiveMove = MCInstBuilder(ARM::t2MOVr)
++                              .addReg(ARM::R12)
++                              .addReg(ARM::R1)
++                              .addImm(ARMCC::AL)
++                              .addReg(0);
++  BC->MIB->setSize(AggressiveMove, 4);
++  std::optional<int64_t> AggressiveMoveSaving =
++      BC->MIB->applyRegisterReassignment(AggressiveMove, ARM::R2,
++                                         ARM::R12);
++  ASSERT_TRUE(AggressiveMoveSaving);
++  EXPECT_EQ(*AggressiveMoveSaving, 0);
++  EXPECT_EQ(AggressiveMove.getOperand(0).getReg(), ARM::R2);
 +
 +  MCInst Store = MCInstBuilder(ARM::t2STRi12)
 +                     .addReg(ARM::R8)
