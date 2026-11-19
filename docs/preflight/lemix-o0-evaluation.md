@@ -1436,9 +1436,24 @@ installation evidence on real firmware, not original-board execution or a
 speedup. The aggregate gate is 62/62, ARM BOLT lit is 85/85, AArch32 JITLink
 is 12/12 and BOLT units remain 130 passed plus 150 explicit skips.
 
+v159 replaces that two-identity check with an exact linker-to-final-file map.
+The version-2 layout schema records the linked bytes for every instruction
+origin. The driver requires each origin to occupy one reported fragment and
+one executable section, rejects overlapping ranges, and compares all bytes
+with the completed ELF. Across 61 applicable profiles it validates 128,212
+origins in 1,940 functions; 98,096 origins are in 1,130 modified functions and
+58,343 may load or store. The data-only narrow-relocation fixture has no
+instruction origins and is explicitly non-applicable. ESCape32 contributes
+13,243 origins, including 7,659 in modified functions and 4,957 potentially
+faulting accesses; FreeRTOS M4 contributes 42,359, 34,417 and 19,909,
+respectively. A negative artifact restores valid original bytes `009a` over
+linked bytes `1246` at `spill_worker` identity `0x080000ac`; the generic gate
+rejects it at that identity. These counts establish final publication
+identity, not semantic equivalence or runtime benefit.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `b8edce9d9aaacc864f9af2ed7c8eeb0f5f72323a8b182c3118332d4147775e0a`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `7823439bfd77355043a8db514f38d9d8eee1485edd1cae009a728eb8083b025a`. Regression runs complete 85/85 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v158 validation manifest](../../build/preflight/firm-bolt-cortex-m-v158-compact-publish-r2/validation-manifest.json), SHA-256 `562616605c3fc674699bf12857e9e170551b40182c674791b02334d9c0751475`, binds the 62-profile production run, final-file M0+ instruction audit, exact FreeRTOS regression, fixed-work execution, regression XML and clean-apply result.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `2e515778f1de70d73d6994596c7d39748b2df3046f76fed1317be8e573a0b701`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `31528bf54e3fcbf3e559759a9e617f49d37d12f9cca048031123a2cfd432606d`. Regression runs complete 85/85 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v159 validation manifest](evidence/firmbolt-cortex-m-v159-validation.json), SHA-256 `57ad6d9ed16d2dbb6c9f49afe023bdf983accca57703ebaa0e5bd2e131ee7a01`, binds the 62-profile production run, exact linked-byte audit, negative overlay fixture, fixed-work execution, regression XML and clean-apply result.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

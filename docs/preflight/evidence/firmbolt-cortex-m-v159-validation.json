@@ -1,0 +1,104 @@
+{
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "milestone": "v159-final-linked-byte-map",
+  "generated_at_utc": "2026-11-19T21:25:15Z",
+  "repository_base_commit": "d7d43f2b711161dd4f8d3775f03d4776dc737f78",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--full-pipeline",
+    "--frame-opt",
+    "all",
+    "--skip-build",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-v159-final-byte-map-r3"
+  ],
+  "production_status": "accepted",
+  "production_profiles": {
+    "accepted": 62,
+    "total": 62,
+    "linked_byte_validation_applicable": 61,
+    "linked_byte_validation_not_applicable": 1,
+    "not_applicable_reason": "the narrow-data relocation fixture contains no executable instruction origins"
+  },
+  "linked_instruction_publication": {
+    "layout_schema_version": 2,
+    "functions": 1940,
+    "modified_functions": 1130,
+    "instruction_origins": 128212,
+    "modified_function_instruction_origins": 98096,
+    "potentially_faulting_load_store_origins": 58343,
+    "requirements": [
+      "every mapped instruction has linker-produced expected bytes",
+      "every mapped instruction is contained by one final function fragment and one executable section",
+      "mapped instruction ranges do not overlap",
+      "the final ELF bytes exactly equal the linker-produced bytes"
+    ]
+  },
+  "real_firmware": {
+    "escape32_m0plus_default": {
+      "functions": 124,
+      "modified_functions": 75,
+      "instruction_origins": 13243,
+      "modified_function_instruction_origins": 7659,
+      "potentially_faulting_load_store_origins": 4957,
+      "linked_and_published_stream_sha256": "baddd5e05e6b48f1da2e76e8d2ded5b2a4568f3557bc3bdec83f380ce9078928"
+    },
+    "freertos_m4_default": {
+      "functions": 596,
+      "modified_functions": 374,
+      "instruction_origins": 42359,
+      "modified_function_instruction_origins": 34417,
+      "potentially_faulting_load_store_origins": 19909,
+      "linked_and_published_stream_sha256": "1e78bf23b4a0abc988d488f748627044d7f638b06fd1878fb079ced7c3efca6c",
+      "fixed_work_units": 10000,
+      "ram_prefix_sha256": "91d59804ad63d47c033a2557528566a4d4bbd4c0628c23a02fdad2e277126351"
+    }
+  },
+  "negative_control": {
+    "status": "accepted",
+    "function": "spill_worker",
+    "original_identity": "0x080000ac",
+    "output_address": "0x080000ac",
+    "restored_valid_original_bytes_hex": "009a",
+    "expected_linked_bytes_hex": "1246",
+    "observed_rejection": "spill_worker final instruction at 0x80000ac is 009a, but BOLT linked 1246",
+    "fixture": "reject-valid-original-instruction-overlay.elf",
+    "fixture_sha256": "5e66682b23928f70a9df5936cd9d57d59844860c43b0ef6f9b8b2ef7af3056fe"
+  },
+  "regressions": {
+    "arm_bolt_lit": {"passed": 85, "failed": 0},
+    "aarch32_jitlink_lit": {"passed": 12, "failed": 0},
+    "core_units": {
+      "passed": 86,
+      "skipped_target_inapplicable": 150,
+      "failed": 0
+    },
+    "pass_units": {"passed": 5, "skipped": 0, "failed": 0},
+    "profile_units": {"passed": 39, "skipped": 0, "failed": 0}
+  },
+  "clean_apply": {
+    "status": "accepted",
+    "changed_files": 152
+  },
+  "explicitly_not_claimed": [
+    "semantic equivalence from byte publication alone",
+    "ESCape32 board execution",
+    "ESCape32 or FreeRTOS runtime speedup",
+    "complete x86-backend feature parity"
+  ],
+  "sha256": {
+    "patches/bolt-fastdyn-preflight.patch": "2e515778f1de70d73d6994596c7d39748b2df3046f76fed1317be8e573a0b701",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "31528bf54e3fcbf3e559759a9e617f49d37d12f9cca048031123a2cfd432606d",
+    "report.json": "b3d23a3ffd0cdd577fb1f95f3cbda7d57933910c3e33f92a04467b989e38f600",
+    "reject-valid-original-instruction-overlay.elf": "5e66682b23928f70a9df5936cd9d57d59844860c43b0ef6f9b8b2ef7af3056fe",
+    "arm-bolt-lit.xml": "dd948efd017a2b85c32a7bc32bf7f11dda09325122730c55d8e0da28be56bc66",
+    "aarch32-jitlink-lit.xml": "5c4bf1c182e594d4d570e0df6b471a08f7ab9041f79fcd368f420b303dfc366f",
+    "core-tests.xml": "609610fed9113ce9f9f6db837faec8788594fea8825224420493ad5dd3f3f5b3",
+    "pass-tests.xml": "3b4a475286538afa3c30bf71ccd65cfd42d15de347343d1e83434f78e1adcad0",
+    "profile-tests.xml": "b281e02689e3f330a257b49e3120d26f82204447e8fe037d8403eb9ce613766a"
+  }
+}

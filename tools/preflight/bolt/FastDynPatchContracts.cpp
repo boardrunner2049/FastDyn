@@ -14,6 +14,7 @@
 #include "bolt/Utils/CommandLineOpts.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
@@ -4599,16 +4600,32 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
     json::Array SynthesizedInlineData;
     json::Array OwnedLiteralPools;
     if (PublishedOriginal) {
+      ErrorOr<ArrayRef<uint8_t>> OriginalData = BF.getData();
+      if (!OriginalData)
+        return createStringError(
+            OriginalData.getError(),
+            "cannot read original instruction bytes for retained function %s",
+            BF.getPrintName().c_str());
       auto OriginalIt = OriginalInstructions.lower_bound(BF.getAddress());
       const uint64_t OriginalEnd = BF.getAddress() + BF.getSize();
       while (OriginalIt != OriginalInstructions.end() &&
              OriginalIt->first < OriginalEnd) {
         const OriginalInstructionRecord &Record = OriginalIt->second;
+        const uint64_t Offset = Record.Address - BF.getAddress();
+        if (Offset > OriginalData->size() ||
+            Record.Size > OriginalData->size() - Offset)
+          return createStringError(
+              inconvertibleErrorCode(),
+              "original instruction 0x%" PRIx64
+              " in retained function %s is outside its input bytes",
+              Record.Address, BF.getPrintName().c_str());
         json::Object Origin;
         Origin["origin_kind"] = "original_instruction";
         Origin["original_address"] = static_cast<int64_t>(Record.Address);
         Origin["output_address"] = static_cast<int64_t>(Record.Address);
         Origin["output_size"] = static_cast<int64_t>(Record.Size);
+        Origin["linked_bytes_hex"] =
+            toHex(OriginalData->slice(Offset, Record.Size), true);
         Origin["may_load"] = Record.MayLoad;
         Origin["may_store"] = Record.MayStore;
         Origin["is_call"] = Record.IsCall;
@@ -4641,6 +4658,7 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
         if (PublishedOriginal)
           continue;
         uint64_t Size = reportInstructionSize(BC, Inst);
+        std::string LinkedBytesHex;
         const bool HasOriginal =
             BC.MIB->hasAnnotation(Inst, OriginAnnotationIndex);
         const bool HasSynthesizedFrom =
@@ -4724,6 +4742,7 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
                 "truncated linked Thumb-%" PRIu64 " instruction in %s at "
                 "0x%" PRIx64,
                 Size * 8, BF.getPrintName().c_str(), Output);
+          LinkedBytesHex = toHex(Image.slice(ImageOffset, Size), true);
         }
         if (!HasOriginal && !HasSynthesizedFrom && !HasTransformedFrom &&
             !HasCallPromotionFrom &&
@@ -4805,6 +4824,7 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
         }
         Origin["output_address"] = static_cast<int64_t>(Output);
         Origin["output_size"] = static_cast<int64_t>(Size);
+        Origin["linked_bytes_hex"] = LinkedBytesHex;
         Origin["may_load"] = BC.MII->get(Inst.getOpcode()).mayLoad();
         Origin["may_store"] = BC.MII->get(Inst.getOpcode()).mayStore();
         Origin["is_call"] = BC.MIB->isCall(Inst);
@@ -5344,7 +5364,7 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
   }
 
   json::Object Root;
-  Root["schema_version"] = 1;
+  Root["schema_version"] = 2;
   Root["producer"] = "BOLT FastDyn final firmware layout";
   Root["inline_jump_table_count"] =
       static_cast<int64_t>(InlineTableCount);

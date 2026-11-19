@@ -988,6 +988,232 @@ def decode_one_thumb(decoder: Cs, image: Path, address: int) -> Any:
     return decoded[0]
 
 
+def validate_final_linked_instruction_bytes(
+    candidate: Path,
+    final_layout: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind every linker-resolved origin record to the published ELF bytes.
+
+    The final-layout producer observes each instruction in BOLT's linked
+    fragment image.  Comparing those exact bytes to the completed ELF catches
+    any later section, relocation or compact-publication writer that restores
+    or corrupts an otherwise valid instruction.  Decoding alone is not enough:
+    the restored input instruction that exposed v158 was still valid Thumb.
+    """
+    if final_layout.get("schema_version") != 2:
+        raise RuntimeError(
+            "final firmware layout does not provide the v2 linked-byte "
+            "identity contract"
+        )
+    executable_ranges: list[tuple[int, int, str]] = []
+    with candidate.open("rb") as stream:
+        elf = ELFFile(stream)
+        for section in elf.iter_sections():
+            start = int(section["sh_addr"])
+            size = int(section["sh_size"])
+            flags = int(section["sh_flags"])
+            if size and flags & 0x4 and section["sh_type"] != "SHT_NOBITS":
+                executable_ranges.append((start, start + size, section.name))
+
+    linked_digest = hashlib.sha256()
+    published_digest = hashlib.sha256()
+    function_count = 0
+    modified_function_count = 0
+    origin_count = 0
+    modified_origin_count = 0
+    potentially_faulting_origin_count = 0
+    origin_kind_counts: dict[str, int] = {}
+    seen_output_ranges: list[tuple[int, int, str]] = []
+    for function in final_layout.get("functions", []):
+        origins = function.get("instruction_origins", [])
+        if not origins:
+            continue
+        function_count += 1
+        modified = bool(function.get("firmware_modified"))
+        modified_function_count += modified
+        fragments = [
+            (
+                int(fragment["output_address"]),
+                int(fragment["output_address"])
+                + int(fragment["output_size"]),
+            )
+            for fragment in function.get("fragments", [])
+            if int(fragment["output_size"])
+        ]
+        if not fragments:
+            raise RuntimeError(
+                f"{function['name']} has mapped instructions but no emitted "
+                "fragment"
+            )
+        for origin in origins:
+            address = int(origin["output_address"])
+            size = int(origin["output_size"])
+            expected_hex = origin.get("linked_bytes_hex")
+            if not isinstance(expected_hex, str) or not expected_hex:
+                raise RuntimeError(
+                    f"{function['name']} origin at 0x{address:x} has no "
+                    "linker-produced byte identity"
+                )
+            try:
+                expected = bytes.fromhex(expected_hex)
+            except ValueError as error:
+                raise RuntimeError(
+                    f"{function['name']} origin at 0x{address:x} has "
+                    "malformed linker-produced bytes"
+                ) from error
+            if len(expected) != size:
+                raise RuntimeError(
+                    f"{function['name']} origin at 0x{address:x} reports "
+                    f"{size} bytes but carries {len(expected)} linked bytes"
+                )
+            if not any(start <= address and address + size <= end
+                       for start, end in fragments):
+                raise RuntimeError(
+                    f"{function['name']} origin at 0x{address:x} is outside "
+                    "its final function fragments"
+                )
+            matching_sections = [
+                name for start, end, name in executable_ranges
+                if start <= address and address + size <= end
+            ]
+            if len(matching_sections) != 1:
+                raise RuntimeError(
+                    f"{function['name']} origin at 0x{address:x} is covered "
+                    f"by {len(matching_sections)} executable sections"
+                )
+            seen_output_ranges.append(
+                (address, address + size, function["name"])
+            )
+            actual = virtual_bytes(candidate, address, size)
+            if actual != expected:
+                raise RuntimeError(
+                    f"{function['name']} final instruction at 0x{address:x} "
+                    f"is {actual.hex()}, but BOLT linked {expected.hex()}"
+                )
+            identity = struct.pack("<QQ", address, size)
+            linked_digest.update(identity)
+            linked_digest.update(expected)
+            published_digest.update(identity)
+            published_digest.update(actual)
+            kind = str(origin["origin_kind"])
+            origin_kind_counts[kind] = origin_kind_counts.get(kind, 0) + 1
+            origin_count += 1
+            modified_origin_count += modified
+            potentially_faulting_origin_count += bool(
+                origin.get("may_load") or origin.get("may_store")
+            )
+    ordered_ranges = sorted(seen_output_ranges)
+    for previous, current in zip(ordered_ranges, ordered_ranges[1:]):
+        if previous[1] > current[0]:
+            raise RuntimeError(
+                f"{previous[2]} and {current[2]} claim overlapping final "
+                f"instruction ranges 0x{previous[0]:x}..0x{previous[1]:x} "
+                f"and 0x{current[0]:x}..0x{current[1]:x}"
+            )
+    linked_sha = linked_digest.hexdigest()
+    published_sha = published_digest.hexdigest()
+    if linked_sha != published_sha:
+        raise RuntimeError("linked and published instruction digests differ")
+    return {
+        "status": "accepted",
+        "applicable": bool(origin_count),
+        "function_count": function_count,
+        "modified_function_count": modified_function_count,
+        "instruction_origin_count": origin_count,
+        "modified_instruction_origin_count": modified_origin_count,
+        "potentially_faulting_instruction_origin_count":
+            potentially_faulting_origin_count,
+        "origin_kind_counts": origin_kind_counts,
+        "executable_sections": [
+            {"name": name, "start": start, "end": end}
+            for start, end, name in executable_ranges
+        ],
+        "linked_instruction_stream_sha256": linked_sha,
+        "published_instruction_stream_sha256": published_sha,
+        "comparison": "exact_linker_fragment_bytes_to_final_elf",
+    }
+
+
+def validate_final_byte_overlay_negative_control(
+    reference: Path,
+    candidate: Path,
+    output: Path,
+    final_layout: dict[str, Any],
+) -> dict[str, Any]:
+    """Prove that restoring one valid original instruction is rejected."""
+    selected: tuple[str, int, int, int, bytes, bytes] | None = None
+    for function in final_layout.get("functions", []):
+        if not function.get("firmware_modified"):
+            continue
+        for origin in function.get("instruction_origins", []):
+            original_value = origin.get("original_address")
+            if origin.get("origin_kind") != "original_instruction" \
+                    or original_value is None:
+                continue
+            original_address = int(original_value)
+            output_address = int(origin["output_address"])
+            size = int(origin["output_size"])
+            original = virtual_bytes(reference, original_address, size)
+            linked = bytes.fromhex(origin["linked_bytes_hex"])
+            if original != linked:
+                selected = (
+                    function["name"], original_address, output_address,
+                    size, original, linked,
+                )
+                break
+        if selected is not None:
+            break
+    if selected is None:
+        raise RuntimeError(
+            "final-byte negative control has no transformed instruction"
+        )
+    name, original_address, output_address, size, original, linked = selected
+    with candidate.open("rb") as stream:
+        elf = ELFFile(stream)
+        file_offset = None
+        for section in elf.iter_sections():
+            start = int(section["sh_addr"])
+            section_size = int(section["sh_size"])
+            if (
+                section["sh_type"] != "SHT_NOBITS"
+                and start <= output_address
+                and output_address + size <= start + section_size
+            ):
+                file_offset = (
+                    int(section["sh_offset"]) + output_address - start
+                )
+                break
+    if file_offset is None:
+        raise RuntimeError(
+            "final-byte negative control cannot map the selected output PC"
+        )
+    corrupted = bytearray(candidate.read_bytes())
+    corrupted[file_offset:file_offset + size] = original
+    negative = output / "reject-valid-original-instruction-overlay.elf"
+    negative.write_bytes(corrupted)
+    rejection = None
+    try:
+        validate_final_linked_instruction_bytes(negative, final_layout)
+    except RuntimeError as error:
+        rejection = str(error)
+    if rejection is None or "but BOLT linked" not in rejection:
+        raise RuntimeError(
+            "final-byte negative control did not reject the restored input "
+            "instruction"
+        )
+    return {
+        "status": "accepted",
+        "fixture": str(negative),
+        "function": name,
+        "original_identity": original_address,
+        "output_address": output_address,
+        "restored_original_bytes_hex": original.hex(),
+        "expected_linked_bytes_hex": linked.hex(),
+        "rejection": rejection,
+        "fixture_sha256": sha256(negative),
+    }
+
+
 def validate_m0_handler_final_instructions(
     reference: Path,
     candidate: Path,
@@ -6834,6 +7060,17 @@ def main() -> int:
                     f"{output / f'bolt-pass-report-{label}.json'}.layout.json"
                 ).read_text()
             )
+            results[label]["final_instruction_publication_validation"] = (
+                validate_final_linked_instruction_bytes(
+                    candidate, final_layout
+                )
+            )
+            if label == "m3":
+                results[label]["final_byte_overlay_negative_control"] = (
+                    validate_final_byte_overlay_negative_control(
+                        image, candidate, output, final_layout
+                    )
+                )
             if label in {
                 "chibios", "threadx", "zephyr",
                 "zephyr_handler_branch_elision",

@@ -4705,10 +4705,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..8b5a8c728883e717bc717f9404b378a75ad94c42
+index 0000000000000000000000000000000000000000..a527b815390c87571d07b14b8785ea3a8c51e9fb
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,5466 @@
+@@ -0,0 +1,5486 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -4725,6 +4725,7 @@ index 0000000000000000000000000000000000000000..8b5a8c728883e717bc717f9404b378a7
 +#include "bolt/Utils/CommandLineOpts.h"
 +#include "llvm/ADT/DenseSet.h"
 +#include "llvm/ADT/SmallVector.h"
++#include "llvm/ADT/StringExtras.h"
 +#include "llvm/MC/MCDwarf.h"
 +#include "llvm/Support/CommandLine.h"
 +#include "llvm/Support/FileSystem.h"
@@ -9310,16 +9311,32 @@ index 0000000000000000000000000000000000000000..8b5a8c728883e717bc717f9404b378a7
 +    json::Array SynthesizedInlineData;
 +    json::Array OwnedLiteralPools;
 +    if (PublishedOriginal) {
++      ErrorOr<ArrayRef<uint8_t>> OriginalData = BF.getData();
++      if (!OriginalData)
++        return createStringError(
++            OriginalData.getError(),
++            "cannot read original instruction bytes for retained function %s",
++            BF.getPrintName().c_str());
 +      auto OriginalIt = OriginalInstructions.lower_bound(BF.getAddress());
 +      const uint64_t OriginalEnd = BF.getAddress() + BF.getSize();
 +      while (OriginalIt != OriginalInstructions.end() &&
 +             OriginalIt->first < OriginalEnd) {
 +        const OriginalInstructionRecord &Record = OriginalIt->second;
++        const uint64_t Offset = Record.Address - BF.getAddress();
++        if (Offset > OriginalData->size() ||
++            Record.Size > OriginalData->size() - Offset)
++          return createStringError(
++              inconvertibleErrorCode(),
++              "original instruction 0x%" PRIx64
++              " in retained function %s is outside its input bytes",
++              Record.Address, BF.getPrintName().c_str());
 +        json::Object Origin;
 +        Origin["origin_kind"] = "original_instruction";
 +        Origin["original_address"] = static_cast<int64_t>(Record.Address);
 +        Origin["output_address"] = static_cast<int64_t>(Record.Address);
 +        Origin["output_size"] = static_cast<int64_t>(Record.Size);
++        Origin["linked_bytes_hex"] =
++            toHex(OriginalData->slice(Offset, Record.Size), true);
 +        Origin["may_load"] = Record.MayLoad;
 +        Origin["may_store"] = Record.MayStore;
 +        Origin["is_call"] = Record.IsCall;
@@ -9352,6 +9369,7 @@ index 0000000000000000000000000000000000000000..8b5a8c728883e717bc717f9404b378a7
 +        if (PublishedOriginal)
 +          continue;
 +        uint64_t Size = reportInstructionSize(BC, Inst);
++        std::string LinkedBytesHex;
 +        const bool HasOriginal =
 +            BC.MIB->hasAnnotation(Inst, OriginAnnotationIndex);
 +        const bool HasSynthesizedFrom =
@@ -9435,6 +9453,7 @@ index 0000000000000000000000000000000000000000..8b5a8c728883e717bc717f9404b378a7
 +                "truncated linked Thumb-%" PRIu64 " instruction in %s at "
 +                "0x%" PRIx64,
 +                Size * 8, BF.getPrintName().c_str(), Output);
++          LinkedBytesHex = toHex(Image.slice(ImageOffset, Size), true);
 +        }
 +        if (!HasOriginal && !HasSynthesizedFrom && !HasTransformedFrom &&
 +            !HasCallPromotionFrom &&
@@ -9516,6 +9535,7 @@ index 0000000000000000000000000000000000000000..8b5a8c728883e717bc717f9404b378a7
 +        }
 +        Origin["output_address"] = static_cast<int64_t>(Output);
 +        Origin["output_size"] = static_cast<int64_t>(Size);
++        Origin["linked_bytes_hex"] = LinkedBytesHex;
 +        Origin["may_load"] = BC.MII->get(Inst.getOpcode()).mayLoad();
 +        Origin["may_store"] = BC.MII->get(Inst.getOpcode()).mayStore();
 +        Origin["is_call"] = BC.MIB->isCall(Inst);
@@ -10055,7 +10075,7 @@ index 0000000000000000000000000000000000000000..8b5a8c728883e717bc717f9404b378a7
 +  }
 +
 +  json::Object Root;
-+  Root["schema_version"] = 1;
++  Root["schema_version"] = 2;
 +  Root["producer"] = "BOLT FastDyn final firmware layout";
 +  Root["inline_jump_table_count"] =
 +      static_cast<int64_t>(InlineTableCount);
@@ -21898,10 +21918,10 @@ index 0000000000000000000000000000000000000000..9e2534b1e091aa6e8c2936f6c3c5b19b
 +_vector_end:
 diff --git a/bolt/test/ARM/thumb-frame-r7-push-fop.s b/bolt/test/ARM/thumb-frame-r7-push-fop.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..0247cb01ab0b6b4f3fea67535357034ec85715d6
+index 0000000000000000000000000000000000000000..ff15fb7b9f04e0c3dd7dcd8976049228f7267ca4
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-frame-r7-push-fop.s
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,72 @@
 +## A Thumb frame commonly saves r7 in a multi-register PUSH before making it
 +## the frame pointer.  The save is one conservative, non-forwardable frame
 +## range; it must not be mistaken for an escaped r7-derived address.  Ordinary
@@ -21919,6 +21939,8 @@ index 0000000000000000000000000000000000000000..0247cb01ab0b6b4f3fea67535357034e
 +# RUN:   | FileCheck %s --check-prefix=DISASM
 +# RUN: %python -c "import json; d=json.load(open('%t.json')); f=next(x for x in d['functions'] if x['name']=='worker'); print(f['firmware_modified'],','.join(f['firmware_modification_reasons']),f['post_optimization_instruction_count'],len(f['instructions']))" \
 +# RUN:   | FileCheck %s --check-prefix=REPORT
++# RUN: %python -c "import json; d=json.load(open('%t.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='worker'); o=next(x for x in f['instruction_origins'] if x.get('original_address')==0x08000010); print(o['linked_bytes_hex'],all(len(bytes.fromhex(x['linked_bytes_hex']))==x['output_size'] for x in f['instruction_origins']))" \
++# RUN:   | FileCheck %s --check-prefix=LINKED-BYTES
 +
 +# BOLT: BOLT-INFO: FOP optimized 1 redundant load(s)
 +# BOLT: BOLT-INFO: FRAME ANALYSIS: 0 function(s) (0.0% dyn cov) could not have its frame indices restored.
@@ -21935,6 +21957,7 @@ index 0000000000000000000000000000000000000000..0247cb01ab0b6b4f3fea67535357034e
 +# DISASM-NEXT: pop {r7, pc}
 +
 +# REPORT: True frame_load_forwarding 8 8
++# LINKED-BYTES: 0146 True
 +
 +  .syntax unified
 +  .thumb

@@ -1702,6 +1702,36 @@ is bound in
 and
 [`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v158-compact-publish-r2/validation-manifest.json).
 
+v159 generalizes that two-instruction regression into a final-file invariant.
+The linker-resolved layout schema is now version 2: every instruction origin
+carries the exact bytes produced by BOLT's linked fragment image. The driver
+requires each range to lie inside one reported function fragment and one
+executable ELF section, rejects overlapping instruction ranges, and compares
+the linker bytes exactly with the completed output ELF. This is stronger than
+re-decoding the output, because a stale original instruction can still be
+valid Thumb code.
+
+Across the 62-profile production matrix, 61 profiles contain executable
+origins and exactly validate 128,212 instructions in 1,940 functions. Of
+these, 98,096 origins belong to 1,130 modified functions and 58,343 are
+potentially faulting loads or stores. The remaining narrow-data fixture is
+explicitly non-applicable because it contains only relocation-bearing data
+and no instruction origins. The real ESCape32 default profile validates
+13,243 origins, including 7,659 in 75 modified functions and 4,957 load/store
+origins. The real FreeRTOS M4 default validates 42,359 origins, including
+34,417 in 374 modified functions and 19,909 load/store origins.
+
+A retained negative artifact restores the valid original bytes `00 9a` over
+BOLT's linked `12 46` at original identity `0x080000ac` in `spill_worker`.
+The generic validator rejects it at that exact identity. The complete matrix,
+fixed-work checks and unchanged-backend regressions remain green: 62/62
+profiles, 85/85 ARM BOLT lit, 12/12 AArch32 JITLink and 130 unit passes plus
+150 explicit target-inapplicable skips. Evidence is in
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v159-final-byte-map-r3/report.json)
+and the
+[`validation manifest`](evidence/firmbolt-cortex-m-v159-validation.json).
+This proves publication identity, not semantic equivalence or speedup.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
