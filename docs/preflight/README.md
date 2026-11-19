@@ -116,9 +116,10 @@ Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
 function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
 fixtures, including linked split-fragment EHABI growth and retained-relocation
 rebuilding, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
-relocation-complete compact and generic ARM EHABI
-function-reordering fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v128 run accepts all forty-five without
+relocation-complete compact and generic ARM EHABI function-reordering
+fixtures, a platform-qualified absolute `R_ARM_TARGET1` dispatch-table
+function-reordering fixture, and the real Cortex-M4 FreeRTOS image.
+The 19 November production-parity-v129 run accepts all forty-six without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -754,26 +755,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v128-fragment-ehabi-relocations-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v129-target1-absolute-relocation-2026-11-19
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v128-fragment-ehabi-relocations-2026-11-18/report.json),
-SHA-256 `dfa8594f47b1562b7492da3f3b33e51f3b6756b802b3a59790cefa4737f37e7f`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v129-target1-absolute-relocation-2026-11-19/report.json),
+SHA-256 `6e7d43ca53ea984fa75307616b5d1c576651ef895ce5c20cd935920c87a8423e`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v128-fragment-ehabi-relocations-2026-11-18/validation-manifest.json)
-(SHA-256
-`beeda83a076c888da5a84d18f71ac2325dca52fabae03d98ba0f0e0af32a2246`)
-records the exact regression commands, outcomes and hashes of their XML/JSON
-evidence.
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v129-target1-absolute-relocation-2026-11-19/validation-manifest.json)
+has SHA-256
+`01c2e06e41207edafba1c5b9786b39912e0fef661081a61cfd18df14d81da6aa`
+and records the exact regression commands, outcomes and hashes of their
+XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
-(SHA-256
-`a2ff74fc91f03a27e04974f79cb76d200a14951e8e397e1e30c36fbf392b1e8d`),
+has SHA-256
+`7ba88b0544db008bd6bd1800fef5948dc3eb3dacbdb49054655f22e042e192fc`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`0c262afbeae56163365c24a032a082b28743e05a6fd7d50347ee162f8c6a1eb6`.
+`291e21575bc060fd7fad031666788f1a55439346f404a70df4daadb66025edae`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -805,7 +806,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v128 validation passes 65/65 BOLT ARM lit tests, 12/12 AArch32
+The current v129 validation passes 66/66 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -976,6 +977,25 @@ both images and observes `(5, 42, 2)`. A matched image without the eight-byte
 linker-owned index gap rejects atomically: 32 bytes are required and only 25
 are qualified. This is unwind/reference/placement and execution evidence, not
 a throughput result or permission to extend arbitrary firmware segments.
+
+v129 closes a platform-relocation fail-open path. `R_ARM_TARGET1` has no one
+ABI-wide meaning: GNU and LLD can resolve it as ABS32 or REL32. FirmBOLT now
+rejects it by default and admits the bare-metal absolute form only with
+`--firmbolt-arm-target1=abs`. Before disassembly it scans every static
+relocation whose target section is allocatable, including non-code tables that
+BOLT's normal reader does not visit, and rejects unsupported types before an
+output file exists. An explicitly relative input falsely declared absolute is
+also rejected from its linked contents. In the accepted M3 fixture,
+`target_worker` moves from `0x0800011c` to `0x08000100`; the dispatch word and
+retained relocation move from `0x0800011d` to `0x08000101`, preserving the
+Thumb bit. Reference and candidate both execute through FastDyn and write
+`42`. The relocation audit also found and fixed an incorrect continuous ARM
+TLS-number interval that had silently classified TARGET1, PREL31, MOVW/MOVT
+and branch relocations as TLS. Typed EHABI relocations remain owned by their
+dedicated complete index rebuilder. Split PC-relative MOVW/MOVT expressions
+are exact-retained in compact mode and reject relocation-mode movement until
+paired `S-P` expression reconstruction is implemented. This is relocation,
+placement and execution evidence, not a throughput result.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

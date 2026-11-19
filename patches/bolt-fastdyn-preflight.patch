@@ -1118,10 +1118,23 @@ index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fa
    /// The shortest distance for any branch instruction on AArch64.
    static constexpr size_t ShortestJumpBits = 11;
 diff --git a/bolt/include/bolt/Rewrite/RewriteInstance.h b/bolt/include/bolt/Rewrite/RewriteInstance.h
-index 551c0341b9946c65c318bb4626e9156b1cd855ac..b328b12e4ad4ce427fcd488405f239f48a78ea1b 100644
+index 551c0341b9946c65c318bb4626e9156b1cd855ac..25f179ec3862306342fd1ab1f74ec1cccc679b6a 100644
 --- a/bolt/include/bolt/Rewrite/RewriteInstance.h
 +++ b/bolt/include/bolt/Rewrite/RewriteInstance.h
-@@ -243,6 +243,14 @@ private:
+@@ -123,6 +123,12 @@ private:
+   /// for exception and stack unwinding information.
+   Error readSpecialSections();
+ 
++  /// Reject unsupported ARM static relocations against allocatable firmware
++  /// bytes before disassembly or output publication.  Compact firmware mode
++  /// retains relocation sections outside the ordinary BOLT relocation path,
++  /// so validation must cover every allocatable target section explicitly.
++  Error validateARMStaticRelocations();
++
+   /// Adjust supplied command-line options based on input data.
+   void adjustCommandLineOptions();
+ 
+@@ -243,6 +249,14 @@ private:
    /// Used by non-relocation mode and for patched functions.
    void rewriteFunctionsInPlace(raw_fd_ostream &OS);
  
@@ -1136,7 +1149,7 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..b328b12e4ad4ce427fcd488405f239f4
    /// Return the input file range [Start, End) that BOLT reuses for new
    /// content (like with --use-old-text). Return std::nullopt when no input
    /// region is being reused.
-@@ -537,6 +545,27 @@ private:
+@@ -537,6 +551,27 @@ private:
    uint64_t NextAvailableAddress{0};
  
    /// Location and size of dynamic relocations.
@@ -1164,7 +1177,7 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..b328b12e4ad4ce427fcd488405f239f4
    std::optional<uint64_t> DynamicRelocationsAddress;
    uint64_t DynamicRelocationsSize{0};
    uint64_t DynamicRelativeRelocationsCount{0};
-@@ -657,6 +686,11 @@ MCPlusBuilder *createMCPlusBuilder(const Triple::ArchType Arch,
+@@ -657,6 +692,11 @@ MCPlusBuilder *createMCPlusBuilder(const Triple::ArchType Arch,
                                     const MCRegisterInfo *RegInfo,
                                     const MCSubtargetInfo *STI);
  
@@ -10595,7 +10608,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d7b736286 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..5ae4699e969e5aa3c9708cfd89236626d2f9b97b 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -10756,17 +10769,17 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    for (auto &[Address, Type] : MarkerSymbols) {
      auto *BF = BC->getBinaryFunctionContainingAddress(Address,
                                                        /*CheckPastEnd*/ false,
-@@ -1499,8 +1546,20 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1499,10 +1546,22 @@ void RewriteInstance::discoverFileObjects() {
        continue;
      }
      const auto EntryOffset = Address - BF->getAddress();
 -    if (Type == MarkerSymType::CODE) {
 +    if (Type == MarkerSymType::CODE || Type == MarkerSymType::THUMB_CODE) {
-+      BF->markCodeAtOffset(EntryOffset);
-+      continue;
-+    }
-+    if (Type == MarkerSymType::ARM_CODE) {
        BF->markCodeAtOffset(EntryOffset);
+       continue;
+     }
++    if (Type == MarkerSymType::ARM_CODE) {
++      BF->markCodeAtOffset(EntryOffset);
 +      // Cortex-M implements Thumb execution only.  A few firmware images
 +      // nevertheless contain unreachable ARM-state library bodies.  Preserve
 +      // the containing function byte-for-byte instead of feeding those bytes
@@ -10775,9 +10788,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
 +        BF->setSimple(false);
 +        ++UnsupportedARMModeRegions;
 +      }
-       continue;
-     }
++      continue;
++    }
      if (Type == MarkerSymType::DATA) {
+       BF->markDataAtOffset(EntryOffset);
+       BC->AddressToConstantIslandMap[Address] = BF;
 @@ -1510,8 +1569,12 @@ void RewriteInstance::discoverFileObjects() {
      }
      llvm_unreachable("Unknown marker");
@@ -10824,7 +10839,24 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    bool HasSymbolTable = false;
    bool HasDebugInfo = false;
  
-@@ -2562,11 +2641,14 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2547,6 +2626,16 @@ Error RewriteInstance::readSpecialSections() {
+                << "\n");
+   }
+ 
++  // BOLT's ordinary relocation reader deliberately skips several section
++  // classes and compact Cortex-M publication retains non-code relocation
++  // metadata for later repair.  Validate the complete allocatable firmware
++  // relocation inventory before disassembly and, critically, before an
++  // output file exists.  Otherwise an unsupported data pointer can remain
++  // stale while the rewrite appears to succeed.
++  if (BC->isARM())
++    if (Error E = validateARMStaticRelocations())
++      return E;
++
+   // Set IsRelro section attribute based on PT_GNU_RELRO segment.
+   markGnuRelroSections();
+ 
+@@ -2562,11 +2651,14 @@ Error RewriteInstance::readSpecialSections() {
      BC->updateLSDAEncoding();
    }
  
@@ -10840,7 +10872,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    HasSymbolTable = (bool)BC->getUniqueSectionByName(".symtab");
    EHFrameSection = BC->getUniqueSectionByName(".eh_frame");
  
-@@ -2589,15 +2671,31 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2589,15 +2681,31 @@ Error RewriteInstance::readSpecialSections() {
    }
  
    if (opts::RelocationMode == cl::boolOrDefault::BOU_TRUE &&
@@ -10875,7 +10907,109 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  
    if (BC->IsLinuxKernel && BC->HasRelocations) {
      BC->outs() << "BOLT-INFO: disabling relocation mode for Linux kernel\n";
-@@ -2649,6 +2747,19 @@ void RewriteInstance::adjustCommandLineOptions() {
+@@ -2644,11 +2752,121 @@ Error RewriteInstance::readSpecialSections() {
+   return readELFDynamic();
+ }
+ 
++Error RewriteInstance::validateARMStaticRelocations() {
++  const RelocationHandler &RH = BC->getRelocationHandler();
++
++  for (const SectionRef &RelocationSection : InputFile->sections()) {
++    Expected<section_iterator> RelocatedSectionOrErr =
++        RelocationSection.getRelocatedSection();
++    if (!RelocatedSectionOrErr)
++      return RelocatedSectionOrErr.takeError();
++    if (*RelocatedSectionOrErr == InputFile->section_end())
++      continue;
++
++    const SectionRef RelocatedSection = **RelocatedSectionOrErr;
++    if (!BinarySection(*BC, RelocatedSection).isAllocatable())
++      continue;
++
++    const StringRef RelocationSectionName =
++        cantFail(RelocationSection.getName());
++    const StringRef RelocatedSectionName =
++        cantFail(RelocatedSection.getName());
++    for (const RelocationRef &Rel : RelocationSection.relocations()) {
++      const uint32_t Type = Relocation::getType(Rel);
++      if (RH.skipRelocationType(Type))
++        continue;
++      SmallString<32> TypeName;
++      Rel.getTypeName(TypeName);
++      if (Type == ELF::R_ARM_TARGET1 && !RH.isSupported(Type))
++        return createStringError(
++            errc::not_supported,
++            "R_ARM_TARGET1 at 0x%" PRIx64 " in %s (from %s) is "
++            "platform-defined; qualify its absolute meaning with "
++            "--firmbolt-arm-target1=abs",
++            Rel.getOffset(), RelocatedSectionName.str().c_str(),
++            RelocationSectionName.str().c_str());
++
++      if (Type == ELF::R_ARM_TARGET1) {
++        const uint64_t SiteOffset =
++            Rel.getOffset() - RelocatedSection.getAddress();
++        Expected<StringRef> ContentsOrErr = RelocatedSection.getContents();
++        if (!ContentsOrErr)
++          return ContentsOrErr.takeError();
++        if (Rel.getOffset() < RelocatedSection.getAddress() ||
++            SiteOffset > ContentsOrErr->size() ||
++            ContentsOrErr->size() - SiteOffset < sizeof(uint32_t))
++          return createStringError(
++              errc::executable_format_error,
++              "R_ARM_TARGET1 at 0x%" PRIx64
++              " does not name one complete word in %s",
++              Rel.getOffset(), RelocatedSectionName.str().c_str());
++
++        symbol_iterator Symbol = Rel.getSymbol();
++        if (Symbol == InputFile->symbol_end())
++          return createStringError(
++              errc::not_supported,
++              "R_ARM_TARGET1 at 0x%" PRIx64
++              " has no symbolic identity for absolute-policy validation",
++              Rel.getOffset());
++        uint32_t SymbolValue = uint32_t(cantFail(Symbol->getAddress()));
++        if (cantFail(Symbol->getType()) == SymbolRef::ST_Function)
++          SymbolValue |= 1;
++        const uint32_t EncodedValue = support::endian::read32le(
++            ContentsOrErr->data() + SiteOffset);
++        if (EncodedValue != SymbolValue) {
++          const uint32_t RelativeTarget =
++              uint32_t(Rel.getOffset()) + EncodedValue;
++          if (RelativeTarget == SymbolValue)
++            return createStringError(
++                errc::not_supported,
++                "R_ARM_TARGET1 at 0x%" PRIx64
++                " has PC-relative contents but --firmbolt-arm-target1=abs "
++                "declares absolute semantics",
++                Rel.getOffset());
++          return createStringError(
++              errc::not_supported,
++              "R_ARM_TARGET1 at 0x%" PRIx64
++              " has an ambiguous or non-zero addend; the qualified absolute "
++              "path currently requires an exact symbolic pointer",
++              Rel.getOffset());
++        }
++        continue;
++      }
++
++      if (RH.isSupported(Type))
++        continue;
++
++      return createStringError(
++          errc::not_supported,
++          "unsupported ARM relocation %s at 0x%" PRIx64
++          " in allocatable section %s (from %s)",
++          TypeName.c_str(), Rel.getOffset(),
++          RelocatedSectionName.str().c_str(),
++          RelocationSectionName.str().c_str());
++    }
++  }
++
++  return Error::success();
++}
++
+ void RewriteInstance::adjustCommandLineOptions() {
+   if (BC->isAArch64() && !BC->HasRelocations)
      BC->errs() << "BOLT-WARNING: non-relocation mode for AArch64 is not fully "
                    "supported\n";
  
@@ -10895,7 +11029,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    // RV32 support is currently limited to statically linked, non-PIE
    // programs. Reject anything that requires features still out of scope
    // (PLT, GOT, dynamic relocations, TLS, instrumentation runtime).
-@@ -2680,7 +2791,7 @@ void RewriteInstance::adjustCommandLineOptions() {
+@@ -2680,7 +2898,7 @@ void RewriteInstance::adjustCommandLineOptions() {
      opts::SplitEH = false;
    }
  
@@ -10904,7 +11038,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
        opts::SplitStrategy == opts::SplitFunctionsStrategy::CDSplit) {
      BC->errs() << "BOLT-ERROR: CDSplit is not supported with LongJmp. Try with "
                    "'--compact-code-model'\n";
-@@ -2864,6 +2975,23 @@ int64_t getRelocationAddend(const ELFObjectFileBase *Obj,
+@@ -2864,6 +3082,23 @@ int64_t getRelocationAddend(const ELFObjectFileBase *Obj,
    return getRelocationAddend(cast<ELF64LEObjectFile>(Obj), Rel);
  }
  
@@ -10928,7 +11062,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  template <typename ELFT>
  uint32_t getRelocationSymbol(const ELFObjectFile<ELFT> *Obj,
                               const RelocationRef &RelRef) {
-@@ -2911,6 +3039,7 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2911,6 +3146,7 @@ bool RewriteInstance::analyzeRelocation(
    };
  
    const bool IsAArch64 = BC->isAArch64();
@@ -10936,7 +11070,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    const bool IsRISCV = BC->isRISCV();
  
    const size_t RelSize = RH.getSizeForType(RType);
-@@ -2923,8 +3052,10 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2923,8 +3159,10 @@ bool RewriteInstance::analyzeRelocation(
    Addend = getRelocationAddend(InputFile, Rel);
  
    const bool IsPCRelative = RH.isPCRelative(RType);
@@ -10948,7 +11082,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    auto SymbolIter = Rel.getSymbol();
    if (SymbolIter == InputFile->symbol_end()) {
      SymbolAddress = ExtractedValue - Addend + PCRelOffset;
-@@ -2936,9 +3067,22 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2936,9 +3174,22 @@ bool RewriteInstance::analyzeRelocation(
      const SymbolRef &Symbol = *SymbolIter;
      SymbolName = std::string(cantFail(Symbol.getName()));
      SymbolAddress = cantFail(Symbol.getAddress());
@@ -10973,24 +11107,58 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      // Check for PLT entry registered with symbol name
      // LLD may give a defined RISC-V IFUNC symbol the .iplt entry address.
      // R_RISCV_CALL_PLT must still resolve it through the registered @PLT
-@@ -2952,6 +3096,27 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2952,6 +3203,61 @@ bool RewriteInstance::analyzeRelocation(
        SymbolAddress = BD ? BD->getAddress() : 0;
      }
    }
 +  // AArch32 ELF uses SHT_REL for static relocations, so the addend is encoded
-+  // in the already-linked contents instead of a relocation record. ARM
-+  // relocation extraction returns the resolved target value. Recover the
-+  // implicit addend relative to the referenced symbol before normal BOLT
-+  // symbol/reference processing converts it into a typed relocation.
-+  if (IsARM && hasImplicitRelocationAddend(InputFile, Rel))
-+    Addend = int64_t(uint32_t(ExtractedValue)) -
-+             int64_t(uint32_t(SymbolAddress));
++  // in the already-linked contents instead of a relocation record. Most ARM
++  // relocation extraction returns a complete resolved target and permits the
++  // subtraction below. MOVW/MOVT fields are different: each instruction holds
++  // only one 16-bit fragment. Validate the common zero-addend executable form
++  // explicitly instead of subtracting a full symbol address from that fragment
++  // and manufacturing a huge, out-of-range addend. Non-zero split-field
++  // addends require paired reconstruction and remain fail-closed.
++  if (IsARM && hasImplicitRelocationAddend(InputFile, Rel)) {
++    const uint32_t ThumbState = IsARMThumbFunctionSymbol ? 1 : 0;
++    const uint32_t AbsoluteSymbol = uint32_t(SymbolAddress) | ThumbState;
++    uint32_t ExpectedSplitValue = 0;
++    bool IsSplitField = true;
++    switch (RType) {
++    case ELF::R_ARM_THM_MOVW_ABS_NC:
++      ExpectedSplitValue = AbsoluteSymbol & 0xffff;
++      break;
++    case ELF::R_ARM_THM_MOVT_ABS:
++      ExpectedSplitValue = AbsoluteSymbol >> 16;
++      break;
++    case ELF::R_ARM_THM_MOVW_PREL_NC:
++      ExpectedSplitValue =
++          uint32_t(AbsoluteSymbol - uint32_t(Rel.getOffset())) & 0xffff;
++      break;
++    case ELF::R_ARM_THM_MOVT_PREL:
++      ExpectedSplitValue =
++          uint32_t(AbsoluteSymbol - uint32_t(Rel.getOffset())) >> 16;
++      break;
++    default:
++      IsSplitField = false;
++      break;
++    }
++    if (IsSplitField) {
++      if (uint32_t(ExtractedValue) != ExpectedSplitValue)
++        return false;
++      Addend = 0;
++    } else {
++      Addend = int64_t(uint32_t(ExtractedValue)) -
++               int64_t(uint32_t(SymbolAddress));
++    }
++  }
 +  // MC emits STT_FUNC references with the Thumb-state bit. For non-PC-relative
 +  // pointers, remove that implicit bit from the recovered arithmetic addend;
 +  // otherwise a vector entry would become function+2 after emission. Branch
 +  // relocations resolve to canonical even instruction addresses and need no
 +  // corresponding adjustment.
-+  if (IsARMThumbFunctionSymbol && !IsPCRelative)
++  if (IsARMThumbFunctionSymbol && !IsPCRelative &&
++      (RType == ELF::R_ARM_ABS32 || RType == ELF::R_ARM_TARGET1))
 +    --Addend;
 +  if (IsARM && opts::Verbosity >= 3)
 +    BC->outs() << "BOLT-DEBUG: ARM relocation " << SymbolName << " type "
@@ -11001,7 +11169,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    // For PIE or dynamic libs, the linker may choose not to put the relocation
    // result at the address if it is a X86_64_64 one because it will emit a
    // dynamic relocation (X86_RELATIVE) for the dynamic linker and loader to
-@@ -3007,7 +3172,7 @@ bool RewriteInstance::analyzeRelocation(
+@@ -3007,7 +3313,7 @@ bool RewriteInstance::analyzeRelocation(
      if (SkipVerification)
        return true;
  
@@ -11010,7 +11178,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
        return true;
  
      if (SymbolName == "__hot_start" || SymbolName == "__hot_end")
-@@ -3087,7 +3252,7 @@ void RewriteInstance::processDynamicRelocations() {
+@@ -3087,7 +3393,7 @@ void RewriteInstance::processDynamicRelocations() {
  }
  
  void RewriteInstance::processRelocations() {
@@ -11019,7 +11187,27 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      return;
  
    for (const SectionRef &Section : InputFile->sections()) {
-@@ -3312,7 +3477,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3292,6 +3598,19 @@ void RewriteInstance::readRelocations(const SectionRef &Section) {
+                       << "non-allocatable section\n");
+     return;
+   }
++  // ARM EHABI index relocations have a dedicated relocation-complete reader
++  // and rebuilder in rewriteARMExidxSections().  GNU's synthesized terminal
++  // record may encode its SHT_REL offset relative to the index section rather
++  // than as an absolute ET_EXEC address, which the generic relocation reader
++  // cannot represent.  The early inventory validator still checks every type;
++  // the dedicated path validates exact field ownership and remaps the records.
++  if (BC->isARM() &&
++      BinarySection(*BC, RelocatedSection).getELFType() ==
++          ELF::SHT_ARM_EXIDX) {
++    LLVM_DEBUG(dbgs() << "BOLT-DEBUG: deferring ARM EHABI relocations to the "
++                         "typed index rebuilder\n");
++    return;
++  }
+   const bool SkipRelocs = StringSwitch<bool>(RelocatedSectionName)
+                               .Cases({".plt", ".rela.plt", ".got.plt",
+                                       ".eh_frame", ".gcc_except_table"},
+@@ -3312,7 +3631,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    const RelocationHandler &RH = BC->getRelocationHandler();
    const bool IsAArch64 = BC->isAArch64();
    const bool IsX86 = BC->isX86();
@@ -11032,7 +11220,18 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    const bool IsWritable = BinarySection(*BC, RelocatedSection).isWritable();
  
    SmallString<16> TypeName;
-@@ -3361,6 +3530,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3354,6 +3677,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+   bool IsSectionRelocation;
+   if (!analyzeRelocation(Rel, RType, SymbolName, IsSectionRelocation,
+                          SymbolAddress, Addend, ExtractedValue)) {
++    if (BC->isARM() && RType == ELF::R_ARM_TARGET1)
++      BC->errs()
++          << "BOLT-ERROR: R_ARM_TARGET1 is platform-defined; qualify the "
++             "bare-metal absolute policy with --firmbolt-arm-target1=abs\n";
+     LLVM_DEBUG({
+       dbgs() << "BOLT-WARNING: failed to analyze relocation @ offset = "
+              << formatv("{0:x}; type name = {1}\n", Rel.getOffset(), TypeName);
+@@ -3361,6 +3688,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
      ++NumFailedRelocations;
      return;
    }
@@ -11042,7 +11241,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  
    if (!IsFromCode && !IsWritable && (IsX86 || IsAArch64) &&
        RH.isPCRelative(RType)) {
-@@ -3384,6 +3556,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3384,6 +3714,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    }
  
    const uint64_t Address = SymbolAddress + Addend;
@@ -11052,7 +11251,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  
    LLVM_DEBUG({
      dbgs() << "BOLT-DEBUG: ";
-@@ -3396,7 +3571,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3396,7 +3729,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          BC->getBinaryFunctionContainingAddress(Rel.getOffset(),
                                                 /*CheckPastEnd*/ false,
                                                 /*UseMaxSize*/ true);
@@ -11084,7 +11283,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      if (!IsAArch64 && !ContainingBF->containsAddress(Rel.getOffset())) {
        if (opts::Verbosity >= 1)
          BC->outs() << formatv(
-@@ -3421,8 +3619,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3421,8 +3777,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
  
    ErrorOr<BinarySection &> ReferencedSection{std::errc::bad_address};
    symbol_iterator SymbolIter = Rel.getSymbol();
@@ -11095,7 +11294,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      section_iterator Section =
          cantFail(Symbol.getSection(), "cannot get symbol section");
      if (Section != InputFile->section_end()) {
-@@ -3493,11 +3693,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3493,11 +3851,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    // Only look for a referenced function when the symbol itself denotes code
    // or it is a section relocation.
    BinaryFunction *ReferencedBF = nullptr;
@@ -11110,7 +11309,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      if (BinaryFunction *BF =
              BC->getBinaryFunctionContainingAddress(SymbolAddress)) {
        if (BF != ReferencedBF) {
-@@ -3562,8 +3762,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3562,8 +3920,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
      uint64_t RefFunctionOffset = 0;
  
      // Adjust the point of reference to a code location inside a function.
@@ -11122,7 +11321,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
        if (RH.isInstructionReference(RType)) {
          // Instruction labels are created while disassembling so we just leave
          // the symbol empty for now. Since the extracted value is typically
-@@ -3573,21 +3774,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3573,21 +3932,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          // address in order to be able to correctly reconstruct the reference
          // later.
          ReferencedSymbol = nullptr;
@@ -11151,7 +11350,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
              ReferencedBF->registerInternalRefDataRelocation(RefFunctionOffset,
                                                              Rel.getOffset());
            }
-@@ -3599,12 +3802,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3599,12 +3960,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
                << formatv("function {0} detected at address {1:x}\n",
                           *ReferencedBF, Rel.getOffset());
        }
@@ -11169,10 +11368,55 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
          dbgs() << formatv(" at offset {0:x}", RefFunctionOffset);
        dbgs() << '\n';
      });
-@@ -3709,6 +3914,18 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3706,9 +4069,63 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+       BC->isRISCV())
+     ForceRelocation = true;
+ 
++  // LLVM MC represents these split PC-relative fields as a paired
++  // :lower16:(S-P) / :upper16:(S-P) expression.  The ARM BOLT symbolizer does
++  // not yet reconstruct the per-instruction P symbol, so a plain symbol
++  // expression reaches ARMMCCodeEmitter and aborts.  Compact firmware mode can
++  // safely retain the exact input function; whole-image relocation cannot move
++  // it without the paired expression and must reject explicitly.
++  const bool IsSplitPCRelative =
++      BC->isARM() &&
++      (RType == ELF::R_ARM_THM_MOVW_PREL_NC ||
++       RType == ELF::R_ARM_THM_MOVT_PREL);
++  if (IsFromCode && IsSplitPCRelative) {
++    if (BC->HasRelocations) {
++      BC->errs() << "BOLT-ERROR: ARM split PC-relative MOVW/MOVT relocation "
++                    "requires paired S-P expression reconstruction\n";
++      exit(1);
++    }
++    ContainingBF->setSimple(false);
++    LLVM_DEBUG(dbgs() << "BOLT-DEBUG: retaining function with split ARM "
++                         "PC-relative MOVW/MOVT relocation\n");
++    return;
++  }
++
    if (IsFromCode)
      ContainingBF->addRelocation(Rel.getOffset(), ReferencedSymbol, RType,
                                  Addend, ExtractedValue);
++  else if (BC->isARM() && RType == ELF::R_ARM_TARGET1) {
++    // TARGET1 in bare-metal firmware commonly lives in an allocatable pointer
++    // table, outside the MC-emitted code graph.  Queue an exact in-place data
++    // patch after final symbol placement instead of sending the platform
++    // relocation through AArch32 JITLink as a code edge.  The retained SHT_REL
++    // record is remapped independently when non-allocatable sections are
++    // copied.
++    ErrorOr<BinarySection &> SiteSection =
++        BC->getSectionForAddress(Rel.getOffset());
++    if (!SiteSection) {
++      BC->errs() << "BOLT-ERROR: R_ARM_TARGET1 site 0x"
++                 << Twine::utohexstr(Rel.getOffset())
++                 << " has no allocatable owner section\n";
++      exit(1);
++    }
++    const uint64_t StateAddend = ExtractedValue & 1;
++    SiteSection->addPendingRelocation(Relocation(
++        Rel.getOffset() - SiteSection->getAddress(), ReferencedSymbol, RType,
++        Addend + StateAddend, ExtractedValue));
++  }
 +  else if (BC->isARM() && !BC->HasRelocations) {
 +    // Compact Cortex-M publication preserves every non-code allocatable range
 +    // at its original address and byte contents. Consume these relocations for
@@ -11188,7 +11432,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    else if (IsToCode || ForceRelocation)
      BC->addRelocation(Rel.getOffset(), ReferencedSymbol, RType, Addend,
                        ExtractedValue);
-@@ -4379,6 +4596,18 @@ void RewriteInstance::emitAndLink() {
+@@ -4379,6 +4796,18 @@ void RewriteInstance::emitAndLink() {
    // two instances.
    std::unique_ptr<MCStreamer> Streamer = BC->createStreamer(OS);
  
@@ -11207,7 +11451,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    if (EHFrameSection) {
      if (opts::UseOldText || opts::StrictMode) {
        // The section is going to be regenerated from scratch.
-@@ -4773,7 +5002,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
+@@ -4773,7 +5202,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
      MapSection(*FuncSection, Function.getAddress());
      Function.setImageAddress(FuncSection->getAllocAddress());
      Function.setImageSize(FuncSection->getOutputSize());
@@ -11221,7 +11465,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
             "Unexpected large function");
  
      if (!Function.isSplit())
-@@ -4945,8 +5179,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4945,8 +5379,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
    if (std::optional<AddressMap> Map = AddressMap::parse(*BC))
      BC->setIOAddressMap(std::move(*Map));
  
@@ -11276,7 +11520,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  }
  
  void RewriteInstance::updateSegmentInfo() {
-@@ -4959,6 +5238,15 @@ void RewriteInstance::updateSegmentInfo() {
+@@ -4959,6 +5438,15 @@ void RewriteInstance::updateSegmentInfo() {
      NewWritableSegmentSize = NextAvailableAddress - NewWritableSegmentAddress;
    }
  
@@ -11292,7 +11536,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    if (NewTextSegmentSize) {
      SegmentInfo TextSegment = {NewTextSegmentAddress,
                                 NewTextSegmentSize,
-@@ -5026,7 +5314,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5026,7 +5514,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
  
    Phnum = Obj.getHeader().e_phnum;
  
@@ -11311,7 +11555,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      BC->outs() << "BOLT-INFO: not adding new segments\n";
      return;
    }
-@@ -5103,6 +5401,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5103,6 +5601,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
        }
        break;
      }
@@ -11350,7 +11594,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      case ELF::PT_GNU_STACK:
        if (opts::UseGnuStack) {
          assert(BC->NewSegments.size() == 1 &&
-@@ -5217,6 +5547,7 @@ writeCompressedDebugSection(StringRef SectionName,
+@@ -5217,6 +5747,7 @@ writeCompressedDebugSection(StringRef SectionName,
  template <typename ELFT>
  void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
    using ShdrTy = typename ELFT::Shdr;
@@ -11358,7 +11602,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  
    const ELFFile<ELFT> &Obj = File->getELFFile();
    raw_fd_ostream &OS = Out->os();
-@@ -5254,15 +5585,146 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
+@@ -5254,15 +5785,146 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
        Size = Section.sh_size;
        StringRef Dataref = InputFile->getData().substr(Section.sh_offset, Size);
        std::string Data;
@@ -11509,7 +11753,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
          Size = 0;
        } else {
          OS << Dataref;
-@@ -5459,7 +5921,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
+@@ -5459,7 +6121,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
      if (BinSec->isAnonymous())
        continue;
  
@@ -11527,7 +11771,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    }
  
    for (BinarySection &Section : BC->allocatableSections()) {
-@@ -5658,9 +6129,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
+@@ -5658,9 +6329,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
  
    // Write all section header entries while patching section references.
    for (ELFShdrTy &Section : OutputSections) {
@@ -11574,7 +11818,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      OS.write(reinterpret_cast<const char *>(&Section), sizeof(Section));
    }
  
-@@ -5715,6 +6220,25 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5715,6 +6420,25 @@ void RewriteInstance::updateELFSymbolTable(
  
    // Symbols for the new symbol table.
    std::vector<ELFSymTy> Symbols;
@@ -11600,7 +11844,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  
    bool EmittedColdFileSymbol = false;
  
-@@ -5804,7 +6328,9 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5804,7 +6528,9 @@ void RewriteInstance::updateELFSymbolTable(
          }
        }
      }
@@ -11611,7 +11855,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
        uint64_t DataMark = Function.getOutputDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5815,12 +6341,103 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5815,12 +6541,103 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -11717,7 +11961,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
        uint64_t DataMark = Function.getOutputColdDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5831,11 +6448,78 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5831,11 +6648,78 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -11797,7 +12041,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    };
  
    // For regular (non-dynamic) symbol table, exclude symbols referring
-@@ -5866,13 +6550,23 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5866,13 +6750,23 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    };
  
@@ -11823,7 +12067,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      // In relocation mode, if this is a folded function, use the parent function
      // instead so that the symbol gets updated to the parent's output address.
      // In non-relocation mode, folded functions are emitted at their original
-@@ -5943,9 +6637,17 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5943,9 +6837,17 @@ void RewriteInstance::updateELFSymbolTable(
        // If the symbol matched a function that was not emitted, update the
        // corresponding section index but otherwise leave it unchanged.
        if (Function->isEmitted()) {
@@ -11843,7 +12087,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
          NewSymbol.st_shndx = Function->getCodeSection()->getIndex();
        } else if (Symbol.st_shndx < ELF::SHN_LORESERVE) {
          NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
-@@ -5965,22 +6667,48 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5965,22 +6867,48 @@ void RewriteInstance::updateELFSymbolTable(
          return BC->getMarkerType(Symbol.getType(), Symbol.st_size,
                                   *SymbolName) != MarkerSymType::NONE;
        };
@@ -11901,7 +12145,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  
          // Remove symbols that cannot be mapped to the output, e.g.
          // data-in-code labels (jump tables) whose addresses BOLT
-@@ -5988,7 +6716,8 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5988,7 +6916,8 @@ void RewriteInstance::updateELFSymbolTable(
          if (!OutputAddress)
            continue;
  
@@ -11911,7 +12155,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
          // Force secondary entry points to have zero size.
          NewSymbol.st_size = 0;
  
-@@ -6001,6 +6730,28 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6001,6 +6930,28 @@ void RewriteInstance::updateELFSymbolTable(
              });
  
          if (FF == Function->getLayout().fragment_end()) {
@@ -11940,7 +12184,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
            assert(
                OutputAddress >= Function->getCodeSection()->getOutputAddress() &&
                OutputAddress < (Function->getCodeSection()->getOutputAddress() +
-@@ -6036,12 +6787,15 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6036,12 +6987,15 @@ void RewriteInstance::updateELFSymbolTable(
              NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
          }
  
@@ -11961,7 +12205,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
            assert(!IsDynSym && "cannot delete symbol");
            continue;
          }
-@@ -6050,11 +6804,13 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6050,11 +7004,13 @@ void RewriteInstance::updateELFSymbolTable(
  
    registerSymbol:
      if (IsDynSym)
@@ -11978,7 +12222,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    }
  
    if (IsDynSym) {
-@@ -6165,6 +6921,20 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6165,6 +7121,20 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    });
  
@@ -11999,7 +12243,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    for (const ELFSymTy &Symbol : Symbols)
      Write(0, Symbol);
  }
-@@ -6736,7 +7506,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
+@@ -6736,7 +7706,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
  }
  
  uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
@@ -12015,7 +12259,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    if (!Function)
      return 0;
  
-@@ -6745,7 +7522,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
+@@ -6745,7 +7722,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
    if (Function->isFolded())
      Function = Function->getFoldedIntoFunction();
  
@@ -12028,7 +12272,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  }
  
  uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
-@@ -6758,6 +7539,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
+@@ -6758,6 +7739,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
  
    if (const BinaryFunction *BF =
            BC->getBinaryFunctionContainingAddress(OldAddress)) {
@@ -12038,7 +12282,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      if (BF->isEmitted()) {
        // If OldAddress is another entry point of the function or the target of
        // an indirect goto, then BOLT could get the new address.
-@@ -6796,7 +7580,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6796,7 +7780,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      if (Function->getImageAddress() == 0 || Function->getImageSize() == 0)
        continue;
  
@@ -12058,7 +12302,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
             "Unexpected large function");
  
      const auto HasAddress = [](const FunctionFragment &FF) {
-@@ -6816,6 +7611,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6816,6 +7811,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
        continue;
      }
  
@@ -12081,7 +12325,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
      OverwrittenScore += Function->getFunctionScore();
      ++CountOverwrittenFunctions;
  
-@@ -6826,12 +7637,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6826,12 +7837,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      safePWrite(OS, reinterpret_cast<char *>(Function->getImageAddress()),
                 Function->getImageSize(), Function->getFileOffset());
  
@@ -12100,7 +12344,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  
        OS.seek(Pos);
      }
-@@ -6947,6 +7761,637 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +7961,637 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -12738,7 +12982,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8405,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8605,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -12753,7 +12997,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
      // Overwrite function body to make sure we never execute these instructions.
-@@ -7002,6 +8455,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +8655,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -12765,10 +13009,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..121abe3387834ef502157cde884592825dc79287
+index 0000000000000000000000000000000000000000..7fabbf403f99f05b1cfd9de71585ea0603611cb9
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2444 @@
+@@ -0,0 +1,2445 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -14794,6 +15038,7 @@ index 0000000000000000000000000000000000000000..121abe3387834ef502157cde88459282
 +    case ELF::R_ARM_ABS8:
 +    case ELF::R_ARM_ABS16:
 +    case ELF::R_ARM_ABS32:
++    case ELF::R_ARM_TARGET1:
 +    case ELF::R_ARM_REL32:
 +    case ELF::R_ARM_PREL31:
 +    case ELF::R_ARM_THM_CALL:
@@ -15303,15 +15548,16 @@ index 0000000000000000000000000000000000000000..6398b51612c5f54f1fd0d4292081284e
 +#endif
 diff --git a/bolt/lib/Target/ARM/ARMRelocationHandler.cpp b/bolt/lib/Target/ARM/ARMRelocationHandler.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..8e2a59127ff401151f290077e28279c51fc57b8e
+index 0000000000000000000000000000000000000000..80d4d1ec69bf73a27c8a3f2bb564fb479c8d3b9d
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMRelocationHandler.cpp
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,385 @@
 +//===- ARMRelocationHandler.cpp - ARM/Thumb relocation handling ----------===//
 +
 +#include "bolt/Core/Relocation.h"
 +#include "llvm/ExecutionEngine/JITLink/aarch32.h"
 +#include "llvm/Object/ELF.h"
++#include "llvm/Support/CommandLine.h"
 +#include "llvm/Support/ErrorHandling.h"
 +#include "llvm/Support/MathExtras.h"
 +#include "llvm/Support/raw_ostream.h"
@@ -15320,6 +15566,18 @@ index 0000000000000000000000000000000000000000..8e2a59127ff401151f290077e28279c5
 +using namespace llvm::bolt;
 +
 +namespace {
++
++enum class ARMTarget1Policy { Unsupported, Abs32 };
++
++static cl::opt<ARMTarget1Policy> FirmBOLTARMTarget1(
++    "firmbolt-arm-target1",
++    cl::desc("Interpret the platform-defined R_ARM_TARGET1 relocation"),
++    cl::values(
++        clEnumValN(ARMTarget1Policy::Unsupported, "unsupported",
++                   "reject R_ARM_TARGET1 (default)"),
++        clEnumValN(ARMTarget1Policy::Abs32, "abs",
++                   "interpret R_ARM_TARGET1 as R_ARM_ABS32")),
++    cl::init(ARMTarget1Policy::Unsupported));
 +
 +static uint16_t thumbHi(uint32_t Contents) { return Contents & 0xffff; }
 +static uint16_t thumbLo(uint32_t Contents) { return Contents >> 16; }
@@ -15374,6 +15632,12 @@ index 0000000000000000000000000000000000000000..8e2a59127ff401151f290077e28279c5
 +    case ELF::R_ARM_THM_MOVW_PREL_NC:
 +    case ELF::R_ARM_THM_MOVT_PREL:
 +      return true;
++    case ELF::R_ARM_TARGET1:
++      // TARGET1 is deliberately not guessed from the CPU or object contents:
++      // the ARM ABI leaves its meaning to the platform and GNU/LLD can make
++      // it either absolute or PC-relative.  Cortex-M bare-metal users must
++      // qualify the linker policy explicitly.
++      return FirmBOLTARMTarget1 == ARMTarget1Policy::Abs32;
 +    default:
 +      return false;
 +    }
@@ -15414,6 +15678,7 @@ index 0000000000000000000000000000000000000000..8e2a59127ff401151f290077e28279c5
 +    case ELF::R_ARM_ABS16:
 +      return isUInt<16>(Value) || isInt<16>(Value);
 +    case ELF::R_ARM_ABS32:
++    case ELF::R_ARM_TARGET1:
 +    case ELF::R_ARM_RELATIVE:
 +    case ELF::R_ARM_IRELATIVE:
 +    case ELF::R_ARM_THM_MOVW_ABS_NC:
@@ -15461,6 +15726,7 @@ index 0000000000000000000000000000000000000000..8e2a59127ff401151f290077e28279c5
 +    case ELF::R_ARM_ABS8:
 +    case ELF::R_ARM_ABS16:
 +    case ELF::R_ARM_ABS32:
++    case ELF::R_ARM_TARGET1:
 +    case ELF::R_ARM_RELATIVE:
 +    case ELF::R_ARM_IRELATIVE:
 +      return Value;
@@ -15539,6 +15805,7 @@ index 0000000000000000000000000000000000000000..8e2a59127ff401151f290077e28279c5
 +    case ELF::R_ARM_ABS16:
 +      return uint64_t(SignExtend64<16>(Contents & 0xffff));
 +    case ELF::R_ARM_ABS32:
++    case ELF::R_ARM_TARGET1:
 +    case ELF::R_ARM_RELATIVE:
 +    case ELF::R_ARM_IRELATIVE:
 +      return Word;
@@ -15597,7 +15864,31 @@ index 0000000000000000000000000000000000000000..8e2a59127ff401151f290077e28279c5
 +    return Type == ELF::R_ARM_IRELATIVE;
 +  }
 +  bool isTLS(uint32_t Type) const override {
-+    return Type >= ELF::R_ARM_TLS_DTPMOD32 && Type <= ELF::R_ARM_TLS_LE32;
++    // ARM TLS relocation numbers are split across multiple non-contiguous
++    // ranges.  A numeric interval here would misclassify ordinary firmware
++    // relocations such as TARGET1, PREL31, MOVW/MOVT and Thumb branches as
++    // TLS, causing the generic reader to silently skip them.
++    switch (Type) {
++    case ELF::R_ARM_TLS_DESC:
++    case ELF::R_ARM_TLS_DTPMOD32:
++    case ELF::R_ARM_TLS_DTPOFF32:
++    case ELF::R_ARM_TLS_TPOFF32:
++    case ELF::R_ARM_TLS_GOTDESC:
++    case ELF::R_ARM_TLS_CALL:
++    case ELF::R_ARM_TLS_DESCSEQ:
++    case ELF::R_ARM_THM_TLS_CALL:
++    case ELF::R_ARM_TLS_GD32:
++    case ELF::R_ARM_TLS_LDM32:
++    case ELF::R_ARM_TLS_LDO32:
++    case ELF::R_ARM_TLS_IE32:
++    case ELF::R_ARM_TLS_LE32:
++    case ELF::R_ARM_TLS_LDO12:
++    case ELF::R_ARM_TLS_LE12:
++    case ELF::R_ARM_TLS_IE12GP:
++      return true;
++    default:
++      return false;
++    }
 +  }
 +  bool isInstructionReference(uint32_t Type) const override {
 +    return Type == ELF::R_ARM_THM_PC8 || Type == ELF::R_ARM_THM_PC12 ||
@@ -20724,6 +21015,119 @@ index 0000000000000000000000000000000000000000..f421258e6cc7a7b87074b8e45d0d2519
 +g_pfnVectors:
 +  .word 0x20002000
 +  .word reset_entry
+diff --git a/bolt/test/ARM/thumb-target1-absolute-relocation.s b/bolt/test/ARM/thumb-target1-absolute-relocation.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..32cacd19052fce8ce031094e83ee78c1f9260c2a
+--- /dev/null
++++ b/bolt/test/ARM/thumb-target1-absolute-relocation.s
+@@ -0,0 +1,107 @@
++## R_ARM_TARGET1 is platform-defined: GNU and LLD can interpret it as either
++## ABS32 or REL32.  FirmBOLT must reject it by default and only consume the
++## qualified bare-metal absolute form after an explicit policy declaration.
++## Exercise the complete relocation path by moving the pointed-to Thumb
++## function and checking the retained data slot, Thumb state bit and relocation
++## metadata rather than merely accepting the input record.
++
++# RUN: split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/fixture.s -o %t/fixture.o
++# RUN: ld.lld --emit-relocs --target1-abs -T %t/link.ld %t/fixture.o \
++# RUN:   -o %t/reference.elf
++# RUN: llvm-readelf -rW %t/reference.elf \
++# RUN:   | FileCheck %s --check-prefix=INPUT
++# RUN: rm -f %t/unqualified.elf %t/relative-candidate.elf
++# RUN: not llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --reorder-functions=user \
++# RUN:   --function-order=%t/order.txt -o %t/unqualified.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=UNQUALIFIED
++# RUN: not test -e %t/unqualified.elf
++# RUN: ld.lld --emit-relocs --target1-rel -T %t/link.ld %t/fixture.o \
++# RUN:   -o %t/relative.elf
++# RUN: not llvm-bolt %t/relative.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-target1=abs --relocs --use-old-text \
++# RUN:   --reorder-functions=user --function-order=%t/order.txt \
++# RUN:   -o %t/relative-candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=RELATIVE
++# RUN: not test -e %t/relative-candidate.elf
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-target1=abs --relocs --use-old-text \
++# RUN:   --reorder-functions=user --function-order=%t/order.txt \
++# RUN:   -o %t/candidate.elf
++# RUN: llvm-nm --numeric-sort %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=SYMBOLS
++# RUN: llvm-objdump -s -j .dispatch %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=DATA
++# RUN: llvm-readelf -rW %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=OUTPUT
++
++# INPUT: R_ARM_TARGET1 {{.*}} target_worker
++# UNQUALIFIED: qualify its absolute meaning with --firmbolt-arm-target1=abs
++# RELATIVE: has PC-relative contents but --firmbolt-arm-target1=abs declares absolute semantics
++# SYMBOLS: 08000100 T target_worker
++# SYMBOLS: 08000104 T Reset_Handler
++# DATA: 8000200 01010008
++# OUTPUT: 08000200 {{.*}} R_ARM_TARGET1 08000101 target_worker
++
++//--- fixture.s
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++
++  .section .isr_vector,"a",%progbits
++  .p2align 2
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++
++  .section .text,"ax",%progbits
++  .p2align 2
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  movw r3, :lower16:dispatch_slot
++  movt r3, :upper16:dispatch_slot
++  ldr r3, [r3]
++  movs r0, #40
++  blx r3
++  movw r1, #0
++  movt r1, #0x2000
++  str r0, [r1]
++.globl fixture_halt
++fixture_halt:
++  b fixture_halt
++  .size Reset_Handler, .-Reset_Handler
++
++  .p2align 2
++  .globl target_worker
++  .type target_worker,%function
++  .thumb_func
++target_worker:
++  adds r0, #2
++  bx lr
++  .size target_worker, .-target_worker
++
++  .section .dispatch,"a",%progbits
++  .p2align 2
++  .globl dispatch_slot
++  .type dispatch_slot,%object
++dispatch_slot:
++  .word target_worker(TARGET1)
++  .size dispatch_slot, .-dispatch_slot
++
++//--- link.ld
++ENTRY(Reset_Handler)
++SECTIONS {
++  .isr_vector 0x08000000 : { *(.isr_vector) }
++  .text 0x08000100 : { *(.text) }
++  .dispatch 0x08000200 : { *(.dispatch) }
++}
++
++//--- order.txt
++target_worker
++Reset_Handler
 diff --git a/bolt/test/ARM/thumb1-absolute-jump-table.s b/bolt/test/ARM/thumb1-absolute-jump-table.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..d32134d6717304b69307aec31934bfe77f6df628

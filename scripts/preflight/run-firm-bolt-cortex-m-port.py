@@ -128,6 +128,15 @@ M3_EXIDX_GENERIC_SOURCE = (
 M3_EXIDX_GENERIC_ORDER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_exidx_generic.order"
 )
+M3_TARGET1_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_target1.s"
+)
+M3_TARGET1_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_target1.ld"
+)
+M3_TARGET1_ORDER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_target1.order"
+)
 M3_FUNCTION_SPLIT_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.s"
 )
@@ -1253,6 +1262,86 @@ def validate_relocated_function_order(
         "vector_relocations": vector_relocations,
         "repaired_control_transfers": repaired_control_transfers,
         "text_relocation_target_section": ".text",
+        "origin_summary": origin_summary,
+    }
+
+
+def validate_relocated_target1(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate one qualified absolute TARGET1 pointer as an atomic artifact."""
+    ref = elf_inventory(reference)
+    out = elf_inventory(candidate)
+    if ref["segments"] != out["segments"]:
+        raise RuntimeError("TARGET1 candidate changed the loadable segment map")
+    for name in (".isr_vector", ".text", ".dispatch"):
+        for field in ("address", "offset", "size", "flags"):
+            if ref["sections"][name][field] != out["sections"][name][field]:
+                raise RuntimeError(
+                    f"TARGET1 candidate changed qualified {name} {field}"
+                )
+
+    reference_target = symbol_address(reference, "target_worker")
+    candidate_target = symbol_address(candidate, "target_worker")
+    if reference_target == candidate_target or candidate_target != 0x08000100:
+        raise RuntimeError("TARGET1 worker did not move to the frozen address")
+    reference_pointer = struct.unpack("<I", section_bytes(
+        reference, ".dispatch"
+    ))[0]
+    candidate_pointer = struct.unpack("<I", section_bytes(
+        candidate, ".dispatch"
+    ))[0]
+    if reference_pointer != reference_target | 1:
+        raise RuntimeError(
+            "reference TARGET1 pointer is not an exact Thumb identity"
+        )
+    if candidate_pointer != candidate_target | 1:
+        raise RuntimeError(
+            "candidate TARGET1 pointer is stale or lost Thumb state"
+        )
+
+    relocations = static_relocation_records(candidate, ".rel.dispatch")
+    if len(relocations) != 1 or (
+        relocations[0]["offset"] != 0x08000200
+        or relocations[0]["type"] != 38
+        or relocations[0]["symbol"] != "target_worker"
+        or relocations[0]["symbol_value"] != candidate_target | 1
+    ):
+        raise RuntimeError("candidate TARGET1 relocation identity is incomplete")
+
+    origin_summary = None
+    if final_layout is not None:
+        worker = next(
+            function for function in final_layout["functions"]
+            if function["name"] == "target_worker"
+        )
+        if (
+            int(worker["original_address"]) != reference_target
+            or int(worker["output_address"]) != candidate_target
+            or len(worker["instruction_origins"]) != 2
+            or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in worker["instruction_origins"]
+            )
+        ):
+            raise RuntimeError("TARGET1 worker origin map is not exact")
+        origin_summary = {
+            "original_address": reference_target,
+            "output_address": candidate_target,
+            "instruction_origin_count": 2,
+        }
+
+    return {
+        "status": "accepted",
+        "policy": "explicit_platform_target1_abs32",
+        "program_headers_exact": True,
+        "reference_target": reference_target,
+        "candidate_target": candidate_target,
+        "reference_pointer": reference_pointer,
+        "candidate_pointer": candidate_pointer,
+        "thumb_state_bit_preserved": True,
+        "relocations": relocations,
         "origin_summary": origin_summary,
     }
 
@@ -2986,6 +3075,27 @@ def build_m3_exidx_fixture(output: Path, logs: Path) -> Path:
     return image
 
 
+def build_m3_target1_fixture(
+    output: Path, logs: Path, *, relative: bool = False,
+) -> Path:
+    """Build one explicitly ABS32- or REL32-defined TARGET1 fixture."""
+    suffix = "relative" if relative else "absolute"
+    object_path = output / f"firm-bolt-cortex-m3-target1-{suffix}.o"
+    image = output / f"firm-bolt-cortex-m3-target1-{suffix}-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_TARGET1_SOURCE), "-o", str(object_path),
+    ], logs / f"build-m3-target1-{suffix}-object.log"),
+        f"M3 TARGET1 {suffix} object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs",
+        "--target1-rel" if relative else "--target1-abs",
+        "-T", str(M3_TARGET1_LINKER), str(object_path), "-o", str(image),
+    ], logs / f"build-m3-target1-{suffix}-image.log"),
+        f"M3 TARGET1 {suffix} image build")
+    return image
+
+
 def build_m3_generic_exidx_fixture(output: Path, logs: Path) -> Path:
     """Build a generic-personality, relocation-complete EHABI fixture."""
     object_path = output / "firm-bolt-cortex-m3-exidx-generic.o"
@@ -4601,6 +4711,10 @@ def main() -> int:
     )
     m3_exidx_image = build_m3_exidx_fixture(output, logs)
     m3_exidx_generic_image = build_m3_generic_exidx_fixture(output, logs)
+    m3_target1_image = build_m3_target1_fixture(output, logs)
+    m3_target1_relative_image = build_m3_target1_fixture(
+        output, logs, relative=True,
+    )
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
     m3_cdsplit_no_exidx_capacity_image = build_m3_cdsplit_fixture(
@@ -4828,6 +4942,12 @@ def main() -> int:
              "--relocs", "--use-old-text", "--reorder-functions=user",
              "--align-functions=1",
              f"--function-order={M3_EXIDX_GENERIC_ORDER}",
+         ]),
+        ("m3_target1_function_reorder", "cortex-m3",
+         m3_target1_image, {}, [
+             "--firmbolt-arm-target1=abs",
+             "--relocs", "--use-old-text", "--reorder-functions=user",
+             f"--function-order={M3_TARGET1_ORDER}",
          ]),
         ("m3_function_split", "cortex-m3", m3_function_split_image, {}, [
              f"--data={M3_FUNCTION_SPLIT_PROFILE}",
@@ -5323,6 +5443,7 @@ def main() -> int:
                 validate_relocated_generic_exidx_function_order,
         }.get(label)
         exidx_layout = exidx_validator is not None
+        target1_layout = label == "m3_target1_function_reorder"
         split_validation = {
             "m3_function_split": validate_relocated_function_split,
             "m3_cdsplit": validate_relocated_cdsplit,
@@ -5395,6 +5516,8 @@ def main() -> int:
                 if safe_icf_layout
                 else exidx_validator(image, candidate)
                 if exidx_layout
+                else validate_relocated_target1(image, candidate)
+                if target1_layout
                 else split_validation(image, candidate)
                 if split_validation is not None
                 else validate_in_place(image, candidate, protected)
@@ -5412,6 +5535,7 @@ def main() -> int:
                     and clustering_order_policy is None
                     and relocation_order_policy is None
                     and not exidx_layout
+                    and not target1_layout
                     and not alignment_validation
                     and not safe_icf_layout
                 ) else None
@@ -5470,6 +5594,7 @@ def main() -> int:
             if (
                 native_pass_report is not None
                 and not exidx_layout
+                and not target1_layout
                 and not safe_icf_layout
             ):
                 results[label]["pass_publication"] = (
@@ -5503,6 +5628,10 @@ def main() -> int:
                     exidx_validator(
                         image, candidate, final_layout,
                     )
+                )
+            elif target1_layout:
+                results[label]["validation"] = validate_relocated_target1(
+                    image, candidate, final_layout,
                 )
             elif split_validation is not None:
                 results[label]["validation"] = (
@@ -7111,6 +7240,47 @@ def main() -> int:
                         "aligned external Thumb-1 veneer"
                     )
 
+    target1_negative_controls = {}
+    for control, image, policy_args, diagnostic in (
+        (
+            "unqualified",
+            m3_target1_image,
+            [],
+            "qualify its absolute meaning with --firmbolt-arm-target1=abs",
+        ),
+        (
+            "relative_as_absolute",
+            m3_target1_relative_image,
+            ["--firmbolt-arm-target1=abs"],
+            "has PC-relative contents but --firmbolt-arm-target1=abs",
+        ),
+    ):
+        rejected_output = output / f"target1-{control}-rejected.elf"
+        rejected_output.unlink(missing_ok=True)
+        rejected = run([
+            str(args.bolt.resolve()), str(image),
+            "--firmbolt-cortex-m-cpu=cortex-m3",
+            *policy_args,
+            "--relocs", "--use-old-text", "--reorder-functions=user",
+            f"--function-order={M3_TARGET1_ORDER}",
+            "-o", str(rejected_output),
+        ], logs / f"target1-{control}-rejected.log")
+        rejected_text = rejected.stdout + rejected.stderr
+        if (
+            rejected.returncode == 0
+            or diagnostic not in rejected_text
+            or rejected_output.exists()
+        ):
+            raise RuntimeError(
+                f"TARGET1 {control} control did not reject atomically"
+            )
+        target1_negative_controls[control] = {
+            "status": "accepted",
+            "returncode": rejected.returncode,
+            "diagnostic": diagnostic,
+            "published_candidate": False,
+        }
+
     clustering_orders = {
         label: results[label]["validation"]["ordered_workers"]
         for label in (
@@ -8155,6 +8325,15 @@ def main() -> int:
             expected_words=(17, 42),
         )
     )
+    m3_target1_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_single_word_execution(
+            m3_target1_image,
+            candidates["m3_target1_function_reorder"],
+            output, args.fastdyn.resolve(), "target1-function-reorder",
+            expected_word=42,
+        )
+    )
     m3_function_split_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -8319,6 +8498,7 @@ def main() -> int:
             m3_alignment_execution,
             m3_exidx_execution,
             m3_exidx_generic_execution,
+            m3_target1_execution,
             m3_function_split_execution,
             m3_cdsplit_execution,
             m3_loop_inversion_execution,
@@ -8580,6 +8760,7 @@ def main() -> int:
             },
         },
         "negative_controls": {
+            "target1_policy": target1_negative_controls,
             "m4_as_m3_rejected": True,
             "experimental_store_removal_rejected": True,
             "unadmitted_read_only_load_elision_rejected": True,
@@ -8672,6 +8853,8 @@ def main() -> int:
             m3_exidx_execution,
         "m3_exidx_generic_function_reorder_architectural_execution":
             m3_exidx_generic_execution,
+        "m3_target1_function_reorder_architectural_execution":
+            m3_target1_execution,
         "m3_native_function_split_architectural_execution":
             m3_function_split_execution,
         "m3_native_cdsplit_architectural_execution":
