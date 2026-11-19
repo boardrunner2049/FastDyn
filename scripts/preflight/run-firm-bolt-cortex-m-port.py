@@ -92,6 +92,15 @@ M3_FUNCTION_REORDER_CALLGRAPH_PROFILE = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_reorder_callgraph.fdata"
 )
+M3_FUNCTION_CLUSTER_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_cluster.s"
+)
+M3_FUNCTION_CLUSTER_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_cluster.ld"
+)
+M3_FUNCTION_CLUSTER_PROFILE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_cluster.fdata"
+)
 M3_FUNCTION_SPLIT_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.s"
 )
@@ -1026,6 +1035,235 @@ def validate_relocated_function_order(
     }
 
 
+def validate_relocated_function_cluster(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+    *, order_policy: str,
+) -> dict[str, Any]:
+    """Validate one frozen-profile function-clustering policy and controls."""
+    policies = {
+        "exec-count": {
+            "worker_a": 0x08000100,
+            "worker_a_call_c": 0x08000106,
+            "worker_b": 0x08000112,
+            "worker_c": 0x08000122,
+            "Reset_Handler": 0x08000132,
+            "fixture_halt": 0x08000152,
+        },
+        "hfsort": {
+            "worker_b": 0x08000100,
+            "worker_a": 0x08000110,
+            "worker_a_call_c": 0x08000116,
+            "worker_c": 0x08000122,
+            "Reset_Handler": 0x08000132,
+            "fixture_halt": 0x08000152,
+        },
+        "pettis-hansen": {
+            "worker_b": 0x08000100,
+            "worker_a": 0x08000110,
+            "worker_a_call_c": 0x08000116,
+            "worker_c": 0x08000122,
+            "Reset_Handler": 0x08000132,
+            "fixture_halt": 0x08000152,
+        },
+        "cdsort": {
+            "worker_c": 0x08000100,
+            "worker_a": 0x08000110,
+            "worker_a_call_c": 0x08000116,
+            "Reset_Handler": 0x08000122,
+            "fixture_halt": 0x08000142,
+            "worker_b": 0x08000146,
+        },
+    }
+    if order_policy not in policies:
+        raise ValueError(f"unknown clustering policy {order_policy}")
+    expected_moved = policies[order_policy]
+
+    reference_inventory = elf_inventory(reference)
+    candidate_inventory = elf_inventory(candidate)
+    if reference_inventory["segments"] != candidate_inventory["segments"]:
+        raise RuntimeError(
+            f"{order_policy} changed the qualified loadable segment map"
+        )
+    reference_text = reference_inventory["sections"][".text"]
+    candidate_text = candidate_inventory["sections"][".text"]
+    for field in ("address", "offset", "flags", "alignment"):
+        if reference_text[field] != candidate_text[field]:
+            raise RuntimeError(
+                f"{order_policy} .text changed qualified {field}"
+            )
+    if (
+        int(reference_text["size"]) != 88
+        or int(candidate_text["size"]) != 86
+    ):
+        raise RuntimeError(
+            f"{order_policy} did not account for the two-byte linker slack"
+        )
+    old_text = candidate_inventory["sections"].get(".bolt.org.text")
+    if old_text is None or int(old_text["size"]) != 0:
+        raise RuntimeError(
+            f"{order_policy} retained a live original text body"
+        )
+
+    moved = {
+        name: symbol_address(candidate, name) for name in expected_moved
+    }
+    if moved != expected_moved:
+        raise RuntimeError(
+            f"unexpected {order_policy} function order: {moved}"
+        )
+    reset_pointer = moved["Reset_Handler"] | 1
+    if candidate_inventory["entry"] != reset_pointer:
+        raise RuntimeError(f"{order_policy} ELF entry lost Thumb state")
+    reference_vector = struct.unpack(
+        "<II", virtual_bytes(reference, 0x08000000, 8)
+    )
+    candidate_vector = struct.unpack(
+        "<II", virtual_bytes(candidate, 0x08000000, 8)
+    )
+    if (
+        candidate_vector[0] != reference_vector[0]
+        or candidate_vector[1] != reset_pointer
+    ):
+        raise RuntimeError(f"{order_policy} vector did not follow reset")
+
+    control_transfers = [
+        (
+            moved["worker_a_call_c"], "bl", moved["worker_c"],
+            "worker_c", moved["worker_c"] | 1,
+        ),
+        (
+            moved["Reset_Handler"] + 0xA, "bl", moved["worker_a"],
+            "worker_a", moved["worker_a"] | 1,
+        ),
+        (
+            moved["Reset_Handler"] + 0x12, "bl", moved["worker_a"],
+            "worker_a", moved["worker_a"] | 1,
+        ),
+        (
+            moved["Reset_Handler"] + 0x1A, "bl", moved["worker_b"],
+            "worker_b", moved["worker_b"] | 1,
+        ),
+        (
+            moved["fixture_halt"], "b.w", moved["fixture_halt"],
+            "fixture_halt", moved["fixture_halt"],
+        ),
+    ]
+    expected_text_relocations = sorted(
+        (
+            address, 10 if mnemonic == "bl" else 30, symbol,
+            symbol_value,
+        )
+        for address, mnemonic, _, symbol, symbol_value in control_transfers
+    )
+    text_relocations = static_relocation_records(candidate, ".rel.text")
+    observed_text_relocations = [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in text_relocations
+    ]
+    if observed_text_relocations != expected_text_relocations:
+        raise RuntimeError(
+            f"{order_policy} retained relocations are not exact"
+        )
+    vector_relocations = static_relocation_records(
+        candidate, ".rel.isr_vector"
+    )
+    if [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in vector_relocations
+    ] != [(0x08000004, 2, "Reset_Handler", reset_pointer)]:
+        raise RuntimeError(f"{order_policy} vector relocation is not exact")
+
+    decoder = Cs(CS_ARCH_ARM, CS_MODE_THUMB | CS_MODE_MCLASS)
+    decoder.detail = True
+    repaired_control_transfers = []
+    for address, mnemonic, expected_target, _, _ in control_transfers:
+        instruction = decode_one_thumb(decoder, candidate, address)
+        target = (
+            int(instruction.operands[0].imm)
+            if instruction.operands
+            and instruction.operands[0].type == ARM_OP_IMM else None
+        )
+        repaired_control_transfers.append({
+            "address": address,
+            "mnemonic": instruction.mnemonic,
+            "target": target,
+        })
+        if instruction.mnemonic != mnemonic or target != expected_target:
+            raise RuntimeError(
+                f"{order_policy} control transfer at 0x{address:x} is stale"
+            )
+
+    origin_summary = None
+    if final_layout is not None:
+        expected_origins = {
+            "worker_a": (0x08000100, moved["worker_a"], 8),
+            "worker_b": (0x08000112, moved["worker_b"], 8),
+            "worker_c": (0x08000122, moved["worker_c"], 8),
+            "Reset_Handler": (0x08000132, moved["Reset_Handler"], 12),
+        }
+        origin_summary = {}
+        for function in final_layout["functions"]:
+            name = function["name"]
+            if name not in expected_origins:
+                continue
+            observed = (
+                int(function["original_address"]),
+                int(function["output_address"]),
+                len(function["instruction_origins"]),
+            )
+            if observed != expected_origins[name] or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in function["instruction_origins"]
+            ):
+                raise RuntimeError(
+                    f"{order_policy} origin map for {name} is not exact"
+                )
+            origin_summary[name] = {
+                "original_address": observed[0],
+                "output_address": observed[1],
+                "instruction_origin_count": observed[2],
+            }
+        if set(origin_summary) != set(expected_origins):
+            raise RuntimeError(
+                f"{order_policy} layout omitted a function origin map"
+            )
+
+    ordered_workers = [
+        name for name, _ in sorted(
+            (
+                (name, address) for name, address in moved.items()
+                if name in {"worker_a", "worker_b", "worker_c"}
+            ),
+            key=lambda item: item[1],
+        )
+    ]
+    return {
+        "status": "accepted",
+        "placement_policy": "reuse_linker_qualified_input_text",
+        "order_policy": order_policy,
+        "program_headers_exact": True,
+        "mapped_executable_span_bytes": 88,
+        "live_text_bytes": 86,
+        "linker_capacity_slack_bytes": 2,
+        "retained_original_text_bytes": int(old_text["size"]),
+        "entry": candidate_inventory["entry"],
+        "vector_words": list(candidate_vector),
+        "moved_symbols": moved,
+        "ordered_workers": ordered_workers,
+        "text_relocations": text_relocations,
+        "vector_relocations": vector_relocations,
+        "repaired_control_transfers": repaired_control_transfers,
+        "origin_summary": origin_summary,
+    }
+
+
 def validate_relocated_function_split(
     reference: Path, candidate: Path,
     final_layout: dict[str, Any] | None = None,
@@ -1532,6 +1770,32 @@ def build_m3_function_reorder_fixture(
         str(M3_FUNCTION_REORDER_LINKER), str(object_path), "-o", str(image),
     ], logs / f"build-m3-{stem}-image.log"),
         "M3 function-reorder image build")
+    return image
+
+
+def build_m3_function_cluster_fixture(
+    output: Path, logs: Path, *, variant: str,
+) -> Path:
+    """Build one frozen-input function-clustering comparison artifact."""
+    variants = {
+        "exec-count", "hfsort", "pettis-hansen", "cdsort",
+    }
+    if variant not in variants:
+        raise ValueError(f"unknown function-clustering variant {variant}")
+    stem = f"function-cluster-{variant}"
+    object_path = output / f"firm-bolt-cortex-m3-{stem}.o"
+    image = output / f"firm-bolt-cortex-m3-{stem}-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_FUNCTION_CLUSTER_SOURCE),
+        "-o", str(object_path),
+    ], logs / f"build-m3-{stem}-object.log"),
+        f"M3 {variant} clustering object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "-T",
+        str(M3_FUNCTION_CLUSTER_LINKER), str(object_path), "-o", str(image),
+    ], logs / f"build-m3-{stem}-image.log"),
+        f"M3 {variant} clustering image build")
     return image
 
 
@@ -3012,6 +3276,14 @@ def main() -> int:
     m3_callgraph_function_reorder_image = build_m3_function_reorder_fixture(
         output, logs, variant="cdsort"
     )
+    m3_cluster_images = {
+        variant: build_m3_function_cluster_fixture(
+            output, logs, variant=variant,
+        )
+        for variant in (
+            "exec-count", "hfsort", "pettis-hansen", "cdsort",
+        )
+    }
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
     m3_loop_inversion_image = build_m3_loop_inversion_fixture(output, logs)
@@ -3167,6 +3439,34 @@ def main() -> int:
              f"--data={M3_FUNCTION_REORDER_CALLGRAPH_PROFILE}",
              "--relocs",
              "--use-old-text",
+             "--reorder-functions=cdsort",
+         ]),
+        ("m3_cluster_exec_count", "cortex-m3",
+         m3_cluster_images["exec-count"], {}, [
+             f"--data={M3_FUNCTION_CLUSTER_PROFILE}",
+             "--relocs", "--use-old-text",
+             "--align-functions=4", "--align-text=4",
+             "--reorder-functions=exec-count",
+         ]),
+        ("m3_cluster_hfsort", "cortex-m3",
+         m3_cluster_images["hfsort"], {}, [
+             f"--data={M3_FUNCTION_CLUSTER_PROFILE}",
+             "--relocs", "--use-old-text",
+             "--align-functions=4", "--align-text=4",
+             "--reorder-functions=hfsort", "-v=2",
+         ]),
+        ("m3_cluster_pettis_hansen", "cortex-m3",
+         m3_cluster_images["pettis-hansen"], {}, [
+             f"--data={M3_FUNCTION_CLUSTER_PROFILE}",
+             "--relocs", "--use-old-text",
+             "--align-functions=4", "--align-text=4",
+             "--reorder-functions=pettis-hansen", "-v=2",
+         ]),
+        ("m3_cluster_cdsort", "cortex-m3",
+         m3_cluster_images["cdsort"], {}, [
+             f"--data={M3_FUNCTION_CLUSTER_PROFILE}",
+             "--relocs", "--use-old-text",
+             "--align-functions=4", "--align-text=4",
              "--reorder-functions=cdsort",
          ]),
         ("m3_function_split", "cortex-m3", m3_function_split_image, {}, [
@@ -3593,6 +3893,12 @@ def main() -> int:
             "m3_profile_function_reorder": "profile_exec_count",
             "m3_callgraph_function_reorder": "cdsort",
         }.get(label)
+        clustering_order_policy = {
+            "m3_cluster_exec_count": "exec-count",
+            "m3_cluster_hfsort": "hfsort",
+            "m3_cluster_pettis_hansen": "pettis-hansen",
+            "m3_cluster_cdsort": "cdsort",
+        }.get(label)
         split_validation = {
             "m3_function_split": validate_relocated_function_split,
             "m3_cdsplit": validate_relocated_cdsplit,
@@ -3614,6 +3920,9 @@ def main() -> int:
                     or "Functions were reordered by LoopInversionPass" in line
                     or "Peephole:" in line
                     or "ICP " in line
+                    or "buildCallGraph:" in line
+                    or "Number of clusters:" in line
+                    or "Final average call distance" in line
                 )
             ],
             "validation": (
@@ -3622,6 +3931,11 @@ def main() -> int:
                     order_policy=relocation_order_policy,
                 )
                 if relocation_order_policy is not None
+                else validate_relocated_function_cluster(
+                    image, candidate,
+                    order_policy=clustering_order_policy,
+                )
+                if clustering_order_policy is not None
                 else split_validation(image, candidate)
                 if split_validation is not None
                 else validate_in_place(image, candidate, protected)
@@ -3636,6 +3950,8 @@ def main() -> int:
                 ) if (
                     native_pass_report is not None
                     and split_validation is None
+                    and clustering_order_policy is None
+                    and relocation_order_policy is None
                 ) else None
             ),
             "provenance_validation": provenance_validation,
@@ -3665,6 +3981,13 @@ def main() -> int:
                     validate_relocated_function_order(
                         image, candidate, final_layout,
                         order_policy=relocation_order_policy,
+                    )
+                )
+            elif clustering_order_policy is not None:
+                results[label]["validation"] = (
+                    validate_relocated_function_cluster(
+                        image, candidate, final_layout,
+                        order_policy=clustering_order_policy,
                     )
                 )
             elif split_validation is not None:
@@ -5036,6 +5359,46 @@ def main() -> int:
                         "aligned external Thumb-1 veneer"
                     )
 
+    clustering_orders = {
+        label: results[label]["validation"]["ordered_workers"]
+        for label in (
+            "m3_cluster_exec_count", "m3_cluster_hfsort",
+            "m3_cluster_pettis_hansen", "m3_cluster_cdsort",
+        )
+    }
+    expected_clustering_orders = {
+        "m3_cluster_exec_count": ["worker_a", "worker_b", "worker_c"],
+        "m3_cluster_hfsort": ["worker_b", "worker_a", "worker_c"],
+        "m3_cluster_pettis_hansen": [
+            "worker_b", "worker_a", "worker_c",
+        ],
+        "m3_cluster_cdsort": ["worker_c", "worker_a", "worker_b"],
+    }
+    if clustering_orders != expected_clustering_orders:
+        raise RuntimeError(
+            f"function-clustering controls did not remain distinct: "
+            f"{clustering_orders}"
+        )
+    for label in ("m3_cluster_hfsort", "m3_cluster_pettis_hansen"):
+        diagnostics = "\n".join(results[label]["bolt_summary"])
+        if (
+            "4 nodes, 4 callsites" not in diagnostics
+            or "Number of clusters: 2" not in diagnostics
+            or "Final average call distance = 12.0 (1200 / 100)"
+            not in diagnostics
+        ):
+            raise RuntimeError(
+                f"{label} did not report the frozen two-cluster call graph"
+            )
+        results[label]["clustering_comparison"] = {
+            "status": "accepted",
+            "same_profile": True,
+            "orders": clustering_orders,
+            "cluster_count": 2,
+            "hot_function_count": 3,
+            "final_average_call_distance_bytes": 12.0,
+        }
+
     mismatch = run(
         [str(args.bolt.resolve()), str(M4_IMAGE),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -5805,6 +6168,23 @@ def main() -> int:
             expected_words=(17, 42),
         )
     )
+    m3_cluster_executions = {
+        variant: (
+            {"status": "skipped_by_request"} if args.skip_fastdyn else
+            validate_m3_words_execution(
+                m3_cluster_images[variant],
+                candidates[label], output,
+                args.fastdyn.resolve(), f"function-cluster-{variant}",
+                expected_words=(17, 42, 29),
+            )
+        )
+        for variant, label in (
+            ("exec-count", "m3_cluster_exec_count"),
+            ("hfsort", "m3_cluster_hfsort"),
+            ("pettis-hansen", "m3_cluster_pettis_hansen"),
+            ("cdsort", "m3_cluster_cdsort"),
+        )
+    }
     m3_function_split_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -5920,6 +6300,7 @@ def main() -> int:
             m3_function_reorder_execution,
             m3_profile_function_reorder_execution,
             m3_callgraph_function_reorder_execution,
+            *m3_cluster_executions.values(),
             m3_function_split_execution,
             m3_cdsplit_execution,
             m3_loop_inversion_execution,
@@ -6055,6 +6436,16 @@ def main() -> int:
                 "policy": "CDSort call-graph whole-image function order "
                           "inside the linker-qualified input .text flash "
                           "extent",
+            },
+            "m3_function_clustering": {
+                "path": str(M3_FUNCTION_CLUSTER_PROFILE),
+                "sha256": sha256(M3_FUNCTION_CLUSTER_PROFILE),
+                "format": "BOLT function-relative branch/call profile",
+                "policy": "one frozen call graph drives exec-count, "
+                          "HFSort, Pettis-Hansen and CDSort whole-image "
+                          "orders inside the linker-qualified input .text "
+                          "flash extent; algorithm effects are compared "
+                          "without changing profile evidence",
             },
             "m3_function_split": {
                 "path": str(M3_FUNCTION_SPLIT_PROFILE),
@@ -6211,6 +6602,8 @@ def main() -> int:
             m3_profile_function_reorder_execution,
         "m3_callgraph_function_reorder_architectural_execution":
             m3_callgraph_function_reorder_execution,
+        "m3_function_clustering_architectural_execution":
+            m3_cluster_executions,
         "m3_native_function_split_architectural_execution":
             m3_function_split_execution,
         "m3_native_cdsplit_architectural_execution":
@@ -6238,9 +6631,11 @@ def main() -> int:
             "emission": (
                 "compact in-place publication by default; the explicit "
                 "m3_function_reorder, m3_profile_function_reorder and "
-                "m3_callgraph_function_reorder gates perform atomic "
-                "whole-image relocation inside the exact original .text "
-                "PT_LOAD; m3_function_split and m3_cdsplit additionally "
+                "m3_callgraph_function_reorder gates, plus the matched "
+                "exec-count/HFSort/Pettis-Hansen/CDSort clustering matrix, "
+                "perform atomic whole-image relocation inside the exact "
+                "original .text PT_LOAD; m3_function_split and m3_cdsplit "
+                "additionally "
                 "qualify two- and three-way fragments inside exact "
                 "linker-owned capacity"
             ),
@@ -6309,6 +6704,7 @@ def main() -> int:
                 "opt-in register-only constant/copy propagation after Thumb tail duplication under a separate definition-deletion contract, with descriptor-aware Thumb MOV source discovery, encoding-class-checked replacements, exact retained/clone identities, compact publication and Cortex-M3 hot/cold execution",
                 "opt-in native BOLT read-only-load simplification for linked allocatable non-writable relocation-free scalar data on Thumb-2, using flag-preserving MOVW/MOVT materialization under an explicit read/fault/timing-elision contract, exact transformed-source origins, compact in-place emission, and Cortex-M3 execution",
                 "explicit ARM relocation mode with native BOLT user-directed, profile exec-count and call-graph CDSort whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
+                "native BOLT HFSort and Pettis-Hansen call-graph clustering, distinguished from exec-count and CDSort under one frozen profile, with linked caller/callee adjacency, repaired direct calls, exact relocation/origin ledgers, separately accounted linker alignment slack, unchanged executable PT_LOAD ranges, and Cortex-M3 execution",
                 "opt-in native BOLT Profile2 hot/cold function splitting inside explicit linker-owned capacity, with vector/secondary entries protected, exact fragment and instruction-origin ledgers, widened cross-fragment branch repair, live SHT_REL ownership, unchanged PT_LOAD ranges, held-out cold-path Cortex-M3 execution, and atomic rejection without the fragment-placement/branch-event contract",
                 "opt-in native BOLT loop inversion for profiled Thumb loops with branch-timing admission, exact moved/synthesized instruction origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT double-jump control-flow peepholes with branch-event admission, exact retained instruction origins, compact in-place emission, and Cortex-M3 execution",
@@ -6342,7 +6738,7 @@ def main() -> int:
                 "Thumb literal islands without a proven non-fallthrough owner",
                 "additional ARM relocation classes beyond the modeled compact set",
                 "out-of-function Thumb veneer placement without explicit typed slots or under arbitrary whole-image layout",
-                "HFSort/Pettis-Hansen parity and function splitting for jump-table, address-stable, veneer-slot or secondary-entry functions",
+                "function clustering and splitting for jump-table, address-stable, veneer-slot or secondary-entry functions",
                 "DSP/FPU/MVE-specific optimization rewrites",
             ],
         },
@@ -6385,6 +6781,14 @@ def main() -> int:
             str(candidates["m3_profile_function_reorder"]),
         "m3_callgraph_function_reorder_candidate":
             str(candidates["m3_callgraph_function_reorder"]),
+        "m3_cluster_exec_count_candidate":
+            str(candidates["m3_cluster_exec_count"]),
+        "m3_cluster_hfsort_candidate":
+            str(candidates["m3_cluster_hfsort"]),
+        "m3_cluster_pettis_hansen_candidate":
+            str(candidates["m3_cluster_pettis_hansen"]),
+        "m3_cluster_cdsort_candidate":
+            str(candidates["m3_cluster_cdsort"]),
         "m3_function_split_candidate":
             str(candidates["m3_function_split"]),
         "m3_cdsplit_candidate": str(candidates["m3_cdsplit"]),

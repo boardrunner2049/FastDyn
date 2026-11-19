@@ -105,10 +105,11 @@ an opt-in immutable-vtable method-load-elimination Cortex-M3 fixture,
 opt-in profiled TBB, in-function ABS32 and relocation-complete detached ABS32
 hot-index-promotion Cortex-M3 fixtures, explicit user-directed and
 profile-execution-count and CDSort call-graph relocation-complete whole-image
-function-ordering Cortex-M3 fixtures, an opt-in Profile2 hot/cold
+function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
+Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
 function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
 fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v117 run accepts all thirty-three without
+The 18 November production-parity-v118 run accepts all thirty-seven without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -149,7 +150,22 @@ The thirty-first profile adds a frozen branch/call profile and native BOLT
 control orders `worker_a`, `worker_b`, `Reset_Handler`, while CDSort orders
 `worker_a`, `Reset_Handler`, `worker_b`; this isolates call-graph affinity from
 count-only sorting. The same placement, relocation, entry/vector, origin and
-FastDyn `(17, 42)` gates pass. HFSort/Pettis-Hansen remains separate work.
+FastDyn `(17, 42)` gates pass.
+
+Four additional profiles use one frozen call graph to compare native BOLT
+exec-count, HFSort, Pettis-Hansen and CDSort ordering without changing the
+evidence. Exec-count orders `worker_a`, `worker_b`, `worker_c`; HFSort and
+Pettis-Hansen order `worker_b`, `worker_a`, `worker_c`; CDSort orders
+`worker_c`, `worker_a`, `worker_b`. HFSort/Pettis-Hansen report four graph
+nodes, four callsites, three hot functions, two clusters and a 12-byte final
+average call distance, retaining the linked `worker_a`/`worker_c` pair as an
+adjacent cluster. Each candidate has 86 live bytes in the unchanged 88-byte
+executable PT_LOAD; the two-byte linker alignment slack is reported
+separately. Five text relocations and the vector relocation follow the moved
+Thumb identities, all 36 instruction origins are exact, and FastDyn executes
+every reference/candidate pair to `(17, 42, 29)`. This qualifies the bounded
+relocation-complete integration, not a runtime benefit or arbitrary firmware
+reference completeness.
 
 The thirty-second profile runs native BOLT Profile2 hot/cold splitting under
 an explicit fragment-placement and cross-fragment branch-event contract. A
@@ -729,22 +745,22 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v117-cdsplit-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v118-function-clustering-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v117-cdsplit-2026-11-18/report.json),
-SHA-256 `6d493606f6a21148a066d80a82f447ad5aee0f4d0383783d12bf76afe0fec3f7`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v118-function-clustering-2026-11-18/report.json),
+SHA-256 `e8f3721a0715eb92ccb4f4ea1222f76151680941c75a0f633bb72dd7dd0c636a`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v117-cdsplit-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v118-function-clustering-2026-11-18/validation-manifest.json)
 (SHA-256
-`710cfa357d44e112b0e6931f86d7cbda50e7034e27bf1922db83e800632ecf0f`)
+`cee81b78972b240a985c547805a615c5484511d080d952f6a6fe3fe1bba12bd3`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`46e7e65a975e6a17e1a4bac33e723538b4d22fc62b9aaeff02a19caa3a8c9070`),
+`5d99e8ba9161eabc94acc597f5b483b79cf7358e5c8b8818fd15ae1a6c033131`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
@@ -780,12 +796,13 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v117 validation passes 58/58 BOLT ARM lit tests, 12/12 AArch32
+The current v118 validation passes 59/59 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
-Unit parameterizations. The function-order test exercises explicit,
-profile-derived execution-count and CDSort call-graph ordering; the new split
-tests add unadmitted/incompatible-model rejections plus exact main/warm/cold
-fragments, branch repair, relocation and origin checks. Whole-image
+Unit parameterizations. The function-order tests exercise explicit,
+profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
+ordering under matched profiles; the split tests retain
+unadmitted/incompatible-model rejections plus exact main/warm/cold fragments,
+branch repair, relocation and origin checks. Whole-image
 emission exposed four
 mechanisms that are now covered:
 byte-layout addresses remain canonical while Thumb callable state stays in
@@ -800,9 +817,9 @@ yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands without a proven non-fallthrough owner, ARM relocation classes
 beyond the now-qualified JUMP6/ABS8/ABS16 set,
 veneer placement without explicit typed slots or under arbitrary
-whole-image layout, HFSort/Pettis-Hansen selection, and splitting of
+whole-image layout, clustering and splitting of
 address-stable, jump-table, veneer or multi-entry functions beyond the
-executed Profile2 and CDSplit relocation gates,
+executed complete-reference layout, Profile2 and CDSplit relocation gates,
 non-ADR/ambiguous table-base data flow, DSP/FPU/MVE-specific optimization rules,
 Secure/Non-secure and PACBTI-M state transformations. Cortex-M4 DSP/FPU,
 Cortex-M55 MVE and Cortex-M85 PACBTI-M decode/exact retention are qualified

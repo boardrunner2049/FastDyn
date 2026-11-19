@@ -15500,6 +15500,191 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +1 cdsplit_worker 3a 1 cdsplit_worker 3c 0 100
 +1 cdsplit_worker 4c 1 cdsplit_worker 4e 0 100
 +1 cdsplit_worker 60 1 cdsplit_worker 62 0 100
+diff --git a/bolt/test/ARM/thumb-function-clustering-relocs.s b/bolt/test/ARM/thumb-function-clustering-relocs.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..1874976e47c6b82c6d1ca5cfb2ea20d01fb0eedc
+--- /dev/null
++++ b/bolt/test/ARM/thumb-function-clustering-relocs.s
+@@ -0,0 +1,179 @@
++## Qualify native BOLT HFSort and Pettis-Hansen function clustering on a
++## relocation-complete Cortex-M image.  Equal-size workers and one lower-rate
++## A->C call distinguish graph clustering from execution-count and CDSort
++## controls under the same frozen profile.
++
++# RUN: split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/fixture.s -o %t/fixture.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture.o -o %t/reference.elf
++
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --align-functions=4 --align-text=4 \
++# RUN:   --reorder-functions=exec-count -o %t/exec.elf
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --align-functions=4 --align-text=4 --reorder-functions=hfsort \
++# RUN:   --fastdyn-firmware-report=%t/hfsort.json -v=2 \
++# RUN:   -o %t/hfsort.elf 2>&1 | FileCheck %s --check-prefix=CLUSTER
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --align-functions=4 --align-text=4 \
++# RUN:   --reorder-functions=pettis-hansen -v=2 -o %t/pettis.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=CLUSTER
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --align-functions=4 --align-text=4 \
++# RUN:   --reorder-functions=cdsort -o %t/cdsort.elf
++
++# RUN: llvm-nm --numeric-sort %t/exec.elf \
++# RUN:   | FileCheck %s --check-prefix=EXEC
++# RUN: llvm-nm --numeric-sort %t/hfsort.elf \
++# RUN:   | FileCheck %s --check-prefix=GRAPH
++# RUN: llvm-nm --numeric-sort %t/pettis.elf \
++# RUN:   | FileCheck %s --check-prefix=GRAPH
++# RUN: llvm-nm --numeric-sort %t/cdsort.elf \
++# RUN:   | FileCheck %s --check-prefix=CDSORT
++# RUN: llvm-readelf -hSWl %t/hfsort.elf \
++# RUN:   | FileCheck %s --check-prefix=ELF
++# RUN: llvm-readelf -rW %t/hfsort.elf \
++# RUN:   | FileCheck %s --check-prefix=RELOCS
++# RUN: %python -c "import json; d=json.load(open('%t/hfsort.json.layout.json')); print([(x['name'],hex(x['original_address']),hex(x['output_address']),len(x['instruction_origins'])) for x in d['functions']])" \
++# RUN:   | FileCheck %s --check-prefix=ORIGINS
++
++# CLUSTER: BOLT-INFO: buildCallGraph: 4 nodes, 4 callsites
++# CLUSTER: BOLT-INFO:  Number of hot functions: 3
++# CLUSTER: BOLT-INFO:  Number of clusters: 2
++# CLUSTER: BOLT-INFO:  Final average call distance = 12.0 (1200 / 100)
++# CLUSTER: BOLT-INFO: not adding new segments
++
++# EXEC: 08000100 T worker_a
++# EXEC: 08000112 T worker_b
++# EXEC: 08000122 T worker_c
++# EXEC: 08000132 T Reset_Handler
++
++# GRAPH: 08000100 T worker_b
++# GRAPH: 08000110 T worker_a
++# GRAPH: 08000122 T worker_c
++# GRAPH: 08000132 T Reset_Handler
++
++# CDSORT: 08000100 T worker_c
++# CDSORT: 08000110 T worker_a
++# CDSORT: 08000122 T Reset_Handler
++# CDSORT: 08000146 T worker_b
++
++# ELF: Entry point address: 0x8000133
++# ELF: .bolt.org.text {{.*}} 08000100 {{.*}} 000000 {{.*}} AX
++# ELF: .text {{.*}} 08000100 {{.*}} 000056 {{.*}} AX
++# ELF: LOAD {{.*}} 0x08000000 {{.*}} 0x00008 0x00008 R
++# ELF-NEXT: LOAD {{.*}} 0x08000100 {{.*}} 0x00058 0x00058 R E
++
++# RELOCS: R_ARM_THM_CALL 08000123 worker_c
++# RELOCS-NEXT: R_ARM_THM_CALL 08000111 worker_a
++# RELOCS-NEXT: R_ARM_THM_CALL 08000111 worker_a
++# RELOCS-NEXT: R_ARM_THM_CALL 08000101 worker_b
++# RELOCS-NEXT: R_ARM_THM_JUMP24 08000152 fixture_halt
++# RELOCS: R_ARM_ABS32 08000133 Reset_Handler
++
++# ORIGINS: [('worker_a', '0x8000100', '0x8000110', 8), ('worker_b', '0x8000112', '0x8000100', 8), ('worker_c', '0x8000122', '0x8000122', 8), ('Reset_Handler', '0x8000132', '0x8000132', 12)]
++
++//--- fixture.s
++.syntax unified
++.cpu cortex-m3
++.thumb
++.eabi_attribute Tag_CPU_arch, 10
++.eabi_attribute Tag_CPU_arch_profile, 'M'
++
++.section .isr_vector, "a", %progbits
++.align 2
++.global g_pfnVectors
++.type g_pfnVectors, %object
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++.size g_pfnVectors, . - g_pfnVectors
++
++.section .text, "ax", %progbits
++.align 2
++.global worker_a
++.type worker_a, %function
++.thumb_func
++worker_a:
++  cmp r0, #0
++  bne .La_fast
++  push {r4, lr}
++worker_a_call_c:
++  bl worker_c
++  pop {r4, pc}
++.La_fast:
++  movs r0, #17
++  nop
++  bx lr
++.size worker_a, . - worker_a
++
++.global worker_b
++.type worker_b, %function
++.thumb_func
++worker_b:
++  movs r0, #29
++  .rept 6
++  nop
++  .endr
++  bx lr
++.size worker_b, . - worker_b
++
++.global worker_c
++.type worker_c, %function
++.thumb_func
++worker_c:
++  movs r0, #42
++  .rept 6
++  nop
++  .endr
++  bx lr
++.size worker_c, . - worker_c
++
++.global Reset_Handler
++.type Reset_Handler, %function
++.thumb_func
++Reset_Handler:
++  movw r4, #0
++  movt r4, #0x2000
++  movs r0, #1
++  bl worker_a
++  str r0, [r4]
++  movs r0, #0
++  bl worker_a
++  str r0, [r4, #4]
++  movs r0, #1
++  bl worker_b
++  str r0, [r4, #8]
++.global fixture_halt
++fixture_halt:
++  b fixture_halt
++.size Reset_Handler, . - Reset_Handler
++
++//--- link.ld
++ENTRY(Reset_Handler)
++MEMORY {
++  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
++  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
++}
++SECTIONS {
++  .isr_vector ORIGIN(FLASH) : { KEEP(*(.isr_vector)) } > FLASH
++  .text ORIGIN(FLASH) + 0x100 : {
++    *(.text*)
++    . = . + 2;
++  } > FLASH
++  .data : { *(.data*) } > RAM AT > FLASH
++  .bss (NOLOAD) : { *(.bss*) *(COMMON) } > RAM
++}
++
++//--- profile.fdata
++1 Reset_Handler a 1 worker_a 0 0 900
++1 Reset_Handler 12 1 worker_a 0 0 100
++1 Reset_Handler 1a 1 worker_b 0 0 900
++1 worker_a 2 1 worker_a c 0 900
++1 worker_a 2 1 worker_a 4 0 100
++1 worker_a 6 1 worker_c 0 0 100
 diff --git a/bolt/test/ARM/thumb-function-reorder-relocs.s b/bolt/test/ARM/thumb-function-reorder-relocs.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..e691ab3b42ee66b3a81927c64d4254792bd6f382
