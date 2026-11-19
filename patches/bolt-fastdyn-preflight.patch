@@ -10196,7 +10196,7 @@ index 0000000000000000000000000000000000000000..a527b815390c87571d07b14b8785ea3a
 +  return Error::success();
 +}
 diff --git a/bolt/lib/Passes/FrameAnalysis.cpp b/bolt/lib/Passes/FrameAnalysis.cpp
-index b5a50417285ba5d7116e7cb218ed625477bbfbad..d2988c940640cce12c9f34a22ff24c4e9be8567e 100644
+index b5a50417285ba5d7116e7cb218ed625477bbfbad..f18048183179810db782c4f493ad9b429030ff5c 100644
 --- a/bolt/lib/Passes/FrameAnalysis.cpp
 +++ b/bolt/lib/Passes/FrameAnalysis.cpp
 @@ -100,8 +100,8 @@ class FrameAccessAnalysis {
@@ -10210,7 +10210,45 @@ index b5a50417285ba5d7116e7cb218ed625477bbfbad..d2988c940640cce12c9f34a22ff24c4e
    std::stack<std::pair<int64_t, uint16_t>> CFIStack;
    /// Our pointer to access SPT info
    const MCInst *Prev{nullptr};
-@@ -163,7 +163,13 @@ class FrameAccessAnalysis {
+@@ -110,6 +110,18 @@ class FrameAccessAnalysis {
+   bool EscapesStackAddress{false};
+   FrameIndexEntry FIE;
+ 
++  bool fail(const MCInst &Inst, StringRef Reason) const {
++    if (opts::Verbosity >= 1) {
++      BC.outs() << "BOLT-INFO: FRAME ANALYSIS: function "
++                << BF.getPrintName() << " rejected: " << Reason;
++      if (const std::optional<uint32_t> Offset = BC.MIB->getOffset(Inst))
++        BC.outs() << " at " << format_hex(BF.getAddress() + *Offset, 10);
++      BC.outs() << "\n";
++      BC.printInstruction(BC.outs(), Inst, 0, &BF, true, false, false);
++    }
++    return false;
++  }
++
+   bool decodeFrameAccess(const MCInst &Inst) {
+     int32_t SrcImm = 0;
+     MCPhysReg Reg = 0;
+@@ -126,7 +138,8 @@ class FrameAccessAnalysis {
+       LLVM_DEBUG(dbgs() << "Blame insn: ");
+       LLVM_DEBUG(BC.printInstruction(dbgs(), Inst, 0, &BF, true, false, false));
+       LLVM_DEBUG(Inst.dump());
+-      return false;
++      return fail(Inst, IsIndexed ? "indexed frame access"
++                                  : "frame access with unknown size");
+     }
+ 
+     assert(FIE.Size != 0 || (!FIE.IsLoad && !FIE.IsStore));
+@@ -155,7 +168,7 @@ class FrameAccessAnalysis {
+                         << "\n\tStack access reg: " << FIE.StackPtrReg << "\n");
+       LLVM_DEBUG(dbgs() << "Blame insn: ");
+       LLVM_DEBUG(Inst.dump());
+-      return false;
++      return fail(Inst, "frame access base is not a tracked CFA register");
+     }
+     IsValidAccess = true;
+     return true;
+@@ -163,7 +176,13 @@ class FrameAccessAnalysis {
  
  public:
    FrameAccessAnalysis(BinaryFunction &BF, StackPointerTracking &SPT)
@@ -10225,7 +10263,16 @@ index b5a50417285ba5d7116e7cb218ed625477bbfbad..d2988c940640cce12c9f34a22ff24c4e
  
    void enterNewBB() { Prev = nullptr; }
    const FrameIndexEntry &getFIE() const { return FIE; }
-@@ -564,13 +570,15 @@ FrameAnalysis::FrameAnalysis(BinaryContext &BC, BinaryFunctionCallGraph &CG)
+@@ -220,7 +239,7 @@ public:
+             dbgs() << "Leaked stack address, giving up on this function.\n");
+         LLVM_DEBUG(dbgs() << "Blame insn: ");
+         LLVM_DEBUG(Inst.dump());
+-        return false;
++        return fail(Inst, "stack-derived address escapes frame model");
+       }
+     }
+ 
+@@ -564,13 +583,15 @@ FrameAnalysis::FrameAnalysis(BinaryContext &BC, BinaryFunctionCallGraph &CG)
  }
  
  void FrameAnalysis::printStats() {
@@ -16036,10 +16083,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..75e8a059918cafb304673e9b3467f242
      writeEHFrameHeader();
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..71144f43d2ddf03611f2e737352d6e7abb147f01
+index 0000000000000000000000000000000000000000..f203a9fe20ec5c7c6021d368b4408d22a9f993e1
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3219 @@
+@@ -0,0 +1,3301 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -16368,6 +16415,55 @@ index 0000000000000000000000000000000000000000..71144f43d2ddf03611f2e737352d6e7a
 +      return true;
 +    }
 +
++    // Thumb-2 doubleword transfers describe one contiguous eight-byte frame
++    // range.  FrameAnalysis cannot associate the two register values with one
++    // MCInst, so keep the range non-simple: it participates in alias barriers
++    // but is never forwarded or deleted as a scalar access.
++    if (Inst.getOpcode() == ARM::t2LDRDi8 ||
++        Inst.getOpcode() == ARM::t2STRDi8) {
++      if (Inst.getNumOperands() < 4 || !Inst.getOperand(2).isReg() ||
++          !Inst.getOperand(3).isImm())
++        return false;
++      const MCPhysReg Base = Inst.getOperand(2).getReg();
++      if (Base != ARM::SP && Base != ARM::R7)
++        return false;
++      IsLoad = Inst.getOpcode() == ARM::t2LDRDi8;
++      IsStore = !IsLoad;
++      StackPtrReg = Base;
++      StackOffset = Inst.getOperand(3).getImm();
++      Size = 8;
++      return true;
++    }
++
++    // Model the two writeback forms emitted by ordinary Cortex-M prologues
++    // and epilogues.  Their memory effect remains non-simple, while stack
++    // pointer tracking separately evaluates the writeback expression below.
++    if (Inst.getOpcode() == ARM::t2LDR_POST) {
++      if (Inst.getNumOperands() < 4 || !Inst.getOperand(0).isReg() ||
++          !Inst.getOperand(2).isReg() || !Inst.getOperand(3).isImm() ||
++          Inst.getOperand(2).getReg() != ARM::SP)
++        return false;
++      IsLoad = true;
++      Reg = Inst.getOperand(0).getReg();
++      StackPtrReg = ARM::SP;
++      StackOffset = 0;
++      Size = 4;
++      return true;
++    }
++    if (Inst.getOpcode() == ARM::t2STR_PRE) {
++      if (Inst.getNumOperands() < 4 || !Inst.getOperand(1).isReg() ||
++          !Inst.getOperand(2).isReg() || !Inst.getOperand(3).isImm() ||
++          Inst.getOperand(2).getReg() != ARM::SP)
++        return false;
++      IsStore = true;
++      IsStoreFromReg = true;
++      Reg = Inst.getOperand(1).getReg();
++      StackPtrReg = ARM::SP;
++      StackOffset = Inst.getOperand(3).getImm();
++      Size = 4;
++      return true;
++    }
++
 +    // These Thumb immediate load/store encodings all decode as
 +    //   Rt, base, encoded-offset, predicate, predicate-register.
 +    // Thumb-1 word and halfword forms retain their scaled immediate in the
@@ -16474,6 +16570,9 @@ index 0000000000000000000000000000000000000000..71144f43d2ddf03611f2e737352d6e7a
 +      std::pair<MCPhysReg, int64_t> Input2) const override {
 +    bool IsAdd = false;
 +    unsigned Scale = 1;
++    unsigned OutputIndex = 0;
++    unsigned InputIndex = 1;
++    unsigned ImmediateIndex = 2;
 +    switch (Inst.getOpcode()) {
 +    case ARM::tADDspi:
 +      IsAdd = true;
@@ -16485,6 +16584,26 @@ index 0000000000000000000000000000000000000000..71144f43d2ddf03611f2e737352d6e7a
 +    case ARM::tADDrSPi:
 +      IsAdd = true;
 +      Scale = 4;
++      break;
++    case ARM::tADDi8:
++      IsAdd = true;
++      InputIndex = 2;
++      ImmediateIndex = 3;
++      break;
++    case ARM::tSUBi8:
++      InputIndex = 2;
++      ImmediateIndex = 3;
++      break;
++    case ARM::t2LDR_POST:
++      IsAdd = true;
++      OutputIndex = 1;
++      InputIndex = 2;
++      ImmediateIndex = 3;
++      break;
++    case ARM::t2STR_PRE:
++      IsAdd = true;
++      InputIndex = 2;
++      ImmediateIndex = 3;
 +      break;
 +    case ARM::t2ADDspImm:
 +    case ARM::t2ADDspImm12:
@@ -16498,13 +16617,15 @@ index 0000000000000000000000000000000000000000..71144f43d2ddf03611f2e737352d6e7a
 +    default:
 +      return false;
 +    }
-+    if (Inst.getNumOperands() < 3 || !Inst.getOperand(0).isReg() ||
-+        !Inst.getOperand(1).isReg() || !Inst.getOperand(2).isImm())
++    if (Inst.getNumOperands() <= ImmediateIndex ||
++        !Inst.getOperand(OutputIndex).isReg() ||
++        !Inst.getOperand(InputIndex).isReg() ||
++        !Inst.getOperand(ImmediateIndex).isImm())
 +      return false;
-+    const MCPhysReg OutputReg = Inst.getOperand(0).getReg();
++    const MCPhysReg OutputReg = Inst.getOperand(OutputIndex).getReg();
 +    if (OutputReg != ARM::SP && OutputReg != ARM::R7)
 +      return false;
-+    const MCPhysReg InputReg = Inst.getOperand(1).getReg();
++    const MCPhysReg InputReg = Inst.getOperand(InputIndex).getReg();
 +    std::optional<int64_t> Input;
 +    if (InputReg == Input1.first)
 +      Input = Input1.second;
@@ -16512,7 +16633,7 @@ index 0000000000000000000000000000000000000000..71144f43d2ddf03611f2e737352d6e7a
 +      Input = Input2.second;
 +    if (!Input)
 +      return false;
-+    const int64_t Amount = Inst.getOperand(2).getImm() * Scale;
++    const int64_t Amount = Inst.getOperand(ImmediateIndex).getImm() * Scale;
 +    Output = IsAdd ? *Input + Amount : *Input - Amount;
 +    return true;
 +  }
@@ -16554,15 +16675,23 @@ index 0000000000000000000000000000000000000000..71144f43d2ddf03611f2e737352d6e7a
 +    // not an escaped stack address.
 +    if (HasFramePointer && Inst.getNumOperands() >= 2 &&
 +        Inst.getOperand(0).isReg() &&
-+        Inst.getOperand(0).getReg() == ARM::R7 &&
-+        Inst.getOperand(1).isReg() &&
-+        (Inst.getOperand(1).getReg() == ARM::SP ||
-+         Inst.getOperand(1).getReg() == ARM::R7)) {
++        Inst.getOperand(0).getReg() == ARM::R7) {
 +      switch (Inst.getOpcode()) {
 +      case ARM::tADDrSPi:
 +      case ARM::t2ADDri:
 +      case ARM::t2SUBri:
-+        return false;
++        if (Inst.getOperand(1).isReg() &&
++            (Inst.getOperand(1).getReg() == ARM::SP ||
++             Inst.getOperand(1).getReg() == ARM::R7))
++          return false;
++        break;
++      case ARM::tADDi8:
++      case ARM::tSUBi8:
++        if (Inst.getNumOperands() >= 4 && Inst.getOperand(2).isReg() &&
++            Inst.getOperand(2).getReg() == ARM::R7 &&
++            Inst.getOperand(3).isImm())
++          return false;
++        break;
 +      default:
 +        break;
 +      }
@@ -28945,6 +29074,111 @@ index 0000000000000000000000000000000000000000..e121ff35140f3ddc5f729923254d42af
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word byte_half_worker
+diff --git a/bolt/test/ARM/thumb2-frame-writeback-doubleword.s b/bolt/test/ARM/thumb2-frame-writeback-doubleword.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..c10cb81a5a943efb7ef6a9268eb2f2b20beb0810
+--- /dev/null
++++ b/bolt/test/ARM/thumb2-frame-writeback-doubleword.s
+@@ -0,0 +1,99 @@
++## Cortex-M compilers use tied two-address ADD instructions to dismantle an
++## r7 frame, pre/post-indexed scalar transfers to save/restore registers, and
++## LDRD/STRD for adjacent stack slots.  These are frame operations, not escaped
++## stack pointers.  The non-scalar accesses remain conservative alias ranges;
++## ordinary scalar forwarding may proceed only for a disjoint exact slot.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --frame-opt=all --eliminate-unreachable=false \
++# RUN:   --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=BOLT
++# RUN: llvm-objdump -d --mcpu=cortex-m3 %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=DISASM
++
++# BOLT: BOLT-INFO: FOP optimized 3 redundant load(s)
++# BOLT: BOLT-INFO: FRAME ANALYSIS: 0 function(s) (0.0% dyn cov) could not have its frame indices restored.
++
++# DISASM: <tied_fp_epilogue>:
++# DISASM: str r0, [r7]
++# DISASM-NEXT: mov r1, r0
++# DISASM: adds r7, #0x18
++# DISASM-NEXT: mov sp, r7
++# DISASM-NEXT: ldr r7, [sp], #4
++# DISASM-NEXT: pop {pc}
++# DISASM: <writeback_worker>:
++# DISASM: str r11, [sp, #-4]!
++# DISASM: str r0, [sp]
++# DISASM-NEXT: mov r1, r0
++# DISASM: ldr r11, [sp], #4
++# DISASM: <doubleword_worker>:
++# DISASM: str r0, [sp]
++# DISASM-NEXT: strd r2, r3, [sp, #8]
++# DISASM-NEXT: mov r1, r0
++# DISASM-NEXT: ldrd r2, r3, [sp, #8]
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl tied_fp_epilogue
++  bl writeback_worker
++  b doubleword_worker
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl tied_fp_epilogue
++  .type tied_fp_epilogue,%function
++  .thumb_func
++tied_fp_epilogue:
++  push {r7, lr}
++  sub sp, #24
++  add r7, sp, #0
++  str r0, [r7]
++  ldr r1, [r7]
++  adds r7, #24
++  mov sp, r7
++  ldr.w r7, [sp], #4
++  pop {pc}
++  .size tied_fp_epilogue, .-tied_fp_epilogue
++
++  .globl writeback_worker
++  .type writeback_worker,%function
++  .thumb_func
++writeback_worker:
++  str r11, [sp, #-4]!
++  sub sp, #4
++  str r0, [sp]
++  ldr r1, [sp]
++  add sp, #4
++  ldr r11, [sp], #4
++  bx lr
++  .size writeback_worker, .-writeback_worker
++
++  .globl doubleword_worker
++  .type doubleword_worker,%function
++  .thumb_func
++doubleword_worker:
++  sub sp, #16
++  str r0, [sp]
++  strd r2, r3, [sp, #8]
++  ldr r1, [sp]
++  ldrd r2, r3, [sp, #8]
++  add sp, #16
++  bx lr
++  .size doubleword_worker, .-doubleword_worker
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb2-jump6-relocation.test b/bolt/test/ARM/thumb2-jump6-relocation.test
 new file mode 100644
 index 0000000000000000000000000000000000000000..63eadab0549c3893ff73dbb852496e8c43e013ca
@@ -29529,7 +29763,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..04b5a5f528e6263f63a146faec3e31b334b6b877 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..42e4eece9e434b57d6e609e4dd3c66c87f40aacd 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -29599,7 +29833,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..04b5a5f528e6263f63a146faec3e31b3
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +155,1051 @@ protected:
+@@ -125,6 +155,1122 @@ protected:
  };
  } // namespace
  
@@ -29750,6 +29984,44 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..04b5a5f528e6263f63a146faec3e31b3
 +  EXPECT_FALSE(IsSimple);
 +  EXPECT_FALSE(IsIndexed);
 +  EXPECT_FALSE(BC->MIB->escapesVariable(Pop, /*HasFramePointer=*/true));
++
++  MCInst DoubleStore = MCInstBuilder(ARM::t2STRDi8)
++                           .addReg(ARM::R2)
++                           .addReg(ARM::R3)
++                           .addReg(ARM::SP)
++                           .addImm(8)
++                           .addImm(ARMCC::AL)
++                           .addReg(0);
++  ASSERT_TRUE(BC->MIB->isStackAccess(
++      DoubleStore, IsLoad, IsStore, IsStoreFromReg, Reg, SrcImm, Base,
++      Offset, Size, IsSimple, IsIndexed));
++  EXPECT_FALSE(IsLoad);
++  EXPECT_TRUE(IsStore);
++  EXPECT_EQ(Base, ARM::SP);
++  EXPECT_EQ(Offset, 8);
++  EXPECT_EQ(Size, 8);
++  EXPECT_FALSE(IsSimple);
++  EXPECT_FALSE(BC->MIB->escapesVariable(DoubleStore,
++                                        /*HasFramePointer=*/true));
++
++  MCInst PostLoad = MCInstBuilder(ARM::t2LDR_POST)
++                        .addReg(ARM::R7)
++                        .addReg(ARM::SP)
++                        .addReg(ARM::SP)
++                        .addImm(4)
++                        .addImm(ARMCC::AL)
++                        .addReg(0);
++  ASSERT_TRUE(BC->MIB->isStackAccess(
++      PostLoad, IsLoad, IsStore, IsStoreFromReg, Reg, SrcImm, Base, Offset,
++      Size, IsSimple, IsIndexed));
++  EXPECT_TRUE(IsLoad);
++  EXPECT_FALSE(IsStore);
++  EXPECT_EQ(Base, ARM::SP);
++  EXPECT_EQ(Offset, 0);
++  EXPECT_EQ(Size, 4);
++  EXPECT_FALSE(IsSimple);
++  EXPECT_FALSE(BC->MIB->escapesVariable(PostLoad,
++                                        /*HasFramePointer=*/true));
 +
 +  ASSERT_TRUE(BC->MIB->isStackAccess(
 +      Load, IsLoad, IsStore, IsStoreFromReg, Reg, SrcImm, Base, Offset,
@@ -30353,6 +30625,39 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..04b5a5f528e6263f63a146faec3e31b3
 +  ASSERT_TRUE(BC->MIB->evaluateStackOffsetExpr(WideFP, Output, SP, FP));
 +  EXPECT_EQ(Output, 264);
 +  EXPECT_FALSE(BC->MIB->escapesVariable(WideFP, true));
++
++  // Thumb-1's tied two-address form carries CPSR between the explicit output
++  // and source operands.  This is the standard O0 frame-pointer epilogue.
++  MCInst TiedFP = MCInstBuilder(ARM::tADDi8)
++                      .addReg(ARM::R7)
++                      .addReg(ARM::CPSR)
++                      .addReg(ARM::R7)
++                      .addImm(28)
++                      .addImm(ARMCC::AL)
++                      .addReg(0);
++  ASSERT_TRUE(BC->MIB->evaluateStackOffsetExpr(TiedFP, Output, SP, FP));
++  EXPECT_EQ(Output, 228);
++  EXPECT_FALSE(BC->MIB->escapesVariable(TiedFP, true));
++
++  MCInst PreStore = MCInstBuilder(ARM::t2STR_PRE)
++                        .addReg(ARM::SP)
++                        .addReg(ARM::R11)
++                        .addReg(ARM::SP)
++                        .addImm(-4)
++                        .addImm(ARMCC::AL)
++                        .addReg(0);
++  ASSERT_TRUE(BC->MIB->evaluateStackOffsetExpr(PreStore, Output, SP, FP));
++  EXPECT_EQ(Output, 96);
++
++  MCInst PostLoad = MCInstBuilder(ARM::t2LDR_POST)
++                        .addReg(ARM::R7)
++                        .addReg(ARM::SP)
++                        .addReg(ARM::SP)
++                        .addImm(4)
++                        .addImm(ARMCC::AL)
++                        .addReg(0);
++  ASSERT_TRUE(BC->MIB->evaluateStackOffsetExpr(PostLoad, Output, SP, FP));
++  EXPECT_EQ(Output, 104);
 +
 +  // AllocCombiner passes the signed architectural byte effect of the second
 +  // adjustment to addToImm(), even when the original instruction uses a

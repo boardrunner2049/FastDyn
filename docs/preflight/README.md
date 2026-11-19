@@ -1732,6 +1732,48 @@ and the
 [`validation manifest`](evidence/firmbolt-cortex-m-v159-validation.json).
 This proves publication identity, not semantic equivalence or speedup.
 
+v160 closes a target frame-model gap exposed by the real RTOS corpus instead
+of broadening the firmware contract.  With `-v=1`, FrameAnalysis now reports
+the rejected function, original instruction identity, instruction and one of
+three mechanisms: an indexed/unknown-size access, an untracked CFA base, or an
+escaped stack-derived address.  The pre-change diagnostic classified all
+65 ThreadX failures as stack-address escapes; 61 were actually the ordinary
+O0 epilogue `adds r7, #frame_size` followed by `mov sp, r7`.  ARM's tied
+two-address MC form places CPSR between the destination and source, which the
+target stack-expression hook had not modeled.
+
+The ARM builder now evaluates tied `tADDi8`/`tSUBi8` frame-pointer updates and
+the measured `t2STR_PRE`/`t2LDR_POST` stack writeback forms.  Thumb-2
+`LDRD`/`STRD` stack accesses are represented as one conservative eight-byte
+alias range: they can prevent an unsafe scalar forwarding, but their two
+register values are never claimed as a scalar available value.  A focused
+linked Cortex-M3 fixture exercises all of these forms and still preserves
+their memory operations and instruction count.
+
+On the unchanged real ThreadX ELF, failed frame reconstruction falls from
+65/85 to 4/85 functions.  Ordinary BOLT FOP consequently forwards 1,068
+loads in 61 functions, removes no stores or loads, and keeps one original
+identity per final instruction.  Compact publication rises from 66 to 67
+functions; the estimated function bytes fall from 21,108 to 20,876 through
+the existing audited pipeline.  The four retained functions form addresses
+of stack objects for outward use, so they remain outside ordinary forwarding.
+Zephyr failures fall from 13 to 6 after its seven doubleword stack transfers
+become conservative ranges.  ChibiOS remains 3/27 and FreeRTOS M4 remains
+58/607 because analysis now reaches later, genuine stack-pointer escapes;
+ESCape32 remains 18/127.  These distinctions are evidence that the recovered
+coverage is a target-model repair, not an alias-contract relaxation.
+
+The 62/62 production matrix, including 10,000 fixed-work FreeRTOS M4 units,
+passes with exact final-ELF byte validation.  ARM BOLT lit is 86/86, AArch32
+JITLink is 12/12, and BOLT units remain 86 passes plus 150 explicit
+target-inapplicable skips, with Pass 5/5 and Profile 39/39.  The evidence is
+in
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v160-frame-coverage-r2/report.json)
+and the
+[`validation manifest`](evidence/firmbolt-cortex-m-v160-validation.json).
+This establishes recovered deterministic optimization coverage and exact
+installation; it is not a ThreadX runtime-speed or semantic-equivalence claim.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

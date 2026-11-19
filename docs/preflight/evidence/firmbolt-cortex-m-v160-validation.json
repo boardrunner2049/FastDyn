@@ -1,0 +1,185 @@
+{
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "milestone": "v160-target-frame-model-coverage",
+  "generated_at_utc": "2026-11-19T21:51:12Z",
+  "repository_base_commit": "1a66e643e4881cacb3a8158ccc69807b4513334d",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--full-pipeline",
+    "--frame-opt",
+    "all",
+    "--skip-build",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-v160-frame-coverage-r2"
+  ],
+  "production_status": "accepted",
+  "production_profiles": {
+    "accepted": 62,
+    "total": 62,
+    "linked_byte_validation_applicable": 61,
+    "linked_byte_validation_not_applicable": 1,
+    "not_applicable_reason": "the narrow-data relocation fixture contains no executable instruction origins"
+  },
+  "frame_model_change": {
+    "implemented_forms": [
+      "tied Thumb-1 tADDi8/tSUBi8 frame-pointer arithmetic",
+      "Thumb-2 t2STR_PRE/t2LDR_POST scalar stack writeback",
+      "conservative non-simple eight-byte t2STRDi8/t2LDRDi8 stack ranges"
+    ],
+    "preserved_constraints": [
+      "doubleword transfers are alias barriers and are not scalar forwarding sources",
+      "ordinary FOP removes no loads or stores under the firmware instruction-count contract",
+      "unresolved stack-object escapes retain the original function"
+    ],
+    "real_corpus": {
+      "escape32_m0plus": {
+        "failed_before": 18,
+        "failed_after": 18,
+        "rejection_reasons": {
+          "frame_access_base_not_tracked_cfa": 1,
+          "stack_derived_address_escape": 17
+        },
+        "fop_forwarded_loads": 105
+      },
+      "freertos_m4": {
+        "failed_before": 58,
+        "failed_after": 58,
+        "rejection_reasons": {
+          "stack_derived_address_escape": 58
+        },
+        "fop_forwarded_loads": 1200
+      },
+      "threadx_m4": {
+        "failed_before": 65,
+        "failed_after": 4,
+        "recovered_functions": 61,
+        "rejection_reasons": {
+          "stack_derived_address_escape": 4
+        },
+        "fop_forwarded_loads_before": 0,
+        "fop_forwarded_loads_after": 1068,
+        "fop_modified_functions": 61,
+        "published_functions_before": 66,
+        "published_functions_after": 67,
+        "original_function_bytes": 21108,
+        "estimated_post_optimization_function_bytes": 20876,
+        "stores_removed": 0,
+        "loads_removed": 0
+      },
+      "zephyr_m3": {
+        "failed_before": 13,
+        "failed_after": 6,
+        "rejection_reasons": {
+          "frame_access_base_not_tracked_cfa": 2,
+          "stack_derived_address_escape": 4
+        },
+        "fop_forwarded_loads": 0
+      },
+      "chibios_m4": {
+        "failed_before": 3,
+        "failed_after": 3,
+        "rejection_reasons": {
+          "stack_derived_address_escape": 3
+        },
+        "fop_forwarded_loads": 0
+      }
+    }
+  },
+  "linked_instruction_publication": {
+    "layout_schema_version": 2,
+    "functions": 1940,
+    "modified_functions": 1131,
+    "instruction_origins": 128212,
+    "modified_function_instruction_origins": 98150,
+    "potentially_faulting_load_store_origins": 57275,
+    "requirements": [
+      "every mapped instruction has linker-produced expected bytes",
+      "every mapped instruction is contained by one final function fragment and one executable section",
+      "mapped instruction ranges do not overlap",
+      "the final ELF bytes exactly equal the linker-produced bytes"
+    ]
+  },
+  "real_firmware": {
+    "escape32_m0plus_default": {
+      "functions": 124,
+      "modified_functions": 75,
+      "instruction_origins": 13243,
+      "modified_function_instruction_origins": 7659,
+      "potentially_faulting_load_store_origins": 4957,
+      "linked_and_published_stream_sha256": "baddd5e05e6b48f1da2e76e8d2ded5b2a4568f3557bc3bdec83f380ce9078928"
+    },
+    "freertos_m4_default": {
+      "functions": 596,
+      "modified_functions": 374,
+      "instruction_origins": 42359,
+      "modified_function_instruction_origins": 34417,
+      "potentially_faulting_load_store_origins": 19909,
+      "linked_and_published_stream_sha256": "1e78bf23b4a0abc988d488f748627044d7f638b06fd1878fb079ced7c3efca6c",
+      "fixed_work_units": 10000,
+      "ram_prefix_sha256": "91d59804ad63d47c033a2557528566a4d4bbd4c0628c23a02fdad2e277126351"
+    },
+    "threadx_m4_default": {
+      "functions": 81,
+      "modified_functions": 67,
+      "instruction_origins": 8767,
+      "modified_function_instruction_origins": 8371,
+      "potentially_faulting_load_store_origins": 4810,
+      "linked_and_published_stream_sha256": "9f6e21fdaa8aa5051e63b9c46e5bfdc56fd42ef2d80f32e53ed0f3a838202233"
+    }
+  },
+  "negative_control": {
+    "status": "accepted",
+    "function": "spill_worker",
+    "original_identity": "0x080000ac",
+    "output_address": "0x080000ac",
+    "restored_valid_original_bytes_hex": "009a",
+    "expected_linked_bytes_hex": "1246",
+    "observed_rejection": "spill_worker final instruction at 0x80000ac is 009a, but BOLT linked 1246",
+    "fixture": "reject-valid-original-instruction-overlay.elf",
+    "fixture_sha256": "df8f4a476b1072bb5302f0b82b16613089bc2146fa57be1d57e779f451d42fc9"
+  },
+  "regressions": {
+    "arm_bolt_lit": {
+      "passed": 86,
+      "failed": 0
+    },
+    "aarch32_jitlink_lit": {
+      "passed": 12,
+      "failed": 0
+    },
+    "core_units": {
+      "passed": 86,
+      "skipped_target_inapplicable": 150,
+      "failed": 0
+    },
+    "pass_units": {
+      "passed": 5,
+      "failed": 0
+    },
+    "profile_units": {
+      "passed": 39,
+      "failed": 0
+    }
+  },
+  "scope_limits": [
+    "ThreadX was not executed under a board/device harness in this milestone",
+    "the 1068 forwards are installed native transformations, not a measured FastDyn speedup",
+    "the remaining stack-object escapes require an explicit alias/effect contract",
+    "this milestone does not establish complete x86-backend feature parity"
+  ],
+  "sha256": {
+    "patches/bolt-fastdyn-preflight.patch": "277648aa052f52f292622b68868a3749b6dcad62efb232573c5039511b34540b",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "36df879cf2f6dbead52ae6c637032e268dd2bbafe5fecbf415d6e0ee317b6300",
+    "report.json": "735980cbd0f902c4bf32387e2294665e1fdf5140dfd2cc9c4164a05522983fad",
+    "reject-valid-original-instruction-overlay.elf": "df8f4a476b1072bb5302f0b82b16613089bc2146fa57be1d57e779f451d42fc9",
+    "arm-bolt-lit.xml": "9e7953a00512088ce96fa4364c97ef455e407c5ee06cb03a6517fb6681080f7d",
+    "aarch32-jitlink-lit.xml": "ab87321fb68a01cde6af43113bcc123cbdd80f4d5db2e41a4eefa6ecca7c295b",
+    "core-tests.xml": "a123a10f8f1b12b22b9cb9ffae6761ea30009f32856ef390d12bd4a9a3fdd311",
+    "pass-tests.xml": "2f35fa8d7e88b4c9a197acb8b305bce4347d605825a7645e1e87d4a57127b35a",
+    "profile-tests.xml": "b98160b2d9312101b39cdaf2ff1466255c54a9915bf5ccdc6a5e7de0b6c3866f"
+  }
+}

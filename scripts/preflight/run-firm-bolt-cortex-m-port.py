@@ -4570,6 +4570,33 @@ def run_bolt(bolt: Path, image: Path, cpu: str, output: Path,
     return candidate, process
 
 
+def parse_frame_analysis_rejections(diagnostics: str) -> list[dict[str, Any]]:
+    """Return stable, deduplicated target frame-analysis rejection evidence."""
+    pattern = re.compile(
+        r"BOLT-INFO: FRAME ANALYSIS: function (?P<function>.*?) rejected: "
+        r"(?P<reason>.*?) at (?P<address>0x[0-9a-f]+)\n"
+        r"\s+00000000:\s+(?P<instruction>[^\n]+)"
+    )
+    evidence: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, int]] = set()
+    for match in pattern.finditer(diagnostics):
+        key = (
+            match.group("function"), match.group("reason"),
+            int(match.group("address"), 16),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        evidence.append({
+            "function": key[0],
+            "reason": key[1],
+            "original_address": key[2],
+            "instruction": match.group("instruction").split(" # ", 1)[0]
+            .strip(),
+        })
+    return evidence
+
+
 def load_runner():
     path = ROOT / "scripts/preflight/run-thumb-hot-fop-pilot.py"
     spec = importlib.util.spec_from_file_location("thumb_hot_fop", path)
@@ -5538,7 +5565,7 @@ def main() -> int:
     )
     cases = [
         ("m0plus", "cortex-m0plus", M0_IMAGE,
-         {".cfg": None, ".text": 0xC0}, []),
+         {".cfg": None, ".text": 0xC0}, ["-v=1"]),
         ("m0plus_handler_fop_return_equivalence", "cortex-m0plus",
          M0_IMAGE, {".cfg": None, ".text": 0xC0}, [
              "--firmbolt-allow-handler-exact-self-forwarding-state-inputs",
@@ -5934,14 +5961,17 @@ def main() -> int:
              "--firmbolt-preserve-guest-instruction-count=false",
              "--eliminate-unreachable=true",
          ]),
-        ("m4", "cortex-m4", M4_IMAGE, {".isr_vector": None}, []),
+        ("m4", "cortex-m4", M4_IMAGE, {".isr_vector": None}, ["-v=1"]),
         ("m4_handler_fop_state_equivalence", "cortex-m4", M4_IMAGE,
          {".isr_vector": None}, [
              "--firmbolt-allow-handler-exact-self-forwarding-state-inputs",
          ]),
-        ("chibios", "cortex-m4", CHIBIOS_IMAGE, {".vectors": None}, []),
-        ("threadx", "cortex-m4", THREADX_IMAGE, {".vectors": None}, []),
-        ("zephyr", "cortex-m3", ZEPHYR_IMAGE, {"rom_start": None}, []),
+        ("chibios", "cortex-m4", CHIBIOS_IMAGE, {".vectors": None},
+         ["-v=1"]),
+        ("threadx", "cortex-m4", THREADX_IMAGE, {".vectors": None},
+         ["-v=1"]),
+        ("zephyr", "cortex-m3", ZEPHYR_IMAGE, {"rom_start": None},
+         ["-v=1"]),
         ("zephyr_handler_branch_elision", "cortex-m3", ZEPHYR_IMAGE,
          {"rom_start": None}, [
              "--firmbolt-allow-handler-fallthrough-branch-elision",
@@ -5959,10 +5989,19 @@ def main() -> int:
             "chibios": {
                 "vector": "source=.vectors section, entries=120",
                 "overwritten": "8 out of 27 functions were overwritten",
+                "frame_analysis": (
+                    "3 function(s) (0.0% dyn cov) could not have its frame "
+                    "indices restored"
+                ),
             },
             "threadx": {
                 "vector": "source=.vectors section, entries=51",
-                "overwritten": "66 out of 85 functions were overwritten",
+                "overwritten": "67 out of 85 functions were overwritten",
+                "frame_analysis": (
+                    "4 function(s) (0.0% dyn cov) could not have its frame "
+                    "indices restored"
+                ),
+                "fop": "FOP optimized 1068 redundant load(s)",
             },
             "zephyr": {
                 "vector": (
@@ -5979,6 +6018,10 @@ def main() -> int:
                 # TBB/literal-pool z_arm_fault body is now independently
                 # qualified and compactly published.
                 "overwritten": "55 out of 129 functions were overwritten",
+                "frame_analysis": (
+                    "6 function(s) (0.0% dyn cov) could not have its frame "
+                    "indices restored"
+                ),
             },
             "zephyr_handler_branch_elision": {
                 "vector": (
@@ -6922,6 +6965,9 @@ def main() -> int:
         )
         results[label] = {
             "cpu": cpu,
+            "frame_analysis_rejections": parse_frame_analysis_rejections(
+                process.stdout + process.stderr
+            ),
             "bolt_summary": [
                 line for line in (process.stdout + process.stderr).splitlines()
                 if (
@@ -6929,7 +6975,9 @@ def main() -> int:
                     or "Cortex-M firmware constraints" in line
                     or "ARM-state mapping regions" in line
                     or "FOP optimized" in line or "FOP deleted" in line
-                    or "FRAME ANALYSIS" in line
+                    or (
+                        "FRAME ANALYSIS" in line and "function(s)" in line
+                    )
                     or "Thumb-1 local branch(es)" in line
                     or "literal-backed call veneers" in line
                     or "Thumb literal-pool placement" in line
