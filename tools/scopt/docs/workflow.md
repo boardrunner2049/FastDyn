@@ -146,7 +146,7 @@ A successful package contains a candidate that passed the optimizer’s correctn
 
 ```sh
 scopt optimize "$SNAPSHOT" --pipeline "$PIPELINE" --store "$STORE" --profile "$PROFILE" \
-    --select-with cases.json --selection-out "$RUN/selection" --json
+    --select-with cases.json --selection-out "$RUN/selection" --qemu "$QEMU" --pairs 24 --json
 scopt deploy --selection "$RUN/selection/selection.json" -c "$CONFIG" \
     --qemu "$QEMU" --run-dir "$RUN/deployment"
 ```
@@ -163,4 +163,16 @@ For an existing artifact, `scopt select-warm "$SNAPSHOT" "$CANDIDATE" --cases ca
 }
 ```
 
-For a fixed workload without input banks, supply the configuration and reference transcript with `"bank_inputs": {}`. Byte-identical caches retain the original warm source without timing. Changed candidates must pass checked deployment, append zero translation blocks, match the reference transcript, and improve every declared case in balanced randomized pairs. The selection records raw timings and the one-sided randomization test. Freeze a candidate before confirmation and reserve fresh measurements for that decision. A selection supports a claim about the measured host, workload and inputs. Execution times of individual launches vary.
+For a fixed workload without input banks, supply the configuration and reference transcript with `"bank_inputs": {}`. Caches with identical native bytes and identical optional restore hints retain the original warm source without timing. Changed candidates must pass checked deployment, append zero translation blocks, match the reference transcript, and improve every declared case in balanced randomized pairs. The selection records raw timings and the one-sided randomization test. Freeze a candidate before confirmation and reserve fresh measurements for that decision. A selection supports a claim about the measured host, workload and inputs. Execution times of individual launches vary.
+
+### Optional restore hints
+
+A compatible FastDyn/QEMU build can skip instruction-metadata reconstruction when every participating plugin approves skipping its own translation callback for that restored block. An optional sidecar nominates records for the live check. A cache with insufficient evidence should keep using the original warm artifact.
+
+```sh
+scopt restore-hints package "$SNAPSHOT" --config "$CONFIG" --qemu "$QEMU" --store "$STORE" --json
+scopt select-warm "$SNAPSHOT" "$HINT_ARTIFACT" --qemu "$QEMU" --cases cases.json --pairs 64 --out "$RUN/restore-selection"
+scopt deploy --selection "$RUN/restore-selection/selection.json" -c "$CONFIG" --qemu "$QEMU" --run-dir "$RUN/deployment"
+```
+
+The package contains the checked native cache and a content-addressed `cache.sc.restore-hints`. Deployment verifies the artifact manifest and the sidecar digest. The selector treats a changed hint as a distinct deployment even if the translated code bytes match. Use the same QEMU and plugin builds in both arms. Collect restore counters in separate diagnostic launches so timed runs incur no counter instrumentation.

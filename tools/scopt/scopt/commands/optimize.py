@@ -8,6 +8,8 @@ from pathlib import Path
 
 import click
 
+from .select_warm import selection_timing_options
+
 
 def register(group: click.Group) -> None:
     group.add_command(optimize_cmd)
@@ -67,7 +69,7 @@ def _profiles(paths, snap):
     return views, notes
 
 
-def _select_output(doc, original_snapshot, cases_path, out):
+def _select_output(doc, original_snapshot, cases_path, out, timing=None):
     if cases_path is None:
         if original_snapshot is not None:
             doc.update(selected_artifact=str(original_snapshot), selection_reason="candidate_unmeasured")
@@ -78,7 +80,7 @@ def _select_output(doc, original_snapshot, cases_path, out):
     try:
         cases, excluded = _cases(cases_path)
         choice = select_warm_cache(original_snapshot, Path(doc["artifact_dir"]), out,
-                                   inputs=cases, training_inputs=excluded)
+                                   inputs=cases, training_inputs=excluded, **(timing or {}))
     except (KeyError, ValueError, TypeError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     doc.update(selection=str(out.resolve() / "selection.json"), selection_status=choice["status"],
@@ -115,9 +117,11 @@ def _select_output(doc, original_snapshot, cases_path, out):
               help="After packaging, compare against the original warm snapshot using these timing cases.")
 @click.option("--selection-out", type=click.Path(path_type=Path, file_okay=False),
               help="Fresh evidence directory for --select-with.")
+@selection_timing_options
 @click.option("--json", "as_json", is_flag=True)
 def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file, b3_mode,
-                 ri_file, v6_exes, selftest_file, prep, elf, as_json, select_with=None, selection_out=None):
+                 ri_file, v6_exes, selftest_file, prep, elf, as_json, select_with=None, selection_out=None,
+                 qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05):
     """Run PIPELINE on SNAPSHOT, link, validate (V1-V9) and publish the artifact.
 
     SNAPSHOT is a store snapshot directory or a SnapshotId in --store. Exit
@@ -130,6 +134,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
     snap = _open_snapshot(snapshot, store)
     if bool(select_with) != bool(selection_out):
         raise click.UsageError("Use --select-with and --selection-out together.")
+    timing = dict(qemu=qemu, pairs=pairs, seed=seed, timeout_s=timeout, alpha=alpha)
     original_snapshot = Path(getattr(snap, "path", snapshot)).resolve()
     views, notes = _profiles(profiles, snap)
     params = json.loads(Path(params_file).read_text()) if params_file else None
@@ -175,7 +180,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
     if b3_mode or (pl.allowed_capabilities & B3_EDIT_KINDS):
         _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, v6_exes,
                      selftest_file, prep, elf, as_json, native_stage=native_stage,
-                     selection=(original_snapshot, select_with, selection_out))
+                     selection=(original_snapshot, select_with, selection_out, timing))
         return
     try:
         res = optimize(snap, pl, store, profiles=views, params=params,
@@ -186,7 +191,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
     doc["passes"] = [p.to_json() for p in res.candidate.passes]
     doc["notes"] = notes
     if res.published:
-        _select_output(doc, original_snapshot, select_with, selection_out)
+        _select_output(doc, original_snapshot, select_with, selection_out, timing)
     if as_json:
         click.echo(json.dumps(doc, indent=2, sort_keys=True))
     else:

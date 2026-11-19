@@ -205,9 +205,11 @@ def resolve_artifact(artifact: str | os.PathLike) -> dict[str, Any]:
         sc = p / "cache.sc"
         bundle = p / "bundle.json"
         rid = p / "runtime_identity.json"
+        hints = p / "cache.sc.restore-hints"
         return {"kind": "artifact_dir", "path": str(p), "sc": str(sc),
                 "bundle": str(bundle) if bundle.is_file() else None,
-                "runtime_identity": str(rid) if rid.is_file() else None}
+                "runtime_identity": str(rid) if rid.is_file() else None,
+                "restore_hints": str(hints) if hints.is_file() else None}
     return {"kind": "sc_file", "path": str(p), "sc": str(p), "bundle": None,
             "runtime_identity": None}
 
@@ -334,7 +336,8 @@ def deploy(artifact: str | os.PathLike, rd: RunDir, *, check: bool = False,
            manifest_override: str | os.PathLike | None = None,
            enforce_identity: bool = True, allow_negative_control: bool = False,
            test_policies: Any = (), expected_sc_sha256: str | None = None,
-           measured_runtime: dict[str, str] | None = None) -> dict[str, Any]:
+           measured_runtime: dict[str, str] | None = None,
+           expected_hint_sha256: str | None = None) -> dict[str, Any]:
     """Deploy ``artifact`` into the fresh run directory ``rd``; writes ``deploy.json``.
 
     ``manifest_override`` replaces the oracle's manifest with the given file
@@ -413,8 +416,34 @@ def deploy(artifact: str | os.PathLike, rd: RunDir, *, check: bool = False,
         if actual_runtime != measured_runtime:
             write_json(rd.root / "deploy.json", {**doc, "refused": ["selected_runtime_changed"]})
             raise DeployError("selected_runtime_changed", str(actual_runtime))
+    hint = art.get("restore_hints")
+    hint_meta = Path(art["sc"] + ".scopt.json")
+    declared_hint = None
+    if art["kind"] == "artifact_dir" and hint_meta.is_file():
+        try:
+            declared_hint = json.loads(hint_meta.read_text()).get("x_restore_hints")
+        except (ValueError, OSError) as exc:
+            raise DeployError("artifact_unreadable", str(exc)) from exc
+    if bool(hint) != (declared_hint is not None):
+        raise DeployError("restore_hints_unsealed", "restore hint and artifact declaration disagree")
+    dest_hint = Path(str(rd.cache) + ".restore-hints")
+    if dest_hint.exists():
+        raise DeployError("run_dir_not_fresh", f"unexpected restore hint at {dest_hint}")
+    if hint:
+        from ..formats.artifact import verify_manifest
+        if (not isinstance(declared_hint, dict) or verify_manifest(art["path"])
+                or file_sha256(hint) != declared_hint.get("sha256")):
+            raise DeployError("restore_hints_unsealed", "restore hint failed manifest or digest verification")
     sparse_copy(art["sc"], rd.cache)
+    if hint:
+        shutil.copyfile(hint, dest_hint)
+        doc["restore_hint_sha256"] = file_sha256(dest_hint)
+        if doc["restore_hint_sha256"] != declared_hint["sha256"]:
+            raise DeployError("restore_hint_changed", str(dest_hint))
     if expected_sc_sha256 is not None:
+        if doc.get("restore_hint_sha256") != expected_hint_sha256:
+            write_json(rd.root / "deploy.json", {**doc, "refused": ["selected_restore_hint_changed"]})
+            raise DeployError("selected_restore_hint_changed", str(dest_hint))
         from ..formats.sc_v5 import sha256_sparse
         actual = "sha256:" + sha256_sparse(rd.cache)
         if actual != expected_sc_sha256:

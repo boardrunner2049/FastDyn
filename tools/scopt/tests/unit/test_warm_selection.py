@@ -220,3 +220,16 @@ def test_trial_refuses_invalid_launch_evidence(tmp_path, monkeypatch, patch, rea
     monkeypatch.setattr(gate, "launch", lambda *a, **kw: {**valid, **patch})
     with pytest.raises(gate.RunDirError, match=reason):
         gate._trial("artifact", case, tmp_path / "run", qemu=None, timeout_s=3)
+
+
+
+def test_auxiliary_hint_with_identical_native_code_must_be_measured(tmp_path, monkeypatch):
+    args, kwargs = _fixture(tmp_path)
+    warm, candidate, _ = args
+    (candidate / "cache.sc").write_bytes((warm / "cache.sc").read_bytes())
+    (candidate / "cache.sc.restore-hints").write_bytes(b"test hint")
+    monkeypatch.setattr(gate, "_trial", lambda artifact, *unused, **options:
+                        _trial_result(90 if Path(artifact) == candidate else 100))
+    result = gate.select_warm_cache(*args, **kwargs)
+    assert result["byte_identical"] and not result["deployment_inputs_identical"]
+    assert result["selected"] == "candidate" and result["artifacts"]["candidate"]["restore_hints"]

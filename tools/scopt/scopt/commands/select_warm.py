@@ -25,6 +25,21 @@ def _cases(path):
     return cases, [resolve(p) for p in doc.get('training_inputs', [])]
 
 
+def selection_timing_options(command):
+    """Use the same timing protocol on standalone and end-to-end optimization."""
+    options = (
+        click.option('--qemu', type=click.Path(path_type=Path, exists=True, dir_okay=False)),
+        click.option('--pairs', type=click.IntRange(min=12), default=12, show_default=True),
+        click.option('--seed', type=int, default=193483, show_default=True),
+        click.option('--alpha', type=click.FloatRange(min=0, max=DEFAULT_ALPHA, min_open=True),
+                     default=DEFAULT_ALPHA, show_default=True, help='Maximum one-sided p-value per timing case.'),
+        click.option('--timeout', type=click.FloatRange(min=0, min_open=True), default=90.0),
+    )
+    for option in reversed(options):
+        command = option(command)
+    return command
+
+
 @click.command('select-warm')
 @click.argument('warm', type=click.Path(path_type=Path, exists=True))
 @click.argument('candidate', type=click.Path(path_type=Path, exists=True))
@@ -32,12 +47,7 @@ def _cases(path):
               help='JSON timing inputs, configurations, expected guest outputs and training inputs.')
 @click.option('--out', required=True, type=click.Path(path_type=Path, file_okay=False),
               help='Fresh evidence directory. Its selection.json can be passed to scopt deploy.')
-@click.option('--qemu', type=click.Path(path_type=Path, exists=True, dir_okay=False))
-@click.option('--pairs', type=click.IntRange(min=12), default=12, show_default=True)
-@click.option('--seed', type=int, default=193483, show_default=True)
-@click.option('--alpha', type=click.FloatRange(min=0, max=DEFAULT_ALPHA, min_open=True),
-              default=DEFAULT_ALPHA, show_default=True, help='Maximum one-sided p-value per timing case.')
-@click.option('--timeout', type=click.FloatRange(min=0, min_open=True), default=90.0)
+@selection_timing_options
 @click.option('--json', 'as_json', is_flag=True)
 def select_warm(warm, candidate, cases, out, qemu, pairs, seed, timeout, alpha, as_json):
     """Choose between the original WARM cache and a packaged CANDIDATE for deployment."""

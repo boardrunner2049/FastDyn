@@ -202,9 +202,18 @@ def select_warm_cache(
         same = (report["artifacts"]["warm"]["cache_sha256"] ==
                 report["artifacts"]["candidate"]["cache_sha256"])
         report["byte_identical"] = same
+        hints = {}
+        for arm, artifact in artifacts.items():
+            hints[arm] = None
+            if artifact.get("restore_hints"):
+                hint = Path(artifact["restore_hints"])
+                frozen[hint] = _fingerprint(hint)
+                hints[arm] = file_sha256(hint)
+                report["artifacts"][arm]["restore_hints"] = {"path": str(hint), "sha256": hints[arm]}
+        report["deployment_inputs_identical"] = same and hints["warm"] == hints["candidate"]
         if not _sources_unchanged(frozen):
             return finish("error", None, "source_changed")
-        if same:
+        if report["deployment_inputs_identical"]:
             return finish("ok", "warm", "identical_cache_bytes")
         if type(pairs) is not int or pairs < MIN_PAIRS or pairs % 2:
             raise ValueError(f"pairs must be even and at least {MIN_PAIRS}")
