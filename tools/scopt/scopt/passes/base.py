@@ -40,13 +40,14 @@ class EditKind(Enum):
     ADD_RECOVERY = 15
     ATTACH_FACT = 16
     INLINE_CALL = 17
+    RETIRE_DIRECT_EXIT = 18
 
 
 B2_EDIT_KINDS = frozenset({EditKind.ANNOTATE, EditKind.PIN, EditKind.LAYOUT_ORDER, EditKind.PLACE})
 B3_EDIT_KINDS = frozenset({EditKind.CLONE, EditKind.REDIRECT_EXIT, EditKind.ADD_ENTRY,
                           EditKind.PURE_REWRITE, EditKind.ADD_REGION, EditKind.ADD_RECOVERY,
                           EditKind.ATTACH_FACT})
-NATIVE_EDIT_KINDS = frozenset({EditKind.INLINE_CALL})
+NATIVE_EDIT_KINDS = frozenset({EditKind.INLINE_CALL, EditKind.RETIRE_DIRECT_EXIT})
 
 LayoutSection = Literal["hot", "warm", "unknown", "boot", "cold"]
 
@@ -146,6 +147,8 @@ class PassContext(Protocol):
 @runtime_checkable
 class ProposalBuilderAPI(Protocol):
     """Edit methods of ``scopt.proposal.ProposalBuilder`` (§5.5)."""
+
+    def retire_direct_exit(self, payload: Any) -> None: ...
 
     def annotate(self, uid: str, key: str, value: Any) -> None: ...
     def pin(self, uid: str, reason: str) -> None: ...

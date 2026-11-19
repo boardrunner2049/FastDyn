@@ -357,6 +357,24 @@ class ProposalBuilder:
         self._record(EditKind.PLACE, {"uid": uid, "tb_offset": tb_offset}, (uid,), reads=reads,
                      cites=cites, facet_reads=("unit", "layout"))
 
+    def retire_direct_exit(self, payload: Any) -> None:
+        from .ordinary_exit import OrdinaryExit
+
+        self._capability(EditKind.RETIRE_DIRECT_EXIT)
+        if (not isinstance(payload, OrdinaryExit) or type(payload.slot) is not int or
+                payload.slot not in (0, 1) or type(payload.transfers) is not int or payload.transfers < 1):
+            raise EditPreconditionError("RETIRE_DIRECT_EXIT requires a typed ordinary direct slot")
+        source = self._unit(payload.target)
+        successor = self._unit(payload.successor)
+        if source.content_hash != payload.unit_hash:
+            raise EditPreconditionError("ordinary direct exit preimage no longer matches")
+        direct = [e for e in source.static_exits if e.direct and e.slot == payload.slot]
+        if len(direct) != 1 or direct[0].dest_vaddr not in successor.vaddrs:
+            raise EditPreconditionError("ordinary direct exit successor disagrees with the captured edge")
+        e = self._record(EditKind.RETIRE_DIRECT_EXIT, {"payload": payload.to_json()},
+                         (payload.target, payload.successor))
+        self._edits[-1] = replace(e, payload=payload)
+
     def inline_call(self, payload: InlineCall) -> None:
         """Propose a checked native replacement for a call in the current unit."""
         self._capability(EditKind.INLINE_CALL)

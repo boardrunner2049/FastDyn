@@ -1,0 +1,9 @@
+schema = "scopt.pipeline"
+version = 1
+name = "ordinary-exit"
+description = "Retire checked low-reuse ordinary direct exits selected from exact training."
+allowed_capabilities = ["RETIRE_DIRECT_EXIT"]
+
+[[pass]]
+name = "retire-ordinary-exits"
+version = 1

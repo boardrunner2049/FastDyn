@@ -322,6 +322,7 @@ class WorkingSet:
         touched_sections: set[str] = set()
         touched_annot: set[str] = set()
         native_by_unit: dict[str, list] = {}
+        retired_by_unit: dict[str, list] = {}
 
         def drop_layout(uid: str) -> None:
             e = self._section_of.get(uid)
@@ -369,13 +370,15 @@ class WorkingSet:
                 touched_layout.add(uid)
             elif kind is EditKind.INLINE_CALL:
                 native_by_unit.setdefault(ed.payload.target, []).append(ed.payload)
+            elif kind is EditKind.RETIRE_DIRECT_EXIT:
+                retired_by_unit.setdefault(ed.payload.target, []).append(ed.payload)
             else:
                 raise WorkingSetError(f"edit kind {kind.name} cannot be applied to a B2 "
                                       "working set (capability_not_enabled)")
 
         prov = self._provenance + ((MappingProxyType(dict(provenance)),) if provenance else ())
         by_uid = self._by_uid
-        if native_by_unit:
+        if native_by_unit or retired_by_unit:
             copies = dict(by_uid)
             for uid, requests in native_by_unit.items():
                 u = copies[uid]
@@ -383,6 +386,11 @@ class WorkingSet:
                 fragments = u.native_fragments + tuple(ordered)
                 content = sha256_id(canonical_json([u.content_hash, [r.certificate_id for r in ordered]]))
                 copies[uid] = replace(u, native_fragments=fragments, content_hash=content)
+            for uid, requests in retired_by_unit.items():
+                u = copies[uid]
+                slots = tuple(sorted(r.slot for r in requests))
+                content = sha256_id(canonical_json([u.content_hash, [r.to_json() for r in requests]]))
+                copies[uid] = replace(u, retired_exit_slots=slots, content_hash=content)
             by_uid = MappingProxyType(copies)
         new = WorkingSet(self._base, _by_uid=by_uid, _order=self._order,
                          generation=self._generation + 1, pins=pins,
@@ -401,7 +409,7 @@ class WorkingSet:
         for uid in touched_annot:
             if self.annotation_hash(uid) != new.annotation_hash(uid):
                 changed.setdefault(uid, set()).add(FACET_ANNOTATIONS)
-        for uid in native_by_unit:
+        for uid in native_by_unit.keys() | retired_by_unit.keys():
             changed.setdefault(uid, set()).update({FACET_CODE, FACET_META, FACET_LAYOUT})
         return new, {uid: frozenset(f) for uid, f in changed.items()}
 

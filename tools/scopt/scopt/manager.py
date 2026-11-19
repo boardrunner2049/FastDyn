@@ -759,6 +759,10 @@ class PassManager:
     def _admission(self, d: PassDescriptor, view: WorkingSetView
                    ) -> tuple[Outcome, str, str] | None:
         U, K = Outcome.SKIPPED_UNSUPPORTED, Outcome.SKIPPED_UNKNOWN
+        if EditKind.RETIRE_DIRECT_EXIT in d.capabilities and (
+                len(self.pipeline.passes) != 1 or
+                self.pipeline.allowed_capabilities != {EditKind.RETIRE_DIRECT_EXIT}):
+            return U, "ordinary_exit_pipeline_required", "ordinary exits need an exclusive same-placement pipeline"
         if d.capabilities & NATIVE_EDIT_KINDS and (self.b3env is not None or
                 self.pipeline.allowed_capabilities & (B3_EDIT_KINDS | {
                     EditKind.PIN, EditKind.LAYOUT_ORDER, EditKind.PLACE})):
@@ -961,7 +965,17 @@ class PassManager:
         overrides = "layout" in d.overrides
         native_ranges: dict[str, list[tuple[int, int]]] = {}
         inline_growth = 0
+        retired: set[tuple[str, int]] = set()
         for e in edits:
+            if e.kind is EditKind.RETIRE_DIRECT_EXIT:
+                r = e.payload
+                u = ws.unit(r.target)
+                if (not ws.is_relocatable(u.uid) or ws.is_pinned(u.uid) or
+                        u.native_fragments or u.retired_exit_slots):
+                    return F, Reason.NOT_RELOCATABLE, f"cannot retire an ordinary exit in {u.uid}"
+                if (u.uid, r.slot) in retired:
+                    return F, Reason.CONFLICT, f"duplicate ordinary exit {u.uid}/{r.slot}"
+                retired.add((u.uid, r.slot))
             if e.kind is EditKind.INLINE_CALL:
                 r = e.payload
                 u = ws.unit(r.target)

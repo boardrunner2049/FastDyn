@@ -145,6 +145,7 @@ class UnitLink:
     native_fragments: tuple[InlineCall, ...] = ()
     inline_start: int | None = None
     native_unit: TBUnit | None = field(default=None, repr=False)  # enlarged, before relocation
+    retired_exit_chunk: S.TbChunk | None = field(default=None, repr=False)
 
     @property
     def in_slot(self) -> int:
@@ -622,6 +623,30 @@ class NativeLinker:
             if fails2:
                 return LinkResult(False, self.header, tuple(links), tuple(fails2), rollbacks,
                                   attempts)
+        edits = [u for u in units if u.retired_exit_slots]
+        if edits:
+            from .ordinary_exit import capture, retire, targets
+
+            try:
+                if self.ws.has_layout_edits or not self.derive_captures:
+                    raise ValueError("ordinary exits need same placement and a derived capture")
+                join_result = self._join()
+                epilogue, tb_ret = capture(self.base, join_result)
+                ca = self.header.code_address
+                entries = targets(units, ca)
+                outputs = {link.uid: index for index, link in enumerate(links)}
+                for unit in edits:
+                    index = outputs[unit.uid]
+                    lu = links[index]
+                    binding = join_result.slots[unit.slot]
+                    if not binding.bound:
+                        raise ValueError("ordinary exit source capture is unbound")
+                    body, chunk = retire(unit, binding.chunk, unit.retired_exit_slots, ca,
+                                         epilogue, tb_ret, entries)
+                    links[index] = replace(lu, record=chunk.record, body=body, retired_exit_chunk=chunk)
+            except (ValueError, KeyError, OverflowError) as exc:
+                return LinkResult(False, self.header, failures=(LinkFailure(
+                    edits[0].uid, "ordinary_exit_shape", str(exc)),))
         res = LinkResult(True, self.header, tuple(links), (), rollbacks, attempts)
         if self.derive_captures:
             files, names = derive_scm(self._join(), res.by_uid(), self.base)
@@ -659,6 +684,8 @@ def capture_join(snapshot: Any) -> Any:
 def _rewrite_tb(tb: S.TbChunk, link: UnitLink, code_address: int) -> S.TbChunk:
     """The TB chunk describing ``link``: the output slot, the new record, and (for a
     moved unit) ``code_fnv64`` and the sites rewritten for the move."""
+    if link.retired_exit_chunk is not None:
+        return replace(link.retired_exit_chunk, slot=link.slot)
     if link.native_unit is not None:
         from .formats.layouts import SCM_TB_CHUNK_VERSION_3, SCM_TB_CHUNK_VERSION_4
 

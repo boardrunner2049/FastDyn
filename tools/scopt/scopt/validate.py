@@ -491,6 +491,47 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
     return projected, spliced
 
 
+def _ordinary_exit_projection(snapshot: Any, link: LinkResult, validation: Validation):
+    """Reconstruct the only allowed difference from the original captured return."""
+    from .link import capture_join, relocate_unit
+    from .ordinary_exit import capture, retired_slots, retire, targets
+
+    changed = [(lu, retired_slots(snapshot.unit(lu.uid).record, lu.record)) for lu in link.units]
+    changed = [(lu, slots) for lu, slots in changed if slots]
+    if not changed:
+        return {}, {}
+    try:
+        join = capture_join(snapshot)
+        epilogue, tb_ret = capture(snapshot, join)
+        ca = snapshot.header.code_address
+        entries = targets(snapshot.units(), ca)
+    except (OSError, ValueError) as exc:
+        validation.add("V12", "ordinary_exit_boundary", False, str(exc))
+        return {}, {}
+    projected, verified = {}, {}
+    for lu, slots in changed:
+        u = snapshot.unit(lu.uid)
+        try:
+            binding = join.slots[u.slot]
+            if not binding.bound or lu.moved or lu.patched:
+                raise ValueError("ordinary exit must be bound and retain the original native placement")
+            new, chunk = retire(u, binding.chunk, slots, ca, epilogue, tb_ret, entries)
+            if (new, chunk.record) != (lu.body, lu.record):
+                raise ValueError("output changes more than the certified ordinary direct exits")
+            from .validate_ordinary_exit import verify_boundary
+
+            observed = lu.retired_exit_chunk or replace(chunk, slot=lu.slot)
+            verify_boundary(u, binding.chunk, lu.body, lu.record, replace(observed, slot=u.slot),
+                            slots, ca, epilogue, tb_ret)
+            verified[lu.uid] = replace(chunk, slot=lu.slot)
+            projected[lu.uid] = relocate_unit(u, u.tb_offset)
+            validation.add("V12", f"ordinary_exit_boundary:{lu.uid}", True,
+                           f"{len(slots)} same-placement null-TB dispatch returns preserve guest effects")
+        except (KeyError, ValueError, OverflowError) as exc:
+            validation.add("V12", f"ordinary_exit_boundary:{lu.uid}", False, str(exc))
+    return projected, verified
+
+
 def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike, *,
                     sidecar: Mapping[str, Any] | None,
                     expected_pinned: Sequence[Mapping[str, Any]] | None = None,
@@ -543,6 +584,8 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
     v.add("V1", "second_parser", ok2, det2)
 
     projections, spliced = _native_projection(snapshot, link, v)
+    retired_projected, retired_checked = _ordinary_exit_projection(snapshot, link, v)
+    projections.update(retired_projected)
 
     # ---- V2 byte diff -------------------------------------------------------
     bad2 = []
@@ -617,7 +660,7 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
         return (uid, rec.page_addr0, rec.page_addr1, rec.flags, rec.cs_base, rec.cflags,
                 rec.guest_hash, rec.guest_size, rec.icount, tuple(rec.jmp_reset_offset),
                 tuple(rec.jmp_insn_offset))
-    mi = Counter(ident(u.uid, ScRecord.from_bytes(spliced.get(u.uid, u).record))
+    mi = Counter(ident(u.uid, ScRecord.from_bytes(retired_checked.get(u.uid, spliced.get(u.uid, u)).record))
                  for u in snapshot.units())
     mo = Counter(ident(uid, out.records[i]) for uid, i in zip(out_uids, out.valid_slots))
     v.add("V5", "unit_multiset", mi == mo,
@@ -731,6 +774,17 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
             if u2.native_fragments != expected_inline:
                 bad8.append(f"{u2.uid}: reimported native provenance differs")
 
+            if u.uid in retired_checked:
+                expected = retired_checked[u.uid]
+                binding = res.join.slots.get(u2.slot)
+                actual = binding.chunk if binding is not None and binding.bound else None
+                if actual is None or replace(actual, source=None) != expected:
+                    bad8.append(f"{u2.uid}: ordinary-exit SCM metadata differs")
+                if any(getattr(u2, name) != getattr(u, name) for name in (
+                        "insns", "ldst", "pool", "pool_start", "body_end", "ldst_end", "recovery", "search")):
+                    bad8.append(f"{u2.uid}: ordinary-exit guest geometry or recovery differs")
+                continue
+
             if u.uid in spliced:
                 from .splice_layout import splice_group_offsets
 
@@ -803,8 +857,9 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
     # ---- V9 identity --------------------------------------------------------
     out_sha = sha256_sparse(out_path)
     v.data["out_sha256"] = out_sha
-    if nmoved:
-        v.add("V9", "identity_sha256", None, f"not an identity candidate ({nmoved} units moved)")
+    if nmoved or retired_checked:
+        v.add("V9", "identity_sha256", None,
+              f"nonidentity candidate: {nmoved} moved units and {len(retired_checked)} checked exit units")
     else:
         sp = getattr(snapshot, "path", None)
         in_path = Path(sp) / "cache.sc" if sp else None
@@ -1001,6 +1056,12 @@ class ValidateAndPackage:
         extreme = c.outcome(EXTREME_PASS)
         if extreme is not None and extreme.outcome not in (Outcome.CANDIDATE, Outcome.NO_CHANGE):
             return self._reject(extreme.reason)
+        from .ordinary_exit import PASS as ORDINARY_EXIT
+
+        ordinary = c.outcome(ORDINARY_EXIT)
+        if ordinary is not None and ordinary.outcome not in (Outcome.CANDIDATE, Outcome.NO_CHANGE):
+            if ordinary.reason not in {"ablation_disabled", "ablation_only"}:
+                return self._reject(ordinary.reason)
         link = NativeLinker(c, join_result=self.join_result).link()
         if not link.ok:
             f = link.failures[0]
@@ -1134,6 +1195,7 @@ def artifact_link(snapshot: Any, art_dir: str | os.PathLike) -> LinkResult:
     """A :class:`LinkResult` describing what is in ``art_dir/cache.sc`` (for
     re-validation): units matched to the input by slot order."""
     from .importer.join import join
+    from .ordinary_exit import retired_slots
 
     root = Path(art_dir)
     out = read_sc(root / "cache.sc")
@@ -1166,7 +1228,8 @@ def artifact_link(snapshot: Any, art_dir: str | os.PathLike) -> LinkResult:
                 not u.splice_applied and c.call_off <= f.field_off < c.continuation_off
                 for c in fragments)) if d else ()
         units.append(UnitLink(u.uid, i, u.tb_offset, rec.tb_offset, out.record_bytes[i],
-                              out.bodies[i], patched, input_slot=u.slot, native_fragments=fragments))
+                              out.bodies[i], patched, input_slot=u.slot, native_fragments=fragments,
+                              retired_exit_chunk=chunk if retired_slots(u.record, out.record_bytes[i]) else None))
     return LinkResult(True, out.header, tuple(units))
 
 
@@ -1194,7 +1257,16 @@ def static_not_applicable(info: Any) -> str | None:
     codes = set(val.get("codes") or {})
     codes |= {r.get("code") for r in val.get("rows") or () if isinstance(r, Mapping)}
     codes.discard(None)
-    other = sorted(codes - STATIC_CODES - {"V10"})
+    allowed = STATIC_CODES | {"V10"}
+    pipeline = side.get("pipeline") or ()
+    ordinary_rows = [r for r in val.get("rows") or () if isinstance(r, Mapping) and r.get("code") == "V12"]
+    from .ordinary_exit import PASS as ORDINARY_EXIT
+
+    if (len(pipeline) == 1 and isinstance(pipeline[0], Mapping) and
+            pipeline[0].get("pass") == ORDINARY_EXIT and ordinary_rows and
+            all(str(r.get("check", "")).startswith("ordinary_exit_boundary:") for r in ordinary_rows)):
+        allowed |= {"V12"}
+    other = sorted(codes - allowed)
     if other:
         return (f"packaged by another validator (validation.json codes "
                 f"{', '.join(other[:6])}{' ...' if len(other) > 6 else ''}); "

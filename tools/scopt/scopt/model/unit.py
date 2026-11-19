@@ -242,6 +242,8 @@ class TBUnit:
     native_fragments: tuple[InlineCall, ...] = ()
     inline_start: int | None = None
     splice_applied: bool = False
+    # Virtual edits honored only during same-placement linking.
+    retired_exit_slots: tuple[int, ...] = ()
 
     @property
     def pool_end(self) -> int:
