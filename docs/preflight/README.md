@@ -68,9 +68,16 @@ Exact primary vector entries have a narrow exception-entry contract instead
 of being blanket-opaque. Ordinary FOP may replace a stack reload with a
 same-width register move while retaining the stack store, instruction
 identities/order/count, entry address and exact exception-return instruction.
-Secondary entries and handlers touched by any other transformation retain the
-input body. This architectural handler gate remains active even when the
-optional global guest-instruction-count policy is disabled.
+An independently named opt-in may also remove a conditional direct branch
+whose exact original target is its immediately following instruction. That
+contract requires a unique original identity for every surviving instruction,
+preserves their exact relative order, rejects synthesized or cloned code, and
+rechecks every architectural-state effect and possible exception return. The
+default retains that branch because its event and timing can be observable.
+Secondary entries and handlers touched by any transformation outside these
+two contracts retain the input body. This architectural handler gate remains
+active even when the optional global guest-instruction-count policy is
+disabled.
 
 The qualified CPU families are Cortex-M0/M0+ (Armv6-M), M3 (Armv7-M), M4/M7
 (Armv7E-M), M23 (Armv8-M Baseline), M33 (Armv8-M Mainline), and M55/M85
@@ -1591,6 +1598,30 @@ lit is now 83/83, AArch32 JITLink 12/12, and the unit split remains 130 passes
 plus 150 explicit skips. These are correctness and publication results, not a
 runtime-speedup claim.
 
+v155 resolves that remaining Zephyr proposal only under the new explicit
+`--firmbolt-allow-handler-fallthrough-branch-elision` contract. The removed
+instruction at original identity `0x1172` is a conditional direct branch whose
+exact target, `0x1174`, is the immediately following instruction. The
+candidate preserves the other 12 instruction identities in original order,
+both typed architectural-state instructions and the one possible exception
+return. `z_arm_svc` shrinks from 36 to 34 live bytes inside its original range;
+Zephyr publication becomes 56/129 with zero final rejection. Without the
+option, the same run remains 55/129 and retains the original function with
+`exception_contract_unsupported`. A second focused handler containing an
+additional non-fallthrough branch remains rejected even when the option is
+present.
+
+The complete gate is now 59/59 because it records the default and opt-in
+Zephyr contracts as distinct profiles. ARM BOLT lit is 84/84, AArch32 JITLink
+is 12/12, and BOLT units are 130 passes plus 150 explicit target-inapplicable
+skips (Core 86/150, Passes 5 and Profile 39). The
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v155-handler-branch-elision-r1/report.json)
+and
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v155-handler-branch-elision-r1/validation-manifest.json)
+bind the corpus result, regression XML and clean-apply check. This is static
+publication evidence under an explicitly changed branch-event/timing
+contract; it is not authentic exception-schedule execution or a speedup claim.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
@@ -1605,11 +1636,12 @@ non-ADR/ambiguous table-base data flow, DSP/FPU/MVE-specific optimization rules,
 Secure/Non-secure and PACBTI-M state transformations. Cortex-M4 DSP/FPU,
 Cortex-M55 MVE and Cortex-M85 PACBTI-M decode/exact retention are qualified
 independently from those optimization rules. Handler rewriting beyond the
-same-count, store-preserving FOP contract remains disabled: possible
-exception-return and architectural-state instructions are now represented,
-while stacked values, nested-exception timing and external interrupt arrival
-still need richer state contracts. These cases are retained or rejected explicitly;
-they are not counted as successful rewrites.
+same-count, store-preserving FOP contract and the separately admitted exact
+branch-to-next deletion remains disabled: possible exception-return and
+architectural-state instructions are now represented, while stacked values,
+nested-exception timing and external interrupt arrival still need richer state
+contracts. These cases are retained or rejected explicitly; they are not
+counted as successful rewrites.
 
 The BOLT-first composition gate then feeds that exact M4 output to the
 firmware-aware `thumb-hot-exit-layout-v1` wrapper.  The wrapper installs a

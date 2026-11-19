@@ -5595,6 +5595,10 @@ def main() -> int:
         ("chibios", "cortex-m4", CHIBIOS_IMAGE, {".vectors": None}, []),
         ("threadx", "cortex-m4", THREADX_IMAGE, {".vectors": None}, []),
         ("zephyr", "cortex-m3", ZEPHYR_IMAGE, {"rom_start": None}, []),
+        ("zephyr_handler_branch_elision", "cortex-m3", ZEPHYR_IMAGE,
+         {"rom_start": None}, [
+             "--firmbolt-allow-handler-fallthrough-branch-elision",
+         ]),
     ]
     results: dict[str, Any] = {}
     candidates: dict[str, Path] = {}
@@ -5629,6 +5633,12 @@ def main() -> int:
                 # qualified and compactly published.
                 "overwritten": "55 out of 129 functions were overwritten",
             },
+            "zephyr_handler_branch_elision": {
+                "vector": (
+                    "source=_vector_table/_vector_end, entries=59"
+                ),
+                "overwritten": "56 out of 129 functions were overwritten",
+            },
         }.get(label)
         if corpus_expectations is not None:
             diagnostics = process.stdout + process.stderr
@@ -5643,8 +5653,10 @@ def main() -> int:
                 (output / f"bolt-pass-report-{label}.json").read_text()
             ) if args.full_pipeline else None
         )
+        handler_branch_elision_validation = None
         if native_pass_report is not None and label in {
             "chibios", "threadx", "zephyr",
+            "zephyr_handler_branch_elision",
         }:
             expected_rejections = 1 if label == "zephyr" else 0
             observed_rejections = int(
@@ -5669,6 +5681,103 @@ def main() -> int:
                     f"{expected_rejections} {expected_reasons}, observed "
                     f"{observed_rejections} {rejection_reasons}"
                 )
+            if label == "zephyr_handler_branch_elision":
+                handler = next(
+                    function
+                    for function in native_pass_report["functions"]
+                    if function["name"] == "z_arm_svc"
+                )
+                originals = {
+                    int(instruction["original_address"]): instruction
+                    for instruction in handler["original_instructions"]
+                }
+                candidate_order = [
+                    int(instruction["original_address"])
+                    for instruction in handler["instructions"]
+                    if instruction["original_address"] is not None
+                ]
+                removed = [
+                    instruction
+                    for address, instruction in originals.items()
+                    if address not in set(candidate_order)
+                ]
+                original_state = [
+                    (
+                        int(instruction["original_address"]),
+                        instruction["cortex_m_state_effect"],
+                        instruction["text"],
+                    )
+                    for instruction in handler["original_instructions"]
+                    if instruction["cortex_m_state_effect"] != "none"
+                ]
+                candidate_state = [
+                    (
+                        int(instruction["original_address"]),
+                        instruction["cortex_m_state_effect"],
+                        instruction["text"],
+                    )
+                    for instruction in handler["instructions"]
+                    if instruction["cortex_m_state_effect"] != "none"
+                ]
+                original_returns = [
+                    (
+                        int(instruction["original_address"]),
+                        instruction["text"],
+                    )
+                    for instruction in handler["original_instructions"]
+                    if instruction["is_possible_exception_return"]
+                ]
+                candidate_returns = [
+                    (
+                        int(instruction["original_address"]),
+                        instruction["text"],
+                    )
+                    for instruction in handler["instructions"]
+                    if instruction["is_possible_exception_return"]
+                ]
+                exact_branch_to_next = (
+                    len(removed) == 1
+                    and removed[0]["is_branch"]
+                    and not removed[0]["is_unconditional_branch"]
+                    and not removed[0]["is_call"]
+                    and not removed[0]["is_return"]
+                    and int(removed[0]["branch_target_original_address"])
+                        == int(removed[0]["original_address"])
+                           + int(removed[0]["size"])
+                )
+                expected_order = [
+                    int(instruction["original_address"])
+                    for instruction in handler["original_instructions"]
+                    if instruction not in removed
+                ]
+                if (
+                    not handler["firmware_modified"]
+                    or handler["firmware_modification_reasons"]
+                        != ["cfg_normalization"]
+                    or handler["firmware_publication_rejections"]
+                    or not exact_branch_to_next
+                    or candidate_order != expected_order
+                    or candidate_state != original_state
+                    or candidate_returns != original_returns
+                ):
+                    raise RuntimeError(
+                        "Zephyr handler branch-elision contract changed"
+                    )
+                handler_branch_elision_validation = {
+                    "status": "accepted",
+                    "function": "z_arm_svc",
+                    "removed_original_identity": int(
+                        removed[0]["original_address"]
+                    ),
+                    "removed_branch_target": int(
+                        removed[0]["branch_target_original_address"]
+                    ),
+                    "preserved_instruction_identities": len(candidate_order),
+                    "preserved_state_instruction_count": len(candidate_state),
+                    "preserved_exception_return_count": len(
+                        candidate_returns
+                    ),
+                }
         provenance_validation = None
         exclusive_access_validation = None
         if native_pass_report is not None:
@@ -6306,6 +6415,8 @@ def main() -> int:
             "literal_pool_placement_validation":
                 literal_pool_placement_validation,
             "frame_optimization_validation": frame_optimization_validation,
+            "handler_branch_elision_validation":
+                handler_branch_elision_validation,
         }
         if pending_icp_validation is not None:
             results[label]["indirect_call_promotion_validation"] = (
@@ -6353,7 +6464,10 @@ def main() -> int:
                     f"{output / f'bolt-pass-report-{label}.json'}.layout.json"
                 ).read_text()
             )
-            if label in {"chibios", "threadx", "zephyr"}:
+            if label in {
+                "chibios", "threadx", "zephyr",
+                "zephyr_handler_branch_elision",
+            }:
                 observed_final_rejections = sorted(
                     (
                         function["name"],
@@ -6371,6 +6485,7 @@ def main() -> int:
                         ("z_arm_svc",
                          ("exception_contract_unsupported",)),
                     ],
+                    "zephyr_handler_branch_elision": [],
                 }[label]
                 if observed_final_rejections != expected_final_rejections:
                     raise RuntimeError(

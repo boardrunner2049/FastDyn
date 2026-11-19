@@ -4701,10 +4701,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..52443206de8bfcbd5f1d335ab1f772e461630e1a
+index 0000000000000000000000000000000000000000..9f348fbc37d99d78bc4d7e8061aa9ea24dca151f
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,5369 @@
+@@ -0,0 +1,5448 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -4822,6 +4822,13 @@ index 0000000000000000000000000000000000000000..52443206de8bfcbd5f1d335ab1f772e4
 +    "firmbolt-allow-literal-address-changes",
 +    cl::desc("allow checked Thumb value-pool cloning to change literal "
 +             "access addresses"),
++    cl::init(false), cl::cat(FastDynCategory));
++
++cl::opt<bool> AllowHandlerFallthroughBranchElision(
++    "firmbolt-allow-handler-fallthrough-branch-elision",
++    cl::desc("allow an exact Cortex-M handler branch-to-next instruction to "
++             "be removed after preserving every other instruction identity, "
++             "exception return and architectural-state effect"),
 +    cl::init(false), cl::cat(FastDynCategory));
 +
 +struct OriginalInstructionRecord {
@@ -6532,6 +6539,8 @@ index 0000000000000000000000000000000000000000..52443206de8bfcbd5f1d335ab1f772e4
 +    if (!BF.hasCFG() || !BF.hasFirmwareModificationAttempt())
 +      continue;
 +    ++AttemptedFunctions;
++    bool AdmittedHandlerFallthroughBranchElision = false;
++    uint64_t AdmittedHandlerFallthroughBranchCount = 0;
 +
 +    // SpecializeMemcpy1 introduces a guarded fast block, a retained fallback
 +    // call and merge edges that FixupBranches materializes after the pass has
@@ -6719,11 +6728,17 @@ index 0000000000000000000000000000000000000000..52443206de8bfcbd5f1d335ab1f772e4
 +    // entry, instruction identities/order/count, stack stores, and the exact
 +    // exception-return instruction.  Ordinary FOP satisfies that contract by
 +    // replacing a same-width stack reload with a register move.  Any other
-+    // transformation (including store deletion, layout or CFG edits) retains
-+    // the original handler until the richer exception/event model exists.
++    // transformation (including store deletion or layout edits) retains the
++    // original handler until the richer exception/event model exists.  The
++    // separately named opt-in below admits only an exact conditional
++    // branch-to-next deletion and rechecks every surviving identity, state
++    // effect and possible exception-return instruction.
 +    if (BF.isCortexMVectorEntry()) {
-+      const uint32_t AllowedMask = static_cast<uint32_t>(
++      uint32_t AllowedMask = static_cast<uint32_t>(
 +          FirmwareModification::FrameLoadForwarding);
++      if (AllowHandlerFallthroughBranchElision)
++        AllowedMask |= static_cast<uint32_t>(
++            FirmwareModification::CFGNormalization);
 +      if (BF.getFirmwareModificationMask() & ~AllowedMask) {
 +        BF.rejectFirmwarePublication(
 +            FirmwarePublicationRejection::ExceptionContractUnsupported);
@@ -6749,6 +6764,66 @@ index 0000000000000000000000000000000000000000..52443206de8bfcbd5f1d335ab1f772e4
 +                  << BF.getPrintName()
 +                  << ": forwarding deleted an exception-visible instruction\n";
 +        continue;
++      }
++
++      if (BF.hasFirmwareModification(
++              FirmwareModification::CFGNormalization)) {
++        // The opt-in contract is intentionally narrower than generic CFG
++        // equivalence.  It admits only deletion of a conditional direct branch
++        // whose original target is the immediately following instruction.
++        // Preserve the exact relative order and one-to-one identity of every
++        // other instruction. This rules out block movement, cloning,
++        // synthesized control flow and deletion hidden behind the same pass
++        // attribution before the exception-state checks below run.
++        DenseSet<uint64_t> CandidateIdentities;
++        std::vector<uint64_t> CandidateOrder;
++        bool InvalidElision = false;
++        for (const BinaryBasicBlock &BB : BF)
++          for (const MCInst &Inst : BB) {
++            if (BC.MIB->isPseudo(Inst))
++              continue;
++            const std::optional<uint64_t> Identity =
++                getFastDynOriginalIdentity(BC, Inst);
++            if (!Identity || !CandidateIdentities.insert(*Identity).second ||
++                !OriginalInstructions.count(*Identity)) {
++              InvalidElision = true;
++              continue;
++            }
++            CandidateOrder.push_back(*Identity);
++          }
++
++        std::vector<uint64_t> ExpectedOrder;
++        for (auto It = OriginalInstructions.lower_bound(BF.getAddress());
++             It != OriginalInstructions.end() && It->first < End; ++It) {
++          const OriginalInstructionRecord &Record = It->second;
++          if (CandidateIdentities.contains(Record.Address)) {
++            ExpectedOrder.push_back(Record.Address);
++            continue;
++          }
++          const bool IsExactFallthroughBranch =
++              Record.IsBranch && !Record.IsUnconditionalBranch &&
++              !Record.IsCall && !Record.IsReturn &&
++              Record.BranchTargetAddress &&
++              *Record.BranchTargetAddress == Record.Address + Record.Size;
++          if (!IsExactFallthroughBranch) {
++            InvalidElision = true;
++            continue;
++          }
++          ++AdmittedHandlerFallthroughBranchCount;
++        }
++        InvalidElision |= !AdmittedHandlerFallthroughBranchCount ||
++                          CandidateOrder != ExpectedOrder;
++        if (InvalidElision) {
++          BF.rejectFirmwarePublication(
++              FirmwarePublicationRejection::ExceptionContractUnsupported);
++          ++RejectedFunctions;
++          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
++                    << BF.getPrintName()
++                    << ": CFG normalization exceeds exact branch-to-next "
++                       "elision contract\n";
++          continue;
++        }
++        AdmittedHandlerFallthroughBranchElision = true;
 +      }
 +
 +      // Handler-mode exception return is not an ordinary ABI return. Match
@@ -7052,6 +7127,10 @@ index 0000000000000000000000000000000000000000..52443206de8bfcbd5f1d335ab1f772e4
 +    }
 +    const uint64_t CandidateInstructionCount = BF.getNumNonPseudos();
 +    if (OriginalInstructionCount == CandidateInstructionCount)
++      continue;
++    if (AdmittedHandlerFallthroughBranchElision &&
++        OriginalInstructionCount == CandidateInstructionCount +
++                                        AdmittedHandlerFallthroughBranchCount)
 +      continue;
 +
 +    BF.rejectFirmwarePublication(
@@ -19846,6 +19925,88 @@ index 0000000000000000000000000000000000000000..5f7a91ef591e21f1509131027473ae96
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/cortex-m-handler-fallthrough-branch-elision.s b/bolt/test/ARM/cortex-m-handler-fallthrough-branch-elision.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..188f08b64471035f51f1b51fd5ebc4d4c7c4928a
+--- /dev/null
++++ b/bolt/test/ARM/cortex-m-handler-fallthrough-branch-elision.s
+@@ -0,0 +1,76 @@
++## Cortex-M handlers retain CFG edits by default.  The explicit handler
++## fallthrough-branch contract admits only a conditional direct branch whose
++## target is the immediately following instruction, while preserving every
++## other original identity, architectural-state instruction and exception
++## return.  A two-branch normalization remains rejected under the opt-in.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --frame-opt=none --eliminate-unreachable=false \
++# RUN:   --fastdyn-firmware-report=%t.default.json -o %t.default
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --frame-opt=none --eliminate-unreachable=false \
++# RUN:   --firmbolt-allow-handler-fallthrough-branch-elision \
++# RUN:   --fastdyn-firmware-report=%t.allowed.json -o %t.allowed
++# RUN: %python -c "import json; d=json.load(open('%t.default.json')); f={x['name']:x for x in d['functions']}; print(f['fallthrough_handler']['firmware_modified'],f['fallthrough_handler']['firmware_modification_reasons'],f['fallthrough_handler']['firmware_publication_rejections']); print(f['two_branch_handler']['firmware_modified'],f['two_branch_handler']['firmware_publication_rejections'])" | FileCheck %s --check-prefix=DEFAULT
++# RUN: %python -c "import json; d=json.load(open('%t.allowed.json')); f={x['name']:x for x in d['functions']}; p=f['fallthrough_handler']; n=f['two_branch_handler']; r=[i for i in p['instructions'] if i['is_possible_exception_return']]; print(p['firmware_modified'],p['firmware_modification_reasons'],p['firmware_publication_rejections'],p['original_size'],p['estimated_post_optimization_size'],len(r),r[0]['text'].strip()); print(n['firmware_modified'],n['firmware_publication_rejections'])" | FileCheck %s --check-prefix=ALLOWED
++# RUN: llvm-objdump -d --mcpu=cortex-m3 %t.default | FileCheck %s --check-prefix=DEFAULT-CODE
++# RUN: llvm-objdump -d --mcpu=cortex-m3 %t.allowed | FileCheck %s --check-prefix=ALLOWED-CODE
++
++# DEFAULT: False ['cfg_normalization'] ['exception_contract_unsupported']
++# DEFAULT-NEXT: False ['exception_contract_unsupported']
++# ALLOWED: True ['cfg_normalization'] [] 6 4 1 bx lr
++# ALLOWED-NEXT: False ['exception_contract_unsupported']
++
++# DEFAULT-CODE: <fallthrough_handler>:
++# DEFAULT-CODE-NEXT: cmp r0, #0x0
++# DEFAULT-CODE-NEXT: beq
++# DEFAULT-CODE-NEXT: bx lr
++# ALLOWED-CODE: <fallthrough_handler>:
++# ALLOWED-CODE-NEXT: cmp r0, #0x0
++# ALLOWED-CODE-NEXT: bx lr
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bx lr
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl fallthrough_handler
++  .type fallthrough_handler,%function
++  .thumb_func
++fallthrough_handler:
++  cmp r0, #0
++  beq .Lfallthrough
++.Lfallthrough:
++  bx lr
++  .size fallthrough_handler, .-fallthrough_handler
++
++  .globl two_branch_handler
++  .type two_branch_handler,%function
++  .thumb_func
++two_branch_handler:
++  cmp r0, #0
++  beq .Lsame
++  b .Lsame
++.Lsame:
++  bx lr
++  .size two_branch_handler, .-two_branch_handler
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++  .word fallthrough_handler
++  .word two_branch_handler
 diff --git a/bolt/test/ARM/cortex-m-handler-fop.s b/bolt/test/ARM/cortex-m-handler-fop.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..645bf87de5424d09f130566b92bcaba0608b0f69

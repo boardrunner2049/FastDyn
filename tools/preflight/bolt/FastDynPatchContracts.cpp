@@ -117,6 +117,13 @@ cl::opt<bool> AllowLiteralAddressChanges(
              "access addresses"),
     cl::init(false), cl::cat(FastDynCategory));
 
+cl::opt<bool> AllowHandlerFallthroughBranchElision(
+    "firmbolt-allow-handler-fallthrough-branch-elision",
+    cl::desc("allow an exact Cortex-M handler branch-to-next instruction to "
+             "be removed after preserving every other instruction identity, "
+             "exception return and architectural-state effect"),
+    cl::init(false), cl::cat(FastDynCategory));
+
 struct OriginalInstructionRecord {
   uint64_t Address;
   uint64_t Size;
@@ -1825,6 +1832,8 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
     if (!BF.hasCFG() || !BF.hasFirmwareModificationAttempt())
       continue;
     ++AttemptedFunctions;
+    bool AdmittedHandlerFallthroughBranchElision = false;
+    uint64_t AdmittedHandlerFallthroughBranchCount = 0;
 
     // SpecializeMemcpy1 introduces a guarded fast block, a retained fallback
     // call and merge edges that FixupBranches materializes after the pass has
@@ -2012,11 +2021,17 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
     // entry, instruction identities/order/count, stack stores, and the exact
     // exception-return instruction.  Ordinary FOP satisfies that contract by
     // replacing a same-width stack reload with a register move.  Any other
-    // transformation (including store deletion, layout or CFG edits) retains
-    // the original handler until the richer exception/event model exists.
+    // transformation (including store deletion or layout edits) retains the
+    // original handler until the richer exception/event model exists.  The
+    // separately named opt-in below admits only an exact conditional
+    // branch-to-next deletion and rechecks every surviving identity, state
+    // effect and possible exception-return instruction.
     if (BF.isCortexMVectorEntry()) {
-      const uint32_t AllowedMask = static_cast<uint32_t>(
+      uint32_t AllowedMask = static_cast<uint32_t>(
           FirmwareModification::FrameLoadForwarding);
+      if (AllowHandlerFallthroughBranchElision)
+        AllowedMask |= static_cast<uint32_t>(
+            FirmwareModification::CFGNormalization);
       if (BF.getFirmwareModificationMask() & ~AllowedMask) {
         BF.rejectFirmwarePublication(
             FirmwarePublicationRejection::ExceptionContractUnsupported);
@@ -2042,6 +2057,66 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
                   << BF.getPrintName()
                   << ": forwarding deleted an exception-visible instruction\n";
         continue;
+      }
+
+      if (BF.hasFirmwareModification(
+              FirmwareModification::CFGNormalization)) {
+        // The opt-in contract is intentionally narrower than generic CFG
+        // equivalence.  It admits only deletion of a conditional direct branch
+        // whose original target is the immediately following instruction.
+        // Preserve the exact relative order and one-to-one identity of every
+        // other instruction. This rules out block movement, cloning,
+        // synthesized control flow and deletion hidden behind the same pass
+        // attribution before the exception-state checks below run.
+        DenseSet<uint64_t> CandidateIdentities;
+        std::vector<uint64_t> CandidateOrder;
+        bool InvalidElision = false;
+        for (const BinaryBasicBlock &BB : BF)
+          for (const MCInst &Inst : BB) {
+            if (BC.MIB->isPseudo(Inst))
+              continue;
+            const std::optional<uint64_t> Identity =
+                getFastDynOriginalIdentity(BC, Inst);
+            if (!Identity || !CandidateIdentities.insert(*Identity).second ||
+                !OriginalInstructions.count(*Identity)) {
+              InvalidElision = true;
+              continue;
+            }
+            CandidateOrder.push_back(*Identity);
+          }
+
+        std::vector<uint64_t> ExpectedOrder;
+        for (auto It = OriginalInstructions.lower_bound(BF.getAddress());
+             It != OriginalInstructions.end() && It->first < End; ++It) {
+          const OriginalInstructionRecord &Record = It->second;
+          if (CandidateIdentities.contains(Record.Address)) {
+            ExpectedOrder.push_back(Record.Address);
+            continue;
+          }
+          const bool IsExactFallthroughBranch =
+              Record.IsBranch && !Record.IsUnconditionalBranch &&
+              !Record.IsCall && !Record.IsReturn &&
+              Record.BranchTargetAddress &&
+              *Record.BranchTargetAddress == Record.Address + Record.Size;
+          if (!IsExactFallthroughBranch) {
+            InvalidElision = true;
+            continue;
+          }
+          ++AdmittedHandlerFallthroughBranchCount;
+        }
+        InvalidElision |= !AdmittedHandlerFallthroughBranchCount ||
+                          CandidateOrder != ExpectedOrder;
+        if (InvalidElision) {
+          BF.rejectFirmwarePublication(
+              FirmwarePublicationRejection::ExceptionContractUnsupported);
+          ++RejectedFunctions;
+          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
+                    << BF.getPrintName()
+                    << ": CFG normalization exceeds exact branch-to-next "
+                       "elision contract\n";
+          continue;
+        }
+        AdmittedHandlerFallthroughBranchElision = true;
       }
 
       // Handler-mode exception return is not an ordinary ABI return. Match
@@ -2345,6 +2420,10 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
     }
     const uint64_t CandidateInstructionCount = BF.getNumNonPseudos();
     if (OriginalInstructionCount == CandidateInstructionCount)
+      continue;
+    if (AdmittedHandlerFallthroughBranchElision &&
+        OriginalInstructionCount == CandidateInstructionCount +
+                                        AdmittedHandlerFallthroughBranchCount)
       continue;
 
     BF.rejectFirmwarePublication(
