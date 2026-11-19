@@ -317,7 +317,7 @@ json::Array firmwareModificationReasons(const BinaryFunction &BF) {
 }
 
 static constexpr std::array<
-    std::pair<FirmwarePublicationRejection, StringLiteral>, 10>
+    std::pair<FirmwarePublicationRejection, StringLiteral>, 11>
     FirmwarePublicationRejectionNames = {{
         {FirmwarePublicationRejection::InstructionCountChanged,
          "instruction_count_changed"},
@@ -339,6 +339,8 @@ static constexpr std::array<
          "exception_return_changed"},
         {FirmwarePublicationRejection::ExceptionStateChanged,
          "exception_state_changed"},
+        {FirmwarePublicationRejection::ExceptionStateInputChanged,
+         "exception_state_input_changed"},
     }};
 
 StringLiteral
@@ -1910,6 +1912,63 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
                     << BF.getPrintName()
                     << ": Cortex-M architectural state instruction changed"
                     << "\n";
+          continue;
+        }
+
+        // Exact spelling of an MSR/VSTM is insufficient if a transformed
+        // value now feeds one of its register operands. Track the conservative
+        // transitive register data derived from every FOP-replaced load. This
+        // intentionally ignores later kills and therefore may retain a safe
+        // handler, but it cannot admit a state input whose equivalence depends
+        // on an unmodeled private-stack/no-asynchronous-observer assumption.
+        BitVector ForwardedData(BC.MRI->getNumRegs(), false);
+        for (const BinaryBasicBlock &BB : BF)
+          for (const MCInst &Inst : BB) {
+            const std::optional<uint64_t> Identity =
+                getFastDynOriginalIdentity(BC, Inst);
+            if (!Identity || !FrameForwardings.count(*Identity))
+              continue;
+            BC.MIB->getWrittenRegs(Inst, ForwardedData);
+          }
+
+        bool AddedForwardedData = true;
+        while (AddedForwardedData) {
+          AddedForwardedData = false;
+          for (const BinaryBasicBlock &BB : BF)
+            for (const MCInst &Inst : BB) {
+              if (BC.MIB->isPseudo(Inst))
+                continue;
+              BitVector Used(BC.MRI->getNumRegs(), false);
+              BC.MIB->getUsedRegs(Inst, Used);
+              if (!Used.anyCommon(ForwardedData))
+                continue;
+              BitVector Written(BC.MRI->getNumRegs(), false);
+              BC.MIB->getWrittenRegs(Inst, Written);
+              const unsigned Before = ForwardedData.count();
+              ForwardedData |= Written;
+              AddedForwardedData |= ForwardedData.count() != Before;
+            }
+        }
+
+        bool ChangedExceptionStateInput = false;
+        if (ForwardedData.any())
+          for (const BinaryBasicBlock &BB : BF)
+            for (const MCInst &Inst : BB) {
+              if (BC.MIB->isPseudo(Inst) ||
+                  BC.MIB->getCortexMStateEffect(Inst) ==
+                      MCPlusBuilder::CortexMStateEffect::None)
+                continue;
+              BitVector Used(BC.MRI->getNumRegs(), false);
+              BC.MIB->getUsedRegs(Inst, Used);
+              ChangedExceptionStateInput |= Used.anyCommon(ForwardedData);
+            }
+        if (ChangedExceptionStateInput) {
+          BF.rejectFirmwarePublication(
+              FirmwarePublicationRejection::ExceptionStateInputChanged);
+          ++RejectedFunctions;
+          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
+                    << BF.getPrintName()
+                    << ": a forwarded value feeds architectural state\n";
           continue;
         }
       }

@@ -10498,6 +10498,7 @@ def main() -> int:
                 "target-classified Cortex-M possible exception returns through BX LR, BX register, MOV PC, register, POP/LDM PC and single-load-to-PC forms, with exact original identity and instruction retention",
                 "typed Cortex-M architectural-state effects for special-register access, interrupt masking, barriers, exclusive-monitor changes, exception triggers, event scheduling, floating-point context and security-state transitions",
                 "exact identity, target effect class, decoded instruction and relative-order retention for architectural-state instructions in exception handlers",
+                "conservative transitive register-dependency rejection when frame-forwarded data can feed a Cortex-M architectural-state instruction",
                 "same-count ordinary FOP in exact exception handlers with stores and exception-return instructions retained",
                 "ordinary redundant stack-load forwarding with stores retained",
                 "opt-in native BOLT inlining for direct Thumb calls with protected call-boundary admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
