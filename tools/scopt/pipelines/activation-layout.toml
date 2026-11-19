@@ -1,0 +1,9 @@
+schema = "scopt.pipeline"
+version = 1
+name = "activation-layout"
+description = "Apply placements selected from an ordinary restore and native-link training trace."
+allowed_capabilities = ["PLACE"]
+
+[[pass]]
+name = "move-units"
+version = 1
