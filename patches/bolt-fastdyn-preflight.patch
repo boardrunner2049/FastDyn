@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f90616256981af3e1999a443a95c7b8865566c60 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..01e55620f6c2c79efb2032c8ab672600bdfa604f 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,65 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,66 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -165,6 +165,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f90616256981af3e1999a443a95c7b88
 +    IdenticalCodeFolding = 1U << 22,
 +    InlineMemcpy = 1U << 23,
 +    Memcpy1Specialization = 1U << 24,
++    ThreeWayBranch = 1U << 25,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -196,7 +197,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f90616256981af3e1999a443a95c7b88
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +251,17 @@ public:
+@@ -192,6 +252,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -214,7 +215,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f90616256981af3e1999a443a95c7b88
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +402,54 @@ private:
+@@ -332,6 +403,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -269,7 +270,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f90616256981af3e1999a443a95c7b88
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1586,70 @@ public:
+@@ -1468,6 +1587,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -340,7 +341,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f90616256981af3e1999a443a95c7b88
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2116,48 @@ public:
+@@ -1934,6 +2117,48 @@ public:
      return *this;
    }
  
@@ -389,7 +390,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f90616256981af3e1999a443a95c7b88
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2555,8 @@ public:
+@@ -2331,6 +2556,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -3767,10 +3768,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..572b8dcae79f7efc4e563da6c73c81897a9979cd
+index 0000000000000000000000000000000000000000..1fd36ce5143d4052314dc28872f88f5066b28614
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4809 @@
+@@ -0,0 +1,4810 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -4029,7 +4030,7 @@ index 0000000000000000000000000000000000000000..572b8dcae79f7efc4e563da6c73c8189
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 25>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 26>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -4070,6 +4071,7 @@ index 0000000000000000000000000000000000000000..572b8dcae79f7efc4e563da6c73c8189
 +        {FirmwareModification::InlineMemcpy, "inline_memcpy"},
 +        {FirmwareModification::Memcpy1Specialization,
 +         "memcpy1_specialization"},
++        {FirmwareModification::ThreeWayBranch, "three_way_branch"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -10634,8 +10636,75 @@ index c8c9298805268db2cc2c54ac660bd4bedd946879..a8c2e3e4ad1da401a18a5196a6ffa1f6
      runOnFunction(Function);
    }
  
+diff --git a/bolt/lib/Passes/ThreeWayBranch.cpp b/bolt/lib/Passes/ThreeWayBranch.cpp
+index 8f95ddb0fc630d07a9eddc056a51dfe109c23885..093908fbda28277266f1913f32ec59b2f72d4ecb 100644
+--- a/bolt/lib/Passes/ThreeWayBranch.cpp
++++ b/bolt/lib/Passes/ThreeWayBranch.cpp
+@@ -11,9 +11,22 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "bolt/Passes/ThreeWayBranch.h"
++#include "bolt/Utils/CommandLineOpts.h"
++#include "llvm/Support/CommandLine.h"
+ 
+ using namespace llvm;
+ 
++namespace opts {
++
++extern cl::OptionCategory BoltOptCategory;
++
++static cl::opt<bool> FirmBOLTAllowThreeWayBranch(
++    "firmbolt-allow-three-way-branch",
++    cl::desc("admit Cortex-M profile-driven three-way branch reordering"),
++    cl::ReallyHidden, cl::init(false), cl::cat(BoltOptCategory));
++
++} // namespace opts
++
+ namespace llvm {
+ namespace bolt {
+ 
+@@ -29,6 +42,7 @@ bool ThreeWayBranch::shouldRunOnFunction(BinaryFunction &Function) {
+ void ThreeWayBranch::runOnFunction(BinaryFunction &Function) {
+   BinaryContext &BC = Function.getBinaryContext();
+   MCContext *Ctx = BC.Ctx.get();
++  bool Modified = false;
+   // New blocks will be added and layout will change,
+   // so make a copy here to iterate over the original layout
+   BinaryFunction::BasicBlockOrderType BlockLayout(
+@@ -144,15 +158,29 @@ void ThreeWayBranch::runOnFunction(BinaryFunction &Function) {
+                                    Ctx, Blocks[0].second);
+ 
+     ++BranchesAltered;
++    Modified = true;
+   }
++
++  if (Modified && BC.isARM())
++    Function.setFirmwareModified(
++        BinaryFunction::FirmwareModification::ThreeWayBranch);
+ }
+ 
+ Error ThreeWayBranch::runOnFunctions(BinaryContext &BC) {
+-  if (!BC.isX86()) {
+-    BC.errs() << "BOLT-ERROR: " << getName() << " is supported only on X86\n";
++  if (!BC.isX86() && !BC.isARM()) {
++    BC.errs() << "BOLT-ERROR: " << getName()
++              << " is supported only on X86 and qualified ARM\n";
+     exit(1);
+   }
+ 
++  if (BC.isARM() && !opts::FirmBOLTAllowThreeWayBranch)
++    return createStringError(
++        inconvertibleErrorCode(),
++        "Cortex-M three-way branch reordering changes branch identities, "
++        "path order and modeled timing; add "
++        "--firmbolt-allow-three-way-branch only for an admitted profile, "
++        "flags, branch-event and schedule contract");
++
+   for (auto &It : BC.getBinaryFunctions()) {
+     BinaryFunction &Function = It.second;
+     if (!shouldRunOnFunction(Function))
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..532facd7d33161e174f221fe75227328dcab5abe 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..fd71e1de100b1da59daea3a5eeaed328c6ca3a6b 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -10667,7 +10736,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..532facd7d33161e174f221fe75227328
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +380,161 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -372,6 +380,163 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -10716,7 +10785,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..532facd7d33161e174f221fe75227328
 +          << "BOLT-INFO: Cortex-M audited pass schedule: profile import/stats, "
 +             "firmware constraints, reference validation, admitted native "
 +             "indirect-call promotion, inlining, fixed-size and size-one "
-+             "specialized memcpy, tail "
++             "specialized memcpy, three-way branch reordering, tail "
 +             "duplication and "
 +             "control-flow peepholes, "
 +             "shortening, NOP "
@@ -10772,6 +10841,8 @@ index 18c84468b04ce23388d824e28c0029be48789a45..532facd7d33161e174f221fe75227328
 +    Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
 +                         opts::ICF !=
 +                             IdenticalCodeFolding::ICFLevel::None);
++    Manager.registerPass(std::make_unique<ThreeWayBranch>(),
++                         opts::ThreeWayBranchFlag);
 +    Manager.registerPass(
 +        std::make_unique<ReorderBasicBlocks>(PrintReordered));
 +    Manager.registerPass(
@@ -10829,7 +10900,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..532facd7d33161e174f221fe75227328
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +570,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +572,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -10847,7 +10918,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..532facd7d33161e174f221fe75227328
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -454,6 +628,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -454,6 +630,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
                         opts::RegReAssign);
  
    Manager.registerPass(std::make_unique<Inliner>(PrintInline));
@@ -10857,7 +10928,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..532facd7d33161e174f221fe75227328
  
    Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
                         opts::ICF != IdenticalCodeFolding::ICFLevel::None);
-@@ -554,6 +731,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -554,6 +733,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -10867,7 +10938,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..532facd7d33161e174f221fe75227328
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +748,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +750,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -13476,10 +13547,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..d6cab429b99d3d02d7e47798e0e239a82d645dc0
+index 0000000000000000000000000000000000000000..680b2fd9dbae6ef571b735e6bd643eb7ce752a53
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2610 @@
+@@ -0,0 +1,2690 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -14279,6 +14350,14 @@ index 0000000000000000000000000000000000000000..d6cab429b99d3d02d7e47798e0e239a8
 +    return false;
 +  }
 +
++  bool isPacked(const MCInst &) const override {
++    // ThreeWayBranch uses this hook to exclude x86 packed floating-point
++    // compare semantics. ARM's branch conditions are expressed directly in
++    // NZCV and the qualified pass separately admits only condition-code
++    // compositions representable by getCondCodesLogicalOr().
++    return false;
++  }
++
 +  bool isExclusiveLoad(const MCInst &Inst) const override {
 +    switch (Inst.getOpcode()) {
 +    case ARM::LDREX:
@@ -14830,6 +14909,78 @@ index 0000000000000000000000000000000000000000..d6cab429b99d3d02d7e47798e0e239a8
 +  unsigned getInvertedCondCode(unsigned CC) const override {
 +    assert(isValidCondCode(CC) && "invalid ARM condition code");
 +    return ARMCC::getOppositeCondition(static_cast<ARMCC::CondCodes>(CC));
++  }
++
++  unsigned getCondCodesLogicalOr(unsigned CC1, unsigned CC2) const override {
++    enum DecodedCondCode : uint8_t {
++      DCCEqual = 0x1,
++      DCCGreater = 0x2,
++      DCCLesser = 0x4,
++      DCCUnsigned = 0x8,
++      DCCSigned = 0x10,
++      DCCInvalid = 0x20,
++    };
++
++    const auto Decode = [](unsigned CC) -> uint8_t {
++      switch (CC) {
++      default:
++        return DCCInvalid;
++      case ARMCC::EQ:
++        return DCCEqual;
++      case ARMCC::NE:
++        return DCCGreater | DCCLesser;
++      case ARMCC::LT:
++        return DCCLesser | DCCSigned;
++      case ARMCC::LE:
++        return DCCEqual | DCCLesser | DCCSigned;
++      case ARMCC::GT:
++        return DCCGreater | DCCSigned;
++      case ARMCC::GE:
++        return DCCGreater | DCCEqual | DCCSigned;
++      case ARMCC::LO:
++        return DCCLesser | DCCUnsigned;
++      case ARMCC::LS:
++        return DCCEqual | DCCLesser | DCCUnsigned;
++      case ARMCC::HI:
++        return DCCGreater | DCCUnsigned;
++      case ARMCC::HS:
++        return DCCGreater | DCCEqual | DCCUnsigned;
++      }
++    };
++
++    const uint8_t DCC = Decode(CC1) | Decode(CC2);
++    if ((DCC & DCCInvalid) ||
++        ((DCC & DCCSigned) && (DCC & DCCUnsigned)))
++      return ARMCC::AL;
++
++    switch (DCC) {
++    default:
++      return ARMCC::AL;
++    case DCCEqual:
++    case DCCEqual | DCCSigned:
++    case DCCEqual | DCCUnsigned:
++      return ARMCC::EQ;
++    case DCCGreater | DCCLesser:
++    case DCCGreater | DCCLesser | DCCSigned:
++    case DCCGreater | DCCLesser | DCCUnsigned:
++      return ARMCC::NE;
++    case DCCLesser | DCCSigned:
++      return ARMCC::LT;
++    case DCCEqual | DCCLesser | DCCSigned:
++      return ARMCC::LE;
++    case DCCGreater | DCCSigned:
++      return ARMCC::GT;
++    case DCCEqual | DCCGreater | DCCSigned:
++      return ARMCC::GE;
++    case DCCLesser | DCCUnsigned:
++      return ARMCC::LO;
++    case DCCEqual | DCCLesser | DCCUnsigned:
++      return ARMCC::LS;
++    case DCCGreater | DCCUnsigned:
++      return ARMCC::HI;
++    case DCCEqual | DCCGreater | DCCUnsigned:
++      return ARMCC::HS;
++    }
 +  }
 +
 +  void createCondBranch(MCInst &Inst, const MCSymbol *Target, unsigned CC,
@@ -20776,6 +20927,96 @@ index 0000000000000000000000000000000000000000..a521b65ecf5da4f842a3f06ee63259da
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-native-three-way-branch.s b/bolt/test/ARM/thumb-native-three-way-branch.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..1718e99b2bc919a4539bbd7e021e8f0cd6027351
+--- /dev/null
++++ b/bolt/test/ARM/thumb-native-three-way-branch.s
+@@ -0,0 +1,84 @@
++## BOLT's ThreeWayBranch pass reorders two conditional branches sharing one
++## comparison. Firm-BOLT qualifies the same pass for Cortex-M only under an
++## explicit branch-identity/path-order/timing contract.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: link_fdata %s %t.o %t.fdata --no-lbr
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --data=%t.fdata --three-way-branch \
++# RUN:   -o %t.denied 2>&1 | FileCheck %s --check-prefix=DENIED
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --data=%t.fdata --three-way-branch \
++# RUN:   --firmbolt-allow-three-way-branch \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=classify \
++# RUN:   %t.bolt | FileCheck %s --check-prefix=CLASSIFY
++# RUN: %python -c "import json; d=json.load(open('%t.json')); l=json.load(open('%t.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='classify'); lf=next(x for x in l['functions'] if x['name']=='classify'); print(f['firmware_modified'],f['firmware_modification_reasons'],len(lf['instruction_origins']),sum(x['origin_kind']!='original_instruction' for x in lf['instruction_origins']))" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# DENIED: Cortex-M three-way branch reordering changes branch identities, path order and modeled timing
++# LOG: number of three way branches order changed: 1
++# CLASSIFY: <classify>:
++# CLASSIFY: cmp r0, #0x1
++# CLASSIFY-NEXT: blt
++# CLASSIFY-NEXT: ble
++# CLASSIFY: movs r0, #0x1e
++# CLASSIFY: movs r0, #0xa
++# CLASSIFY: movs r0, #0x14
++# REPORT: True ['three_way_branch'] 9 0
++
++# FDATA: 1 classify 0 100
++# FDATA: 1 classify 4 20
++# FDATA: 1 classify 6 5
++# FDATA: 1 classify a 80
++# FDATA: 1 classify e 15
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  movs r0, #0
++  bl classify
++  movs r0, #1
++  bl classify
++  movs r0, #2
++  bl classify
++1:
++  b 1b
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl classify
++  .type classify,%function
++  .thumb_func
++classify:
++  cmp r0, #1
++  blt 3f
++2:
++  beq 4f
++1:
++  movs r0, #30
++  bx lr
++3:
++  movs r0, #10
++  bx lr
++4:
++  movs r0, #20
++  bx lr
++  .size classify, .-classify
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-profile-guided-alignment.s b/bolt/test/ARM/thumb-profile-guided-alignment.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..3e820634562b75174a88c36ad0dc8deb95cae27b
@@ -24538,7 +24779,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..0522a97dfe1a5277778512f691833490fbad0ceb 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..4faa725f620eb565bd02d86e4bcecba76715e4c0 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -24600,7 +24841,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..0522a97dfe1a5277778512f691833490
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +154,718 @@ protected:
+@@ -125,6 +154,740 @@ protected:
  };
  } // namespace
  
@@ -24966,6 +25207,28 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..0522a97dfe1a5277778512f691833490
 +  EXPECT_EQ(CopyIt->getOperand(0).getReg(), ARM::R3);
 +  EXPECT_EQ(CopyIt->getOperand(1).getReg(), ARM::R0);
 +  EXPECT_EQ(CopyIt->getOperand(2).getImm(), 0);
++}
++
++TEST_P(MCPlusBuilderTester, ARM_ThreeWayBranchConditions) {
++  if (GetParam() != Triple::thumb)
++    GTEST_SKIP();
++
++  EXPECT_EQ(BC->MIB->getCondCodesLogicalOr(ARMCC::EQ, ARMCC::LT),
++            ARMCC::LE);
++  EXPECT_EQ(BC->MIB->getCondCodesLogicalOr(ARMCC::EQ, ARMCC::GT),
++            ARMCC::GE);
++  EXPECT_EQ(BC->MIB->getCondCodesLogicalOr(ARMCC::LO, ARMCC::EQ),
++            ARMCC::LS);
++  EXPECT_EQ(BC->MIB->getCondCodesLogicalOr(ARMCC::HI, ARMCC::EQ),
++            ARMCC::HS);
++  EXPECT_EQ(BC->MIB->getCondCodesLogicalOr(ARMCC::LT, ARMCC::GT),
++            ARMCC::NE);
++  EXPECT_FALSE(
++      BC->MIB->isValidCondCode(
++          BC->MIB->getCondCodesLogicalOr(ARMCC::LT, ARMCC::HI)));
++  EXPECT_FALSE(
++      BC->MIB->isValidCondCode(
++          BC->MIB->getCondCodesLogicalOr(ARMCC::MI, ARMCC::EQ)));
 +}
 +
 +TEST_P(MCPlusBuilderTester, ARM_StackOffsetExpressions) {

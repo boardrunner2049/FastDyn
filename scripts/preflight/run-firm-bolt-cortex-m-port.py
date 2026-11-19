@@ -68,6 +68,9 @@ M3_MEMCPY1_SPECIALIZATION_SOURCE = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_memcpy1_specialization.s"
 )
+M3_THREE_WAY_BRANCH_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_three_way_branch.s"
+)
 M3_TAILDUP_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_taildup.s"
 )
@@ -3441,6 +3444,35 @@ def build_m3_memcpy1_specialization_fixture(
     return image
 
 
+def build_m3_three_way_branch_fixture(output: Path, logs: Path) -> Path:
+    """Build the executed native-BOLT three-way branch fixture."""
+    image = output / "firm-bolt-cortex-m3-three-way-branch-reference.elf"
+    command = [
+        str(ARM_GCC), "-mcpu=cortex-m3", "-mthumb", "-nostdlib",
+        "-Wl,--emit-relocs", f"-Wl,-T,{M3_LINKER}",
+        str(M3_THREE_WAY_BRANCH_SOURCE), "-o", str(image),
+    ]
+    require_success(
+        run(command, logs / "build-m3-three-way-branch.log"),
+        "M3 native three-way branch fixture build",
+    )
+    return image
+
+
+def write_m3_three_way_branch_profile(output: Path) -> Path:
+    """Freeze exact function-relative counts for three-way reordering."""
+    profile = output / "firm-bolt-cortex-m3-three-way-branch-training.fdata"
+    profile.write_text(
+        "no_lbr\n"
+        "1 classify 0 100\n"
+        "1 classify 4 20\n"
+        "1 classify 6 5\n"
+        "1 classify a 80\n"
+        "1 classify e 15\n"
+    )
+    return profile
+
+
 def build_m3_taildup_fixture(output: Path, logs: Path) -> Path:
     """Build the executed native-BOLT Thumb tail-duplication fixture."""
     image = output / "firm-bolt-cortex-m3-taildup-reference.elf"
@@ -4897,6 +4929,8 @@ def main() -> int:
     m3_memcpy1_specialization_image = (
         build_m3_memcpy1_specialization_fixture(output, logs)
     )
+    m3_three_way_branch_image = build_m3_three_way_branch_fixture(output, logs)
+    m3_three_way_branch_profile = write_m3_three_way_branch_profile(output)
     m3_taildup_image = build_m3_taildup_fixture(output, logs)
     m3_taildup_profile = write_m3_taildup_profile(output)
     m3_taildup_propagation_image = (
@@ -5088,6 +5122,13 @@ def main() -> int:
              "--firmbolt-allow-memcpy1-specialization",
              "--firmbolt-preserve-guest-instruction-count=false",
              "--eliminate-unreachable=true",
+         ]),
+        ("m3_three_way_branch", "cortex-m3", m3_three_way_branch_image,
+         {".isr_vector": None}, [
+             f"--data={m3_three_way_branch_profile}",
+             "--three-way-branch",
+             "--firmbolt-allow-three-way-branch",
+             "--firmbolt-preserve-guest-instruction-count=false",
          ]),
         ("m3_taildup", "cortex-m3", m3_taildup_image,
          {".isr_vector": None}, [
@@ -5443,6 +5484,18 @@ def main() -> int:
                     raise RuntimeError(
                         "M3 size-one memcpy fixture did not retain seven "
                         "exact call-derived guard/copy/merge origins"
+                    )
+            if label == "m3_three_way_branch":
+                if int(summary["firmware_modification_reason_counts"]
+                       ["three_way_branch"]) != 1:
+                    raise RuntimeError(
+                        "M3 three-way branch fixture did not publish exactly "
+                        "one native ThreeWayBranch transformation"
+                    )
+                if int(summary["cloned_original_instruction_count"]) != 0:
+                    raise RuntimeError(
+                        "M3 three-way branch fixture unexpectedly cloned an "
+                        "original instruction identity"
                     )
             if label in {"m3_taildup", "m3_taildup_propagation"}:
                 if int(summary["cloned_original_instruction_count"]) != 2:
@@ -6108,6 +6161,50 @@ def main() -> int:
                     "byte_load_count": 1,
                     "byte_store_count": 1,
                     "retained_fallback_call_count": len(retained_calls),
+                }
+            if label == "m3_three_way_branch":
+                classified = next(
+                    function for function in final_layout["functions"]
+                    if function["name"] == "classify"
+                )
+                origins = classified["instruction_origins"]
+                publication = results[label]["pass_publication"]
+                if (
+                    not classified["firmware_modified"]
+                    or classified["firmware_modification_reasons"]
+                    != ["three_way_branch"]
+                    or classified["original_size"] != 18
+                    or classified["output_size"] != 18
+                    or len(origins) != 9
+                    or any(
+                        origin["origin_kind"] != "original_instruction"
+                        for origin in origins
+                    )
+                    or any(
+                        origin["original_address"] != origin["output_address"]
+                        for origin in origins
+                    )
+                    or publication["byte_changed_function_count"] != 1
+                    or int(summary[
+                        "cloned_original_instruction_count"
+                    ]) != 0
+                    or int(summary[
+                        "synthesized_from_original_instruction_count"
+                    ]) != 0
+                ):
+                    raise RuntimeError(
+                        "M3 three-way branch fixture did not publish exactly "
+                        "one size/identity-preserving native branch-condition "
+                        "rewrite"
+                    )
+                results[label]["three_way_branch_validation"] = {
+                    "status": "accepted",
+                    "transformed_function": classified,
+                    "original_identity_count": len(origins),
+                    "original_size": classified["original_size"],
+                    "output_size": classified["output_size"],
+                    "cloned_identity_count": 0,
+                    "synthesized_identity_count": 0,
                 }
             if label == "m3_rodata_load":
                 linked = next(
@@ -7833,6 +7930,27 @@ def main() -> int:
             "reject"
         )
 
+    three_way_without_contract = run(
+        [str(args.bolt.resolve()), str(m3_three_way_branch_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline",
+         f"--data={m3_three_way_branch_profile}",
+         "--three-way-branch",
+         "--firmbolt-preserve-guest-instruction-count=false",
+         "-o", str(output /
+                   "must-not-emit-unadmitted-three-way-branch.elf")],
+        logs / "reject-unadmitted-three-way-branch.log",
+    )
+    if (
+        three_way_without_contract.returncode == 0
+        or "Cortex-M three-way branch reordering changes branch identities"
+        not in (three_way_without_contract.stdout +
+                three_way_without_contract.stderr)
+    ):
+        raise RuntimeError(
+            "unadmitted Cortex-M three-way branch reordering did not reject"
+        )
+
     taildup_without_contract = run(
         [str(args.bolt.resolve()), str(m3_taildup_image),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -8706,6 +8824,15 @@ def main() -> int:
             expected_word=0x44332211,
         )
     )
+    m3_three_way_branch_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_three_way_branch_image,
+            candidates["m3_three_way_branch"], output,
+            args.fastdyn.resolve(), "native-three-way-branch",
+            expected_words=(10, 20, 30),
+        )
+    )
     m3_taildup_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -8982,6 +9109,7 @@ def main() -> int:
             m3_execution, m3_jump6_execution, m3_narrow_data_execution,
             m3_inline_execution, m3_inline_memcpy_execution,
             m3_memcpy1_specialization_execution,
+            m3_three_way_branch_execution,
             m3_taildup_execution,
             m3_taildup_propagation_execution,
             m3_rodata_load_execution,
@@ -9034,7 +9162,8 @@ def main() -> int:
                 "m0plus_relocation_clone, m0plus_branch, "
                 "m0plus_call_veneer, m3_taildup and "
                 "m3_taildup_propagation, m3_inline_memcpy and "
-                "m3_memcpy1_specialization fixtures; "
+                "m3_memcpy1_specialization and m3_three_way_branch "
+                "fixtures; "
                 "m3_profile_alignment "
                 "admits executed alignment padding"
                 "; the m3_loop_inversion fixture also admits branch-count "
@@ -9060,7 +9189,9 @@ def main() -> int:
             "execution_multiplicity_changes": (
                 "explicitly admitted only for the m3_taildup, "
                 "m3_taildup_propagation, m3_loop_inversion and "
-                "m3_profile_alignment fixtures; "
+                "m3_profile_alignment fixtures; profile-driven branch "
+                "identity, path-order and modeled-timing changes are "
+                "separately admitted for m3_three_way_branch; "
                 "the propagation fixture separately admits deletion of a "
                 "register-only definition proven not live-out; executed "
                 "branch-identity "
@@ -9099,6 +9230,14 @@ def main() -> int:
                 "valid disjoint byte-addressable ordinary RAM, and addition "
                 "of the size guard plus changed call/access/fault event "
                 "shape; non-size-one execution retains the original call"
+            ),
+            "three_way_branch": (
+                "explicitly admitted only for m3_three_way_branch: the "
+                "frozen no-LBR profile may reorder the three condition-code "
+                "partitions; all conditions consume the same unchanged NZCV "
+                "state, exact original instruction identities and addresses "
+                "are retained, and branch identity, path order and modeled "
+                "timing changes are admitted"
             ),
         },
         "bolt_revision": revision,
@@ -9199,6 +9338,14 @@ def main() -> int:
                 "policy": "aggressive tail duplication with zero minimum "
                           "offset",
             },
+            "m3_three_way_branch": {
+                "path": str(m3_three_way_branch_profile),
+                "sha256": sha256(m3_three_way_branch_profile),
+                "format": "BOLT no-LBR function-relative profile",
+                "policy": "native three-way condition reordering under an "
+                          "explicit branch-identity, path-order, NZCV and "
+                          "modeled-timing contract",
+            },
             "m3_taildup_propagation_worker": {
                 "path": str(m3_taildup_propagation_profile),
                 "sha256": sha256(m3_taildup_propagation_profile),
@@ -9277,6 +9424,9 @@ def main() -> int:
             "experimental_store_removal_rejected": True,
             "unadmitted_read_only_load_elision_rejected": True,
             "unadmitted_inlining_rejected": True,
+            "unadmitted_inline_memcpy_rejected": True,
+            "unadmitted_memcpy1_specialization_rejected": True,
+            "unadmitted_three_way_branch_rejected": True,
             "unadmitted_tail_duplication_rejected": True,
             "unadmitted_function_splitting_rejected": True,
             "unadmitted_block_alignment_rejected": True,
@@ -9349,6 +9499,8 @@ def main() -> int:
             m3_inline_memcpy_execution,
         "m3_native_memcpy1_specialization_architectural_execution":
             m3_memcpy1_specialization_execution,
+        "m3_native_three_way_branch_architectural_execution":
+            m3_three_way_branch_execution,
         "m3_native_tail_duplication_architectural_execution":
             m3_taildup_execution,
         "m3_native_tail_duplication_propagation_architectural_execution":
@@ -9563,6 +9715,8 @@ def main() -> int:
             str(candidates["m3_inline_memcpy"]),
         "m3_memcpy1_specialization_candidate":
             str(candidates["m3_memcpy1_specialization"]),
+        "m3_three_way_branch_candidate":
+            str(candidates["m3_three_way_branch"]),
         "m3_taildup_candidate": str(candidates["m3_taildup"]),
         "m3_taildup_propagation_candidate":
             str(candidates["m3_taildup_propagation"]),
