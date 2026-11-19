@@ -2103,7 +2103,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
               if not bad13k else _few(bad13k), "guard_contract_violation")
     if grown or nst:
         v.add("V13", "guard_template", not bad13,
-              f"{nst} stubs decode to {('guard-v1')} with every atom; constants equal the slot "
+              f"{nst} stubs match a supported guard template with every atom; constants equal the slot "
               "entries and key_C; F equals the tail; resets by kind; R15/thumb stored on every "
               "path; no store/call/LDST but F's call. Rule 6 (no DISAS_EXIT R) holds by "
               "construction: such TBs end in exit_tb(NULL,0) and have no lookup tail"

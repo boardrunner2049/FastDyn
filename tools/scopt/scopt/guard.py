@@ -17,7 +17,11 @@ appends the stub ``S`` after R's pool (template id :data:`GUARD_TEMPLATE_ID`)::
         reset SPEC, or any unregistered slot: jmp F (e9 rel32)
     F:  mov rdi,rbp ; call [rip+d'] ; jmp rax    ; the original tail (same pool slot, d' re-resolved)
 
-Every branch uses the rel32 form, so the stub's length depends only on the
+The single-target GENERAL template optionally uses six short failure branches
+and falls through to the aligned slot on a hit. Its failure target and
+registered reset path are the same as the original template.
+
+The original template uses rel32 branches, so its length depends only on the
 number of targets, ``Kf2 >= 2^31`` and the alignment padding.
 
 An **unregistered** slot (v5 artifacts: the record keeps
@@ -46,12 +50,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 __all__ = [
-    "GUARD_TEMPLATE_ID", "NOTCACHED2", "PSTATE_SS", "SS_ACTIVE", "CS_THUMB", "CS_CONDEXEC_MASK",
+    "GUARD_TEMPLATE_ID", "COMPACT_GUARD", "NOTCACHED2", "PSTATE_SS", "SS_ACTIVE", "CS_THUMB", "CS_CONDEXEC_MASK",
     "GuardOffsets", "GuardTarget", "SlotInfo", "GuardStub", "GuardError", "emit_guard",
     "decode_guard", "DecodedGuard", "guard_key", "TAIL_LEN", "ATOMS", "guard_atoms",
 ]
 
 GUARD_TEMPLATE_ID = "guard-v1"
+COMPACT_GUARD = "guard-single-fallthrough-v1"
 TAIL_LEN = 11
 #: cs_base bits the lookup ORs into a local copy only (design §4.1, G17)
 CS_THUMB = 1 << 23
@@ -125,6 +130,7 @@ class GuardTarget:
     kind: str  # "GENERAL" | "SPEC"
     registered: bool = True
     r0_zero: bool = False
+    compact: bool = False
 
 
 @dataclass(frozen=True)
@@ -232,7 +238,7 @@ def _u32(v: int) -> bytes:
 # site kinds / encodings / opmark kinds (scopt.formats.enums numbering)
 _LABEL_JMP, _LABEL_JCC, _HELPER_CALL, _EXIT_RET, _MOVI_EXIT, _GOTO_TB, _GOTO_PTR = (
     0x01, 0x02, 0x06, 0x07, 0x09, 0x0D, 0x0E)
-_E_NONE, _E_REL32, _E_RIPREL32, _E_POOL_IND, _E_GOTO_TB = 0, 2, 3, 8, 9
+_E_NONE, _E_REL8, _E_REL32, _E_RIPREL32, _E_POOL_IND, _E_GOTO_TB = 0, 1, 2, 3, 8, 9
 _M_CALL, _M_EXIT_TB, _M_GOTO_TB, _M_GOTO_PTR = 1, 4, 5, 6
 
 
@@ -266,7 +272,9 @@ def emit_guard(*, stub_off: int, tail: bytes, pool_slot_off: int, lookup_helper_
     o = offsets
     buf = bytearray()
     labels: dict[str, int] = {}
-    fix: list[tuple[int, str]] = []
+    compact = (len(targets) == 1 and targets[0].compact and targets[0].registered
+               and targets[0].kind == "GENERAL" and not r0_zero)
+    fix: list[tuple[int, str, int]] = []
     sites: list[tuple] = []
     marks: list[tuple] = []
     fixups: list[tuple] = []
@@ -276,15 +284,16 @@ def emit_guard(*, stub_off: int, tail: bytes, pool_slot_off: int, lookup_helper_
 
     def jcc(cc: int, lab: str) -> None:
         io = pos()
-        buf.extend(bytes([0x0F, cc]))
-        fix.append((len(buf), lab))
-        sites.append([pos(), io, 4, _E_REL32, _LABEL_JCC, 0, lab])
-        buf.extend(b"\0\0\0\0")
+        width = 1 if compact else 4
+        buf.extend(bytes([cc - 0x10]) if compact else bytes([0x0F, cc]))
+        fix.append((len(buf), lab, width))
+        sites.append([pos(), io, width, _E_REL8 if compact else _E_REL32, _LABEL_JCC, 0, lab])
+        buf.extend(bytes(width))
 
     def jmp(lab: str) -> None:
         io = pos()
         buf.append(0xE9)
-        fix.append((len(buf), lab))
+        fix.append((len(buf), lab, 4))
         sites.append([pos(), io, 4, _E_REL32, _LABEL_JMP, 0, lab])
         buf.extend(b"\0\0\0\0")
 
@@ -309,8 +318,12 @@ def emit_guard(*, stub_off: int, tail: bytes, pool_slot_off: int, lookup_helper_
     for k, t in enumerate(targets):
         pc_cmp.append(pos())
         buf += b"\x81\xbd" + _d32(o.pc) + _u32(t.vaddr)
-        jcc(_JE, f"L{k}")
-    jmp("F")
+        if compact:
+            jcc(_JNE, "F")
+        else:
+            jcc(_JE, f"L{k}")
+    if not compact:
+        jmp("F")
     infos = []
     for k, t in enumerate(targets):
         labels[f"L{k}"] = len(buf)
@@ -354,16 +367,19 @@ def emit_guard(*, stub_off: int, tail: bytes, pool_slot_off: int, lookup_helper_
     sites.append([f_off + 9, f_off + 9, 0, _E_NONE, _GOTO_PTR, goto_ptr_reg, 0])
     marks.append((f_off, _M_CALL, lookup_helper_id))
     marks.append((f_off + 9, _M_GOTO_PTR, None))
-    for p, lab in fix:
-        tgt = labels[lab]
-        buf[p:p + 4] = _d32(tgt - (p + 4))
+    for p, lab, width in fix:
+        disp = labels[lab] - (p + width)
+        if width == 1 and not -128 <= disp <= 127:
+            raise GuardError("rel8_range", f"guard displacement {disp}")
+        buf[p:p + width] = disp.to_bytes(width, "little", signed=True)
     out_sites = []
     for s in sites:
         if isinstance(s[6], str):
             s[6] = tc_abs + stub_off + labels[s[6]]
         out_sites.append(tuple(s))
     return GuardStub(stub_off, bytes(buf), f_off, kf, kf2, tuple(infos), tuple(out_sites),
-                     tuple(sorted(marks)), tuple(fixups), offsets)
+                     tuple(sorted(marks)), tuple(fixups), offsets,
+                     COMPACT_GUARD if compact else GUARD_TEMPLATE_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -425,13 +441,22 @@ def decode_guard(code: bytes, off: int, *, tc_abs: int, struct_off: int,
         p += 4
         return d
 
+    # The first breakpoint compare is eight bytes in both templates.
+    compact = b[off + 8:off + 9] == b"\x75"
     jcc_targets: list[tuple[int, int]] = []  # (cc, target off)
 
     def jcc(cc: int, what: str) -> int:
         nonlocal p
-        need(bytes([0x0F, cc]), what)
-        t = p + 4 + _i32(b, p)
-        p += 4
+        if compact:
+            need(bytes([cc - 0x10]), what)
+            if p >= len(b):
+                raise GuardError(viol, f"truncated {what}")
+            t = p + 1 + int.from_bytes(b[p:p + 1], "little", signed=True)
+            p += 1
+        else:
+            need(bytes([0x0F, cc]), what)
+            t = p + 4 + _i32(b, p)
+            p += 4
         jcc_targets.append((cc, t))
         return t
 
@@ -481,13 +506,19 @@ def decode_guard(code: bytes, off: int, *, tc_abs: int, struct_off: int,
         v = _u32r(b, p)
         p += 4
         atoms.append(("g_pc", d, v))
-        lk = jcc(_JE, "g_pc je")
-        pcs.append((co, v, lk))
+        if compact:
+            jcc(_JNE, "g_pc jne")
+            pcs.append((co, v, p))
+            break
+        pcs.append((co, v, jcc(_JE, "g_pc je")))
     if not 1 <= len(pcs) <= 2:
         raise GuardError(viol, f"{len(pcs)} g_pc compares")
-    need(b"\xe9", "jmp F")
-    f_target = p + 4 + _i32(b, p)
-    p += 4
+    if compact:
+        f_target = jcc_targets[-1][1]
+    else:
+        need(b"\xe9", "jmp F")
+        f_target = p + 4 + _i32(b, p)
+        p += 4
     slots = []
     rets: list[int | None] = []
     srel: list[int | None] = []
@@ -536,6 +567,8 @@ def decode_guard(code: bytes, off: int, *, tc_abs: int, struct_off: int,
                                   co, lab, jo, fo, ro, "jmp_F"))
             rets.append(None)
             srel.append(None)
+    if compact and (r0_zero or len(slots) != 1 or not slots[0].registered or slots[0].kind != "GENERAL"):
+        raise GuardError(viol, "compact guard requires one registered GENERAL slot")
     if r0_zero and (len(slots) != 1 or slots[0].kind != "SPEC"):
         raise GuardError(viol, "r0 check requires a registered single SPEC slot")
     if p != f_target:

@@ -1095,7 +1095,8 @@ def grow_unit(u: TBUnit, exits: Sequence[GuardedExitSpec], *, code_address: int,
     end = u.tc_offset + len(code_b) + len(u.search)
     nrec = rec.replace(tc_size=len(code_b), end_offset=end, jmp_insn_offset=tuple(jio),
                        jmp_reset_offset=tuple(jro)).to_bytes(fix_checksum=True)
-    tag = {"grown_from": u.content_hash, "template": GUARD_TEMPLATE_ID,
+    templates = sorted({stub.template_id for _, stub in stubs}) or [GUARD_TEMPLATE_ID]
+    tag = {"grown_from": u.content_hash, "template": templates[0] if len(templates) == 1 else templates,
            "stubs": [[st.off, len(st.code)] for _, st in stubs], "registered": register}
     g = replace(u, code=code_b, record=nrec, tc_size=len(code_b), end_offset=end,
                 sites=tuple(sites), opmarks=tuple(marks), pool=tuple(pool),

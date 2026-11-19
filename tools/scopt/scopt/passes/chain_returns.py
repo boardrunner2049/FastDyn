@@ -55,11 +55,11 @@ def _descriptor(name: str) -> PassDescriptor:
         invalidates=frozenset({"code", "meta", "layout"}),
         params_schema={"targets_per_exit": int, "max_units": int, "min_pass_share": float,
                        "c_lookup": float, "c_guard": float, "c_fail": float,
-                       "min_target_hits": int, "c_link": float})
+                       "min_target_hits": int, "c_link": float, "compact_guard": bool})
 
 
 def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResult:
-    from ..guard import GuardError, guard_key
+    from ..guard import COMPACT_GUARD, GUARD_TEMPLATE_ID, GuardError, guard_key
 
     b3 = ctx.b3
     if b3 is None:
@@ -175,9 +175,11 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
             refused["not_profitable"] += 1
             continue
         guard_attempts += total
+        compact = ctx.params.get("compact_guard", False) and len(picked) == 1 and not have
         for c, cu, slot, installs, avoided in picked:
             edits.redirect_exit(GuardedSlot(row.uid, row.exit_id, slot, "GENERAL", exit_class,
-                                            c.vaddr, cu.key, tail_off=row.tail_off),
+                                            c.vaddr, cu.key, tail_off=row.tail_off,
+                                            guard_template_id=COMPACT_GUARD if compact else GUARD_TEMPLATE_ID),
                                 dependency_additions=(f"edge:{row.uid}->{cu.uid}",))
             n_slots += 1
             guarded_w += int(c.count)

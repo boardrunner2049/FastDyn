@@ -6,10 +6,12 @@ design WP16 note item 1: ``c_lookup`` 7.6 ns, ``c_guard`` 1.5 ns, ``c_fail``
 not separable from 0). Defaults are those values; a different calibration can
 be passed in (``params`` of the passes, or :func:`load_calibration`).
 
-* **Redirected exit** (GENERAL or SPEC slot): ``saving(E) = Σ n_i·c_lookup −
+* **SPEC redirected exit**: ``saving(E) = Σ n_i·c_lookup −
   N_E·c_guard − (N_E − Σ n_i)·c_fail``, ``n_i`` the train counts of the guarded
   targets, ``N_E`` every lookup of the exit. Rejected (``not_profitable``) when
   ``saving ≤ 0`` or the guard pass share ``Σ n_i / N_E < 0.5``.
+  The GENERAL model in :mod:`scopt.passes.chain_returns` additionally accounts
+  for first-hit link installation in each training replay.
 * **CP / BF / DHO** on a variant: ``saving = work units removed × C' entries``,
   rejected when ``≤ 0``. The design counts "executed non-nop host instructions
   removed"; CP replaces an env *load* by an immediate form (no instruction is

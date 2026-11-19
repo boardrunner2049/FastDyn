@@ -961,3 +961,35 @@ def test_multi_tb_region_is_failed_outcome():
     from scopt.passes.base import Outcome
 
     assert B3Reason.outcome(B3Reason.MULTI_TB_REGION) is Outcome.FAILED
+
+
+@pytest.mark.parametrize("kf2", [0x400, 0x8000_0400])
+def test_compact_single_guard_retains_all_failure_paths(kf2):
+    from scopt.formats.enums import Encoding
+    from scopt.guard import COMPACT_GUARD
+
+    target = GuardTarget(0x1ede, 0, "GENERAL")
+    original = _emit((target,), kf2=kf2)
+    short = _emit((replace(target, compact=True),), kf2=kf2)
+    assert short.template_id == COMPACT_GUARD and len(short.code) < len(original.code)
+    slot, = short.slots
+    reg = {slot.slot_n: (slot.field_off, slot.reset_off)}
+    code = bytes(short.off) + short.code
+    decoded = decode_guard(code, short.off, tc_abs=0x7FFF_0000_00C0,
+                           struct_off=-0xc0, registered=reg, offsets=short.offsets)
+    assert decoded.f_off == short.f_off and decoded.vaddrs == (target.vaddr,)
+    assert decoded.slots[0].reset_kind == "exit_tb"
+    checks = [s for s in short.sites if s[3] == Encoding.REL8]
+    assert len(checks) == 6
+    # V13 must reject each inverted condition and each failure accepting any slot.
+    for field_off, insn_off, width, *_ in checks:
+        assert code[insn_off] == 0x75 and width == 1
+        for where, new_byte in [(insn_off, 0x74), (field_off, slot.jmp_off-field_off-1)]:
+            corrupted = bytearray(code)
+            corrupted[where] = new_byte & 255
+            with pytest.raises(GuardError):
+                decode_guard(corrupted, short.off, tc_abs=0x7FFF_0000_00C0,
+                             struct_off=-0xc0, registered=reg, offsets=short.offsets)
+    with pytest.raises(GuardError):
+        decode_guard(code, short.off, tc_abs=0x7FFF_0000_00C0,
+                     struct_off=-0xc0, registered={}, offsets=short.offsets)

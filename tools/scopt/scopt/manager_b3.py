@@ -231,6 +231,7 @@ class SlotPlan:
     owner: str
     weight: int = 0  # train lookup_hit count of the edge
     r0_zero: bool = False
+    compact: bool = False
 
 
 @dataclass(frozen=True)
@@ -524,8 +525,9 @@ class B3State:
                     return refuse("continuation_key_mismatch", bp)
                 variants[gs.variant_ref] = replace(variants[gs.variant_ref],
                                                    weight=int(cand.count))
+            from .guard import COMPACT_GUARD
             sp = SlotPlan(gs.slot_n, gs.target_vaddr, gs.kind, c_unit.uid, gs.variant_ref,
-                          pass_name, int(cand.count), r0_zero)
+                          pass_name, int(cand.count), r0_zero, gs.guard_template_id == COMPACT_GUARD)
             tot = sum(int(c.count) for c in row.candidates)
             if x is None:
                 x = ExitPlan(gs.uid, gs.exit_id, gs.tail_off, gs.exit_class, gs.key_C.flags,
@@ -847,7 +849,8 @@ def materialize(state: B3State, b3: B3Ctx, *, register_slots: bool = True) -> Ma
         tg = []
         for s in x.slots:
             kind = s.kind if (s.kind != "SPEC" or s.variant in keep) else "GENERAL"
-            tg.append(GuardTarget(s.vaddr, s.slot_n, kind, r0_zero=s.r0_zero and kind == "SPEC"))
+            tg.append(GuardTarget(s.vaddr, s.slot_n, kind, r0_zero=s.r0_zero and kind == "SPEC",
+                                  compact=s.compact and len(x.slots) == 1))
         grow.setdefault(uid, []).append(GuardedExitSpec(toff, x.exit_class, tuple(tg),
                                                         x.key_flags, x.key_cs_base))
     final_ids: dict[str, str] = {}
