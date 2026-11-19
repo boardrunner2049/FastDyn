@@ -67,6 +67,24 @@ def _profiles(paths, snap):
     return views, notes
 
 
+def _select_output(doc, original_snapshot, cases_path, out):
+    if cases_path is None:
+        if original_snapshot is not None:
+            doc.update(selected_artifact=str(original_snapshot), selection_reason="candidate_unmeasured")
+        return
+    from .select_warm import _cases
+    from ..run.warm_selection import select_warm_cache
+
+    try:
+        cases, excluded = _cases(cases_path)
+        choice = select_warm_cache(original_snapshot, Path(doc["artifact_dir"]), out,
+                                   inputs=cases, training_inputs=excluded)
+    except (KeyError, ValueError, TypeError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    doc.update(selection=str(out.resolve() / "selection.json"), selection_status=choice["status"],
+               selected_artifact=choice["selected_artifact"], selection_reason=choice["reason"])
+
+
 @click.command("optimize")
 @click.argument("snapshot")
 @click.option("--pipeline", "pipeline", required=True,
@@ -93,9 +111,13 @@ def _profiles(paths, snap):
               help="--b3: scopt prepare dir (patch-plan content for patch-join).")
 @click.option("--elf", type=click.Path(exists=True, dir_okay=False),
               help="--b3: guest firmware ELF (sha256 must equal the bundle image_hash).")
+@click.option("--select-with", type=click.Path(path_type=Path, exists=True, dir_okay=False),
+              help="After packaging, compare against the original warm snapshot using these timing cases.")
+@click.option("--selection-out", type=click.Path(path_type=Path, file_okay=False),
+              help="Fresh evidence directory for --select-with.")
 @click.option("--json", "as_json", is_flag=True)
 def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file, b3_mode,
-                 ri_file, v6_exes, selftest_file, prep, elf, as_json):
+                 ri_file, v6_exes, selftest_file, prep, elf, as_json, select_with=None, selection_out=None):
     """Run PIPELINE on SNAPSHOT, link, validate (V1-V9) and publish the artifact.
 
     SNAPSHOT is a store snapshot directory or a SnapshotId in --store. Exit
@@ -106,6 +128,9 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
     from ..validate import optimize
 
     snap = _open_snapshot(snapshot, store)
+    if bool(select_with) != bool(selection_out):
+        raise click.UsageError("Use --select-with and --selection-out together.")
+    original_snapshot = Path(getattr(snap, "path", snapshot)).resolve()
     views, notes = _profiles(profiles, snap)
     params = json.loads(Path(params_file).read_text()) if params_file else None
     from ..manager import load_pipeline
@@ -149,7 +174,8 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
         raise click.UsageError("native_combination_unsupported: native islands need a standalone pipeline")
     if b3_mode or (pl.allowed_capabilities & B3_EDIT_KINDS):
         _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, v6_exes,
-                     selftest_file, prep, elf, as_json, native_stage=native_stage)
+                     selftest_file, prep, elf, as_json, native_stage=native_stage,
+                     selection=(original_snapshot, select_with, selection_out))
         return
     try:
         res = optimize(snap, pl, store, profiles=views, params=params,
@@ -159,6 +185,8 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
     doc = res.to_json()
     doc["passes"] = [p.to_json() for p in res.candidate.passes]
     doc["notes"] = notes
+    if res.published:
+        _select_output(doc, original_snapshot, select_with, selection_out)
     if as_json:
         click.echo(json.dumps(doc, indent=2, sort_keys=True))
     else:
@@ -182,11 +210,13 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
         else:
             click.echo(f"REJECTED: {res.reason}")
             click.echo(f"  {res.rejection_path}")
-    sys.exit(0 if res.published else 2)
+    if doc.get("selection_reason") and not as_json:
+        click.echo(f"deployment selection: {doc['selected_artifact']} ({doc['selection_reason']})")
+    sys.exit(0 if res.published and doc.get("selection_status") != "error" else 2)
 
 
 def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, v6_exes,
-                 selftest_file, prep, elf, as_json, native_stage=None):
+                 selftest_file, prep, elf, as_json, native_stage=None, selection=None):
     from ..analysis.b3_inputs import resolve_for_snapshot
     from ..manager import PipelineError
     from ..manager_b3 import B3Env, optimize_b3
@@ -219,6 +249,8 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, 
     if native_stage:
         doc["native_stage"] = native_stage
         doc["passes"] = [*native_stage["passes"], *doc["passes"]]
+    if selection and pk.status == "published":
+        _select_output(doc, *selection)
     if as_json:
         click.echo(json.dumps(doc, indent=2, sort_keys=True, default=str))
     else:
@@ -237,7 +269,9 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, 
                        f"  {doc['artifact_dir']}")
         else:
             click.echo(f"REJECTED ({r['outcome']}): {pk.reason}\n  {doc['rejection_path']}")
-    sys.exit(0 if pk.status == "published" else 2)
+    if doc.get("selection_reason") and not as_json:
+        click.echo(f"deployment selection: {doc['selected_artifact']} ({doc['selection_reason']})")
+    sys.exit(0 if pk.status == "published" and doc.get("selection_status") != "error" else 2)
 
 
 @click.command("validate")

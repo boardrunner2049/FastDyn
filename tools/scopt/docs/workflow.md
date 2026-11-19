@@ -139,3 +139,28 @@ $PY tests/qemu/b5_evaluate.py --out-root <out root> --out <out root>/evaluation/
 
 The gate and evaluation reports, and the map from each requirement to its evidence,
 are kept by the maintainer and are not part of the repository.
+
+## Choose a cache for deployment
+
+A successful package contains a candidate that passed the optimizer’s correctness checks. Its artifact ID identifies content and provenance. For offline optimization, the JSON field `artifact_dir` gives the candidate and `selected_artifact` defaults to the input warm snapshot. To promote a candidate on performance, measure it against that original warm snapshot.
+
+```sh
+scopt optimize "$SNAPSHOT" --pipeline "$PIPELINE" --store "$STORE" --profile "$PROFILE" \
+    --select-with cases.json --selection-out "$RUN/selection" --json
+scopt deploy --selection "$RUN/selection/selection.json" -c "$CONFIG" \
+    --qemu "$QEMU" --run-dir "$RUN/deployment"
+```
+
+For an existing artifact, `scopt select-warm "$SNAPSHOT" "$CANDIDATE" --cases cases.json --out "$RUN/selection" --qemu "$QEMU" --pairs 24` performs the same comparison. Run inside the intended runtime and RAM configuration. Specify each workload’s inputs and an expected normalized guest transcript from a separate reference run. Paths in the following example are relative to the cases file.
+
+```json
+{
+  "training_inputs": ["training.bin", "screening.bin"],
+  "inputs": [
+    {"name": "held-out", "config": "benchmark.toml", "bank_inputs": {"input": "final.bin"},
+     "expected_guest": "reference/guest.norm"}
+  ]
+}
+```
+
+For a fixed workload without input banks, supply the configuration and reference transcript with `"bank_inputs": {}`. Byte-identical caches retain the original warm source without timing. Changed candidates must pass checked deployment, append zero translation blocks, match the reference transcript, and improve every declared case in balanced randomized pairs. The selection records raw timings and the one-sided randomization test. Freeze a candidate before confirmation and reserve fresh measurements for that decision. A selection supports a claim about the measured host, workload and inputs. Execution times of individual launches vary.

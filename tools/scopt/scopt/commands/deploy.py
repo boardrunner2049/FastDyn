@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import click
 
@@ -22,8 +23,35 @@ def _emit(doc, as_json: bool, summary: dict) -> None:
             click.echo(f"{k}: {v}")
 
 
+def _selected_cache(path, config):
+    from ..run.launcher import file_sha256
+
+    doc = json.loads(path.read_text())
+    if doc.get("schema") != "scopt.warm_selection/1" or doc.get("status") not in ("ok", "fallback"):
+        raise ValueError("no successful selection")
+    selected = doc["selected"]
+    chosen = doc["artifacts"][selected]
+    if selected not in ("warm", "candidate") or chosen["path"] != doc["selected_artifact"]:
+        raise ValueError("selected artifact disagrees with recorded source")
+    if selected == "candidate":
+        if doc["reason"] != "speedup_established" or doc["byte_identical"]:
+            raise ValueError("candidate lacks a measured speedup")
+        cases = doc["plan"]["timing_inputs"]
+        if not cases or set(cases) != set(doc["inputs"]) or not all(
+                result["passes"] is True for result in doc["inputs"].values()):
+            raise ValueError("insufficient performance evidence")
+        if not any(case["config_sha256"] == file_sha256(config) for case in cases.values()):
+            raise ValueError("configuration was not measured")
+        for key in ("bundle", "runtime_identity", "sidecar"):
+            if key in chosen and file_sha256(chosen[key]["path"]) != chosen[key]["sha256"]:
+                raise ValueError(f"selected {key} changed")
+    return chosen["path"], chosen["cache_sha256"], doc["runtime"] if selected == "candidate" else None
+
+
 @click.command("deploy")
-@click.argument("artifact", type=click.Path(exists=True))
+@click.argument("artifact", required=False, type=click.Path(exists=True))
+@click.option("--selection", type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="Use the cache chosen by scopt select-warm and verify its deployed bytes.")
 @click.option("-c", "--config", "base_toml", required=True, type=click.Path(exists=True,
               dir_okay=False), help="Base FastDyn TOML.")
 @click.option("--run-dir", required=True, type=click.Path(file_okay=False),
@@ -41,7 +69,7 @@ def _emit(doc, as_json: bool, summary: dict) -> None:
               type=click.Path(exists=True, dir_okay=False),
               help="Testing only: replace the oracle manifest with this file after the copy.")
 @click.option("--json", "as_json", is_flag=True)
-def deploy_cmd(artifact, base_toml, run_dir, check, method, quiet, qemu, timeout_s,
+def deploy_cmd(artifact, selection, base_toml, run_dir, check, method, quiet, qemu, timeout_s,
                manifest_override, as_json):
     """Create RUN_DIR from BASE.toml and deploy ARTIFACT (artifact dir or .sc) into it.
 
@@ -49,10 +77,19 @@ def deploy_cmd(artifact, base_toml, run_dir, check, method, quiet, qemu, timeout
     """
     from ..run.deploy import DeployError, deploy_new
 
+    if bool(artifact) == bool(selection):
+        raise click.UsageError("Supply one of ARTIFACT or --selection.")
+    cache_digest = measured_runtime = None
+    if selection:
+        try:
+            artifact, cache_digest, measured_runtime = _selected_cache(selection, base_toml)
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            raise click.ClickException(f"Invalid cache selection: {exc}") from exc
     try:
         rd, doc = deploy_new(artifact, base_toml, run_dir, check=check, method=method,
                              quiet=quiet, qemu=qemu, timeout_s=timeout_s,
-                             manifest_override=manifest_override)
+                             manifest_override=manifest_override, expected_sc_sha256=cache_digest,
+                             measured_runtime=measured_runtime)
     except DeployError as e:
         click.echo(f"deploy refused: {e.code}: {e.detail}", err=True)
         sys.exit(2)

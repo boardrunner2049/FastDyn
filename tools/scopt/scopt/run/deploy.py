@@ -82,7 +82,7 @@ from pathlib import Path
 from typing import Any
 
 from ..formats.sc_v5 import HEADER_SIZE, ScHeader, sparse_copy
-from .launcher import (FASTDYN_PY, FASTDYN_SRC, FDSHIM, RunDir, RunDirError, fastdyn_args,
+from .launcher import (FASTDYN_PY, FASTDYN_SRC, FDSHIM, RunDir, RunDirError, fastdyn_args, file_sha256,
                        launch, scrub_env, write_json)
 from .policy import deploy_refusals
 from .proof import EXT_BEGIN, deployed_state
@@ -333,7 +333,8 @@ def deploy(artifact: str | os.PathLike, rd: RunDir, *, check: bool = False,
            method: str = "oracle", timeout_s: float = 120.0,
            manifest_override: str | os.PathLike | None = None,
            enforce_identity: bool = True, allow_negative_control: bool = False,
-           test_policies: Any = ()) -> dict[str, Any]:
+           test_policies: Any = (), expected_sc_sha256: str | None = None,
+           measured_runtime: dict[str, str] | None = None) -> dict[str, Any]:
     """Deploy ``artifact`` into the fresh run directory ``rd``; writes ``deploy.json``.
 
     ``manifest_override`` replaces the oracle's manifest with the given file
@@ -406,7 +407,20 @@ def deploy(artifact: str | os.PathLike, rd: RunDir, *, check: bool = False,
         write_json(rd.root / "deploy.json", {**doc, "refused": ids["reasons"]})
         raise DeployError(ids["reasons"][0], "; ".join(ids["reasons"]), identity=ids)
 
+    if measured_runtime is not None:
+        actual_runtime = {"qemu_sha256": file_sha256(doc["oracle"]["qemu"]),
+                          "ram_storage": rd.meta.get("ram_storage", "as-configured")}
+        if actual_runtime != measured_runtime:
+            write_json(rd.root / "deploy.json", {**doc, "refused": ["selected_runtime_changed"]})
+            raise DeployError("selected_runtime_changed", str(actual_runtime))
     sparse_copy(art["sc"], rd.cache)
+    if expected_sc_sha256 is not None:
+        from ..formats.sc_v5 import sha256_sparse
+        actual = "sha256:" + sha256_sparse(rd.cache)
+        if actual != expected_sc_sha256:
+            write_json(rd.root / "deploy.json", {**doc, "refused": ["selected_cache_changed"]})
+            raise DeployError("selected_cache_changed", f"{actual} differs from {expected_sc_sha256}")
+        doc["selected_cache_sha256"] = actual
     if manifest_override is not None:
         shutil.copyfile(manifest_override, rd.manifest)
         doc["manifest_override"] = str(manifest_override)
