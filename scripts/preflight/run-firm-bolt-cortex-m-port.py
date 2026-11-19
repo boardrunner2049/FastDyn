@@ -50,6 +50,9 @@ LLVM_MC = LLVM_BUILD / "bin/llvm-mc"
 LD_LLD = Path("/usr/bin/ld.lld-18")
 M0_IMAGE = ROOT / "third_party/preflight/escape32-64k-O0/ESCAPE1-rev12.1.elf"
 M4_IMAGE = ROOT / "tests/sample_binaries/RTOS/RTOSDemo.axf"
+CHIBIOS_IMAGE = ROOT / "tests/binaries/rtos/chibios.elf"
+THREADX_IMAGE = ROOT / "tests/binaries/rtos/threadx.elf"
+ZEPHYR_IMAGE = ROOT / "tests/binaries/rtos/zephyr.elf"
 M3_SOURCE = ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3.s"
 M3_LINKER = ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3.ld"
 M3_JUMP6_YAML = (
@@ -864,7 +867,9 @@ def validate_arm_mapping_symbols(candidate: Path) -> dict[str, Any]:
     The intermediate MC object is not the published artifact.  This check
     specifically guards BOLT's final symtab reconstruction, including the
     non-relocation-mode constant-island path that previously emitted `$d/$t`
-    at address zero.
+    at address zero for a section mapped elsewhere.  Address zero itself is
+    valid for Cortex-M images whose allocatable vector section actually starts
+    there.
     """
     records: list[dict[str, Any]] = []
     with candidate.open("rb") as stream:
@@ -885,14 +890,15 @@ def validate_arm_mapping_symbols(candidate: Path) -> dict[str, Any]:
                 )
             section = elf.get_section(section_index)
             start = int(section["sh_addr"])
-            end = start + int(section["sh_size"])
+            size = int(section["sh_size"])
+            end = start + size
             allocated = bool(int(section["sh_flags"]) & 0x2)
             executable = bool(int(section["sh_flags"]) & 0x4)
             section_kind_valid = allocated and (
                 kind == "$d" or executable
             )
             valid = (
-                address != 0 and section_kind_valid
+                size != 0 and section_kind_valid
                 and start <= address <= end
             )
             records.append({
@@ -5586,6 +5592,9 @@ def main() -> int:
              "--eliminate-unreachable=true",
          ]),
         ("m4", "cortex-m4", M4_IMAGE, {".isr_vector": None}, []),
+        ("chibios", "cortex-m4", CHIBIOS_IMAGE, {".vectors": None}, []),
+        ("threadx", "cortex-m4", THREADX_IMAGE, {".vectors": None}, []),
+        ("zephyr", "cortex-m3", ZEPHYR_IMAGE, {"rom_start": None}, []),
     ]
     results: dict[str, Any] = {}
     candidates: dict[str, Path] = {}
@@ -5595,6 +5604,33 @@ def main() -> int:
             args.frame_opt, label, extra_args,
         )
         candidates[label] = candidate
+        corpus_expectations = {
+            "chibios": {
+                "vector": "source=.vectors section, entries=120",
+                "overwritten": "6 out of 27 functions were overwritten",
+            },
+            "threadx": {
+                "vector": "source=.vectors section, entries=51",
+                "overwritten": "58 out of 85 functions were overwritten",
+            },
+            "zephyr": {
+                "vector": (
+                    "source=_vector_table/_vector_end, entries=59"
+                ),
+                # The address-zero _vector_table marker is data, even when
+                # startup assembly emits it as STT_NOTYPE in an executable
+                # section.  Counting 130 here would regress that marker into
+                # a manufactured BinaryFunction.
+                "overwritten": "60 out of 129 functions were overwritten",
+            },
+        }.get(label)
+        if corpus_expectations is not None:
+            diagnostics = process.stdout + process.stderr
+            for field, expected in corpus_expectations.items():
+                if expected not in diagnostics:
+                    raise RuntimeError(
+                        f"{label} {field} result changed: expected {expected!r}"
+                    )
         pending_icp_validation = None
         native_pass_report = (
             json.loads(

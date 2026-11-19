@@ -138,7 +138,7 @@ caller-saved exchange across qualified leaf and direct-call functions plus
 live-in/call-boundary retention controls, a shared-external-program
 retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v150 run accepts all fifty-five profiles without
+The 19 November v151 run accepts all fifty-eight profiles without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -147,7 +147,9 @@ replace input bytes. The per-profile overwrite counts are retained in the
 machine-readable report rather than duplicated here. The headline real-image
 counts are now 75/127 ESCape32 functions and 376/607 FreeRTOS functions; the
 Thumb-1 method, M3 propagation and M3 linked-read-only-load fixtures each
-install one bounded worker.
+install one bounded worker. The independent RTOS compatibility cohort adds
+ChibiOS (6/27 overwritten), ThreadX (58/85) and Zephyr (60/129). These are
+function-publication and representation counts, not runtime benefit.
 These are publication counts,
 not performance results. The narrow-data gate intentionally installs no body:
 it validates typed data-relocation consumption and compact publication.
@@ -774,15 +776,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final
+  --output build/preflight/firm-bolt-cortex-m-v151-rtos-vector-corpus-final4
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/report.json),
-SHA-256 `6cfa5c4900e2fff107ab85c1dd9a17c8218e45f739733f6f527e913bad9f9717`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v151-rtos-vector-corpus-final4/report.json),
+SHA-256 `9c3f156a93f32ded3244731627f4192ad6b77f8b5b20931f4b4a507f30760aac`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/validation-manifest.json),
-SHA-256 `a8bd4c553dd138e0311deecfc45aa5b6b6e24dad4fb537fe3d77c6160b28ed1f`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v151-rtos-vector-corpus-final4/validation-manifest.json),
+SHA-256 `d335b815efc7dad6a5f9aecfdc1a897eb0429d29a0ec68fa97b51d34b902df42`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -794,25 +796,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`0691f16990d4415b2181a9d326f1dcecc29641e117465529999b306367062b22`,
+`52def31e5235cb6649e826af610d35802b4b2536601a5a0b1a295e1250ddcbc8`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`d4eb53cd4e92392cf6c124155bdad6ab4e25b5b470b9e977174fbf0448f40da8`.
+`de5ca107f9df6338fece5f30dac54a2790c4690b04d45a3cce884c1c7e1998de`.
 The current combined ARM BOLT/AArch32 JITLink lit run passes 94/94
 (82 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
 explicitly skip 150 target-inapplicable parameterizations: Core is 86/150,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v151-rtos-vector-corpus-final4/core-tests.xml)
 has SHA-256
-`b928a37e06a51b190aa00c15e326d4583ba788daed1b9d7b3984ff53371fa03c`;
+`5d11877862c18571861c32f3103b18dbe46c10cee2d4f3356640d3b633df1cc0`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v151-rtos-vector-corpus-final4/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v151-rtos-vector-corpus-final4/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`25b795116a4c9072d93f6692b1cb5365a9cb02ec2a6b4434e3a1cc7f6ad4bfef`
-and `ffdc8f82dd40a861bf7660502ac240cae994e7ef4d33b912e29bfbfefdf94ee4`.
+`8a28bc2860a596d8c84b5100bf8eee3e70eb0cb871be9d846e838d7ae8969363`
+and `83dfc16b3753fa4c7c6f078cb58d15a094b5bfaa974cfc06c37fc11d9b51b42f`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1469,6 +1471,35 @@ Seventeen of the remaining M0+ failures form or escape an SP/r7-derived
 address and one has unresolved frame-pointer state; these retain their input
 under the same conservative alias boundary used by upstream x86 FOP. These
 counts establish analysis and publication coverage, not runtime benefit.
+
+v151 closes a separate firmware-image representation gap exposed by an
+independent RTOS corpus. Generic BOLT omitted allocatable sections at address
+zero from its address-to-section map and discarded zero-valued symbols; on
+Cortex-M, however, flash and the vector table commonly begin at `0x00000000`.
+The ARM path now retains address-zero allocatable sections and only the exact
+known vector-start symbols needed to establish the firmware contract. Such a
+symbol is classified as data even when startup assembly emits `STT_NOTYPE` in
+an executable section, so `_vector_table` is not manufactured into a function.
+Hosted targets keep the existing zero-address behavior.
+
+Vector discovery now accepts the exact conventional sections `.isr_vector`,
+`.vectors` and `.vector_table`, rejecting ambiguous multiple sources. It also
+accepts named starts including `_vectors` and `__vectors_base__`; Zephyr's
+generic `rom_start` layout is admitted only through the exact paired
+`_vector_table/_vector_end` extent. It never scans for a plausible initial
+stack pointer or reset address. The final mapping-symbol validator likewise
+accepts address zero only inside a non-empty allocatable section actually
+mapped there.
+
+The independent gate processes ChibiOS/Cortex-M4 (`.vectors`, 120 entries,
+6/27 overwritten bodies), ThreadX/Cortex-M4 (address-zero `.vectors`, 51
+entries, 58/85), and Zephyr/Cortex-M3 (address-zero paired symbols, 59 entries,
+60/129). The corrected Zephyr denominator excludes the data marker that an
+earlier bring-up run counted as a 130th function. The aggregate gate is now
+58/58; ARM BOLT lit is 82/82, AArch32 JITLink is 12/12, and the unit split
+remains 130 passes plus 150 target-inapplicable skips. These results establish
+parsing, transformation, compact publication and exact-source validation on
+the retained images, not board execution or performance.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

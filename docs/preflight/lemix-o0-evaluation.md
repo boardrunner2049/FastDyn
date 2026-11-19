@@ -1151,11 +1151,11 @@ PYTHONPATH=src taskset -c 0 \
 The raw commands, logs, samples, disassemblies, inventories, candidate bodies, machine outputs, hashes, counterexamples, and costs are retained separately as supporting data. Primary baseline entry points are [manifest.json](../../build/preflight/lemix-o0-rerun-2026-11-16/manifest.json), [bolt-arm-options.json](../../build/preflight/lemix-o0-rerun-2026-11-16/bolt-arm-options.json), [samples.jsonl](../../build/preflight/lemix-o0-rerun-2026-11-16/samples.jsonl), [paired-results.json](../../build/preflight/lemix-o0-rerun-2026-11-16/paired-results.json), [binary-layout-inventory.json](../../build/preflight/lemix-o0-rerun-2026-11-16/binary-layout-inventory.json), [candidate-universe.csv](../../build/preflight/lemix-o0-rerun-2026-11-16/candidate-universe.csv), [stage-funnel.csv](../../build/preflight/lemix-o0-rerun-2026-11-16/stage-funnel.csv), [search-seeds-and-costs.json](../../build/preflight/lemix-o0-rerun-2026-11-16/search-seeds-and-costs.json), and [budget-and-costs.json](../../build/preflight/lemix-o0-rerun-2026-11-16/budget-and-costs.json). Prototype entry points are [prototype manifest](../../build/preflight/preflight-sdk-v1-2026-11-16/manifest.json), [stage ledger](../../build/preflight/preflight-sdk-v1-2026-11-16/stage-ledger.jsonl), and [pass outcomes](../../build/preflight/preflight-sdk-v1-2026-11-16/pass-outcomes.json). This document consolidates the historical screening experiment, focused rerun, and bounded prototype; historical raw evidence remains unchanged.
 
 The current full Cortex-M production evidence is the
-[v150 machine report](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/report.json),
-SHA-256 `6cfa5c4900e2fff107ab85c1dd9a17c8218e45f739733f6f527e913bad9f9717`;
-its [validation manifest](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/validation-manifest.json),
-SHA-256 `a8bd4c553dd138e0311deecfc45aa5b6b6e24dad4fb537fe3d77c6160b28ed1f`,
-binds the exact regression commands and XML evidence. It accepts 55/55
+[v151 machine report](../../build/preflight/firm-bolt-cortex-m-v151-rtos-vector-corpus-final4/report.json),
+SHA-256 `9c3f156a93f32ded3244731627f4192ad6b77f8b5b20931f4b4a507f30760aac`;
+its [validation manifest](../../build/preflight/firm-bolt-cortex-m-v151-rtos-vector-corpus-final4/validation-manifest.json),
+SHA-256 `d335b815efc7dad6a5f9aecfdc1a897eb0429d29a0ec68fa97b51d34b902df42`,
+binds the exact regression commands and XML evidence. It accepts 58/58
 production and architectural profiles with ordinary FOP enabled. v138 adapted
 BOLT's x86-oriented `RegReAssign` pass through target-owned legality, encoding
 and byte-cost hooks; v139 added typed `SHT_ARM_EXIDX` range analysis; v140 and
@@ -1252,9 +1252,24 @@ x86 FOP. The existing handler gates also reject one exception-return-input and
 one architectural-state-input change. These are target-analysis and
 publication results, not measured speedups.
 
+v151 adds an independent ChibiOS, ThreadX and Zephyr compatibility cohort and
+closes an address-zero firmware representation defect. Generic BOLT omitted
+allocatable address-zero sections from its address map and discarded
+zero-valued symbols. The ARM path now retains such sections and only explicit
+known vector-start symbols; it treats a zero-valued vector marker as data even
+when emitted `STT_NOTYPE` in executable startup assembly. The vector contract
+accepts exact conventional `.isr_vector`, `.vectors` and `.vector_table`
+sections, rejects ambiguous alternatives, and supports Zephyr's
+`_vector_table/_vector_end` pair without scanning image bytes. ChibiOS admits
+6/27 bodies from a 120-entry `.vectors` table; address-zero ThreadX admits
+58/85 from 51 entries; address-zero Zephyr admits 60/129 from 59 entries. The
+Zephyr denominator is 129 because `_vector_table` is no longer incorrectly
+manufactured as a function. These are representation/publication results, not
+runtime or speedup measurements.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `0691f16990d4415b2181a9d326f1dcecc29641e117465529999b306367062b22`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `d4eb53cd4e92392cf6c124155bdad6ab4e25b5b470b9e977174fbf0448f40da8`. Regression runs complete 82/82 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v150 validation manifest](../../build/preflight/firm-bolt-cortex-m-v150-target-frame-entry-final/validation-manifest.json), SHA-256 `a8bd4c553dd138e0311deecfc45aa5b6b6e24dad4fb537fe3d77c6160b28ed1f`, binds these results to the commands and artifacts.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `52def31e5235cb6649e826af610d35802b4b2536601a5a0b1a295e1250ddcbc8`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `de5ca107f9df6338fece5f30dac54a2790c4690b04d45a3cce884c1c7e1998de`. Regression runs complete 82/82 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v151 validation manifest](../../build/preflight/firm-bolt-cortex-m-v151-rtos-vector-corpus-final4/validation-manifest.json), SHA-256 `d335b815efc7dad6a5f9aecfdc1a897eb0429d29a0ec68fa97b51d34b902df42`, binds these results to the commands and artifacts.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

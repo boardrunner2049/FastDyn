@@ -27,6 +27,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <string>
 #include <vector>
 
 using namespace llvm;
@@ -391,39 +392,84 @@ Error CortexMFirmwareConstraints::runOnFunctions(BinaryContext &BC) {
   const BinarySection *VectorSection = nullptr;
   StringRef Contents;
   uint64_t VectorAddress = 0;
-  StringRef VectorSource;
-  ErrorOr<BinarySection &> VectorSectionOrErr =
-      BC.getUniqueSectionByName(".isr_vector");
-  if (VectorSectionOrErr) {
-    VectorSection = &*VectorSectionOrErr;
+  std::string VectorSource;
+  static constexpr std::array<StringLiteral, 3> VectorSectionNames = {
+      ".isr_vector", ".vectors", ".vector_table"};
+  for (StringRef Name : VectorSectionNames) {
+    ErrorOr<BinarySection &> Candidate = BC.getUniqueSectionByName(Name);
+    if (!Candidate)
+      continue;
+    if (VectorSection)
+      return createStringError(
+          inconvertibleErrorCode(),
+          "Cortex-M production optimization found multiple conventional "
+          "vector sections (%s and %s); qualify one exact source instead of "
+          "guessing",
+          VectorSource.c_str(), Name.str().c_str());
+    VectorSection = &*Candidate;
+    VectorSource = Name.str();
+  }
+  if (VectorSection) {
     Contents = VectorSection->getContents();
     VectorAddress = VectorSection->getAddress();
-    VectorSource = ".isr_vector section";
+    VectorSource += " section";
   } else {
     // Bare-metal linker scripts commonly place the vector table at the start
     // of .text and retain only a conventional symbol.  Treat this as an
     // explicit representation, not a heuristic scan of executable bytes.
-    static constexpr std::array<StringLiteral, 3> VectorSymbolNames = {
-        "vector_table", "g_pfnVectors", "__Vectors"};
+    struct VectorSymbolSpec {
+      StringLiteral Start;
+      StringLiteral End;
+    };
+    static constexpr std::array<VectorSymbolSpec, 7> VectorSymbolSpecs = {{
+        {"vector_table", ""},
+        {"g_pfnVectors", ""},
+        {"__Vectors", ""},
+        {"_vectors", ""},
+        {"__vectors_base__", ""},
+        {"_vector_table", "_vector_end"},
+        {"_vector_start", "_vector_end"},
+    }};
     const BinaryData *VectorData = nullptr;
-    for (StringRef Name : VectorSymbolNames) {
-      VectorData = BC.getBinaryDataByName(Name);
+    StringRef VectorEndName;
+    for (const VectorSymbolSpec &Spec : VectorSymbolSpecs) {
+      VectorData = BC.getBinaryDataByName(Spec.Start);
       if (VectorData) {
-        VectorSource = Name;
+        VectorSource = Spec.Start.str();
+        VectorEndName = Spec.End;
         break;
       }
     }
     if (!VectorData) {
       return createStringError(
           inconvertibleErrorCode(),
-          "Cortex-M production optimization requires an explicit .isr_vector "
-          "section or one of vector_table, g_pfnVectors, or __Vectors; use "
+          "Cortex-M production optimization requires an explicit conventional "
+          "vector section (.isr_vector, .vectors, or .vector_table) or symbol "
+          "(vector_table, g_pfnVectors, __Vectors, _vectors, or "
+          "__vectors_base__, including paired Zephyr _vector_table/_vector_end); use "
           "--firmbolt-arm-full-pipeline=false only for identity diagnostics");
     }
     VectorSection = &VectorData->getSection();
     VectorAddress = VectorData->getAddress();
     const uint64_t Offset = VectorData->getOffset();
-    const uint64_t Size = VectorData->getSize();
+    uint64_t Size = VectorData->getSize();
+    if (Size < 8 && !VectorEndName.empty()) {
+      const BinaryData *VectorEnd = BC.getBinaryDataByName(VectorEndName);
+      const bool EndAtSectionBoundary =
+          VectorEnd && VectorEnd->getAddress() == VectorSection->getEndAddress();
+      if (!VectorEnd ||
+          (&VectorEnd->getSection() != VectorSection &&
+           !EndAtSectionBoundary) ||
+          VectorEnd->getAddress() <= VectorAddress)
+        return createStringError(
+            inconvertibleErrorCode(),
+            "Cortex-M vector symbol %s requires a later %s symbol in the "
+            "same section",
+            VectorSource.c_str(), VectorEndName.str().c_str());
+      Size = VectorEnd->getAddress() - VectorAddress;
+      VectorSource += "/";
+      VectorSource += VectorEndName.str();
+    }
     const StringRef SectionContents = VectorSection->getContents();
     if (Size < 8 || Offset > SectionContents.size() ||
         Size > SectionContents.size() - Offset)
@@ -431,7 +477,7 @@ Error CortexMFirmwareConstraints::runOnFunctions(BinaryContext &BC) {
           inconvertibleErrorCode(),
           "Cortex-M vector symbol %s at 0x%" PRIx64
           " has invalid section range [0x%" PRIx64 ", +0x%" PRIx64 ")",
-          VectorSource.str().c_str(), VectorAddress, Offset, Size);
+          VectorSource.c_str(), VectorAddress, Offset, Size);
     Contents = SectionContents.slice(Offset, Offset + Size);
   }
 
