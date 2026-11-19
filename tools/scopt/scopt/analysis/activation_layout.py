@@ -145,11 +145,13 @@ def _markers(config: Path, virtuals: Path) -> dict[str, int]:
 
 
 def _load_trace(path: Path, units: tuple[_Unit, ...], marks: dict[str, int],
-                digest: str, terminal: dict | None, plugin_sha: str) -> _Trace:
+                digest: str, terminal: dict | None, plugin_sha: str,
+                manifest: dict | None = None) -> _Trace:
     host_to_slot = {u.entry: u.slot for u in units}
     events = []
     start = end = None
     last_dispatch = None
+    marker_rows: dict[str, dict] = {}
     cpu_indices = set()
     trace_hash = sha256()
     with path.open("rb") as source:
@@ -166,7 +168,18 @@ def _load_trace(path: Path, units: tuple[_Unit, ...], marks: dict[str, int],
                          f"guest PC does not match snapshot at trace line {number}")
                 events.append((number, "dispatch", (slot,)))
                 last_dispatch = (number, host, guest)
-                if guest == marks["benchmark_start"]:
+                if manifest is not None:
+                    unit = units[slot]
+                    for name, marker in marks.items():
+                        offset = marker - guest
+                        if offset in unit.guest_offsets:
+                            _require(name not in marker_rows, f"trace has repeated {name} markers")
+                            marker_rows[name] = {
+                                "line": number, "guest_start": hex(guest), "uid": unit.uid,
+                                "slot": slot, "native_entry": hex(host), "marker_pc": hex(marker),
+                                "marker_insn_index": unit.guest_offsets.index(offset),
+                            }
+                elif guest == marks["benchmark_start"]:
                     _require(start is None, "trace has repeated start markers")
                     start = number
                 elif guest == marks["benchmark_end"]:
@@ -182,6 +195,17 @@ def _load_trace(path: Path, units: tuple[_Unit, ...], marks: dict[str, int],
                 raise ActivationLayoutError(f"unsupported QEMU trace event at line {number}")
     _require("sha256:" + trace_hash.hexdigest() == digest,
              "trace bytes changed while reading evidence")
+    if manifest is not None:
+        _require(len(cpu_indices) == 1 and set(marker_rows) == marks.keys(),
+                 "manifest trace needs both unique markers and one vCPU")
+        first, last = marker_rows["benchmark_start"], marker_rows["benchmark_end"]
+        start, end = first["line"], last["line"]
+        _require(manifest.get("start_marker") == first and manifest.get("end_marker") == last
+                 and manifest.get("trace_bounds") == [start, end],
+                 "manifest markers do not match captured instructions in the trace")
+        _require(start < end == events[-1][0] and events[-1][1] == "dispatch",
+                 "manifest end marker must be the final dispatch or link event")
+        return _Trace(tuple(events), (start, end), "verified_marker_dispatch")
     _require(start is not None and len(cpu_indices) == 1, "trace needs a start marker and one vCPU")
     end_kind = "explicit_dispatch"
     if end is None:
@@ -310,7 +334,8 @@ def _single_arg(args: list[str], names: tuple[str, ...]) -> str:
     return args[locations[0] + 1]
 
 
-def _bind(snapshot, qemu: Path, config: Path, receipt: Path, protocol: Path):
+def _bind(snapshot, qemu: Path, config: Path, receipt: Path, protocol: Path,
+          manifest: dict | None = None):
     raw, control = _json(receipt), _json(protocol)
     _require(snapshot.header.version == 5 and snapshot.runtime and snapshot.path,
              "activation layout requires a stored ordinary v5 snapshot")
@@ -360,7 +385,8 @@ def _bind(snapshot, qemu: Path, config: Path, receipt: Path, protocol: Path):
     expected = Path(control["expected_guest"])
     inputs = control.get("input_banks")
     if inputs is None:
-        inputs = {"input": control["input_bank"]}
+        bank = control["input_bank"]
+        inputs = {} if bank is None else {"input": bank}
     seen = raw["input"]
     _require(isinstance(inputs, dict) and set(inputs) == set(seen),
              "trace input banks do not match the frozen training protocol")
@@ -376,27 +402,53 @@ def _bind(snapshot, qemu: Path, config: Path, receipt: Path, protocol: Path):
     _require(all(frozen.get(path.resolve()) == digest for path, digest in (
         (config, config_sha), (plugin, plugin_sha), (qemu, sha),
         (expected, expected_sha))), "training protocol fingerprints changed")
-    return trace, digest, marks, {
+    bound = {
         "snapshot_id": snapshot.snapshot_id, "cache_sha256": cache_sha,
         "runtime_identity_id": runtime["runtime_identity_id"], "qemu_sha256": sha,
         "plugin_sha256": plugin_sha, "config_sha256": config_sha,
         "training_input_sha256": input_shas, "guest_oracle_sha256": expected_sha,
         "trace_receipt_sha256": file_sha256(receipt), "training_protocol_sha256": file_sha256(protocol),
     }
+    if manifest is not None:
+        hashes = {k: bound[k] for k in ("qemu_sha256", "plugin_sha256", "config_sha256",
+                                       "trace_receipt_sha256")}
+        hashes.update(snapshot=snapshot.snapshot_id, trace_sha256=digest,
+                      expected_guest_sha256=expected_sha)
+        _require(all(manifest.get(k) == v for k, v in hashes.items()),
+                 "manifest digests do not match the verified training evidence")
+        paths = {"snapshot_path": source, "config": config, "trace": trace,
+                 "expected_guest": expected, "trace_receipt": receipt}
+        _require(all(Path(manifest[k]).resolve() == path.resolve() for k, path in paths.items())
+                 and manifest.get("source_revision") == raw.get("source_revision")
+                 and manifest.get("training_input") == seen
+                 and manifest.get("exact_guest_oracle") is True
+                 and manifest.get("zero_appends") is True
+                 and manifest.get("snapshot_tbs") == snapshot.header.record_count,
+                 "manifest does not bind the snapshot, oracle and training launch")
+    return trace, digest, marks, bound
 
 
 def plan_activation_layout(snapshot, *, qemu: Path, config: Path, receipt: Path,
                            protocol: Path, terminal: Path | None = None,
+                           trace_manifest: Path | None = None,
                            max_moves: int = 8) -> tuple[dict, dict]:
     """Return move-units parameters and provenance for the trace heuristic."""
     _require(type(max_moves) is int and 1 <= max_moves <= 8, "max_moves must be between 1 and 8")
     _require(is_sha256_id(snapshot.snapshot_id), "stored snapshot has no stable identity")
+    _require(terminal is None or trace_manifest is None, "choose one marker evidence file")
     try:
-        trace_path, digest, marks, bound = _bind(snapshot, qemu, config, receipt, protocol)
+        manifest = None
+        manifest_sha = None
+        if trace_manifest is not None:
+            data = trace_manifest.read_bytes()
+            manifest, manifest_sha = json.loads(data), "sha256:" + sha256(data).hexdigest()
+            _require(isinstance(manifest, dict), "expected a trace manifest JSON object")
+        trace_path, digest, marks, bound = _bind(snapshot, qemu, config, receipt, protocol, manifest)
         geometry = _geometry(qemu, snapshot.header.tb_size)
         units = _units(snapshot, geometry)
         trace = _load_trace(trace_path, units, marks, digest,
-                            None if terminal is None else _json(terminal), bound["plugin_sha256"])
+                            None if terminal is None else _json(terminal), bound["plugin_sha256"],
+                            manifest)
         ops, active, writes = _operations(geometry, units, trace)
         limit = snapshot.header.code_address + snapshot.header.code_size
         chosen, positions, before, after = _choose(units, ops, active, limit, max_moves)
@@ -421,4 +473,6 @@ def plan_activation_layout(snapshot, *, qemu: Path, config: Path, receipt: Path,
         },
         "model": "repeat observed executions after a write to their entry page",
     }
+    if manifest_sha is not None:
+        report["trace_manifest_sha256"] = manifest_sha
     return params, report

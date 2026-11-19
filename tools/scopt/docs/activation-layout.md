@@ -10,8 +10,13 @@ read those layout offsets.
       --receipt training-trace/trace.json --protocol training-trace/protocol.json \
       --out placements.json --report projection.json
 
-If the end callback sits inside a TB and never appears as its own
-dispatch, also pass --terminal-evidence with the trace SHA, exact plugin
+Pass --trace-manifest trace-input.json when training records each
+benchmark marker as an instruction in an observed TB. The planner
+checks both marker instruction positions, the final dispatch, and the
+training launch identities against the snapshot, trace and receipt.
+
+For older traces where the end callback sits inside the last dispatched
+TB, pass --terminal-evidence with the trace SHA, exact plugin
 SHA, last dispatch line and both PCs, and evidence that benchmark_end
 prints and exits synchronously. The planner checks the end marker
 against the actual captured guest instruction boundaries.
@@ -37,8 +42,9 @@ exact_guest_oracle, input and proof fields. The proof records
 verdict=PASS, file_version=5, appended=0, n, and record_count_after.
 The protocol binds ordinary_warm, warm_cache_sha256, qemu_sha256,
 plugin_sha256, expected_guest and the training input files. For a
-single input use input_bank. For named banks use input_banks, with an
-empty object for fixed work without input files. The frozen map gives
+single input use input_bank. For named banks use input_banks. For fixed
+work without input files use a null input_bank or empty input_banks.
+The frozen map gives
 source paths and their SHA-256 digests and the purpose is
 "untimed training only, outer dispatch/link-write trace".
 The planner rehashes the trace, both cache copies, QEMU, the

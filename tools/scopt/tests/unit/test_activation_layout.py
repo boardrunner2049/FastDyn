@@ -73,6 +73,27 @@ def test_terminal_evidence_is_bound_to_trace_and_last_guest_extent(tmp_path):
         _load_trace(trace, rows, marks, file_sha256(trace), receipt, plugin)
 
 
+def test_manifest_checks_marker_instruction_and_final_event(tmp_path):
+    trace = tmp_path / "trace.log"
+    trace.write_text("Trace 0: 0x100c0 [0/00000100/\nTrace 0: 0x10400 [0/00000200/\n")
+    units = (unit(0, 0x100C0, 0x100), unit(1, 0x10400, 0x200))
+    marks = {"benchmark_start": 0x100, "benchmark_end": 0x204}
+    first = {"line": 1, "guest_start": "0x100", "uid": "unit-0", "slot": 0,
+             "native_entry": "0x100c0", "marker_pc": "0x100", "marker_insn_index": 0}
+    last = {"line": 2, "guest_start": "0x200", "uid": "unit-1", "slot": 1,
+            "native_entry": "0x10400", "marker_pc": "0x204", "marker_insn_index": 1}
+    manifest = {"trace_bounds": [1, 2], "start_marker": first, "end_marker": last}
+    trace_data = _load_trace(trace, units, marks, file_sha256(trace), None, "", manifest)
+    assert trace_data.bounds == (1, 2)
+    assert trace_data.end_kind == "verified_marker_dispatch"
+    with pytest.raises(ActivationLayoutError, match="manifest markers"):
+        _load_trace(trace, units, marks, file_sha256(trace), None, "",
+                    manifest | {"end_marker": last | {"marker_insn_index": 0}})
+    trace.write_text(trace.read_text() + "Linking TBs 0x100c0 index 0 -> 0x10400\n")
+    with pytest.raises(ActivationLayoutError, match="final dispatch"):
+        _load_trace(trace, units, marks, file_sha256(trace), None, "", manifest)
+
+
 @pytest.fixture
 def bound_launch(tmp_path):
     snapshot = tmp_path / "snapshot"
@@ -119,6 +140,33 @@ def test_binds_frozen_trace_and_markers(bound_launch):
     result = _bind(source, qemu, config, receipt, protocol)
     assert result[:3] == (trace, file_sha256(trace), {"benchmark_start": 0x100, "benchmark_end": 0x200})
     assert result[3]["snapshot_id"] == source.snapshot_id
+
+
+def test_manifest_binds_snapshot_and_no_input_fixed_work(bound_launch):
+    source, qemu, config, receipt, protocol, trace, *_ = bound_launch
+    raw, control = json.loads(receipt.read_text()), json.loads(protocol.read_text())
+    raw.update(input={}, source_revision="abc")
+    control.update(input_bank=None, source_revision="abc")
+    receipt.write_text(json.dumps(raw))
+    protocol.write_text(json.dumps(control))
+    expected = Path(control["expected_guest"])
+    manifest = {
+        "snapshot": source.snapshot_id, "snapshot_path": str(source.path),
+        "trace": str(trace), "trace_sha256": file_sha256(trace),
+        "trace_receipt": str(receipt), "trace_receipt_sha256": file_sha256(receipt),
+        "config": str(config), "config_sha256": file_sha256(config),
+        "expected_guest": str(expected), "expected_guest_sha256": file_sha256(expected),
+        "qemu_sha256": raw["qemu_sha256"], "plugin_sha256": raw["plugin_sha256"],
+        "source_revision": "abc", "training_input": {}, "exact_guest_oracle": True,
+        "zero_appends": True, "snapshot_tbs": 2,
+    }
+    bound = _bind(source, qemu, config, receipt, protocol, manifest)[3]
+    assert bound["training_input_sha256"] == {}
+    with pytest.raises(ActivationLayoutError, match="manifest digests"):
+        _bind(source, qemu, config, receipt, protocol, manifest | {"snapshot": "wrong"})
+    with pytest.raises(ActivationLayoutError, match="manifest does not bind"):
+        _bind(source, qemu, config, receipt, protocol,
+              manifest | {"training_input": {"input": "unverified"}})
 
 
 @pytest.mark.parametrize(("index", "message"), [(5, "trace SHA"), (6, "marker file differs"),

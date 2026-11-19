@@ -20,13 +20,14 @@ _file = click.Path(exists=True, dir_okay=False, path_type=Path)
 @click.option("--receipt", required=True, type=_file, help="Verified ordinary -d exec trace receipt.")
 @click.option("--protocol", required=True, type=_file, help="Frozen untimed training protocol.")
 @click.option("--terminal-evidence", type=_file, help="Evidence for a chained benchmark_end marker.")
+@click.option("--trace-manifest", type=_file, help="Bound start and end dispatches from training.")
 @click.option("--max-moves", type=click.IntRange(1, 8), default=8, show_default=True)
 @click.option("--out", required=True, type=click.Path(dir_okay=False, path_type=Path),
               help="Placement parameters for optimize --pipeline activation-layout.")
 @click.option("--report", required=True, type=click.Path(dir_okay=False, path_type=Path),
               help="Trace provenance and before/after model scores.")
 def plan_activation_layout_cmd(snapshot, qemu, config, receipt, protocol, terminal_evidence,
-                               max_moves, out, report) -> None:
+                               trace_manifest, max_moves, out, report) -> None:
     """Select up to eight placements using untimed ordinary restore and link events."""
     from ..analysis.activation_layout import plan_activation_layout
     from ..importer.import_cache import open_snapshot
@@ -36,7 +37,8 @@ def plan_activation_layout_cmd(snapshot, qemu, config, receipt, protocol, termin
     try:
         params, result = plan_activation_layout(
             open_snapshot(snapshot), qemu=qemu, config=config, receipt=receipt,
-            protocol=protocol, terminal=terminal_evidence, max_moves=max_moves)
+            protocol=protocol, terminal=terminal_evidence, trace_manifest=trace_manifest,
+            max_moves=max_moves)
         write_json_file(out, params)
         write_json_file(report, result)
     except (OSError, ValueError) as error:
