@@ -1243,8 +1243,10 @@ stack save instead of an escaping frame-derived address, while remaining too
 coarse to forward individual pushed register values.
 
 The real M0+ run now records 105 redundant-load replacements in 35 functions,
-18 frame-restore failures instead of 100, and 75/127 compactly published
-functions instead of 55/127. The M4 run records 1,200 replacements in 359
+18 frame-restore failures instead of 100, and selects 75/127 functions for
+compact publication instead of 55/127. At this checkpoint that count came from
+the linked candidate/report path; v158 below audits and corrects final-file
+installation. The M4 run records 1,200 replacements in 359
 functions and publishes 374/607. v153 corrects the previous 376 count: two
 ARM EABI helpers were byte-identical false shortening participants. Seventeen
 remaining M0+ failures construct or
@@ -1411,9 +1413,32 @@ to a conservative dependency rule; they do not establish general handler
 equivalence, asynchronous stack invisibility without the named contract, or a
 runtime speedup.
 
+v158 then audits the final ESCape32 ELF rather than trusting that pre-link
+report. It finds a concrete installation defect specific to the stripped M0+
+image: 157 reconstructed ABS32 references cause the original `.text` section
+to be finalized and written after `rewriteFunctionsInPlace()`. The late write
+silently restored all original function bytes even though the scratch linked
+image, origin report and overwritten-function count described optimized
+bodies. Compact non-relocation ARM publication now writes finalized
+allocatable sections and pending relocations first, then installs admitted
+function bodies as the final writer. The runner additionally rejects any M0+
+profile that selects transformations but changes zero final executable bytes,
+and decodes the exact handler identities from the published ELF.
+
+With that repair, default ESCape32 policy selects 75/127 functions and
+actually changes 54 functions/266 executable bytes. It retains the two
+`usart1_isr` loads byte-for-byte because the handler proposal remains rejected
+as `exception_return_input_changed`. The explicit exact-self-forwarding
+contract selects 76/127, changes 55 functions/270 bytes, and the final ELF
+decodes load identities `0x08008090` and `0x080080c8` as `mov r3,r3`; the
+possible exception return remains at its original identity. This is final-file
+installation evidence on real firmware, not original-board execution or a
+speedup. The aggregate gate is 62/62, ARM BOLT lit is 85/85, AArch32 JITLink
+is 12/12 and BOLT units remain 130 passed plus 150 explicit skips.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `06441cd95ed9b795d959b150b278d4309657d273589d37a4a023fc628d614fca`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `3c5ac35b3dd412ab5de814ca557a84ad8b2f47ba21e67f13c353349b40ddc286`. Regression runs complete 85/85 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v157 validation manifest](../../build/preflight/firm-bolt-cortex-m-v157-handler-self-forwarding-r1/validation-manifest.json), SHA-256 `d4a8c475c5bc448d1d54179c521348fc0461ebfaf5c8f3af4c48ba1bb5b14206`, binds the 61-profile production run, exact FreeRTOS handler proof, fixed-work execution, regression XML and clean-apply result.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `b8edce9d9aaacc864f9af2ed7c8eeb0f5f72323a8b182c3118332d4147775e0a`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `7823439bfd77355043a8db514f38d9d8eee1485edd1cae009a728eb8083b025a`. Regression runs complete 85/85 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v158 validation manifest](../../build/preflight/firm-bolt-cortex-m-v158-compact-publish-r2/validation-manifest.json), SHA-256 `562616605c3fc674699bf12857e9e170551b40182c674791b02334d9c0751475`, binds the 62-profile production run, final-file M0+ instruction audit, exact FreeRTOS regression, fixed-work execution, regression XML and clean-apply result.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

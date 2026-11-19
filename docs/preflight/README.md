@@ -1674,6 +1674,34 @@ bind the candidates, fixed-work observations, regression XML and clean apply.
 This is a checked contract-specific publication result, not a general handler
 value-equivalence or speedup claim.
 
+v158 closes a final-file publication defect exposed by applying that same
+exact contract to the real ESCape32 M0+ image. The linked per-function image
+and the native pass report contained FOP's replacement instructions, but the
+non-relocation writer subsequently emitted the finalized original `.text`
+section for 157 retained ABS32 data references. That later write silently
+restored the original function bytes. The fix makes compact ARM function
+publication the last writer, after allocatable sections and their pending
+relocations; relocation-mode and non-ARM ordering are unchanged. The
+production runner now decodes final ELF instructions through the
+linker-resolved origin map and rejects any M0+ run that selects transformations
+but changes zero executable bytes.
+
+On the corrected final ESCape32 artifacts, default policy selects 75/127
+functions, changes 54 functions and 266 executable bytes, and retains both
+`usart1_isr` loads exactly because the proposed handler change reaches a
+possible exception return. With the explicit private-stack/no-asynchronous-
+observer contract, 76/127 functions are selected, 55 functions and 270 bytes
+change, and original load identities `0x08008090` and `0x080080c8` decode as
+`mov r3,r3` in the published ELF. The unchanged `pop {r7,pc}` retains its
+original identity. This is final-artifact installation evidence, not ESCape32
+board execution or a speedup result. The 62/62 production and architectural
+profiles pass; ARM BOLT lit remains 85/85, AArch32 JITLink 12/12, and BOLT
+units remain 130 passes plus 150 explicit target-inapplicable skips. Evidence
+is bound in
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v158-compact-publish-r2/report.json)
+and
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v158-compact-publish-r2/validation-manifest.json).
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

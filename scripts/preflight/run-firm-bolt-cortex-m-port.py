@@ -988,6 +988,91 @@ def decode_one_thumb(decoder: Cs, image: Path, address: int) -> Any:
     return decoded[0]
 
 
+def validate_m0_handler_final_instructions(
+    reference: Path,
+    candidate: Path,
+    final_layout: dict[str, Any],
+    load_identities: list[int],
+    expect_forwarding: bool,
+) -> dict[str, Any]:
+    """Prove the handler rewrite is present in the published ELF bytes.
+
+    The native pass report describes the linked candidate before
+    RewriteInstance writes the final file.  That was insufficient evidence:
+    an original allocatable `.text` section used to be written afterward and
+    silently restore every original instruction.  Decode the final artifact
+    through its linker-resolved origin map so this class of publication bug
+    cannot report success again.
+    """
+    decoder = Cs(CS_ARCH_ARM, CS_MODE_THUMB | CS_MODE_MCLASS)
+    decoder.detail = True
+    handler = next(
+        function for function in final_layout["functions"]
+        if function["name"] == "usart1_isr"
+    )
+    origins = {
+        int(origin["original_address"]): origin
+        for origin in handler.get("instruction_origins", [])
+        if origin.get("original_address") is not None
+    }
+    observations: list[dict[str, Any]] = []
+    for identity in load_identities:
+        origin = origins.get(identity)
+        if origin is None:
+            raise RuntimeError(
+                "ESCape32 USART final layout lost forwarded load identity "
+                f"0x{identity:x}"
+            )
+        output_address = int(origin["output_address"])
+        original = decode_one_thumb(decoder, reference, identity)
+        emitted = decode_one_thumb(decoder, candidate, output_address)
+        original_text = f"{original.mnemonic}\t{original.op_str}".strip()
+        emitted_text = f"{emitted.mnemonic}\t{emitted.op_str}".strip()
+        original_is_load = (
+            original.mnemonic.startswith("ldr")
+            and original.op_str.replace(" ", "").startswith("r3,[")
+        )
+        forwarded = (
+            emitted.mnemonic in {"mov", "movs"}
+            and emitted.op_str.replace(" ", "") == "r3,r3"
+        )
+        retained = (
+            emitted.size == original.size
+            and virtual_bytes(candidate, output_address, emitted.size)
+            == virtual_bytes(reference, identity, original.size)
+        )
+        if not original_is_load or forwarded != expect_forwarding:
+            raise RuntimeError(
+                "ESCape32 USART final instruction publication changed at "
+                f"0x{identity:x}: original={original_text!r}, "
+                f"emitted={emitted_text!r}, "
+                f"expected_forwarding={expect_forwarding}"
+            )
+        if not expect_forwarding and not retained:
+            raise RuntimeError(
+                "rejected ESCape32 USART handler did not retain exact load "
+                f"bytes at original identity 0x{identity:x}"
+            )
+        observations.append({
+            "original_identity": identity,
+            "output_address": output_address,
+            "origin_kind": origin["origin_kind"],
+            "original_instruction": original_text,
+            "emitted_instruction": emitted_text,
+            "forwarded": forwarded,
+            "exact_original_bytes_retained": retained,
+        })
+    return {
+        "status": "accepted",
+        "function": "usart1_isr",
+        "expected_forwarding": expect_forwarding,
+        "final_artifact_sha256": sha256(candidate),
+        "instruction_count": len(observations),
+        "instructions": observations,
+        "basis": "decoded_final_elf_through_linker_resolved_origin_map",
+    }
+
+
 def validate_pc_relative_data_references(
     reference: Path, candidate: Path, final_layout: dict[str, Any],
     allow_owned_literal_movement: bool = False,
@@ -5228,6 +5313,10 @@ def main() -> int:
     cases = [
         ("m0plus", "cortex-m0plus", M0_IMAGE,
          {".cfg": None, ".text": 0xC0}, []),
+        ("m0plus_handler_fop_return_equivalence", "cortex-m0plus",
+         M0_IMAGE, {".cfg": None, ".text": 0xC0}, [
+             "--firmbolt-allow-handler-exact-self-forwarding-state-inputs",
+         ]),
         ("m0plus_literal", "cortex-m0plus", m0_literal_image,
          {".isr_vector": None}, []),
         ("m0plus_movable_literals", "cortex-m0plus",
@@ -5687,6 +5776,8 @@ def main() -> int:
         )
         handler_branch_elision_validation = None
         handler_fop_state_equivalence_validation = None
+        handler_fop_return_equivalence_validation = None
+        handler_fop_return_installation_identities = None
         if native_pass_report is not None and label in {
             "chibios", "threadx", "zephyr",
             "zephyr_handler_branch_elision",
@@ -5915,6 +6006,124 @@ def main() -> int:
                     "same_frame_slot_and_width": True,
                     "store_load_adjacent": True,
                     "exact_self_move_retained": True,
+                    "contract": (
+                        "private_stack_and_no_asynchronous_memory_observer"
+                    ),
+                }
+        if native_pass_report is not None and label in {
+            "m0plus", "m0plus_handler_fop_return_equivalence",
+        }:
+            handler = next(
+                function
+                for function in native_pass_report["functions"]
+                if function["name"] == "usart1_isr"
+            )
+            expected_rejections = (
+                ["exception_return_input_changed"]
+                if label == "m0plus" else []
+            )
+            if handler["firmware_publication_rejections"] \
+                    != expected_rejections:
+                raise RuntimeError(
+                    f"{label} USART handler publication changed: expected "
+                    f"{expected_rejections}, observed "
+                    f"{handler['firmware_publication_rejections']}"
+                )
+            originals = {
+                int(instruction["original_address"]): instruction
+                for instruction in handler["original_instructions"]
+            }
+            candidates_by_origin = {
+                int(instruction["original_address"]): instruction
+                for instruction in handler["instructions"]
+                if instruction["original_address"] is not None
+            }
+            exact_records = sorted(
+                (
+                    record
+                    for record in native_pass_report["frame_forwardings"]
+                    if record.get("exact_adjacent_self_move")
+                    and int(record["load_original_address"]) in originals
+                    and int(record["store_original_address"]) in originals
+                ),
+                key=lambda record: int(record["load_original_address"]),
+            )
+            handler_fop_return_installation_identities = [
+                int(record["load_original_address"])
+                for record in exact_records
+            ]
+            if len(handler_fop_return_installation_identities) != 2:
+                raise RuntimeError(
+                    f"{label} did not expose the two expected ESCape32 "
+                    "USART exact self-forwarding identities"
+                )
+            if label == "m0plus_handler_fop_return_equivalence":
+                exact_pairs = []
+                for forwarding in exact_records:
+                    load_address = int(
+                        forwarding["load_original_address"]
+                    )
+                    store_address = int(
+                        forwarding["store_original_address"]
+                    )
+                    store = originals[store_address]
+                    load = originals[load_address]
+                    replacement = candidates_by_origin.get(load_address)
+                    if (
+                        store_address + int(store["size"]) != load_address
+                        or "str\tr3" not in store["text"]
+                        or "ldr\tr3" not in load["text"]
+                        or replacement is None
+                        or replacement["text"].strip() != "mov\tr3, r3"
+                        or forwarding["replacement_deleted"]
+                    ):
+                        raise RuntimeError(
+                            "ESCape32 USART exact self-forwarding proof "
+                            "changed"
+                        )
+                    exact_pairs.append({
+                        "store_original_identity": store_address,
+                        "load_original_identity": load_address,
+                        "replacement": replacement["text"].strip(),
+                    })
+                original_returns = [
+                    (
+                        int(instruction["original_address"]),
+                        instruction["text"],
+                    )
+                    for instruction in handler["original_instructions"]
+                    if instruction["is_possible_exception_return"]
+                ]
+                candidate_returns = [
+                    (
+                        int(instruction["original_address"]),
+                        instruction["text"],
+                    )
+                    for instruction in handler["instructions"]
+                    if instruction["is_possible_exception_return"]
+                ]
+                if (
+                    len(exact_pairs) != 2
+                    or not handler["cortex_m_exception_entry"]
+                    or not handler["firmware_modified"]
+                    or handler["firmware_modification_reasons"]
+                        != ["frame_load_forwarding"]
+                    or handler["firmware_publication_rejections"]
+                    or original_returns != candidate_returns
+                    or len(candidate_returns) != 1
+                ):
+                    raise RuntimeError(
+                        "ESCape32 USART exact self-forwarding return "
+                        "contract changed"
+                    )
+                handler_fop_return_equivalence_validation = {
+                    "status": "accepted",
+                    "function": "usart1_isr",
+                    "exact_forwardings": exact_pairs,
+                    "preserved_exception_return_identity":
+                        candidate_returns[0][0],
+                    "preserved_exception_return":
+                        candidate_returns[0][1].strip(),
                     "contract": (
                         "private_stack_and_no_asynchronous_memory_observer"
                     ),
@@ -6351,6 +6560,13 @@ def main() -> int:
                 "retained": 5,
                 "unreferenced": 0,
             },
+            "m0plus_handler_fop_return_equivalence": {
+                "qualified": 55,
+                "owners": 60,
+                "references": 1115,
+                "retained": 5,
+                "unreferenced": 0,
+            },
             "m4": {
                 "qualified": 1,
                 "owners": 1,
@@ -6383,6 +6599,15 @@ def main() -> int:
                 "total_functions": 127,
                 "frame_modified_functions": 35,
                 "publication_rejections": 1,
+            },
+            "m0plus_handler_fop_return_equivalence": {
+                "redundant_loads": 105,
+                "not_optimized_functions": 4,
+                "failed_frame_restore_functions": 18,
+                "overwritten_functions": 76,
+                "total_functions": 127,
+                "frame_modified_functions": 35,
+                "publication_rejections": 0,
             },
             "m4": {
                 "redundant_loads": 1200,
@@ -6560,6 +6785,8 @@ def main() -> int:
                 handler_branch_elision_validation,
             "handler_fop_state_equivalence_validation":
                 handler_fop_state_equivalence_validation,
+            "handler_fop_return_equivalence_validation":
+                handler_fop_return_equivalence_validation,
         }
         if pending_icp_validation is not None:
             results[label]["indirect_call_promotion_validation"] = (
@@ -6612,6 +6839,7 @@ def main() -> int:
                 "zephyr_handler_branch_elision",
                 "m3_handler_branch_elision",
                 "m4", "m4_handler_fop_state_equivalence",
+                "m0plus", "m0plus_handler_fop_return_equivalence",
             }:
                 observed_final_rejections = sorted(
                     (
@@ -6637,6 +6865,11 @@ def main() -> int:
                          ("exception_state_input_changed",)),
                     ],
                     "m4_handler_fop_state_equivalence": [],
+                    "m0plus": [
+                        ("usart1_isr",
+                         ("exception_return_input_changed",)),
+                    ],
+                    "m0plus_handler_fop_return_equivalence": [],
                 }[label]
                 if observed_final_rejections != expected_final_rejections:
                     raise RuntimeError(
@@ -6663,6 +6896,38 @@ def main() -> int:
                         image, candidate, native_pass_report, final_layout
                     )
                 )
+                if label in {
+                    "m0plus", "m0plus_handler_fop_return_equivalence",
+                }:
+                    publication = results[label]["pass_publication"]
+                    if (
+                        int(publication["byte_changed_function_count"]) == 0
+                        or int(publication[
+                            "unique_changed_executable_bytes_in_selected_ranges"
+                        ]) == 0
+                    ):
+                        raise RuntimeError(
+                            f"{label} reported transformed functions but the "
+                            "published ELF contains no changed executable "
+                            "bytes; a later section writer may have restored "
+                            "the input text"
+                        )
+                    if handler_fop_return_installation_identities is None:
+                        raise RuntimeError(
+                            f"{label} has no handler installation identities"
+                        )
+                    results[label][
+                        "handler_final_instruction_validation"
+                    ] = validate_m0_handler_final_instructions(
+                        image,
+                        candidate,
+                        final_layout,
+                        handler_fop_return_installation_identities,
+                        expect_forwarding=(
+                            label ==
+                            "m0plus_handler_fop_return_equivalence"
+                        ),
+                    )
             results[label]["final_layout_report"] = final_layout
             if relocation_order_policy is not None:
                 results[label]["validation"] = (
@@ -11013,7 +11278,7 @@ def main() -> int:
                 "conservative transitive register-dependency rejection when frame-forwarded data can feed a Cortex-M architectural-state instruction",
                 "conservative transitive register-dependency rejection when frame-forwarded data can feed a possible Cortex-M exception return",
                 "same-count ordinary FOP in exact exception handlers with stores and exception-return instructions retained",
-                "opt-in exact adjacent same-slot/same-width stack forwarding to a retained self-move before a Cortex-M architectural-state input, under an explicit private-stack and no-asynchronous-memory-observer contract, with default rejection and non-self/exception-return negative controls plus real FreeRTOS M4 fixed-work execution",
+                "opt-in exact adjacent same-slot/same-width stack forwarding to a retained self-move before a Cortex-M architectural-state or conservatively dependent exception-return input, under an explicit private-stack and no-asynchronous-memory-observer contract, with default rejection and non-self controls, real FreeRTOS M4 fixed-work execution, and real ESCape32 M0+ publication",
                 "ordinary redundant stack-load forwarding with stores retained",
                 "opt-in native BOLT inlining for direct Thumb calls with protected call-boundary admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT tail duplication for profiled Thumb blocks with execution-multiplicity admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
@@ -11071,6 +11336,9 @@ def main() -> int:
         "status": report["status"],
         "report": str(output / "report.json"),
         "m0plus_candidate": str(candidates["m0plus"]),
+        "m0plus_handler_fop_return_equivalence_candidate": str(
+            candidates["m0plus_handler_fop_return_equivalence"]
+        ),
         "m0plus_literal_candidate": str(candidates["m0plus_literal"]),
         "m0plus_movable_literals_candidate": str(
             candidates["m0plus_movable_literals"]

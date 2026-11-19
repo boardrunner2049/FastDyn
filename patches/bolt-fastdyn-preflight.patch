@@ -13181,7 +13181,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4e5367e817df23f397f9fb4c566621535f50ccc0 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..75e8a059918cafb304673e9b3467f24271c68412 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -8,6 +8,7 @@
@@ -15969,10 +15969,21 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4e5367e817df23f397f9fb4c56662153
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8992,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6958,7 +8990,23 @@ void RewriteInstance::rewriteFile() {
+   // Copy allocatable part of the input.
+   OS << InputFile->getData().substr(0, FirstNonAllocatableOffset);
  
-   rewriteFunctionsInPlace(OS);
- 
+-  rewriteFunctionsInPlace(OS);
++  // Non-relocation ARM firmware can have its original executable section in
++  // allocatableSections() when retained literal/data relocations require a
++  // section output buffer. Writing that section after compact publication
++  // used to silently restore every original instruction, even though the
++  // linked per-function image and publication report contained the optimized
++  // body. Publish compact ARM functions only after allocatable-section output
++  // and pending input-section relocations have been written.
++  if (!BC->isARM() || BC->HasRelocations)
++    rewriteFunctionsInPlace(OS);
++
 +  // ARM EHABI tables contain linked PREL31 code addresses rather than
 +  // retained ELF relocations.  Rebuild them after final function placement
 +  // and before allocatable sections are written.  Leaving the input bytes
@@ -15980,11 +15991,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4e5367e817df23f397f9fb4c56662153
 +  // unwind ranges.
 +  check_error(rewriteARMExidxSections(),
 +              "cannot rebuild ARM EHABI index tables");
-+
+ 
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
-     // Overwrite function body to make sure we never execute these instructions.
-@@ -7002,6 +9042,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +9050,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -15994,6 +16004,16 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4e5367e817df23f397f9fb4c56662153
    }
  
    for (BinarySection &Section : BC->allocatableSections())
+@@ -7009,6 +9060,9 @@ void RewriteInstance::rewriteFile() {
+       return getNewValueForSymbol(S->getName());
+     });
+ 
++  if (BC->isARM() && !BC->HasRelocations)
++    rewriteFunctionsInPlace(OS);
++
+   // If .eh_frame is present create .eh_frame_hdr.
+   if (EHFrameSection)
+     writeEHFrameHeader();
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
 index 0000000000000000000000000000000000000000..71144f43d2ddf03611f2e737352d6e7abb147f01
