@@ -23,6 +23,7 @@ g_pfnVectors:
 .type Reset_Handler, %function
 .thumb_func
 Reset_Handler:
+  .fnstart
   movw r5, #0
   movt r5, #0x2000
   movs r0, #42
@@ -39,12 +40,15 @@ Reset_Handler:
 .global fixture_halt
 fixture_halt:
   b fixture_halt
+  .cantunwind
+  .fnend
 .size Reset_Handler, . - Reset_Handler
 
 .global worker
 .type worker, %function
 .thumb_func
 worker:
+  .fnstart
   sub sp, #8
   str.w r8, [sp, #4]
   mov.w r8, r1
@@ -53,4 +57,6 @@ worker:
   ldr.w r8, [sp, #4]
   add sp, #8
   bx lr
+  .cantunwind
+  .fnend
 .size worker, . - worker

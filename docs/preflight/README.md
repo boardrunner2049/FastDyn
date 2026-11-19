@@ -1215,8 +1215,9 @@ target interface for candidate register pairs, exact operand-class legality,
 target re-encoding and per-instruction byte savings.  The first qualified
 Thumb-2 policy exchanges only ordinary AAPCS callee-saved R4--R6 with R8 or
 R10.  It excludes R7/R11 frame-pointer roles, the possible R9 platform
-register, implicit uses/defs, CFI, ARM EHABI, vector handlers, multi-entry or
-split functions, jump tables, veneers and address-stable layouts.  Narrow
+register, implicit uses/defs, CFI, compact/generic ARM EHABI programs, vector
+handlers, multi-entry or split functions, jump tables, veneers and
+address-stable layouts.  Narrow
 instructions that cannot encode the exchanged high register reject the whole
 function rather than being partially renamed.  The option remains off unless
 `--firmbolt-allow-register-reassignment` admits transient register-state,
@@ -1234,6 +1235,26 @@ does not establish a whole-firmware speedup.  The focused source regression is
 [`thumb-native-register-reassignment.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb-native-register-reassignment.s),
 and the executed fixture is
 [`firm_bolt_cortex_m3_register_reassignment.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_register_reassignment.s).
+
+v139 removes the name-based ARM EHABI restriction without weakening unwind
+semantics.  The real FreeRTOS linker emits its typed `SHT_ARM_EXIDX` table as
+`.ARM`, not `.ARM.exidx`; the old guard therefore failed to recognize the
+table.  `RegReAssign` now decodes every allocatable typed index, validates
+PREL31 ordering, associates records with exact discovered functions and
+admits CANTUNWIND-covered functions individually.  Compact and generic unwind
+programs remain byte-exact and their functions remain ineligible until the
+register operands in those programs can be rewritten atomically with code.
+The renamed-section regression optimizes the CANTUNWIND worker while retaining
+an otherwise profitable compact-record control.  On the real M4 FreeRTOS
+image, all 607 discovered functions classify as CANTUNWIND-covered; no
+profitable register exchange was present, so this is a safety/coverage result,
+not a claimed size win.  The executed Cortex-M3 fixture now also carries linked
+CANTUNWIND records through the 26→18-byte transformation.  Its GNU
+`--emit-relocs` output retains one PREL31 relocation for an input index record
+that the linker merged away.  Compact in-place emission now publishes identity
+mappings for every live index field and removes only the aligned, out-of-range
+PREL31 record; the final `.rel.ARM.exidx` names the one live record instead of
+crashing or preserving stale metadata.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

@@ -1196,10 +1196,20 @@ index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fa
    /// The shortest distance for any branch instruction on AArch64.
    static constexpr size_t ShortestJumpBits = 11;
 diff --git a/bolt/include/bolt/Passes/RegReAssign.h b/bolt/include/bolt/Passes/RegReAssign.h
-index a7554a1215104275a92e51769e8f84997154c1ca..d9537cc43b6f5eea58efdd8388d646ef02c48f5b 100644
+index a7554a1215104275a92e51769e8f84997154c1ca..c6e39c966b5bc1f51aa64bf4158bdf0aecf9100d 100644
 --- a/bolt/include/bolt/Passes/RegReAssign.h
 +++ b/bolt/include/bolt/Passes/RegReAssign.h
-@@ -38,6 +38,7 @@ class RegReAssign : public BinaryFunctionPass {
+@@ -31,6 +31,9 @@ class RegReAssign : public BinaryFunctionPass {
+ 
+   /// Stats
+   DenseSet<const BinaryFunction *> FuncsChanged;
++  /// Cortex-M functions whose ARM EHABI unwind program is not invariant under
++  /// register renaming. CANTUNWIND-covered functions remain eligible.
++  DenseSet<const BinaryFunction *> CortexMUnwindBlockedFunctions;
+   int64_t StaticBytesSaved{0};
+   int64_t DynBytesSaved{0};
+ 
+@@ -38,6 +41,7 @@ class RegReAssign : public BinaryFunctionPass {
    void rankRegisters(BinaryFunction &Function);
    void aggressivePassOverFunction(BinaryFunction &Function);
    bool conservativePassOverFunction(BinaryFunction &Function);
@@ -10664,10 +10674,21 @@ index 66ca6800b1a5fabbeca2e5e5f09b5289599f7912..2c28baca1b1598b39f4cd9809c920d45
        while (RegIdx != -1) {
          dbgs() << "\tREG" << RegIdx;
 diff --git a/bolt/lib/Passes/RegReAssign.cpp b/bolt/lib/Passes/RegReAssign.cpp
-index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..360e9f5215323250d641b79a26f9e431c887474c 100644
+index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be8665685567ce725d 100644
 --- a/bolt/lib/Passes/RegReAssign.cpp
 +++ b/bolt/lib/Passes/RegReAssign.cpp
-@@ -31,6 +31,12 @@ static cl::opt<bool> AggressiveReAssign(
+@@ -16,6 +16,10 @@
+ #include "bolt/Passes/DataflowAnalysis.h"
+ #include "bolt/Passes/DataflowInfoManager.h"
+ #include "bolt/Utils/Utils.h"
++#include "llvm/BinaryFormat/ELF.h"
++#include "llvm/Support/Endian.h"
++#include <cinttypes>
++#include <limits>
+ #include <numeric>
+ 
+ #define DEBUG_TYPE "regreassign"
+@@ -31,11 +35,120 @@ static cl::opt<bool> AggressiveReAssign(
      cl::desc("use register liveness analysis to try to find more opportunities "
               "for -reg-reassign optimization"),
      cl::cat(BoltOptCategory));
@@ -10680,7 +10701,115 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..360e9f5215323250d641b79a26f9e431
  }
  
  namespace llvm {
-@@ -404,6 +410,84 @@ bool RegReAssign::conservativePassOverFunction(BinaryFunction &Function) {
+ namespace bolt {
+ 
++namespace {
++
++struct CortexMEHABIQualification {
++  DenseSet<const BinaryFunction *> BlockedFunctions;
++  uint64_t CantUnwindFunctions{0};
++};
++
++/// Classify functions through the typed ARM EHABI index rather than a
++/// conventional section name. GNU linker scripts may call an SHT_ARM_EXIDX
++/// section ".ARM" (as the real FreeRTOS fixture does), so matching only
++/// ".ARM.exidx" silently misses architectural unwind state.
++Expected<CortexMEHABIQualification>
++qualifyCortexMEHABIRegisterReassignment(BinaryContext &BC) {
++  CortexMEHABIQualification Result;
++  DenseSet<const BinaryFunction *> CoveredFunctions;
++  const bool IsLittleEndian = BC.AsmInfo->isLittleEndian();
++  const auto ReadWord = [IsLittleEndian](const char *Data) {
++    return IsLittleEndian ? support::endian::read32le(Data)
++                          : support::endian::read32be(Data);
++  };
++  const auto DecodePrel31 = [](uint32_t Word,
++                               uint64_t Place) -> Expected<uint64_t> {
++    const int64_t Delta = SignExtend64<31>(Word & 0x7fffffffU);
++    if (Place > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
++      return createStringError(errc::result_out_of_range,
++                               "ARM PREL31 place is not representable");
++    const int64_t Target = static_cast<int64_t>(Place) + Delta;
++    if (Target < 0)
++      return createStringError(errc::result_out_of_range,
++                               "ARM PREL31 target underflows address zero");
++    return static_cast<uint64_t>(Target);
++  };
++
++  struct Entry {
++    uint64_t Start{0};
++    uint32_t UnwindWord{0};
++    bool IsSentinel{false};
++  };
++
++  for (BinarySection &Section : BC.allocatableSections()) {
++    if (Section.getELFType() != ELF::SHT_ARM_EXIDX)
++      continue;
++    const StringRef Contents = Section.getContents();
++    if (Contents.empty() || Contents.size() % 8 != 0)
++      return createStringError(
++          errc::executable_format_error,
++          "ARM EHABI index section %s has invalid size 0x%" PRIx64,
++          Section.getName().str().c_str(),
++          static_cast<uint64_t>(Contents.size()));
++
++    SmallVector<Entry, 32> Entries;
++    Entries.reserve(Contents.size() / 8);
++    for (uint64_t Offset = 0; Offset < Contents.size(); Offset += 8) {
++      const uint64_t Place = Section.getAddress() + Offset;
++      Expected<uint64_t> Start =
++          DecodePrel31(ReadWord(Contents.data() + Offset), Place);
++      if (!Start)
++        return Start.takeError();
++      if (!Entries.empty() && *Start <= Entries.back().Start)
++        return createStringError(
++            errc::executable_format_error,
++            "ARM EHABI index section %s is not strictly address-sorted",
++            Section.getName().str().c_str());
++      Entries.push_back({*Start, ReadWord(Contents.data() + Offset + 4),
++                         false});
++    }
++
++    Entry &Last = Entries.back();
++    if (Last.UnwindWord == 1 &&
++        !BC.getBinaryFunctionAtAddress(Last.Start))
++      Last.IsSentinel = true;
++
++    for (auto &FunctionKV : BC.getBinaryFunctions()) {
++      const BinaryFunction &BF = FunctionKV.second;
++      const uint64_t Address = BF.getAddress();
++      if (Address < Entries.front().Start)
++        continue;
++      if (Entries.back().IsSentinel && Address >= Entries.back().Start)
++        continue;
++      auto It = llvm::upper_bound(
++          Entries, Address,
++          [](uint64_t Value, const Entry &Candidate) {
++            return Value < Candidate.Start;
++          });
++      if (It == Entries.begin())
++        continue;
++      --It;
++      if (!CoveredFunctions.insert(&BF).second)
++        return createStringError(
++            errc::not_supported,
++            "Cortex-M function %s is covered by multiple ARM EHABI indexes",
++            BF.getPrintName().c_str());
++      if (It->UnwindWord == 1)
++        ++Result.CantUnwindFunctions;
++      else
++        Result.BlockedFunctions.insert(&BF);
++    }
++  }
++  return Result;
++}
++
++} // namespace
++
+ void RegReAssign::swap(BinaryFunction &Function, MCPhysReg A, MCPhysReg B) {
+   BinaryContext &BC = Function.getBinaryContext();
+   const BitVector &AliasA = BC.MIB->getAliases(A, false);
+@@ -404,6 +517,86 @@ bool RegReAssign::conservativePassOverFunction(BinaryFunction &Function) {
    return true;
  }
  
@@ -10691,6 +10820,8 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..360e9f5215323250d641b79a26f9e431
 +      Function.hasCFI() || Function.isCortexMVectorEntry() ||
 +      Function.isFirmwareVeneerSlot() || Function.hasJumpTables() ||
 +      Function.requiresAddressStableLayout() || !Function.getFragments().empty())
++    return false;
++  if (CortexMUnwindBlockedFunctions.contains(&Function))
 +    return false;
 +
 +  SmallVector<std::pair<MCPhysReg, MCPhysReg>, 8> Candidates;
@@ -10765,7 +10896,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..360e9f5215323250d641b79a26f9e431
  void RegReAssign::setupAggressivePass(BinaryContext &BC,
                                        std::map<uint64_t, BinaryFunction> &BFs) {
    setupConservativePass(BC, BFs);
-@@ -449,11 +533,52 @@ void RegReAssign::setupConservativePass(
+@@ -449,11 +642,55 @@ void RegReAssign::setupConservativePass(
  }
  
  Error RegReAssign::runOnFunctions(BinaryContext &BC) {
@@ -10792,15 +10923,18 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..360e9f5215323250d641b79a26f9e431
 +          inconvertibleErrorCode(),
 +          "Cortex-M register reassignment cannot update debug register "
 +          "locations");
-+    if (ErrorOr<BinarySection &> Exidx =
-+            BC.getUniqueSectionByName(".ARM.exidx")) {
-+      if (Exidx->getSize()) {
-+        BC.outs() << "BOLT-INFO: Reg Reassignment Pass: retained all "
-+                     "Cortex-M functions because ARM EHABI register-mask "
-+                     "rewriting is not qualified.\n";
-+        return Error::success();
-+      }
-+    }
++    Expected<CortexMEHABIQualification> EHABI =
++        qualifyCortexMEHABIRegisterReassignment(BC);
++    if (!EHABI)
++      return EHABI.takeError();
++    CortexMUnwindBlockedFunctions = std::move(EHABI->BlockedFunctions);
++    if (EHABI->CantUnwindFunctions ||
++        !CortexMUnwindBlockedFunctions.empty())
++      BC.outs() << "BOLT-INFO: Reg Reassignment Pass: ARM EHABI admitted "
++                << EHABI->CantUnwindFunctions
++                << " CANTUNWIND-covered function(s) and retained "
++                << CortexMUnwindBlockedFunctions.size()
++                << " function(s) with compact or generic unwind programs.\n";
 +
 +    for (auto &I : BC.getBinaryFunctions())
 +      cortexMPassOverFunction(I.second);
@@ -11458,7 +11592,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e77ee7043 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e21e53fae6 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -12569,7 +12703,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
  
    const ELFFile<ELFT> &Obj = File->getELFFile();
    raw_fd_ostream &OS = Out->os();
-@@ -5254,15 +5900,146 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
+@@ -5254,15 +5900,172 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
        Size = Section.sh_size;
        StringRef Dataref = InputFile->getData().substr(Section.sh_offset, Size);
        std::string Data;
@@ -12589,6 +12723,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
 +          uint64_t RemappedSymbols = 0;
 +          uint64_t AddedRelocations = 0;
 +          uint64_t RemovedRelocations = 0;
++          uint64_t StaleExidxRelocations = 0;
 +          const bool IsARMExidxRelocations =
 +              RelocatedSection->sh_type == ELF::SHT_ARM_EXIDX;
 +          for (uint64_t Offset = 0; Offset < Dataref.size();
@@ -12605,9 +12740,30 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
 +              // a section-relative offset.  Normalize only an offset inside
 +              // this exact index section and preserve that input convention
 +              // in the rebuilt record.
++              const bool IsAbsoluteField =
++                  InputAddress >= RelocatedSection->sh_addr &&
++                  InputAddress - RelocatedSection->sh_addr <
++                      RelocatedSection->sh_size;
 +              const bool IsSectionRelative =
-+                  InputAddress < RelocatedSection->sh_addr &&
++                  !IsAbsoluteField &&
 +                  InputAddress < RelocatedSection->sh_size;
++              // --emit-relocs can retain a PREL31 relocation for an input
++              // .ARM.exidx record that the linker merged with an adjacent
++              // equal CANTUNWIND record.  Such an offset names no field in the
++              // linked table and must not be copied as if it were a live
++              // dependency.  Treat only this structurally stale ARM record as
++              // removable; an in-range but unmodeled field remains fatal.
++              if (!IsAbsoluteField && !IsSectionRelative) {
++                if (Rel.getType(Obj.isMips64EL()) != ELF::R_ARM_PREL31 ||
++                    InputAddress % alignof(uint32_t))
++                  report_fatal_error(
++                      Twine("ARM EHABI SHT_REL entry in ") + SectionName +
++                      " has an invalid out-of-range field 0x" +
++                      Twine::utohexstr(InputAddress));
++                ++RemovedRelocations;
++                ++StaleExidxRelocations;
++                continue;
++              }
 +              const uint64_t InputFieldAddress =
 +                  IsSectionRelative
 +                      ? RelocatedSection->sh_addr + InputAddress
@@ -12700,6 +12856,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
 +              BC->outs() << " and removing " << RemovedRelocations;
 +            BC->outs() << " relocation record(s) in " << SectionName << '\n';
 +          }
++          if (StaleExidxRelocations)
++            BC->outs() << "BOLT-INFO: removed " << StaleExidxRelocations
++                       << " stale linked ARM EHABI relocation(s) whose input "
++                          "records were merged\n";
 +        }
 +      }
        if (BSec->getPatcher()) {
@@ -12720,7 +12880,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
          Size = 0;
        } else {
          OS << Dataref;
-@@ -5459,7 +6236,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
+@@ -5459,7 +6262,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
      if (BinSec->isAnonymous())
        continue;
  
@@ -12738,7 +12898,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    }
  
    for (BinarySection &Section : BC->allocatableSections()) {
-@@ -5658,9 +6444,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
+@@ -5658,9 +6470,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
  
    // Write all section header entries while patching section references.
    for (ELFShdrTy &Section : OutputSections) {
@@ -12785,7 +12945,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
      OS.write(reinterpret_cast<const char *>(&Section), sizeof(Section));
    }
  
-@@ -5715,6 +6535,25 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5715,6 +6561,25 @@ void RewriteInstance::updateELFSymbolTable(
  
    // Symbols for the new symbol table.
    std::vector<ELFSymTy> Symbols;
@@ -12811,7 +12971,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
  
    bool EmittedColdFileSymbol = false;
  
-@@ -5804,7 +6643,9 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5804,7 +6669,9 @@ void RewriteInstance::updateELFSymbolTable(
          }
        }
      }
@@ -12822,17 +12982,16 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
        uint64_t DataMark = Function.getOutputDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5815,12 +6656,103 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5815,12 +6682,103 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
 -      CodeMarkSym.st_name = AddToStrTab("$x");
 +      CodeMarkSym.st_name = AddToStrTab(BC->isARM() ? "$t" : "$x");
-       CodeMarkSym.st_value = CodeMark;
-       Symbols.emplace_back(DataMarkSym);
-       Symbols.emplace_back(CodeMarkSym);
-     }
--    if (Function.hasConstantIsland() && Function.isSplit()) {
++      CodeMarkSym.st_value = CodeMark;
++      Symbols.emplace_back(DataMarkSym);
++      Symbols.emplace_back(CodeMarkSym);
++    }
 +    if (BC->isARM() && Function.isEmitted() &&
 +        (BC->HasRelocations || Function.isFirmwareModified()) &&
 +        Function.hasConstantIsland() &&
@@ -12848,10 +13007,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
 +      DataMarkSym.setBinding(ELF::STB_LOCAL);
 +      ELFSymTy CodeMarkSym = DataMarkSym;
 +      CodeMarkSym.st_name = AddToStrTab("$t");
-+      CodeMarkSym.st_value = CodeMark;
-+      Symbols.emplace_back(DataMarkSym);
-+      Symbols.emplace_back(CodeMarkSym);
-+    }
+       CodeMarkSym.st_value = CodeMark;
+       Symbols.emplace_back(DataMarkSym);
+       Symbols.emplace_back(CodeMarkSym);
+     }
+-    if (Function.hasConstantIsland() && Function.isSplit()) {
 +    if (BC->isARM() && Function.isEmitted() && Function.hasCFG() &&
 +        (BC->HasRelocations || Function.isFirmwareModified())) {
 +      // Instruction-owned Thumb literal pools move with their guarded basic
@@ -12928,7 +13088,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
        uint64_t DataMark = Function.getOutputColdDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5831,11 +6763,78 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5831,11 +6789,78 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -13008,7 +13168,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    };
  
    // For regular (non-dynamic) symbol table, exclude symbols referring
-@@ -5866,13 +6865,23 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5866,13 +6891,23 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    };
  
@@ -13034,7 +13194,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
      // In relocation mode, if this is a folded function, use the parent function
      // instead so that the symbol gets updated to the parent's output address.
      // In non-relocation mode, folded functions are emitted at their original
-@@ -5943,9 +6952,17 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5943,9 +6978,17 @@ void RewriteInstance::updateELFSymbolTable(
        // If the symbol matched a function that was not emitted, update the
        // corresponding section index but otherwise leave it unchanged.
        if (Function->isEmitted()) {
@@ -13054,7 +13214,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
          NewSymbol.st_shndx = Function->getCodeSection()->getIndex();
        } else if (Symbol.st_shndx < ELF::SHN_LORESERVE) {
          NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
-@@ -5965,22 +6982,48 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5965,22 +7008,48 @@ void RewriteInstance::updateELFSymbolTable(
          return BC->getMarkerType(Symbol.getType(), Symbol.st_size,
                                   *SymbolName) != MarkerSymType::NONE;
        };
@@ -13112,7 +13272,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
  
          // Remove symbols that cannot be mapped to the output, e.g.
          // data-in-code labels (jump tables) whose addresses BOLT
-@@ -5988,7 +7031,8 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5988,7 +7057,8 @@ void RewriteInstance::updateELFSymbolTable(
          if (!OutputAddress)
            continue;
  
@@ -13122,7 +13282,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
          // Force secondary entry points to have zero size.
          NewSymbol.st_size = 0;
  
-@@ -6001,6 +7045,28 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6001,6 +7071,28 @@ void RewriteInstance::updateELFSymbolTable(
              });
  
          if (FF == Function->getLayout().fragment_end()) {
@@ -13151,7 +13311,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
            assert(
                OutputAddress >= Function->getCodeSection()->getOutputAddress() &&
                OutputAddress < (Function->getCodeSection()->getOutputAddress() +
-@@ -6036,12 +7102,15 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6036,12 +7128,15 @@ void RewriteInstance::updateELFSymbolTable(
              NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
          }
  
@@ -13172,7 +13332,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
            assert(!IsDynSym && "cannot delete symbol");
            continue;
          }
-@@ -6050,11 +7119,13 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6050,11 +7145,13 @@ void RewriteInstance::updateELFSymbolTable(
  
    registerSymbol:
      if (IsDynSym)
@@ -13189,7 +13349,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    }
  
    if (IsDynSym) {
-@@ -6165,6 +7236,20 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6165,6 +7262,20 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    });
  
@@ -13210,7 +13370,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    for (const ELFSymTy &Symbol : Symbols)
      Write(0, Symbol);
  }
-@@ -6736,7 +7821,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
+@@ -6736,7 +7847,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
  }
  
  uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
@@ -13226,7 +13386,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    if (!Function)
      return 0;
  
-@@ -6745,7 +7837,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
+@@ -6745,7 +7863,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
    if (Function->isFolded())
      Function = Function->getFoldedIntoFunction();
  
@@ -13239,7 +13399,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
  }
  
  uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
-@@ -6758,6 +7854,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
+@@ -6758,6 +7880,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
  
    if (const BinaryFunction *BF =
            BC->getBinaryFunctionContainingAddress(OldAddress)) {
@@ -13249,7 +13409,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
      if (BF->isEmitted()) {
        // If OldAddress is another entry point of the function or the target of
        // an indirect goto, then BOLT could get the new address.
-@@ -6796,7 +7895,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6796,7 +7921,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      if (Function->getImageAddress() == 0 || Function->getImageSize() == 0)
        continue;
  
@@ -13269,7 +13429,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
             "Unexpected large function");
  
      const auto HasAddress = [](const FunctionFragment &FF) {
-@@ -6816,6 +7926,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6816,6 +7952,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
        continue;
      }
  
@@ -13292,7 +13452,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
      OverwrittenScore += Function->getFunctionScore();
      ++CountOverwrittenFunctions;
  
-@@ -6826,12 +7952,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6826,12 +7978,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      safePWrite(OS, reinterpret_cast<char *>(Function->getImageAddress()),
                 Function->getImageSize(), Function->getFileOffset());
  
@@ -13311,13 +13471,47 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
  
        OS.seek(Pos);
      }
-@@ -6947,6 +8076,637 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +8102,671 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
 +Error RewriteInstance::rewriteARMExidxSections() {
-+  if (!BC->isARM() || !BC->HasRelocations)
++  if (!BC->isARM())
 +    return Error::success();
++
++  // Compact in-place firmware mode keeps EHABI record addresses unchanged,
++  // but --emit-relocs metadata is still copied later.  Publish an exact
++  // identity map for every live index field so the relocation copier can
++  // distinguish linked fields from stale input records merged by the linker.
++  // Full relocation mode below additionally rebuilds PREL31 addresses after
++  // function layout.
++  if (!BC->HasRelocations) {
++    for (BinarySection &Section : BC->allocatableSections()) {
++      if (Section.getELFType() != ELF::SHT_ARM_EXIDX)
++        continue;
++      const StringRef Contents = Section.getContents();
++      if (Contents.empty() || Contents.size() % 8 != 0)
++        return createStringError(
++            errc::executable_format_error,
++            "ARM EHABI index section %s has invalid size 0x%" PRIx64,
++            Section.getName().str().c_str(),
++            static_cast<uint64_t>(Contents.size()));
++      for (uint64_t Offset = 0; Offset < Contents.size(); Offset += 8)
++        for (const uint64_t FieldOffset : {uint64_t(0), uint64_t(4)}) {
++          const uint64_t Address =
++              Section.getAddress() + Offset + FieldOffset;
++          auto [It, Inserted] = ARMExidxRelocationAddressMap.try_emplace(
++              Address, SmallVector<uint64_t, 1>{Address});
++          if (!Inserted)
++            return createStringError(
++                errc::executable_format_error,
++                "ARM EHABI relocation field 0x%" PRIx64
++                " belongs to multiple index sections",
++                Address);
++        }
++    }
++    return Error::success();
++  }
 +
 +  const bool IsLittleEndian = BC->AsmInfo->isLittleEndian();
 +  const auto ReadWord = [IsLittleEndian](const char *Data) {
@@ -13949,7 +14143,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8720,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8780,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -13964,7 +14158,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
      // Overwrite function body to make sure we never execute these instructions.
-@@ -7002,6 +8770,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +8830,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -21488,10 +21682,10 @@ index 0000000000000000000000000000000000000000..762c4853da15350f46eb320ae9786a2d
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-register-reassignment.s b/bolt/test/ARM/thumb-native-register-reassignment.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..ca9522639da0a503a63145047f438e89f5060240
+index 0000000000000000000000000000000000000000..992ef337c7db14f70582e61a453a6548a4428d55
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-native-register-reassignment.s
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,101 @@
 +## BOLT's original RegReAssign profitability model is x86-specific. Firm-BOLT
 +## provides a target hook that swaps only qualified AAPCS callee-saved register
 +## pairs and accounts for the exact Thumb encodings unlocked by that swap.
@@ -21501,10 +21695,11 @@ index 0000000000000000000000000000000000000000..ca9522639da0a503a63145047f438e89
 +# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
 +# RUN:   %s -o %t.o
 +# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
-+# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN: llvm-objcopy --rename-section=.ARM.exidx=.ARM %t.exe %t.named.exe
++# RUN: not llvm-bolt %t.named.exe --firmbolt-cortex-m-cpu=cortex-m3 \
 +# RUN:   --firmbolt-arm-full-pipeline --reg-reassign -o %t.denied 2>&1 \
 +# RUN:   | FileCheck %s --check-prefix=DENIED
-+# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN: llvm-bolt %t.named.exe --firmbolt-cortex-m-cpu=cortex-m3 \
 +# RUN:   --firmbolt-arm-full-pipeline --reg-reassign \
 +# RUN:   --firmbolt-allow-register-reassignment \
 +# RUN:   --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
@@ -21515,6 +21710,7 @@ index 0000000000000000000000000000000000000000..ca9522639da0a503a63145047f438e89
 +# RUN:   | FileCheck %s --check-prefix=REPORT
 +
 +# DENIED: Cortex-M register reassignment changes transient register state
++# LOG: BOLT-INFO: Reg Reassignment Pass: ARM EHABI admitted 2 CANTUNWIND-covered function(s) and retained 1 function(s) with compact or generic unwind programs.
 +# LOG: BOLT-INFO: Reg Reassignment Pass Stats:
 +# LOG-NEXT: 1 functions affected.
 +# LOG-NEXT: 8 static bytes saved.
@@ -21540,16 +21736,20 @@ index 0000000000000000000000000000000000000000..ca9522639da0a503a63145047f438e89
 +  .type Reset_Handler,%function
 +  .thumb_func
 +Reset_Handler:
++  .fnstart
 +  movs r0, #0
 +  bl worker
 +1:
 +  b 1b
++  .cantunwind
++  .fnend
 +  .size Reset_Handler, .-Reset_Handler
 +
 +  .globl worker
 +  .type worker,%function
 +  .thumb_func
 +worker:
++  .fnstart
 +  sub sp, #8
 +  str.w r8, [sp, #4]
 +  mov.w r8, r1
@@ -21558,7 +21758,29 @@ index 0000000000000000000000000000000000000000..ca9522639da0a503a63145047f438e89
 +  ldr.w r8, [sp, #4]
 +  add sp, #8
 +  bx lr
++  .cantunwind
++  .fnend
 +  .size worker, .-worker
++
++  // This body has the same profitable encoding opportunity, but its compact
++  // unwind program names r8. It must remain byte-exact until Firm-BOLT can
++  // rewrite the unwind program atomically with the register exchange.
++  .globl compact_worker
++  .type compact_worker,%function
++  .thumb_func
++compact_worker:
++  .fnstart
++  .save {r8}
++  sub sp, #8
++  str.w r8, [sp, #4]
++  mov.w r8, r1
++  ldr.w r0, [r8, #0]
++  str.w r0, [r8, #4]
++  ldr.w r8, [sp, #4]
++  add sp, #8
++  bx lr
++  .fnend
++  .size compact_worker, .-compact_worker
 +
 +  .section .isr_vector,"a",%progbits
 +  .globl g_pfnVectors

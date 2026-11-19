@@ -5674,6 +5674,21 @@ def main() -> int:
                         "IT instruction to the removed branch identity"
                     )
             if label == "m3_register_reassignment":
+                register_log = process.stdout + process.stderr
+                if (
+                    "Reg Reassignment Pass: ARM EHABI admitted "
+                    not in register_log
+                    or "CANTUNWIND-covered function(s) and retained 0 "
+                    "function(s) with compact or generic unwind programs."
+                    not in register_log
+                    or "removed 1 stale linked ARM EHABI relocation(s) "
+                    "whose input records were merged" not in register_log
+                ):
+                    raise RuntimeError(
+                        "M3 register-reassignment fixture did not qualify "
+                        "its typed CANTUNWIND records and retained relocation "
+                        "graph"
+                    )
                 if int(summary["firmware_modification_reason_counts"]
                        ["register_reassignment"]) != 1:
                     raise RuntimeError(
@@ -6571,7 +6586,9 @@ def main() -> int:
                     "static_bytes_saved": 8,
                     "retained_original_identity_mappings": actual_mappings,
                     "excluded_registers": ["r7", "r9", "r11"],
-                    "cfi_ehabi_and_vector_entries_excluded": True,
+                    "cantunwind_ehabi_qualified_by_section_type": True,
+                    "compact_generic_ehabi_and_cfi_excluded": True,
+                    "stale_linker_merged_exidx_relocation_removed": True,
                 }
             if label == "m0plus_conditional_move":
                 selected = next(
@@ -10241,7 +10258,7 @@ def main() -> int:
                 "opt-in native BOLT inlining for direct Thumb calls with protected call-boundary admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT tail duplication for profiled Thumb blocks with execution-multiplicity admission, exact clone identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in register-only constant/copy propagation after Thumb tail duplication under a separate definition-deletion contract, with descriptor-aware Thumb MOV source discovery, encoding-class-checked replacements, exact retained/clone identities, compact publication and Cortex-M3 hot/cold execution",
-                "opt-in native BOLT register reassignment for qualified Thumb-2 AAPCS callee-saved R4-R6/R8-R10 pairs, using exact target operand-class validation and wide-to-narrow load/store re-encoding under an explicit transient-register/interrupt-observer contract, with R7/R9/R11, CFI, EHABI, vector, split, multi-entry, jump-table and address-stable exclusions, exact origins, compact in-place emission, and Cortex-M3 execution",
+                "opt-in native BOLT register reassignment for qualified Thumb-2 AAPCS callee-saved R4-R6/R8-R10 pairs, using exact target operand-class validation and wide-to-narrow load/store re-encoding under an explicit transient-register/interrupt-observer contract; typed SHT_ARM_EXIDX qualification admits CANTUNWIND per function independent of section name while compact/generic unwind programs remain exact, with R7/R9/R11, CFI, vector, split, multi-entry, jump-table and address-stable exclusions, exact origins, compact in-place emission, real FreeRTOS .ARM classification, and Cortex-M3 execution",
                 "opt-in native BOLT read-only-load simplification for linked allocatable non-writable relocation-free scalar data on Thumb-2, using flag-preserving MOVW/MOVT materialization under an explicit read/fault/timing-elision contract, exact transformed-source origins, compact in-place emission, and Cortex-M3 execution",
                 "explicit ARM relocation mode with native BOLT user-directed, profile exec-count and call-graph CDSort whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
                 "native BOLT HFSort and Pettis-Hansen call-graph clustering, distinguished from exec-count and CDSort under one frozen profile, with linked caller/callee adjacency, repaired direct calls, exact relocation/origin ledgers, separately accounted linker alignment slack, unchanged executable PT_LOAD ranges, and Cortex-M3 execution",
