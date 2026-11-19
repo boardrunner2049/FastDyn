@@ -111,12 +111,22 @@ class ClusterHot:
         invalidates=frozenset({"layout"}),
         params_schema={"phase": str, "kinds": list})
 
+    def _order(self, snap, ctx, movable, heat, edges, kinds):
+        weights = edge_weights(edges, set(movable), kinds)
+        ctx.budget()
+        chains, merged = pettis_hansen(movable, weights, heat)
+        total = sum(v[0] for v in weights.values())
+        stats = {"chains": float(len(chains)), "edges": float(len(weights)),
+                 "edge_weight": float(total), "merged_weight": float(merged),
+                 "merged_fraction": round(merged / total, 6) if total else 0.0}
+        return [u for chain in chains for u in chain], "clustered", "", stats
+
     def run(self, snap, ctx, edits) -> PassResult:
         phase = ctx.params.get("phase", "steady")
         kinds = tuple(ctx.params.get("kinds", DEFAULT_KINDS))
         bad = sorted(set(kinds) - set(DEFAULT_KINDS))
         if bad:
-            raise ValueError(f"cluster-hot: unsupported edge kinds {bad}")
+            raise ValueError(f"{self.descriptor.name}: unsupported edge kinds {bad}")
         ann = ctx.analysis("annotations", snap).value
         classes = {u: a.get(ANNOTATION_KEY) for u, a in ann.items() if ANNOTATION_KEY in a}
         if not classes:
@@ -152,20 +162,13 @@ class ClusterHot:
         heat = {u: int(pc[u].value or 0) for u in movable
                 if u in pc and pc[u].status == "exact"}
         edges = view.edges(phase) if view is not None else ()
-        w = edge_weights(edges, set(movable), kinds)
-        ctx.budget()
-        chains, merged = pettis_hansen(movable, w, heat)
-        order = [u for c in chains for u in c]
+        order, reason, order_detail, stats = self._order(snap, ctx, movable, heat, edges, kinds)
         edits.layout_order("hot", order)
-        total = sum(v[0] for v in w.values())
         return PassResult(
-            Outcome.CANDIDATE, "clustered", detail,
+            Outcome.CANDIDATE, reason, " | ".join(filter(None, (detail, order_detail))),
             affected=tuple(sorted(order)) + tuple(sorted(skipped)),
             stats={"hot": float(len(hot)), "ordered": float(len(order)),
-                   "skipped": float(n_skipped), "chains": float(len(chains)),
-                   "edges": float(len(w)), "edge_weight": float(total),
-                   "merged_weight": float(merged),
-                   "merged_fraction": round(merged / total, 6) if total else 0.0})
+                   "skipped": float(n_skipped), **stats})
 
 
 PASSES = (ClusterHot,)

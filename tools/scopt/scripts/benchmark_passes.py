@@ -1,0 +1,229 @@
+"""Benchmark pipeline prefixes and leave-one-pass-out arms on a qualified firmware."""
+from __future__ import annotations
+
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import json
+import os
+from pathlib import Path
+import random
+import shutil
+import statistics
+import subprocess
+import sys
+import tomllib
+
+from scopt.formats.sc_v6 import read_sc6
+
+
+HERE = Path(__file__).resolve().parent
+
+
+def load(path):
+    return json.loads(path.read_text())
+
+
+def save(path, doc):
+    path.write_text(json.dumps(doc, indent=2) + "\n")
+
+
+def digest(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def pair_stats(samples, before, after):
+    ratios = [r["ns"][before] / r["ns"][after] for r in samples]
+    # Resample pairs within input, retaining the mix of hot and general-entry paths.
+    bank = {}
+    for r, ratio in zip(samples, ratios):
+        bank.setdefault(r["input"], []).append(ratio)
+    rng = random.Random(20261118)
+    draws = sorted(statistics.median([x for group in bank.values()
+                                      for x in rng.choices(group, k=len(group))])
+                   for _ in range(4000))
+    return {"median": statistics.median(ratios), "paired_95pct_bootstrap": [draws[99], draws[3899]],
+            "median_by_input": {k: statistics.median(v) for k, v in bank.items()},
+            "pairs": len(ratios)}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("baseline", type=Path)
+    parser.add_argument("pipeline", type=Path)
+    parser.add_argument("out", type=Path)
+    parser.add_argument("--params", type=Path)
+    parser.add_argument("--selftest", type=Path)
+    parser.add_argument("--post-splice", type=Path,
+                        help="compose_program output containing a splice artifact and its reimport")
+    parser.add_argument("--jobs", type=int, default=2, help="parallel arm preparation workers")
+    parser.add_argument("--pairs", type=int, default=5)
+    parser.add_argument("--prefix-only", action="store_true")
+    args = parser.parse_args()
+    if args.jobs < 1:
+        parser.error("--jobs must be positive")
+    if args.pairs < 5:
+        parser.error("at least five pairs per input required")
+    w, out = args.baseline.resolve(), args.out.resolve()
+    out.mkdir(parents=True, exist_ok=False)
+    m = load(w / "baseline.json")
+    identity = Path(m["artifact"])
+    config = w / "host-inline.toml"
+    qemu = load(w / "v10/dynamic.json")["qemu"]
+    env = {**os.environ, "SCOPT_ENVLAYOUT_PATH": str(w / "envlayouts"),
+           "SCOPT_V6_EXES": m["qemu_sha256"]}
+    # Each subprocess must load the same version of the optimizer, validator and
+    # pass registry while development continues in the checkout.
+    frozen = out / "source" / "tools" / "scopt"
+    shutil.copytree(HERE.parent, frozen, symlinks=True,
+                    ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc"))
+    env["PYTHONPATH"] = os.pathsep.join((str(frozen), env.get("PYTHONPATH", "")))
+    package_digest = hashlib.sha256()
+    for source in sorted((frozen / "scopt").rglob("*.py")):
+        package_digest.update(str(source.relative_to(frozen)).encode() + b"\0" + source.read_bytes())
+    pipeline = out / "pipeline.toml"
+    shutil.copyfile(args.pipeline.resolve(), pipeline)
+    names = [p["name"] for p in tomllib.loads(pipeline.read_text())["pass"]]
+    if len(names) != len(set(names)):
+        parser.error("a prefix benchmark requires distinct pass names")
+    sequence = [(f"after-{name}", names[:i + 1]) for i, name in enumerate(names)]
+    if not args.prefix_only:
+        sequence.extend((f"without-{name}", [p for p in names if p != name]) for name in names)
+    if args.post_splice and "host-inline-splice" in names:
+        parser.error("--post-splice requires a downstream pipeline without the native prefix")
+    if args.post_splice and not args.prefix_only:
+        sequence.append(("without-host-inline-splice", names))
+    qualified, rows = [], {}
+    optimization_snapshot = m["snapshot"]
+    first_baseline = "identity"
+    if args.post_splice:
+        upstream = args.post_splice.resolve()
+        if (upstream / "result.json").is_file():
+            source = load(upstream / "result.json")["native_stage"]
+            optimization_snapshot = source["snapshot_dir"]
+        else:
+            imported, = (upstream / "reimport/snapshots").iterdir()
+            optimization_snapshot = str(imported)
+            source = load(upstream / "host-inline-splice.json")
+        first_baseline = "host-inline-splice"
+        d = out / first_baseline
+        d.mkdir()
+        save(d / "result.json", source)
+        artifact = Path(source["artifact_dir"])
+        cmd = ["scopt", "validate", str(artifact), "--dynamic", "-c", str(config),
+               "--qemu", qemu, "--baseline", m["snapshot"], "--out", str(d / "v10")]
+        for i in range(len(m["oracle"]["heldout"])):
+            cmd += ["--inputs", str(w / f"heldout-{i}.bin")]
+        with (d / "v10.log").open("w") as log:
+            subprocess.run(cmd, env=env, stdout=log, stderr=log, check=True)
+        rows[first_baseline] = {"artifact_id": source["artifact_id"], "v10_status": 0,
+                                "sc_sha256": digest(artifact / "cache.sc")}
+        qualified.append(first_baseline)
+    def prepare_arm(stage):
+        name, enabled = stage
+        d = out / name
+        d.mkdir()
+        stage_input = m["snapshot"] if name == "without-host-inline-splice" else optimization_snapshot
+        cmd = [sys.executable, str(HERE / "measure_command.py"), str(d / "offline.json"),
+               "scopt", "optimize", stage_input, "--pipeline", str(pipeline),
+               "--profile", m["profile"], "--store", str(d), "--runtime-identity",
+               str(w / "runtime-identity.v2.json"), "--elf", str(w / "guest.elf"),
+               "--prep", str(w / "prep"), "--json"]
+        if args.selftest:
+            # The CLI may refresh a stale oracle. Keep the user-supplied witness immutable.
+            witness = d / "selftest.json"
+            shutil.copyfile(args.selftest, witness)
+            cmd += ["--selftest", str(witness)]
+        if args.params:
+            cmd += ["--params", str(args.params.resolve())]
+        for disabled in names:
+            if disabled not in enabled:
+                cmd += ["--disable", disabled]
+        with (d / "result.json").open("w") as result, (d / "optimize.log").open("w") as log:
+            run = subprocess.run(cmd, env=env, stdout=result, stderr=log)
+        row = {"enabled": enabled, "optimize_status": run.returncode,
+                            "offline": load(d / "offline.json")}
+        if (d / "result.json").stat().st_size:
+            result = load(d / "result.json")
+            row.update({key: result.get(key) for key in ("artifact_id", "pass_byte_delta",
+                                                          "validation", "reason", "path")})
+        if run.returncode:
+            return name, row
+        artifact = Path(result["artifact_dir"])
+        cache = artifact / "cache.sc"
+        image = read_sc6(cache)
+        row["sc_bytes"] = cache.stat().st_size
+        row["sc_allocated_bytes"] = cache.stat().st_blocks * 512
+        row["base_native_bytes"] = sum(image.sc.records[i].tc_size for i in image.sc.valid_slots)
+        row["variant_native_bytes"] = sum(v.tc_size for v in image.ext.variants) if image.ext else 0
+        row["sc_sha256"] = digest(artifact / "cache.sc")
+        row["pass_outcomes"] = [{k: p.get(k) for k in ("pass", "outcome", "reason", "n_edits")}
+                                for p in result.get("passes", [])]
+        # A manager can publish the remaining candidate after a failed pass. Such an
+        # arm is recorded but cannot measure the requested composition.
+        if any(p.get("outcome") == "failed" for p in result.get("passes", [])):
+            row["refused"] = "pass_failed"
+            return name, row
+        validate = ["scopt", "validate", str(artifact), "--dynamic", "-c", str(config),
+                    "--qemu", qemu, "--baseline", m["snapshot"], "--out", str(d / "v10")]
+        for i in range(len(m["oracle"]["heldout"])):
+            validate += ["--inputs", str(w / f"heldout-{i}.bin")]
+        with (d / "v10.log").open("w") as log:
+            row["v10_status"] = subprocess.run(validate, stdout=log, stderr=log, env=env).returncode
+        return name, row
+    # Each worker uses its own artifact store, witness file and V10 run directories.
+    # Timed trials start after all workers have finished and use a common lock.
+    with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        for name, row in executor.map(prepare_arm, sequence):
+            rows[name] = row
+            if row.get("v10_status") == 0:
+                qualified.append(name)
+            save(out / "stages.json", rows)
+    save(out / "stages.json", rows)
+    if not qualified:
+        raise SystemExit("no qualified benchmark arms")
+    target = out / "timing"
+    cmd = [sys.executable, str(HERE / "measure_program.py"), str(w), str(target),
+           "--pairs", str(args.pairs)]
+    for name in qualified:
+        cmd.extend(["--arm", f"{name}={out / name}"])
+    subprocess.run(cmd, env=env, check=True)
+    samples = load(target / "ratios.json")["samples_ns"]
+    comparisons = {}
+    if args.post_splice:
+        comparisons["incremental/host-inline-splice"] = {
+            "baseline": "identity", "optimized": first_baseline,
+            "byte_identical_sc": digest(identity / "cache.sc") == rows[first_baseline]["sc_sha256"],
+            **pair_stats(samples, "identity", first_baseline)}
+    full = "after-" + names[-1]
+    if "without-host-inline-splice" in qualified and full in qualified:
+        baseline = "without-host-inline-splice"
+        comparisons["ablation/host-inline-splice"] = {
+            "baseline": baseline, "optimized": full,
+            "byte_identical_sc": rows[baseline]["sc_sha256"] == rows[full]["sc_sha256"],
+            **pair_stats(samples, baseline, full)}
+    for i, name in enumerate(names):
+        after = f"after-{name}"
+        prev = first_baseline if i == 0 else "after-" + names[i - 1]
+        for kind, baseline, optimized in (("incremental", prev, after),
+                                          ("ablation", f"without-{name}", full)):
+            if optimized not in qualified or (baseline != "identity" and baseline not in qualified):
+                continue
+            old_hash = digest(identity / "cache.sc") if baseline == "identity" else rows[baseline]["sc_sha256"]
+            comparisons[f"{kind}/{name}"] = {
+                "baseline": baseline, "optimized": optimized,
+                "byte_identical_sc": old_hash == rows[optimized]["sc_sha256"],
+                **pair_stats(samples, baseline, optimized)}
+    unqualified = [name for name, _ in sequence if name not in qualified]
+    save(out / "pass-effects.json", {"pipeline": str(pipeline), "snapshot": m["snapshot"],
+                                     "optimization_snapshot": optimization_snapshot,
+                                     "optimizer_source_sha256": package_digest.hexdigest(),
+                                     "effects": comparisons, "stages": rows,
+                                     "complete": not unqualified, "unqualified": unqualified})
+    if unqualified:
+        raise SystemExit(f"unqualified benchmark arms: {unqualified}")
+
+
+if __name__ == "__main__":
+    main()

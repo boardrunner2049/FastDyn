@@ -1,0 +1,57 @@
+schema = "scopt.pipeline"
+version = 1
+name = "native-program"
+description = "Certified off-page predecessor facts and local scalar and same-value CPU-state cleanup followed by LLVM cache-directed layout."
+allowed_capabilities = ["INLINE_CALL", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE", "ANNOTATE", "PIN", "LAYOUT_ORDER"]
+
+[[pass]]
+name = "host-inline-splice"
+version = 1
+
+[[pass]]
+name = "local-scalar-cleanup"
+version = 1
+
+[[pass]]
+name = "specialize-edges"
+version = 1
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "native-scalar-cleanup"
+version = 1
+
+[[pass]]
+name = "region-state-forward"
+version = 1
+
+[[pass]]
+name = "region-state-dse"
+version = 1
+
+[[pass]]
+name = "hotcold-partition"
+version = 1
+params = { phase = "steady", coverage = 0.99 }
+
+[[pass]]
+name = "llvm-cache-layout"
+version = 1
+params = { phase = "steady", kinds = ["chain0", "chain1", "lookup_hit"] }
+
+[[pass]]
+name = "order-cold"
+version = 1
+params = { hot_fallback = true }

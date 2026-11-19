@@ -29,6 +29,7 @@
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/CodeLayout.h"
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -49,6 +50,64 @@ constexpr unsigned MaxBlocks = 128;
 json::Object refuse(StringRef Reason, StringRef Detail) {
   return json::Object{{"version", Version}, {"status", "refused"}, {"reason", Reason},
           {"detail", Detail}};
+}
+
+json::Object cacheDirectedLayout(const json::Object &Request) {
+  constexpr size_t MaxNodes = 50000;
+  constexpr size_t MaxEdges = 500000;
+  const json::Array *Nodes = Request.getArray("nodes");
+  const json::Array *Edges = Request.getArray("edges");
+  if (Request.getInteger("version") != Version || !Nodes || Nodes->empty() ||
+      Nodes->size() > MaxNodes || !Edges || Edges->size() > MaxEdges)
+    return refuse("bridge_layout_input", "invalid graph version or dimensions");
+  std::vector<uint64_t> Sizes, Counts, Offsets;
+  std::vector<codelayout::EdgeCount> Weights;
+  Sizes.reserve(Nodes->size());
+  Counts.reserve(Nodes->size());
+  Offsets.reserve(Edges->size());
+  Weights.reserve(Edges->size());
+  uint64_t SizeTotal = 0, CountTotal = 0, WeightTotal = 0;
+  const auto add = [](uint64_t &Total, uint64_t Value) {
+    if (Value > std::numeric_limits<uint64_t>::max() - Total)
+      return false;
+    Total += Value;
+    return true;
+  };
+  for (const json::Value &Value : *Nodes) {
+    const auto *Node = Value.getAsObject();
+    if (!Node)
+      return refuse("bridge_layout_input", "node must be an object");
+    auto Size = Node->getInteger("size");
+    auto Count = Node->getInteger("count");
+    if (!Size || *Size <= 0 || !Count || *Count < 0 ||
+        !add(SizeTotal, *Size) || !add(CountTotal, *Count))
+      return refuse("bridge_layout_input", "invalid node size or execution count");
+    Sizes.push_back(*Size);
+    Counts.push_back(*Count);
+  }
+  for (const json::Value &Value : *Edges) {
+    const auto *Edge = Value.getAsObject();
+    if (!Edge)
+      return refuse("bridge_layout_input", "edge must be an object");
+    auto Src = Edge->getInteger("src");
+    auto Dst = Edge->getInteger("dst");
+    auto Count = Edge->getInteger("count");
+    auto Offset = Edge->getInteger("offset");
+    if (!Src || *Src < 0 || uint64_t(*Src) >= Sizes.size() ||
+        !Dst || *Dst < 0 || uint64_t(*Dst) >= Sizes.size() ||
+        !Count || *Count < 0 || !Offset || *Offset < 0 ||
+        uint64_t(*Offset) >= Sizes[*Src] || !add(WeightTotal, *Count))
+      return refuse("bridge_layout_input", "invalid edge endpoint, count or offset");
+    Weights.push_back({uint64_t(*Src), uint64_t(*Dst), uint64_t(*Count)});
+    Offsets.push_back(*Offset);
+  }
+  json::Array Ordered;
+  for (auto Node : codelayout::computeCacheDirectedLayout(
+           Sizes, Counts, Weights, Offsets))
+    Ordered.emplace_back(Node);
+  return json::Object{{"version", Version}, {"status", "ok"},
+                      {"operation", "cache-directed-layout"},
+                      {"order", std::move(Ordered)}};
 }
 
 bool matchesSHA(ArrayRef<uint8_t> Data, StringRef Expected) {
@@ -398,7 +457,12 @@ int main(int Argc, char **Argv) {
     return 0;
   }
   const json::Object *Object = Request->getAsObject();
-  outs() << json::Value(Object ? transplant(*Object)
-                              : refuse("bridge_request_invalid", "expected JSON object"))
-         << '\n';
+  if (!Object)
+    outs() << json::Value(refuse("bridge_request_invalid", "expected JSON object")) << '\n';
+  else if (!Object->get("operation"))
+    outs() << json::Value(transplant(*Object)) << '\n';
+  else if (Object->getString("operation") == "cache-directed-layout")
+    outs() << json::Value(cacheDirectedLayout(*Object)) << '\n';
+  else
+    outs() << json::Value(refuse("bridge_request_invalid", "unknown operation")) << '\n';
 }

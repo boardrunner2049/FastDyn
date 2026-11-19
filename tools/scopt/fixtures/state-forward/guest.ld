@@ -1,0 +1,1 @@
+../global-specialization/guest.ld

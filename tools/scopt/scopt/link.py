@@ -405,21 +405,33 @@ class NativeLinker:
         self.derive_captures = derive_captures
 
     # -- placement ---------------------------------------------------------
-    def plan(self, rolled_back: frozenset[str] = frozenset()) -> dict[str, int]:
-        """UnitId -> new tb_offset for every unit (slot order)."""
+    def plan(self, rolled_back: frozenset[str] = frozenset(), *,
+             effective: Mapping[str, TBUnit] | None = None,
+             append_unordered: frozenset[str] = frozenset()) -> dict[str, int]:
+        """Place unit extents in section order around fixed arena obstacles.
+
+        V2 supplies the grown extents and appends grown units without an
+        explicit layout request. Unit IDs and their pins still come from ws.
+        """
         ws = self.ws
+        effective = effective or {}
         floor = round_up(self.header.prologue_end, TB_ALIGN)
         in_sections = {uid for s in LAYOUT_SECTIONS for uid in ws.sections[s]}
         out: dict[str, int] = {}
         obstacles: list[tuple[int, int]] = []
         flow: list[str] = []
-        for u in ws.units():
-            uid = u.uid
+        trailing: list[str] = []
+        for original in ws.units():
+            uid = original.uid
+            u = effective.get(uid, original)
             if uid in rolled_back or ws.is_pinned(uid):
                 out[uid] = u.tb_offset
             elif ws.placement(uid) is not None:
                 out[uid] = int(ws.placement(uid))  # type: ignore[arg-type]
             elif uid in in_sections:
+                continue
+            elif uid in append_unordered:
+                trailing.append(uid)
                 continue
             else:
                 out[uid] = u.tb_offset  # not mentioned by any layout edit: stays
@@ -433,7 +445,7 @@ class NativeLinker:
         obstacles.sort()
         cursor = floor
         for uid in flow:
-            u = ws.unit(uid)
+            u = effective[uid] if uid in effective else ws.unit(uid)
             span = u.end_offset - u.tb_offset
             tb = round_up(cursor, TB_ALIGN)
             moved = True
@@ -445,20 +457,31 @@ class NativeLinker:
                         moved = True
             out[uid] = tb
             cursor = tb + span
+        if trailing:
+            cursor = max(cursor, max((end for _, end in obstacles), default=floor))
+            for uid in trailing:
+                u = effective[uid]
+                out[uid] = round_up(cursor, TB_ALIGN)
+                cursor = out[uid] + u.end_offset - u.tb_offset
         return {uid: out[uid] for uid in ws.unit_ids()}
 
-    def _check_plan(self, plan: Mapping[str, int]) -> list[LinkFailure]:
+    def _check_plan(self, plan: Mapping[str, int],
+                    effective: Mapping[str, TBUnit] | None = None) -> list[LinkFailure]:
         h = self.header
         floor = round_up(h.prologue_end, TB_ALIGN)
         limit = arena_limit(h)
         fails: list[LinkFailure] = []
         spans = []
+        changed = set()
+        effective = effective or {}
         for uid, tb in plan.items():
-            u = self.ws.unit(uid)
+            original = self.ws.unit(uid)
+            u = effective.get(uid, original)
             d = tb - u.tb_offset
-            if d == 0:
+            if d == 0 and u.end_offset == original.end_offset:
                 spans.append((tb, u.end_offset, uid))
                 continue
+            changed.add(uid)
             end = u.end_offset + d
             if tb % TB_ALIGN:
                 fails.append(LinkFailure(uid, R.MISALIGNED, f"tb' {tb:#x}"))
@@ -477,7 +500,7 @@ class NativeLinker:
             active = [a for a in active if a[1] > s0]
             for a0, a1, auid in active:
                 for v in (uid, auid):
-                    if plan[v] != self.ws.unit(v).tb_offset and v not in bad:
+                    if v in changed and v not in bad:
                         other = auid if v == uid else uid
                         fails.append(LinkFailure(v, R.OVERLAP, f"overlaps {other}"))
                         bad.add(v)
@@ -535,14 +558,12 @@ class NativeLinker:
             for slot, u in enumerate(units):
                 if u.native_fragments and u.inline_start is None and not u.splice_applied:
                     if u.native_fragments[0].splice is not None:
-                        from .splice_layout import materialize_splice
+                        from .splice_layout import materialize_splices
                         from .validate_sym.native_inline import NativeInlineError
 
-                        if len(u.native_fragments) != 1:
-                            raise LinkError("splice_layout_unsupported", "one splice per unit", u.uid)
                         try:
-                            materialized = materialize_splice(self.base.unit(u.uid),
-                                                              u.native_fragments[0], header.code_address)
+                            materialized = materialize_splices(self.base.unit(u.uid),
+                                                               u.native_fragments, header.code_address)
                         except NativeInlineError as exc:
                             raise LinkError(exc.reason, str(exc), u.uid) from exc
                     else:
@@ -570,7 +591,7 @@ class NativeLinker:
         """Place, relocate, roll back once if needed, derive the captures."""
         units = self.ws.units()
         if self.ws.has_layout_edits and (
-                native := next((u for u in units if u.native_fragments), None)) is not None:
+                native := next((u for u in units if u.native_fragments and not u.splice_applied), None)) is not None:
             fail = LinkFailure(native.uid, "native_layout_unsupported", "native islands with layout edits")
             return LinkResult(False, self.header, failures=(fail,))
         if any(u.native_fragments and u.inline_start is None and not u.splice_applied for u in units):
@@ -643,7 +664,7 @@ def _rewrite_tb(tb: S.TbChunk, link: UnitLink, code_address: int) -> S.TbChunk:
 
         u = link.native_unit
         row_version = SCM_TB_CHUNK_VERSION_4 if u.splice_applied else SCM_TB_CHUNK_VERSION_3
-        span = u.native_fragments[0].splice.start_off if u.splice_applied else u.inline_start
+        span = u.native_fragments[0].splice.physical_start if u.splice_applied else u.inline_start
         tb = replace(tb, record=u.record, code_size=u.tc_size, sites=_scm_sites(u),
                      insn0_start=u.insn0_start, body_end=u.body_end, ldst_end=u.ldst_end,
                      pool_start=0xFFFF_FFFF if u.pool_start is None else u.pool_start,
@@ -974,7 +995,7 @@ def grow_unit(u: TBUnit, exits: Sequence[GuardedExitSpec], *, code_address: int,
         raise LinkError(R2.NO_META, "no capture metadata", u.uid)
     if not u.reloc.relocatable:
         raise LinkError(R2.UNIT_NOT_RELOCATABLE, ",".join(u.reloc.reasons), u.uid)
-    if u.native_fragments or u.inline_start is not None:
+    if (u.native_fragments and not u.splice_applied) or u.inline_start is not None:
         raise LinkError("native_layout_unsupported", "native islands with guard growth", u.uid)
     if u.stub_start is not None:
         raise LinkError(R2.EXIT_NOT_GOTO_PTR, "unit is already grown", u.uid)
@@ -1001,12 +1022,21 @@ def grow_unit(u: TBUnit, exits: Sequence[GuardedExitSpec], *, code_address: int,
     jio, jro = list(rec.jmp_insn_offset), list(rec.jmp_reset_offset)
     stubs = []
     seen_tails: set[int] = set()
+    native_spans = ()
+    if u.splice_applied:
+        from .splice_layout import splice_group_offsets
+
+        native_offsets = splice_group_offsets(u.native_fragments)
+        native_spans = tuple((native_offsets(c.splice.start_off), len(c.splice.code))
+                             for c in u.native_fragments)
     for spec in exits:
         t = tails.get(spec.tail_off)
         if t is None:
             raise LinkError(R2.EXIT_NOT_GOTO_PTR, f"no lookup tail at +{spec.tail_off:#x}", u.uid)
         if t.off in seen_tails:
             raise LinkError(R2.EXIT_NOT_GOTO_PTR, f"tail +{t.off:#x} guarded twice", u.uid)
+        if any(_overlaps(t.off, t.end, start, start + size) for start, size in native_spans):
+            raise LinkError("native_guard_overlap", "guard tail overlaps native body", u.uid)
         seen_tails.add(t.off)
         prob = tail_problem(u, t, code_address)
         if prob:
@@ -1015,7 +1045,7 @@ def grow_unit(u: TBUnit, exits: Sequence[GuardedExitSpec], *, code_address: int,
             if tg.slot_n not in free or tg.slot_n in used:
                 raise LinkError(R2.NO_FREE_SLOT, f"slot {tg.slot_n} of +{t.off:#x}", u.uid)
             used.add(tg.slot_n)
-        targets = tuple(GuardTarget(tg.vaddr, tg.slot_n, tg.kind, register) if
+        targets = tuple(replace(tg, registered=register) if
                         tg.registered != register else tg for tg in spec.targets)
         try:
             kf, kf2 = guard_key(spec.key_flags, spec.key_cs_base)
@@ -1190,6 +1220,7 @@ class B3Plan:
     force_v6: bool = False  # identity-v6 (empty ext table)
     max_variants_per_c: int = 2
     max_variants: int = 64
+    max_code_growth_bytes: int | None = None
 
     @property
     def empty(self) -> bool:
@@ -1252,7 +1283,7 @@ class NativeLinkerV2:
 
     def __init__(self, snapshot: Any, plan: B3Plan, *, join_result: Any = None,
                  derive_captures: bool = True, offsets: GuardOffsets | None = None,
-                 tb_ret_abs: int | None = None):
+                 tb_ret_abs: int | None = None, placement: WorkingSet | None = None):
         self.snap = getattr(getattr(snapshot, "working_set", snapshot), "base", snapshot)
         self.plan = plan
         self.header: ScHeader = self.snap.header
@@ -1260,9 +1291,32 @@ class NativeLinkerV2:
         self.derive_captures = derive_captures
         self.offsets = offsets or GuardOffsets()
         self.tb_ret_abs = tb_ret_abs if tb_ret_abs is not None else tb_ret_abs_of(self.snap)
+        self.placement = placement
+        if placement is not None and placement.base is not self.snap:
+            raise ValueError("layout proposals must belong to the B3 input snapshot")
 
     def _fail(self, uid: str, reason: str, detail: str = "") -> LinkResultV2:
         return LinkResultV2(False, self.header, (), (LinkFailure(uid, reason, detail),))
+
+    def effective_units(self, units: Iterable[TBUnit]) -> tuple[dict[str, TBUnit],
+                                                                dict[str, GrownUnit]]:
+        """Apply the semantic edits at input offsets before placement."""
+        plan = self.plan
+        if plan.grow and self.tb_ret_abs is None:
+            raise LinkError(R2.EXIT_NOT_GOTO_PTR, "no tb_ret_addr", next(iter(plan.grow)))
+        effective, grown = {}, {}
+        for unit in units:
+            uid = unit.uid
+            if uid in plan.rewrites:
+                unit = rewrite_unit(unit, plan.rewrites[uid])
+            if uid in plan.grow:
+                result = grow_unit(unit, plan.grow[uid], code_address=self.header.code_address,
+                                   tb_ret_abs=self.tb_ret_abs, offsets=self.offsets,
+                                   register=plan.register_slots)
+                grown[uid] = result
+                unit = result.unit
+            effective[uid] = unit
+        return effective, grown
 
     def link(self) -> LinkResultV2:
         from .formats.sc_v6 import (EXIT_RETURN, EXIT_STATIC, KIND_GENERAL, KIND_SPEC,
@@ -1272,45 +1326,43 @@ class NativeLinkerV2:
         plan, h = self.plan, self.header
         ca = h.code_address
         units = list(self.snap.units())
-        if (native := next((u for u in units if u.native_fragments), None)) is not None:
-            return self._fail(native.uid, "native_layout_unsupported", "native islands with B3")
+        edited = set(plan.rewrites) | {v.src_uid for v in plan.variants}
+        for unit in units:
+            if unit.native_fragments and (not unit.splice_applied or unit.uid in edited):
+                return self._fail(unit.uid, "native_layout_unsupported",
+                                  "rewriting or cloning a native certificate requires a new proof")
         by_uid = {u.uid: u for u in units}
         for uid in list(plan.grow) + list(plan.rewrites) + \
                 [v.src_uid for v in plan.variants] + [v.pred_uid for v in plan.variants]:
             if uid not in by_uid:
                 return self._fail(uid, R2.UNKNOWN_UNIT)
-        if plan.grow and self.tb_ret_abs is None:
-            return self._fail(next(iter(plan.grow)), R2.EXIT_NOT_GOTO_PTR, "no tb_ret_addr")
-        eff: dict[str, TBUnit] = {}
-        grown: dict[str, GrownUnit] = {}
         try:
-            for u in units:
-                e = u
-                if u.uid in plan.rewrites:
-                    e = rewrite_unit(e, plan.rewrites[u.uid])
-                if u.uid in plan.grow:
-                    g = grow_unit(e, plan.grow[u.uid], code_address=ca,
-                                  tb_ret_abs=self.tb_ret_abs,  # type: ignore[arg-type]
-                                  offsets=self.offsets, register=plan.register_slots)
-                    grown[u.uid] = g
-                    e = g.unit
-                eff[u.uid] = e
+            eff, grown = self.effective_units(units)
         except LinkError as e:
             return self._fail(e.uid or "", e.reason, e.detail)
         # -- placement ---------------------------------------------------------
         limit = arena_limit(h)
         cursor = round_up(max((u.end_offset for u in units), default=0), TB_ALIGN)
         new_tb: dict[str, int] = {}
-        for u in units:
-            if u.uid in grown:
-                new_tb[u.uid] = round_up(cursor, TB_ALIGN)
-                cursor = new_tb[u.uid] + (eff[u.uid].end_offset - eff[u.uid].tb_offset)
+        if self.placement is not None:
+            placer = NativeLinker(self.placement, derive_captures=False)
+            new_tb = placer.plan(effective=eff, append_unordered=frozenset(grown))
+            failures = placer._check_plan(new_tb, eff)
+            if failures:
+                return LinkResultV2(False, h, (), tuple(failures))
+            cursor = max((new_tb[u.uid] + u.end_offset - u.tb_offset for u in eff.values()),
+                         default=h.prologue_end)
+        else:
+            for u in units:
+                if u.uid in grown:
+                    new_tb[u.uid] = round_up(cursor, TB_ALIGN)
+                    cursor = new_tb[u.uid] + (eff[u.uid].end_offset - eff[u.uid].tb_offset)
         links: list[UnitLink] = []
         try:
             for out_slot, u in enumerate(units):
                 e = eff[u.uid]
                 lu = relocate_unit(e, new_tb.get(u.uid, e.tb_offset))
-                if u.uid not in grown:  # in place: record bytes as input (rewrites keep them)
+                if u.uid not in grown and not lu.moved:
                     lu = replace(lu, record=bytes(u.record))
                 links.append(replace(lu, slot=out_slot, input_slot=u.slot))
         except LinkError as e:
@@ -1478,7 +1530,8 @@ def _grown_chunk(tb: S.TbChunk, g: GrownUnit) -> S.TbChunk:
     return replace(tb, record=bytes(u.record), code_size=u.tc_size,
                    code_fnv64=fnv1a64(u.code + u.search), sites=_scm_sites(u),
                    pool=tuple(pool), opmarks=tuple(marks),
-                   tb_chunk_version=L.SCM_TB_CHUNK_VERSION_2,
+                   tb_chunk_version=(L.SCM_TB_CHUNK_VERSION_5 if u.splice_applied
+                                     else L.SCM_TB_CHUNK_VERSION_2),
                    reserved=u.stub_start & 0xFFFFFFFF, source=None)
 
 

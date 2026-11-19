@@ -1,0 +1,249 @@
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -399,6 +399,11 @@
+     }
+ 
+     tb = tb_lookup(cpu, s);
++    if (unlikely(tcg_supercache_v6_check_coverage(&s, tb))) {
++        /* Fall back to the dispatcher before using the selected pointer. */
++        cpu->cflags_next_tb = s.cflags;
++        return tcg_code_gen_epilogue;
++    }
+     if (tb == NULL) {
+         if (unlikely(scp_active)) {
+             scp_lookup_miss();          /* P3 miss */
+@@ -974,6 +979,11 @@
+             }
+ 
+             tb = tb_lookup(cpu, s);
++            if (unlikely(tcg_supercache_v6_check_coverage(&s, tb))) {
++                /* No incoming edge may be patched on the violating dispatch. */
++                last_tb = NULL;
++                tb = tb_lookup(cpu, s);
++            }
+             if (tb == NULL) {
+                 CPUJumpCache *jc;
+                 uint32_t h;
+--- a/tcg/supercache.c
++++ b/tcg/supercache.c
+@@ -741,6 +741,7 @@
+     SC6_FORBID_ONE_INSN,
+     SC6_FORBID_PLUGIN,
+     SC6_FORBID_TLB_BUDGET,
++    SC6_FORBID_COVERAGE,
+ };
+ 
+ static const char *const sc6_forbid_names[] = {
+@@ -748,8 +749,23 @@
+     [SC6_FORBID_ONE_INSN] = "one_insn_per_tb",
+     [SC6_FORBID_PLUGIN] = "plugin_reset",
+     [SC6_FORBID_TLB_BUDGET] = "tlb_disarm_budget",
++    [SC6_FORBID_COVERAGE] = "coverage_violation",
+ };
++
++typedef struct Sc6CoverageKey {
++    uint64_t pc, page0, page1, cs_base;
++    uint32_t flags, cflags;
++} Sc6CoverageKey;
+ 
++static struct {
++    uint64_t start, end;
++    GArray *keys;
++    uint64_t inject_pc;
++    uint32_t violations;
++    uint32_t injections;
++    uint64_t variant_exits_at_revocation;
++} sc6_coverage;
++
+ /* Set once QEMU_SC_V6_STATS was accepted; read by cpu-exec/translate-all. */
+ bool tcg_sc6_stats_active;
+ 
+@@ -877,6 +893,70 @@
+  * load_records() and before loaded_max_end is set.  Every failure exits.
+  * The two code hashes are checked later, after the code pread (Q4).
+  */
++/*
++ * Experimental single-vCPU coverage guard. Check the exact loaded extension
++ * and runtime before enabling it. Current artifacts do not depend on this
++ * optional enforcement path; mandatory coverage binding needs a file feature.
++ */
++static void sc6_configure_coverage(const Sc6ExtHeader *x)
++{
++    const char *path = getenv("QEMU_SCOPT_COVERAGE_GUARD");
++    const char *inject = getenv("QEMU_SCOPT_COVERAGE_TEST_UNEXPECTED");
++    g_autofree char *contents = NULL;
++    g_auto(GStrv) lines = NULL;
++    gsize length = 0;
++    uint64_t signature, checksum;
++    char extra;
++
++    if (!path) {
++        if (inject) {
++            sc6_die("coverage test requires a bound guard");
++        }
++        return;
++    }
++    if (!g_path_is_absolute(path) ||
++        !g_file_get_contents(path, &contents, &length, NULL) ||
++        length > 64 * KiB || strlen(contents) != length) {
++        sc6_die("cannot read bounded coverage guard");
++    }
++    lines = g_strsplit(contents, "\n", -1);
++    if (sscanf(lines[0], "scopt-runtime-coverage-v1 %" SCNx64 " %" SCNx64
++               " %" SCNx64 " %" SCNx64 "%c",
++               &sc6_coverage.start, &sc6_coverage.end, &signature, &checksum,
++               &extra) != 4 ||
++        sc6_coverage.start >= sc6_coverage.end ||
++        sc6_coverage.end > UINT32_MAX ||
++        (sc6_coverage.start | sc6_coverage.end) & 1 ||
++        signature != supercache.header.runtime_signature ||
++        checksum != x->checksum) {
++        sc6_die("coverage guard identity or range differs from loaded cache");
++    }
++    sc6_coverage.keys = g_array_new(false, false, sizeof(Sc6CoverageKey));
++    for (int i = 1; lines[i] && *lines[i]; i++) {
++        Sc6CoverageKey key;
++
++        if (sscanf(lines[i], "%" SCNx64 " %" SCNx64 " %" SCNx64
++                   " %" SCNx32 " %" SCNx64 " %" SCNx32 "%c",
++                   &key.pc, &key.page0, &key.page1, &key.flags,
++                   &key.cs_base, &key.cflags, &extra) != 6 ||
++            key.pc < sc6_coverage.start || key.pc >= sc6_coverage.end ||
++            key.pc & 1 || key.cflags & CF_INVALID ||
++            sc6_coverage.keys->len >= 256) {
++            sc6_die("invalid covered translation key");
++        }
++        g_array_append_val(sc6_coverage.keys, key);
++    }
++    if (!sc6_coverage.keys->len) {
++        sc6_die("empty coverage guard");
++    }
++    if (inject && (!tcg_sc6_stats_active ||
++        sscanf(inject, "%" SCNx64 "%c", &sc6_coverage.inject_pc, &extra) != 1 ||
++        sc6_coverage.inject_pc < sc6_coverage.start ||
++        sc6_coverage.inject_pc >= sc6_coverage.end)) {
++        sc6_die("invalid coverage test injection address");
++    }
++}
++
+ static void sc6_load_ext(void)
+ {
+     const SupercacheHeader *h = &supercache.header;
+@@ -1162,6 +1242,7 @@
+ 
+     /* Q4: variant code is loaded and never overwritten by translations. */
+     supercache.max_end = MAX(supercache.max_end, max_end);
++    sc6_configure_coverage(&x);
+     sc6.loaded = true;
+     sc6.st.ext_load_ns = (g_get_monotonic_time() - t0) * 1000;
+ }
+@@ -1476,6 +1557,50 @@
+     }
+ }
+ 
++/*
++ * Called on the single vCPU at dispatch, before executing the selected TB.
++ * Treat a missing translation as a violation as well; appending it cannot
++ * rearm links, even after a later tb_flush resets the per-epoch structures.
++ */
++bool tcg_supercache_v6_check_coverage(TCGTBCPUState *state, TranslationBlock *tb)
++{
++    if (likely(!sc6_coverage.keys) || state->pc < sc6_coverage.start ||
++        state->pc >= sc6_coverage.end || qatomic_read(&sc6.forbidden)) {
++        return false;
++    }
++    if (sc6_coverage.inject_pc && state->pc == sc6_coverage.inject_pc &&
++        !sc6_coverage.injections) {
++        for (uint32_t i = 0; i < sc6.n_links; i++) {
++            if (sc6.links[i].armed && !(state->cflags & CF_COUNT_MASK)) {
++                /* Test-only: dispatch a real new key in the same CPU state. */
++                state->cflags |= 2;
++                tb = NULL;
++                sc6_coverage.injections++;
++                break;
++            }
++        }
++    }
++    for (uint32_t i = 0; tb && i < sc6_coverage.keys->len; i++) {
++        const Sc6CoverageKey *key = &g_array_index(sc6_coverage.keys,
++                                                  Sc6CoverageKey, i);
++
++        if (key->pc == state->pc && key->flags == state->flags &&
++            key->cs_base == state->cs_base && key->cflags == state->cflags &&
++            key->page0 == tb_page_addr0(tb) && key->page1 == tb_page_addr1(tb)) {
++            return false;
++        }
++    }
++    sc6_coverage.violations++;
++    sc6_coverage.variant_exits_at_revocation = sc6.st.variant_exits;
++    sc6.st.forbid_requests++;
++    sc6_forbid(SC6_FORBID_COVERAGE);
++    if (sc6_any_live()) {
++        sc6.st.disarm_forbid_events++;
++        sc6.st.disarm_forbid_links += sc6_unlink_all();
++    }
++    return true;
++}
++
+ /* Q7: end of every vCPU TLB-flush worker (cputlb.c). */
+ void tcg_supercache_mapping_changed(CPUState *cpu)
+ {
+@@ -1628,6 +1753,12 @@
+         sc6.st.variant_slots_unlinked, sc6.st.variant_exits,
+         sc6.st.variant_entry_exits, sc6.st.variant_restores,
+         sc6.st.invariant_checks, sc6.st.invariant_violations);
++    g_string_append_printf(j,
++        "  \"coverage_violations\": %" PRIu32 ",\n"
++        "  \"coverage_test_injections\": %" PRIu32 ",\n"
++        "  \"coverage_variant_exits_at_revocation\": %" PRIu64 ",\n",
++        sc6_coverage.violations, sc6_coverage.injections,
++        sc6_coverage.variant_exits_at_revocation);
+     g_string_append(j, "  \"links\": [");
+     for (uint32_t i = 0; i < sc6.n_links; i++) {
+         g_string_append_printf(j, "%s{\"armed\": %s, \"disarmed_epoch\": %s}",
+@@ -1700,6 +1831,10 @@
+         }
+     }
+ 
++    if (getenv("QEMU_SCOPT_COVERAGE_GUARD") &&
++        (!reuse || disk_header.version != SC6_VERSION)) {
++        sc6_die("coverage guard requires matching .sc v6");
++    }
+     supercache.size = size;
+     if (!reuse) {
+         if (ftruncate(supercache.fd, code_end) < 0) {
+@@ -2215,6 +2350,11 @@
+ {
+ }
+ 
++bool tcg_supercache_v6_check_coverage(TCGTBCPUState *state, TranslationBlock *tb)
++{
++    return false;
++}
++
+ void tcg_supercache_v6_note_exit(TranslationBlock *tb, int tb_exit)
+ {
+ }
+--- a/include/tcg/supercache.h
++++ b/include/tcg/supercache.h
+@@ -34,6 +34,7 @@
+ extern bool tcg_sc6_stats_active;
+ void tcg_supercache_mapping_changed(CPUState *cpu);
+ void tcg_supercache_v6_one_insn_per_tb(void);
++bool tcg_supercache_v6_check_coverage(TCGTBCPUState *state, TranslationBlock *tb);
+ void tcg_supercache_v6_note_exit(TranslationBlock *tb, int tb_exit);
+ void tcg_supercache_v6_note_restore(TranslationBlock *tb);
+ #else
+@@ -104,6 +105,12 @@
+ {
+ }
+ 
++static inline bool tcg_supercache_v6_check_coverage(TCGTBCPUState *state,
++                                                     TranslationBlock *tb)
++{
++    return false;
++}
++
+ static inline void tcg_supercache_v6_note_exit(TranslationBlock *tb,
+                                                int tb_exit)
+ {

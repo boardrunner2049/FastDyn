@@ -37,3 +37,14 @@ returns. It expects a single complete function range in one executable ELF
 section. The caller verifies symbol boundaries, runtime identity, CET and
 recovery assumptions, and the final native correspondence after placement.
 The response is a candidate and does not confer any runtime legality.
+
+## Cache-Directed Sort
+
+The same executable accepts a version 1 request with operation
+`cache-directed-layout`. Supply a `nodes` array of objects with positive
+`size` and nonnegative exact execution `count`, and an `edges` array of
+objects with `src`, `dst`, `count`, and source-relative `offset`.
+Endpoints index the nodes array. Separate transfers between the same nodes
+can keep their individual source offsets. The response returns the operation
+and an `order` permutation from LLVM's `computeCacheDirectedLayout`.
+The ordinary scopt layout linker checks the proposed placement.

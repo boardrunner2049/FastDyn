@@ -1,0 +1,48 @@
+[Memory.main]
+id = "ram0"
+base_address = "0x20000000"
+memory_size = "64K"
+memory_type = "SRAM"
+backend = "file"
+share = true
+
+[[Memory.ram1]]
+id = "input"
+index = 1
+base_address = "0x30000000"
+memory_size = "4K"
+memory_type = "SRAM"
+backend = "file"
+share = true
+
+[Machine]
+platform = "generic-cortexm"
+supercache = "cache/host-inline.sc"
+supercache_flat = false
+monitor_port = 0
+coverage = false
+
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m3"
+binary = @FIRMWARE@
+plugin_library = @PLUGIN@
+init_nsvtor = "0x08000000"
+
+[[CPU.cpu0.virtuals]]
+at = @BENCHMARK_START@
+instruction = "benchmark_start"
+
+[[CPU.cpu0.virtuals]]
+at = @PRINT_RESULT@
+instruction = "printreg"
+args = ["0"]
+
+[[CPU.cpu0.virtuals]]
+at = @BENCHMARK_END@
+instruction = "benchmark_end"
+args = ["host-inline"]
+
+[CPU.cpu0.device]
+enabled = false

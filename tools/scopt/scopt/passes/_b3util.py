@@ -88,5 +88,6 @@ def factref_of_row(row: Mapping[str, Any], f: Mapping[str, Any]) -> Any:
 def certified_facts(row: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
     if row is None:
         return []
-    return [f for f in row.get("facts", ()) if f.get("status") == "certified" and
-            f.get("cert_hash") and f.get("source") in ("patch", "guest_code")]
+    return [f for f in row.get("facts", ()) if f.get("cert_hash") and
+            ((f.get("status") == "certified" and f.get("source") in ("patch", "guest_code"))
+             or (f.get("status") == "guarded" and f.get("source") == "guard"))]

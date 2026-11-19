@@ -512,7 +512,16 @@ def certify_fact(r: Program, slot: int | None, fld: tuple[int, int], *, layout: 
                     ev[-2].cls == "lookup" and (exit_pc is None or ev[-1].pc == exit_pc):
                 vals.append(ev[-2].env.read(*fld))
         elif st.end and st.end[1] == "guarded_slot" and r.slots[st.end[2]].n == slot:
-            vals.append(ev[-1].env.read(*fld))
+            env = ev[-1].env
+            value = env.read(*fld)
+            # A generated value-guard fact must be entailed by actual decoded
+            # run-time branches. The declared atom alone conveys no fact.
+            conditions = {(term, result) for term, result, pc in st.cond if r.in_stub(pc)}
+            for atom in r.slots[st.end[2]].atoms:
+                if (atom.atom == "g_r0_zero" and (atom.off, atom.width) == fld
+                        and atom_entailed(st, atom, env, conditions)):
+                    value = atom.value
+            vals.append(value)
     if not vals:
         return FactCert(fld, "unreached", detail="no path reaches the exit")
     if all(isinstance(x, int) for x in vals) and len(set(vals)) == 1:

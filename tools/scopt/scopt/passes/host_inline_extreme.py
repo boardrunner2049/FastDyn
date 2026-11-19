@@ -32,9 +32,10 @@ class HostInlineExtreme(HostInlineSplice):
     descriptor = replace(
         HostInlineSplice.descriptor, name=EXTREME_PASS,
         params_schema={**HostInlineSplice.descriptor.params_schema, "allow_partial": bool,
-                       "max_inline_depth": int},
+                       "max_inline_depth": int, "compact_frame": bool},
     )
     consider_cold = True
+    max_sites_per_unit = 1
 
     def _binding_refusal(self, binding: NativeCallBinding) -> tuple[str, str] | None:
         call, callee = binding.call, binding.callee
@@ -62,8 +63,10 @@ class HostInlineExtreme(HostInlineSplice):
             return super()._prepare_splice(unit, request, code_address, binding, params)
         from ..validate_sym.native_virtual import prepare_virtual_splice
 
+        extra = {"compact_frame": True} if params.get("compact_frame") else {}
         return prepare_virtual_splice(
-            unit, request, code_address, max_depth=params.get("max_inline_depth", _DEFAULT_INLINE_DEPTH))
+            unit, request, code_address, max_depth=params.get("max_inline_depth", _DEFAULT_INLINE_DEPTH),
+            **extra)
 
     def run(self, view, ctx, edits) -> PassResult:
         depth_limit = ctx.params.get("max_inline_depth", _DEFAULT_INLINE_DEPTH)

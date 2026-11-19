@@ -1,0 +1,9 @@
+schema = "scopt.pipeline"
+version = 1
+name = "local-scalar"
+description = "Checked general-entry native integer cleanup."
+allowed_capabilities = ["PURE_REWRITE"]
+
+[[pass]]
+name = "local-scalar-cleanup"
+version = 1

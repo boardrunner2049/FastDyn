@@ -395,6 +395,7 @@ def _valid_native_scalar_fields(call: InlineCall) -> bool:
         offsets += (call.splice.start_off, call.splice.depth, call.tcg_typemask)
         offsets += tuple(n for r in call.splice.relocations
                          for n in (r.field_off, r.next_off, r.target_abs))
+        offsets += tuple(r.source_off for r in call.splice.branches)
     if call.pool_slot_off is not None:
         offsets += (call.pool_slot_off,)
     offsets += tuple(n for o in call.fragment.origins
@@ -405,21 +406,42 @@ def _valid_native_scalar_fields(call: InlineCall) -> bool:
             and (call.bridge_sha256 is None or isinstance(call.bridge_sha256, str)))
 
 
-_NATIVE_TB_VERSIONS = (L.SCM_TB_CHUNK_VERSION_3, L.SCM_TB_CHUNK_VERSION_4)
+_NATIVE_TB_VERSIONS = (L.SCM_TB_CHUNK_VERSION_3, L.SCM_TB_CHUNK_VERSION_4, L.SCM_TB_CHUNK_VERSION_5)
 
 
 def _native_metadata_matches(version: int, start: int, size: int,
                              requests: tuple[InlineCall, ...]) -> bool:
+    if version == L.SCM_TB_CHUNK_VERSION_5:
+        return (bool(requests) and requests[0].splice is not None and 0 < start < size
+                and _native_metadata_matches(L.SCM_TB_CHUNK_VERSION_4, requests[0].splice.physical_start,
+                                             start, requests))
     if version == L.SCM_TB_CHUNK_VERSION_3:
         return 0 < start < size and bool(requests) and all(r.splice is None for r in requests)
-    if not 0 <= start < size or len(requests) != 1:
+    if not 0 <= start < size or not requests or requests[0].splice is None:
         return False
-    req, = requests
+    from ..splice_layout import splice_group_offsets
+
+    try:
+        offsets = splice_group_offsets(requests)
+    except ValueError:
+        return False
+    original_size = size - sum(req.growth for req in requests)
+    return start == offsets(requests[0].splice.start_off) and all(
+        _splice_metadata_matches(req, offsets(req.splice.start_off), size, original_size)
+        for req in requests)
+
+
+def _splice_metadata_matches(req: InlineCall, start: int, size: int,
+                             original_size: int) -> bool:
     splice = req.splice
-    if (splice is None or splice.start_off != start or start > req.call_off
-            or len(splice.prefix) != req.call_off - start
+    if (splice.start_off > req.call_off
+            or len(splice.prefix) != req.call_off - splice.start_off
             or req.continuation_off != req.call_off + len(req.call_bytes)
-            or start + len(splice.code) > size):
+            or req.continuation_off > original_size or not splice.code
+            or start + len(splice.code) > size
+            or not splice.valid_branch_spans(req.continuation_off, original_size)):
+        return False
+    if type(splice.compact_frame) is not bool or (splice.compact_frame and splice.kind != "frame"):
         return False
     if splice.kind != "frame":
         return splice.kind == "integer" and splice.depth == 1 and not splice.relocations
@@ -481,7 +503,7 @@ class TbChunk:
     def stub_start(self) -> int | None:
         """TB chunk v2 (derived, B3 grown units): code offset of the guard stubs
         appended after the pool; None for v1 chunks or when absent."""
-        if self.tb_chunk_version != L.SCM_TB_CHUNK_VERSION_2:
+        if self.tb_chunk_version not in (L.SCM_TB_CHUNK_VERSION_2, L.SCM_TB_CHUNK_VERSION_5):
             return None
         v = self.reserved & 0xFFFF_FFFF
         return None if v == NONE_U32 else v
@@ -494,6 +516,8 @@ class TbChunk:
 
     @property
     def splice_start(self) -> int | None:
+        if self.tb_chunk_version == L.SCM_TB_CHUNK_VERSION_5:
+            return self.native_fragments[0].splice.physical_start
         if self.tb_chunk_version == L.SCM_TB_CHUNK_VERSION_4:
             return self.reserved & 0xFFFF_FFFF
         return None
@@ -537,7 +561,7 @@ class TbChunk:
                 raise ScmEncodeError(f"tb_chunk_v{version}_native_size")
             reserved = len(native) << 32 | start
         elif self.native_fragments:
-            raise ScmEncodeError("native fragments require TB v3 or v4")
+            raise ScmEncodeError("native fragments require a native TB chunk")
         hdr = _pack(L.SCM_TB_HEADER, self.tb_chunk_version, self.slot, self.commit_seq,
                     bytes(self.record), self.vaddr, self.code_fnv64, self.attempts, self.flags,
                     self.insn0_start, self.body_end, self.ldst_end, self.pool_start,

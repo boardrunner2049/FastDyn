@@ -1,0 +1,22 @@
+{
+  "train": [
+    {
+      "seed": "0x1234567",
+      "expected": "0x4b0bfc23"
+    },
+    {
+      "seed": "0xe00dd00d",
+      "expected": "0xd543b2c"
+    }
+  ],
+  "heldout": [
+    {
+      "seed": "0x76543210",
+      "expected": "0x584f8cb"
+    },
+    {
+      "seed": "0xf1234567",
+      "expected": "0x622aa39a"
+    }
+  ]
+}

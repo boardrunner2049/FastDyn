@@ -63,6 +63,31 @@ class NativeRelocation:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeBranchRelaxation:
+    """An ordinary two-byte TCG branch widened by eight aligned bytes."""
+
+    source_off: int
+    source_bytes: bytes
+
+    @property
+    def target_off(self) -> int:
+        return self.source_off + 2 + int.from_bytes(self.source_bytes[1:], "little", signed=True)
+
+    @property
+    def near_opcode(self) -> bytes:
+        opcode = self.source_bytes[0]
+        return b"\xe9" if opcode == 0xeb else bytes((0x0f, 0x80 | (opcode & 15)))
+
+    def to_json(self) -> dict[str, Any]:
+        return {"source_off": self.source_off, "source_bytes": self.source_bytes.hex()}
+
+
+BRANCH_RELAXATION_GROWTH = 8
+MAX_BRANCH_RELAXATIONS = 8
+MAX_INTEGER_SPLICES = 2
+
+
+@dataclass(frozen=True, slots=True)
 class NativeSplice:
     """Fall-through replacement of a native call and any rewritten argument setup."""
 
@@ -72,13 +97,43 @@ class NativeSplice:
     kind: str = "integer"
     relocations: tuple[NativeRelocation, ...] = ()
     depth: int = 1
+    compact_frame: bool = False
+    branches: tuple[NativeBranchRelaxation, ...] = ()
+
+    @property
+    def physical_start(self) -> int:
+        return self.start_off + BRANCH_RELAXATION_GROWTH * sum(
+            row.source_off < self.start_off for row in self.branches)
+
+    def valid_branch_spans(self, continuation: int, original_code_size: int) -> bool:
+        if not self.branches:
+            return True
+        if self.kind != "integer" or len(self.branches) > MAX_BRANCH_RELAXATIONS:
+            return False
+        previous_end = 0
+        for row in self.branches:
+            off = row.source_off
+            raw = row.source_bytes
+            if (type(off) is not int or not previous_end <= off <= original_code_size - 2
+                    or len(raw) != 2 or not (raw[0] == 0xeb or 0x70 <= raw[0] <= 0x7f)
+                    or off < continuation and self.start_off < off + 2
+                    or not 0 <= row.target_off < original_code_size
+                    or self.start_off < row.target_off < continuation
+                    or any(row.target_off == other.source_off + 1 for other in self.branches)):
+                return False
+            previous_end = off + 2
+        return True
 
     def to_json(self) -> dict[str, Any]:
         doc = {"start_off": self.start_off, "prefix": self.prefix.hex(), "code": self.code.hex()}
         if self.kind != "integer" or self.relocations:
             doc.update(kind=self.kind, relocations=[row.to_json() for row in self.relocations])
+        if self.compact_frame:
+            doc["compact_frame"] = True
         if self.depth != 1:
             doc["depth"] = self.depth
+        if self.branches:
+            doc["branches"] = [row.to_json() for row in self.branches]
         return doc
 
 
@@ -115,7 +170,8 @@ class InlineCall:
     @property
     def growth(self) -> int:
         if self.splice is not None:
-            return len(self.splice.code) - (self.continuation_off - self.splice.start_off)
+            return (len(self.splice.code) - (self.continuation_off - self.splice.start_off)
+                    + BRANCH_RELAXATION_GROWTH * len(self.splice.branches))
         return len(self.fragment.code)
 
     def to_json(self) -> dict[str, Any]:
@@ -145,7 +201,9 @@ class InlineCall:
             splice_doc["start_off"], bytes.fromhex(splice_doc["prefix"]),
             bytes.fromhex(splice_doc["code"]), splice_doc.get("kind", "integer"),
             tuple(NativeRelocation(**row) for row in splice_doc.get("relocations", ())),
-            splice_doc.get("depth", 1))
+            splice_doc.get("depth", 1), splice_doc.get("compact_frame", False),
+            tuple(NativeBranchRelaxation(row["source_off"], bytes.fromhex(row["source_bytes"]))
+                  for row in splice_doc.get("branches", ())))
         result = cls(data["target"], data["unit_hash"], data["call_off"],
                      bytes.fromhex(data["call_bytes"]), data["continuation_off"],
                      data["helper_id"], data["target_abs"], data["pool_slot_off"],

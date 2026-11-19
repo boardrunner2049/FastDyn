@@ -48,11 +48,22 @@ register and flag effects. For example, AF remains architecturally undefined
 after a final XOR. Existing native-helper restrictions and stack assumptions
 are described in [host-inline](host-inline.md).
 
-There is at most one splice per TB. The splice must fit wholly inside one
-captured guest instruction. The checker refuses incoming transfers or data
-references into replaced bytes, missing guest or callee provenance, recovery
-dependencies, and displacements that no longer fit. Physical offset changes
-also update captured sites, jump reset offsets, literal-pool users, slow-path
+The pipeline defaults to one splice per TB. Set the pass parameter
+`max_sites_per_unit` to 2 to allow two disjoint integer splices bound to the
+same original TB. Each splice must fit wholly inside one captured guest
+instruction. The pair uses one cumulative offset map for code and capture.
+If the pair requires branch widening or contains a framed callback, the
+second site is refused and the accepted first site is retained.
+
+The checker refuses incoming transfers or data references into replaced
+bytes, missing guest or callee provenance, recovery
+dependencies, and unsupported displacements. Integer splices can widen up
+to eight captured short Jcc or JMP instructions whose internal targets no
+longer fit in rel8. Each widening uses the same near-branch condition and
+target plus NOP padding, adding eight aligned bytes. The checker excludes
+branches with unsupported encodings or ambiguous sites and references into a
+widened instruction's interior or padding. Physical offset changes also
+update captured sites, jump reset offsets, literal-pool users, slow-path
 returns, and the guest recovery search table.
 
 Derived SCM v4 records carry the original binding and splice evidence. V24
@@ -61,6 +72,59 @@ reconstruction. Reimport independently checks the code and metadata before
 it exposes a transformed TB. V10 checks guest output and cache reuse under
 warm execution. The original island pipeline retains its existing format and
 validation path.
+
+## Reproduce the two-RBIT canary
+
+The checked-in [two-RBIT fixture](../fixtures/host-inline-two-rbit/) adds a
+second RBIT on guest register r3. The guest SRAM store between the RBITs
+makes each native helper receive an adjacent load from its own CPU-state
+field. The same arithmetic oracle checks r0 for both configurations.
+
+From the FastDyn root with the scopt Python environment active, build the
+[pinned bridge](../native/README.md) and set `SCOPT_HOST_INLINE_BRIDGE` to the
+resulting executable. Use a fresh work directory.
+
+```sh
+W=/opt/host-inline-two-rbit-run
+QEMU="$PWD/third_party/common/qemu/build/qemu-system-arm"
+python tools/scopt/scripts/bootstrap_host_inline.py \
+  --source-lock tools/scopt/fixtures/host-inline/source-lock.json \
+  --fixture host-inline-two-rbit --work-dir "$W"
+export SCOPT_ENVLAYOUT_PATH="$W/envlayouts"
+SNAP=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["snapshot"])' "$W/baseline.json")
+PROFILE="$W/profile/merged.profile.json"
+
+printf '%s\n' '{"host-inline-splice":{"max_sites_per_unit":2}}' > "$W/two-sites.json"
+scopt optimize "$SNAP" --pipeline host-inline-splice --profile "$PROFILE" \
+  --store "$W/one-site" --json > "$W/one-site.json"
+scopt optimize "$SNAP" --pipeline host-inline-splice --profile "$PROFILE" \
+  --params "$W/two-sites.json" --store "$W/two-site" --json > "$W/two-site.json"
+ONE=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact_dir"])' "$W/one-site.json")
+TWO=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact_dir"])' "$W/two-site.json")
+
+for arm in one two; do
+  case "$arm" in one) artifact=$ONE ;; two) artifact=$TWO ;; esac
+  scopt validate "$artifact" --snapshot "$SNAP" --dynamic -c "$W/host-inline.toml" \
+    --baseline "$SNAP" --qemu "$QEMU" --inputs "$W/heldout-0.bin" \
+    --inputs "$W/heldout-1.bin" --out "$W/$arm-v10"
+done
+
+scopt run -c "$W/prep/run.toml" --qemu "$QEMU" --warm "$SNAP" \
+  --arms warm,one-splice,two-splice --artifact "one-splice=$ONE" \
+  --artifact "two-splice=$TWO" --reference one-splice --set heldout \
+  --inputs "$W/heldout-0.bin" --inputs "$W/heldout-1.bin" \
+  --reps 5 --seed 1 --out "$W/campaign"
+```
+
+Pass `--reuse-build /path/to/build-evidence.json` to the bootstrap when the
+same checkout already has verified source-locked binaries. The bootstrap
+checks their digests before capturing.
+
+The optimize JSON files identify the artifacts and record each applied
+site. The reference run captured two eligible sites in each of two TBs.
+V10 results are in `$W/one-v10/dynamic.json` and `$W/two-v10/dynamic.json`.
+The campaign writes raw samples to `$W/campaign/runs.jsonl` and paired
+comparisons to `$W/campaign/report.md` and `report.json`.
 
 ## Warm timing
 

@@ -99,7 +99,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(host_inline, "prepare_native_images",
                         lambda *args, **kwargs: AnalysisInput(input_id, ()))
     # Isolate pass scheduling and native correspondence from physical relocation.
-    monkeypatch.setattr(splice_layout, "check_splice_layout", lambda *_: None)
+    monkeypatch.setattr(splice_layout, "prepare_splice_layout", lambda _, req, __: req)
     return snap, registry
 
 
@@ -127,8 +127,9 @@ def test_splice_pass_keeps_going_after_an_unplaceable_splice(world, monkeypatch)
     def check(unit, req, _):
         if req.call_off == 3:
             raise LinkError("test_layout_refusal", uid=unit.uid)
+        return req
 
-    monkeypatch.setattr(splice_layout, "check_splice_layout", check)
+    monkeypatch.setattr(splice_layout, "prepare_splice_layout", check)
     result = PassManager(snap, "host-inline-splice", analyses=registry).execute()
     assert result.passes[0].stats["sites:test_layout_refusal"] == 2
     assert [e.payload.call_off for e in result.edits] == [12, 12]

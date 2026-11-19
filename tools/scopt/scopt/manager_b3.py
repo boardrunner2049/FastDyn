@@ -145,6 +145,7 @@ class B3Ctx:
             self.layout_bound = False
             self.layout_reason = self.layout_reason or "guard_layout_unbound"
         self._rows: list[dict[str, Any]] | None = None
+        self._summary_inputs: tuple[str, ...] = ()
         self._cert_tally: Counter = Counter()
         self._units = {u.uid: u for u in self.snapshot.units()}
 
@@ -169,10 +170,15 @@ class B3Ctx:
         """CalleeSummary v1 rows of every return unit, facts certified by hostsym (V14);
         computed once per run. Without a bound layout or with ``certify=False`` the rows
         are WP20's proposed rows (no fact is citable)."""
-        if self._rows is not None:
+        from .analysis.global_values import EFFECT_INPUT
+
+        prefix = f"external:{EFFECT_INPUT}:"
+        inputs = tuple(sorted(i for i in self.store.inputs() if i.startswith(prefix)))
+        if self._rows is not None and self._summary_inputs == inputs:
             return self._rows
+        self._summary_inputs = inputs
         from .analysis.b3_inputs import guest_image_for, patch_plan_for
-        from .analysis.callee_summary import build_callee_summaries
+        from .analysis.callee_summary import build_callee_summaries, guarded_static_summaries
 
         s = self.snapshot
         certify: Any = None
@@ -196,6 +202,10 @@ class B3Ctx:
             hcfg_of=lambda u: self.hcfg(u.uid), guest=guest_image_for(s, bundle),
             plan=patch_plan_for(s, bundle), bundle=bundle, certify=certify,
             page_bits=self.page_bits)
+        if self.offsets is not None and self.offsets.r0 is not None:
+            self._rows = guarded_static_summaries(
+                self._rows, self.edges(), lambda uid: self.store.get("local-summary", ScopeRef("unit", uid)),
+                offset=self.offsets.r0)
         return self._rows
 
     @property
@@ -220,6 +230,7 @@ class SlotPlan:
     variant: str | None
     owner: str
     weight: int = 0  # train lookup_hit count of the edge
+    r0_zero: bool = False
 
 
 @dataclass(frozen=True)
@@ -264,9 +275,9 @@ class B3Refusal:
         return B3Reason.outcome(self.code)
 
 
-def stub_bytes_estimate(n_targets: int) -> int:
+def stub_bytes_estimate(n_targets: int, r0_zero: bool = False) -> int:
     """§4.1 size estimate of one guard stub (compares + per-target compare/slot + F)."""
-    return 56 + 24 * n_targets + 11
+    return 56 + 24 * n_targets + 11 + (13 if r0_zero else 0)
 
 
 @dataclass(frozen=True)
@@ -278,6 +289,10 @@ class B3State:
         default_factory=lambda: MappingProxyType({}))
     unit_code: Mapping[str, bytes] = field(default_factory=lambda: MappingProxyType({}))
     facts: Mapping[str, tuple[FactRef, ...]] = field(default_factory=lambda: MappingProxyType({}))
+
+    max_code_growth_bytes: int | None = None
+    max_variants_per_c: int = 2
+    max_variants: int = 64
 
     # -- queries --------------------------------------------------------------
     @property
@@ -305,7 +320,7 @@ class B3State:
         stubs of exits that carry a SPEC slot. GENERAL-only stubs (chain-returns,
         chain-static) have their own budget (≤ 2 slots/unit, 256 units, §3.6) and are
         reported by V21, not budgeted here."""
-        g = sum(stub_bytes_estimate(len(x.slots)) for x in self.exits.values()
+        g = sum(stub_bytes_estimate(len(x.slots), any(s.r0_zero for s in x.slots)) for x in self.exits.values()
                 if any(s.kind == "SPEC" for s in x.slots))
         for v in self.variants.values():
             c = units[v.src_uid]
@@ -323,7 +338,7 @@ class B3State:
               max_growth: int | None = None) -> "tuple[B3State | None, B3Refusal | None]":
         """Check §3.7's manager preconditions for the B3/B4 edits of one pass
         and return the next overlay (or a refusal; the proposal is then dropped)."""
-        from .guard import GuardError, guard_key
+        from .guard import GuardError, guard_atoms, guard_key
         from .link import free_slots, lookup_tails, tail_problem
 
         units = b3.units()
@@ -359,7 +374,8 @@ class B3State:
             except Exception as ex:  # noqa: BLE001 - StaleFact or a malformed row
                 return refuse("stale_fact", str(ex)[:300])
             row = row_of.get(f.summary_row_hash)
-            if fr.get("field") != f.field or int(str(fr.get("value")), 0) != f.value:
+            if (fr.get("field") != f.field or fr.get("source") != f.source
+                    or int(str(fr.get("value")), 0) != f.value):
                 return refuse("stale_fact", f"{f.fact_id}: field/value differ from the row")
             if row is None or tuple(e.units) != (row["return_unit"],):
                 return refuse("edit_precondition", f"fact {f.fact_id} attached to {e.units}, "
@@ -479,17 +495,29 @@ class B3State:
             c_unit = units.get(cand.dst) if cand.dst else None
             if c_unit is None or c_unit.key != gs.key_C:
                 return refuse("continuation_key_mismatch", f"{gs.uid}: key_C is not C's key")
+            r0_zero = False
+            if x is not None and any(s.r0_zero for s in x.slots):
+                return refuse("slot_budget", f"{gs.uid}: a value guard uses the whole stub")
             if gs.kind == "SPEC":
                 if gs.variant_ref not in clones:
                     return refuse("edit_precondition", f"SPEC slot of {gs.uid} without CLONE")
                 if clones[gs.variant_ref].src_uid != c_unit.uid:
                     return refuse("continuation_key_mismatch",
                                   f"SPEC slot of {gs.uid}: variant is not a clone of C")
+
+                r0_zero = any(f.source == "guard" for f in clones[gs.variant_ref].facts)
+                if r0_zero and (x is not None or b3.offsets.r0 is None):
+                    return refuse("slot_budget", f"{gs.uid}: requires a single bound value guard")
+                if r0_zero:
+                    expected = guard_atoms(b3.offsets, *kk, [gs.target_vaddr], r0_zero=True)
+                    actual = [a.to_json() for a in entries[gs.variant_ref].guard_atoms]
+                    if expected != actual:
+                        return refuse("edit_precondition", f"{gs.uid}: value guard differs")
                 from .link import GuardedExitSpec, spec_binding_problem
                 from .guard import GuardTarget
 
                 spec = GuardedExitSpec(gs.tail_off, gs.exit_class,
-                                       (GuardTarget(gs.target_vaddr, gs.slot_n, "SPEC"),),
+                                       (GuardTarget(gs.target_vaddr, gs.slot_n, "SPEC", r0_zero=r0_zero),),
                                        gs.key_C.flags, gs.key_C.cs_base)
                 bp = spec_binding_problem(spec, gs.slot_n, c_unit)
                 if bp is not None:
@@ -497,7 +525,7 @@ class B3State:
                 variants[gs.variant_ref] = replace(variants[gs.variant_ref],
                                                    weight=int(cand.count))
             sp = SlotPlan(gs.slot_n, gs.target_vaddr, gs.kind, c_unit.uid, gs.variant_ref,
-                          pass_name, int(cand.count))
+                          pass_name, int(cand.count), r0_zero)
             tot = sum(int(c.count) for c in row.candidates)
             if x is None:
                 x = ExitPlan(gs.uid, gs.exit_id, gs.tail_off, gs.exit_class, gs.key_C.flags,
@@ -545,8 +573,11 @@ class B3State:
                     variants[vid2] = replace(v2, code=bytes(vc))
         new_state = B3State(MappingProxyType(exits), MappingProxyType(variants),
                             MappingProxyType(rewrites), MappingProxyType(unit_code),
-                            MappingProxyType(facts))
-        if max_growth is not None and max_growth > 0:
+                            MappingProxyType(facts),
+                            max_growth if clones else self.max_code_growth_bytes,
+                            max_per_c if clones else self.max_variants_per_c,
+                            max_variants if clones else self.max_variants)
+        if max_growth is not None:
             g = new_state.growth_bytes(units)
             if g > max_growth and g > self.growth_bytes(units):
                 return refuse("growth_budget", f"{g} > {max_growth} bytes")
@@ -816,7 +847,7 @@ def materialize(state: B3State, b3: B3Ctx, *, register_slots: bool = True) -> Ma
         tg = []
         for s in x.slots:
             kind = s.kind if (s.kind != "SPEC" or s.variant in keep) else "GENERAL"
-            tg.append(GuardTarget(s.vaddr, s.slot_n, kind))
+            tg.append(GuardTarget(s.vaddr, s.slot_n, kind, r0_zero=s.r0_zero and kind == "SPEC"))
         grow.setdefault(uid, []).append(GuardedExitSpec(toff, x.exit_class, tuple(tg),
                                                         x.key_flags, x.key_cs_base))
     final_ids: dict[str, str] = {}
@@ -850,7 +881,9 @@ def materialize(state: B3State, b3: B3Ctx, *, register_slots: bool = True) -> Ma
                 "variant": final_ids[vid], "c": v.src_uid}
                for vid, v in sorted(keep.items(), key=lambda kv: kv[1].pred)]
     plan = B3Plan(grow={u: tuple(xs) for u, xs in grow.items()}, variants=tuple(vspecs),
-                  rewrites=rewrites, register_slots=register_slots)
+                  rewrites=rewrites, register_slots=register_slots,
+                  max_code_growth_bytes=state.max_code_growth_bytes,
+                  max_variants_per_c=state.max_variants_per_c, max_variants=state.max_variants)
     return Materialized(plan, downgraded, regions, final_ids, dict(pass_bytes), composed)
 
 
@@ -877,14 +910,23 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
     cand = pm.execute()
     b3 = pm.b3ctx
     st: B3State = cand.b3_state
+    # Partial/unknown unit proposals are normal. An actual failed pipeline pass
+    # cannot satisfy its requested composition or explicit coverage contract.
+    failed = next((p for p in cand.passes if p.outcome == Outcome.FAILED), None)
+    if failed is not None:
+        from .ledger import Ledger
+        from .validate import _reject_b3
+
+        reason = failed.reason or "pass_failed"
+        res = _reject_b3(store, candidate_id or cand.candidate_id, reason,
+                         Ledger(cand.ledger), None, None, f"{failed.name}: {failed.detail}")
+        return {"candidate": cand, "materialized": None, "package": res,
+                "path": "b3", "outcome": "failed"}
     if st is None or st.empty:
         res = ValidateAndPackage(cand, store, profiles=profiles).run()
         return {"candidate": cand, "materialized": None, "package": res, "path": "v5_identity",
                 "outcome": "published" if res.status == "published" else
                 b3_reject_outcome(res.reason).value}
-    if cand.has_layout_changes:
-        raise ValueError("a pipeline with both B2 layout edits and B3/B4 edits is not "
-                         "supported by the WP21 manager (combined arm: v2)")
     m = materialize(st, b3)
     from .analysis.obs_contract import build_contract
     from .validate_sym.link_check import hostsym_inputs, summary_provenance
@@ -916,6 +958,7 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
         led.emit("unit", r["r"], "optimized", Outcome.CANDIDATE.value,
                  f"ADD_REGION multi_tb slot {r['slot']}", r["variant"])
     res = package_b3(snapshot, m.plan, store, candidate_id=cid,
+                     placement=cand.working_set if cand.has_layout_changes else None,
                      pipeline=cand.pipeline_provenance(), profile_ids=cand.profile_rows(),
                      runtime=env.runtime, v6_exes=env.v6_exes, summaries=rows, hostsym=hs,
                      hot_set_bytes=hot, passes_byte_delta=m.pass_bytes,

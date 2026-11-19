@@ -10,6 +10,8 @@ relation at the continuation.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import capstone
 from capstone import x86 as X
 
@@ -170,11 +172,13 @@ def verify_splice_body(request: InlineCall) -> None:
     if splice is None:
         raise NativeInlineError("splice_missing", "native splice record required")
     expected = _prepare_body(request, splice.start_off, splice.prefix)
-    _require(expected == splice, "splice_correspondence", "stitched code or padding differs")
+    _require(expected == replace(splice, branches=()), "splice_correspondence",
+             "stitched code or padding differs")
 
 
 def verify_splice(unit: TBUnit, request: InlineCall, code_address: int) -> None:
     """Recompute the splice using the original caller and compare its exact bytes."""
     expected = prepare_splice(unit, request, code_address)
-    _require(expected == request.splice, "splice_correspondence",
+    _require(request.splice is not None and expected == replace(request.splice, branches=()),
+             "splice_correspondence",
              "stitched span, original load or replacement bytes differ")

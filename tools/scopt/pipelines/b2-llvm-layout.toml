@@ -1,0 +1,20 @@
+schema = "scopt.pipeline"
+version = 1
+name = "b2-llvm-layout"
+description = "LLVM Cache-Directed Sort of movable hot TBs, with the B2 placement contract."
+allowed_capabilities = ["ANNOTATE", "PIN", "LAYOUT_ORDER"]
+
+[[pass]]
+name = "hotcold-partition"
+version = 1
+params = { phase = "steady", coverage = 0.99 }
+
+[[pass]]
+name = "llvm-cache-layout"
+version = 1
+params = { phase = "steady", kinds = ["chain0", "chain1", "lookup_hit"] }
+
+[[pass]]
+name = "order-cold"
+version = 1
+params = { hot_fallback = true }

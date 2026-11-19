@@ -117,8 +117,10 @@ SCM_TB_CHUNK_VERSION_3 = 3
 # Derived TB v4 (native splice): same trailer framing, with the splice start
 # in reserved[31:0] and one inline request describing the replaced span.
 SCM_TB_CHUNK_VERSION_4 = 4
+# Guarded imported splice: reserved low word is stub_start; splice origin is in the certificate.
+SCM_TB_CHUNK_VERSION_5 = 5
 SCM_TB_CHUNK_VERSIONS = (SCM_TB_CHUNK_VERSION, SCM_TB_CHUNK_VERSION_2,
-                         SCM_TB_CHUNK_VERSION_3, SCM_TB_CHUNK_VERSION_4)
+                         SCM_TB_CHUNK_VERSION_3, SCM_TB_CHUNK_VERSION_4, SCM_TB_CHUNK_VERSION_5)
 SCM_TB_NATIVE_MAX = 1 << 20
 
 # VARIANT chunk (type 9, Python-only, WP18): a variant C' of a general record C.

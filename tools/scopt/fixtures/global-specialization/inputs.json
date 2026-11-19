@@ -1,0 +1,4 @@
+{
+  "train": [{"seed": "0x0", "expected": "0x1000"}, {"seed": "0x1", "expected": "0x3000"}],
+  "heldout": [{"seed": "0x2", "expected": "0x1000"}, {"seed": "0x3", "expected": "0x3000"}]
+}

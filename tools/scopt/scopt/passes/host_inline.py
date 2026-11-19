@@ -13,7 +13,7 @@ from pathlib import Path
 from ..analysis.api import ScopeRef
 from ..analysis.native_callees import NATIVE_IMAGES, NativeCallBinding, prepare_native_images
 from ..canon import sha256_id
-from ..model.native import (InlineCall, NativeFragment, NativeOrigin,
+from ..model.native import (MAX_INTEGER_SPLICES, InlineCall, NativeFragment, NativeOrigin,
                             supports_tcg_integer_abi)
 from ..validate_sym.native_inline import NativeInlineError, check_leaf, verify_fragment, verify_site
 from .base import BudgetExceeded, Budgets, EditKind, Outcome, PassDescriptor, PassResult
@@ -113,6 +113,7 @@ def _fragment(bridge: Path, callee, deadline: float) -> NativeFragment:
 class HostInline:
     consider_cold = False
     max_sites_per_unit = _LIMITS["max_sites_per_unit"]
+    default_sites_per_unit = _DEFAULTS["max_sites_per_unit"]
     success_reason = "native_calls_inlined"
     abi_contract = "requires register-only integer ABI"
 
@@ -151,7 +152,7 @@ class HostInline:
         return request
 
     def run(self, view, ctx, edits) -> PassResult:
-        params = {**_DEFAULTS, **ctx.params}
+        params = {**_DEFAULTS, "max_sites_per_unit": self.default_sites_per_unit, **ctx.params}
         for key, limit in _LIMITS.items():
             minimum = 1 if key in ("max_cfg_insns", "max_wall_s") else 0
             if not minimum <= params[key] <= limit:
@@ -230,7 +231,7 @@ class HostInline:
         candidates.sort(key=lambda c: (-(c.entries or 0), self._ranking_priority(c.binding),
                                        c.binding.callee.size, c.unit_slot, c.binding.call.host_off))
         by_unit, growth = Counter(), Counter()
-        selected, fragments = set(), {}
+        selected, fragments = {}, {}
         for candidate in candidates:
             _remaining(deadline)
             binding = candidate.binding
@@ -260,6 +261,11 @@ class HostInline:
                     callee_code=callee.code, native_input_id=prepared.input_id, fragment=frag,
                     bridge_sha256=bridge_id)
                 req = self._prepare_request(unit, req, view.header.code_address, binding, params)
+                if req.splice is not None and (earlier := selected.get(call.uid)):
+                    from ..splice_layout import materialize_splices
+
+                    requests = tuple(sorted((*earlier, req), key=lambda row: row.call_off))
+                    materialize_splices(unit, requests, view.header.code_address)
             except NativeInlineError as e:
                 report(binding, e.reason, str(e), entries)
                 continue
@@ -272,7 +278,7 @@ class HostInline:
             edits.inline_call(req)
             growth[call.uid] += req.growth
             by_unit[call.uid] += 1
-            selected.add(call.uid)
+            selected.setdefault(call.uid, []).append(req)
             stats["sites_applied"] += 1
             stats["emitted_growth_bytes"] += req.growth
             stats["selected_tb_entries_proxy"] += entries or 0
@@ -291,7 +297,8 @@ class HostInlineSplice(HostInline):
     """Replace a call with a verified, straight-line fallthrough splice."""
 
     descriptor = replace(HostInline.descriptor, name="host-inline-splice")
-    max_sites_per_unit = 1
+    max_sites_per_unit = MAX_INTEGER_SPLICES
+    default_sites_per_unit = 1
     success_reason = "native_calls_spliced"
     abi_contract = "requires one 32-bit integer argument and a 32-bit integer result"
 
@@ -308,15 +315,14 @@ class HostInlineSplice(HostInline):
     def _prepare_request(self, unit, request: InlineCall, code_address: int,
                          binding: NativeCallBinding, params) -> InlineCall:
         from ..link import LinkError
-        from ..splice_layout import check_splice_layout
+        from ..splice_layout import prepare_splice_layout
 
         request = replace(request, tcg_typemask=binding.callee.tcg_typemask)
         request = replace(request, splice=self._prepare_splice(unit, request, code_address, binding, params))
         try:
-            check_splice_layout(unit, request, code_address)
+            return prepare_splice_layout(unit, request, code_address)
         except LinkError as error:
             raise NativeInlineError(error.reason, str(error)) from error
-        return request
 
 
 PASSES = (HostInline, HostInlineSplice)

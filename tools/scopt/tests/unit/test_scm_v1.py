@@ -321,7 +321,8 @@ def test_malformed_payload_rejects_only_that_chunk():
             # v3 requires a nonempty native island trailer and a span boundary.
             (struct.pack("<I", 3) + payload[4:], "tb_chunk_v3_native_layout"),
             (struct.pack("<I", 4) + payload[4:], "tb_chunk_v4_native_layout"),
-            (struct.pack("<I", 5) + payload[4:], "unsupported_tb_chunk_version:5"),
+            (struct.pack("<I", 5) + payload[4:], "tb_chunk_v5_native_layout"),
+            (struct.pack("<I", 6) + payload[4:], "unsupported_tb_chunk_version:6"),
             (payload[:166] + struct.pack("<H", 4) + payload[168:], "insn_start_words:4")):
         framed = S.frame_chunk(int(ChunkType.TB), tbc["seq"], bad_payload)
         y = x[: tbc["offset"]] + framed + x[tbc["offset"] + tbc["length"]:]

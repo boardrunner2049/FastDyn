@@ -31,6 +31,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from ..canon import canonical_json, sha256_id
 from ..decode.guest_symbols import GuestImage, unit_guest_bytes
 from ..decode.thumb_sem import decode_unit
 from ..formats.callee_summary_v1 import SCHEMA, VERSION, fact_id, factref, seal_row
@@ -187,7 +188,7 @@ def build_callee_summaries(units: Sequence[Any], edges: ReturnEdges, *, snapshot
     by_uid = {u.uid: u for u in units}
     out = []
     for row in edges.exits:
-        if row.exit_class != "return":
+        if row.exit_class not in ("return", "static"):
             continue
         u = by_uid[row.uid]
         h = hostops_of(u)
@@ -197,6 +198,60 @@ def build_callee_summaries(units: Sequence[Any], edges: ReturnEdges, *, snapshot
             facts=facts_of(u) if h.ok else None,
             not_local=[n for n in edges.not_local_of(u.uid) if n.exit_id == row.exit_id],
             guest=guest, plan=plan, bundle=bundle, certify=certify, page_bits=page_bits))
+    return out
+
+
+def guarded_static_summaries(rows, edges, local_of, *, offset: int | None):
+    """Propose r0 == 0 at B→C from a certified A→B fact and a preserving B.
+
+    The original A→B identity motivates the candidate. B can be entered from
+    anywhere. The final machine-code guard and V14 must establish the value on
+    every admitted incoming path before C's body may use it.
+    """
+    if offset is None:
+        return rows
+    admitted = {(e.uid, e.exit_id): e for e in edges.exits if e.admitted
+                and e.exit_class == "static" and e.tail_off is not None}
+    predecessors = {}
+    for row in rows:
+        edge = admitted.get((row["return_unit"], row["exit_id"]))
+        if edge is None:
+            continue
+        for fact in row["facts"]:
+            if (fact["field"], fact["value"], fact["status"]) != ("r0", "0x0", "certified"):
+                continue
+            for target in edge.candidates:
+                if (target.admitted and target.vaddr == edge.static_dest
+                        and target.dst is not None and target.dst != edge.uid):
+                    predecessors.setdefault(target.dst, []).append((row, fact, target.count))
+    out = []
+    r0_bytes = frozenset(range(offset, offset + 4))
+    for row in rows:
+        uid, exit_id = row["return_unit"], row["exit_id"]
+        edge = admitted.get((uid, exit_id))
+        origin = predecessors.get(uid)
+        if edge is None or not origin or edge.insn is None or any(
+                f["status"] == "certified" and f["field"] == "r0" for f in row["facts"]):
+            out.append(row)
+            continue
+        summary = local_of(uid)
+        if not r0_bytes <= dict(summary.value.preserved_at_tails).get(edge.tail_off, frozenset()):
+            out.append(row)
+            continue
+        source, fact, weight = min(origin, key=lambda rf: (-rf[2], rf[0]["return_unit"], rf[0]["exit_id"]))
+        # Bind the obligation to both source versions and the executable-bound
+        # byte summary. Only actual slot certification can discharge it.
+        proof = {"writer": source["return_unit"], "writer_exit": source["exit_id"],
+                 "writer_fact": fact["fact_id"], "writer_row": source["row_hash"],
+                 "preserver_summary": summary.result_hash, "at": edge.tail_off,
+                 "effect_table": summary.value.effect_id, "writer_tb_edge_count": weight}
+        id_ = fact_id(uid, row["deps"]["unit"]["content_hash"], exit_id, "r0", 0,
+                      ((edge.tail_off, edge.insn),))
+        claim = {"fact_id": id_, "field": "r0", "value": "0x0", "source": "guard",
+                 "status": "guarded", "cert_hash": sha256_id(canonical_json(proof)),
+                 "def_host_off": edge.tail_off, "def_insn": edge.insn,
+                 "defs": [{"host_off": edge.tail_off, "insn": edge.insn}]}
+        out.append(seal_row({**row, "facts": [*row["facts"], claim], "x_guarded_origin": proof}))
     return out
 
 

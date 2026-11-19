@@ -434,7 +434,9 @@ class _Builder:
                      envlayout_id=None if self.lay is None else self.lay.envlayout_id)
         if u.meta_status != "ok":
             return UnitHostOps(status="pinned", reasons=(u.meta_status,), ops=(), **empty)
-        if getattr(u, "native_fragments", ()):
+        fragments = getattr(u, "native_fragments", ())
+        if fragments and not (u.splice_applied and all(
+                c.splice is not None and c.splice.kind == "integer" for c in fragments)):
             return UnitHostOps(status="pinned", reasons=("native_fragments_unmodeled",), ops=(), **empty)
         if self.lay is None:
             return UnitHostOps(status="pinned", reasons=("guard_layout_unbound",), ops=(), **empty)

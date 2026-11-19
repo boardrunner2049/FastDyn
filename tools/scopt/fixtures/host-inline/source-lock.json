@@ -2,6 +2,7 @@
   "schema": "scopt.host-inline-source-lock/1",
   "reviewed_fastdyn": "72c398a748a2a6220e6965a17b8614f9f57258d6",
   "starting_fastdyn": "4108598b0942477159446ce01b33216d972f6de9",
+  "runtime_source_ref": "817ca5ef7f91c2494dceba6929cd63dbcfae52f7",
   "fastdyn_url": "https://github.com/boardrunner2049/FastDyn.git",
   "qemu": "934890ed5119ef70da69276991d921573f23ed4f",
   "qemu_url": "https://github.com/boardrunner2049/qemu.git",

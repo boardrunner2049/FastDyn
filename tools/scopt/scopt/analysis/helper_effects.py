@@ -289,7 +289,7 @@ _REGISTERED: dict[str, "BoundEffects"] = {}  # exe_sha256 or envlayout_id -> bou
 _FOUND: dict[str, HelperEffectTable | None] = {}
 
 
-def find_helper_effects(exe_sha256: str | None) -> HelperEffectTable | None:
+def find_helper_effects(exe_sha256: str | None, *, refresh: bool = False) -> HelperEffectTable | None:
     """The table bound to ``exe_sha256`` (registered, then the search path), or None."""
     if not exe_sha256:
         return None
@@ -298,7 +298,7 @@ def find_helper_effects(exe_sha256: str | None) -> HelperEffectTable | None:
         return b.table
     if not is_sha256_id(exe_sha256):
         return None
-    if exe_sha256 in _FOUND:
+    if not refresh and exe_sha256 in _FOUND:
         return _FOUND[exe_sha256]
     hexd = exe_sha256.split(":", 1)[1]
     out = None
@@ -580,6 +580,18 @@ def effects_for_layout(layout: Any) -> BoundEffects:
             # HostOps records only the layout id: let its consumers find this binding
             _BY_LAYOUT_ID.setdefault(lid, b)
     return b
+
+
+def refresh_effects_for_layout(layout: Any) -> BoundEffects:
+    """Refresh file-backed identity before creating a generation-bound plan."""
+    exe = getattr(layout, "exe_sha256", None)
+    if exe is not None and exe not in _REGISTERED:
+        previous = _FOUND.get(exe)
+        current = find_helper_effects(exe, refresh=True)
+        if previous != current:
+            _BY_LAYOUT.pop(_layout_key(layout), None)
+            _BY_LAYOUT_ID.pop(getattr(layout, "envlayout_id", None), None)
+    return effects_for_layout(layout)
 
 
 def effects_for_envlayout_id(envlayout_id: str | None) -> BoundEffects:

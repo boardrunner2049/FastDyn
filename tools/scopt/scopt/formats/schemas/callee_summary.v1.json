@@ -59,12 +59,12 @@
             "type": "object", "required": ["host_off", "insn"], "additionalProperties": false,
             "properties": {"host_off": {"type": "integer", "minimum": 0},
                            "insn": {"type": "integer", "minimum": 0}}}},
-          "source": {"enum": ["patch", "guest_code"]},
+          "source": {"enum": ["patch", "guest_code", "guard"]},
           "plan_entry": {"type": "object"},
           "writer_insn": {"type": "integer", "minimum": 0},
           "writer_vaddr": {"$ref": "#/$defs/hex"},
           "cert_hash": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
-          "status": {"enum": ["proposed", "certified"]}
+          "status": {"enum": ["proposed", "certified", "guarded"]}
         }
       }
     },

@@ -1,0 +1,22 @@
+schema = "scopt.pipeline"
+version = 1
+name = "global-specialization"
+description = "Certified off-page predecessor facts and serial partition transformations."
+allowed_capabilities = ["CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "specialize-edges"
+version = 1
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1

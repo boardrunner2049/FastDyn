@@ -43,11 +43,11 @@ def command(log: Path, argv, *, cwd=ROOT) -> None:
         subprocess.run(args, cwd=cwd, check=True, stdout=stream, stderr=subprocess.STDOUT)
 
 
-def build(work: Path, lock: dict, log: Path) -> tuple[Path, Path]:
+def build(work: Path, lock: dict, log: Path, reuse_build: Path | None = None) -> tuple[Path, Path]:
     start = output(["git", "rev-parse", "HEAD"])
     if lock["schema"] != "scopt.host-inline-source-lock/1":
         raise ValueError("unsupported source lock")
-    command(log, ["git", "diff", "--quiet", lock["starting_fastdyn"], "--", ".",
+    command(log, ["git", "diff", "--quiet", lock.get("runtime_source_ref", lock["starting_fastdyn"]), "--", ".",
                   ":(exclude)tools/scopt"])
     observed = {pkg: output(["dpkg-query", "-W", "-f=${Version}", pkg])
                 for pkg in lock["build_dependencies"]}
@@ -68,7 +68,16 @@ def build(work: Path, lock: dict, log: Path) -> tuple[Path, Path]:
     if output(["git", "rev-parse", "HEAD"], qemu_src) != lock["qemu"]:
         raise ValueError("QEMU submodule differs from source lock")
     command(log, ["git", "diff", "--quiet", "HEAD"], cwd=qemu_src)
-    command(log, lock["build"]["setup"])
+    if reuse_build is None:
+        command(log, lock["build"]["setup"])
+    else:
+        previous = json.loads(reuse_build.read_text())
+        if previous["source_lock"] != lock:
+            raise ValueError("previous build used a different runtime source lock")
+        for relative in lock["native_images"].values():
+            path = ROOT / relative
+            if digest(path) != previous["images"].get(str(path)):
+                raise ValueError(f"previous build digest mismatch: {path}")
     command(log, ["git", "diff", "--quiet", "HEAD"], cwd=qemu_src)
     qemu, plugin = (ROOT / lock["native_images"][key] for key in ("qemu", "plugin"))
     options = json.loads((qemu.parent / "meson-info/intro-buildoptions.json").read_text())
@@ -124,8 +133,8 @@ def oracle(run: dict, expected: int) -> None:
         raise ValueError(f"{run['stdout_log']}: expected {expected:#010x}, got {observed}")
 
 
-def qualify(work: Path, lock: dict, log: Path) -> None:
-    qemu, plugin = build(work, lock, log)
+def qualify(work: Path, lock: dict, log: Path, reuse_build: Path | None = None) -> None:
+    qemu, plugin = build(work, lock, log, reuse_build)
     qualify_images(work, qemu, plugin, log)
 
 
@@ -199,10 +208,15 @@ def qualify_images(work: Path, qemu: Path, plugin: Path, log: Path) -> None:
           profile / "merged.profile.json", "--store", store)
     artifact, = (store / "artifacts").iterdir()
     scopt("validate", artifact, "--snapshot", snapshot)
-    scopt("import", artifact / "cache.sc", "--scm", artifact / "cache.scm",
+    captures = sorted(artifact.glob("cache*.scm"))
+    scopt("import", artifact / "cache.sc", *(a for scm in captures for a in ("--scm", scm)),
           "--manifest", manifest, "--bundle", bundle, "--runtime-identity", runtime,
           "--store", work / "reimport")
     reimport, = (work / "reimport/snapshots").iterdir()
+    expected_binding = json.loads((snapshot / "snapshot.json").read_text())["capture"]["binding"]
+    actual_binding = json.loads((reimport / "snapshot.json").read_text())["capture"]["binding"]
+    if expected_binding != actual_binding:
+        raise ValueError("identity artifact reimport changed capture binding counts")
     if reimport.name != snapshot.name:
         raise ValueError("identity artifact reimport changed the snapshot ID")
     scopt("validate", artifact, "--dynamic", "-c", config, "--qemu", qemu,
@@ -228,17 +242,23 @@ def qualify_images(work: Path, qemu: Path, plugin: Path, log: Path) -> None:
 
 
 def main() -> None:
+    global FIXTURE
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-lock", required=True, type=Path)
+    parser.add_argument("--fixture", choices=("host-inline", "host-inline-two-rbit"),
+                        default="host-inline", help="firmware fixture to qualify")
     parser.add_argument("--work-dir", required=True, type=Path)
+    parser.add_argument("--reuse-build", type=Path, help="verify binaries against prior build-evidence.json")
     args = parser.parse_args()
     if sys.platform != "linux" or platform.machine() != "x86_64" or sys.version_info[:2] != (3, 12):
         parser.error("requires x86-64 Linux and Python 3.12")
+    FIXTURE = ROOT / "tools/scopt/fixtures" / args.fixture
     work = args.work_dir.resolve()
     work.mkdir(parents=True)
     log = work / "bootstrap.log"
     try:
-        qualify(work, json.loads(args.source_lock.read_text()), log)
+        qualify(work, json.loads(args.source_lock.read_text()), log, args.reuse_build)
     except (OSError, subprocess.CalledProcessError, ValueError) as error:
         raise SystemExit(f"bootstrap failed: {error}; see {log}") from error
 

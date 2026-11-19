@@ -907,6 +907,7 @@
             "g_cond",
             "g_flags",
             "g_flags2",
+            "g_r0_zero",
             "g_pc"
           ]
         },
@@ -979,7 +980,8 @@
         "source": {
           "enum": [
             "patch",
-            "guest_code"
+            "guest_code",
+            "guard"
           ]
         },
         "cert_hash": {

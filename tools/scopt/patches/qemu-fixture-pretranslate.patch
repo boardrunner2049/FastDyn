@@ -1,0 +1,120 @@
+--- a/accel/tcg/cpu-exec.c
++++ b/accel/tcg/cpu-exec.c
+@@ -41,6 +41,10 @@
+ #include "exec/icount.h"
+ #include "exec/replay-core.h"
+ #include "system/tcg.h"
++#ifndef CONFIG_USER_ONLY
++#include "system/address-spaces.h"
++#include "system/memory.h"
++#endif
+ #include "exec/helper-proto-common.h"
+ #include "tb-jmp-cache.h"
+ #include "tb-hash.h"
+@@ -937,7 +941,96 @@
+         cpu->cflags_next_tb = (tb->cflags & ~CF_COUNT_MASK) | insns_left;
+     }
+ #endif
++}
++
++#ifndef CONFIG_USER_ONLY
++/*
++ * Offline coverage probe for a fixed, mapped Cortex-M fixture. The harness
++ * starts this at its agreed reset entry and supplies a bounded Thumb range.
++ * Probe the live translation flags and the exact one-insn count variant.
++ * Generate normal TCG TBs (and capture records) but never execute them here.
++ */
++static void scopt_pretranslate(CPUState *cpu, TCGTBCPUState context)
++{
++    static bool checked;
++    const char *range, *out;
++    unsigned long long start, end, trigger;
++    char extra;
++    FILE *trace;
++
++    if (checked) {
++        return;
++    }
++    range = getenv("QEMU_SCOPT_COVERAGE_RANGE");
++    out = getenv("QEMU_SCOPT_COVERAGE_TRACE");
++    if (!range && !out) {
++        checked = true;
++        return;
++    }
++    if (!range || !out || cpu->cpu_index != 0 ||
++        sscanf(range, "%llx:%llx:%llx%c", &start, &end, &trigger, &extra) != 3 ||
++        start >= end || end > UINT32_MAX || end - start > 256 ||
++        ((start | end | trigger) & 1) != 0 || !tcg_supercache_enabled()) {
++        error_report("invalid scopt coverage probe configuration");
++        exit(EXIT_FAILURE);
++    }
++    if (context.pc != trigger || (context.cflags & CF_COUNT_MASK) != 0) {
++        return;
++    }
++    checked = true;
++    /* Later training inputs reopen the seed cache and keep its original trace. */
++    if (tcg_supercache_loaded_max_end() && access(out, F_OK) == 0) {
++        return;
++    }
++    trace = fopen(out, "wx");
++    if (!trace) {
++        error_report("cannot create scopt coverage trace: %s", strerror(errno));
++        exit(EXIT_FAILURE);
++    }
++    fprintf(trace, "scopt-tcg-coverage-v1 %llx %llx %llx\n", start, end, trigger);
++    for (unsigned int variant = 0; variant <= 1; variant++) {
++        TCGTBCPUState query = context;
++
++        query.cflags |= variant;
++        for (vaddr pc = start; pc < end; pc += 2) {
++            TranslationBlock *tb;
++            hwaddr offset, length = 2;
++            MemoryRegion *mr = address_space_translate(&address_space_memory,
++                                                        pc, &offset, &length,
++                                                        false,
++                                                        MEMTXATTRS_UNSPECIFIED);
++
++            if (!memory_region_is_rom(mr) || length != 2) {
++                error_report("scopt coverage probe address is not immutable ROM");
++                exit(EXIT_FAILURE);
++            }
++            query.pc = pc;
++            if (tb_lookup(cpu, query)) {
++                error_report("scopt coverage probe requires fresh translation");
++                exit(EXIT_FAILURE);
++            }
++            mmap_lock();
++            tb = tb_gen_code(cpu, query);
++            mmap_unlock();
++            if (tb_page_addr0(tb) == (tb_page_addr_t)-1 ||
++                tb->cflags != query.cflags || tb->flags != query.flags ||
++                tb->cs_base != query.cs_base) {
++                error_report("scopt coverage probe did not retain requested key");
++                exit(EXIT_FAILURE);
++            }
++            fprintf(trace, "%u %" PRIx64 " %" PRIx64 " %" PRIx64
++                    " %" PRIx32 " %" PRIx64 " %" PRIx32 " %u %u\n",
++                    variant, (uint64_t)pc, (uint64_t)tb_page_addr0(tb),
++                    (uint64_t)tb_page_addr1(tb), tb->flags,
++                    (uint64_t)tb->cs_base, tb->cflags, tb->size, tb->icount);
++        }
++    }
++    if (fprintf(trace, "end\n") < 0 || fclose(trace) != 0) {
++        error_report("cannot finalize scopt coverage trace");
++        exit(EXIT_FAILURE);
++    }
+ }
++#endif
+ 
+ /* main execution loop */
+ 
+@@ -969,6 +1062,9 @@
+                 cpu->cflags_next_tb = -1;
+             }
+ 
++#ifndef CONFIG_USER_ONLY
++            scopt_pretranslate(cpu, s);
++#endif
+             if (check_for_breakpoints(cpu, s.pc, &s.cflags)) {
+                 break;
+             }

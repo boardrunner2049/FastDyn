@@ -62,7 +62,7 @@ NOTCACHED2 = CS_THUMB | CS_CONDEXEC_MASK | (1 << 2) | (1 << 3) | (1 << 4) | (1 <
 CS_M_FP_BITS = (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5)
 PSTATE_SS = 1 << 2  # TBFLAG_ANY PSTATE__SS (not cached), target/arm/cpu.h:2958
 SS_ACTIVE = 1 << 1  # TBFLAG_ANY SS_ACTIVE, target/arm/cpu.h:2957
-ATOMS = ("g_bp", "g_thumb", "g_cond", "g_flags", "g_flags2", "g_pc")
+ATOMS = ("g_bp", "g_thumb", "g_cond", "g_flags", "g_flags2", "g_pc", "g_r0_zero")
 
 _JNE, _JE = 0x85, 0x84
 _MOV_RDI_RBP = (b"\x48\x8b\xfd", b"\x48\x89\xef")
@@ -88,6 +88,7 @@ class GuardOffsets:
     flags2: int = 0x158
     pc: int = 0x3C
     envlayout_id: str | None = None
+    r0: int | None = None
 
     #: EnvLayout element names (``scopt.formats.envlayout_v1.G21_NAMES`` values)
     FIELDS = {"bp": "cpu.breakpoints.tqh_first", "thumb": "thumb",
@@ -104,9 +105,13 @@ class GuardOffsets:
             vals = {k: layout.offset(n) for k, n in cls.FIELDS.items()}
         except KeyError as e:
             raise GuardError("guard_layout_unbound", str(e)) from None
-        return cls(**vals, envlayout_id=getattr(layout, "envlayout_id", None))
+        r0 = layout.field("regs[0]") if getattr(layout, "has_field", lambda _name: False)("regs[0]") else None
+        return cls(**vals, envlayout_id=getattr(layout, "envlayout_id", None),
+                   r0=r0.off if r0 is not None and r0.size == 4 else None)
 
     def env_field(self, atom: str) -> str:
+        if atom == "g_r0_zero":
+            return "regs[0]"
         return self.FIELDS[{"g_bp": "bp", "g_thumb": "thumb", "g_cond": "condexec",
                             "g_flags": "flags", "g_flags2": "flags2", "g_pc": "pc"}[atom]]
 
@@ -119,6 +124,7 @@ class GuardTarget:
     slot_n: int
     kind: str  # "GENERAL" | "SPEC"
     registered: bool = True
+    r0_zero: bool = False
 
 
 @dataclass(frozen=True)
@@ -188,7 +194,7 @@ def guard_key(key_flags: int, key_cs_base: int) -> tuple[int, int]:
 
 
 def guard_atoms(offsets: GuardOffsets, kf: int, kf2: int,
-                vaddrs: Sequence[int]) -> list[dict[str, Any]]:
+                vaddrs: Sequence[int], *, r0_zero: bool = False) -> list[dict[str, Any]]:
     """The GuardAtom items (CacheRegion ``extra_guards``, design §3.9)."""
     o = offsets
     out = [{"atom": "g_bp", "env_field": o.FIELDS["bp"], "width": 8, "op": "zero",
@@ -201,6 +207,9 @@ def guard_atoms(offsets: GuardOffsets, kf: int, kf2: int,
             "value": hex(kf)},
            {"atom": "g_flags2", "env_field": o.FIELDS["flags2"], "width": 8, "op": "eq",
             "value": hex(kf2)}]
+    if r0_zero:
+        out.append({"atom": "g_r0_zero", "env_field": "regs[0]", "width": 4, "op": "zero",
+                    "value": "0x0"})
     out += [{"atom": "g_pc", "env_field": o.FIELDS["pc"], "width": 4, "op": "eq",
              "value": hex(v)} for v in vaddrs]
     return out
@@ -248,6 +257,9 @@ def emit_guard(*, stub_off: int, tail: bytes, pool_slot_off: int, lookup_helper_
             raise GuardError("slot_kind", f"{t}")
         if t.kind == "SPEC" and not t.registered:
             raise GuardError("slot_kind", "a SPEC slot must be registered (v6)")
+    r0_zero = any(t.r0_zero for t in targets)
+    if r0_zero and (len(targets) != 1 or targets[0].kind != "SPEC" or offsets.r0 is None):
+        raise GuardError("guard_contract_violation", "r0 check requires a bound single SPEC slot")
     if len(tail) != TAIL_LEN or tail[:3] not in _MOV_RDI_RBP or tail[3:5] != b"\xff\x15" or \
             tail[9:11] != b"\xff\xe0":
         raise GuardError("exit_not_goto_ptr", f"tail {bytes(tail).hex()}")
@@ -289,6 +301,10 @@ def emit_guard(*, stub_off: int, tail: bytes, pool_slot_off: int, lookup_helper_
     else:
         buf += b"\x48\xb8" + struct.pack("<Q", kf2) + b"\x48\x39\x85" + _d32(o.flags2)
     jcc(_JNE, "F")
+    if r0_zero:
+        assert o.r0 is not None
+        buf += b"\x83\xbd" + _d32(o.r0) + b"\x00"
+        jcc(_JNE, "F")
     pc_cmp = []
     for k, t in enumerate(targets):
         pc_cmp.append(pos())
@@ -452,6 +468,12 @@ def decode_guard(code: bytes, off: int, *, tc_abs: int, struct_off: int,
             raise GuardError(viol, "g_flags2 imm64 form for a small constant")
     atoms.append(("g_flags2", d, kf2))
     fs.append(jcc(_JNE, "g_flags2 jne"))
+    r0_zero = b[p:p + 2] == b"\x83\xbd"
+    if r0_zero:
+        d = disp_cmp(b"\x83\xbd", "g_r0_zero")
+        need(b"\x00", "g_r0_zero imm")
+        atoms.append(("g_r0_zero", d, 0))
+        fs.append(jcc(_JNE, "g_r0_zero jne"))
     pcs = []
     while b[p:p + 2] == b"\x81\xbd":
         co = p
@@ -514,6 +536,8 @@ def decode_guard(code: bytes, off: int, *, tc_abs: int, struct_off: int,
                                   co, lab, jo, fo, ro, "jmp_F"))
             rets.append(None)
             srel.append(None)
+    if r0_zero and (len(slots) != 1 or slots[0].kind != "SPEC"):
+        raise GuardError(viol, "r0 check requires a registered single SPEC slot")
     if p != f_target:
         raise GuardError(viol, f"F at +{f_target:#x}, expected +{p:#x}")
     if any(cc == _JNE and t != f_target for cc, t in jcc_targets):
@@ -528,7 +552,8 @@ def decode_guard(code: bytes, off: int, *, tc_abs: int, struct_off: int,
     need(b"\xff\xe0", "F: jmp rax")
     if offsets is not None:
         want = {"g_bp": offsets.bp, "g_thumb": offsets.thumb, "g_cond": offsets.condexec,
-                "g_flags": offsets.flags, "g_flags2": offsets.flags2, "g_pc": offsets.pc}
+                "g_flags": offsets.flags, "g_flags2": offsets.flags2, "g_pc": offsets.pc,
+                "g_r0_zero": offsets.r0}
         bad = [a for a, dd, _ in atoms if want[a] != dd]
         if bad:
             raise GuardError(viol, f"env displacements differ from the EnvLayout: {bad}")

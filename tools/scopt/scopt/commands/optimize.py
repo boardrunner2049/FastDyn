@@ -25,6 +25,35 @@ def _open_snapshot(spec: str, store: str | None):
     return open_snapshot(p)
 
 
+def _splice_generation(snap, entry, store, views, params):
+    """Produce and fully reimport the certified native generation consumed by B3."""
+    from dataclasses import replace
+
+    from ..importer.import_cache import ImportRejected, import_snapshot, open_snapshot
+    from ..manager import PipelineError, load_pipeline
+    from ..validate import optimize
+
+    stage = replace(load_pipeline("host-inline-splice"), passes=(entry,))
+    intermediate = Path(store) / "native-generations"
+    res = optimize(snap, stage, intermediate, profiles=views, params=params)
+    doc = res.to_json()
+    doc["passes"] = [p.to_json() for p in res.candidate.passes]
+    if not res.published or any(p["outcome"] == "failed" for p in doc["passes"]):
+        raise PipelineError(f"native prefix rejected: {res.reason or doc['passes']}")
+    cache = Path(res.artifact_dir)
+    manifest = Path(snap.path) / "manifest.json"
+    try:
+        result = import_snapshot(sc=str(cache / "cache.sc"), scms=sorted(cache.glob("cache*.scm")),
+                                 manifest=str(manifest) if manifest.is_file() else None,
+                                 bundle=snap.bundle, runtime_identity=snap.runtime, store=intermediate)
+    except ImportRejected as exc:
+        raise PipelineError(f"native generation reimport failed: {exc}") from exc
+    imported = open_snapshot(result.store_dir)
+    return imported, {"snapshot_dir": str(result.store_dir), "input_snapshot": snap.snapshot_id, "output_snapshot": imported.snapshot_id,
+                      "artifact_dir": str(cache), "artifact_id": res.artifact_id,
+                      "passes": doc["passes"], "validation": doc["validation"]}
+
+
 def _profiles(paths, snap):
     from ..formats.profile_v1 import ProfileIncompatible, ProfileView, read_profile
 
@@ -86,21 +115,49 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
         pl = load_pipeline(pipeline)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
+    native_stage = None
+    if (pl.passes and pl.passes[0].name == "host-inline-splice"
+            and pl.allowed_capabilities & B3_EDIT_KINDS):
+        from dataclasses import replace
+
+        splice, *rest = pl.passes
+        if not rest or any(p.name == splice.name for p in rest):
+            raise click.UsageError("one native prefix followed by B3 passes is required")
+        stage_params = {splice.name: params[splice.name]} if params and splice.name in params else {}
+        if only == splice.name:
+            if set(disable) - {p.name for p in pl.passes}:
+                raise click.UsageError("unknown disabled pass")
+            pl = replace(load_pipeline("host-inline-splice"), passes=(splice,))
+            params, b3_mode = stage_params, False
+            disable = tuple(name for name in disable if name == splice.name)
+        else:
+            if only is None and splice.name not in disable:
+                try:
+                    snap, native_stage = _splice_generation(snap, splice, store, views, stage_params)
+                except PipelineError as exc:
+                    raise click.UsageError(str(exc)) from exc
+                views, stage_notes = _profiles(profiles, snap)
+                notes.extend(stage_notes)
+            pl = replace(pl, passes=tuple(rest),
+                         allowed_capabilities=pl.allowed_capabilities - NATIVE_EDIT_KINDS)
+            disable = tuple(name for name in disable if name != splice.name)
+            params = {k: v for k, v in (params or {}).items() if k != splice.name}
     native = bool(pl.allowed_capabilities & NATIVE_EDIT_KINDS) or any(
-        unit.inline_start is not None or unit.splice_applied for unit in snap.units())
+        unit.inline_start is not None for unit in snap.units())
     layout_caps = {EditKind.PIN, EditKind.LAYOUT_ORDER, EditKind.PLACE}
     if native and (b3_mode or pl.allowed_capabilities & (B3_EDIT_KINDS | layout_caps)):
         raise click.UsageError("native_combination_unsupported: native islands need a standalone pipeline")
     if b3_mode or (pl.allowed_capabilities & B3_EDIT_KINDS):
         _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, v6_exes,
-                     selftest_file, prep, elf, as_json)
+                     selftest_file, prep, elf, as_json, native_stage=native_stage)
         return
     try:
-        res = optimize(snap, pipeline, store, profiles=views, params=params,
+        res = optimize(snap, pl, store, profiles=views, params=params,
                        disable=disable, only=only)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
     doc = res.to_json()
+    doc["passes"] = [p.to_json() for p in res.candidate.passes]
     doc["notes"] = notes
     if as_json:
         click.echo(json.dumps(doc, indent=2, sort_keys=True))
@@ -129,7 +186,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
 
 
 def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, v6_exes,
-                 selftest_file, prep, elf, as_json):
+                 selftest_file, prep, elf, as_json, native_stage=None):
     from ..analysis.b3_inputs import resolve_for_snapshot
     from ..manager import PipelineError
     from ..manager_b3 import B3Env, optimize_b3
@@ -159,6 +216,9 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, 
            "downgraded": None if m is None else m.downgraded,
            "pass_byte_delta": None if m is None else m.pass_bytes,
            "validation": None if pk.validation is None else pk.validation.codes()}
+    if native_stage:
+        doc["native_stage"] = native_stage
+        doc["passes"] = [*native_stage["passes"], *doc["passes"]]
     if as_json:
         click.echo(json.dumps(doc, indent=2, sort_keys=True, default=str))
     else:

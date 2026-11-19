@@ -30,13 +30,14 @@ The profile only selects and ranks; facts come only from certified rows.
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from ..analysis.api import ScopeRef
 from ..analysis.hconst import build_hconst
 from ..analysis.profitability import exit_saving
 from ..link import variant_key
-from .base import (Budgets, Clone, EditKind, GuardAtom, GuardedSlot, Outcome,
+from .base import (Budgets, Clone, EditKind, FactRef, GuardAtom, GuardedSlot, Outcome,
                    PassDescriptor, PassResult, SpecEntry)
 from ._b3util import certified_facts, factref_of_row, refusal_result
 
@@ -44,6 +45,21 @@ __all__ = ["SpecializeReturns", "PASSES"]
 
 
 class SpecializeReturns:
+    exit_class = "return"
+    exit_stat = "return_exits"
+    no_exit_reason = "no_return_exit"
+
+    def _select_exit(self, row: Any) -> bool:
+        return row.exit_class == self.exit_class
+
+    def _select_target(self, row: Any, candidate: Any, unit: Any) -> bool:
+        return True
+
+    def _emit(self, kept, view, ctx, edits) -> str | None:
+        for choice in kept:
+            emit_specialization(PlannedSpecialization.from_choice(choice), ctx.b3.offsets, edits)
+        return None
+
     descriptor: ClassVar[PassDescriptor] = PassDescriptor(
         name="specialize-returns", version=1, unit_scope="snapshot",
         requires=(("hostops", 1), ("hcfg", 1), ("return-edges", 1), ("exit-facts", 1),
@@ -84,7 +100,7 @@ class SpecializeReturns:
         n_ret = 0
         grown = st.grown_uids()
         for row in edges.exits:
-            if row.exit_class != "return":
+            if not self._select_exit(row):
                 continue
             n_ret += 1
             ctx.budget()
@@ -110,6 +126,9 @@ class SpecializeReturns:
                     refused["slot_budget"] += 1
                     break
                 cu = units[c.dst]
+                if not self._select_target(row, c, cu):
+                    refused["not_static_dest"] += 1
+                    continue
                 if c.dst in grown or c.dst == row.uid:
                     refused["unit_not_relocatable"] += 1
                     continue
@@ -122,7 +141,9 @@ class SpecializeReturns:
                 if not hc.ok or not hc.useful:
                     refused["fact_unused"] += 1
                     continue
-                sv = exit_saving(int(c.count), total, cal, min_share=min_share)
+                weights = srow.get("x_guarded_origin", {})
+                guarded_count = min(int(c.count), int(weights.get("writer_tb_edge_count", c.count)))
+                sv = exit_saving(guarded_count, total, cal, min_share=min_share)
                 if not sv.profitable:
                     refused["not_profitable"] += 1
                     continue
@@ -150,37 +171,62 @@ class SpecializeReturns:
         kept, n_growth = _fit_growth(kept, st, units, b3, p)
         if n_growth:
             refused["growth_budget"] += n_growth
-        # emit
-        from ..guard import guard_atoms, guard_key
-
-        for d in kept:
-            row, srow, cu, c = d["row"], d["srow"], d["cu"], d["c"]
-            refs = [factref_of_row(srow, f) for f in d["facts"]]
-            vid = variant_key(cu.uid, row.uid, row.exit_id, [r.to_json() for r in refs], ())
-            kf, kf2 = guard_key(cu.key.flags, cu.key.cs_base)
-            atoms = tuple(GuardAtom(a["atom"], a["env_field"], a["width"], a["op"],
-                                    int(a["value"], 16))
-                          for a in guard_atoms(b3.offsets, kf, kf2, [c.vaddr]))
-            deps = tuple([f"fact:{r.fact_id}" for r in refs] +
-                         [f"summary:{srow['row_hash']}", f"variant:{vid}"])
-            for r in refs:
-                edits.attach_fact(r, units=(row.uid,), dependency_additions=deps)
-            edits.clone(Clone(cu.uid, vid, tuple(refs)), dependency_additions=deps)
-            edits.redirect_exit(GuardedSlot(row.uid, row.exit_id, d["slot"], "SPEC", "return",
-                                            c.vaddr, cu.key, variant_ref=vid,
-                                            tail_off=row.tail_off),
-                                dependency_additions=deps)
-            edits.add_entry(SpecEntry(vid, (row.uid, d["slot"]), atoms, tuple(refs)),
-                            dependency_additions=deps)
-        stats = {"return_exits": n_ret, "variants": len(kept),
+        detail = self._emit(kept, view, ctx, edits)
+        stats = {self.exit_stat: n_ret, "variants": len(kept),
                  "train_lookups_guarded": sum(d["weight"] for d in kept),
                  "saving_ns_model": round(sum(d["saving"].saving_ns for d in kept), 3)}
         if kept:
             stats.update({f"refused:{k}": v for k, v in refused.items()})
-            return PassResult(Outcome.CANDIDATE, "", f"{len(kept)} variants",
+            return PassResult(Outcome.CANDIDATE, "", detail or f"{len(kept)} variants",
                               affected=tuple(sorted({d["row"].uid for d in kept})),
                               stats=stats)
-        return refusal_result(refused, nothing="no_return_exit", stats=stats)
+        return refusal_result(refused, nothing=self.no_exit_reason, stats=stats, detail=detail or "")
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedSpecialization:
+    source: str
+    source_hash: str
+    exit_id: str
+    exit_class: str
+    tail_off: int
+    slot: int
+    dest: str
+    dest_hash: str
+    vaddr: int
+    key: Any
+    facts: tuple[FactRef, ...]
+    summary_hash: str
+
+    @classmethod
+    def from_choice(cls, choice: dict[str, Any]) -> "PlannedSpecialization":
+        row, summary, dest, cand = (choice[k] for k in ("row", "srow", "cu", "c"))
+        return cls(row.uid, summary["deps"]["unit"]["content_hash"], row.exit_id, row.exit_class,
+                   row.tail_off, choice["slot"], dest.uid, dest.content_hash, cand.vaddr, dest.key,
+                   tuple(factref_of_row(summary, f) for f in choice["facts"]), summary["row_hash"])
+
+
+def emit_specialization(choice: PlannedSpecialization, offsets: Any, edits: Any,
+                        dependencies: tuple[str, ...] = ()) -> None:
+    """Emit a selected and certified predecessor-specific variant."""
+    from ..guard import guard_atoms, guard_key
+
+    refs = choice.facts
+    vid = variant_key(choice.dest, choice.source, choice.exit_id, [r.to_json() for r in refs], ())
+    kf, kf2 = guard_key(choice.key.flags, choice.key.cs_base)
+    atoms = tuple(GuardAtom(a["atom"], a["env_field"], a["width"], a["op"],
+                            int(a["value"], 16))
+                  for a in guard_atoms(offsets, kf, kf2, [choice.vaddr],
+                                       r0_zero=any(r.source == "guard" for r in refs)))
+    deps = (tuple(f"fact:{r.fact_id}" for r in refs)
+            + (f"summary:{choice.summary_hash}", f"variant:{vid}") + dependencies)
+    for ref in refs:
+        edits.attach_fact(ref, units=(choice.source,), dependency_additions=deps)
+    edits.clone(Clone(choice.dest, vid, refs), dependency_additions=deps)
+    edits.redirect_exit(GuardedSlot(choice.source, choice.exit_id, choice.slot, "SPEC",
+                                    choice.exit_class, choice.vaddr, choice.key, variant_ref=vid,
+                                    tail_off=choice.tail_off), dependency_additions=deps)
+    edits.add_entry(SpecEntry(vid, (choice.source, choice.slot), atoms, refs), dependency_additions=deps)
 
 
 def growth_budget(params: Any, b3: Any, units: Any) -> int | None:
@@ -212,8 +258,10 @@ def _fit_growth(kept: list[dict[str, Any]], st: Any, units: Any, b3: Any,
     variant_bytes = sum(units[v.src_uid].end_offset - units[v.src_uid].tb_offset
                         for v in st.variants.values())
 
-    def growth(sl: dict, sp: set, vb: int) -> int:
-        return vb + sum(stub_bytes_estimate(sl[k]) for k in sp)
+    guarded = {k for k, x in st.exits.items() if any(getattr(s, "r0_zero", False) for s in x.slots)}
+
+    def growth(sl: dict, sp: set, gd: set, vb: int) -> int:
+        return vb + sum(stub_bytes_estimate(sl[k], k in gd) for k in sp)
 
     out: list[dict[str, Any]] = []
     dropped = 0
@@ -223,12 +271,13 @@ def _fit_growth(kept: list[dict[str, Any]], st: Any, units: Any, b3: Any,
         sl[k] = sl.get(k, 0) + 1
         sp = spec | {k}
         vb = variant_bytes + d["cu"].end_offset - d["cu"].tb_offset
-        g = growth(sl, sp, vb)
+        gd = guarded | ({k} if any(f["source"] == "guard" for f in d.get("facts", ())) else set())
+        g = growth(sl, sp, gd, vb)
         if g > budget and g > base:
             dropped += 1
             continue
         out.append(d)
-        slots, spec, variant_bytes = sl, sp, vb
+        slots, spec, guarded, variant_bytes = sl, sp, gd, vb
     return out, dropped
 
 

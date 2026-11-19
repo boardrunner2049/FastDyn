@@ -821,7 +821,14 @@ class PassManager:
             v = st.variants[vid]
             vv = VariantView(vid, v, b3.unit(v.src_uid), b3.layout, b3.code_address)
             results.append(p.run(vv, ctx, builder))
-        return self._aggregate(results, builder)
+        aggregate = self._aggregate(results, builder)
+        stats = dict(aggregate.stats)
+        for result in results:
+            if isinstance(result, PassResult):
+                for name, value in result.stats.items():
+                    stats[name] = stats.get(name, 0) + value
+        aggregate.stats = stats
+        return aggregate
 
     def _apply_b3(self, d: PassDescriptor, params: Mapping[str, Any], edits: Sequence[Edit]):
         """Check and apply the B3/B4 edits of one pass to the overlay (design §3.7)."""

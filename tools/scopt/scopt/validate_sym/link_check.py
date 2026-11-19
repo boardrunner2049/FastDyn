@@ -72,15 +72,19 @@ def _fact_name_value(f: Any) -> tuple[str, int]:
     return str(f.field), int(f.value)
 
 
-def declared_atoms(offsets: Any, kf: int, kf2: int, vaddr: int) -> tuple[GuardAtom, ...]:
+def declared_atoms(offsets: Any, kf: int, kf2: int, vaddr: int, *, r0_zero: bool = False) -> tuple[GuardAtom, ...]:
     """The six atoms a guard pass must imply for one target (§4.1, §4.2)."""
     o = offsets
-    return (GuardAtom("g_bp", o.bp, 8, 0, "zero", o.FIELDS["bp"]),
+    atoms = (GuardAtom("g_bp", o.bp, 8, 0, "zero", o.FIELDS["bp"]),
             GuardAtom("g_thumb", o.thumb, 1, 1, "eq", o.FIELDS["thumb"]),
             GuardAtom("g_cond", o.condexec, 4, 0, "zero", o.FIELDS["condexec"]),
             GuardAtom("g_flags", o.flags, 4, kf & 0xFFFFFFFF, "eq", o.FIELDS["flags"]),
             GuardAtom("g_flags2", o.flags2, 8, kf2 & ((1 << 64) - 1), "eq", o.FIELDS["flags2"]),
             GuardAtom("g_pc", o.pc, 4, vaddr & 0xFFFFFFFF, "eq", o.FIELDS["pc"]))
+    if r0_zero:
+        assert o.r0 is not None
+        return atoms[:-1] + (GuardAtom("g_r0_zero", o.r0, 4, 0, "zero", "regs[0]"), atoms[-1])
+    return atoms
 
 
 def slot_owner(link: Any) -> dict[int, str]:
@@ -262,7 +266,9 @@ def r_prime(link: Any, uid: str, world: World, *, offsets: Any,
                 kf, kf2 = 0xFFFFFFFF, (1 << 64) - 1
             kind = "SPEC" if (se is not None and se.kind == KIND_SPEC) or si.kind == "SPEC" \
                 else "GENERAL"
-            slots[jmp_off] = GSlot(n, kind, vaddr, declared_atoms(offsets, kf, kf2, vaddr))
+            want_r0 = any(t.slot_n == n and t.r0_zero for t in spec.targets)
+            slots[jmp_off] = GSlot(n, kind, vaddr,
+                                   declared_atoms(offsets, kf, kf2, vaddr, r0_zero=want_r0))
     code = bytes(lu.body[:rec.tc_size])
     return replace(base, uid=uid + "'", code=code, base=ca + rec.tc_offset,
                    struct_base=ca + rec.tb_offset, own_end=ca + rec.end_offset,

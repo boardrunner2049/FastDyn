@@ -311,13 +311,19 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
         uc.check("layout_pad", all(b == NOP for b in pad), f"{len(pad)} bytes before the pool",
                  "layout_mismatch")
     if ps is not None and order:
+        from ..splice_layout import splice_group_offsets
+
         retired = []
-        for req in chunk.native_fragments:
-            if req.pool_slot_off is not None:
-                delta = (0 if req.splice is None else
-                         req.splice.start_off + len(req.splice.code) - req.continuation_off)
-                retired.append((req.pool_slot_off + delta, req.target_abs))
-        _check_pool(uc, code, pool, ps, code_end, tc_abs, retired=retired)
+        try:
+            offsets = splice_group_offsets(chunk.native_fragments) if splice_start is not None else None
+            for req in chunk.native_fragments:
+                if req.pool_slot_off is not None:
+                    slot = req.pool_slot_off if offsets is None else offsets(req.pool_slot_off)
+                    retired.append((slot, req.target_abs))
+        except ValueError as error:
+            uc.check("pool", False, str(error), "pool_mismatch")
+        else:
+            _check_pool(uc, code, pool, ps, code_end, tc_abs, retired=retired)
     elif pool or any(req.pool_slot_off is not None for req in chunk.native_fragments):
         uc.check("pool", False, "pool rows but no valid pool_start", "pool_mismatch")
     else:
@@ -383,14 +389,17 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
         uc.check("native_splice", error is None, error or "checked native splice correspondence",
                  "native_fragment_invalid")
         if error is None:
-            splice = chunk.native_fragments[0].splice
-            end = splice_start + len(splice.code)
+            from ..splice_layout import splice_group_offsets
+
+            offsets = splice_group_offsets(chunk.native_fragments)
+            spans = [(offsets(req.splice.start_off), req.splice) for req in chunk.native_fragments]
             tcg_instructions = [i for i in tcg_instructions
-                                if not splice_start <= i.address - tc_abs < end]
+                                if not any(start <= i.address - tc_abs < start + len(splice.code)
+                                           for start, splice in spans)]
             uc.native_fixups = tuple(
-                Fixup(splice_start + rel.field_off, 4, "rel_minus_delta",
+                Fixup(start + rel.field_off, 4, "rel_minus_delta",
                       int(SiteKind.MOVI_CONST), "ext.native", rel.target_abs)
-                for rel in splice.relocations)
+                for start, splice in spans for rel in splice.relocations)
         else:
             uc.meta_status = "incomplete"
     xs = xs + xs_stub
@@ -499,7 +508,7 @@ def _relocated_splice_code(splice: NativeSplice, tc_abs: int) -> bytes:
             raise ValueError("invalid framed native relocation span")
         if relocated[off:off + 4] != b"\0" * 4:
             raise ValueError("framed native relocation placeholder is not zero")
-        displacement = row.target_abs - (tc_abs + splice.start_off + row.next_off)
+        displacement = row.target_abs - (tc_abs + splice.physical_start + row.next_off)
         if not -(1 << 31) <= displacement < (1 << 31):
             raise ValueError("framed native relocation exceeds signed rel32 range")
         relocated[off:off + 4] = displacement.to_bytes(4, "little", signed=True)
@@ -509,21 +518,40 @@ def _relocated_splice_code(splice: NativeSplice, tc_abs: int) -> bytes:
 
 def _native_splice_error(code: bytes, chunk: TbChunk, ctx: HostContext, tc_abs: int,
                          physical: Sequence[X86Insn], page_bits: int) -> str | None:
-    """Check a v4 splice's physical span and surviving captured origin."""
+    """Check every v4 splice using one shared physical offset map."""
+    from ..splice_layout import splice_group_offsets
+
+    try:
+        offsets = splice_group_offsets(chunk.native_fragments)
+        first = chunk.native_fragments[0].splice
+        if offsets(first.start_off) != chunk.splice_start:
+            return "native splice geometry differs from the request"
+        for request in chunk.native_fragments:
+            error = _native_single_splice_error(code, chunk, ctx, tc_abs, physical, page_bits,
+                                                request, offsets)
+            if error is not None:
+                return error
+    except ValueError as error:
+        return str(error)
+    return None
+
+
+def _native_single_splice_error(code, chunk, ctx, tc_abs, physical, page_bits, req, offsets):
+    from ..splice_layout import verify_relaxed_branches
     from ..validate_sym.native_splice import verify_splice_body
 
-    if len(chunk.native_fragments) != 1:
-        return "native splice requires exactly one request"
-    req, = chunk.native_fragments
     splice = req.splice
-    if splice is None or splice.start_off != chunk.splice_start:
-        return "native splice geometry differs from the request"
-    start = splice.start_off
+    start = offsets(splice.start_off)
     end = start + len(splice.code)
-    delta = end - req.continuation_off
     by_off = {insn.address - tc_abs: insn for insn in physical}
     try:
         expected = _relocated_splice_code(splice, tc_abs)
+        boundaries = [value for guest in chunk.insns for value in (guest.host_start, guest.host_end)]
+        boundaries.extend(mark.host_off for mark in chunk.opmarks)
+        boundaries.extend((chunk.insn0_start, chunk.body_end, chunk.ldst_end))
+        boundaries.extend(off for row in chunk.ldst for off in
+                          (*row.jcc_field, row.slow_start, row.slow_end, row.raddr_off))
+        verify_relaxed_branches(req, code, tc_abs, chunk.sites, physical, boundaries)
     except ValueError as error:
         return str(error)
     if (not chunk.insn0_start <= start <= end <= chunk.body_end
@@ -536,7 +564,10 @@ def _native_splice_error(code: bytes, chunk: TbChunk, ctx: HostContext, tc_abs: 
     if helper is None or helper.func != req.target_abs:
         return "native splice helper binding disagrees"
     if req.pool_slot_off is not None:
-        slot = req.pool_slot_off + delta
+        try:
+            slot = offsets(req.pool_slot_off)
+        except ValueError as error:
+            return str(error)
         pool = chunk.pool_start_or_none
         if (len(req.call_bytes) != 6 or call.rip_target != tc_abs + req.pool_slot_off
                 or pool is None or not pool <= slot <= chunk.code_size - 8
@@ -562,8 +593,11 @@ def _native_splice_error(code: bytes, chunk: TbChunk, ctx: HostContext, tc_abs: 
         if branch is not None and start_abs < branch < end_abs:
             return "outside reference enters the native splice interior"
         addr, operand = insn.rip_target, insn.rip_mem
+        # LEA computes an address without accessing the nominal operand width.
+        # The represented address must still lie outside the splice.
+        width = 1 if insn.is_lea or operand is None else max(operand.size, 1)
         if (addr is not None and operand is not None and addr < end_abs
-                and start_abs < addr + max(operand.size, 1)):
+                and start_abs < addr + width):
             return "outside RIP-relative access overlaps the native splice"
     for row in chunk.sites:
         if start_abs < row.value < end_abs:

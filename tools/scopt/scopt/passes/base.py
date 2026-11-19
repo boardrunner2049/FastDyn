@@ -181,7 +181,14 @@ from ..ids import TBKey as _TBKey
 SLOT_KINDS = ("GENERAL", "SPEC")
 EXIT_CLASSES = ("return", "static")
 #: PURE_REWRITE template ids a pass may use (V15 checks the pass/template pair)
+SCALAR_TEMPLATES = ("scalar_repeat_nop", "scalar_test_nop", "scalar_mask_nop", "scalar_forward_nop",
+                    "scalar_range_branch", "scalar_expression_nop")
+
 PATCH_TEMPLATES = {
+    "region-state-forward": ("region_same_store",),
+    "region-state-dse": ("b4_nop_store",),
+    "native-scalar-cleanup": SCALAR_TEMPLATES,
+    "local-scalar-cleanup": SCALAR_TEMPLATES,
     "constant-propagation": ("cp_xor_zero", "cp_mov_imm"),
     "branch-folding": ("bf_jcc_to_jmp", "bf_jcc_to_nop"),
     "dead-host-ops": ("dho_nop",),
@@ -218,7 +225,7 @@ class GuardAtom:
     value: int
 
     def __post_init__(self) -> None:
-        _chk(self.atom in ("g_bp", "g_thumb", "g_cond", "g_flags", "g_flags2", "g_pc"),
+        _chk(self.atom in ("g_bp", "g_thumb", "g_cond", "g_flags", "g_flags2", "g_pc", "g_r0_zero"),
              f"unknown guard atom {self.atom!r}")
         _chk(self.width in (1, 4, 8), f"atom width {self.width}")
         _chk(self.op in ("eq", "zero"), f"atom op {self.op!r}")
@@ -244,7 +251,9 @@ class FactRef:
         _chk(bool(_SHA.match(self.fact_id)), "fact_id must be a sha256 id")
         _chk(self.field in _FIELDS, f"fact field {self.field!r}")
         _u32(self.value, "fact value")
-        _chk(self.source in ("patch", "guest_code"), f"fact source {self.source!r}")
+        _chk(self.source in ("patch", "guest_code", "guard"), f"fact source {self.source!r}")
+        _chk(self.source != "guard" or (self.field == "r0" and self.value == 0),
+             "guard fact must be r0 == 0")
         _chk(bool(_SHA.match(self.cert_hash)) and bool(_SHA.match(self.summary_row_hash)),
              "cert_hash/summary_row_hash must be sha256 ids")
 

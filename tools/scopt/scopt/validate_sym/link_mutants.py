@@ -100,6 +100,8 @@ def stub_atoms(code: bytes, off: int) -> list[StubAtom]:
         take("g_flags2", b"\x48\x81\xbd", 11)
     else:
         take("g_flags2", b"\x48\xb8", 17)
+    if b[p:p + 2] == b"\x83\xbd":
+        take("g_r0_zero", b"\x83\xbd", 7)
     k = 0
     while b[p:p + 2] == b"\x81\xbd":
         take("g_pc", b"\x81\xbd", 10, k)

@@ -6,13 +6,22 @@ from types import SimpleNamespace
 import pytest
 
 from scopt.decode.x86 import sweep
+from scopt.decode.search import decode_search, encode_search, is_pcrel
+from scopt.formats.enums import Encoding, OpMarkKind, SiteKind
 from scopt.formats.layouts import SCM_TB_CHUNK_VERSION_3, SCM_TB_CHUNK_VERSION_4
 from scopt.formats.scm_v1 import ScmEncodeError, ScmInsn, TbChunk, parse_scm
 from scopt.importer.crosscheck import _native_splice_error, _relocated_splice_code
 from scopt.model.native import InlineCall, NativeFragment, NativeOrigin, NativeRelocation, NativeSplice
+from scopt.model.unit import Bindings, HelperBinding, Insn, OpMark, RecoveryPoint, Site
+from scopt.formats.sc_v5 import ScRecord
+from scopt.splice_layout import (materialize_splice, materialize_splices, prepare_splice_layout,
+                                 splice_group_offsets, splice_offsets)
+from scopt.validate_sym.native_inline import NativeInlineError
+from scopt.validate_sym.native_splice import prepare_splice
 from scopt.validate_sym import native_virtual as framed
 
 from tests.synth import builders as B
+from tests.synth.fake_snapshot import fake_snapshot
 
 
 def _fixture():
@@ -55,6 +64,221 @@ def _check(chunk, code, context):
     address = 0x1000
     physical = sweep(code[:chunk.pool_start], address)
     return _native_splice_error(code, chunk, context, address, physical, 10)
+
+
+def _short_branch_fixture(shorts):
+    chunk, _, _ = _fixture()
+    old, = chunk.native_fragments
+    old = replace(old, target_abs=0x10000000)
+    snapshot = fake_snapshot(1)
+    unit, = snapshot.units()
+    ca = 0x1000 - unit.tc_offset
+    base = 0x1000
+    code = bytearray(b"\x90" * 144)
+    sites = []
+    for off, opcode, target in shorts:
+        disp = (target - off - 2).to_bytes(1, "little", signed=True)
+        code[off:off + 2] = bytes([opcode]) + disp
+        kind = SiteKind.LABEL_JMP if opcode == 0xeb else SiteKind.LABEL_JCC
+        sites.append(Site(off + 1, off, 1, Encoding.REL8, kind, 0,
+                          base + target, 0, disp[0]))
+    call_off = old.call_off
+    continuation = call_off + 5
+    disp = (old.target_abs - base - continuation).to_bytes(4, "little", signed=True)
+    arg = old.splice.prefix
+    call = b"\xe8" + disp
+    code[old.splice.start_off:continuation] = arg + call
+    sites.append(Site(call_off + 1, call_off, 4, Encoding.REL32, SiteKind.HELPER_CALL,
+                      old.helper_id, old.target_abs, 0, int.from_bytes(disp, "little")))
+    rec = ScRecord.from_bytes(unit.record)
+    words = chunk.insns[0].words
+    search = encode_search([(words, len(code))], pcrel=is_pcrel(rec.cflags), pc=rec.pc)
+    end_offset = unit.tc_offset + len(code) + len(search)
+    rec = rec.replace(icount=1, tc_size=len(code), end_offset=end_offset)
+    unit = replace(unit, code=bytes(code), tc_size=len(code), end_offset=end_offset,
+                   record=rec.to_bytes(fix_checksum=True), sites=tuple(sites), pool_start=None,
+                   body_end=len(code), ldst_end=len(code), insn0_start=0, recovery=(
+                       RecoveryPoint("r0", 138, 0, words, "raddr"),), icount=1, search=search,
+                   insns=(Insn(0, words, 0, len(code)),), opmarks=(
+                       OpMark(call_off, OpMarkKind.CALL, 0, old.helper_id),),
+                   bindings=Bindings(helpers=(
+                       HelperBinding(old.helper_id, "fixture", "qemu", old.symbol, 5,
+                                     old.target_abs),)))
+    request = replace(old, target=unit.uid, unit_hash=unit.content_hash, call_bytes=call,
+                      continuation_off=continuation, pool_slot_off=None, splice=None)
+    return chunk, unit, replace(request, splice=prepare_splice(unit, request, ca)), ca
+
+
+def test_cascading_branch_widens_map_the_splice_and_capture():
+    chunk, unit, request, ca = _short_branch_fixture(((0, 0x75, 112), (2, 0xeb, 122)))
+    planned = prepare_splice_layout(unit, request, ca)
+    assert [row.source_off for row in planned.splice.branches] == [0, 2]
+    assert planned.splice.physical_start == 24 and planned.growth == request.growth + 16
+    mu = splice_offsets(planned)
+    materialized = materialize_splice(unit, planned, ca)
+    assert materialized.code[:2] == b"\x0f\x85"
+    assert materialized.code[6:10] == b"\x90" * 4
+    assert materialized.code[10] == 0xe9
+    assert materialized.code[15:20] == b"\x90" * 5
+    decoded = {insn.address - 0x1000: insn for insn in sweep(materialized.code, 0x1000)}
+    assert decoded[0].branch_target == 0x1000 + mu(112)
+    assert decoded[10].branch_target == 0x1000 + mu(122)
+    assert materialized.recovery[0].host_return_offset == mu(138)
+    record = ScRecord.from_bytes(materialized.record)
+    rows = decode_search(materialized.search, record.icount, pcrel=is_pcrel(record.cflags),
+                         pc=record.pc)
+    assert rows[0].host_end == mu(144)
+    assert rows[0].words == chunk.insns[0].words
+
+    from scopt.link import _scm_sites
+
+    code = materialized.code
+    chunk = replace(chunk, record=materialized.record, insns=(
+        ScmInsn(rows[0].words, 0, len(code)),), sites=_scm_sites(materialized),
+        pool_start=len(code), body_end=len(code), ldst_end=len(code), code_size=len(code),
+        reserved=planned.splice.physical_start, native_fragments=(planned,))
+    decoded_chunk, pad = TbChunk.decode(chunk.encode())
+    assert not pad and decoded_chunk == chunk
+    context = SimpleNamespace(helper=lambda _: SimpleNamespace(func=planned.target_abs))
+    assert _check(decoded_chunk, code, context) is None
+    assert "differs from the proof" in _check(decoded_chunk, b"\x0f\x84" + code[2:], context)
+    assert "differs from the proof" in _check(
+        decoded_chunk, code[:6] + b"\xcc" + code[7:], context)
+    # A branch that enters the widened Jcc's padding must never be admitted.
+    off = mu(102)
+    incoming = b"\xe9" + (7 - off - 5).to_bytes(4, "little", signed=True)
+    assert "reference overlaps" in _check(
+        decoded_chunk, code[:off] + incoming + code[off + 5:], context)
+    with pytest.raises(NativeInlineError, match="differ from the source"):
+        materialize_splice(unit, request, ca)
+
+
+def test_backward_short_conditional_widen_preserves_taken_and_fallthrough():
+    _, unit, request, ca = _short_branch_fixture(((130, 0x74, 4),))
+    planned = prepare_splice_layout(unit, request, ca)
+    mu = splice_offsets(planned)
+    result = materialize_splice(unit, planned, ca)
+    branch = next(i for i in sweep(result.code, 0x1000)
+                  if i.address - 0x1000 == mu(130))
+    assert branch.raw[:2] == b"\x0f\x84"
+    assert branch.branch_target == 0x1000 + mu(4)
+    assert result.code[mu(130) + 6:mu(132)] == b"\x90" * 4
+    assert planned.splice.physical_start == request.splice.start_off
+
+
+@pytest.mark.parametrize("opcode", [0xe2, 0xe3])
+def test_short_loop_family_does_not_use_ordinary_relaxation(opcode):
+    _, unit, request, ca = _short_branch_fixture(((0, opcode, 126),))
+    with pytest.raises(NativeInlineError, match="cannot be widened"):
+        prepare_splice_layout(unit, request, ca)
+
+
+def _two_site_fixture(shorts=()):
+    chunk, unit, first, ca = _short_branch_fixture(shorts)
+    call_off = 52
+    end = call_off + 5
+    prefix = b"\x8b\x7d\x14"
+    disp = (first.target_abs - 0x1000 - end).to_bytes(4, "little", signed=True)
+    call = b"\xe8" + disp
+    code = unit.code[:call_off - len(prefix)] + prefix + call + unit.code[end:]
+    site = Site(call_off + 1, call_off, 4, Encoding.REL32, SiteKind.HELPER_CALL,
+                first.helper_id, first.target_abs, 0, int.from_bytes(disp, "little"))
+    unit = replace(unit, code=code, sites=(*unit.sites, site), opmarks=(
+        *unit.opmarks, OpMark(call_off, OpMarkKind.CALL, 0, first.helper_id)))
+    second = replace(first, call_off=call_off, continuation_off=end, call_bytes=call, splice=None)
+    second = replace(second, splice=prepare_splice(unit, second, ca))
+    return chunk, unit, (first, second), ca
+
+
+def test_two_site_materialization_and_roundtrip():
+    chunk, unit, requests, ca = _two_site_fixture()
+    offsets = splice_group_offsets(requests)
+    materialized = materialize_splices(unit, requests, ca)
+    for request in requests:
+        start = offsets(request.splice.start_off)
+        assert materialized.code[start:start + len(request.splice.code)] == request.splice.code
+    assert offsets(requests[1].splice.start_off) == requests[1].splice.start_off + requests[0].growth
+    assert materialized.native_fragments == requests
+    assert not materialized.sites and not materialized.opmarks
+    assert materialized.recovery[0].host_return_offset == offsets(138)
+    code = materialized.code
+    chunk = replace(chunk, record=materialized.record, insns=(
+        ScmInsn(chunk.insns[0].words, 0, len(code)),), sites=(),
+        pool_start=len(code), body_end=len(code), ldst_end=len(code), code_size=len(code),
+        reserved=offsets(requests[0].splice.start_off), native_fragments=requests)
+    decoded, pad = TbChunk.decode(chunk.encode())
+    assert not pad and decoded == chunk
+    context = SimpleNamespace(helper=lambda _: SimpleNamespace(func=requests[0].target_abs))
+    assert _check(decoded, code, context) is None
+    second = offsets(requests[1].splice.start_off)
+    bad = code[:second] + b"\x90" + code[second + 1:]
+    assert "bytes or instruction boundaries differ" in _check(decoded, bad, context)
+    with pytest.raises(NativeInlineError, match="spans overlap"):
+        materialize_splices(unit, (requests[0], requests[0]), ca)
+    wrong = replace(requests[1], unit_hash="sha256:" + "d" * 64)
+    with pytest.raises(NativeInlineError, match="different inputs"):
+        materialize_splices(unit, (requests[0], wrong), ca)
+
+
+def test_combined_short_range_overflow_preserves_individual_choices():
+    _, unit, requests, ca = _two_site_fixture(((0, 0x75, 110),))
+    for request in requests:
+        assert not prepare_splice_layout(unit, request, ca).splice.branches
+    with pytest.raises(NativeInlineError, match="displacement"):
+        materialize_splices(unit, requests, ca)
+
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_certified_splice_sources_grow_guards_and_relayout(count):
+    from scopt.guard import GuardOffsets, GuardTarget
+    from scopt.link import B3Plan, GuardedExitSpec, NativeLinkerV2
+    from scopt.model.snapshot import WorkingSet
+    from scopt.model.unit import PoolEntry
+    from tests.synth.fake_snapshot import FakeSnapshot
+
+    _, unit, requests, ca = _two_site_fixture()
+    requests = requests[:count]
+    tail = 120
+    pool = 144
+    lookup = 0x22200000
+    disp = (pool - tail - 9).to_bytes(4, "little", signed=True)
+    tail_code = bytes.fromhex("48 8b fd ff 15") + disp + bytes.fromhex("ff e0")
+    code = unit.code[:tail] + tail_code + unit.code[tail + len(tail_code):]
+    code += lookup.to_bytes(8, "little")
+    rec = ScRecord.from_bytes(unit.record).replace(
+        tc_size=len(code), end_offset=unit.tc_offset + len(code) + len(unit.search))
+    sites = (
+        Site(tail + 5, tail + 3, 4, Encoding.POOL_INDIRECT, SiteKind.HELPER_CALL,
+             3, lookup, 0, int.from_bytes(disp, "little")),
+        Site(tail + 9, tail + 9, 0, Encoding.NONE, SiteKind.GOTO_PTR, 0, 0, 0, 0),
+    )
+    unit = replace(unit, code=code, tc_size=len(code), end_offset=rec.end_offset,
+                   record=rec.to_bytes(fix_checksum=True), pool_start=pool,
+                   pool=(PoolEntry(tail + 5, pool, 0, 1, 0, lookup),), sites=unit.sites + sites,
+                   bindings=replace(unit.bindings, helpers=(
+                       *unit.bindings.helpers, HelperBinding(3, "lookup_tb_ptr", "qemu",
+                                                            "helper_lookup_tb_ptr", 0, lookup))))
+    materialized = materialize_splices(unit, requests, ca)
+    base = fake_snapshot(2)
+    other = base.units()[1]
+    header = replace(base.header, code_address=ca)
+    snap = FakeSnapshot((materialized, other), base.snapshot_id, header)
+    layout = WorkingSet(snap, sections={"hot": (other.uid, materialized.uid)})
+    offsets = splice_group_offsets(requests)
+    spec = GuardedExitSpec(offsets(tail), "static", (GuardTarget(0x200, 0, "GENERAL"),),
+                           unit.key.flags, unit.key.cs_base)
+    out = NativeLinkerV2(snap, B3Plan(grow={unit.uid: (spec,)}), placement=layout,
+                         offsets=GuardOffsets(), tb_ret_abs=0xe00,
+                         derive_captures=False).link()
+    assert out.ok, out.failures
+    moved = out.by_uid()[unit.uid]
+    assert moved.moved
+    assert out.ext.slots[0].src_tb_offset == moved.new_tb_offset
+    assert moved.native_fragments == requests
+    for request in requests:
+        start = offsets(request.splice.start_off)
+        assert moved.body[start:start + len(request.splice.code)] == request.splice.code
 
 
 def test_splice_v4_preserves_certificate_and_uses_shifted_pool():
@@ -166,3 +390,31 @@ def test_v4_depth_is_canonical_and_limited_by_splice_kind():
         request, splice=replace(request.splice, depth=2)),))
     with pytest.raises(ScmEncodeError, match="v4_native_(data|layout)"):
         changed.encode()
+
+
+def test_splice_followed_by_guard_keeps_both_boundaries():
+    chunk, code, _ = _fixture()
+    grown = replace(chunk, tb_chunk_version=5, reserved=len(code), code_size=len(code) + 32)
+    decoded, padding = TbChunk.decode(grown.encode())
+    assert not padding and decoded == grown
+    assert decoded.pool_end == decoded.stub_start == len(code)
+    assert decoded.splice_start == chunk.splice_start
+    with pytest.raises(ScmEncodeError):
+        replace(grown, reserved=chunk.splice_start + 1).encode()
+
+
+def test_frame_cleanup_proof_rejects_mutated_targets_and_stack_observers():
+    from scopt.validate_sym.frame_cleanup import cleanup_frame, verify_cleanup
+    from scopt.validate_sym.native_inline import NativeInlineError
+
+    code = bytes.fromhex("e800000000 90 488d642408 90 c9")
+    refs = [NativeRelocation(1, 5, 0x12345000)]
+    compact, newrefs = cleanup_frame(code, refs)
+    assert compact == bytes.fromhex("e800000000 c9")
+    verify_cleanup(code, refs, compact, newrefs)
+    with pytest.raises(NativeInlineError, match="target"):
+        verify_cleanup(code, refs, compact, [replace(newrefs[0], target_abs=0)])
+    for observer in ("488b0424", "50", "e800000000"):
+        original = bytes.fromhex("488d642408" + observer + "c9")
+        with pytest.raises(NativeInlineError, match="RSP"):
+            verify_cleanup(original, (), original[5:], ())

@@ -382,7 +382,7 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
     from .importer.join import ImportRejected
     from .link import LinkError, relocate_unit
     from .model.native import supports_tcg_integer_abi
-    from .splice_layout import materialize_splice
+    from .splice_layout import materialize_splices, verify_relaxed_branches
     from .validate_sym.native_inline import NativeInlineError, verify_fragment, verify_site
     from .validate_sym.program import certified_native_calls, program_of, world_of
 
@@ -398,7 +398,10 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
             body = bytearray(lu.body[:original.tc_size])
             start = original.tc_size
             last = -1
+            is_splice = lu.native_fragments[0].splice is not None
             for call in lu.native_fragments:
+                if is_splice != (call.splice is not None):
+                    raise ValueError("mixed native island and splice certificates")
                 if call.call_off < last:
                     raise ValueError("inline requests overlap or are out of order")
                 last = call.continuation_off
@@ -439,18 +442,9 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                       not supports_tcg_integer_abi(certified.callee.tcg_typemask)):
                     raise ValueError("linked callee does not match the captured integer helper ABI")
                 if call.splice is not None:
-                    if len(lu.native_fragments) != 1 or call.tcg_typemask != certified.callee.tcg_typemask:
-                        raise ValueError("splice must have one call and the captured signature")
-                    materialized = materialize_splice(original, call, code_address)
-                    placed = relocate_unit(materialized, lu.new_tb_offset)
-                    if (placed.body, placed.record, tuple(sorted(placed.patched))) != (
-                            lu.body, lu.record, tuple(sorted(lu.patched))):
-                        raise ValueError("linked splice bytes, record or fixup fields differ from the proof")
-                    abstract = certified_native_calls(program_of(original, world_of(snapshot)),
-                                                      plain.body[:original.tc_size], lu.delta, (call,))
-                    projected[lu.uid] = replace(plain, body=abstract.code + plain.body[original.tc_size:])
-                    spliced[lu.uid] = materialized
-                    break
+                    if call.tcg_typemask != certified.callee.tcg_typemask:
+                        raise ValueError("splice must match the captured helper signature")
+                    continue
                 expected_call = (b"\xe9" + (start - call.call_off - 5).to_bytes(4, "little", signed=True)
                                  + b"\x90" * (len(call.call_bytes) - 5))
                 if body[call.call_off:call.continuation_off] != expected_call:
@@ -460,7 +454,23 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                 start = end
                 body[call.call_off:call.continuation_off] = plain.body[
                     call.call_off:call.continuation_off]
-            if lu.uid in spliced:
+            if is_splice:
+                materialized = materialize_splices(original, lu.native_fragments, code_address)
+                placed = relocate_unit(materialized, lu.new_tb_offset)
+                if (placed.body, placed.record, tuple(sorted(placed.patched))) != (
+                        lu.body, lu.record, tuple(sorted(lu.patched))):
+                    raise ValueError("linked splice bytes, record or fixup fields differ from the proof")
+                first = lu.native_fragments[0]
+                if first.splice.branches:
+                    tc = code_address + materialized.tc_offset
+                    exec_end = materialized.pool_start or materialized.ldst_end
+                    verify_relaxed_branches(first, materialized.code, tc, materialized.sites,
+                                            sweep(materialized.code[:exec_end], tc))
+                abstract = certified_native_calls(program_of(original, world_of(snapshot)),
+                                                  plain.body[:original.tc_size], lu.delta,
+                                                  lu.native_fragments)
+                projected[lu.uid] = replace(plain, body=abstract.code + plain.body[original.tc_size:])
+                spliced[lu.uid] = materialized
                 continue
             out_record = ScRecord.from_bytes(lu.record)
             if start != out_record.tc_size:
@@ -722,11 +732,11 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
                 bad8.append(f"{u2.uid}: reimported native provenance differs")
 
             if u.uid in spliced:
-                from .splice_layout import splice_offsets
+                from .splice_layout import splice_group_offsets
 
                 expected = spliced[u.uid]
                 linked = by_link_uid[u.uid]
-                mu = splice_offsets(expected_inline[0])
+                mu = splice_group_offsets(expected_inline)
                 if not u2.splice_applied or any(getattr(u2, k) != getattr(expected, k) for k in
                         ("insns", "ldst", "opmarks", "pool_start", "body_end", "ldst_end",
                          "recovery", "static_exits")):
@@ -737,8 +747,8 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
                 if _fixup_rows(u2) != expected_fixups:
                     bad3b.append(f"{u2.uid}: remapped fixups differ")
                 ci, co = _classes(details.get(u.uid)), _classes(res.checks.get(u2.slot))
-                if ci is not None and sorted((mu(off), cls) for off, cls in ci
-                                             if not mu.start <= off < mu.end) != (co or []):
+                if ci is not None and sorted((mu.field(off), cls) for off, cls in ci
+                                             if not mu.contains(off)) != (co or []):
                     bad3b.append(f"{u2.uid}: remapped site classes differ")
                 continue
 
@@ -1144,16 +1154,17 @@ def artifact_link(snapshot: Any, art_dir: str | os.PathLike) -> LinkResult:
         chunk = binding[i].chunk if i in binding else None
         fragments = chunk.native_fragments if chunk is not None else ()
         if d and fragments and fragments[0].splice is not None and not u.splice_applied:
-            from .splice_layout import splice_offsets
+            from .splice_layout import splice_group_offsets
 
-            call = fragments[0]
-            mu = splice_offsets(call)
-            patched = tuple((mu(f.field_off), f.width) for f in u.reloc.fixups
-                            if not mu.start <= f.field_off < mu.end)
-            patched += tuple((mu.start + rel.field_off, 4) for rel in call.splice.relocations)
+            mu = splice_group_offsets(fragments)
+            patched = tuple((mu.field(f.field_off), f.width) for f in u.reloc.fixups
+                            if not mu.contains(f.field_off))
+            patched += tuple((mu(call.splice.start_off) + rel.field_off, 4)
+                             for call in fragments for rel in call.splice.relocations)
         else:
             patched = tuple((f.field_off, f.width) for f in u.reloc.fixups if not any(
-                c.call_off <= f.field_off < c.continuation_off for c in fragments)) if d else ()
+                not u.splice_applied and c.call_off <= f.field_off < c.continuation_off
+                for c in fragments)) if d else ()
         units.append(UnitLink(u.uid, i, u.tb_offset, rec.tb_offset, out.record_bytes[i],
                               out.bodies[i], patched, input_slot=u.slot, native_fragments=fragments))
     return LinkResult(True, out.header, tuple(units))
@@ -1668,15 +1679,16 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
         if d:
             bad2.append(f"{lu.uid}: bytes differ outside declared edits at {d[:4]}")
     v.add("V2", "byte_diff", not bad2,
-          f"{len(grown)} grown, {len(rewritten)} rewritten units differ only in declared ranges "
-          "(fixups, tails, stubs, patches); every other unit byte-identical" if not bad2
+          f"{len(grown)} grown, {len(rewritten)} rewritten, "
+          f"{sum(lu.moved for lu in link.units)} relocated units differ only in declared ranges "
+          "(fixups, tails, stubs, patches)" if not bad2
           else _few(bad2))
 
     # ---- V3 / V4 --------------------------------------------------------------------------
     bad3, bad4 = [], []
     nfix = 0
     for lu in link.units:
-        if not lu.moved:
+        if not lu.moved and lu.uid not in grown:
             continue
         e = eff.get(lu.uid, in_units[lu.uid])
         probs, targets = decode_compare(e, lu, ca, cs)
@@ -1828,6 +1840,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
         v.add("V8", "reimport_snapshot_id", res.snapshot.snapshot_id == out_sid,
               f"{res.snapshot.snapshot_id}")
         bad8, bad3b = [], []
+        linked_units = link.by_uid()
         for u2 in res.snapshot.units():
             e = eff.get(u2.uid) or in_units.get(u2.uid)
             if e is None:
@@ -1837,8 +1850,17 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
                                                               e.origin):
                 bad8.append(f"{u2.uid}: {_status(e)}{list(e.reloc.reasons)} -> "
                             f"{_status(u2)}{list(u2.reloc.reasons)}")
-            if _fixup_rows(u2) != _fixup_rows(e):
+            lu = linked_units[u2.uid]
+            rebased_fixups = [
+                (*row[:5], row[5] + lu.delta
+                 if row[2] == "abs_plus_delta" and row[5] is not None else row[5])
+                for row in _fixup_rows(e)
+            ]
+            if _fixup_rows(u2) != rebased_fixups:
                 bad3b.append(f"{u2.uid}: fixups differ")
+            if (u2.native_fragments, u2.splice_applied, u2.inline_start) != (
+                    e.native_fragments, e.splice_applied, e.inline_start):
+                bad8.append(f"{u2.uid}: reimported native provenance differs")
             if (u2.stub_start, [(p.host_return_offset, p.insn) for p in u2.recovery]) != \
                     (e.stub_start, [(p.host_return_offset, p.insn) for p in e.recovery]):
                 bad3b.append(f"{u2.uid}: stub_start {e.stub_start}->{u2.stub_start} or recovery "
@@ -1928,8 +1950,10 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
                 bad13.append(f"{uid} stub @{st.off}: {ge.detail}")
                 continue
             names = [a for a, _, _ in dg.atoms]
-            if names[:5] != ["g_bp", "g_thumb", "g_cond", "g_flags", "g_flags2"] or \
-                    names[5:] != ["g_pc"] * len(spec.targets):
+            mandatory = ["g_bp", "g_thumb", "g_cond", "g_flags", "g_flags2"]
+            if any(t.r0_zero for t in spec.targets):
+                mandatory.append("g_r0_zero")
+            if names != mandatory + ["g_pc"] * len(spec.targets):
                 bad13.append(f"{uid}: atoms {names}")
             try:
                 kf, kf2 = guard_key(spec.key_flags, spec.key_cs_base)
@@ -2312,9 +2336,11 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
     # units, §3.6) and are reported, not budgeted (WP21)
     spec_stub = sum(len(st.code) for g in grown.values() for _sp, st in g.stubs
                     if any(si.kind == "SPEC" for si in st.slots))
-    if hot_set_bytes is not None and spec_stub + var_bytes > growth_fraction * hot_set_bytes:
-        bad21.append(f"growth_budget: {spec_stub + var_bytes} > {growth_fraction:.0%} of "
-                     f"{hot_set_bytes}")
+    budget = getattr(plan, "max_code_growth_bytes", None)
+    if budget is None and hot_set_bytes is not None:
+        budget = int(growth_fraction * hot_set_bytes)
+    if budget is not None and spec_stub + var_bytes > budget:
+        bad21.append(f"growth_budget: {spec_stub + var_bytes} > {budget} bytes")
     v.add("V21", "budgets", not bad21,
           f"stub bytes {stub_bytes} (SPEC exits {spec_stub}), variant bytes {var_bytes}, "
           f"variants {sum(per_c.values())} "
@@ -2323,7 +2349,8 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
              " (hot-set bytes not given: growth reported only)") if not bad21 else _few(bad21),
           (bad21[0].split(":")[0] if bad21 else None), stub_bytes=stub_bytes,
           spec_stub_bytes=spec_stub, variant_bytes=var_bytes,
-          pass_byte_delta=dict(passes_byte_delta or {}), hot_set_bytes=hot_set_bytes)
+          pass_byte_delta=dict(passes_byte_delta or {}), hot_set_bytes=hot_set_bytes,
+          max_code_growth_bytes=budget)
 
     # ---- V23 observation contract ------------------------------------------------------------------
     bad23 = []
@@ -2438,7 +2465,8 @@ def multi_tb_rows(res: Any, link: Any, *, layout: Any = None,
         if kf is None or kf2 is None:
             raise ValueError(f"multi_tb: R {r.uid} slot {se.slot_n} is not a grown SPEC slot "
                              "of this link result (guard key unknown)")
-        atoms = guard_atoms(off, kf, kf2, [se.target_vaddr])
+        atoms = guard_atoms(off, kf, kf2, [se.target_vaddr],
+                            r0_zero=any(f.get("source") == "guard" for f in facts))
         body = vl.body if vl is not None else None
         rows.append(build_multi_tb_region(
             regions[r.uid], regions[c.uid], slot_n=se.slot_n,
@@ -2671,6 +2699,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
                scparse: Any = None, sc6parse: Any = None, allow_uncertified: bool = False,
                ledger_rows: Iterable[LedgerRow] = (),
                sidecar_extra: Mapping[str, Any] | None = None,
+               placement: Any = None,
                **vkw: Any) -> B3PackageResult:
     """Link ``plan`` (NativeLinker v2), write, validate (:func:`validate_b3`) and
     publish into ``store`` or write ``store/rejections/<candidate>.json``.
@@ -2678,7 +2707,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     ``pipeline`` are the sidecar pipeline rows (default: one row describing the
     plan). The sidecar's ``loader_requirement`` is ``qemu-sc-v6`` for a v6
     output; ``x_ext_artifact_id8`` carries the ext table id; ``move_map``
-    lists the grown (moved) units; ``regions.jsonl`` has the tb_singleton rows
+    lists moved units; ``regions.jsonl`` has the tb_singleton rows
     of the re-import plus the manager-generated multi_tb rows.
 
     Fail closed: an edited plan is published only when every
@@ -2711,7 +2740,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
         if plan.grow:
             return _reject_b3(store, candidate_id, f"{e.reason}", led, None, None)
         off = GuardOffsets()
-    link = NativeLinkerV2(snapshot, plan, offsets=off).link()
+    link = NativeLinkerV2(snapshot, plan, offsets=off, placement=placement).link()
     if not link.ok:
         f = link.failures[0]
         led.emit("artifact", candidate_id, "compiled", "fail", f.reason, f.uid)
@@ -2743,7 +2772,9 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             "bundle_id": None if snapshot.bundle is None else snapshot.bundle.get("bundle_id"),
             "runtime_identity_id": None if ri is None else ri.get("runtime_identity_id"),
             "profile_ids": list(profile_ids), "pipeline": list(pipeline),
-            "move_map": link.move_map(), "pinned": [],
+            "move_map": link.move_map(),
+            "pinned": [{"unit": u, "reasons": list(reasons)} for u, reasons in placement.pinned()]
+            if placement is not None else [],
             "validation_sha256": "sha256:" + "0" * 64, "tool_versions": A.tool_versions(),
             "loader_requirement": LOADER_V6 if link.version == 6 else A.LOADER_V5,
             "x_candidate_id": candidate_id,
@@ -2928,9 +2959,11 @@ def v18_rows(v: Validation, selftest: Mapping[str, Any] | None) -> bool:
                      "hostsym_selftest_stale")
     nat = selftest.get("native", {})
     mut = selftest.get("mutants", {})
+    oracle = selftest.get("x_oracle", {"kind": "execution-host-x86-64", "arch": selftest.get("host")})
     ok = v.add("V18", "native_semantics", nat.get("status") == "pass",
                f"{nat.get('forms')} forms, {nat.get('trials')} trials, "
-               f"{nat.get('n_failures')} failures ({nat.get('status')})", "hostsym_selftest_failed")
+               f"{nat.get('n_failures')} failures ({nat.get('status')})", "hostsym_selftest_failed",
+               oracle=oracle)
     ok &= v.add("V18", "mutation_suite", bool(mut.get("all_rejected")) and
                 bool(mut.get("controls_ok")),
                 f"{mut.get('rejected')}/{mut.get('mutants')} rejected, controls_ok "

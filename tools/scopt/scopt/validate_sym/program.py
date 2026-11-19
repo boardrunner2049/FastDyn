@@ -176,8 +176,27 @@ def world_of(snapshot: Any, layout: Any = None) -> World:
 
 def program_of(u: Any, world: World) -> Program:
     """The :class:`Program` of one captured :class:`~scopt.model.unit.TBUnit`."""
-    if getattr(u, "inline_start", None) is not None or getattr(u, "splice_applied", False):
+    if getattr(u, "inline_start", None) is not None:
         raise ValueError("imported native code requires a certified HostSym projection")
+    if getattr(u, "splice_applied", False):
+        # Integer splices have one real environment load followed only by
+        # nonfaulting register operations. Interpret their actual bytes. The
+        # independent symbolic kernel retains responsibility for every use of
+        # registers/flags by the candidate, including unknown instruction forms.
+        from ..splice_layout import splice_group_offsets
+        from .native_splice import verify_splice_body
+
+        if u.meta_status != "ok" or not u.native_fragments:
+            raise ValueError("imported splice has no checked capture")
+        offsets = splice_group_offsets(u.native_fragments)
+        for request in u.native_fragments:
+            splice = request.splice
+            if splice is None or splice.kind != "integer":
+                raise ValueError("integer-only HostSym admission for imported splices")
+            verify_splice_body(request)
+            start = offsets(splice.start_off)
+            if start < 0 or u.code[start:start + len(splice.code)] != splice.code:
+                raise ValueError("imported integer splice differs from its certified bytes")
     ca = world.code_address
     base = ca + u.tc_offset
     goto_tb = {s.insn_off: int(s.aux) for s in u.sites if s.kind == SiteKind.GOTO_TB}

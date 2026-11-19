@@ -102,7 +102,7 @@ def _emit_frame(body: _FrameBody, bias: int, code: bytearray,
     code.extend(_RELEASE)
 
 
-def _build_frame(request: InlineCall, max_depth: int = 1) -> NativeSplice:
+def _build_frame(request: InlineCall, max_depth: int = 1, compact_frame: bool = False) -> NativeSplice:
     _require(type(max_depth) is int and max_depth in (1, 2), "frame_depth", "expected depth 1 or 2")
     if request.symbol != "benchmark_start":
         raise NativeInlineError("frame_virtual_unsupported",
@@ -137,9 +137,16 @@ def _build_frame(request: InlineCall, max_depth: int = 1) -> NativeSplice:
     code = bytearray()
     relocations: list[NativeRelocation] = []
     _emit_frame(body, bias, code, relocations, worker)
+    if compact_frame:
+        from .frame_cleanup import cleanup_frame, verify_cleanup
+
+        original, original_relocs = bytes(code), relocations
+        code, relocations = cleanup_frame(original, original_relocs)
+        verify_cleanup(original, original_relocs, code, relocations)
     padding = (len(request.call_bytes) - len(code)) % 8
     return NativeSplice(start_off=request.call_off, prefix=b"", code=bytes(code) + _PADDING[padding],
-                        kind="frame", relocations=tuple(relocations), depth=2 if worker else 1)
+                        kind="frame", relocations=tuple(relocations), depth=2 if worker else 1,
+                        compact_frame=compact_frame)
 
 
 def _verify_frame_site(unit: TBUnit, request: InlineCall, code_address: int) -> None:
@@ -222,9 +229,9 @@ def _verify_frame_site(unit: TBUnit, request: InlineCall, code_address: int) -> 
 
 
 def prepare_virtual_splice(unit: TBUnit, request: InlineCall, code_address: int, *,
-                           max_depth: int = 1) -> NativeSplice:
+                           max_depth: int = 1, compact_frame: bool = False) -> NativeSplice:
     """Certify one framed virtual's exact original caller and byte translation."""
-    splice = _build_frame(request, max_depth)
+    splice = _build_frame(request, max_depth, compact_frame)
     _verify_frame_site(unit, request, code_address)
     return splice
 
@@ -232,7 +239,7 @@ def prepare_virtual_splice(unit: TBUnit, request: InlineCall, code_address: int,
 def verify_virtual_splice_body(request: InlineCall) -> None:
     """Verify the emitted placeholder bytes and complete relocation list."""
     splice = request.splice
-    _require(splice is not None and splice == _build_frame(request, splice.depth),
+    _require(splice is not None and splice == _build_frame(request, splice.depth, splice.compact_frame),
              "frame_correspondence", "exact framed body, padding, or relocation differs")
 
 
@@ -240,5 +247,5 @@ def verify_virtual_splice(unit: TBUnit, request: InlineCall, code_address: int) 
     """Verify correspondence with the original caller and frozen plugin body."""
     splice = request.splice
     _require(splice is not None and splice == prepare_virtual_splice(
-        unit, request, code_address, max_depth=splice.depth),
+        unit, request, code_address, max_depth=splice.depth, compact_frame=splice.compact_frame),
              "frame_correspondence", "framed splice differs from the original caller proof")

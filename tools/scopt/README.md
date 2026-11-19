@@ -13,6 +13,8 @@ ordinary warm cache.
   helper effect table): `docs/qemu.md`
 - **Workflow** (prepare → optimize → validate/publish → run → report, timing campaigns):
   `docs/workflow.md`
+- **Native whole-program optimization** combines certified helper splices, guarded cross-TB
+  specialization, state cleanup and LLVM layout. See [the runnable workflow and per-pass benchmarking guide](docs/native-program.md).
 - **Pass-writer guide** with a runnable example: `docs/pass-writer.md`,
   `tests/unit/test_pass_writer_example.py`
 - **Design documents**: `docs/design/README.md` (B1/B2 design `docs/design/B1-design.md`
