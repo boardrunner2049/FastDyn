@@ -173,6 +173,12 @@ M3_JUMP_TABLE_FOOTPRINT_SOURCE = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_jump_table_footprint.s"
 )
+M3_SAFE_ICF_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_safe_icf.s"
+)
+M3_SAFE_ICF_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_safe_icf.ld"
+)
 M3_ABS32_JUMP_TABLE_ICP_SOURCE = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_abs32_jump_table_icp.s"
@@ -1179,6 +1185,55 @@ def validate_relocated_function_order(
         "repaired_control_transfers": repaired_control_transfers,
         "text_relocation_target_section": ".text",
         "origin_summary": origin_summary,
+    }
+
+
+def validate_relocated_safe_icf(
+    reference: Path, candidate: Path
+) -> dict[str, Any]:
+    """Validate safe ICF inside the exact linker-qualified firmware image."""
+    ref = elf_inventory(reference)
+    out = elf_inventory(candidate)
+    if ref["segments"] != out["segments"]:
+        raise RuntimeError("safe ICF changed the loadable segment map")
+    if ref["entry"] != out["entry"]:
+        raise RuntimeError("safe ICF changed the reset entry")
+    for section_name in (".isr_vector", ".rodata", ".text"):
+        left = ref["sections"][section_name]
+        right = out["sections"][section_name]
+        fields = ("address", "offset", "flags")
+        if section_name != ".text":
+            fields += ("size", "alignment")
+        for field in fields:
+            if left[field] != right[field]:
+                raise RuntimeError(
+                    f"safe ICF changed {section_name} {field}"
+                )
+    ref_text_size = int(ref["sections"][".text"]["size"])
+    out_text_size = int(out["sections"][".text"]["size"])
+    if out_text_size > ref_text_size:
+        raise RuntimeError("safe ICF grew the qualified text region")
+    out_text_alignment = int(out["sections"][".text"]["alignment"])
+    if (
+        out_text_alignment < int(ref["sections"][".text"]["alignment"])
+        or int(out["sections"][".text"]["address"]) % out_text_alignment
+    ):
+        raise RuntimeError("safe ICF emitted invalid text alignment")
+    old_text = out["sections"].get(".bolt.org.text")
+    if old_text is None or int(old_text["size"]) != 0:
+        raise RuntimeError("safe ICF retained a live original text body")
+    if section_bytes(reference, ".isr_vector") != section_bytes(
+        candidate, ".isr_vector"
+    ):
+        raise RuntimeError("safe ICF changed protected vector bytes")
+    return {
+        "reference": ref,
+        "candidate": out,
+        "program_headers_exact": True,
+        "allocated_firmware_regions_exact": True,
+        "retired_original_text_bytes": ref_text_size - out_text_size,
+        "output_text_alignment": out_text_alignment,
+        "protected_vector_exact": True,
     }
 
 
@@ -2931,6 +2986,21 @@ def build_m3_jump_table_footprint_fixture(
     return image
 
 
+def build_m3_safe_icf_fixture(output: Path, logs: Path) -> Path:
+    """Build the relocation-complete safe identical-code-folding fixture."""
+    image = output / "firm-bolt-cortex-m3-safe-icf-reference.elf"
+    command = [
+        str(ARM_GCC), "-mcpu=cortex-m3", "-mthumb", "-nostdlib",
+        "-Wl,--emit-relocs", f"-Wl,-T,{M3_SAFE_ICF_LINKER}",
+        str(M3_SAFE_ICF_SOURCE), "-o", str(image),
+    ]
+    require_success(
+        run(command, logs / "build-m3-safe-icf.log"),
+        "M3 safe identical-code-folding fixture build",
+    )
+    return image
+
+
 def build_m3_abs32_jump_table_icp_fixture(
     output: Path, logs: Path
 ) -> Path:
@@ -4016,6 +4086,7 @@ def main() -> int:
     m3_jump_table_footprint_image = (
         build_m3_jump_table_footprint_fixture(output, logs)
     )
+    m3_safe_icf_image = build_m3_safe_icf_fixture(output, logs)
     m3_abs32_jump_table_icp_image = (
         build_m3_abs32_jump_table_icp_fixture(output, logs)
     )
@@ -4301,6 +4372,11 @@ def main() -> int:
          m3_jump_table_footprint_image, {".isr_vector": None}, [
              "--jt-footprint-reduction",
              "--firmbolt-allow-jump-table-footprint-reduction",
+         ]),
+        ("m3_safe_icf", "cortex-m3", m3_safe_icf_image,
+         {".isr_vector": None}, [
+             "--relocs", "--use-old-text", "--icf=safe",
+             "--firmbolt-allow-identical-code-folding",
          ]),
         ("m3_abs32_jump_table_icp", "cortex-m3",
          m3_abs32_jump_table_icp_image, {".isr_vector": None}, [
@@ -4605,6 +4681,17 @@ def main() -> int:
                         "M3 jump-table footprint fixture did not publish "
                         "exactly one TBH-to-TBB reduction"
                     )
+            if label == "m3_safe_icf":
+                if int(summary["firmware_modification_reason_counts"]
+                       ["identical_code_folding"]) != 2:
+                    raise RuntimeError(
+                        "M3 safe ICF fixture did not record both the folded "
+                        "child and address-coalesced canonical function"
+                    )
+                if int(summary["identical_code_fold_count"]) != 1:
+                    raise RuntimeError(
+                        "M3 safe ICF fixture did not record exactly one fold"
+                    )
             if label in {
                 "m3_abs32_jump_table_icp",
                 "m3_detached_abs32_jump_table_icp",
@@ -4666,6 +4753,7 @@ def main() -> int:
             "m3_cdsplit": validate_relocated_cdsplit,
         }.get(label)
         alignment_validation = label == "m3_profile_alignment"
+        safe_icf_layout = label == "m3_safe_icf"
         results[label] = {
             "cpu": cpu,
             "bolt_summary": [
@@ -4703,6 +4791,8 @@ def main() -> int:
                 if clustering_order_policy is not None
                 else validate_profile_guided_alignment(image, candidate)
                 if alignment_validation
+                else validate_relocated_safe_icf(image, candidate)
+                if safe_icf_layout
                 else exidx_validator(image, candidate)
                 if exidx_layout
                 else split_validation(image, candidate)
@@ -4723,6 +4813,7 @@ def main() -> int:
                     and relocation_order_policy is None
                     and not exidx_layout
                     and not alignment_validation
+                    and not safe_icf_layout
                 ) else None
             ),
             "provenance_validation": provenance_validation,
@@ -4815,7 +4906,7 @@ def main() -> int:
                         image, candidate, final_layout,
                     )
                 )
-            if exidx_layout:
+            if exidx_layout or safe_icf_layout:
                 # The dedicated validator follows every relocated origin and
                 # reference.  The generic in-place scanners compare bytes at
                 # original PCs and are therefore inapplicable once the final
@@ -4830,13 +4921,22 @@ def main() -> int:
                 results[label]["pc_relative_data_validation"] = {
                     "status": "accepted",
                     "mapped_instruction_count": (
+                        sum(
+                            len(function.get("instruction_origins", []))
+                            for function in final_layout["functions"]
+                        )
+                        if safe_icf_layout else
                         13
                         if label == "m3_exidx_generic_function_reorder"
                         else 12
                     ),
                     "synthesized_instruction_count": 0,
                     "pc_relative_reference_count": 0,
-                    "contract": "dedicated_relocation_and_ehabi_validation",
+                    "contract": (
+                        "dedicated_relocation_and_safe_icf_validation"
+                        if safe_icf_layout else
+                        "dedicated_relocation_and_ehabi_validation"
+                    ),
                     "references": [],
                 }
             else:
@@ -5772,6 +5872,59 @@ def main() -> int:
                         half_table["output_entry_size"]
                     ),
                     "out_of_range_scaled_delta": half_scaled_delta,
+                }
+            if label == "m3_safe_icf":
+                folds = final_layout["identical_code_folds"]
+                if (
+                    int(final_layout["identical_code_fold_count"]) != 1
+                    or int(final_layout[
+                        "identical_code_folded_original_bytes"
+                    ]) != 4
+                    or len(folds) != 1
+                ):
+                    raise RuntimeError(
+                        "M3 safe ICF did not publish one four-byte folded "
+                        "original body"
+                    )
+                fold = folds[0]
+                direct_a = symbol_address(candidate, "direct_call_a") & ~1
+                direct_b = symbol_address(candidate, "direct_call_b") & ~1
+                taken_a = symbol_address(candidate, "address_taken_a") & ~1
+                taken_b = symbol_address(candidate, "address_taken_b") & ~1
+                pointer_bytes = section_bytes(candidate, ".rodata")[:8]
+                pointer_a = int.from_bytes(pointer_bytes[:4], "little") & ~1
+                pointer_b = int.from_bytes(pointer_bytes[4:8], "little") & ~1
+                origins = fold["instruction_origins"]
+                if (
+                    fold["child_name"] != "direct_call_b"
+                    or fold["immediate_parent_name"] != "direct_call_a"
+                    or direct_a != direct_b
+                    or taken_a == taken_b
+                    or (pointer_a, pointer_b) != (taken_a, taken_b)
+                    or len(origins) != 2
+                    or any(
+                        origin["canonical_original_address"] is None
+                        or origin["output_address"] is None
+                        for origin in origins
+                    )
+                ):
+                    raise RuntimeError(
+                        "M3 safe ICF lost function-address exclusions, "
+                        "relocated data pointers, or exact folded origins"
+                    )
+                results[label]["safe_icf_validation"] = {
+                    "status": "accepted",
+                    "contract": (
+                        "relocation-complete safe address coalescing; all "
+                        "non-control address uses remain distinct"
+                    ),
+                    "child": fold["child_name"],
+                    "canonical": fold["immediate_parent_name"],
+                    "canonical_output_address": direct_a,
+                    "folded_original_bytes": 4,
+                    "instruction_origin_count": len(origins),
+                    "address_taken_outputs": [taken_a, taken_b],
+                    "address_table_outputs": [pointer_a, pointer_b],
                 }
             if label == "m3_abs32_jump_table_icp":
                 jump_worker = next(
@@ -6945,6 +7098,36 @@ def main() -> int:
             "reject atomically"
         )
 
+    safe_icf_without_contract = run(
+        [str(args.bolt.resolve()), str(m3_safe_icf_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline", "--relocs", "--use-old-text",
+         "--icf=safe", "-o",
+         str(output / "must-not-emit-unadmitted-safe-icf.elf")],
+        logs / "reject-unadmitted-safe-icf.log",
+    )
+    if (
+        safe_icf_without_contract.returncode == 0
+        or "safe ICF changes function-address identity" not in
+        (safe_icf_without_contract.stdout + safe_icf_without_contract.stderr)
+    ):
+        raise RuntimeError("unadmitted Cortex-M safe ICF did not reject")
+
+    aggressive_icf = run(
+        [str(args.bolt.resolve()), str(m3_safe_icf_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         "--firmbolt-arm-full-pipeline", "--relocs", "--use-old-text",
+         "--icf=all", "--firmbolt-allow-identical-code-folding", "-o",
+         str(output / "must-not-emit-aggressive-icf.elf")],
+        logs / "reject-aggressive-icf.log",
+    )
+    if (
+        aggressive_icf.returncode == 0
+        or "qualifies only --icf=safe" not in
+        (aggressive_icf.stdout + aggressive_icf.stderr)
+    ):
+        raise RuntimeError("aggressive Cortex-M ICF did not reject")
+
     detached_without_contract_report = (
         output / "detached-abs32-without-contract.json"
     )
@@ -7303,6 +7486,14 @@ def main() -> int:
             expected_words=(10, 20, 30, 42),
         )
     )
+    m3_safe_icf_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_safe_icf_image, candidates["m3_safe_icf"], output,
+            args.fastdyn.resolve(), "native-safe-icf",
+            expected_words=(42, 42, 17, 17, 1),
+        )
+    )
     m3_abs32_jump_table_icp_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -7356,6 +7547,7 @@ def main() -> int:
             m3_icp_tail_execution,
             m3_jump_table_icp_execution,
             m3_jump_table_footprint_execution,
+            m3_safe_icf_execution,
             m3_abs32_jump_table_icp_execution,
             m3_detached_abs32_jump_table_icp_execution,
             execution
@@ -7629,6 +7821,8 @@ def main() -> int:
             "indirect_tail_call_promotion_without_contract_retained": True,
             "unadmitted_jump_table_promotion_rejected": True,
             "unadmitted_jump_table_footprint_reduction_rejected": True,
+            "unadmitted_safe_icf_rejected": True,
+            "aggressive_icf_rejected": True,
             "detached_abs32_without_atomic_update_left_unchanged": True,
         },
         "m0plus_literal_architectural_execution": m0_literal_execution,
@@ -7693,6 +7887,8 @@ def main() -> int:
             m3_jump_table_icp_execution,
         "m3_native_jump_table_footprint_architectural_execution":
             m3_jump_table_footprint_execution,
+        "m3_safe_identical_code_folding_architectural_execution":
+            m3_safe_icf_execution,
         "m3_native_abs32_jump_table_promotion_architectural_execution":
             m3_abs32_jump_table_icp_execution,
         "m3_native_detached_abs32_jump_table_promotion_architectural_execution":
@@ -7787,6 +7983,7 @@ def main() -> int:
                 "opt-in native BOLT indirect-tail-call promotion for profiled Thumb-2 BX epilogues under conservative stack-restore recognition plus AAPCS and tail-call-event contracts, with exact direct/fallback identities, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT hot-index promotion for recovered inline TBB/TBH and atomic in-function ABS32 switch tables, with exact guard/fallback origins, relocated literal/table references, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT TBH-to-TBB footprint reduction for exact inline tables under an explicit dispatch-read-width contract, with byte-range proof, odd-entry alignment repair, exact origins, compact in-place emission, out-of-range retention, and Cortex-M3 execution",
+                "opt-in native BOLT safe identical-code folding for relocation-complete Cortex-M functions under an explicit function-address-coalescing contract, with protected/vector/address-stable exclusions, relocation-backed address-taken retention, exact many-original-to-one-emitted instruction origins, rewritten data pointers, aggressive-mode rejection, fixed flash mappings, and Cortex-M3 execution",
                 "opt-in native BOLT hot-index promotion for detached read-only ABS32 switch tables with complete retained pointer/entry relocations and an explicit atomic-update contract, including exact pointer-source remapping, table-entry regeneration, compact in-place emission, and Cortex-M3 hot/cold/default execution",
                 "original-instruction, forwarding-dependency, and per-pass publication ledger",
                 "compact publication of only audited modified functions",
@@ -7886,6 +8083,7 @@ def main() -> int:
             str(candidates["m3_jump_table_icp"]),
         "m3_jump_table_footprint_candidate":
             str(candidates["m3_jump_table_footprint"]),
+        "m3_safe_icf_candidate": str(candidates["m3_safe_icf"]),
         "m3_abs32_jump_table_icp_candidate":
             str(candidates["m3_abs32_jump_table_icp"]),
         "m3_detached_abs32_jump_table_icp_candidate":

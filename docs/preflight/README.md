@@ -104,7 +104,8 @@ tail-indirect-call-promotion Cortex-M3 fixtures,
 an opt-in immutable-vtable method-load-elimination Cortex-M3 fixture,
 opt-in profiled TBB, in-function ABS32 and relocation-complete detached ABS32
 hot-index-promotion Cortex-M3 fixtures, an opt-in TBH-to-TBB footprint fixture
-with odd-entry alignment and out-of-byte-range retention controls, explicit user-directed and
+with odd-entry alignment and out-of-byte-range retention controls, an opt-in
+safe identical-code-folding fixture with address-taken controls, explicit user-directed and
 profile-execution-count and CDSort call-graph relocation-complete whole-image
 function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
 Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
@@ -112,7 +113,7 @@ function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
 fixtures, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
 relocation-complete compact and generic ARM EHABI
 function-reordering fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v123 run accepts all forty-one without
+The 18 November production-parity-v124 run accepts all forty-two without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -748,26 +749,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v124-safe-icf-r8-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/report.json),
-SHA-256 `4a05d45940fee19ac313a753cbabb649531b5e132ca460db3ee3e2395c9c174a`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v124-safe-icf-r8-2026-11-18/report.json),
+SHA-256 `56733cc223aa258e197ed9eaa00aa4343061d0e1b8573d8868068b3e529a2531`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v124-safe-icf-r8-2026-11-18/validation-manifest.json)
 (SHA-256
-`3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`)
+`cec3709decb398890fac55a41f7dbac373c6047e38e9646207e088944c5b37f7`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`f9c22040a8a6fef4d147cc3ead97d23c01c3521bf5d75b4c87052ba7c1ef7886`),
+`f0e3388895a4344469fe997cbaa063172f0e7e6ce694e512d9184d79f346e3f1`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`9d2f3f162a993a4af46f7276a44f2fd91baa63f1f066275b880084a2ef3936b0`.
+`377aacc0c40894b018c5d5bc8343ee22e6c336c2f32605c41cb4299a18efe28f`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -799,7 +800,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v123 validation passes 62/62 BOLT ARM lit tests, 12/12 AArch32
+The current v124 validation passes 63/63 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -874,6 +875,28 @@ inline tables were double-counted as aggregate islands, and final `$t` mapping
 used the input rather than emitted entry width. This is code-size and
 preservation evidence; the one-shot execution times are not a performance
 claim.
+
+v124 qualifies BOLT's existing safe identical-code-folding algorithm for
+relocation-complete Cortex-M images rather than implementing another folding
+pass. The target restriction was primarily an unaudited guard: BOLT's generic
+CFG/instruction comparison and relocation-backed address-taken analysis are
+reusable. Firmware admission is narrower. `--icf=safe` additionally requires
+`--firmbolt-allow-identical-code-folding`; `--icf=all` is rejected. Vector
+entries, typed veneer slots and address-stable functions are excluded, and a
+fold is installed only when every child instruction has an exact canonical
+instruction identity. The executed M3 fixture folds the two four-byte
+direct-call twins to one body. The removed body accounts for four bytes and
+two now-unneeded alignment bytes, so live `.text` falls from 72 to 66 bytes. Two
+otherwise-identical functions whose addresses occur in `.rodata` remain at
+distinct addresses, and their relocated Thumb pointers still name the exact
+retained functions. The final ledger maps both child identities to the two
+canonical output PCs. Reference and candidate both produce RAM words
+`(42, 42, 17, 17, 1)`; the last word confirms the address-taken functions
+remain distinct. Program headers and the vector are unchanged, the retired
+original text section is empty, and no segment is added. This is safe-mode
+integration, identity and compact-emission evidence—not a general claim that
+function address equality is unobservable, nor a speedup result. EHABI-covered
+folding remains rejected until duplicate/alias unwind records are qualified.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

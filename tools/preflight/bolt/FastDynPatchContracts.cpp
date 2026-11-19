@@ -25,6 +25,7 @@
 #include <array>
 #include <cinttypes>
 #include <map>
+#include <mutex>
 #include <set>
 #include <vector>
 
@@ -151,6 +152,15 @@ struct CopyCleanupRecord {
   uint64_t KnownExecutionCount;
 };
 
+struct IdenticalCodeFoldRecord {
+  uint64_t ChildAddress;
+  uint64_t ChildSize;
+  std::string ChildName;
+  uint64_t ParentAddress;
+  std::string ParentName;
+  std::vector<std::pair<uint64_t, uint64_t>> InstructionIdentities;
+};
+
 /// The tracker and reporter execute in the same BOLT invocation.  Retain the
 /// decoded pre-transformation effect inventory here so the firmware wrapper
 /// can distinguish a mapped rewrite from a deleted/reordered memory effect.
@@ -160,6 +170,8 @@ std::map<uint64_t, FrameForwardingRecord> FrameForwardings;
 std::set<std::pair<uint64_t, uint64_t>> OriginalControlEdges;
 std::vector<ArithmeticFusionRecord> ArithmeticFusions;
 std::vector<CopyCleanupRecord> CopyCleanups;
+std::vector<IdenticalCodeFoldRecord> IdenticalCodeFolds;
+std::mutex IdenticalCodeFoldsMutex;
 
 Expected<json::Value> readContracts() {
   ErrorOr<std::unique_ptr<MemoryBuffer>> Buffer =
@@ -244,7 +256,7 @@ using FirmwareModification = BinaryFunction::FirmwareModification;
 using FirmwarePublicationRejection =
     BinaryFunction::FirmwarePublicationRejection;
 
-static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 22>
+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 23>
     FirmwareModificationNames = {{
         {FirmwareModification::CFGNormalization, "cfg_normalization"},
         {FirmwareModification::UnreachableCodeElimination,
@@ -280,6 +292,8 @@ static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 22>
         {FirmwareModification::BlockAlignment, "block_alignment"},
         {FirmwareModification::JumpTableFootprintReduction,
          "jump_table_footprint_reduction"},
+        {FirmwareModification::IdenticalCodeFolding,
+         "identical_code_folding"},
     }};
 
 json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -661,6 +675,55 @@ llvm::bolt::getFastDynOriginalIdentity(BinaryContext &BC,
   return BC.MIB->getAnnotationAs<uint64_t>(Inst, *OriginIndex);
 }
 
+bool llvm::bolt::recordFastDynIdenticalCodeFold(BinaryContext &BC,
+                                                BinaryFunction &Child,
+                                                BinaryFunction &Parent) {
+  if (!BC.isARM() || !Child.hasCFG() || !Parent.hasCFG() ||
+      Child.getLayout().block_size() != Parent.getLayout().block_size())
+    return false;
+
+  IdenticalCodeFoldRecord Record{Child.getAddress(), Child.getSize(),
+                                 Child.getPrintName(), Parent.getAddress(),
+                                 Parent.getPrintName(), {}};
+  auto ParentBlocks = Parent.getLayout().blocks();
+  auto ParentBB = ParentBlocks.begin();
+  for (const BinaryBasicBlock *ChildBlock : Child.getLayout().blocks()) {
+    if (ParentBB == ParentBlocks.end())
+      return false;
+    const BinaryBasicBlock *ParentBlock = *ParentBB++;
+    if (ChildBlock->getLayoutIndex() != ParentBlock->getLayoutIndex())
+      return false;
+
+    SmallVector<const MCInst *, 16> ChildInstructions;
+    SmallVector<const MCInst *, 16> ParentInstructions;
+    for (const MCInst &Inst : *ChildBlock)
+      if (!BC.MIB->isPseudo(Inst))
+        ChildInstructions.push_back(&Inst);
+    for (const MCInst &Inst : *ParentBlock)
+      if (!BC.MIB->isPseudo(Inst))
+        ParentInstructions.push_back(&Inst);
+    if (ChildInstructions.size() != ParentInstructions.size())
+      return false;
+    for (size_t I = 0; I < ChildInstructions.size(); ++I) {
+      const std::optional<uint64_t> ChildIdentity =
+          getFastDynOriginalIdentity(BC, *ChildInstructions[I]);
+      const std::optional<uint64_t> ParentIdentity =
+          getFastDynOriginalIdentity(BC, *ParentInstructions[I]);
+      if (!ChildIdentity || !ParentIdentity)
+        return false;
+      Record.InstructionIdentities.emplace_back(*ChildIdentity,
+                                                *ParentIdentity);
+    }
+  }
+  if (ParentBB != Parent.getLayout().block_end() ||
+      Record.InstructionIdentities.empty())
+    return false;
+
+  std::lock_guard<std::mutex> Lock(IdenticalCodeFoldsMutex);
+  IdenticalCodeFolds.push_back(std::move(Record));
+  return true;
+}
+
 void llvm::bolt::annotateFastDynClone(BinaryContext &BC, MCInst &Inst,
                                      uint64_t OriginalIdentity) {
   const unsigned OriginIndex =
@@ -690,6 +753,10 @@ Error FastDynOriginTracker::runOnFunctions(BinaryContext &BC) {
   OriginalControlEdges.clear();
   ArithmeticFusions.clear();
   CopyCleanups.clear();
+  {
+    std::lock_guard<std::mutex> Lock(IdenticalCodeFoldsMutex);
+    IdenticalCodeFolds.clear();
+  }
   for (auto &BFI : BC.getBinaryFunctions()) {
     BinaryFunction &BF = BFI.second;
     if (!BF.hasCFG())
@@ -3534,6 +3601,42 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
     Cleanups.push_back(std::move(Cleanup));
   }
   Root["copy_cleanups"] = std::move(Cleanups);
+  json::Array FoldRecords;
+  uint64_t FoldedBytes = 0;
+  {
+    std::lock_guard<std::mutex> Lock(IdenticalCodeFoldsMutex);
+    for (const IdenticalCodeFoldRecord &Record : IdenticalCodeFolds) {
+      json::Object Fold;
+      Fold["child_name"] = Record.ChildName;
+      Fold["child_original_address"] =
+          static_cast<int64_t>(Record.ChildAddress);
+      Fold["child_original_size"] = static_cast<int64_t>(Record.ChildSize);
+      Fold["parent_name"] = Record.ParentName;
+      Fold["parent_original_address"] =
+          static_cast<int64_t>(Record.ParentAddress);
+      Fold["address_identity_coalesced"] = true;
+      json::Array Identities;
+      for (const auto &[ChildIdentity, ParentIdentity] :
+           Record.InstructionIdentities) {
+        json::Object Identity;
+        Identity["child_original_address"] =
+            static_cast<int64_t>(ChildIdentity);
+        Identity["parent_original_address"] =
+            static_cast<int64_t>(ParentIdentity);
+        Identities.push_back(std::move(Identity));
+      }
+      Fold["instruction_identity_equivalences"] = std::move(Identities);
+      FoldRecords.push_back(std::move(Fold));
+      FoldedBytes += Record.ChildSize;
+    }
+  }
+  Root["identical_code_folds"] = std::move(FoldRecords);
+  Root["summary"].getAsObject()->insert(
+      {"identical_code_fold_count",
+       static_cast<int64_t>(IdenticalCodeFolds.size())});
+  Root["summary"].getAsObject()->insert(
+      {"identical_code_folded_original_bytes",
+       static_cast<int64_t>(FoldedBytes)});
   Root["functions"] = std::move(Functions);
 
   std::error_code EC;
@@ -4490,6 +4593,84 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
   Root["target_cpu"] = BC.STI->getCPU();
   Root["target_features"] = BC.STI->getFeatureString();
   Root["target_triple"] = BC.TripleName;
+  json::Array FoldRecords;
+  uint64_t FoldedOriginalBytes = 0;
+  for (const IdenticalCodeFoldRecord &Record : IdenticalCodeFolds) {
+    json::Object Fold;
+    Fold["child_name"] = Record.ChildName;
+    Fold["child_original_address"] =
+        static_cast<int64_t>(Record.ChildAddress);
+    Fold["child_original_size"] = static_cast<int64_t>(Record.ChildSize);
+    Fold["immediate_parent_name"] = Record.ParentName;
+    Fold["immediate_parent_original_address"] =
+        static_cast<int64_t>(Record.ParentAddress);
+    Fold["address_identity_coalesced"] = true;
+
+    uint64_t CanonicalFunctionAddress = Record.ParentAddress;
+    BinaryFunction *CanonicalFunction =
+        BC.getBinaryFunctionAtAddress(CanonicalFunctionAddress);
+    while (CanonicalFunction && CanonicalFunction->isFolded()) {
+      CanonicalFunction = CanonicalFunction->getFoldedIntoFunction();
+      CanonicalFunctionAddress = CanonicalFunction->getAddress();
+    }
+    Fold["canonical_function_original_address"] =
+        static_cast<int64_t>(CanonicalFunctionAddress);
+    Fold["canonical_function_output_address"] =
+        CanonicalFunction
+            ? json::Value(static_cast<int64_t>(
+                  CanonicalFunction->getOutputAddress()))
+            : json::Value(nullptr);
+
+    json::Array Identities;
+    for (const auto &[ChildIdentity, ImmediateParentIdentity] :
+         Record.InstructionIdentities) {
+      uint64_t CurrentFunctionAddress = Record.ParentAddress;
+      uint64_t CanonicalIdentity = ImmediateParentIdentity;
+      DenseSet<uint64_t> SeenFunctions;
+      while (SeenFunctions.insert(CurrentFunctionAddress).second) {
+        const IdenticalCodeFoldRecord *Next = nullptr;
+        for (const IdenticalCodeFoldRecord &Candidate : IdenticalCodeFolds)
+          if (Candidate.ChildAddress == CurrentFunctionAddress) {
+            Next = &Candidate;
+            break;
+          }
+        if (!Next)
+          break;
+        auto Identity = llvm::find_if(
+            Next->InstructionIdentities,
+            [&](const auto &Pair) { return Pair.first == CanonicalIdentity; });
+        if (Identity == Next->InstructionIdentities.end()) {
+          CanonicalIdentity = 0;
+          break;
+        }
+        CanonicalIdentity = Identity->second;
+        CurrentFunctionAddress = Next->ParentAddress;
+      }
+      json::Object Identity;
+      Identity["child_original_address"] =
+          static_cast<int64_t>(ChildIdentity);
+      Identity["canonical_original_address"] =
+          CanonicalIdentity
+              ? json::Value(static_cast<int64_t>(CanonicalIdentity))
+              : json::Value(nullptr);
+      uint64_t OutputAddress = 0;
+      if (CanonicalFunction && CanonicalIdentity)
+        OutputAddress = CanonicalFunction->translateInputToOutputAddress(
+            CanonicalIdentity);
+      Identity["output_address"] =
+          OutputAddress ? json::Value(static_cast<int64_t>(OutputAddress))
+                        : json::Value(nullptr);
+      Identities.push_back(std::move(Identity));
+    }
+    Fold["instruction_origins"] = std::move(Identities);
+    FoldRecords.push_back(std::move(Fold));
+    FoldedOriginalBytes += Record.ChildSize;
+  }
+  Root["identical_code_fold_count"] =
+      static_cast<int64_t>(IdenticalCodeFolds.size());
+  Root["identical_code_folded_original_bytes"] =
+      static_cast<int64_t>(FoldedOriginalBytes);
+  Root["identical_code_folds"] = std::move(FoldRecords);
   Root["functions"] = std::move(Functions);
 
   const std::string Filename = FirmwareReportFilename + ".layout.json";

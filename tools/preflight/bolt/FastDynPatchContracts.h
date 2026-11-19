@@ -63,6 +63,16 @@ bool isFastDynClonedOriginal(BinaryContext &BC, const MCInst &Inst);
 std::optional<uint64_t> getFastDynOriginalIdentity(BinaryContext &BC,
                                                    const MCInst &Inst);
 
+/// Record the exact instruction-identity equivalence established before BOLT
+/// folds one Cortex-M function into another.  Safe firmware ICF may coalesce
+/// code addresses, but it must not discard the original identities used for
+/// fault/event attribution.  Return false when the two bodies cannot be
+/// represented as a total instruction-identity mapping; the caller must then
+/// retain both functions.
+bool recordFastDynIdenticalCodeFold(BinaryContext &BC,
+                                    BinaryFunction &Child,
+                                    BinaryFunction &Parent);
+
 /// Mark an instruction copied into a different function by a native BOLT
 /// transformation. The instruction retains the source identity for fault and
 /// event attribution, while the clone marker prevents address translation from

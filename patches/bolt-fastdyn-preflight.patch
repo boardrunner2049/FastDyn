@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..016cf9a08e62f5bf79f78561dfcc8399ed1bdba3 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..a04f7787f3ad823168e168027f7b09b24eb40005 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,61 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,62 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -162,6 +162,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..016cf9a08e62f5bf79f78561dfcc8399
 +    FunctionSplitting = 1U << 19,
 +    BlockAlignment = 1U << 20,
 +    JumpTableFootprintReduction = 1U << 21,
++    IdenticalCodeFolding = 1U << 22,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -192,7 +193,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..016cf9a08e62f5bf79f78561dfcc8399
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +247,17 @@ public:
+@@ -192,6 +248,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -210,7 +211,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..016cf9a08e62f5bf79f78561dfcc8399
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +398,54 @@ private:
+@@ -332,6 +399,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -265,7 +266,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..016cf9a08e62f5bf79f78561dfcc8399
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1582,70 @@ public:
+@@ -1468,6 +1583,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -336,7 +337,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..016cf9a08e62f5bf79f78561dfcc8399
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2112,48 @@ public:
+@@ -1934,6 +2113,48 @@ public:
      return *this;
    }
  
@@ -385,7 +386,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..016cf9a08e62f5bf79f78561dfcc8399
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2551,8 @@ public:
+@@ -2331,6 +2552,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -767,10 +768,10 @@ index eb077182c9456a98cd5df819fce43ce6c2e5cfea..950e2906c511e93dbd195c9437016850
    explicit AlignerPass() : BinaryFunctionPass(false) {}
 diff --git a/bolt/include/bolt/Passes/FastDynPatchContracts.h b/bolt/include/bolt/Passes/FastDynPatchContracts.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..1e8b673e06eeb97d608dafd307a21a9f21273348
+index 0000000000000000000000000000000000000000..54b3814ba8a83188644d693bf83709738dd0adb3
 --- /dev/null
 +++ b/bolt/include/bolt/Passes/FastDynPatchContracts.h
-@@ -0,0 +1,281 @@
+@@ -0,0 +1,291 @@
 +//===- bolt/Passes/FastDynPatchContracts.h ----------------------*- C++ -*-===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -835,6 +836,16 @@ index 0000000000000000000000000000000000000000..1e8b673e06eeb97d608dafd307a21a9f
 +/// transformations, if one exists.
 +std::optional<uint64_t> getFastDynOriginalIdentity(BinaryContext &BC,
 +                                                   const MCInst &Inst);
++
++/// Record the exact instruction-identity equivalence established before BOLT
++/// folds one Cortex-M function into another.  Safe firmware ICF may coalesce
++/// code addresses, but it must not discard the original identities used for
++/// fault/event attribution.  Return false when the two bodies cannot be
++/// represented as a total instruction-identity mapping; the caller must then
++/// retain both functions.
++bool recordFastDynIdenticalCodeFold(BinaryContext &BC,
++                                    BinaryFunction &Child,
++                                    BinaryFunction &Parent);
 +
 +/// Mark an instruction copied into a different function by a native BOLT
 +/// transformation. The instruction retains the source identity for fault and
@@ -3520,10 +3531,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109fffc5c39e8
+index 0000000000000000000000000000000000000000..394ce6790198f56961d4a4bd87fa590ba0f55adc
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4507 @@
+@@ -0,0 +1,4688 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -3551,6 +3562,7 @@ index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109ff
 +#include <array>
 +#include <cinttypes>
 +#include <map>
++#include <mutex>
 +#include <set>
 +#include <vector>
 +
@@ -3677,6 +3689,15 @@ index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109ff
 +  uint64_t KnownExecutionCount;
 +};
 +
++struct IdenticalCodeFoldRecord {
++  uint64_t ChildAddress;
++  uint64_t ChildSize;
++  std::string ChildName;
++  uint64_t ParentAddress;
++  std::string ParentName;
++  std::vector<std::pair<uint64_t, uint64_t>> InstructionIdentities;
++};
++
 +/// The tracker and reporter execute in the same BOLT invocation.  Retain the
 +/// decoded pre-transformation effect inventory here so the firmware wrapper
 +/// can distinguish a mapped rewrite from a deleted/reordered memory effect.
@@ -3686,6 +3707,8 @@ index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109ff
 +std::set<std::pair<uint64_t, uint64_t>> OriginalControlEdges;
 +std::vector<ArithmeticFusionRecord> ArithmeticFusions;
 +std::vector<CopyCleanupRecord> CopyCleanups;
++std::vector<IdenticalCodeFoldRecord> IdenticalCodeFolds;
++std::mutex IdenticalCodeFoldsMutex;
 +
 +Expected<json::Value> readContracts() {
 +  ErrorOr<std::unique_ptr<MemoryBuffer>> Buffer =
@@ -3770,7 +3793,7 @@ index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109ff
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 22>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 23>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -3806,6 +3829,8 @@ index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109ff
 +        {FirmwareModification::BlockAlignment, "block_alignment"},
 +        {FirmwareModification::JumpTableFootprintReduction,
 +         "jump_table_footprint_reduction"},
++        {FirmwareModification::IdenticalCodeFolding,
++         "identical_code_folding"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -4187,6 +4212,55 @@ index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109ff
 +  return BC.MIB->getAnnotationAs<uint64_t>(Inst, *OriginIndex);
 +}
 +
++bool llvm::bolt::recordFastDynIdenticalCodeFold(BinaryContext &BC,
++                                                BinaryFunction &Child,
++                                                BinaryFunction &Parent) {
++  if (!BC.isARM() || !Child.hasCFG() || !Parent.hasCFG() ||
++      Child.getLayout().block_size() != Parent.getLayout().block_size())
++    return false;
++
++  IdenticalCodeFoldRecord Record{Child.getAddress(), Child.getSize(),
++                                 Child.getPrintName(), Parent.getAddress(),
++                                 Parent.getPrintName(), {}};
++  auto ParentBlocks = Parent.getLayout().blocks();
++  auto ParentBB = ParentBlocks.begin();
++  for (const BinaryBasicBlock *ChildBlock : Child.getLayout().blocks()) {
++    if (ParentBB == ParentBlocks.end())
++      return false;
++    const BinaryBasicBlock *ParentBlock = *ParentBB++;
++    if (ChildBlock->getLayoutIndex() != ParentBlock->getLayoutIndex())
++      return false;
++
++    SmallVector<const MCInst *, 16> ChildInstructions;
++    SmallVector<const MCInst *, 16> ParentInstructions;
++    for (const MCInst &Inst : *ChildBlock)
++      if (!BC.MIB->isPseudo(Inst))
++        ChildInstructions.push_back(&Inst);
++    for (const MCInst &Inst : *ParentBlock)
++      if (!BC.MIB->isPseudo(Inst))
++        ParentInstructions.push_back(&Inst);
++    if (ChildInstructions.size() != ParentInstructions.size())
++      return false;
++    for (size_t I = 0; I < ChildInstructions.size(); ++I) {
++      const std::optional<uint64_t> ChildIdentity =
++          getFastDynOriginalIdentity(BC, *ChildInstructions[I]);
++      const std::optional<uint64_t> ParentIdentity =
++          getFastDynOriginalIdentity(BC, *ParentInstructions[I]);
++      if (!ChildIdentity || !ParentIdentity)
++        return false;
++      Record.InstructionIdentities.emplace_back(*ChildIdentity,
++                                                *ParentIdentity);
++    }
++  }
++  if (ParentBB != Parent.getLayout().block_end() ||
++      Record.InstructionIdentities.empty())
++    return false;
++
++  std::lock_guard<std::mutex> Lock(IdenticalCodeFoldsMutex);
++  IdenticalCodeFolds.push_back(std::move(Record));
++  return true;
++}
++
 +void llvm::bolt::annotateFastDynClone(BinaryContext &BC, MCInst &Inst,
 +                                     uint64_t OriginalIdentity) {
 +  const unsigned OriginIndex =
@@ -4216,6 +4290,10 @@ index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109ff
 +  OriginalControlEdges.clear();
 +  ArithmeticFusions.clear();
 +  CopyCleanups.clear();
++  {
++    std::lock_guard<std::mutex> Lock(IdenticalCodeFoldsMutex);
++    IdenticalCodeFolds.clear();
++  }
 +  for (auto &BFI : BC.getBinaryFunctions()) {
 +    BinaryFunction &BF = BFI.second;
 +    if (!BF.hasCFG())
@@ -7060,6 +7138,42 @@ index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109ff
 +    Cleanups.push_back(std::move(Cleanup));
 +  }
 +  Root["copy_cleanups"] = std::move(Cleanups);
++  json::Array FoldRecords;
++  uint64_t FoldedBytes = 0;
++  {
++    std::lock_guard<std::mutex> Lock(IdenticalCodeFoldsMutex);
++    for (const IdenticalCodeFoldRecord &Record : IdenticalCodeFolds) {
++      json::Object Fold;
++      Fold["child_name"] = Record.ChildName;
++      Fold["child_original_address"] =
++          static_cast<int64_t>(Record.ChildAddress);
++      Fold["child_original_size"] = static_cast<int64_t>(Record.ChildSize);
++      Fold["parent_name"] = Record.ParentName;
++      Fold["parent_original_address"] =
++          static_cast<int64_t>(Record.ParentAddress);
++      Fold["address_identity_coalesced"] = true;
++      json::Array Identities;
++      for (const auto &[ChildIdentity, ParentIdentity] :
++           Record.InstructionIdentities) {
++        json::Object Identity;
++        Identity["child_original_address"] =
++            static_cast<int64_t>(ChildIdentity);
++        Identity["parent_original_address"] =
++            static_cast<int64_t>(ParentIdentity);
++        Identities.push_back(std::move(Identity));
++      }
++      Fold["instruction_identity_equivalences"] = std::move(Identities);
++      FoldRecords.push_back(std::move(Fold));
++      FoldedBytes += Record.ChildSize;
++    }
++  }
++  Root["identical_code_folds"] = std::move(FoldRecords);
++  Root["summary"].getAsObject()->insert(
++      {"identical_code_fold_count",
++       static_cast<int64_t>(IdenticalCodeFolds.size())});
++  Root["summary"].getAsObject()->insert(
++      {"identical_code_folded_original_bytes",
++       static_cast<int64_t>(FoldedBytes)});
 +  Root["functions"] = std::move(Functions);
 +
 +  std::error_code EC;
@@ -8016,6 +8130,84 @@ index 0000000000000000000000000000000000000000..3f42b084204b5e4ad5c5197f357109ff
 +  Root["target_cpu"] = BC.STI->getCPU();
 +  Root["target_features"] = BC.STI->getFeatureString();
 +  Root["target_triple"] = BC.TripleName;
++  json::Array FoldRecords;
++  uint64_t FoldedOriginalBytes = 0;
++  for (const IdenticalCodeFoldRecord &Record : IdenticalCodeFolds) {
++    json::Object Fold;
++    Fold["child_name"] = Record.ChildName;
++    Fold["child_original_address"] =
++        static_cast<int64_t>(Record.ChildAddress);
++    Fold["child_original_size"] = static_cast<int64_t>(Record.ChildSize);
++    Fold["immediate_parent_name"] = Record.ParentName;
++    Fold["immediate_parent_original_address"] =
++        static_cast<int64_t>(Record.ParentAddress);
++    Fold["address_identity_coalesced"] = true;
++
++    uint64_t CanonicalFunctionAddress = Record.ParentAddress;
++    BinaryFunction *CanonicalFunction =
++        BC.getBinaryFunctionAtAddress(CanonicalFunctionAddress);
++    while (CanonicalFunction && CanonicalFunction->isFolded()) {
++      CanonicalFunction = CanonicalFunction->getFoldedIntoFunction();
++      CanonicalFunctionAddress = CanonicalFunction->getAddress();
++    }
++    Fold["canonical_function_original_address"] =
++        static_cast<int64_t>(CanonicalFunctionAddress);
++    Fold["canonical_function_output_address"] =
++        CanonicalFunction
++            ? json::Value(static_cast<int64_t>(
++                  CanonicalFunction->getOutputAddress()))
++            : json::Value(nullptr);
++
++    json::Array Identities;
++    for (const auto &[ChildIdentity, ImmediateParentIdentity] :
++         Record.InstructionIdentities) {
++      uint64_t CurrentFunctionAddress = Record.ParentAddress;
++      uint64_t CanonicalIdentity = ImmediateParentIdentity;
++      DenseSet<uint64_t> SeenFunctions;
++      while (SeenFunctions.insert(CurrentFunctionAddress).second) {
++        const IdenticalCodeFoldRecord *Next = nullptr;
++        for (const IdenticalCodeFoldRecord &Candidate : IdenticalCodeFolds)
++          if (Candidate.ChildAddress == CurrentFunctionAddress) {
++            Next = &Candidate;
++            break;
++          }
++        if (!Next)
++          break;
++        auto Identity = llvm::find_if(
++            Next->InstructionIdentities,
++            [&](const auto &Pair) { return Pair.first == CanonicalIdentity; });
++        if (Identity == Next->InstructionIdentities.end()) {
++          CanonicalIdentity = 0;
++          break;
++        }
++        CanonicalIdentity = Identity->second;
++        CurrentFunctionAddress = Next->ParentAddress;
++      }
++      json::Object Identity;
++      Identity["child_original_address"] =
++          static_cast<int64_t>(ChildIdentity);
++      Identity["canonical_original_address"] =
++          CanonicalIdentity
++              ? json::Value(static_cast<int64_t>(CanonicalIdentity))
++              : json::Value(nullptr);
++      uint64_t OutputAddress = 0;
++      if (CanonicalFunction && CanonicalIdentity)
++        OutputAddress = CanonicalFunction->translateInputToOutputAddress(
++            CanonicalIdentity);
++      Identity["output_address"] =
++          OutputAddress ? json::Value(static_cast<int64_t>(OutputAddress))
++                        : json::Value(nullptr);
++      Identities.push_back(std::move(Identity));
++    }
++    Fold["instruction_origins"] = std::move(Identities);
++    FoldRecords.push_back(std::move(Fold));
++    FoldedOriginalBytes += Record.ChildSize;
++  }
++  Root["identical_code_fold_count"] =
++      static_cast<int64_t>(IdenticalCodeFolds.size());
++  Root["identical_code_folded_original_bytes"] =
++      static_cast<int64_t>(FoldedOriginalBytes);
++  Root["identical_code_folds"] = std::move(FoldRecords);
 +  Root["functions"] = std::move(Functions);
 +
 +  const std::string Filename = FirmwareReportFilename + ".layout.json";
@@ -8314,6 +8506,93 @@ index 344c6a234e0c406ff211c4cf612a47438f032f62..ebf2406160d2636d9a2d9c52b5796220
    FA->printStats();
    ShrinkWrapping::printStats(BC);
    return Error::success();
+diff --git a/bolt/lib/Passes/IdenticalCodeFolding.cpp b/bolt/lib/Passes/IdenticalCodeFolding.cpp
+index 4aa12de1664f275bf96a30fe5ff827f1ac7badd8..adea79b1f2c352212cb5adef789f440608a85b57 100644
+--- a/bolt/lib/Passes/IdenticalCodeFolding.cpp
++++ b/bolt/lib/Passes/IdenticalCodeFolding.cpp
+@@ -13,6 +13,7 @@
+ #include "bolt/Passes/IdenticalCodeFolding.h"
+ #include "bolt/Core/HashUtilities.h"
+ #include "bolt/Core/ParallelUtilities.h"
++#include "bolt/Passes/FastDynPatchContracts.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/Support/CommandLine.h"
+ #include "llvm/Support/FormatVariadic.h"
+@@ -63,6 +64,12 @@ cl::opt<bolt::IdenticalCodeFolding::ICFLevel, false,
+                    clEnumValN(bolt::IdenticalCodeFolding::ICFLevel::Safe,
+                               "safe", "Enable safe identical code folding")),
+         cl::ValueOptional, cl::cat(BoltOptCategory));
++
++cl::opt<bool> FirmBOLTAllowIdenticalCodeFolding(
++    "firmbolt-allow-identical-code-folding",
++    cl::desc("allow safe Cortex-M ICF to coalesce function addresses when "
++             "all non-control references and original identities are known"),
++    cl::init(false), cl::cat(BoltOptCategory));
+ } // namespace opts
+ 
+ bool IdenticalCodeFolding::shouldOptimize(const BinaryFunction &BF) const {
+@@ -74,6 +81,14 @@ bool IdenticalCodeFolding::shouldOptimize(const BinaryFunction &BF) const {
+     return false;
+   if (BF.isPseudo())
+     return false;
++  // Firmware entries and ranges with address-sensitive inline data are not
++  // ordinary interchangeable function bodies.  Safe ICF's address-taken
++  // analysis protects data/code references, while these target constraints
++  // protect architectural entry and placement identities.
++  if (BF.getBinaryContext().isARM() &&
++      (BF.requiresAddressStableLayout() || BF.isCortexMVectorEntry() ||
++       BF.isFirmwareVeneerSlot()))
++    return false;
+   if (opts::ICF == ICFLevel::Safe && BF.hasAddressTaken())
+     return false;
+   return BinaryFunctionPass::shouldOptimize(BF);
+@@ -443,9 +458,10 @@ void IdenticalCodeFolding::markFunctionsUnsafeToFold(BinaryContext &BC) {
+   NamedRegionTimer MarkFunctionsUnsafeToFoldTimer(
+       "markFunctionsUnsafeToFold", "markFunctionsUnsafeToFold", "ICF breakdown",
+       "ICF breakdown", opts::TimeICF);
+-  if (!BC.isX86() && !BC.isAArch64())
++  if (!BC.isX86() && !BC.isAArch64() && !BC.isARM())
+     BC.outs()
+-        << "BOLT-WARNING: safe ICF is only supported for x86 and AArch64\n";
++        << "BOLT-WARNING: safe ICF is only supported for x86, AArch64 and "
++           "qualified ARM firmware\n";
+   analyzeDataRelocations(BC);
+   analyzeFunctions(BC);
+ }
+@@ -551,12 +567,33 @@ Error IdenticalCodeFolding::runOnFunctions(BinaryContext &BC) {
+                  "function expected to be in the set");
+           Candidates.erase(FI);
+ 
++          // Firmware ICF additionally requires a total original-instruction
++          // identity map before the child CFG is released.  This rejects the
++          // generic ICF special case where otherwise equivalent CFGs differ by
++          // a trailing branch: ordinary execution may agree, but exact
++          // firmware attribution would be incomplete.
++          if (BC.isARM() &&
++              !recordFastDynIdenticalCodeFold(BC, *ChildBF, *ParentBF)) {
++            Candidates.insert(ChildBF);
++            BC.outs() << "BOLT-INFO: Firm-BOLT retained ICF candidate "
++                      << ChildBF->getPrintName()
++                      << ": no total original-identity mapping\n";
++            continue;
++          }
++
+           // Fold the function and remove from the list of processed functions.
+           BytesSavedEstimate += ChildBF->getSize();
+           if (!ChildBF->hasFunctionsFoldedInto())
+             NumCalled += ChildBF->getKnownExecutionCount();
+           BC.foldFunction(*ChildBF, *ParentBF);
+ 
++          if (BC.isARM()) {
++            ParentBF->setFirmwareModified(
++                BinaryFunction::FirmwareModification::IdenticalCodeFolding);
++            ChildBF->setFirmwareModified(
++                BinaryFunction::FirmwareModification::IdenticalCodeFolding);
++          }
++
+           ++NumFoldedLastIteration;
+ 
+           if (ParentBF->hasJumpTables())
 diff --git a/bolt/lib/Passes/IndirectCallPromotion.cpp b/bolt/lib/Passes/IndirectCallPromotion.cpp
 index 3a86f18075ce488f835e1306a99ce91ddd6ac5e6..a3031d9e7c5432421ee534f8a22a1dfaeeede40e 100644
 --- a/bolt/lib/Passes/IndirectCallPromotion.cpp
@@ -9999,7 +10278,7 @@ index c8c9298805268db2cc2c54ac660bd4bedd946879..a8c2e3e4ad1da401a18a5196a6ffa1f6
    }
  
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..76f472c31a1e4de489d4cca2918454778fc2ce1f 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..b8c33e54c6b54bc732aa1def13fc0e1a03d3e028 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -10010,7 +10289,15 @@ index 18c84468b04ce23388d824e28c0029be48789a45..76f472c31a1e4de489d4cca291845477
  #include "bolt/Passes/FixRISCVCallsPass.h"
  #include "bolt/Passes/FixRelaxationPass.h"
  #include "bolt/Passes/FrameOptimizer.h"
-@@ -149,6 +150,12 @@ static cl::opt<bool>
+@@ -61,6 +62,7 @@ extern cl::opt<bolt::PLTCall::OptType> PLT;
+ extern cl::opt<bolt::IdenticalCodeFolding::ICFLevel, false,
+                llvm::bolt::DeprecatedICFNumericOptionParser>
+     ICF;
++extern cl::opt<bool> FirmBOLTAllowIdenticalCodeFolding;
+ 
+ static cl::opt<bool> DynoStatsAll("dyno-stats-all",
+                                   cl::desc("print dyno stats after each stage"),
+@@ -149,6 +151,12 @@ static cl::opt<bool>
                   cl::desc("print functions after longjmp pass"), cl::Hidden,
                   cl::cat(BoltOptCategory));
  
@@ -10023,7 +10310,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..76f472c31a1e4de489d4cca291845477
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +379,136 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -372,6 +380,147 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -10048,11 +10335,19 @@ index 18c84468b04ce23388d824e28c0029be48789a45..76f472c31a1e4de489d4cca291845477
 +  // repair.  Unsupported command-line transformations remain unavailable
 +  // until they acquire those contracts instead of running accidentally.
 +  if (BC.isARM()) {
-+    if (opts::ICF != IdenticalCodeFolding::ICFLevel::None)
++    if (opts::ICF != IdenticalCodeFolding::ICFLevel::None &&
++        opts::ICF != IdenticalCodeFolding::ICFLevel::Safe)
 +      return createStringError(
 +          inconvertibleErrorCode(),
-+          "Cortex-M production pipeline does not qualify identical-code "
-+          "folding; disable --icf");
++          "Cortex-M qualifies only --icf=safe; aggressive address "
++          "coalescing is not admitted");
++    if (opts::ICF == IdenticalCodeFolding::ICFLevel::Safe &&
++        !opts::FirmBOLTAllowIdenticalCodeFolding)
++      return createStringError(
++          inconvertibleErrorCode(),
++          "Cortex-M safe ICF changes function-address identity; add "
++          "--firmbolt-allow-identical-code-folding only for the declared "
++          "address-coalescing contract");
 +    if (opts::Instrument || opts::Hugify)
 +      return createStringError(
 +          inconvertibleErrorCode(),
@@ -10103,6 +10398,9 @@ index 18c84468b04ce23388d824e28c0029be48789a45..76f472c31a1e4de489d4cca291845477
 +    Manager.registerPass(std::make_unique<RemoveNops>(NeverPrint),
 +                         !opts::KeepNops);
 +    Manager.registerPass(std::make_unique<NormalizeCFG>(PrintNormalized));
++    Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
++                         opts::ICF !=
++                             IdenticalCodeFolding::ICFLevel::None);
 +    Manager.registerPass(
 +        std::make_unique<ReorderBasicBlocks>(PrintReordered));
 +    Manager.registerPass(
@@ -10160,7 +10458,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..76f472c31a1e4de489d4cca291845477
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +544,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +556,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -10178,7 +10476,17 @@ index 18c84468b04ce23388d824e28c0029be48789a45..76f472c31a1e4de489d4cca291845477
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -554,6 +702,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -454,6 +614,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+                        opts::RegReAssign);
+ 
+   Manager.registerPass(std::make_unique<Inliner>(PrintInline));
++    Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
++                         opts::ICF !=
++                             IdenticalCodeFolding::ICFLevel::None);
+ 
+   Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
+                        opts::ICF != IdenticalCodeFolding::ICFLevel::None);
+@@ -554,6 +717,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -10188,7 +10496,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..76f472c31a1e4de489d4cca291845477
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +719,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +734,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -19210,6 +19518,154 @@ index 0000000000000000000000000000000000000000..75938b5d67f468b21fefcd87f4abc088
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-safe-icf.s b/bolt/test/ARM/thumb-safe-icf.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..f55348df1373d5f5231b8bb7c9afac7fd8a64f3d
+--- /dev/null
++++ b/bolt/test/ARM/thumb-safe-icf.s
+@@ -0,0 +1,142 @@
++## Reuse BOLT's safe ICF on relocation-complete Cortex-M code.  Direct-call
++## twins may share one emitted body only under an explicit firmware address-
++## coalescing contract.  Data-addressed twins and the vector entry remain
++## distinct, and the final report maps every folded original instruction to
++## the canonical emitted instruction.
++
++# RUN: split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/fixture.s -o %t/fixture.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture.o -o %t/reference.elf
++# RUN: not llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --icf=safe -o %t/no-contract.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=NO-CONTRACT
++# RUN: not llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --icf=all \
++# RUN:   --firmbolt-allow-identical-code-folding -o %t/all.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=ALL
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --icf=safe \
++# RUN:   --firmbolt-allow-identical-code-folding \
++# RUN:   --fastdyn-firmware-report=%t/report.json -o %t/candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=BOLT
++# RUN: llvm-nm --numeric-sort %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=SYMBOLS
++# RUN: llvm-objdump -d --mcpu=cortex-m3 %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=CODE
++# RUN: %python -c "import json; d=json.load(open('%t/report.json.layout.json')); f=d['identical_code_folds']; print(d['identical_code_fold_count'],d['identical_code_folded_original_bytes']); print([(x['child_name'],x['immediate_parent_name'],hex(x['canonical_function_output_address']),[(hex(i['child_original_address']),hex(i['output_address'])) for i in x['instruction_origins']]) for x in f])" \
++# RUN:   | FileCheck %s --check-prefix=ORIGINS
++
++# NO-CONTRACT: Cortex-M safe ICF changes function-address identity
++# ALL: Cortex-M qualifies only --icf=safe; aggressive address coalescing is not admitted
++# BOLT: BOLT-INFO: ICF folded 1 out of 5 functions
++# BOLT: BOLT-INFO: FastDyn wrote linker-resolved firmware layout
++
++## Only direct_call_b aliases direct_call_a.  The pointer-observable pair is
++## retained at two distinct addresses by safe ICF's relocation analysis.
++# SYMBOLS: [[DIRECT:[0-9a-f]+]] T direct_call_a
++# SYMBOLS-NEXT: [[DIRECT]] T direct_call_b
++# SYMBOLS: [[TAKEN_A:[0-9a-f]+]] T address_taken_a
++# SYMBOLS-NEXT: [[TAKEN_B:[0-9a-f]+]] T address_taken_b
++# SYMBOLS-NOT: [[TAKEN_A]] T address_taken_b
++
++# CODE-LABEL: <Reset_Handler>:
++# CODE: bl [[DIRECT:0x[0-9a-f]+]] <direct_call_{{[ab]}}>
++# CODE: bl [[DIRECT]] <direct_call_{{[ab]}}>
++# CODE: bl {{.*}} <address_taken_a>
++# CODE: bl {{.*}} <address_taken_b>
++
++# ORIGINS: 1 4
++# ORIGINS-NEXT: [('direct_call_b', 'direct_call_a', '{{0x[0-9a-f]+}}', [('{{0x[0-9a-f]+}}', '{{0x[0-9a-f]+}}'), ('{{0x[0-9a-f]+}}', '{{0x[0-9a-f]+}}')])]
++
++//--- fixture.s
++.syntax unified
++.cpu cortex-m3
++.thumb
++.eabi_attribute Tag_CPU_arch, 10
++.eabi_attribute Tag_CPU_arch_profile, 'M'
++
++.section .isr_vector, "a", %progbits
++.p2align 2
++.global g_pfnVectors
++.type g_pfnVectors, %object
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++.size g_pfnVectors, . - g_pfnVectors
++
++.section .rodata.function_addresses, "a", %progbits
++.p2align 2
++.global function_addresses
++function_addresses:
++  .word address_taken_a
++  .word address_taken_b
++.size function_addresses, . - function_addresses
++
++.text
++.p2align 2
++.global Reset_Handler
++.type Reset_Handler, %function
++.thumb_func
++Reset_Handler:
++  ldr r4, =0x20000000
++  bl direct_call_a
++  str r0, [r4]
++  bl direct_call_b
++  str r0, [r4, #4]
++  bl address_taken_a
++  str r0, [r4, #8]
++  bl address_taken_b
++  str r0, [r4, #12]
++.global fixture_halt
++fixture_halt:
++  b fixture_halt
++.size Reset_Handler, . - Reset_Handler
++
++.p2align 2
++.global direct_call_a
++.type direct_call_a, %function
++.thumb_func
++direct_call_a:
++  movs r0, #42
++  bx lr
++.size direct_call_a, . - direct_call_a
++
++.p2align 2
++.global direct_call_b
++.type direct_call_b, %function
++.thumb_func
++direct_call_b:
++  movs r0, #42
++  bx lr
++.size direct_call_b, . - direct_call_b
++
++.p2align 2
++.global address_taken_a
++.type address_taken_a, %function
++.thumb_func
++address_taken_a:
++  movs r0, #17
++  bx lr
++.size address_taken_a, . - address_taken_a
++
++.p2align 2
++.global address_taken_b
++.type address_taken_b, %function
++.thumb_func
++address_taken_b:
++  movs r0, #17
++  bx lr
++.size address_taken_b, . - address_taken_b
++
++//--- link.ld
++ENTRY(Reset_Handler)
++MEMORY {
++  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
++  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
++}
++SECTIONS {
++  .isr_vector ORIGIN(FLASH) : { KEEP(*(.isr_vector)) } > FLASH
++  .rodata : { *(.rodata*) } > FLASH
++  .text 0x08000100 : { *(.text*) } > FLASH
++}
 diff --git a/bolt/test/ARM/thumb-stack-allocation-combiner.s b/bolt/test/ARM/thumb-stack-allocation-combiner.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..f421258e6cc7a7b87074b8e45d0d251972fb6296
