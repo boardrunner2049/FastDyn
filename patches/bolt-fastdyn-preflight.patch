@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..8d53252722866805533da3c290e57896b113f331 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..aae8d8aeb5b7d3d4176834ee1f30883508946acb 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,58 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,59 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -159,6 +159,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..8d53252722866805533da3c290e57896
 +    JumpTablePromotion = 1U << 16,
 +    MethodLoadElimination = 1U << 17,
 +    ReadOnlyLoadElision = 1U << 18,
++    FunctionSplitting = 1U << 19,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -189,7 +190,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..8d53252722866805533da3c290e57896
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +244,17 @@ public:
+@@ -192,6 +245,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -207,7 +208,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..8d53252722866805533da3c290e57896
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +395,54 @@ private:
+@@ -332,6 +396,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -262,7 +263,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..8d53252722866805533da3c290e57896
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1579,70 @@ public:
+@@ -1468,6 +1580,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -333,7 +334,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..8d53252722866805533da3c290e57896
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2109,48 @@ public:
+@@ -1934,6 +2110,48 @@ public:
      return *this;
    }
  
@@ -382,7 +383,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..8d53252722866805533da3c290e57896
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2548,8 @@ public:
+@@ -2331,6 +2549,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -3307,10 +3308,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad10f2a0f8
+index 0000000000000000000000000000000000000000..3df9871dce2053f2b1b367b2ad2f4a983ed78741
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4379 @@
+@@ -0,0 +1,4443 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -3543,7 +3544,7 @@ index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 19>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 20>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -3575,6 +3576,7 @@ index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad
 +         "method_load_elimination"},
 +        {FirmwareModification::ReadOnlyLoadElision,
 +         "read_only_load_elision"},
++        {FirmwareModification::FunctionSplitting, "function_splitting"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -6946,6 +6948,7 @@ index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad
 +  uint64_t InlineTableCount = 0;
 +  uint64_t InlineTableEntryCount = 0;
 +  uint64_t AddressStableFunctionCount = 0;
++  uint64_t SplitFunctionCount = 0;
 +  const unsigned OriginAnnotationIndex =
 +      BC.MIB->getOrCreateAnnotationIndex(FastDynOriginalAddressAnnotation);
 +  const unsigned SynthesizedFromAnnotationIndex =
@@ -6975,6 +6978,8 @@ index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad
 +      continue;
 +    const bool PublishedOriginal =
 +        BC.isARM() && !BC.HasRelocations && !BF.isFirmwareModified();
++    if (!PublishedOriginal && BF.isSplit())
++      ++SplitFunctionCount;
 +    if (BF.requiresAddressStableLayout()) {
 +      ++AddressStableFunctionCount;
 +      if (!PublishedOriginal && BF.isEmitted() &&
@@ -7051,6 +7056,14 @@ index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad
 +    DenseMap<const MCSymbol *, uint64_t> OwnedLiteralLabelOutputs;
 +    DenseMap<const MCSymbol *, uint64_t> OwnedLiteralLabelOriginals;
 +    for (const BinaryBasicBlock &BB : BF) {
++      const FragmentNum Fragment = BB.getFragmentNum();
++      const FunctionFragment &FF = BF.getLayout().getFragment(Fragment);
++      const uint64_t FragmentOutputAddress =
++          Fragment == FragmentNum::main() ? BF.getOutputAddress()
++                                          : FF.getAddress();
++      const uint64_t FragmentOutputSize =
++          Fragment == FragmentNum::main() ? BF.getOutputSize()
++                                          : FF.getImageSize();
 +      uint64_t NextOutput = AbsoluteBlockAddress(BB, /*End=*/false);
 +      for (const MCInst &Inst : BB) {
 +        if (BC.MIB->isPseudo(Inst))
@@ -7091,40 +7104,41 @@ index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad
 +          // private linker label whenever it survives lowering.
 +          if (Linked) {
 +            Output = *Linked;
-+            if (Output < BF.getOutputAddress())
-+              Output += BF.getOutputAddress();
++            if (Output < FragmentOutputAddress)
++              Output += FragmentOutputAddress;
 +          }
 +          const uint8_t *ImageAddress = reinterpret_cast<const uint8_t *>(
-+              BF.getImageAddress());
-+          uint64_t ImageSize = BF.getImageSize();
++              FF.getImageAddress());
++          uint64_t ImageSize = FF.getImageSize();
 +          if (BC.HasRelocations) {
-+            ErrorOr<BinarySection &> CodeSection = BF.getCodeSection();
++            ErrorOr<BinarySection &> CodeSection =
++                BF.getCodeSection(Fragment);
 +            if (!CodeSection || !CodeSection->getAllocAddress() ||
-+                BF.getOutputAddress() < CodeSection->getOutputAddress() ||
-+                BF.getOutputAddress() + BF.getOutputSize() >
++                FragmentOutputAddress < CodeSection->getOutputAddress() ||
++                FragmentOutputAddress + FragmentOutputSize >
 +                    CodeSection->getOutputAddress() +
 +                        CodeSection->getOutputSize())
 +              return createStringError(
 +                  inconvertibleErrorCode(),
-+                  "relocated ARM function %s is outside its linked code "
-+                  "section",
-+                  BF.getPrintName().c_str());
++                  "relocated ARM fragment %u of function %s is outside its "
++                  "linked code section",
++                  Fragment.get(), BF.getPrintName().c_str());
 +            const uint64_t SectionOffset =
-+                BF.getOutputAddress() - CodeSection->getOutputAddress();
++                FragmentOutputAddress - CodeSection->getOutputAddress();
 +            ImageAddress = reinterpret_cast<const uint8_t *>(
 +                               CodeSection->getAllocAddress()) +
 +                           SectionOffset;
-+            ImageSize = BF.getOutputSize();
++            ImageSize = FragmentOutputSize;
 +          }
 +          if (!ImageAddress || !ImageSize ||
-+              Output < BF.getOutputAddress() ||
-+              Output - BF.getOutputAddress() >= ImageSize)
++              Output < FragmentOutputAddress ||
++              Output - FragmentOutputAddress >= ImageSize)
 +            return createStringError(
 +                inconvertibleErrorCode(),
-+                "linked ARM instruction in %s has invalid output address "
-+                "0x%" PRIx64,
-+                BF.getPrintName().c_str(), Output);
-+          const uint64_t ImageOffset = Output - BF.getOutputAddress();
++                "linked ARM instruction in fragment %u of %s has invalid "
++                "output address 0x%" PRIx64,
++                Fragment.get(), BF.getPrintName().c_str(), Output);
++          const uint64_t ImageOffset = Output - FragmentOutputAddress;
 +          ArrayRef<uint8_t> Image(ImageAddress, ImageSize);
 +          if (Image.size() - ImageOffset < 2)
 +            return createStringError(
@@ -7614,6 +7628,55 @@ index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad
 +        BF.requiresAddressStableLayout();
 +    Function["cortex_m_vector_entry"] = BF.isCortexMVectorEntry();
 +    Function["firmware_veneer_slot"] = BF.isFirmwareVeneerSlot();
++    json::Array Fragments;
++    if (PublishedOriginal) {
++      json::Object Fragment;
++      Fragment["fragment_number"] = 0;
++      Fragment["kind"] = "main";
++      Fragment["output_address"] = static_cast<int64_t>(BF.getAddress());
++      Fragment["output_size"] = static_cast<int64_t>(BF.getSize());
++      Fragment["block_count"] =
++          static_cast<int64_t>(BF.getLayout().block_size());
++      Fragments.push_back(std::move(Fragment));
++    } else {
++      for (const FunctionFragment &FF : BF.getLayout().fragments()) {
++        if (FF.empty())
++          continue;
++        const FragmentNum Num = FF.getFragmentNum();
++        const uint64_t OutputAddress =
++            Num == FragmentNum::main() ? BF.getOutputAddress()
++                                       : FF.getAddress();
++        const uint64_t OutputSize =
++            Num == FragmentNum::main() ? BF.getOutputSize()
++                                       : FF.getImageSize();
++        json::Object Fragment;
++        Fragment["fragment_number"] = static_cast<int64_t>(Num.get());
++        Fragment["kind"] =
++            Num == FragmentNum::main()
++                ? "main"
++                : Num == FragmentNum::cold() ? "cold" : "warm_or_auxiliary";
++        Fragment["output_address"] = static_cast<int64_t>(OutputAddress);
++        Fragment["output_size"] = static_cast<int64_t>(OutputSize);
++        Fragment["block_count"] = static_cast<int64_t>(FF.size());
++        json::Array BlockOriginalAddresses;
++        json::Array BlockOutputAddresses;
++        for (const BinaryBasicBlock *BB : FF) {
++          BlockOriginalAddresses.push_back(
++              BB->getOffset() == BinaryBasicBlock::INVALID_OFFSET
++                  ? json::Value(nullptr)
++                  : json::Value(static_cast<int64_t>(BF.getAddress() +
++                                                     BB->getOffset())));
++          BlockOutputAddresses.push_back(static_cast<int64_t>(
++              AbsoluteBlockAddress(*BB, /*End=*/false)));
++        }
++        Fragment["block_original_addresses"] =
++            std::move(BlockOriginalAddresses);
++        Fragment["block_output_addresses"] =
++            std::move(BlockOutputAddresses);
++        Fragments.push_back(std::move(Fragment));
++      }
++    }
++    Function["fragments"] = std::move(Fragments);
 +    json::Array LiteralPoolRanges;
 +    if (BF.requiresAddressStableLayout()) {
 +      const BinaryFunction::IslandInfo &Islands = BF.getIslandInfo();
@@ -7658,6 +7721,8 @@ index 0000000000000000000000000000000000000000..c9e1a0d25d3042d215a809b54aa806ad
 +      static_cast<int64_t>(InlineTableEntryCount);
 +  Root["address_stable_function_count"] =
 +      static_cast<int64_t>(AddressStableFunctionCount);
++  Root["split_function_count"] =
++      static_cast<int64_t>(SplitFunctionCount);
 +  Root["synthesized_call_veneer_instruction_count"] =
 +      static_cast<int64_t>(SynthesizedCallVeneerInstructionCount);
 +  Root["synthesized_from_original_instruction_count"] =
@@ -9295,6 +9360,69 @@ index 66ca6800b1a5fabbeca2e5e5f09b5289599f7912..2c28baca1b1598b39f4cd9809c920d45
        RegIdx = RegsUsed.find_first();
        while (RegIdx != -1) {
          dbgs() << "\tREG" << RegIdx;
+diff --git a/bolt/lib/Passes/SplitFunctions.cpp b/bolt/lib/Passes/SplitFunctions.cpp
+index 2fc8b0654f4b6828f6d13f200b196fc53006ded7..08d69c7677fe0c9e2e1ff85c91cc21cee5d43e56 100644
+--- a/bolt/lib/Passes/SplitFunctions.cpp
++++ b/bolt/lib/Passes/SplitFunctions.cpp
+@@ -79,6 +79,12 @@ static cl::opt<bool, false, DeprecatedSplitFunctionOptionParser>
+                    cl::desc("split functions into fragments"),
+                    cl::cat(BoltOptCategory));
+ 
++static cl::opt<bool> FirmBOLTAllowFunctionSplitting(
++    "firmbolt-allow-function-splitting",
++    cl::desc("admit Cortex-M hot/cold function splitting under an explicit "
++             "fragment-placement and branch-event contract"),
++    cl::init(false), cl::cat(BoltOptCategory));
++
+ static cl::opt<unsigned> SplitThreshold(
+     "split-threshold",
+     cl::desc("split function only if its main size is reduced by more than "
+@@ -722,6 +728,14 @@ Error SplitFunctions::runOnFunctions(BinaryContext &BC) {
+   if (!opts::SplitFunctions)
+     return Error::success();
+ 
++  if (BC.isARM() && !opts::FirmBOLTAllowFunctionSplitting)
++    return createStringError(
++        inconvertibleErrorCode(),
++        "Cortex-M function splitting changes fragment placement and "
++        "cross-fragment branch events; add "
++        "--firmbolt-allow-function-splitting only for an admitted firmware "
++        "layout and observation contract");
++
+   if (BC.IsLinuxKernel && BC.BOLTReserved.empty()) {
+     BC.errs() << "BOLT-ERROR: split functions require reserved space in the "
+                  "Linux kernel binary\n";
+@@ -769,6 +783,10 @@ Error SplitFunctions::runOnFunctions(BinaryContext &BC) {
+   }
+ 
+   ParallelUtilities::PredicateTy SkipFunc = [&](const BinaryFunction &BF) {
++    if (BC.isARM() &&
++        (BF.requiresAddressStableLayout() || BF.isCortexMVectorEntry() ||
++         BF.isFirmwareVeneerSlot() || BF.hasJumpTables()))
++      return true;
+     return !shouldOptimize(BF);
+   };
+ 
+@@ -820,7 +838,7 @@ void SplitFunctions::splitFunction(BinaryFunction &BF, SplitStrategy &S) {
+     // Do not split extra entry points in aarch64. They can be referred by
+     // using ADRs and when this happens, these blocks cannot be placed far
+     // away due to the limited range in ADR instruction.
+-    if (BC.isAArch64() && BB->isEntryPoint()) {
++    if ((BC.isAArch64() || BC.isARM()) && BB->isEntryPoint()) {
+       BB->setCanOutline(false);
+       continue;
+     }
+@@ -983,6 +1001,10 @@ void SplitFunctions::splitFunction(BinaryFunction &BF, SplitStrategy &S) {
+   if (BF.hasEHRanges() && !BF.isSplit())
+     BF.setLPFragment(FragmentNum::main(), FragmentNum::main());
+ 
++  if (BC.isARM() && LayoutUpdated && BF.isSplit())
++    BF.setFirmwareModified(
++        BinaryFunction::FirmwareModification::FunctionSplitting);
++
+   // Fix branches if the splitting decision of the pass after function
+   // reordering is different from that of the pass before function reordering.
+   if (LayoutUpdated && BC.HasFinalizedFunctionOrder)
 diff --git a/bolt/lib/Passes/TailDuplication.cpp b/bolt/lib/Passes/TailDuplication.cpp
 index c8c9298805268db2cc2c54ac660bd4bedd946879..a8c2e3e4ad1da401a18a5196a6ffa1f69d6abc8f 100644
 --- a/bolt/lib/Passes/TailDuplication.cpp
@@ -9468,7 +9596,7 @@ index c8c9298805268db2cc2c54ac660bd4bedd946879..a8c2e3e4ad1da401a18a5196a6ffa1f6
    }
  
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..22993ca29b9ddfcb6cd50473f245138115679ea7 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..e16b7de9195abf98e20b47991b7895a8cc00107e 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -9492,7 +9620,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..22993ca29b9ddfcb6cd50473f2451381
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +379,120 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -372,6 +379,124 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -9574,6 +9702,8 @@ index 18c84468b04ce23388d824e28c0029be48789a45..22993ca29b9ddfcb6cd50473f2451381
 +    Manager.registerPass(
 +        std::make_unique<EliminateUnreachableBlocks>(PrintUCE),
 +        opts::EliminateUnreachable);
++    if (BC.HasRelocations)
++      Manager.registerPass(std::make_unique<SplitFunctions>(PrintSplit));
 +    Manager.registerPass(std::make_unique<LoopInversionPass>());
 +    Manager.registerPass(std::make_unique<TailDuplication>());
 +    Manager.registerPass(std::make_unique<Peepholes>(PrintPeepholes));
@@ -9587,6 +9717,8 @@ index 18c84468b04ce23388d824e28c0029be48789a45..22993ca29b9ddfcb6cd50473f2451381
 +      Manager.registerPass(
 +          std::make_unique<ReorderFunctions>(PrintReorderedFunctions));
 +    Manager.registerPass(std::make_unique<PopulateOutputFunctions>());
++    if (BC.HasRelocations)
++      Manager.registerPass(std::make_unique<SplitFunctions>(PrintSplit));
 +    Manager.registerPass(std::make_unique<DynoStatsPrintPass>(
 +                             "after audited Cortex-M transformations"),
 +                         opts::PrintDynoStats || opts::DynoStatsAll);
@@ -9613,7 +9745,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..22993ca29b9ddfcb6cd50473f2451381
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +528,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +532,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -9631,7 +9763,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..22993ca29b9ddfcb6cd50473f2451381
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -554,6 +686,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -554,6 +690,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -9641,7 +9773,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..22993ca29b9ddfcb6cd50473f2451381
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +703,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +707,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -15405,6 +15537,166 @@ index 0000000000000000000000000000000000000000..e691ab3b42ee66b3a81927c64d425479
 +//--- callgraph.fdata
 +1 Reset_Handler 8 1 worker_a 0 0 1000
 +1 Reset_Handler e 1 worker_b 0 0 10
+diff --git a/bolt/test/ARM/thumb-function-splitting-relocs.s b/bolt/test/ARM/thumb-function-splitting-relocs.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..31e9c020f8f71fdc8fea0ba59a68028cf812e278
+--- /dev/null
++++ b/bolt/test/ARM/thumb-function-splitting-relocs.s
+@@ -0,0 +1,154 @@
++## Qualify native BOLT hot/cold function splitting for a relocation-complete
++## Cortex-M image.  The profile observes only split_worker's hot return.  The
++## emitted image still retains and precisely attributes the held-out cold
++## return, while the vector-reachable Reset_Handler remains one fragment.
++
++# RUN: split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/fixture.s -o %t/fixture.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture.o -o %t/reference.elf
++
++## Splitting changes placement and the encoding/range of cross-fragment
++## branches, so firmware callers must name that observation contract.
++# RUN: not llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --merge-text-sections --align-functions=4 --align-text=4 \
++# RUN:   --split-functions --split-all-cold -o %t/unadmitted.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=UNADMITTED
++
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --merge-text-sections --align-functions=4 --align-text=4 \
++# RUN:   --split-functions --split-all-cold \
++# RUN:   --firmbolt-allow-function-splitting \
++# RUN:   --fastdyn-firmware-report=%t/report.json \
++# RUN:   -o %t/candidate.elf 2>&1 | FileCheck %s --check-prefix=BOLT
++
++# RUN: llvm-readelf -hSWl %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=ELF
++# RUN: llvm-readelf -rW %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=RELOCS
++# RUN: llvm-nm --numeric-sort %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=SYMBOLS
++# RUN: llvm-objdump -d %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=CODE
++# RUN: %python -c "import json; r=json.load(open('%t/report.json')); l=json.load(open('%t/report.json.layout.json')); f=next(x for x in l['functions'] if x['name']=='split_worker'); v=next(x for x in l['functions'] if x['name']=='Reset_Handler'); print(r['summary']['firmware_modification_reason_counts']['function_splitting'],l['split_function_count'],f['firmware_modification_reasons'],f['fragments'],[(hex(o['original_address']),hex(o['output_address']),o['output_size'],o['origin_kind']) for o in f['instruction_origins']],v['fragments'])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# UNADMITTED: BOLT-ERROR: Cortex-M function splitting changes fragment placement and cross-fragment branch events
++
++# BOLT: BOLT-INFO: 1 out of 2 functions in the binary (50.0%) have non-empty execution profile
++# BOLT: BOLT-INFO: Firm-BOLT publication policy checked 1 attempted function(s), rejected 0
++# BOLT: BOLT-INFO: using original .text for new code with 0x4 alignment
++# BOLT: BOLT-INFO: merged 2 code sections into .text [0x8000100, 0x800012c)
++# BOLT: BOLT-INFO: FastDyn wrote linker-resolved firmware layout
++# BOLT: BOLT-INFO: not adding new segments
++
++# ELF: Entry point address: 0x8000111
++# ELF: .bolt.org.text {{.*}} 08000100 {{.*}} 000000 {{.*}} AX
++# ELF: .text {{.*}} 08000100 {{.*}} 00002c {{.*}} AX
++# ELF: LOAD {{.*}} 0x08000000 {{.*}} 0x00008 0x00008 R
++# ELF-NEXT: LOAD {{.*}} 0x08000100 {{.*}} 0x0002c 0x0002c R E
++
++# RELOCS: R_ARM_THM_CALL 08000101 split_worker
++# RELOCS-NEXT: R_ARM_THM_CALL 08000101 split_worker
++# RELOCS-NEXT: R_ARM_THM_JUMP24 08000128 fixture_halt
++# RELOCS: R_ARM_ABS32 08000111 Reset_Handler
++
++# SYMBOLS: 08000100 T split_worker
++# SYMBOLS: 0800010c t split_worker.cold.0
++# SYMBOLS-NOT: Reset_Handler.cold
++# SYMBOLS: 08000110 T Reset_Handler
++# SYMBOLS: 08000128 T fixture_halt
++
++# CODE: 08000100 <split_worker>:
++# CODE: bne.w 0x800010c <split_worker.cold.0>
++# CODE: movs r0, #0x11
++# CODE: bx lr
++# CODE: 0800010c <split_worker.cold.0>:
++# CODE: movs r0, #0x2a
++# CODE: bx lr
++# CODE: 08000110 <Reset_Handler>:
++# CODE: bl 0x8000100 <split_worker>
++# CODE: bl 0x8000100 <split_worker>
++
++# REPORT: 1 1 ['function_splitting']
++# REPORT-SAME: {'block_count': 2, 'block_original_addresses': [134218012, 134218016], 'block_output_addresses': [134217984, 134217990], 'fragment_number': 0, 'kind': 'main', 'output_address': 134217984, 'output_size': 10}
++# REPORT-SAME: {'block_count': 1, 'block_original_addresses': [134218020], 'block_output_addresses': [134217996], 'fragment_number': 1, 'kind': 'cold', 'output_address': 134217996, 'output_size': 4}
++# REPORT-SAME: [('0x800011c', '0x8000100', 2, 'original_instruction'), ('0x800011e', '0x8000102', 4, 'original_instruction'), ('0x8000120', '0x8000106', 2, 'original_instruction'), ('0x8000122', '0x8000108', 2, 'original_instruction'), ('0x8000124', '0x800010c', 2, 'original_instruction'), ('0x8000126', '0x800010e', 2, 'original_instruction')]
++# REPORT-SAME: [{'block_count': 2,
++# REPORT-SAME: 'kind': 'main'
++
++//--- fixture.s
++.syntax unified
++.cpu cortex-m3
++.thumb
++.eabi_attribute Tag_CPU_arch, 10
++.eabi_attribute Tag_CPU_arch_profile, 'M'
++
++.section .isr_vector, "a", %progbits
++.align 2
++.global g_pfnVectors
++.type g_pfnVectors, %object
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++.size g_pfnVectors, . - g_pfnVectors
++
++.section .text, "ax", %progbits
++.align 2
++.global Reset_Handler
++.type Reset_Handler, %function
++.thumb_func
++Reset_Handler:
++  movw r4, #0
++  movt r4, #0x2000
++  movs r0, #0
++  bl split_worker
++  str r0, [r4]
++  movs r0, #1
++  bl split_worker
++  str r0, [r4, #4]
++.global fixture_halt
++fixture_halt:
++  b fixture_halt
++.size Reset_Handler, . - Reset_Handler
++
++.align 2
++.global split_worker
++.type split_worker, %function
++.thumb_func
++split_worker:
++  cmp r0, #0
++  bne 1f
++  movs r0, #17
++  bx lr
++1:
++  movs r0, #42
++  bx lr
++.size split_worker, . - split_worker
++
++//--- link.ld
++ENTRY(Reset_Handler)
++MEMORY {
++  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
++  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
++}
++SECTIONS {
++  .isr_vector ORIGIN(FLASH) : { KEEP(*(.isr_vector)) } > FLASH
++  .text ORIGIN(FLASH) + 0x100 : {
++    *(.text*)
++    . = . + 4;
++  } > FLASH
++  .data : { *(.data*) } > RAM AT > FLASH
++  .bss (NOLOAD) : { *(.bss*) *(COMMON) } > RAM
++}
++
++//--- profile.fdata
++no_lbr
++1 split_worker 0 100
++1 split_worker 2 100
++1 split_worker 4 100
++1 split_worker 6 100
++1 split_worker 8 0
++1 split_worker a 0
 diff --git a/bolt/test/ARM/thumb-jump-table-promotion-flags-live.s b/bolt/test/ARM/thumb-jump-table-promotion-flags-live.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..be9694630c66d306d493dd4feffd9b246130982d

@@ -230,7 +230,7 @@ using FirmwareModification = BinaryFunction::FirmwareModification;
 using FirmwarePublicationRejection =
     BinaryFunction::FirmwarePublicationRejection;
 
-static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 19>
+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 20>
     FirmwareModificationNames = {{
         {FirmwareModification::CFGNormalization, "cfg_normalization"},
         {FirmwareModification::UnreachableCodeElimination,
@@ -262,6 +262,7 @@ static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 19>
          "method_load_elimination"},
         {FirmwareModification::ReadOnlyLoadElision,
          "read_only_load_elision"},
+        {FirmwareModification::FunctionSplitting, "function_splitting"},
     }};
 
 json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -3633,6 +3634,7 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
   uint64_t InlineTableCount = 0;
   uint64_t InlineTableEntryCount = 0;
   uint64_t AddressStableFunctionCount = 0;
+  uint64_t SplitFunctionCount = 0;
   const unsigned OriginAnnotationIndex =
       BC.MIB->getOrCreateAnnotationIndex(FastDynOriginalAddressAnnotation);
   const unsigned SynthesizedFromAnnotationIndex =
@@ -3662,6 +3664,8 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
       continue;
     const bool PublishedOriginal =
         BC.isARM() && !BC.HasRelocations && !BF.isFirmwareModified();
+    if (!PublishedOriginal && BF.isSplit())
+      ++SplitFunctionCount;
     if (BF.requiresAddressStableLayout()) {
       ++AddressStableFunctionCount;
       if (!PublishedOriginal && BF.isEmitted() &&
@@ -3738,6 +3742,14 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
     DenseMap<const MCSymbol *, uint64_t> OwnedLiteralLabelOutputs;
     DenseMap<const MCSymbol *, uint64_t> OwnedLiteralLabelOriginals;
     for (const BinaryBasicBlock &BB : BF) {
+      const FragmentNum Fragment = BB.getFragmentNum();
+      const FunctionFragment &FF = BF.getLayout().getFragment(Fragment);
+      const uint64_t FragmentOutputAddress =
+          Fragment == FragmentNum::main() ? BF.getOutputAddress()
+                                          : FF.getAddress();
+      const uint64_t FragmentOutputSize =
+          Fragment == FragmentNum::main() ? BF.getOutputSize()
+                                          : FF.getImageSize();
       uint64_t NextOutput = AbsoluteBlockAddress(BB, /*End=*/false);
       for (const MCInst &Inst : BB) {
         if (BC.MIB->isPseudo(Inst))
@@ -3778,40 +3790,41 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
           // private linker label whenever it survives lowering.
           if (Linked) {
             Output = *Linked;
-            if (Output < BF.getOutputAddress())
-              Output += BF.getOutputAddress();
+            if (Output < FragmentOutputAddress)
+              Output += FragmentOutputAddress;
           }
           const uint8_t *ImageAddress = reinterpret_cast<const uint8_t *>(
-              BF.getImageAddress());
-          uint64_t ImageSize = BF.getImageSize();
+              FF.getImageAddress());
+          uint64_t ImageSize = FF.getImageSize();
           if (BC.HasRelocations) {
-            ErrorOr<BinarySection &> CodeSection = BF.getCodeSection();
+            ErrorOr<BinarySection &> CodeSection =
+                BF.getCodeSection(Fragment);
             if (!CodeSection || !CodeSection->getAllocAddress() ||
-                BF.getOutputAddress() < CodeSection->getOutputAddress() ||
-                BF.getOutputAddress() + BF.getOutputSize() >
+                FragmentOutputAddress < CodeSection->getOutputAddress() ||
+                FragmentOutputAddress + FragmentOutputSize >
                     CodeSection->getOutputAddress() +
                         CodeSection->getOutputSize())
               return createStringError(
                   inconvertibleErrorCode(),
-                  "relocated ARM function %s is outside its linked code "
-                  "section",
-                  BF.getPrintName().c_str());
+                  "relocated ARM fragment %u of function %s is outside its "
+                  "linked code section",
+                  Fragment.get(), BF.getPrintName().c_str());
             const uint64_t SectionOffset =
-                BF.getOutputAddress() - CodeSection->getOutputAddress();
+                FragmentOutputAddress - CodeSection->getOutputAddress();
             ImageAddress = reinterpret_cast<const uint8_t *>(
                                CodeSection->getAllocAddress()) +
                            SectionOffset;
-            ImageSize = BF.getOutputSize();
+            ImageSize = FragmentOutputSize;
           }
           if (!ImageAddress || !ImageSize ||
-              Output < BF.getOutputAddress() ||
-              Output - BF.getOutputAddress() >= ImageSize)
+              Output < FragmentOutputAddress ||
+              Output - FragmentOutputAddress >= ImageSize)
             return createStringError(
                 inconvertibleErrorCode(),
-                "linked ARM instruction in %s has invalid output address "
-                "0x%" PRIx64,
-                BF.getPrintName().c_str(), Output);
-          const uint64_t ImageOffset = Output - BF.getOutputAddress();
+                "linked ARM instruction in fragment %u of %s has invalid "
+                "output address 0x%" PRIx64,
+                Fragment.get(), BF.getPrintName().c_str(), Output);
+          const uint64_t ImageOffset = Output - FragmentOutputAddress;
           ArrayRef<uint8_t> Image(ImageAddress, ImageSize);
           if (Image.size() - ImageOffset < 2)
             return createStringError(
@@ -4301,6 +4314,55 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
         BF.requiresAddressStableLayout();
     Function["cortex_m_vector_entry"] = BF.isCortexMVectorEntry();
     Function["firmware_veneer_slot"] = BF.isFirmwareVeneerSlot();
+    json::Array Fragments;
+    if (PublishedOriginal) {
+      json::Object Fragment;
+      Fragment["fragment_number"] = 0;
+      Fragment["kind"] = "main";
+      Fragment["output_address"] = static_cast<int64_t>(BF.getAddress());
+      Fragment["output_size"] = static_cast<int64_t>(BF.getSize());
+      Fragment["block_count"] =
+          static_cast<int64_t>(BF.getLayout().block_size());
+      Fragments.push_back(std::move(Fragment));
+    } else {
+      for (const FunctionFragment &FF : BF.getLayout().fragments()) {
+        if (FF.empty())
+          continue;
+        const FragmentNum Num = FF.getFragmentNum();
+        const uint64_t OutputAddress =
+            Num == FragmentNum::main() ? BF.getOutputAddress()
+                                       : FF.getAddress();
+        const uint64_t OutputSize =
+            Num == FragmentNum::main() ? BF.getOutputSize()
+                                       : FF.getImageSize();
+        json::Object Fragment;
+        Fragment["fragment_number"] = static_cast<int64_t>(Num.get());
+        Fragment["kind"] =
+            Num == FragmentNum::main()
+                ? "main"
+                : Num == FragmentNum::cold() ? "cold" : "warm_or_auxiliary";
+        Fragment["output_address"] = static_cast<int64_t>(OutputAddress);
+        Fragment["output_size"] = static_cast<int64_t>(OutputSize);
+        Fragment["block_count"] = static_cast<int64_t>(FF.size());
+        json::Array BlockOriginalAddresses;
+        json::Array BlockOutputAddresses;
+        for (const BinaryBasicBlock *BB : FF) {
+          BlockOriginalAddresses.push_back(
+              BB->getOffset() == BinaryBasicBlock::INVALID_OFFSET
+                  ? json::Value(nullptr)
+                  : json::Value(static_cast<int64_t>(BF.getAddress() +
+                                                     BB->getOffset())));
+          BlockOutputAddresses.push_back(static_cast<int64_t>(
+              AbsoluteBlockAddress(*BB, /*End=*/false)));
+        }
+        Fragment["block_original_addresses"] =
+            std::move(BlockOriginalAddresses);
+        Fragment["block_output_addresses"] =
+            std::move(BlockOutputAddresses);
+        Fragments.push_back(std::move(Fragment));
+      }
+    }
+    Function["fragments"] = std::move(Fragments);
     json::Array LiteralPoolRanges;
     if (BF.requiresAddressStableLayout()) {
       const BinaryFunction::IslandInfo &Islands = BF.getIslandInfo();
@@ -4345,6 +4407,8 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
       static_cast<int64_t>(InlineTableEntryCount);
   Root["address_stable_function_count"] =
       static_cast<int64_t>(AddressStableFunctionCount);
+  Root["split_function_count"] =
+      static_cast<int64_t>(SplitFunctionCount);
   Root["synthesized_call_veneer_instruction_count"] =
       static_cast<int64_t>(SynthesizedCallVeneerInstructionCount);
   Root["synthesized_from_original_instruction_count"] =

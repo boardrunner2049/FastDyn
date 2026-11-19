@@ -7,12 +7,12 @@ Cortex-M0+ architectural/reference/veneer fixtures, a relocation- and
 execution-checked Cortex-M3 backend fixture, and the real Cortex-M4 FreeRTOS
 image plus a fixed-work FastDyn smoke.
 
-The default production policy is compact in-place publication. A separately
-qualified relocation-complete fixture exercises whole-image function ordering
-inside the original linked .text flash extent. Unknown or unqualified compact
-functions retain their original implementation; relocation-mode rejection is
-atomic, and any new loadable range is a hard failure. The report names all
-remaining capability limits.
+The default production policy is compact in-place publication. Separately
+qualified relocation-complete fixtures exercise whole-image function ordering
+and hot/cold splitting inside original linker-owned .text flash extents.
+Unknown or unqualified compact functions retain their original implementation;
+relocation-mode rejection is atomic, and any new loadable range is a hard
+failure. The report names all remaining capability limits.
 """
 
 from __future__ import annotations
@@ -91,6 +91,15 @@ M3_FUNCTION_REORDER_PROFILE = (
 M3_FUNCTION_REORDER_CALLGRAPH_PROFILE = (
     ROOT
     / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_reorder_callgraph.fdata"
+)
+M3_FUNCTION_SPLIT_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.s"
+)
+M3_FUNCTION_SPLIT_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.ld"
+)
+M3_FUNCTION_SPLIT_PROFILE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.fdata"
 )
 M3_LOOP_INVERSION_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_loop_inversion.s"
@@ -320,8 +329,40 @@ def summarize_pass_publication(
         selected_functions += 1
         size = int(function["original_size"])
         original = virtual_bytes(reference, address, size)
-        emitted = virtual_bytes(candidate, address, size)
-        changed = sum(left != right for left, right in zip(original, emitted))
+        fragments = final_function.get("fragments", [])
+        candidate_ranges = [
+            {
+                "address": int(fragment["output_address"]),
+                "size": int(fragment["output_size"]),
+                "kind": fragment["kind"],
+            }
+            for fragment in fragments
+            if int(fragment["output_size"])
+        ]
+        if candidate_ranges:
+            emitted = b"".join(
+                virtual_bytes(candidate, item["address"], item["size"])
+                for item in candidate_ranges
+            )
+        else:
+            candidate_address = int(
+                final_function.get("output_address", address)
+            )
+            candidate_size = int(
+                final_function.get("output_size", size)
+            )
+            candidate_ranges = [{
+                "address": candidate_address,
+                "size": candidate_size,
+                "kind": "main",
+            }]
+            emitted = virtual_bytes(
+                candidate, candidate_address, candidate_size
+            )
+        changed = (
+            sum(left != right for left, right in zip(original, emitted))
+            + abs(len(original) - len(emitted))
+        )
         unique_changed_bytes += changed
         byte_changed_functions += changed != 0
         reasons = list(
@@ -331,6 +372,8 @@ def summarize_pass_publication(
             "name": function["name"],
             "original_address": address,
             "original_size": size,
+            "emitted_fragment_bytes": len(emitted),
+            "candidate_ranges": candidate_ranges,
             "changed_executable_bytes": changed,
             "reasons": reasons,
         })
@@ -974,6 +1017,225 @@ def validate_relocated_function_order(
     }
 
 
+def validate_relocated_function_split(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate an admitted Cortex-M hot/cold split as one firmware image."""
+    reference_inventory = elf_inventory(reference)
+    candidate_inventory = elf_inventory(candidate)
+    if reference_inventory["segments"] != candidate_inventory["segments"]:
+        raise RuntimeError(
+            "function-split candidate changed the loadable segment map"
+        )
+    reference_text = reference_inventory["sections"][".text"]
+    candidate_text = candidate_inventory["sections"][".text"]
+    for field in ("address", "offset", "size", "flags", "alignment"):
+        if reference_text[field] != candidate_text[field]:
+            raise RuntimeError(
+                f"function-split .text changed qualified {field}"
+            )
+    old_text = candidate_inventory["sections"].get(".bolt.org.text")
+    if old_text is None or int(old_text["size"]) != 0:
+        raise RuntimeError(
+            "function-split candidate retained a live original text body"
+        )
+
+    moved = {
+        name: symbol_address(candidate, name)
+        for name in (
+            "split_worker", "split_worker.cold.0", "Reset_Handler",
+            "fixture_halt",
+        )
+    }
+    expected_moved = {
+        "split_worker": 0x08000100,
+        "split_worker.cold.0": 0x0800010C,
+        "Reset_Handler": 0x08000110,
+        "fixture_halt": 0x08000128,
+    }
+    if moved != expected_moved:
+        raise RuntimeError(f"unexpected function-split placement: {moved}")
+    with candidate.open("rb") as stream:
+        symtab = ELFFile(stream).get_section_by_name(".symtab")
+        names = (
+            {symbol.name for symbol in symtab.iter_symbols()}
+            if symtab is not None else set()
+        )
+    if "Reset_Handler.cold.0" in names:
+        raise RuntimeError("vector-reachable Reset_Handler was split")
+
+    reset_pointer = moved["Reset_Handler"] | 1
+    if candidate_inventory["entry"] != reset_pointer:
+        raise RuntimeError("split candidate ELF entry lost Thumb state")
+    reference_vector = struct.unpack(
+        "<II", virtual_bytes(reference, 0x08000000, 8)
+    )
+    candidate_vector = struct.unpack(
+        "<II", virtual_bytes(candidate, 0x08000000, 8)
+    )
+    if (
+        candidate_vector[0] != reference_vector[0]
+        or candidate_vector[1] != reset_pointer
+    ):
+        raise RuntimeError("split candidate vector did not follow reset")
+
+    text_relocations = static_relocation_records(candidate, ".rel.text")
+    vector_relocations = static_relocation_records(
+        candidate, ".rel.isr_vector"
+    )
+    expected_text_relocations = [
+        (0x0800011A, 10, "split_worker", 0x08000101),
+        (0x08000122, 10, "split_worker", 0x08000101),
+        (0x08000128, 30, "fixture_halt", 0x08000128),
+    ]
+    observed_text_relocations = [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in text_relocations
+    ]
+    if observed_text_relocations != expected_text_relocations:
+        raise RuntimeError(
+            "function-split .rel.text records do not match moved identities"
+        )
+    if [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in vector_relocations
+    ] != [(0x08000004, 2, "Reset_Handler", reset_pointer)]:
+        raise RuntimeError("split vector relocation lost the reset identity")
+
+    decoder = Cs(CS_ARCH_ARM, CS_MODE_THUMB | CS_MODE_MCLASS)
+    decoder.detail = True
+    repaired_control_transfers = []
+    for address, expected_mnemonic, expected_target in (
+        (0x08000102, "bne.w", moved["split_worker.cold.0"]),
+        (0x0800011A, "bl", moved["split_worker"]),
+        (0x08000122, "bl", moved["split_worker"]),
+        (0x08000128, "b.w", moved["fixture_halt"]),
+    ):
+        instruction = decode_one_thumb(decoder, candidate, address)
+        target = (
+            int(instruction.operands[0].imm)
+            if instruction.operands
+            and instruction.operands[0].type == ARM_OP_IMM else None
+        )
+        repaired_control_transfers.append({
+            "address": address,
+            "mnemonic": instruction.mnemonic,
+            "target": target,
+        })
+        if (
+            instruction.mnemonic != expected_mnemonic
+            or target != expected_target
+        ):
+            raise RuntimeError(
+                f"split control transfer at 0x{address:x} does not target "
+                f"0x{expected_target:x}"
+            )
+
+    origin_summary = None
+    fragment_summary = None
+    if final_layout is not None:
+        if int(final_layout.get("split_function_count", -1)) != 1:
+            raise RuntimeError("final layout did not record one split function")
+        worker = next(
+            function for function in final_layout["functions"]
+            if function["name"] == "split_worker"
+        )
+        reset = next(
+            function for function in final_layout["functions"]
+            if function["name"] == "Reset_Handler"
+        )
+        expected_fragments = [
+            {
+                "fragment_number": 0,
+                "kind": "main",
+                "output_address": 0x08000100,
+                "output_size": 10,
+                "block_count": 2,
+                "block_original_addresses": [0x0800011C, 0x08000120],
+                "block_output_addresses": [0x08000100, 0x08000106],
+            },
+            {
+                "fragment_number": 1,
+                "kind": "cold",
+                "output_address": 0x0800010C,
+                "output_size": 4,
+                "block_count": 1,
+                "block_original_addresses": [0x08000124],
+                "block_output_addresses": [0x0800010C],
+            },
+        ]
+        if worker.get("fragments") != expected_fragments:
+            raise RuntimeError(
+                f"split fragment ledger is not exact: {worker.get('fragments')}"
+            )
+        expected_origins = [
+            (0x0800011C, 0x08000100, 2, "original_instruction"),
+            (0x0800011E, 0x08000102, 4, "original_instruction"),
+            (0x08000120, 0x08000106, 2, "original_instruction"),
+            (0x08000122, 0x08000108, 2, "original_instruction"),
+            (0x08000124, 0x0800010C, 2, "original_instruction"),
+            (0x08000126, 0x0800010E, 2, "original_instruction"),
+        ]
+        observed_origins = [
+            (
+                int(origin["original_address"]),
+                int(origin["output_address"]),
+                int(origin["output_size"]), origin["origin_kind"],
+            )
+            for origin in worker["instruction_origins"]
+        ]
+        if observed_origins != expected_origins:
+            raise RuntimeError(
+                f"split instruction-origin map is not exact: "
+                f"{observed_origins}"
+            )
+        if (
+            worker["firmware_modification_reasons"]
+            != ["function_splitting"]
+            or worker["firmware_publication_rejections"]
+            or not worker["firmware_modified"]
+        ):
+            raise RuntimeError("split pass result was not recorded exactly")
+        reset_fragments = reset.get("fragments", [])
+        if (
+            reset["firmware_modification_reasons"]
+            or len(reset_fragments) != 1
+            or reset_fragments[0]["kind"] != "main"
+            or int(reset_fragments[0]["output_address"]) != 0x08000110
+            or int(reset_fragments[0]["output_size"]) != 28
+        ):
+            raise RuntimeError("protected reset fragment ledger is invalid")
+        origin_summary = observed_origins
+        fragment_summary = expected_fragments
+
+    return {
+        "status": "accepted",
+        "placement_policy": "reuse_linker_qualified_input_text",
+        "split_policy": "profile2_hot_cold_with_explicit_contract",
+        "program_headers_exact": True,
+        "text_range": {
+            "address": candidate_text["address"],
+            "size": candidate_text["size"],
+        },
+        "retained_original_text_bytes": int(old_text["size"]),
+        "entry": candidate_inventory["entry"],
+        "vector_words": list(candidate_vector),
+        "moved_symbols": moved,
+        "text_relocations": text_relocations,
+        "vector_relocations": vector_relocations,
+        "repaired_control_transfers": repaired_control_transfers,
+        "fragment_summary": fragment_summary,
+        "origin_summary": origin_summary,
+    }
+
+
 def build_m3_fixture(output: Path, logs: Path) -> Path:
     image = output / "firm-bolt-cortex-m3-reference.elf"
     command = [
@@ -1010,6 +1272,24 @@ def build_m3_function_reorder_fixture(
         str(M3_FUNCTION_REORDER_LINKER), str(object_path), "-o", str(image),
     ], logs / f"build-m3-{stem}-image.log"),
         "M3 function-reorder image build")
+    return image
+
+
+def build_m3_function_split_fixture(output: Path, logs: Path) -> Path:
+    """Build the relocation-complete hot/cold splitting fixture."""
+    object_path = output / "firm-bolt-cortex-m3-function-split.o"
+    image = output / "firm-bolt-cortex-m3-function-split-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_FUNCTION_SPLIT_SOURCE),
+        "-o", str(object_path),
+    ], logs / "build-m3-function-split-object.log"),
+        "M3 function-split object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "-T",
+        str(M3_FUNCTION_SPLIT_LINKER), str(object_path), "-o", str(image),
+    ], logs / "build-m3-function-split-image.log"),
+        "M3 function-split image build")
     return image
 
 
@@ -2454,6 +2734,7 @@ def main() -> int:
     m3_callgraph_function_reorder_image = build_m3_function_reorder_fixture(
         output, logs, variant="cdsort"
     )
+    m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_loop_inversion_image = build_m3_loop_inversion_fixture(output, logs)
     m3_loop_inversion_profile = write_m3_loop_inversion_profile(output)
     m3_peephole_image = build_m3_peephole_fixture(output, logs)
@@ -2608,6 +2889,17 @@ def main() -> int:
              "--relocs",
              "--use-old-text",
              "--reorder-functions=cdsort",
+         ]),
+        ("m3_function_split", "cortex-m3", m3_function_split_image, {}, [
+             f"--data={M3_FUNCTION_SPLIT_PROFILE}",
+             "--relocs",
+             "--use-old-text",
+             "--merge-text-sections",
+             "--align-functions=4",
+             "--align-text=4",
+             "--split-functions",
+             "--split-all-cold",
+             "--firmbolt-allow-function-splitting",
          ]),
         ("m3_loop_inversion", "cortex-m3", m3_loop_inversion_image,
          {".isr_vector": None}, [
@@ -2819,6 +3111,18 @@ def main() -> int:
                         "M3 peephole fixture did not publish exactly one "
                         "control-flow peephole transformation"
                     )
+            if label == "m3_function_split":
+                if (
+                    int(summary["firmware_modification_reason_counts"]
+                        ["function_splitting"]) != 1
+                    or int(summary["firmware_modified_function_count"]) != 1
+                    or int(summary["cloned_original_instruction_count"]) != 0
+                    or int(summary["unmapped_instruction_count"]) != 0
+                ):
+                    raise RuntimeError(
+                        "M3 native function splitting did not record exactly "
+                        "one split function with complete original identities"
+                    )
             if label == "m0plus_icp":
                 final_layout = json.loads(
                     Path(
@@ -2996,6 +3300,7 @@ def main() -> int:
             "m3_profile_function_reorder": "profile_exec_count",
             "m3_callgraph_function_reorder": "cdsort",
         }.get(label)
+        is_relocated_function_split = label == "m3_function_split"
         results[label] = {
             "cpu": cpu,
             "bolt_summary": [
@@ -3021,6 +3326,8 @@ def main() -> int:
                     order_policy=relocation_order_policy,
                 )
                 if relocation_order_policy is not None
+                else validate_relocated_function_split(image, candidate)
+                if is_relocated_function_split
                 else validate_in_place(image, candidate, protected)
             ),
             "mapping_symbol_validation": validate_arm_mapping_symbols(
@@ -3030,7 +3337,10 @@ def main() -> int:
             "pass_publication": (
                 summarize_pass_publication(
                     image, candidate, native_pass_report
-                ) if native_pass_report is not None else None
+                ) if (
+                    native_pass_report is not None
+                    and not is_relocated_function_split
+                ) else None
             ),
             "provenance_validation": provenance_validation,
             "exclusive_access_validation": exclusive_access_validation,
@@ -3059,6 +3369,12 @@ def main() -> int:
                     validate_relocated_function_order(
                         image, candidate, final_layout,
                         order_policy=relocation_order_policy,
+                    )
+                )
+            elif is_relocated_function_split:
+                results[label]["validation"] = (
+                    validate_relocated_function_split(
+                        image, candidate, final_layout,
                     )
                 )
             results[label]["inline_jump_table_validation"] = (
@@ -4498,6 +4814,25 @@ def main() -> int:
             "unadmitted Cortex-M tail duplication did not reject"
         )
 
+    split_without_contract = run(
+        [str(args.bolt.resolve()), str(m3_function_split_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         f"--data={M3_FUNCTION_SPLIT_PROFILE}",
+         "--relocs", "--use-old-text", "--merge-text-sections",
+         "--align-functions=4", "--align-text=4",
+         "--split-functions", "--split-all-cold",
+         "-o", str(output / "must-not-emit-unadmitted-split.elf")],
+        logs / "reject-unadmitted-function-split.log",
+    )
+    if (
+        split_without_contract.returncode == 0
+        or "Cortex-M function splitting changes fragment placement" not in
+        (split_without_contract.stdout + split_without_contract.stderr)
+    ):
+        raise RuntimeError(
+            "unadmitted Cortex-M function splitting did not reject"
+        )
+
     taildup_copy_propagation = run(
         [str(args.bolt.resolve()), str(m3_taildup_propagation_image),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -5153,6 +5488,15 @@ def main() -> int:
             expected_words=(17, 42),
         )
     )
+    m3_function_split_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_function_split_image,
+            candidates["m3_function_split"], output,
+            args.fastdyn.resolve(), "native-function-split",
+            expected_words=(17, 42),
+        )
+    )
     m3_loop_inversion_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -5250,6 +5594,7 @@ def main() -> int:
             m3_function_reorder_execution,
             m3_profile_function_reorder_execution,
             m3_callgraph_function_reorder_execution,
+            m3_function_split_execution,
             m3_loop_inversion_execution,
             m3_peephole_execution,
             m3_icp_execution,
@@ -5384,6 +5729,14 @@ def main() -> int:
                           "inside the linker-qualified input .text flash "
                           "extent",
             },
+            "m3_function_split": {
+                "path": str(M3_FUNCTION_SPLIT_PROFILE),
+                "sha256": sha256(M3_FUNCTION_SPLIT_PROFILE),
+                "format": "BOLT no-LBR function-relative profile",
+                "policy": "Profile2 hot/cold splitting under explicit "
+                          "fragment-placement and cross-fragment branch-event "
+                          "contracts inside linker-qualified .text capacity",
+            },
             "m3_taildup_worker": {
                 "path": str(m3_taildup_profile),
                 "sha256": sha256(m3_taildup_profile),
@@ -5469,6 +5822,7 @@ def main() -> int:
             "unadmitted_read_only_load_elision_rejected": True,
             "unadmitted_inlining_rejected": True,
             "unadmitted_tail_duplication_rejected": True,
+            "unadmitted_function_splitting_rejected": True,
             "tail_duplication_propagation_without_contract_rejected": True,
             "unadmitted_loop_inversion_left_unchanged": True,
             "unadmitted_control_flow_peephole_rejected": True,
@@ -5519,6 +5873,8 @@ def main() -> int:
             m3_profile_function_reorder_execution,
         "m3_callgraph_function_reorder_architectural_execution":
             m3_callgraph_function_reorder_execution,
+        "m3_native_function_split_architectural_execution":
+            m3_function_split_execution,
         "m3_native_loop_inversion_architectural_execution":
             m3_loop_inversion_execution,
         "m3_native_control_flow_peephole_architectural_execution":
@@ -5610,6 +5966,7 @@ def main() -> int:
                 "opt-in register-only constant/copy propagation after Thumb tail duplication under a separate definition-deletion contract, with descriptor-aware Thumb MOV source discovery, encoding-class-checked replacements, exact retained/clone identities, compact publication and Cortex-M3 hot/cold execution",
                 "opt-in native BOLT read-only-load simplification for linked allocatable non-writable relocation-free scalar data on Thumb-2, using flag-preserving MOVW/MOVT materialization under an explicit read/fault/timing-elision contract, exact transformed-source origins, compact in-place emission, and Cortex-M3 execution",
                 "explicit ARM relocation mode with native BOLT user-directed, profile exec-count and call-graph CDSort whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
+                "opt-in native BOLT Profile2 hot/cold function splitting inside explicit linker-owned capacity, with vector/secondary entries protected, exact fragment and instruction-origin ledgers, widened cross-fragment branch repair, live SHT_REL ownership, unchanged PT_LOAD ranges, held-out cold-path Cortex-M3 execution, and atomic rejection without the fragment-placement/branch-event contract",
                 "opt-in native BOLT loop inversion for profiled Thumb loops with branch-timing admission, exact moved/synthesized instruction origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT double-jump control-flow peepholes with branch-event admission, exact retained instruction origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT indirect-call promotion for profiled ordinary Thumb-2 register calls under explicit AAPCS and call-event contracts, including r12/IP targets using LR as non-memory guard scratch because both call paths overwrite it, with exact direct/fallback identities, compact in-place emission, and Cortex-M3 execution",
@@ -5642,7 +5999,7 @@ def main() -> int:
                 "Thumb literal islands without a proven non-fallthrough owner",
                 "additional ARM relocation classes beyond the modeled compact set",
                 "out-of-function Thumb veneer placement without explicit typed slots or under arbitrary whole-image layout",
-                "HFSort/Pettis-Hansen parity and function splitting beyond the executed relocation-complete user-order, exec-count and CDSort gates",
+                "HFSort/Pettis-Hansen parity, CDSplit hot/warm/cold placement, and function splitting for jump-table, address-stable, veneer-slot or secondary-entry functions",
                 "DSP/FPU/MVE-specific optimization rewrites",
             ],
         },
@@ -5685,6 +6042,8 @@ def main() -> int:
             str(candidates["m3_profile_function_reorder"]),
         "m3_callgraph_function_reorder_candidate":
             str(candidates["m3_callgraph_function_reorder"]),
+        "m3_function_split_candidate":
+            str(candidates["m3_function_split"]),
         "m3_loop_inversion_candidate":
             str(candidates["m3_loop_inversion"]),
         "m3_peephole_candidate": str(candidates["m3_peephole"]),
