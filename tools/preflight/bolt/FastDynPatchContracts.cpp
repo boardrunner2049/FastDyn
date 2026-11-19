@@ -4340,7 +4340,9 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
         Fragment["kind"] =
             Num == FragmentNum::main()
                 ? "main"
-                : Num == FragmentNum::cold() ? "cold" : "warm_or_auxiliary";
+                : Num == FragmentNum::cold()
+                      ? "cold"
+                      : Num == FragmentNum::warm() ? "warm" : "auxiliary";
         Fragment["output_address"] = static_cast<int64_t>(OutputAddress);
         Fragment["output_size"] = static_cast<int64_t>(OutputSize);
         Fragment["block_count"] = static_cast<int64_t>(FF.size());

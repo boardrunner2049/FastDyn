@@ -101,6 +101,15 @@ M3_FUNCTION_SPLIT_LINKER = (
 M3_FUNCTION_SPLIT_PROFILE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.fdata"
 )
+M3_CDSPLIT_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_cdsplit.s"
+)
+M3_CDSPLIT_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_cdsplit.ld"
+)
+M3_CDSPLIT_PROFILE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_cdsplit.fdata"
+)
 M3_LOOP_INVERSION_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_loop_inversion.s"
 )
@@ -1236,6 +1245,257 @@ def validate_relocated_function_split(
     }
 
 
+def validate_relocated_cdsplit(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate cache-directed three-way splitting as one firmware image."""
+    reference_inventory = elf_inventory(reference)
+    candidate_inventory = elf_inventory(candidate)
+    if reference_inventory["segments"] != candidate_inventory["segments"]:
+        raise RuntimeError("CDSplit candidate changed the loadable segment map")
+    reference_text = reference_inventory["sections"][".text"]
+    candidate_text = candidate_inventory["sections"][".text"]
+    for field in ("address", "offset", "size", "flags", "alignment"):
+        if reference_text[field] != candidate_text[field]:
+            raise RuntimeError(f"CDSplit .text changed qualified {field}")
+    old_text = candidate_inventory["sections"].get(".bolt.org.text")
+    if old_text is None or int(old_text["size"]) != 0:
+        raise RuntimeError("CDSplit candidate retained a live original body")
+
+    moved = {
+        name: symbol_address(candidate, name)
+        for name in (
+            "cdsplit_worker", "cdsplit_worker.warm",
+            "cdsplit_worker.cold", "Reset_Handler", "fixture_halt",
+        )
+    }
+    expected_moved = {
+        "cdsplit_worker": 0x08000100,
+        "cdsplit_worker.warm": 0x08000130,
+        "cdsplit_worker.cold": 0x08000184,
+        "Reset_Handler": 0x0800010C,
+        "fixture_halt": 0x0800012C,
+    }
+    if moved != expected_moved:
+        raise RuntimeError(f"unexpected CDSplit placement: {moved}")
+    with candidate.open("rb") as stream:
+        symtab = ELFFile(stream).get_section_by_name(".symtab")
+        names = (
+            {symbol.name for symbol in symtab.iter_symbols()}
+            if symtab is not None else set()
+        )
+    if any(
+        name in names
+        for name in ("Reset_Handler.warm", "Reset_Handler.cold")
+    ):
+        raise RuntimeError("vector-reachable Reset_Handler was fragmented")
+
+    reset_pointer = moved["Reset_Handler"] | 1
+    if candidate_inventory["entry"] != reset_pointer:
+        raise RuntimeError("CDSplit candidate ELF entry lost Thumb state")
+    reference_vector = struct.unpack(
+        "<II", virtual_bytes(reference, 0x08000000, 8)
+    )
+    candidate_vector = struct.unpack(
+        "<II", virtual_bytes(candidate, 0x08000000, 8)
+    )
+    if (
+        candidate_vector[0] != reference_vector[0]
+        or candidate_vector[1] != reset_pointer
+    ):
+        raise RuntimeError("CDSplit vector did not follow the reset handler")
+
+    text_relocations = static_relocation_records(candidate, ".rel.text")
+    vector_relocations = static_relocation_records(
+        candidate, ".rel.isr_vector"
+    )
+    observed_text_relocations = [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in text_relocations
+    ]
+    expected_text_relocations = [
+        (0x08000116, 10, "cdsplit_worker", 0x08000101),
+        (0x0800011E, 10, "cdsplit_worker", 0x08000101),
+        (0x08000126, 10, "cdsplit_worker", 0x08000101),
+        (0x0800012C, 30, "fixture_halt", 0x0800012C),
+    ]
+    if observed_text_relocations != expected_text_relocations:
+        raise RuntimeError(
+            "CDSplit .rel.text does not describe the live moved identities"
+        )
+    if [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in vector_relocations
+    ] != [(0x08000004, 2, "Reset_Handler", reset_pointer)]:
+        raise RuntimeError("CDSplit vector relocation lost reset identity")
+
+    decoder = Cs(CS_ARCH_ARM, CS_MODE_THUMB | CS_MODE_MCLASS)
+    decoder.detail = True
+    repaired_control_transfers = []
+    for address, expected_mnemonic, expected_target in (
+        (0x08000102, "bge.w", moved["cdsplit_worker.warm"]),
+        (0x08000134, "ble.w", moved["cdsplit_worker.cold"]),
+        (0x08000180, "b.w", 0x0800010A),
+        (0x0800018C, "b.w", 0x0800010A),
+        (0x08000116, "bl", moved["cdsplit_worker"]),
+        (0x0800011E, "bl", moved["cdsplit_worker"]),
+        (0x08000126, "bl", moved["cdsplit_worker"]),
+        (0x0800012C, "b.w", moved["fixture_halt"]),
+    ):
+        instruction = decode_one_thumb(decoder, candidate, address)
+        target = (
+            int(instruction.operands[0].imm)
+            if instruction.operands
+            and instruction.operands[0].type == ARM_OP_IMM else None
+        )
+        repaired_control_transfers.append({
+            "address": address,
+            "mnemonic": instruction.mnemonic,
+            "target": target,
+        })
+        if instruction.mnemonic != expected_mnemonic or target != expected_target:
+            raise RuntimeError(
+                f"CDSplit transfer at 0x{address:x} does not target "
+                f"0x{expected_target:x}"
+            )
+
+    fragment_summary = None
+    origin_summary = None
+    if final_layout is not None:
+        if int(final_layout.get("split_function_count", -1)) != 1:
+            raise RuntimeError("CDSplit layout did not record one split function")
+        worker = next(
+            function for function in final_layout["functions"]
+            if function["name"] == "cdsplit_worker"
+        )
+        reset = next(
+            function for function in final_layout["functions"]
+            if function["name"] == "Reset_Handler"
+        )
+        expected_fragments = [
+            {
+                "fragment_number": 0,
+                "kind": "main",
+                "output_address": 0x08000100,
+                "output_size": 12,
+                "block_count": 3,
+                "block_original_addresses": [
+                    0x08000100, 0x08000104, 0x08000162,
+                ],
+                "block_output_addresses": [
+                    0x08000100, 0x08000106, 0x0800010A,
+                ],
+            },
+            {
+                "fragment_number": 1,
+                "kind": "cold",
+                "output_address": 0x08000184,
+                "output_size": 12,
+                "block_count": 1,
+                "block_original_addresses": [0x0800010E],
+                "block_output_addresses": [0x08000184],
+            },
+            {
+                "fragment_number": 2,
+                "kind": "warm",
+                "output_address": 0x08000130,
+                "output_size": 84,
+                "block_count": 5,
+                "block_original_addresses": [
+                    0x08000108, 0x08000118, 0x0800012A,
+                    0x0800013C, 0x0800014E,
+                ],
+                "block_output_addresses": [
+                    0x08000130, 0x08000138, 0x0800014A,
+                    0x0800015C, 0x0800016E,
+                ],
+            },
+        ]
+        if worker.get("fragments") != expected_fragments:
+            raise RuntimeError(
+                f"CDSplit fragment ledger is not exact: "
+                f"{worker.get('fragments')}"
+            )
+        origins = worker["instruction_origins"]
+        reference_instructions = list(decoder.disasm(
+            virtual_bytes(reference, 0x08000100, 100), 0x08000100,
+        ))
+        original_addresses = sorted(
+            int(origin["original_address"]) for origin in origins
+        )
+        expected_original_addresses = sorted(
+            int(instruction.address) for instruction in reference_instructions
+        )
+        output_addresses = [int(origin["output_address"]) for origin in origins]
+        if (
+            len(origins) != 49
+            or original_addresses != expected_original_addresses
+            or len(set(output_addresses)) != 49
+            or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in origins
+            )
+            or any(
+                decode_one_thumb(
+                    decoder, candidate, int(origin["output_address"])
+                ).size != int(origin["output_size"])
+                for origin in origins
+            )
+        ):
+            raise RuntimeError(
+                "CDSplit did not retain a complete bijective instruction map"
+            )
+        if (
+            worker["firmware_modification_reasons"]
+            != ["block_reordering", "function_splitting"]
+            or worker["firmware_publication_rejections"]
+            or not worker["firmware_modified"]
+        ):
+            raise RuntimeError("CDSplit pass result was not recorded exactly")
+        reset_fragments = reset.get("fragments", [])
+        if (
+            reset["firmware_modification_reasons"]
+            or len(reset_fragments) != 1
+            or reset_fragments[0]["kind"] != "main"
+            or int(reset_fragments[0]["output_address"]) != 0x0800010C
+            or int(reset_fragments[0]["output_size"]) != 36
+        ):
+            raise RuntimeError("protected reset fragment ledger is invalid")
+        fragment_summary = expected_fragments
+        origin_summary = {
+            "count": len(origins),
+            "original_addresses_exact": True,
+            "output_addresses_unique": True,
+        }
+
+    return {
+        "status": "accepted",
+        "placement_policy": "reuse_linker_qualified_input_text",
+        "split_policy": "cdsplit_hot_warm_cold_with_compact_branch_model",
+        "program_headers_exact": True,
+        "text_range": {
+            "address": candidate_text["address"],
+            "size": candidate_text["size"],
+        },
+        "retained_original_text_bytes": int(old_text["size"]),
+        "entry": candidate_inventory["entry"],
+        "vector_words": list(candidate_vector),
+        "moved_symbols": moved,
+        "text_relocations": text_relocations,
+        "vector_relocations": vector_relocations,
+        "repaired_control_transfers": repaired_control_transfers,
+        "fragment_summary": fragment_summary,
+        "origin_summary": origin_summary,
+    }
+
+
 def build_m3_fixture(output: Path, logs: Path) -> Path:
     image = output / "firm-bolt-cortex-m3-reference.elf"
     command = [
@@ -1290,6 +1550,24 @@ def build_m3_function_split_fixture(output: Path, logs: Path) -> Path:
         str(M3_FUNCTION_SPLIT_LINKER), str(object_path), "-o", str(image),
     ], logs / "build-m3-function-split-image.log"),
         "M3 function-split image build")
+    return image
+
+
+def build_m3_cdsplit_fixture(output: Path, logs: Path) -> Path:
+    """Build the relocation-complete hot/warm/cold CDSplit fixture."""
+    object_path = output / "firm-bolt-cortex-m3-cdsplit.o"
+    image = output / "firm-bolt-cortex-m3-cdsplit-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_CDSPLIT_SOURCE),
+        "-o", str(object_path),
+    ], logs / "build-m3-cdsplit-object.log"),
+        "M3 CDSplit object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "-T", str(M3_CDSPLIT_LINKER),
+        str(object_path), "-o", str(image),
+    ], logs / "build-m3-cdsplit-image.log"),
+        "M3 CDSplit image build")
     return image
 
 
@@ -2735,6 +3013,7 @@ def main() -> int:
         output, logs, variant="cdsort"
     )
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
+    m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
     m3_loop_inversion_image = build_m3_loop_inversion_fixture(output, logs)
     m3_loop_inversion_profile = write_m3_loop_inversion_profile(output)
     m3_peephole_image = build_m3_peephole_fixture(output, logs)
@@ -2899,6 +3178,20 @@ def main() -> int:
              "--align-text=4",
              "--split-functions",
              "--split-all-cold",
+             "--firmbolt-allow-function-splitting",
+         ]),
+        ("m3_cdsplit", "cortex-m3", m3_cdsplit_image, {}, [
+             f"--data={M3_CDSPLIT_PROFILE}",
+             "--relocs",
+             "--use-old-text",
+             "--merge-text-sections",
+             "--align-functions=4",
+             "--align-text=4",
+             "--reorder-blocks=ext-tsp",
+             "--split-functions",
+             "--split-strategy=cdsplit",
+             "--call-scale=10",
+             "--compact-code-model",
              "--firmbolt-allow-function-splitting",
          ]),
         ("m3_loop_inversion", "cortex-m3", m3_loop_inversion_image,
@@ -3111,7 +3404,7 @@ def main() -> int:
                         "M3 peephole fixture did not publish exactly one "
                         "control-flow peephole transformation"
                     )
-            if label == "m3_function_split":
+            if label in {"m3_function_split", "m3_cdsplit"}:
                 if (
                     int(summary["firmware_modification_reason_counts"]
                         ["function_splitting"]) != 1
@@ -3120,7 +3413,7 @@ def main() -> int:
                     or int(summary["unmapped_instruction_count"]) != 0
                 ):
                     raise RuntimeError(
-                        "M3 native function splitting did not record exactly "
+                        f"{label} did not record exactly "
                         "one split function with complete original identities"
                     )
             if label == "m0plus_icp":
@@ -3300,7 +3593,10 @@ def main() -> int:
             "m3_profile_function_reorder": "profile_exec_count",
             "m3_callgraph_function_reorder": "cdsort",
         }.get(label)
-        is_relocated_function_split = label == "m3_function_split"
+        split_validation = {
+            "m3_function_split": validate_relocated_function_split,
+            "m3_cdsplit": validate_relocated_cdsplit,
+        }.get(label)
         results[label] = {
             "cpu": cpu,
             "bolt_summary": [
@@ -3326,8 +3622,8 @@ def main() -> int:
                     order_policy=relocation_order_policy,
                 )
                 if relocation_order_policy is not None
-                else validate_relocated_function_split(image, candidate)
-                if is_relocated_function_split
+                else split_validation(image, candidate)
+                if split_validation is not None
                 else validate_in_place(image, candidate, protected)
             ),
             "mapping_symbol_validation": validate_arm_mapping_symbols(
@@ -3339,7 +3635,7 @@ def main() -> int:
                     image, candidate, native_pass_report
                 ) if (
                     native_pass_report is not None
-                    and not is_relocated_function_split
+                    and split_validation is None
                 ) else None
             ),
             "provenance_validation": provenance_validation,
@@ -3371,9 +3667,9 @@ def main() -> int:
                         order_policy=relocation_order_policy,
                     )
                 )
-            elif is_relocated_function_split:
+            elif split_validation is not None:
                 results[label]["validation"] = (
-                    validate_relocated_function_split(
+                    split_validation(
                         image, candidate, final_layout,
                     )
                 )
@@ -4833,6 +5129,27 @@ def main() -> int:
             "unadmitted Cortex-M function splitting did not reject"
         )
 
+    cdsplit_without_compact_model = run(
+        [str(args.bolt.resolve()), str(m3_cdsplit_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         f"--data={M3_CDSPLIT_PROFILE}",
+         "--relocs", "--use-old-text", "--merge-text-sections",
+         "--split-functions", "--split-strategy=cdsplit",
+         "--firmbolt-allow-function-splitting",
+         "-o", str(output / "must-not-emit-cdsplit-longjmp.elf")],
+        logs / "reject-cdsplit-without-compact-model.log",
+    )
+    if (
+        cdsplit_without_compact_model.returncode == 0
+        or "CDSplit is not supported with LongJmp" not in
+        (cdsplit_without_compact_model.stdout
+         + cdsplit_without_compact_model.stderr)
+    ):
+        raise RuntimeError(
+            "Cortex-M CDSplit without a compatible branch model did not "
+            "reject cleanly"
+        )
+
     taildup_copy_propagation = run(
         [str(args.bolt.resolve()), str(m3_taildup_propagation_image),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -5497,6 +5814,15 @@ def main() -> int:
             expected_words=(17, 42),
         )
     )
+    m3_cdsplit_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_cdsplit_image,
+            candidates["m3_cdsplit"], output,
+            args.fastdyn.resolve(), "native-cdsplit",
+            expected_words=(5, 42, 2),
+        )
+    )
     m3_loop_inversion_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -5595,6 +5921,7 @@ def main() -> int:
             m3_profile_function_reorder_execution,
             m3_callgraph_function_reorder_execution,
             m3_function_split_execution,
+            m3_cdsplit_execution,
             m3_loop_inversion_execution,
             m3_peephole_execution,
             m3_icp_execution,
@@ -5737,6 +6064,16 @@ def main() -> int:
                           "fragment-placement and cross-fragment branch-event "
                           "contracts inside linker-qualified .text capacity",
             },
+            "m3_cdsplit": {
+                "path": str(M3_CDSPLIT_PROFILE),
+                "sha256": sha256(M3_CDSPLIT_PROFILE),
+                "format": "BOLT function-relative branch/call profile",
+                "policy": "cache-directed hot/warm/cold splitting under "
+                          "explicit fragment-placement and cross-fragment "
+                          "branch-event contracts, using the compatible "
+                          "compact branch model inside exact linker-owned "
+                          ".text capacity",
+            },
             "m3_taildup_worker": {
                 "path": str(m3_taildup_profile),
                 "sha256": sha256(m3_taildup_profile),
@@ -5823,6 +6160,7 @@ def main() -> int:
             "unadmitted_inlining_rejected": True,
             "unadmitted_tail_duplication_rejected": True,
             "unadmitted_function_splitting_rejected": True,
+            "cdsplit_without_compact_branch_model_rejected": True,
             "tail_duplication_propagation_without_contract_rejected": True,
             "unadmitted_loop_inversion_left_unchanged": True,
             "unadmitted_control_flow_peephole_rejected": True,
@@ -5875,6 +6213,8 @@ def main() -> int:
             m3_callgraph_function_reorder_execution,
         "m3_native_function_split_architectural_execution":
             m3_function_split_execution,
+        "m3_native_cdsplit_architectural_execution":
+            m3_cdsplit_execution,
         "m3_native_loop_inversion_architectural_execution":
             m3_loop_inversion_execution,
         "m3_native_control_flow_peephole_architectural_execution":
@@ -5900,7 +6240,9 @@ def main() -> int:
                 "m3_function_reorder, m3_profile_function_reorder and "
                 "m3_callgraph_function_reorder gates perform atomic "
                 "whole-image relocation inside the exact original .text "
-                "PT_LOAD"
+                "PT_LOAD; m3_function_split and m3_cdsplit additionally "
+                "qualify two- and three-way fragments inside exact "
+                "linker-owned capacity"
             ),
             "unknown_functions": (
                 "compact mode retains the original implementation; "
@@ -5955,6 +6297,7 @@ def main() -> int:
                 "Thumb-2 absolute call veneers in a qualified caller-owned range, with r12 call-scratch and an explicit Thumb-state target bit",
                 "exact synthesized-call-veneer attribution and linker-resolved output PCs",
                 "Cortex-M4 DSP/FPU feature-qualified decode and re-emission",
+                "profile-driven Profile2 hot/cold and cache-directed CDSplit hot/warm/cold function splitting inside exact linker-owned flash capacity, with compact-model branch repair, protected vector entries, exact fragment/origin ledgers, and Cortex-M3 execution of trained and held-out paths",
                 "Cortex-M33 TrustZone instruction decode with whole-function preservation",
                 "Cortex-M55 MVE integer/floating-point decode and exact re-emission",
                 "Cortex-M85 PACBTI-M decode with whole-function preservation",
@@ -5999,7 +6342,7 @@ def main() -> int:
                 "Thumb literal islands without a proven non-fallthrough owner",
                 "additional ARM relocation classes beyond the modeled compact set",
                 "out-of-function Thumb veneer placement without explicit typed slots or under arbitrary whole-image layout",
-                "HFSort/Pettis-Hansen parity, CDSplit hot/warm/cold placement, and function splitting for jump-table, address-stable, veneer-slot or secondary-entry functions",
+                "HFSort/Pettis-Hansen parity and function splitting for jump-table, address-stable, veneer-slot or secondary-entry functions",
                 "DSP/FPU/MVE-specific optimization rewrites",
             ],
         },
@@ -6044,6 +6387,7 @@ def main() -> int:
             str(candidates["m3_callgraph_function_reorder"]),
         "m3_function_split_candidate":
             str(candidates["m3_function_split"]),
+        "m3_cdsplit_candidate": str(candidates["m3_cdsplit"]),
         "m3_loop_inversion_candidate":
             str(candidates["m3_loop_inversion"]),
         "m3_peephole_candidate": str(candidates["m3_peephole"]),

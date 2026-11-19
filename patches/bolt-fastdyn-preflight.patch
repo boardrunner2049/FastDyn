@@ -3308,10 +3308,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..3df9871dce2053f2b1b367b2ad2f4a983ed78741
+index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460d8302c45
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4443 @@
+@@ -0,0 +1,4445 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -7654,7 +7654,9 @@ index 0000000000000000000000000000000000000000..3df9871dce2053f2b1b367b2ad2f4a98
 +        Fragment["kind"] =
 +            Num == FragmentNum::main()
 +                ? "main"
-+                : Num == FragmentNum::cold() ? "cold" : "warm_or_auxiliary";
++                : Num == FragmentNum::cold()
++                      ? "cold"
++                      : Num == FragmentNum::warm() ? "warm" : "auxiliary";
 +        Fragment["output_address"] = static_cast<int64_t>(OutputAddress);
 +        Fragment["output_size"] = static_cast<int64_t>(OutputSize);
 +        Fragment["block_count"] = static_cast<int64_t>(FF.size());
@@ -8584,7 +8586,7 @@ index 775e4a36f39ea9054500ce88e4198670aed58e77..bde4026c6b2397759390390cea153ad3
    unsigned NumIters = 0;
    do {
 diff --git a/bolt/lib/Passes/LongJmp.cpp b/bolt/lib/Passes/LongJmp.cpp
-index 4f246aca36fa473fe9487e59ab4a75a5ce5256e5..c0287fe5ed3ce7109fe746645d3b6b1b125a0fc2 100644
+index 4f246aca36fa473fe9487e59ab4a75a5ce5256e5..21dc09b56d6db01b95250deca7dec20d7d77971c 100644
 --- a/bolt/lib/Passes/LongJmp.cpp
 +++ b/bolt/lib/Passes/LongJmp.cpp
 @@ -13,9 +13,11 @@
@@ -9168,7 +9170,7 @@ index 4f246aca36fa473fe9487e59ab4a75a5ce5256e5..c0287fe5ed3ce7109fe746645d3b6b1b
    for (size_t I = 0; I < Clusters.size(); ++I) {
      const uint64_t ThunkBytes = Clusters[I].ThunkBytes;
      if (BC.AlignText > Margin || ThunkBytes > Margin - BC.AlignText)
-@@ -1739,6 +2008,9 @@ void LongJmpPass::relaxWithClusters(BinaryContext &BC) {
+@@ -1739,19 +2008,30 @@ void LongJmpPass::relaxWithClusters(BinaryContext &BC) {
    if (!Relaxation.run())
      return;
  
@@ -9178,8 +9180,15 @@ index 4f246aca36fa473fe9487e59ab4a75a5ce5256e5..c0287fe5ed3ce7109fe746645d3b6b1b
    BC.updateOutputBinaryFunctions(std::move(OutputFunctions));
  }
  
-@@ -1749,9 +2021,17 @@ Error LongJmpPass::runOnFunctions(BinaryContext &BC) {
-          "LongJmp cannot work with functions split in more than two fragments");
+ Error LongJmpPass::runOnFunctions(BinaryContext &BC) {
+-
+-  assert((opts::CompactCodeModel || opts::ExperimentalRelaxation ||
+-          opts::SplitStrategy != opts::SplitFunctionsStrategy::CDSplit) &&
+-         "LongJmp cannot work with functions split in more than two fragments");
++  if (!opts::CompactCodeModel && !opts::ExperimentalRelaxation &&
++      opts::SplitStrategy == opts::SplitFunctionsStrategy::CDSplit)
++    return createFatalBOLTError(
++        "CDSplit is not supported by LongJmp without --compact-code-model");
  
    // Reserve at least one huge page of headroom for text-section alignment.
 +  // The default is target-specific, while an explicit value is validated
@@ -9864,7 +9873,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3a4b0d5dc853c898ea36cec1d57739590bcff7cb 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..be3d32d4aeda8e219cb651e41dcbab3cc26aa903 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -10146,6 +10155,15 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3a4b0d5dc853c898ea36cec1d5773959
    // RV32 support is currently limited to statically linked, non-PIE
    // programs. Reject anything that requires features still out of scope
    // (PLT, GOT, dynamic relocations, TLS, instrumentation runtime).
+@@ -2680,7 +2787,7 @@ void RewriteInstance::adjustCommandLineOptions() {
+     opts::SplitEH = false;
+   }
+ 
+-  if (BC->isAArch64() && !opts::CompactCodeModel &&
++  if ((BC->isAArch64() || BC->isARM()) && !opts::CompactCodeModel &&
+       opts::SplitStrategy == opts::SplitFunctionsStrategy::CDSplit) {
+     BC->errs() << "BOLT-ERROR: CDSplit is not supported with LongJmp. Try with "
+                   "'--compact-code-model'\n";
 @@ -2864,6 +2971,23 @@ int64_t getRelocationAddend(const ELFObjectFileBase *Obj,
    return getRelocationAddend(cast<ELF64LEObjectFile>(Obj), Rel);
  }
@@ -15290,6 +15308,198 @@ index 0000000000000000000000000000000000000000..f92bcc1c85276b812bb9d4cd925b14d2
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-function-cdsplit-relocs.s b/bolt/test/ARM/thumb-function-cdsplit-relocs.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c237bb5f50
+--- /dev/null
++++ b/bolt/test/ARM/thumb-function-cdsplit-relocs.s
+@@ -0,0 +1,186 @@
++## Qualify BOLT's second-stage cache-directed hot/warm/cold splitting on a
++## relocation-complete Cortex-M image.  This is distinct from Profile2: a
++## cover-call benefit moves five nonzero-count blocks to the warm fragment,
++## while one zero-count block remains cold.
++
++# RUN: split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/fixture.s -o %t/fixture.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture.o -o %t/reference.elf
++
++## ARM runs LongJmp, whose ordinary model handles at most two fragments.
++## Reject CDSplit cleanly unless the caller selects its compatible compact
++## branch model; never leave this as a debug-build assertion.
++# RUN: not llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --merge-text-sections --split-functions --split-strategy=cdsplit \
++# RUN:   --firmbolt-allow-function-splitting -o %t/rejected.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=MODEL-REJECT
++
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --merge-text-sections --align-functions=4 --align-text=4 \
++# RUN:   --reorder-blocks=ext-tsp --split-functions \
++# RUN:   --split-strategy=cdsplit --call-scale=10 --compact-code-model \
++# RUN:   --firmbolt-allow-function-splitting \
++# RUN:   --fastdyn-firmware-report=%t/report.json \
++# RUN:   -o %t/candidate.elf 2>&1 | FileCheck %s --check-prefix=BOLT
++# RUN: llvm-readelf -hSWl %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=ELF
++# RUN: llvm-readelf -rW %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=RELOCS
++# RUN: llvm-nm --numeric-sort %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=SYMBOLS
++# RUN: llvm-objdump -d %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=CODE
++# RUN: %python -c "import json; d=json.load(open('%t/report.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='cdsplit_worker'); print(d['split_function_count'],[(x['fragment_number'],x['kind'],x['output_address'],x['output_size'],x['block_count']) for x in f['fragments']],len(f['instruction_origins']),f['firmware_modification_reasons'])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# MODEL-REJECT: BOLT-ERROR: CDSplit is not supported with LongJmp. Try with '--compact-code-model'
++# BOLT: BOLT-INFO: basic block reordering modified layout of 1 functions
++# BOLT: BOLT-INFO: Firm-BOLT publication policy checked 1 attempted function(s), rejected 0
++# BOLT: BOLT-INFO: merged 3 code sections into .text [0x8000100, 0x8000190)
++# BOLT: BOLT-INFO: FastDyn wrote linker-resolved firmware layout
++# BOLT: BOLT-INFO: not adding new segments
++
++# ELF: Entry point address: 0x800010d
++# ELF: .bolt.org.text {{.*}} 08000100 {{.*}} 000000 {{.*}} AX
++# ELF: .text {{.*}} 08000100 {{.*}} 000090 {{.*}} AX
++# ELF: LOAD {{.*}} 0x08000000 {{.*}} 0x00008 0x00008 R
++# ELF-NEXT: LOAD {{.*}} 0x08000100 {{.*}} 0x00090 0x00090 R E
++
++# RELOCS: R_ARM_THM_CALL 08000101 cdsplit_worker
++# RELOCS-NEXT: R_ARM_THM_CALL 08000101 cdsplit_worker
++# RELOCS-NEXT: R_ARM_THM_CALL 08000101 cdsplit_worker
++# RELOCS-NEXT: R_ARM_THM_JUMP24 0800012c fixture_halt
++# RELOCS: R_ARM_ABS32 0800010d Reset_Handler
++
++# SYMBOLS: 08000100 T cdsplit_worker
++# SYMBOLS: 0800010c T Reset_Handler
++# SYMBOLS: 08000130 t cdsplit_worker.warm
++# SYMBOLS: 08000184 t cdsplit_worker.cold
++
++# CODE: 08000100 <cdsplit_worker>:
++# CODE: bge.w 0x8000130 <cdsplit_worker.warm>
++# CODE: 08000130 <cdsplit_worker.warm>:
++# CODE: ble.w 0x8000184 <cdsplit_worker.cold>
++# CODE: b.w 0x800010a <cdsplit_worker+0xa>
++# CODE: 08000184 <cdsplit_worker.cold>:
++# CODE: b.w 0x800010a <cdsplit_worker+0xa>
++
++# REPORT: 1 [(0, 'main', 134217984, 12, 3), (1, 'cold', 134218116, 12, 1), (2, 'warm', 134218032, 84, 5)] 49 ['block_reordering', 'function_splitting']
++
++//--- fixture.s
++.syntax unified
++.cpu cortex-m3
++.thumb
++.eabi_attribute Tag_CPU_arch, 10
++.eabi_attribute Tag_CPU_arch_profile, 'M'
++
++.section .isr_vector, "a", %progbits
++.align 2
++.global g_pfnVectors
++.type g_pfnVectors, %object
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++.size g_pfnVectors, . - g_pfnVectors
++
++.section .text, "ax", %progbits
++.align 2
++.global cdsplit_worker
++.type cdsplit_worker, %function
++.thumb_func
++cdsplit_worker:
++  cmp r0, #2
++  bge .Lchain_start
++.Lfast:
++  movs r0, #5
++  b .Lexit
++.Lchain_start:
++  mov.w r1, #10
++  bgt .Lchain1
++.Lcold:
++  adds r1, #1
++  adds r1, #1
++  adds r1, #1
++  adds r1, #1
++  b .Lexit
++.Lchain1:
++  .rept 8
++  adds r1, #1
++  .endr
++  b .Lchain2
++.Lchain2:
++  .rept 8
++  adds r1, #1
++  .endr
++  b .Lchain3
++.Lchain3:
++  .rept 8
++  adds r1, #1
++  .endr
++  b .Lchain4
++.Lchain4:
++  .rept 8
++  adds r1, #1
++  .endr
++  mov r0, r1
++  b .Lexit
++.Lexit:
++  bx lr
++.size cdsplit_worker, . - cdsplit_worker
++
++.align 2
++.global Reset_Handler
++.type Reset_Handler, %function
++.thumb_func
++Reset_Handler:
++  movw r4, #0
++  movt r4, #0x2000
++  movs r0, #1
++hot_callsite:
++  bl cdsplit_worker
++  str r0, [r4]
++  movs r0, #4
++warm_callsite:
++  bl cdsplit_worker
++  str r0, [r4, #4]
++  movs r0, #2
++cold_callsite:
++  bl cdsplit_worker
++  str r0, [r4, #8]
++.global fixture_halt
++fixture_halt:
++  b fixture_halt
++.size Reset_Handler, . - Reset_Handler
++
++//--- link.ld
++ENTRY(Reset_Handler)
++MEMORY {
++  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
++  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
++}
++SECTIONS {
++  .isr_vector ORIGIN(FLASH) : { KEEP(*(.isr_vector)) } > FLASH
++  .text ORIGIN(FLASH) + 0x100 : {
++    *(.text*)
++    . = . + 8;
++  } > FLASH
++  .data : { *(.data*) } > RAM AT > FLASH
++  .bss (NOLOAD) : { *(.bss*) *(COMMON) } > RAM
++}
++
++//--- profile.fdata
++1 Reset_Handler a 1 cdsplit_worker 0 0 500
++1 Reset_Handler 12 1 cdsplit_worker 0 0 100
++1 cdsplit_worker 2 1 cdsplit_worker 8 0 100
++1 cdsplit_worker 2 1 cdsplit_worker 4 0 500
++1 cdsplit_worker 6 1 cdsplit_worker 62 0 500
++1 cdsplit_worker c 1 cdsplit_worker 18 0 100
++1 cdsplit_worker c 1 cdsplit_worker e 0 0
++1 cdsplit_worker 16 1 cdsplit_worker 62 0 0
++1 cdsplit_worker 28 1 cdsplit_worker 2a 0 100
++1 cdsplit_worker 3a 1 cdsplit_worker 3c 0 100
++1 cdsplit_worker 4c 1 cdsplit_worker 4e 0 100
++1 cdsplit_worker 60 1 cdsplit_worker 62 0 100
 diff --git a/bolt/test/ARM/thumb-function-reorder-relocs.s b/bolt/test/ARM/thumb-function-reorder-relocs.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..e691ab3b42ee66b3a81927c64d4254792bd6f382
