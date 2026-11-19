@@ -32,8 +32,11 @@ function movement reconstructs the common zero-addend split expressions as
 per-instruction `S-P` values, retains `R_ARM_THM_MOVW_PREL_NC` and
 `R_ARM_THM_MOVT_PREL` at their new instruction addresses, and binds the
 subtraction PC only after architectural operand decoding has completed.
-Non-zero split-field addends remain fail-closed until the paired implicit
-addend can be reconstructed without guessing.
+For SHT_REL non-zero split fields, Firm-BOLT pairs records by relocation
+section, symbol, relocation family and destination register, prefers the
+canonical adjacent `MOVW; MOVT` form, and reconstructs the complete modular
+addend while accounting for the two distinct PREL instruction addresses.
+Non-canonical graphs that admit different addends remain fail-closed.
 Thumb-2 clustered relaxation now has a compact firmware path as well: when
 ordinary checked compaction leaves enough space inside the caller's own typed
 function range, Firm-BOLT can append a 10-byte `MOVW r12; MOVT r12; BX r12`
@@ -123,8 +126,9 @@ rebuilding, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
 relocation-complete compact and generic ARM EHABI function-reordering
 fixtures, a platform-qualified absolute `R_ARM_TARGET1` dispatch-table
 function-reordering fixture, a relocation-mode PC-relative `MOVW/MOVT`
-function-reordering fixture, and the real Cortex-M4 FreeRTOS image.
-The 19 November production-parity-v130 run accepts all forty-seven without
+zero-addend fixture and a separately executed non-zero-addend fixture, and the
+real Cortex-M4 FreeRTOS image.
+The 19 November production-parity-v131 run accepts all forty-eight without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -760,26 +764,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v130-pcrel-mov-pairs-2026-11-19
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v131-pcrel-nonzero-addends-final2-2026-11-19
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v130-pcrel-mov-pairs-2026-11-19/report.json),
-SHA-256 `3e61780d76cbe62c0bad03669f6588f8ad85ab5a744a4ec12ecf839e6131d323`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v131-pcrel-nonzero-addends-final2-2026-11-19/report.json),
+SHA-256 `fa9bb19ecf96a01f7180d695627c9b5f219f4c2cbd25b4329f604f5ad8fb39f2`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v130-pcrel-mov-pairs-2026-11-19/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v131-pcrel-nonzero-addends-final2-2026-11-19/validation-manifest.json)
 has SHA-256
-`45ddcaeb81c7643c87ee33c2a9a21cf24b3afea1a5e07e416bb8a697545b0ce9`
+`f9c201958a108f05ce8d73f034710e99426071a9a2d8cf9efda5a2d226c8efa3`
 and records the exact regression commands, outcomes and hashes of their
 XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 has SHA-256
-`a16becb09870825b641aa2aed3ee3d7551be5f50412d6eef0e8553676073f0f0`,
+`8a6c7144f65f08e024f4de42455fdeb44dbfcd0290e4110434435c42f4ac33e6`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`a3afb17dce231ad66162312b1e1d462ca850601c9441acb877039607c35ca58d`.
+`c7eb711fc7665745ae1ddb4139a81ca78e4b9f08104108869a491e729a3c53fb`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1026,11 +1030,35 @@ fixture with its explicit
 and
 [`function order`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair.order).
 
+v131 reconstructs non-zero SHT_REL addends for both absolute and PC-relative
+Thumb `MOVW`/`MOVT` pairs. Records are matched within one relocation section
+by symbol, relocation family and encoded destination register. An adjacent
+`MOVW; MOVT` is authoritative; without that canonical form, all compatible
+partners must reconstruct the same addend or the input remains unchanged. For
+PREL pairs the two relocation places differ, so the implementation first
+recovers the complete modular value at the `MOVT` place and translates it
+back to the `MOVW` place before solving for `A`. The production fixture uses
+`external_data + 4`: its worker again moves `0x0800010a→0x08000100`, the
+decoded linked fields change from `(0x0efa, 0)` to `(0x0f04, 0)`, and both
+relocations move to `0x08000100`/`0x08000104`. All ten identities remain
+exact, no segment is added, and reference/candidate both load the second word
+and write `42` under FastDyn. A separate absolute-pair regression reconstructs
+the same `+4` addend. The complete gate is 48/48, ARM BOLT lit is 69/69,
+AArch32 JITLink is 12/12 and BOLT unit tests are 123 passed/129 explicitly
+skipped. Ambiguous non-canonical pair graphs remain fail-closed. These are
+relocation, placement and execution results, not throughput measurements.
+The focused regressions are the
+[`PC-relative pair`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb2-pcrel-mov-pair-addend-reorder.s)
+and
+[`absolute pair`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb2-abs-mov-pair-addend-reorder.s);
+the production source is
+[`firm_bolt_cortex_m3_pcrel_mov_pair_addend.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair_addend.s).
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands without a proven non-fallthrough owner, ARM relocation classes
-beyond the now-qualified JUMP6/ABS8/ABS16 and common zero-addend split PREL
-set, paired non-zero split-field addend reconstruction,
+beyond the now-qualified JUMP6/ABS8/ABS16 and paired split MOVW/MOVT set,
+producer forms whose relocation graph does not identify a unique split pair,
 veneer placement without explicit typed slots or under arbitrary
 whole-image layout, clustering and splitting of
 address-stable, jump-table, veneer or multi-entry functions beyond the

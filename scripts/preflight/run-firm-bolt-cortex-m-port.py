@@ -140,6 +140,10 @@ M3_TARGET1_ORDER = (
 M3_PCREL_MOV_PAIR_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair.s"
 )
+M3_PCREL_MOV_PAIR_ADDEND_SOURCE = (
+    ROOT
+    / "tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair_addend.s"
+)
 M3_PCREL_MOV_PAIR_LINKER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair.ld"
 )
@@ -1358,6 +1362,7 @@ def validate_relocated_target1(
 def validate_relocated_pcrel_mov_pair(
     reference: Path, candidate: Path,
     final_layout: dict[str, Any] | None = None,
+    *, expected_addend: int = 0,
 ) -> dict[str, Any]:
     """Validate moved Thumb MOVW/MOVT S-P fields and their exact identities."""
     ref = elf_inventory(reference)
@@ -1385,6 +1390,53 @@ def validate_relocated_pcrel_mov_pair(
     if reference_worker != 0x0800010A or candidate_worker != 0x08000100:
         raise RuntimeError(
             "PC-relative MOV pair worker did not follow the frozen layout"
+        )
+    external_data = symbol_address(reference, "external_data")
+    if external_data != symbol_address(candidate, "external_data"):
+        raise RuntimeError("PC-relative MOV pair changed its target symbol")
+
+    def decoded_mov_immediate(image: Path, address: int) -> int:
+        inventory = elf_inventory(image)
+        text_address = int(inventory["sections"][".text"]["address"])
+        offset = address - text_address
+        encoded = section_bytes(image, ".text")[offset:offset + 4]
+        if len(encoded) != 4:
+            raise RuntimeError("truncated PC-relative MOV instruction")
+        high = int.from_bytes(encoded[:2], "little")
+        low = int.from_bytes(encoded[2:], "little")
+        return (
+            ((high & 0xF) << 12)
+            | (((high >> 10) & 1) << 11)
+            | (((low >> 12) & 7) << 8)
+            | (low & 0xFF)
+        )
+
+    observed_fields = {
+        "reference": [
+            decoded_mov_immediate(reference, reference_worker),
+            decoded_mov_immediate(reference, reference_worker + 4),
+        ],
+        "candidate": [
+            decoded_mov_immediate(candidate, candidate_worker),
+            decoded_mov_immediate(candidate, candidate_worker + 4),
+        ],
+    }
+    expected_fields = {
+        "reference": [
+            (external_data + expected_addend - reference_worker) & 0xFFFF,
+            ((external_data + expected_addend - reference_worker - 4)
+             >> 16) & 0xFFFF,
+        ],
+        "candidate": [
+            (external_data + expected_addend - candidate_worker) & 0xFFFF,
+            ((external_data + expected_addend - candidate_worker - 4)
+             >> 16) & 0xFFFF,
+        ],
+    }
+    if observed_fields != expected_fields:
+        raise RuntimeError(
+            "PC-relative MOV pair did not preserve S+A-P fields: "
+            f"observed={observed_fields} expected={expected_fields}"
         )
 
     pair = [
@@ -1440,6 +1492,8 @@ def validate_relocated_pcrel_mov_pair(
         "program_headers_exact": True,
         "reference_worker": reference_worker,
         "candidate_worker": candidate_worker,
+        "reconstructed_addend": expected_addend,
+        "encoded_fields": observed_fields,
         "relocations": pair,
         "origin_summary": origin_summary,
     }
@@ -3195,20 +3249,24 @@ def build_m3_target1_fixture(
     return image
 
 
-def build_m3_pcrel_mov_pair_fixture(output: Path, logs: Path) -> Path:
+def build_m3_pcrel_mov_pair_fixture(
+    output: Path, logs: Path, *, source: Path = M3_PCREL_MOV_PAIR_SOURCE,
+    suffix: str = "",
+) -> Path:
     """Build a moved Thumb MOVW/MOVT S-P relocation pair fixture."""
-    object_path = output / "firm-bolt-cortex-m3-pcrel-mov-pair.o"
-    image = output / "firm-bolt-cortex-m3-pcrel-mov-pair-reference.elf"
+    stem = "firm-bolt-cortex-m3-pcrel-mov-pair" + suffix
+    object_path = output / f"{stem}.o"
+    image = output / f"{stem}-reference.elf"
     require_success(run([
         str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
-        "-mcpu=cortex-m3", str(M3_PCREL_MOV_PAIR_SOURCE),
+        "-mcpu=cortex-m3", str(source),
         "-o", str(object_path),
-    ], logs / "build-m3-pcrel-mov-pair-object.log"),
+    ], logs / f"build-m3-pcrel-mov-pair{suffix}-object.log"),
         "M3 PC-relative MOV pair object build")
     require_success(run([
         str(LD_LLD), "--emit-relocs", "-T",
         str(M3_PCREL_MOV_PAIR_LINKER), str(object_path), "-o", str(image),
-    ], logs / "build-m3-pcrel-mov-pair-image.log"),
+    ], logs / f"build-m3-pcrel-mov-pair{suffix}-image.log"),
         "M3 PC-relative MOV pair image build")
     return image
 
@@ -4833,6 +4891,10 @@ def main() -> int:
         output, logs, relative=True,
     )
     m3_pcrel_mov_pair_image = build_m3_pcrel_mov_pair_fixture(output, logs)
+    m3_pcrel_mov_pair_addend_image = build_m3_pcrel_mov_pair_fixture(
+        output, logs, source=M3_PCREL_MOV_PAIR_ADDEND_SOURCE,
+        suffix="-addend",
+    )
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
     m3_cdsplit_no_exidx_capacity_image = build_m3_cdsplit_fixture(
@@ -5069,6 +5131,12 @@ def main() -> int:
          ]),
         ("m3_pcrel_mov_pair_function_reorder", "cortex-m3",
          m3_pcrel_mov_pair_image, {}, [
+             "--relocs", "--use-old-text", "--reorder-functions=user",
+             "--align-functions=1",
+             f"--function-order={M3_PCREL_MOV_PAIR_ORDER}",
+         ]),
+        ("m3_pcrel_mov_pair_addend_function_reorder", "cortex-m3",
+         m3_pcrel_mov_pair_addend_image, {}, [
              "--relocs", "--use-old-text", "--reorder-functions=user",
              "--align-functions=1",
              f"--function-order={M3_PCREL_MOV_PAIR_ORDER}",
@@ -5568,9 +5636,11 @@ def main() -> int:
         }.get(label)
         exidx_layout = exidx_validator is not None
         target1_layout = label == "m3_target1_function_reorder"
-        pcrel_mov_pair_layout = (
-            label == "m3_pcrel_mov_pair_function_reorder"
-        )
+        pcrel_mov_pair_addend = {
+            "m3_pcrel_mov_pair_function_reorder": 0,
+            "m3_pcrel_mov_pair_addend_function_reorder": 4,
+        }.get(label)
+        pcrel_mov_pair_layout = pcrel_mov_pair_addend is not None
         split_validation = {
             "m3_function_split": validate_relocated_function_split,
             "m3_cdsplit": validate_relocated_cdsplit,
@@ -5645,7 +5715,10 @@ def main() -> int:
                 if exidx_layout
                 else validate_relocated_target1(image, candidate)
                 if target1_layout
-                else validate_relocated_pcrel_mov_pair(image, candidate)
+                else validate_relocated_pcrel_mov_pair(
+                    image, candidate,
+                    expected_addend=pcrel_mov_pair_addend,
+                )
                 if pcrel_mov_pair_layout
                 else split_validation(image, candidate)
                 if split_validation is not None
@@ -5768,6 +5841,7 @@ def main() -> int:
                 results[label]["validation"] = (
                     validate_relocated_pcrel_mov_pair(
                         image, candidate, final_layout,
+                        expected_addend=pcrel_mov_pair_addend,
                     )
                 )
             elif split_validation is not None:
@@ -8487,6 +8561,15 @@ def main() -> int:
             "pcrel-mov-pair-function-reorder", expected_word=42,
         )
     )
+    m3_pcrel_mov_pair_addend_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_single_word_execution(
+            m3_pcrel_mov_pair_addend_image,
+            candidates["m3_pcrel_mov_pair_addend_function_reorder"],
+            output, args.fastdyn.resolve(),
+            "pcrel-mov-pair-addend-function-reorder", expected_word=42,
+        )
+    )
     m3_function_split_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -8653,6 +8736,7 @@ def main() -> int:
             m3_exidx_generic_execution,
             m3_target1_execution,
             m3_pcrel_mov_pair_execution,
+            m3_pcrel_mov_pair_addend_execution,
             m3_function_split_execution,
             m3_cdsplit_execution,
             m3_loop_inversion_execution,
@@ -9011,6 +9095,8 @@ def main() -> int:
             m3_target1_execution,
         "m3_pcrel_mov_pair_function_reorder_architectural_execution":
             m3_pcrel_mov_pair_execution,
+        "m3_pcrel_mov_pair_addend_function_reorder_architectural_execution":
+            m3_pcrel_mov_pair_addend_execution,
         "m3_native_function_split_architectural_execution":
             m3_function_split_execution,
         "m3_native_cdsplit_architectural_execution":
@@ -9221,6 +9307,10 @@ def main() -> int:
             str(candidates["m3_exidx_generic_function_reorder"]),
         "m3_pcrel_mov_pair_function_reorder_candidate":
             str(candidates["m3_pcrel_mov_pair_function_reorder"]),
+        "m3_pcrel_mov_pair_addend_function_reorder_candidate":
+            str(candidates[
+                "m3_pcrel_mov_pair_addend_function_reorder"
+            ]),
         "m3_function_split_candidate":
             str(candidates["m3_function_split"]),
         "m3_cdsplit_candidate": str(candidates["m3_cdsplit"]),
