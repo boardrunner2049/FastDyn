@@ -14,7 +14,9 @@ import subprocess
 import sys
 import tomllib
 
+from scopt.formats.sc_v5 import sha256_sparse
 from scopt.formats.sc_v6 import read_sc6
+from scopt.run.benchmark_memory import benchmark_ram_override
 
 
 HERE = Path(__file__).resolve().parent
@@ -26,11 +28,6 @@ def load(path):
 
 def save(path, doc):
     path.write_text(json.dumps(doc, indent=2) + "\n")
-
-
-def digest(path):
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def pair_stats(samples, before, after):
@@ -46,6 +43,23 @@ def pair_stats(samples, before, after):
     return {"median": statistics.median(ratios), "paired_95pct_bootstrap": [draws[99], draws[3899]],
             "median_by_input": {k: statistics.median(v) for k, v in bank.items()},
             "pairs": len(ratios)}
+
+
+def comparison_effect(samples, cache_hashes, baseline, optimized):
+    observed = pair_stats(samples, baseline, optimized)
+    same_cache = cache_hashes[baseline] == cache_hashes[optimized]
+    return {
+        "baseline": baseline,
+        "optimized": optimized,
+        "byte_identical_sc": same_cache,
+        **observed,
+        "attribution": {
+            "status": "not_attributable" if same_cache else "eligible",
+            "reason": "byte_identical_sc" if same_cache else "different_sc_bytes",
+            "speed_ratio": None if same_cache else observed["median"],
+            "paired_95pct_bootstrap": None if same_cache else observed["paired_95pct_bootstrap"],
+        },
+    }
 
 
 def main():
@@ -73,6 +87,9 @@ def main():
     qemu = load(w / "v10/dynamic.json")["qemu"]
     env = {**os.environ, "SCOPT_ENVLAYOUT_PATH": str(w / "envlayouts"),
            "SCOPT_V6_EXES": m["qemu_sha256"]}
+    ram_root = benchmark_ram_override(config, m.get("ram_root"), env)
+    if ram_root is not None:
+        env["SCOPT_RAM_ROOT"] = ram_root
     # Each subprocess must load the same version of the optimizer, validator and
     # pass registry while development continues in the checkout.
     frozen = out / "source" / "tools" / "scopt"
@@ -118,7 +135,7 @@ def main():
         with (d / "v10.log").open("w") as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=log, check=True)
         rows[first_baseline] = {"artifact_id": source["artifact_id"], "v10_status": 0,
-                                "sc_sha256": digest(artifact / "cache.sc")}
+                                "sc_sha256": sha256_sparse(artifact / "cache.sc")}
         qualified.append(first_baseline)
     def prepare_arm(stage):
         name, enabled = stage
@@ -157,7 +174,7 @@ def main():
         row["sc_allocated_bytes"] = cache.stat().st_blocks * 512
         row["base_native_bytes"] = sum(image.sc.records[i].tc_size for i in image.sc.valid_slots)
         row["variant_native_bytes"] = sum(v.tc_size for v in image.ext.variants) if image.ext else 0
-        row["sc_sha256"] = digest(artifact / "cache.sc")
+        row["sc_sha256"] = sha256_sparse(cache)
         row["pass_outcomes"] = [{k: p.get(k) for k in ("pass", "outcome", "reason", "n_edits")}
                                 for p in result.get("passes", [])]
         # A manager can publish the remaining candidate after a failed pass. Such an
@@ -190,19 +207,16 @@ def main():
         cmd.extend(["--arm", f"{name}={out / name}"])
     subprocess.run(cmd, env=env, check=True)
     samples = load(target / "ratios.json")["samples_ns"]
+    cache_hashes = {"identity": sha256_sparse(identity / "cache.sc")}
+    cache_hashes.update({name: rows[name]["sc_sha256"] for name in qualified})
     comparisons = {}
     if args.post_splice:
-        comparisons["incremental/host-inline-splice"] = {
-            "baseline": "identity", "optimized": first_baseline,
-            "byte_identical_sc": digest(identity / "cache.sc") == rows[first_baseline]["sc_sha256"],
-            **pair_stats(samples, "identity", first_baseline)}
+        comparisons["incremental/host-inline-splice"] = comparison_effect(
+            samples, cache_hashes, "identity", first_baseline)
     full = "after-" + names[-1]
     if "without-host-inline-splice" in qualified and full in qualified:
-        baseline = "without-host-inline-splice"
-        comparisons["ablation/host-inline-splice"] = {
-            "baseline": baseline, "optimized": full,
-            "byte_identical_sc": rows[baseline]["sc_sha256"] == rows[full]["sc_sha256"],
-            **pair_stats(samples, baseline, full)}
+        comparisons["ablation/host-inline-splice"] = comparison_effect(
+            samples, cache_hashes, "without-host-inline-splice", full)
     for i, name in enumerate(names):
         after = f"after-{name}"
         prev = first_baseline if i == 0 else "after-" + names[i - 1]
@@ -210,11 +224,8 @@ def main():
                                           ("ablation", f"without-{name}", full)):
             if optimized not in qualified or (baseline != "identity" and baseline not in qualified):
                 continue
-            old_hash = digest(identity / "cache.sc") if baseline == "identity" else rows[baseline]["sc_sha256"]
-            comparisons[f"{kind}/{name}"] = {
-                "baseline": baseline, "optimized": optimized,
-                "byte_identical_sc": old_hash == rows[optimized]["sc_sha256"],
-                **pair_stats(samples, baseline, optimized)}
+            comparisons[f"{kind}/{name}"] = comparison_effect(
+                samples, cache_hashes, baseline, optimized)
     unqualified = [name for name, _ in sequence if name not in qualified]
     save(out / "pass-effects.json", {"pipeline": str(pipeline), "snapshot": m["snapshot"],
                                      "optimization_snapshot": optimization_snapshot,

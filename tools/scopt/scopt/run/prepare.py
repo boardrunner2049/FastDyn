@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from ..formats.sc_v5 import read_sc, sha256_sparse
-from .launcher import RunDir, RunDirError, create_run_dir, file_sha256, launch, write_json
+from .launcher import RunDir, RunDirError, _cleanup_tmpfs_ram, create_run_dir, file_sha256, launch, write_json
 
 __all__ = ["PrepareError", "prepare", "CAPTURE_BANNER"]
 
@@ -130,6 +130,9 @@ def prepare(base_toml: str | os.PathLike, out: str | os.PathLike, *,
                              f"{runs[0]['qemu']}")
         except (DeployError, RunDirError) as e:
             fails.append(f"oracle: {e}")
+        finally:
+            # The standalone oracle never calls launch, which normally owns this cleanup.
+            _cleanup_tmpfs_ram(ord_)
     prep["verdict"] = "PASS" if not fails else "FAIL"
     prep["failures"] = fails
     write_json(out / "prep.json", prep)

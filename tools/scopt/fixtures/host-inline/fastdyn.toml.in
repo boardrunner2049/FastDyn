@@ -4,7 +4,7 @@ base_address = "0x20000000"
 memory_size = "64K"
 memory_type = "SRAM"
 backend = "file"
-share = true
+share = false
 
 [[Memory.ram1]]
 id = "input"
@@ -13,9 +13,10 @@ base_address = "0x30000000"
 memory_size = "4K"
 memory_type = "SRAM"
 backend = "file"
-share = true
+share = false
 
 [Machine]
+log_options = "none"
 platform = "generic-cortexm"
 supercache = "cache/host-inline.sc"
 supercache_flat = false

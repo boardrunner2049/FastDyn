@@ -15,6 +15,20 @@ export SCOPT_V6_EXES=$(sha256sum "$SCOPT_RUNTIME_QEMU" | cut -d' ' -f1)
 : "${SCOPT_HOST_INLINE_BRIDGE:?set to the built scopt-native executable}"
 read_json() { python -c 'import sys,json;print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
 snap=$(read_json "$W/baseline.json" snapshot)
+ram_root=$(python - "$W" <<'PYRAM'
+import json
+import os
+from pathlib import Path
+import sys
+
+from scopt.run.benchmark_memory import benchmark_ram_override
+
+root = Path(sys.argv[1])
+metadata = json.loads((root / "baseline.json").read_text())
+print(benchmark_ram_override(root / "host-inline.toml", metadata.get("ram_root"), os.environ) or "")
+PYRAM
+)
+if [[ -n $ram_root ]]; then export SCOPT_RAM_ROOT="$ram_root"; fi
 mkdir -p "$D"
 extra=()
 pipeline=$arm

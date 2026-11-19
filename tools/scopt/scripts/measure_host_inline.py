@@ -158,6 +158,7 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
     os.environ["FASTDYN_ROOT"] = str(ROOT)
     os.environ["SCOPT_FASTDYN_SRC"] = str(ROOT)
     from scopt.run.arms import campaign_from_args, run_campaign
+    from scopt.run.benchmark_memory import benchmark_ram
     from scopt.run.launcher import file_sha256, write_json
     from scopt.run.toml_rewrite import normalized_config_sha256
 
@@ -243,7 +244,9 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
         qemu=str(qemu),
         timeout_s=args.timeout,
     )
-    evidence = run_campaign(campaign, out, log=lambda line: print(line, flush=True))
+    with benchmark_ram(timing_config, metadata.get("ram_root")) as ram_root:
+        provenance["environment"]["ram_root"] = ram_root
+        evidence = run_campaign(campaign, out, log=lambda line: print(line, flush=True))
     expected_count = args.repetitions * len(inputs) * len(arms)
     if (evidence.get("status") != "done" or evidence.get("freeze_ok") is not True
             or evidence.get("n_valid") != expected_count

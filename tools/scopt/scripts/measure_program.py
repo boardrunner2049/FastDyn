@@ -10,6 +10,7 @@ import random
 
 from measure_host_inline import validate_evidence, variability, verify_run
 from scopt.run.arms import campaign_from_args, run_campaign
+from scopt.run.benchmark_memory import benchmark_ram
 from scopt.run.launcher import file_sha256
 
 def summarize(blocks, candidate, reference):
@@ -128,7 +129,8 @@ def main():
     lock_path = Path("/tmp") / f"scopt-fixed-work-{os.getuid()}.lock"
     with lock_path.open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        result = run_campaign(campaign, args.out, log=lambda line: print(line, flush=True))
+        with benchmark_ram(Path(campaign.base_config), meta.get("ram_root")) as ram_root:
+            result = run_campaign(campaign, args.out, log=lambda line: print(line, flush=True))
         if {"partial", "complete"} <= sources.keys():
             mechanism = compare_coverage_caches(sources)
             (args.out / "mechanism.json").write_text(json.dumps(mechanism, indent=2) + "\n")
@@ -149,7 +151,7 @@ def main():
               "python_version": platform.python_version(),
               "cpuinfo": [line for line in Path("/proc/cpuinfo").read_text().splitlines()
                           if line.startswith(("model name", "Hardware"))][:1], "baseline": str(snap),
-              "arms": sources, "seed": 20261118, "samples_ns": [
+              "arms": sources, "seed": 20261118, "ram_root": ram_root, "samples_ns": [
                   {"input": i, "rep": rep, "ns": x} for (i, rep), x in sorted(blocks.items())],
               "speedup": {}}
     if len(blocks) != args.pairs * len(inputs) or any(

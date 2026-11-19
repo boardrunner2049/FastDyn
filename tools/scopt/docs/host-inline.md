@@ -40,6 +40,8 @@ scopt optimize "$SNAP" --pipeline host-inline \
   --profile "$W/profile/merged.profile.json" --store "$W/inline-store"
 ```
 
+Fresh `host-inline` and `host-inline-two-rbit` fixtures use private file-backed RAM on `/dev/shm` and disable QEMU instruction logging with `log_options = "none"`. The bootstrap records the selected `ram_root` in `baseline.json` so the benchmark scripts can reuse it with the matching private configuration. Set `SCOPT_RAM_ROOT` to another tmpfs or use `SCOPT_RAM_ROOT=` for ordinary per-run backing files. Existing baseline TOMLs keep their original memory and logging settings.
+
 The bootstrap writes the `.sc`, `.scm`, raw `.qprof`, merged profile, exact
 EnvLayout, runtime identities, and identity artifact. `bootstrap.log` records
 commands and outputs. `baseline.json` names the verified snapshot, identity

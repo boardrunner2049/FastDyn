@@ -139,7 +139,15 @@ def qualify(work: Path, lock: dict, log: Path, reuse_build: Path | None = None) 
 
 
 def qualify_images(work: Path, qemu: Path, plugin: Path, log: Path) -> None:
+    from scopt.run.benchmark_memory import benchmark_ram
+
     config, phase, inputs = generate_fixture(work, plugin, log)
+    default_ram = "/dev/shm" if FIXTURE.name in ("host-inline", "host-inline-two-rbit") else None
+    with benchmark_ram(config, default_ram) as ram_root:
+        _qualify_config(work, qemu, plugin, log, config, phase, inputs, ram_root)
+
+
+def _qualify_config(work, qemu, plugin, log, config, phase, inputs, ram_root):
     qemu_hash, plugin_hash = digest(qemu), digest(plugin)
     envdir = work / "envlayouts"
     envdir.mkdir()
@@ -238,6 +246,7 @@ def qualify_images(work: Path, qemu: Path, plugin: Path, log: Path) -> None:
                "plugin_sha256": plugin_hash, "envlayout": str(layout),
                "capture": str(prep / "capture.scm"), "identity_reimport": str(reimport),
                "cold_and_warm_records": cold_count, "dynamic": str(work / "v10/dynamic.json"),
+               "ram_root": ram_root,
                "oracle": json.loads((FIXTURE / "inputs.json").read_text())})
 
 

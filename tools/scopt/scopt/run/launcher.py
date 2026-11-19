@@ -181,7 +181,8 @@ class RunDir:
 
     @property
     def ram(self) -> Path:
-        return self.root / "ram"
+        tmpfs = self.meta.get("ram_tmpfs_root") if self.meta_path.is_file() else None
+        return _tmpfs_run_dir(self.root, Path(tmpfs)) if tmpfs else self.root / "ram"
 
     @property
     def qmp(self) -> Path:
@@ -258,16 +259,49 @@ def resolve_qemu(qemu: str | os.PathLike | None) -> dict[str, Any]:
     return {"qemu": str(p), "qemu_selection": "explicit", "qemu_sha256": file_sha256(p)}
 
 
+def _tmpfs_root(path: str | os.PathLike) -> Path:
+    try:
+        root = Path(path).resolve(strict=True)
+        mount_type = subprocess.check_output(
+            ["stat", "-f", "-c", "%T", "--", str(root)], text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RunDirError("ram_root_unavailable", str(path)) from exc
+    if not root.is_dir() or mount_type != "tmpfs":
+        raise RunDirError("ram_root_not_tmpfs", str(root))
+    return root
+
+
+def _tmpfs_run_dir(root: Path, tmpfs: Path) -> Path:
+    tag = hashlib.sha256(os.fsencode(root)).hexdigest()[:24]
+    return tmpfs / f"scopt-ram-{os.getuid()}-{tag}"
+
+
+def _claim_tmpfs_run_dir(path: Path, run: Path) -> None:
+    marker = path / ".scopt-owner"
+    try:
+        path.mkdir(mode=0o700)
+    except FileExistsError:
+        if (path.is_symlink() or not path.is_dir() or path.stat().st_uid != os.getuid()
+                or not marker.is_file() or marker.is_symlink() or marker.read_text() != str(run)):
+            raise RunDirError("ram_dir_not_owned", str(path)) from None
+    else:
+        marker.write_text(str(run))
+
+
 def create_run_dir(base_toml: str | os.PathLike, root: str | os.PathLike, *,
                    cache_name: str | None = None, quiet: bool = False,
                    qemu: str | os.PathLike | None = None, label: str | None = None,
-                   allow_existing_empty: bool = True) -> RunDir:
+                   allow_existing_empty: bool = True,
+                   ram_root: str | os.PathLike | None = None) -> RunDir:
     """Create a fresh run directory from ``base_toml`` (refuses a used one).
 
     ``quiet`` selects ``fastdyn -q`` for both the oracle and the launch.
     ``qemu`` is exported as ``FASTDYN_QEMU``; without it the integrated runtime
     is used (:func:`resolve_qemu`; :data:`FASTDYN_DEFAULT_QEMU` opts out). A
-    ``qemu_path`` in the TOML still wins inside FastDyn.
+    ``qemu_path`` in the TOML still wins inside FastDyn. ``ram_root`` (or
+    ``SCOPT_RAM_ROOT``) puts private file-backed banks on an existing tmpfs.
+    The bank backend and share setting remain part of the base configuration.
     """
     q = resolve_qemu(qemu)
     base_toml = Path(base_toml).resolve()
@@ -285,13 +319,23 @@ def create_run_dir(base_toml: str | os.PathLike, root: str | os.PathLike, *,
     if not has_cache:
         cache_name = None
     rd = RunDir(root)
+    private_root = ram_root if ram_root is not None else os.environ.get("SCOPT_RAM_ROOT")
+    tmpfs = _tmpfs_root(private_root) if private_root else None
+    banks = memory_banks(cfg)
+    if tmpfs is not None and (not banks or any(not b.is_file or b.share for b in banks)):
+        raise RunDirError("ram_requires_private_files", "set backend='file' and share=false on every bank")
+    if tmpfs is not None and any(Path(b.id + ".ram").name != b.id + ".ram" for b in banks):
+        raise RunDirError("ram_bad_bank_id", "tmpfs bank IDs must be file names")
+    ram_dir = _tmpfs_run_dir(root, tmpfs) if tmpfs is not None else rd.ram
     res = rewrite_toml(
         text,
         supercache=str(rd.cache_dir / cache_name) if cache_name else None,
-        memory_file=lambda b: str(rd.ram / f"{b.id}.ram"),
+        memory_file=lambda b: str(ram_dir / f"{b.id}.ram"),
         qmp_socket=str(rd.qmp),
     )
-    for d in (root, rd.cache_dir, rd.ram, rd.qmp.parent):
+    if tmpfs is not None:
+        _claim_tmpfs_run_dir(ram_dir, root)
+    for d in (root, rd.cache_dir, ram_dir, rd.qmp.parent):
         d.mkdir(parents=True, exist_ok=True)
     if rd.qmp.parent != root:
         os.chmod(rd.qmp.parent, 0o700)
@@ -304,12 +348,41 @@ def create_run_dir(base_toml: str | os.PathLike, root: str | os.PathLike, *,
         "rewritten_keys": list(res.changed),
         "cache_name": cache_name,
         "qmp_socket": str(rd.qmp),
+        **({"ram_tmpfs_root": str(tmpfs), "ram_storage": "tmpfs-private-file"} if tmpfs is not None else {}),
         "quiet": bool(quiet),
         **q,
         "label": label,
         "created": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     })
     return rd
+
+
+def _ram_file(rd: RunDir, bank) -> Path:
+    path = Path(bank.memory_file)
+    tmpfs = rd.meta.get("ram_tmpfs_root") if rd.meta_path.is_file() else None
+    if tmpfs:
+        owned = _tmpfs_run_dir(rd.root, Path(tmpfs))
+        if (bank.share or path != owned / (bank.id + ".ram")
+                or path.parent != owned or path.is_symlink()):
+            raise RunDirError("ram_outside_run_dir", str(path))
+    elif not path.resolve().is_relative_to(rd.root) or path.resolve() == rd.root:
+        raise RunDirError("ram_outside_run_dir", str(path))
+    return path
+
+
+def _cleanup_tmpfs_ram(rd: RunDir) -> None:
+    tmpfs = rd.meta.get("ram_tmpfs_root") if rd.meta_path.is_file() else None
+    if not tmpfs:
+        return
+    path = _tmpfs_run_dir(rd.root, Path(tmpfs))
+    if not path.exists():
+        return
+    _claim_tmpfs_run_dir(path, rd.root)
+    for bank in memory_banks(rd.config()):
+        if bank.is_file and bank.memory_file:
+            _ram_file(rd, bank).unlink(missing_ok=True)
+    (path / ".scopt-owner").unlink()
+    path.rmdir()
 
 
 def reset_ram(rd: RunDir) -> list[str]:
@@ -320,12 +393,14 @@ def reset_ram(rd: RunDir) -> list[str]:
     with B0. The stale QMP socket is removed too.
     """
     out = []
+    tmpfs = rd.meta.get("ram_tmpfs_root") if rd.meta_path.is_file() else None
+    if tmpfs:
+        root = _tmpfs_root(tmpfs)
+        _claim_tmpfs_run_dir(_tmpfs_run_dir(rd.root, root), rd.root)
     for bank in memory_banks(rd.config()):
         if not bank.is_file or not bank.memory_file:
             continue
-        p = Path(bank.memory_file)
-        if not str(p.resolve()).startswith(str(rd.root) + os.sep):
-            raise RunDirError("ram_outside_run_dir", str(p))
+        p = _ram_file(rd, bank)
         p.parent.mkdir(parents=True, exist_ok=True)
         if p.exists() or p.is_symlink():
             p.unlink()
@@ -360,9 +435,7 @@ def load_inputs(rd: RunDir, inputs: Mapping[str, str | os.PathLike]) -> dict[str
         data = Path(src).read_bytes()
         if b.size is not None and len(data) > b.size:
             raise RunDirError("input_too_large", f"{src}: {len(data)} > bank {bid} size {b.size}")
-        p = Path(b.memory_file)
-        if not str(p.resolve()).startswith(str(rd.root) + os.sep):
-            raise RunDirError("ram_outside_run_dir", str(p))
+        p = _ram_file(rd, b)
         fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
         try:
             os.ftruncate(fd, 0)
@@ -508,6 +581,19 @@ def launch(rd: RunDir, *, timeout_s: float = DEFAULT_TIMEOUT_S,
     exists (or ``prove=True``) -- run the §4.8 proof. ``inputs`` (bank id ->
     file) is written into those RAM banks after the reset (:func:`load_inputs`).
     """
+    try:
+        return _launch(rd, timeout_s=timeout_s, extra_env=extra_env, prove=prove,
+                       run_json=run_json, reference_norm=reference_norm, allow_rerun=allow_rerun,
+                       capture_files_ok=capture_files_ok, inputs=inputs)
+    finally:
+        _cleanup_tmpfs_ram(rd)
+
+
+def _launch(rd: RunDir, *, timeout_s: float = DEFAULT_TIMEOUT_S,
+           extra_env: Mapping[str, str | None] | None = None, prove: bool | None = None,
+           run_json: str = "run.json", reference_norm: str | os.PathLike | None = None,
+           allow_rerun: bool = False, capture_files_ok: bool = False,
+           inputs: Mapping[str, str | os.PathLike] | None = None) -> dict[str, Any]:
     from .proof import deploy_refusal, prove_run
 
     refused = deploy_refusal(rd)
