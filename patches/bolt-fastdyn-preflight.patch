@@ -127,7 +127,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..fce13f3d79c2379c8f1fab96f7db3f192908dace 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..282353b033874788515c6cf59d3df817a7a581c4 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
 @@ -136,6 +136,69 @@ inline raw_ostream &operator<<(raw_ostream &OS,
@@ -218,7 +218,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..fce13f3d79c2379c8f1fab96f7db3f19
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +406,54 @@ private:
+@@ -332,6 +406,60 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -259,6 +259,12 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..fce13f3d79c2379c8f1fab96f7db3f19
 +  /// not misclassify a rejected attempt as a pass that never ran.
 +  uint32_t FirmwarePublicationRejectionMask{0};
 +
++  /// Exact target register pair renamed by an admitted whole-function
++  /// reassignment.  ARM EHABI publication consumes this only after code and
++  /// unwind-program legality have both succeeded.
++  std::optional<std::pair<unsigned, unsigned>>
++      FirmwareRegisterReassignment;
++
 +  /// Exact source-address translations for relocations embedded in recovered
 +  /// instruction-owned firmware data.  Normal instruction address
 +  /// translation does not cover bytes that were data inside the input
@@ -273,7 +279,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..fce13f3d79c2379c8f1fab96f7db3f19
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1590,70 @@ public:
+@@ -1468,6 +1596,75 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -312,6 +318,11 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..fce13f3d79c2379c8f1fab96f7db3f19
 +    return FirmwareModificationMask & static_cast<uint32_t>(Reason);
 +  }
 +
++  std::optional<std::pair<unsigned, unsigned>>
++  getFirmwareRegisterReassignment() const {
++    return FirmwareRegisterReassignment;
++  }
++
 +  uint32_t getFirmwarePublicationRejectionMask() const {
 +    return FirmwarePublicationRejectionMask;
 +  }
@@ -344,7 +355,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..fce13f3d79c2379c8f1fab96f7db3f19
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2120,48 @@ public:
+@@ -1934,6 +2131,53 @@ public:
      return *this;
    }
  
@@ -384,6 +395,11 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..fce13f3d79c2379c8f1fab96f7db3f19
 +    return *this;
 +  }
 +
++  BinaryFunction &setFirmwareRegisterReassignment(unsigned A, unsigned B) {
++    FirmwareRegisterReassignment = std::make_pair(A, B);
++    return *this;
++  }
++
 +  BinaryFunction &rejectFirmwarePublication(
 +      FirmwarePublicationRejection Reason) {
 +    FirmwarePublicationRejectionMask |= static_cast<uint32_t>(Reason);
@@ -393,7 +409,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..fce13f3d79c2379c8f1fab96f7db3f19
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2559,8 @@ public:
+@@ -2331,6 +2575,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -507,7 +523,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..97d43d99616016f83e8e4bb944f3a30402d87695 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..f08277df5db38142222b7169fdc7021bb988e82a 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -695,7 +711,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..97d43d99616016f83e8e4bb944f3a304
    /// Return a BitVector marking all sub or super registers of \p Reg, including
    /// itself.
    virtual const BitVector &getAliases(MCPhysReg Reg,
-@@ -1616,6 +1752,24 @@ public:
+@@ -1616,6 +1752,34 @@ public:
      llvm_unreachable("not implemented");
    }
  
@@ -717,10 +733,20 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..97d43d99616016f83e8e4bb944f3a304
 +    return std::nullopt;
 +  }
 +
++  /// Rewrite an inline ARM EHABI compact unwind word for the same exact
++  /// register-name exchange.  Return std::nullopt when the target does not
++  /// implement the format or when its fixed-width bytecode cannot express the
++  /// exchanged unwind state without changing other effects.
++  virtual std::optional<uint32_t>
++  rewriteInlineCompactUnwindRegisters(uint32_t Word, MCPhysReg A,
++                                      MCPhysReg B) const {
++    return std::nullopt;
++  }
++
    /// Set of Registers used by the Rep instruction
    virtual void getRepRegs(BitVector &Regs) const {
      llvm_unreachable("not implemented");
-@@ -1700,6 +1854,14 @@ public:
+@@ -1700,6 +1864,14 @@ public:
      return 0;
    }
  
@@ -735,7 +761,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..97d43d99616016f83e8e4bb944f3a304
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1751,6 +1913,24 @@ public:
+@@ -1751,6 +1923,24 @@ public:
      return false;
    }
  
@@ -760,7 +786,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..97d43d99616016f83e8e4bb944f3a304
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +1969,56 @@ public:
+@@ -1789,6 +1979,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -1196,20 +1222,21 @@ index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fa
    /// The shortest distance for any branch instruction on AArch64.
    static constexpr size_t ShortestJumpBits = 11;
 diff --git a/bolt/include/bolt/Passes/RegReAssign.h b/bolt/include/bolt/Passes/RegReAssign.h
-index a7554a1215104275a92e51769e8f84997154c1ca..c6e39c966b5bc1f51aa64bf4158bdf0aecf9100d 100644
+index a7554a1215104275a92e51769e8f84997154c1ca..2c9bcdd3247363636b2255f1b060692083d0e8d2 100644
 --- a/bolt/include/bolt/Passes/RegReAssign.h
 +++ b/bolt/include/bolt/Passes/RegReAssign.h
-@@ -31,6 +31,9 @@ class RegReAssign : public BinaryFunctionPass {
+@@ -31,6 +31,10 @@ class RegReAssign : public BinaryFunctionPass {
  
    /// Stats
    DenseSet<const BinaryFunction *> FuncsChanged;
 +  /// Cortex-M functions whose ARM EHABI unwind program is not invariant under
 +  /// register renaming. CANTUNWIND-covered functions remain eligible.
 +  DenseSet<const BinaryFunction *> CortexMUnwindBlockedFunctions;
++  DenseMap<const BinaryFunction *, uint32_t> CortexMInlineUnwindWords;
    int64_t StaticBytesSaved{0};
    int64_t DynBytesSaved{0};
  
-@@ -38,6 +41,7 @@ class RegReAssign : public BinaryFunctionPass {
+@@ -38,6 +42,7 @@ class RegReAssign : public BinaryFunctionPass {
    void rankRegisters(BinaryFunction &Function);
    void aggressivePassOverFunction(BinaryFunction &Function);
    bool conservativePassOverFunction(BinaryFunction &Function);
@@ -10674,7 +10701,7 @@ index 66ca6800b1a5fabbeca2e5e5f09b5289599f7912..2c28baca1b1598b39f4cd9809c920d45
        while (RegIdx != -1) {
          dbgs() << "\tREG" << RegIdx;
 diff --git a/bolt/lib/Passes/RegReAssign.cpp b/bolt/lib/Passes/RegReAssign.cpp
-index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be8665685567ce725d 100644
+index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc97507f1ac 100644
 --- a/bolt/lib/Passes/RegReAssign.cpp
 +++ b/bolt/lib/Passes/RegReAssign.cpp
 @@ -16,6 +16,10 @@
@@ -10688,7 +10715,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
  #include <numeric>
  
  #define DEBUG_TYPE "regreassign"
-@@ -31,11 +35,120 @@ static cl::opt<bool> AggressiveReAssign(
+@@ -31,11 +35,139 @@ static cl::opt<bool> AggressiveReAssign(
      cl::desc("use register liveness analysis to try to find more opportunities "
               "for -reg-reassign optimization"),
      cl::cat(BoltOptCategory));
@@ -10707,6 +10734,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
 +
 +struct CortexMEHABIQualification {
 +  DenseSet<const BinaryFunction *> BlockedFunctions;
++  DenseMap<const BinaryFunction *, uint32_t> InlineCompactWords;
 +  uint64_t CantUnwindFunctions{0};
 +};
 +
@@ -10740,6 +10768,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
 +    uint64_t Start{0};
 +    uint32_t UnwindWord{0};
 +    bool IsSentinel{false};
++    SmallVector<const BinaryFunction *, 2> Functions;
 +  };
 +
 +  for (BinarySection &Section : BC.allocatableSections()) {
@@ -10767,7 +10796,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
 +            "ARM EHABI index section %s is not strictly address-sorted",
 +            Section.getName().str().c_str());
 +      Entries.push_back({*Start, ReadWord(Contents.data() + Offset + 4),
-+                         false});
++                         false, {}});
 +    }
 +
 +    Entry &Last = Entries.back();
@@ -10795,10 +10824,27 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
 +            errc::not_supported,
 +            "Cortex-M function %s is covered by multiple ARM EHABI indexes",
 +            BF.getPrintName().c_str());
-+      if (It->UnwindWord == 1)
-+        ++Result.CantUnwindFunctions;
-+      else
-+        Result.BlockedFunctions.insert(&BF);
++      It->Functions.push_back(&BF);
++    }
++
++    for (const Entry &Current : Entries) {
++      if (Current.IsSentinel)
++        continue;
++      if (Current.UnwindWord == 1) {
++        Result.CantUnwindFunctions += Current.Functions.size();
++        continue;
++      }
++      // Inline compact model 0 has three fixed opcode bytes.  Keep shared
++      // ranges and external/generic tables unchanged until their record
++      // ownership or storage is rewritten as one atomic unit.
++      if ((Current.UnwindWord & 0xff000000U) == 0x80000000U &&
++          Current.Functions.size() == 1) {
++        Result.InlineCompactWords[Current.Functions.front()] =
++            Current.UnwindWord;
++        continue;
++      }
++      for (const BinaryFunction *BF : Current.Functions)
++        Result.BlockedFunctions.insert(BF);
 +    }
 +  }
 +  return Result;
@@ -10809,7 +10855,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
  void RegReAssign::swap(BinaryFunction &Function, MCPhysReg A, MCPhysReg B) {
    BinaryContext &BC = Function.getBinaryContext();
    const BitVector &AliasA = BC.MIB->getAliases(A, false);
-@@ -404,6 +517,86 @@ bool RegReAssign::conservativePassOverFunction(BinaryFunction &Function) {
+@@ -404,6 +536,92 @@ bool RegReAssign::conservativePassOverFunction(BinaryFunction &Function) {
    return true;
  }
  
@@ -10837,6 +10883,11 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
 +  } Best;
 +
 +  for (const auto &[Compact, Expensive] : Candidates) {
++    if (auto It = CortexMInlineUnwindWords.find(&Function);
++        It != CortexMInlineUnwindWords.end() &&
++        !BC.MIB->rewriteInlineCompactUnwindRegisters(
++            It->second, Compact, Expensive))
++      continue;
 +    int64_t CandidateStatic = 0;
 +    int64_t CandidateDynamic = 0;
 +    bool Touched = false;
@@ -10882,6 +10933,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
 +
 +  Function.setFirmwareModified(
 +      BinaryFunction::FirmwareModification::RegisterReassignment);
++  Function.setFirmwareRegisterReassignment(Best.Compact, Best.Expensive);
 +  FuncsChanged.insert(&Function);
 +  StaticBytesSaved += Best.StaticBytesSaved;
 +  DynBytesSaved += Best.DynamicBytesSaved;
@@ -10896,7 +10948,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
  void RegReAssign::setupAggressivePass(BinaryContext &BC,
                                        std::map<uint64_t, BinaryFunction> &BFs) {
    setupConservativePass(BC, BFs);
-@@ -449,11 +642,55 @@ void RegReAssign::setupConservativePass(
+@@ -449,11 +667,60 @@ void RegReAssign::setupConservativePass(
  }
  
  Error RegReAssign::runOnFunctions(BinaryContext &BC) {
@@ -10928,13 +10980,18 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..b30130df84cc7715798649be86656855
 +    if (!EHABI)
 +      return EHABI.takeError();
 +    CortexMUnwindBlockedFunctions = std::move(EHABI->BlockedFunctions);
++    CortexMInlineUnwindWords = std::move(EHABI->InlineCompactWords);
 +    if (EHABI->CantUnwindFunctions ||
 +        !CortexMUnwindBlockedFunctions.empty())
 +      BC.outs() << "BOLT-INFO: Reg Reassignment Pass: ARM EHABI admitted "
 +                << EHABI->CantUnwindFunctions
 +                << " CANTUNWIND-covered function(s) and retained "
 +                << CortexMUnwindBlockedFunctions.size()
-+                << " function(s) with compact or generic unwind programs.\n";
++                << " function(s) with unsupported compact, shared or generic "
++                   "unwind programs; "
++                << CortexMInlineUnwindWords.size()
++                << " single-function inline compact program(s) remain "
++                   "candidate-qualified.\n";
 +
 +    for (auto &I : BC.getBinaryFunctions())
 +      cortexMPassOverFunction(I.second);
@@ -11592,7 +11649,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e21e53fae6 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33f357762f 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -11753,17 +11810,17 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e2
    for (auto &[Address, Type] : MarkerSymbols) {
      auto *BF = BC->getBinaryFunctionContainingAddress(Address,
                                                        /*CheckPastEnd*/ false,
-@@ -1499,8 +1546,20 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1499,10 +1546,22 @@ void RewriteInstance::discoverFileObjects() {
        continue;
      }
      const auto EntryOffset = Address - BF->getAddress();
 -    if (Type == MarkerSymType::CODE) {
 +    if (Type == MarkerSymType::CODE || Type == MarkerSymType::THUMB_CODE) {
-+      BF->markCodeAtOffset(EntryOffset);
-+      continue;
-+    }
-+    if (Type == MarkerSymType::ARM_CODE) {
        BF->markCodeAtOffset(EntryOffset);
+       continue;
+     }
++    if (Type == MarkerSymType::ARM_CODE) {
++      BF->markCodeAtOffset(EntryOffset);
 +      // Cortex-M implements Thumb execution only.  A few firmware images
 +      // nevertheless contain unreachable ARM-state library bodies.  Preserve
 +      // the containing function byte-for-byte instead of feeding those bytes
@@ -11772,9 +11829,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e2
 +        BF->setSimple(false);
 +        ++UnsupportedARMModeRegions;
 +      }
-       continue;
-     }
++      continue;
++    }
      if (Type == MarkerSymType::DATA) {
+       BF->markDataAtOffset(EntryOffset);
+       BC->AddressToConstantIslandMap[Address] = BF;
 @@ -1510,8 +1569,12 @@ void RewriteInstance::discoverFileObjects() {
      }
      llvm_unreachable("Unknown marker");
@@ -13471,47 +13530,13 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e2
  
        OS.seek(Pos);
      }
-@@ -6947,6 +8102,671 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +8102,762 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
 +Error RewriteInstance::rewriteARMExidxSections() {
 +  if (!BC->isARM())
 +    return Error::success();
-+
-+  // Compact in-place firmware mode keeps EHABI record addresses unchanged,
-+  // but --emit-relocs metadata is still copied later.  Publish an exact
-+  // identity map for every live index field so the relocation copier can
-+  // distinguish linked fields from stale input records merged by the linker.
-+  // Full relocation mode below additionally rebuilds PREL31 addresses after
-+  // function layout.
-+  if (!BC->HasRelocations) {
-+    for (BinarySection &Section : BC->allocatableSections()) {
-+      if (Section.getELFType() != ELF::SHT_ARM_EXIDX)
-+        continue;
-+      const StringRef Contents = Section.getContents();
-+      if (Contents.empty() || Contents.size() % 8 != 0)
-+        return createStringError(
-+            errc::executable_format_error,
-+            "ARM EHABI index section %s has invalid size 0x%" PRIx64,
-+            Section.getName().str().c_str(),
-+            static_cast<uint64_t>(Contents.size()));
-+      for (uint64_t Offset = 0; Offset < Contents.size(); Offset += 8)
-+        for (const uint64_t FieldOffset : {uint64_t(0), uint64_t(4)}) {
-+          const uint64_t Address =
-+              Section.getAddress() + Offset + FieldOffset;
-+          auto [It, Inserted] = ARMExidxRelocationAddressMap.try_emplace(
-+              Address, SmallVector<uint64_t, 1>{Address});
-+          if (!Inserted)
-+            return createStringError(
-+                errc::executable_format_error,
-+                "ARM EHABI relocation field 0x%" PRIx64
-+                " belongs to multiple index sections",
-+                Address);
-+        }
-+    }
-+    return Error::success();
-+  }
 +
 +  const bool IsLittleEndian = BC->AsmInfo->isLittleEndian();
 +  const auto ReadWord = [IsLittleEndian](const char *Data) {
@@ -13536,6 +13561,84 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e2
 +                               "ARM PREL31 target underflows address zero");
 +    return static_cast<uint64_t>(Target);
 +  };
++
++  // Compact in-place firmware mode keeps EHABI record addresses unchanged,
++  // but --emit-relocs metadata is still copied later.  Publish an exact
++  // identity map for every live index field so the relocation copier can
++  // distinguish linked fields from stale input records merged by the linker.
++  // Full relocation mode below additionally rebuilds PREL31 addresses after
++  // function layout.
++  if (!BC->HasRelocations) {
++    for (BinarySection &Section : BC->allocatableSections()) {
++      if (Section.getELFType() != ELF::SHT_ARM_EXIDX)
++        continue;
++      const StringRef Contents = Section.getContents();
++      if (Contents.empty() || Contents.size() % 8 != 0)
++        return createStringError(
++            errc::executable_format_error,
++            "ARM EHABI index section %s has invalid size 0x%" PRIx64,
++            Section.getName().str().c_str(),
++            static_cast<uint64_t>(Contents.size()));
++      uint8_t *NewContents = nullptr;
++      uint64_t RewrittenPrograms = 0;
++      for (uint64_t Offset = 0; Offset < Contents.size(); Offset += 8) {
++        for (const uint64_t FieldOffset : {uint64_t(0), uint64_t(4)}) {
++          const uint64_t Address =
++              Section.getAddress() + Offset + FieldOffset;
++          auto [It, Inserted] = ARMExidxRelocationAddressMap.try_emplace(
++              Address, SmallVector<uint64_t, 1>{Address});
++          if (!Inserted)
++            return createStringError(
++                errc::executable_format_error,
++                "ARM EHABI relocation field 0x%" PRIx64
++                " belongs to multiple index sections",
++                Address);
++        }
++        Expected<uint64_t> FunctionStart = DecodePrel31(
++            ReadWord(Contents.data() + Offset), Section.getAddress() + Offset);
++        if (!FunctionStart) {
++          delete[] NewContents;
++          return FunctionStart.takeError();
++        }
++        BinaryFunction *BF =
++            BC->getBinaryFunctionAtAddress(*FunctionStart);
++        if (!BF || !BF->getFirmwareRegisterReassignment())
++          continue;
++        const uint32_t InputUnwindWord =
++            ReadWord(Contents.data() + Offset + 4);
++        if (InputUnwindWord == 1)
++          continue;
++        const auto [A, B] = *BF->getFirmwareRegisterReassignment();
++        std::optional<uint32_t> OutputUnwindWord =
++            BC->MIB->rewriteInlineCompactUnwindRegisters(InputUnwindWord,
++                                                         A, B);
++        if (!OutputUnwindWord) {
++          delete[] NewContents;
++          return createStringError(
++              errc::not_supported,
++              "ARM EHABI inline compact program for %s cannot encode "
++              "register reassignment",
++              BF->getPrintName().c_str());
++        }
++        if (!NewContents) {
++          NewContents = new uint8_t[Contents.size()];
++          memcpy(NewContents, Contents.data(), Contents.size());
++        }
++        WriteWord(reinterpret_cast<char *>(NewContents + Offset + 4),
++                  *OutputUnwindWord);
++        ++RewrittenPrograms;
++      }
++      if (NewContents) {
++        Section.updateContents(NewContents, Contents.size());
++        Section.setOutputAddress(Section.getAddress());
++        Section.setOutputFileOffset(Section.getInputFileOffset());
++        BC->outs() << "BOLT-INFO: rewrote " << RewrittenPrograms
++                   << " ARM EHABI inline compact register program(s) in "
++                   << Section.getName() << '\n';
++      }
++    }
++    return Error::success();
++  }
 +  const auto EncodePrel31 = [](uint64_t Target,
 +                               uint64_t Place) -> Expected<uint32_t> {
 +    if (Target > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
@@ -14095,6 +14198,53 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e2
 +      WriteWord(reinterpret_cast<char *>(NewContents + I * 8),
 +                *FunctionPrel31);
 +      uint32_t OutputUnwindWord = Entry.UnwindWord;
++      std::optional<std::pair<unsigned, unsigned>> RegisterReassignment;
++      for (const BinaryFunction *BF : Entry.Functions) {
++        const auto Current = BF->getFirmwareRegisterReassignment();
++        if (!Current) {
++          if (RegisterReassignment && Entry.UnwindWord != 1) {
++            delete[] NewContents;
++            return createStringError(
++                errc::not_supported,
++                "ARM EHABI range at 0x%" PRIx64
++                " mixes renamed and unchanged functions",
++                Entry.InputStart);
++          }
++          continue;
++        }
++        if (RegisterReassignment && RegisterReassignment != Current) {
++          delete[] NewContents;
++          return createStringError(
++              errc::not_supported,
++              "ARM EHABI range at 0x%" PRIx64
++              " contains different register reassignments",
++              Entry.InputStart);
++        }
++        RegisterReassignment = Current;
++      }
++      if (RegisterReassignment && Entry.UnwindWord != 1) {
++        if (Entry.ExtabSection) {
++          delete[] NewContents;
++          return createStringError(
++              errc::not_supported,
++              "external ARM EHABI program at 0x%" PRIx64
++              " cannot publish register reassignment",
++              Entry.ExtabTarget);
++        }
++        const auto [A, B] = *RegisterReassignment;
++        std::optional<uint32_t> Rewritten =
++            BC->MIB->rewriteInlineCompactUnwindRegisters(
++                Entry.UnwindWord, A, B);
++        if (!Rewritten) {
++          delete[] NewContents;
++          return createStringError(
++              errc::not_supported,
++              "inline ARM EHABI program at 0x%" PRIx64
++              " cannot encode register reassignment",
++              Entry.InputStart);
++        }
++        OutputUnwindWord = *Rewritten;
++      }
 +      if (Entry.ExtabSection) {
 +        const uint64_t ExtabOffset =
 +            Entry.ExtabTarget - Entry.ExtabSection->getAddress();
@@ -14143,7 +14293,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e2
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8780,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8871,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -14158,7 +14308,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e2
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
      // Overwrite function body to make sure we never execute these instructions.
-@@ -7002,6 +8830,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +8921,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -14170,10 +14320,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..43cea654fea792e6ad0ef1905df816e2
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..0826fcd491061cc08eb82a93dfb5387cc0f9b6f1
+index 0000000000000000000000000000000000000000..3f0249e74f83ffc00a4609db934647fb4ae9e6e3
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2918 @@
+@@ -0,0 +1,3041 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -15296,6 +15446,129 @@ index 0000000000000000000000000000000000000000..0826fcd491061cc08eb82a93dfb5387c
 +    setSize(Replacement, 2);
 +    Inst = std::move(Replacement);
 +    return int64_t{2};
++  }
++
++  std::optional<uint32_t>
++  rewriteInlineCompactUnwindRegisters(uint32_t Word, MCPhysReg A,
++                                      MCPhysReg B) const override {
++    if (!hasThumb2() || (Word & 0xff000000U) != 0x80000000U)
++      return std::nullopt;
++    const unsigned RegisterA = RegInfo->getEncodingValue(A);
++    const unsigned RegisterB = RegInfo->getEncodingValue(B);
++    if (RegisterA > 15 || RegisterB > 15 || RegisterA == RegisterB)
++      return std::nullopt;
++
++    uint8_t Bytes[4] = {
++        static_cast<uint8_t>(Word >> 24),
++        static_cast<uint8_t>(Word >> 16),
++        static_cast<uint8_t>(Word >> 8),
++        static_cast<uint8_t>(Word),
++    };
++    const auto SwapMaskBits = [RegisterA, RegisterB](uint32_t Mask) {
++      const bool HasA = Mask & (1U << RegisterA);
++      const bool HasB = Mask & (1U << RegisterB);
++      Mask &= ~((1U << RegisterA) | (1U << RegisterB));
++      if (HasA)
++        Mask |= 1U << RegisterB;
++      if (HasB)
++        Mask |= 1U << RegisterA;
++      return Mask;
++    };
++
++    for (size_t Offset = 1; Offset < 4;) {
++      const uint8_t Opcode = Bytes[Offset++];
++      if ((Opcode & 0x80) == 0)
++        continue;
++      switch (Opcode & 0xf0) {
++      case 0x80: {
++        if (Offset >= 4)
++          return std::nullopt;
++        uint32_t Mask = (static_cast<uint32_t>(Opcode & 0x0f) << 12) |
++                        (static_cast<uint32_t>(Bytes[Offset]) << 4);
++        if (!Mask)
++          return std::nullopt;
++        Mask = SwapMaskBits(Mask);
++        Bytes[Offset - 1] = 0x80 | ((Mask >> 12) & 0x0f);
++        Bytes[Offset++] = (Mask >> 4) & 0xff;
++        break;
++      }
++      case 0x90: {
++        unsigned Register = Opcode & 0x0f;
++        if (Register == 13 || Register == 15)
++          return std::nullopt;
++        if (Register == RegisterA)
++          Register = RegisterB;
++        else if (Register == RegisterB)
++          Register = RegisterA;
++        Bytes[Offset - 1] = 0x90 | Register;
++        break;
++      }
++      case 0xa0: {
++        uint32_t Mask = ((1U << ((Opcode & 0x07) + 1)) - 1) << 4;
++        Mask = SwapMaskBits(Mask);
++        unsigned Last = 4;
++        while (Last < 11 && (Mask & (1U << (Last + 1))))
++          ++Last;
++        const uint32_t Expected = ((1U << (Last - 3)) - 1) << 4;
++        if ((Mask & 0x0ff0U) != Expected || (Mask & ~0x0ff0U))
++          return std::nullopt;
++        Bytes[Offset - 1] = 0xa0 | (Last - 4) | (Opcode & 0x08);
++        break;
++      }
++      case 0xb0:
++        switch (Opcode) {
++        case 0xb0:
++          Offset = 4;
++          break;
++        case 0xb1:
++          if (Offset >= 4 || !Bytes[Offset] || (Bytes[Offset] & 0xf0))
++            return std::nullopt;
++          ++Offset;
++          break;
++        case 0xb2: {
++          bool Terminated = false;
++          while (Offset < 4)
++            if (!(Bytes[Offset++] & 0x80)) {
++              Terminated = true;
++              break;
++            }
++          if (!Terminated)
++            return std::nullopt;
++          break;
++        }
++        case 0xb3:
++          if (Offset >= 4)
++            return std::nullopt;
++          ++Offset;
++          break;
++        case 0xb4:
++          break;
++        default:
++          if (Opcode >= 0xb8)
++            break;
++          return std::nullopt;
++        }
++        break;
++      case 0xc0:
++        if (Opcode == 0xc6 || Opcode == 0xc7 || Opcode == 0xc8 ||
++            Opcode == 0xc9) {
++          if (Offset >= 4)
++            return std::nullopt;
++          ++Offset;
++          break;
++        }
++        return std::nullopt;
++      case 0xd0:
++        if (Opcode & 0x08)
++          return std::nullopt;
++        break;
++      default:
++        return std::nullopt;
++      }
++    }
++    return (static_cast<uint32_t>(Bytes[0]) << 24) |
++           (static_cast<uint32_t>(Bytes[1]) << 16) |
++           (static_cast<uint32_t>(Bytes[2]) << 8) | Bytes[3];
 +  }
 +
 +  void removeNonScavengeableRegs(BitVector &Regs) const override {
@@ -21682,10 +21955,10 @@ index 0000000000000000000000000000000000000000..762c4853da15350f46eb320ae9786a2d
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-register-reassignment.s b/bolt/test/ARM/thumb-native-register-reassignment.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..992ef337c7db14f70582e61a453a6548a4428d55
+index 0000000000000000000000000000000000000000..aa4076696a821e6ac46ced5b0d52de98a1c44bd9
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-native-register-reassignment.s
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,132 @@
 +## BOLT's original RegReAssign profitability model is x86-specific. Firm-BOLT
 +## provides a target hook that swaps only qualified AAPCS callee-saved register
 +## pairs and accounts for the exact Thumb encodings unlocked by that swap.
@@ -21706,14 +21979,28 @@ index 0000000000000000000000000000000000000000..992ef337c7db14f70582e61a453a6548
 +# RUN:   | FileCheck %s --check-prefix=LOG
 +# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=worker \
 +# RUN:   %t.bolt | FileCheck %s --check-prefix=DISASM
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=compact_worker \
++# RUN:   %t.bolt | FileCheck %s --check-prefix=COMPACT-DISASM
++# RUN: llvm-readobj --unwind %t.bolt | FileCheck %s --check-prefix=EHABI
 +# RUN: %python -c "import json; d=json.load(open('%t.json')); f={x['name']:x for x in d['functions']}['worker']; print(f['firmware_modified'],f['firmware_modification_reasons'],d['summary']['unmapped_instruction_count'])" \
 +# RUN:   | FileCheck %s --check-prefix=REPORT
++# RUN: llvm-bolt %t.named.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --reg-reassign \
++# RUN:   --firmbolt-allow-register-reassignment --relocs --use-old-text \
++# RUN:   -o %t.reloc.bolt 2>&1 | FileCheck %s --check-prefix=RELOC-LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=compact_worker \
++# RUN:   %t.reloc.bolt | FileCheck %s --check-prefix=COMPACT-DISASM
++# RUN: llvm-readobj --unwind %t.reloc.bolt \
++# RUN:   | FileCheck %s --check-prefix=RELOC-EHABI
 +
 +# DENIED: Cortex-M register reassignment changes transient register state
-+# LOG: BOLT-INFO: Reg Reassignment Pass: ARM EHABI admitted 2 CANTUNWIND-covered function(s) and retained 1 function(s) with compact or generic unwind programs.
++# LOG: BOLT-INFO: Reg Reassignment Pass: ARM EHABI admitted 2 CANTUNWIND-covered function(s) and retained 0 function(s) with unsupported compact, shared or generic unwind programs; 1 single-function inline compact program(s) remain candidate-qualified.
 +# LOG: BOLT-INFO: Reg Reassignment Pass Stats:
-+# LOG-NEXT: 1 functions affected.
-+# LOG-NEXT: 8 static bytes saved.
++# LOG-NEXT: 2 functions affected.
++# LOG-NEXT: 16 static bytes saved.
++# LOG: BOLT-INFO: rewrote 1 ARM EHABI inline compact register program(s) in .ARM
++# RELOC-LOG: BOLT-INFO: rebuilt ARM EHABI index .ARM
++# RELOC-LOG-SAME: after function layout
 +# DISASM-LABEL: <worker>:
 +# DISASM-NEXT: sub sp, #0x8
 +# DISASM-NEXT: str r4, [sp, #0x4]
@@ -21723,6 +22010,23 @@ index 0000000000000000000000000000000000000000..992ef337c7db14f70582e61a453a6548
 +# DISASM-NEXT: ldr r4, [sp, #0x4]
 +# DISASM-NEXT: add sp, #0x8
 +# DISASM-NEXT: bx lr
++# COMPACT-DISASM-LABEL: <compact_worker>:
++# COMPACT-DISASM-NEXT: sub sp, #0x8
++# COMPACT-DISASM-NEXT: str r4, [sp, #0x4]
++# COMPACT-DISASM-NEXT: mov.w r4, r1
++# COMPACT-DISASM-NEXT: ldr r0, [r4]
++# COMPACT-DISASM-NEXT: str r0, [r4, #0x4]
++# COMPACT-DISASM-NEXT: ldr r4, [sp, #0x4]
++# COMPACT-DISASM-NEXT: add sp, #0x8
++# COMPACT-DISASM-NEXT: bx lr
++# EHABI: FunctionAddress: 0x8000022
++# EHABI: Model: Compact (Inline)
++# EHABI: 0x80 0x01 ; pop {r4}
++# EHABI: 0xB0 ; finish
++# RELOC-EHABI: FunctionAddress: 0x800001A
++# RELOC-EHABI: Model: Compact (Inline)
++# RELOC-EHABI: 0x80 0x01 ; pop {r4}
++# RELOC-EHABI: 0xB0 ; finish
 +# REPORT: True ['register_reassignment'] 0
 +
 +  .syntax unified
@@ -21762,9 +22066,9 @@ index 0000000000000000000000000000000000000000..992ef337c7db14f70582e61a453a6548
 +  .fnend
 +  .size worker, .-worker
 +
-+  // This body has the same profitable encoding opportunity, but its compact
-+  // unwind program names r8. It must remain byte-exact until Firm-BOLT can
-+  // rewrite the unwind program atomically with the register exchange.
++  // This body has the same profitable encoding opportunity and its private
++  // inline compact unwind program names r8. The target must rewrite both the
++  // body and that exact register-pop operand atomically.
 +  .globl compact_worker
 +  .type compact_worker,%function
 +  .thumb_func
@@ -26134,7 +26438,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ed11691f5f3d9e14be6f1f47a33107e5a9513b36 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ba9b40b4b82eb3a54b0b060e312891ebbc9a28b8 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -26196,7 +26500,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ed11691f5f3d9e14be6f1f47a33107e5
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +154,864 @@ protected:
+@@ -125,6 +154,884 @@ protected:
  };
  } // namespace
  
@@ -26380,6 +26684,26 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ed11691f5f3d9e14be6f1f47a33107e5
 +      BC->MIB->applyRegisterReassignment(Narrow, ARM::R4, ARM::R8));
 +  EXPECT_EQ(Narrow.getOpcode(), ARM::tLDRi);
 +  EXPECT_EQ(Narrow.getOperand(1).getReg(), ARM::R4);
++
++  std::optional<uint32_t> PopR8 =
++      BC->MIB->rewriteInlineCompactUnwindRegisters(
++          0x808010b0U, ARM::R4, ARM::R8);
++  ASSERT_TRUE(PopR8);
++  EXPECT_EQ(*PopR8, 0x808001b0U);
++
++  std::optional<uint32_t> VspR8 =
++      BC->MIB->rewriteInlineCompactUnwindRegisters(
++          0x8098b0b0U, ARM::R4, ARM::R8);
++  ASSERT_TRUE(VspR8);
++  EXPECT_EQ(*VspR8, 0x8094b0b0U);
++
++  // The one-byte contiguous-range opcode cannot express r8 without r4 after
++  // the exchange.  A range containing both names is invariant.
++  EXPECT_FALSE(BC->MIB->rewriteInlineCompactUnwindRegisters(
++      0x80a0b0b0U, ARM::R4, ARM::R8));
++  EXPECT_EQ(*BC->MIB->rewriteInlineCompactUnwindRegisters(
++                0x80a4b0b0U, ARM::R4, ARM::R8),
++            0x80a4b0b0U);
 +}
 +
 +TEST_P(MCPlusBuilderTester, ARM_TailDuplicationPropagationReplacements) {

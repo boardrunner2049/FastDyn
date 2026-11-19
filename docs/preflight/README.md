@@ -132,9 +132,10 @@ size-one `memcpy` specialization fixture, an opt-in profile-driven native
 three-way-branch fixture, an opt-in native conditional-tail-call
 simplification fixture, an opt-in profile-driven Thumb IT conditional-move
 fixture, an Armv6-M conditional-move retention fixture, an opt-in target-aware
-Thumb-2 register-reassignment fixture, and the
+Thumb-2 register-reassignment fixture with a separately checked inline compact
+EHABI model-0 program, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November production-parity-v138 run accepts all fifty-five without
+The 19 November v140 run accepts all fifty-five without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -770,15 +771,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v138-register-reassignment
+  --output build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/report.json),
-SHA-256 `5fe5513eb2732d22329cb366b45f20818929c2a80daae70f113c8caa96077844`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/report.json),
+SHA-256 `cd4e26232de8a7da91e91601c91799d287d27bc177566844b7b9a99556e021b0`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/validation-manifest.json),
-SHA-256 `29982bc6baf157c5f21a7288a5b4c41998cc440b3d1910cad94758f9c3295cda`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/validation-manifest.json),
+SHA-256 `f991c7fb62eddf15c8b7dda4d89fd000aa0d5607718eab6266e0ccedadb689e8`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -790,25 +791,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`892c36950fafff1678bf7673495a809c70c06fb5777f5d25d3d8d8ed8f905c54`,
+`1669c0a84441a2065ce41c91abcd35a6e92b2798918f7fc18d309fd4ac071f91`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`317c6b15c783f9deb74a31c8757b7f719b81a0b1b9300c00489db66c81ff8b78`.
+`55017c4b10f38c0e675b24b34fa11bd31d39fc158fa230edbdb32a82d3fbee62`.
 The current combined ARM BOLT/AArch32 JITLink lit run passes 88/88
 (76 ARM and 12 JITLink). The BOLT unit executables pass 128 tests and
 explicitly skip 144 target-inapplicable parameterizations: Core is 84/144,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/core-tests.xml)
 has SHA-256
-`9b164ebcb106df52189cf51edb4a659abee2ce5c98075bd1aba768d084b74f5c`;
+`05c28c631f089c64503a7da7d3b9e7547eb91df8e468954480fea3fc11e77dbe`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v138-register-reassignment/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`074fb8ea1d8b2fa409a16cad91fedacacf6102da5abced5cfd194a51a9c4bcdb`
-and `77faefcc63286dd1099fd782de0814ae883a3b5e8742617e55942312caba0a9c`.
+`b629cc255d806b72f4bae43748c480cd1d60583a7994d89c4626d51bd27c89c7`
+and `907432fb572a8b8d1c32df2bdc5dc0d293894d8820d2afcde2c82d619a25c6c8`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1255,6 +1256,31 @@ that the linker merged away.  Compact in-place emission now publishes identity
 mappings for every live index field and removes only the aligned, out-of-range
 PREL31 record; the final `.rel.ARM.exidx` names the one live record instead of
 crashing or preserving stale metadata.
+
+v140 admits a bounded but real subset of those compact records instead of
+classifying every compact program as opaque.  A register exchange is eligible
+only when one exact function owns one inline EHABI compact model-0 word and
+the complete fixed-width bytecode can be renamed without changing its length.
+The target decoder rewrites arbitrary core-register pop masks (`0x80`),
+`vsp = rN` (`0x90`) and contiguous `r4`--`rN` pops (`0xA0`) when the renamed
+range remains representable by the same opcode.  Reserved instructions,
+width-changing encodings, shared ranges, external compact tables and generic
+personality records remain unchanged.  Mutation is atomic: the function body
+records the accepted register exchange, and both compact in-place emission and
+full relocation emission must apply the same exchange to the unwind word or
+reject the candidate.
+
+The focused fixture now transforms two identical 26-byte workers, one
+`CANTUNWIND` and one carrying an inline `pop {r8}` program.  Both bodies become
+18 bytes and the latter program becomes `pop {r4}; finish`; the in-place path
+keeps its original EHABI entry address, while relocation mode moves the body,
+rebuilds its PREL31 entry and preserves the same renamed program.  Negative
+unit coverage rejects a contiguous-pop exchange that would require a
+noncontiguous one-byte mask.  The complete FOP-enabled production gate remains
+55/55, ARM BOLT lit is 76/76, AArch32 JITLink lit is 12/12, and BOLT units
+report 128 passes plus 144 target-inapplicable skips.  This closes inline
+model-0 unwind coupling for register reassignment; it does not authorize
+rewriting shared, external or generic EHABI programs.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

@@ -5679,7 +5679,8 @@ def main() -> int:
                     "Reg Reassignment Pass: ARM EHABI admitted "
                     not in register_log
                     or "CANTUNWIND-covered function(s) and retained 0 "
-                    "function(s) with compact or generic unwind programs."
+                    "function(s) with unsupported compact, shared or "
+                    "generic unwind programs;"
                     not in register_log
                     or "removed 1 stale linked ARM EHABI relocation(s) "
                     "whose input records were merged" not in register_log
