@@ -126,6 +126,7 @@ struct OriginalInstructionRecord {
   bool IsBranch;
   bool IsUnconditionalBranch;
   bool IsReturn;
+  bool IsPossibleExceptionReturn;
   std::optional<uint64_t> BranchTargetAddress;
 };
 
@@ -315,7 +316,7 @@ json::Array firmwareModificationReasons(const BinaryFunction &BF) {
 }
 
 static constexpr std::array<
-    std::pair<FirmwarePublicationRejection, StringLiteral>, 8>
+    std::pair<FirmwarePublicationRejection, StringLiteral>, 9>
     FirmwarePublicationRejectionNames = {{
         {FirmwarePublicationRejection::InstructionCountChanged,
          "instruction_count_changed"},
@@ -333,6 +334,8 @@ static constexpr std::array<
          "inline_data_placement_invalid"},
         {FirmwarePublicationRejection::MissingInstructionOrigin,
          "missing_instruction_origin"},
+        {FirmwarePublicationRejection::ExceptionReturnChanged,
+         "exception_return_changed"},
     }};
 
 json::Array firmwarePublicationRejections(const BinaryFunction &BF) {
@@ -421,6 +424,8 @@ Error CortexMFirmwareConstraints::runOnFunctions(BinaryContext &BC) {
   uint64_t UnresolvedEntries = 0;
   uint64_t SecondaryEntryHandlers = 0;
   uint64_t PrimaryEntryHandlers = 0;
+  uint64_t ResetEntryFunctions = 0;
+  uint64_t ExceptionEntryFunctions = 0;
   uint64_t SecurityStateFunctions = 0;
   uint64_t FirmwareVeneerSlots = 0;
   SmallVector<BinaryFunction *, 4> VeneerSlotFunctions;
@@ -459,13 +464,23 @@ Error CortexMFirmwareConstraints::runOnFunctions(BinaryContext &BC) {
       continue;
     }
 
+    Handler->setCortexMVectorEntry();
+    if (Offset == 4)
+      Handler->setCortexMResetEntry();
+    else
+      Handler->setCortexMExceptionEntry();
     if (ProtectedAddresses.insert(HandlerAddress).second) {
-      Handler->setCortexMVectorEntry();
       if (IsSecondaryEntry)
         Handler->setSimple(false);
       else
         ++PrimaryEntryHandlers;
     }
+  }
+
+  for (const auto &BFI : BC.getBinaryFunctions()) {
+    const BinaryFunction &BF = BFI.second;
+    ResetEntryFunctions += BF.isCortexMResetEntry();
+    ExceptionEntryFunctions += BF.isCortexMExceptionEntry();
   }
 
   // External veneer capacity is accepted only through an explicit typed input
@@ -586,6 +601,8 @@ Error CortexMFirmwareConstraints::runOnFunctions(BinaryContext &BC) {
             << ", invalid-thumb=" << InvalidModeEntries
             << ", secondary-entry-handlers=" << SecondaryEntryHandlers
             << ", primary-entry-handlers=" << PrimaryEntryHandlers
+            << ", reset-entry-functions=" << ResetEntryFunctions
+            << ", exception-entry-functions=" << ExceptionEntryFunctions
             << ", veneer-slots=" << FirmwareVeneerSlots
             << ", security-state-functions=" << SecurityStateFunctions
             << ", unresolved=" << UnresolvedEntries << "\n";
@@ -811,6 +828,7 @@ Error FastDynOriginTracker::runOnFunctions(BinaryContext &BC) {
                                                BC.MIB->isBranch(Inst),
                                                BC.MIB->isUnconditionalBranch(Inst),
                                                BC.MIB->isReturn(Inst),
+                                               BC.MIB->isPossibleExceptionReturn(Inst),
                                                TargetBB
                                                    ? std::optional<uint64_t>(
                                                          BF.getAddress() +
@@ -1753,6 +1771,59 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
                   << BF.getPrintName()
                   << ": forwarding deleted an exception-visible instruction\n";
         continue;
+      }
+
+      // Handler-mode exception return is not an ordinary ABI return. Match
+      // every possible EXC_RETURN-consuming instruction by stable original
+      // identity and exact decoded spelling. This rejects deletion,
+      // duplication, replacement and operand changes even when a native pass
+      // leaves instruction count unchanged. Reset-only entries deliberately
+      // do not inherit this state contract.
+      if (BF.isCortexMExceptionEntry()) {
+        std::set<uint64_t> ExpectedReturns;
+        for (auto It = OriginalInstructions.lower_bound(BF.getAddress());
+             It != OriginalInstructions.end() && It->first < End; ++It)
+          if (It->second.IsPossibleExceptionReturn)
+            ExpectedReturns.insert(It->first);
+
+        std::set<uint64_t> CandidateReturns;
+        bool ChangedExceptionReturn = false;
+        for (const BinaryBasicBlock &BB : BF)
+          for (const MCInst &Inst : BB) {
+            if (BC.MIB->isPseudo(Inst) ||
+                !BC.MIB->isPossibleExceptionReturn(Inst))
+              continue;
+            const std::optional<uint64_t> Identity =
+                getFastDynOriginalIdentity(BC, Inst);
+            if (!Identity || !CandidateReturns.insert(*Identity).second) {
+              ChangedExceptionReturn = true;
+              continue;
+            }
+            const auto Original = OriginalInstructions.find(*Identity);
+            if (Original == OriginalInstructions.end() ||
+                !Original->second.IsPossibleExceptionReturn) {
+              ChangedExceptionReturn = true;
+              continue;
+            }
+            std::string Text;
+            raw_string_ostream TextOS(Text);
+            MCInst PrintableInst = Inst;
+            BC.MIB->stripAnnotations(PrintableInst);
+            BC.InstPrinter->printInst(&PrintableInst, 0, "", *BC.STI,
+                                      TextOS);
+            TextOS.flush();
+            ChangedExceptionReturn |= Text != Original->second.Text;
+          }
+        ChangedExceptionReturn |= CandidateReturns != ExpectedReturns;
+        if (ChangedExceptionReturn) {
+          BF.rejectFirmwarePublication(
+              FirmwarePublicationRejection::ExceptionReturnChanged);
+          ++RejectedFunctions;
+          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
+                    << BF.getPrintName()
+                    << ": exception-return identity or instruction changed\n";
+          continue;
+        }
       }
     }
 
@@ -3198,6 +3269,8 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
         OriginalInstruction["is_unconditional_branch"] =
             Record.IsUnconditionalBranch;
         OriginalInstruction["is_return"] = Record.IsReturn;
+        OriginalInstruction["is_possible_exception_return"] =
+            Record.IsPossibleExceptionReturn;
         if (Record.BranchTargetAddress)
           OriginalInstruction["branch_target_original_address"] =
               static_cast<int64_t>(*Record.BranchTargetAddress);
@@ -3357,6 +3430,8 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
           Instruction["is_unconditional_branch"] =
               BC.MIB->isUnconditionalBranch(Inst);
           Instruction["is_return"] = BC.MIB->isReturn(Inst);
+          Instruction["is_possible_exception_return"] =
+              BC.MIB->isPossibleExceptionReturn(Inst);
           Instruction["source_block_original_address"] =
               SourceBlockAddress
                   ? json::Value(static_cast<int64_t>(*SourceBlockAddress))
@@ -3597,6 +3672,8 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
     Function["address_stable_layout"] =
         BF.requiresAddressStableLayout();
     Function["cortex_m_vector_entry"] = BF.isCortexMVectorEntry();
+    Function["cortex_m_reset_entry"] = BF.isCortexMResetEntry();
+    Function["cortex_m_exception_entry"] = BF.isCortexMExceptionEntry();
     Function["firmware_veneer_slot"] = BF.isFirmwareVeneerSlot();
     Function["firmware_modified"] = BF.isFirmwareModified();
     Function["firmware_modification_attempted"] =
@@ -4606,6 +4683,8 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
     Function["address_stable_layout"] =
         BF.requiresAddressStableLayout();
     Function["cortex_m_vector_entry"] = BF.isCortexMVectorEntry();
+    Function["cortex_m_reset_entry"] = BF.isCortexMResetEntry();
+    Function["cortex_m_exception_entry"] = BF.isCortexMExceptionEntry();
     Function["firmware_veneer_slot"] = BF.isFirmwareVeneerSlot();
     json::Array Fragments;
     if (PublishedOriginal) {
