@@ -5621,7 +5621,11 @@ def main() -> int:
                 # startup assembly emits it as STT_NOTYPE in an executable
                 # section.  Counting 130 here would regress that marker into
                 # a manufactured BinaryFunction.
-                "overwritten": "64 out of 129 functions were overwritten",
+                # Ten bodies were byte-identical in v152: an unresolved
+                # cross-function branch was tentatively narrowed and widened
+                # back before publication.  Target-owned shortening no longer
+                # reports or republishes those false participants.
+                "overwritten": "54 out of 129 functions were overwritten",
             },
         }.get(label)
         if corpus_expectations is not None:
@@ -6125,7 +6129,10 @@ def main() -> int:
                 "redundant_loads": 1200,
                 "not_optimized_functions": 11,
                 "failed_frame_restore_functions": 58,
-                "overwritten_functions": 376,
+                # Two ARM EABI helper bodies were previously counted only
+                # because unresolved cross-function Thumb branches were
+                # tentatively shortened and widened back by final MC layout.
+                "overwritten_functions": 374,
                 "total_functions": 607,
                 "frame_modified_functions": 359,
                 "publication_rejections": 1,
@@ -6337,6 +6344,41 @@ def main() -> int:
                     f"{output / f'bolt-pass-report-{label}.json'}.layout.json"
                 ).read_text()
             )
+            if label in {"chibios", "threadx", "zephyr"}:
+                observed_final_rejections = sorted(
+                    (
+                        function["name"],
+                        tuple(function.get(
+                            "firmware_publication_rejections", []
+                        )),
+                    )
+                    for function in final_layout["functions"]
+                    if function.get("firmware_publication_rejections")
+                )
+                expected_final_rejections = {
+                    "chibios": [
+                        ("main", ("exceeds_qualified_range",)),
+                    ],
+                    "threadx": [],
+                    "zephyr": [
+                        ("z_arm_fault", ("exceeds_qualified_range",)),
+                        ("z_arm_svc",
+                         ("exception_contract_unsupported",)),
+                    ],
+                }[label]
+                if observed_final_rejections != expected_final_rejections:
+                    raise RuntimeError(
+                        f"{label} final publication cohort changed: "
+                        f"expected {expected_final_rejections}, observed "
+                        f"{observed_final_rejections}"
+                    )
+                results[label]["final_publication_rejections"] = [
+                    {
+                        "function": name,
+                        "reasons": list(reasons),
+                    }
+                    for name, reasons in observed_final_rejections
+                ]
             if (
                 native_pass_report is not None
                 and not exidx_layout
@@ -6880,8 +6922,14 @@ def main() -> int:
                     or live_after_call_worker["firmware_modified"]
                     or live_after_call_worker["original_size"] != 20
                     or live_after_call_worker["output_size"] != 20
-                    or tail_call_worker["firmware_modification_reasons"] !=
-                    ["instruction_shortening"]
+                    # A direct tail branch to another BinaryFunction is not a
+                    # size-reducing candidate in the per-function MC stream:
+                    # its displacement is unresolved there and relaxation
+                    # widens it again.  Target-owned shortening eligibility
+                    # must therefore leave this control entirely unmodified,
+                    # rather than recording a byte-identical pseudo rewrite.
+                    or tail_call_worker["firmware_modified"]
+                    or tail_call_worker["firmware_modification_reasons"]
                     or tail_call_worker["original_size"] != 12
                     or tail_call_worker["output_size"] != 12
                     or not retained_control_bytes_match
@@ -6992,7 +7040,7 @@ def main() -> int:
                     or unresolved["firmware_modified"]
                     or not unresolved["firmware_modification_attempted"]
                     or unresolved["firmware_publication_rejections"]
-                    != ["missing_emitted_body"]
+                    != ["exceeds_qualified_range"]
                     or len(unresolved_origins) != 2
                     or any(origin["origin_kind"] != "original_instruction"
                            for origin in unresolved_origins)
@@ -7688,7 +7736,6 @@ def main() -> int:
                     not tail_worker["firmware_modified"]
                     or tail_reasons != {
                         "unreachable_code_elimination",
-                        "instruction_shortening",
                         "indirect_call_promotion",
                     }
                     or tail_worker["firmware_publication_rejections"]

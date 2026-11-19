@@ -624,7 +624,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..d24994ebac2f39e45ad8127b612fdd79cae54e66 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..500a8a24e0598392aeed79a60e4f9991bdfc97ec 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -980,7 +980,20 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..d24994ebac2f39e45ad8127b612fdd79
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1751,6 +2023,24 @@ public:
+@@ -1735,6 +2007,12 @@ public:
+ 
+   /// Replace instruction with a shorter version that could be relaxed later
+   /// if needed.
++  virtual bool canShortenInstruction(const BinaryFunction &Function,
++                                     const BinaryBasicBlock &Block,
++                                     const MCInst &Inst) const {
++    return true;
++  }
++
+   virtual bool shortenInstruction(MCInst &Inst,
+                                   const MCSubtargetInfo &STI) const {
+     llvm_unreachable("not implemented");
+@@ -1751,6 +2029,24 @@ public:
      return false;
    }
  
@@ -1005,7 +1018,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..d24994ebac2f39e45ad8127b612fdd79
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +2079,56 @@ public:
+@@ -1789,6 +2085,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -3877,7 +3890,7 @@ index ea620bb82184d2bf88d1b9d79d130e0e3d6535a7..5f6b2424f39163db9ff858d8c3590721
    BC.outs() << "BOLT-INFO: Allocation combiner: " << NumCombined
              << " empty spaces coalesced (dyn count: " << DynamicCountCombined
 diff --git a/bolt/lib/Passes/BinaryPasses.cpp b/bolt/lib/Passes/BinaryPasses.cpp
-index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4caa9f23566 100644
+index 5c8208f96bc4abbce40038105e206f7afb040b9a..af1c3720ee9a9ad4f37e76daf85c0f7e204ee2af 100644
 --- a/bolt/lib/Passes/BinaryPasses.cpp
 +++ b/bolt/lib/Passes/BinaryPasses.cpp
 @@ -14,6 +14,7 @@
@@ -4035,7 +4048,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
      return Error::success();
  
    // If the function wouldn't fit, mark it as non-simple. Otherwise, we may emit
-@@ -663,17 +741,27 @@ Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
+@@ -663,17 +741,42 @@ Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
      std::tie(HotSize, ColdSize) =
          BC.calculateEmittedSize(BF, /*FixBranches=*/false);
      uint64_t MainFragmentSize = HotSize;
@@ -4062,6 +4075,21 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
 +    // reservation, so they are not placement slack.
 +    const uint64_t Capacity = BC.isARM() ? BF.getSize() : BF.getMaxSize();
 +    if (MainFragmentSize > Capacity) {
++      // The isolated MC sizing stream cannot resolve a compact firmware
++      // function's cross-function Thumb branches or its aggregate literal
++      // island at their fixed guest addresses.  It can therefore widen a
++      // narrow branch/load that final AArch32 JITLink will encode in range.
++      // Do not convert that architecture-specific sizing uncertainty into a
++      // missing emitted body.  Compact ARM publication already keeps the
++      // linked bytes in scratch storage and atomically rejects a body whose
++      // final image size exceeds the exact qualified function range.
++      if (BC.isARM() && !BC.HasRelocations && BF.isFirmwareModified()) {
++        if (opts::PrintLargeFunctions)
++          BC.outs() << "BOLT-INFO: " << BF << " isolated size of "
++                    << MainFragmentSize << " bytes exceeds its " << Capacity
++                    << "-byte firmware range; deferring to final linked size\n";
++        return;
++      }
        if (opts::PrintLargeFunctions)
          BC.outs() << "BOLT-INFO: " << BF << " size of " << MainFragmentSize
                    << " bytes exceeds allocated space by "
@@ -4070,7 +4098,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
        BF.setSimple(false);
      }
    };
-@@ -1104,18 +1192,35 @@ uint64_t SimplifyConditionalTailCalls::fixTailCalls(BinaryFunction &BF) {
+@@ -1104,18 +1207,35 @@ uint64_t SimplifyConditionalTailCalls::fixTailCalls(BinaryFunction &BF) {
  }
  
  Error SimplifyConditionalTailCalls::runOnFunctions(BinaryContext &BC) {
@@ -4107,7 +4135,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
      }
    }
  
-@@ -1138,8 +1243,11 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
+@@ -1138,8 +1258,14 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
    const BinaryContext &BC = Function.getBinaryContext();
    for (BinaryBasicBlock &BB : Function) {
      for (MCInst &Inst : BB) {
@@ -4118,10 +4146,13 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
 +      // so fault/origin accounting can retain the input width; the ARM hook
 +      // updates that annotation when it performs an audited shortening.
 +      if (BC.MIB->getSize(Inst) && !BC.isARM())
++        continue;
++
++      if (!BC.MIB->canShortenInstruction(Function, BB, Inst))
          continue;
  
        MCInst OriginalInst;
-@@ -1166,12 +1274,28 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
+@@ -1166,12 +1292,28 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
  
  Error ShortenInstructions::runOnFunctions(BinaryContext &BC) {
    std::atomic<uint64_t> NumShortened{0};
@@ -4152,7 +4183,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
        nullptr, "ShortenInstructions");
  
    if (NumShortened)
-@@ -1226,15 +1350,42 @@ Error Peepholes::runOnFunctions(BinaryContext &BC) {
+@@ -1226,15 +1368,42 @@ Error Peepholes::runOnFunctions(BinaryContext &BC) {
    if (Opts == PEEP_NONE)
      return Error::success();
  
@@ -4196,7 +4227,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
        assert(Function.validateCFG());
      }
    }
-@@ -1303,6 +1454,8 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1303,6 +1472,8 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
            BC.getSectionForAddress(TargetAddress);
        if (!DataSection || DataSection->isWritable())
          continue;
@@ -4205,7 +4236,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
  
        if (DataSection->isText()) {
          // If data is not part of a function, check if it is part of a global CI
-@@ -1320,9 +1473,23 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1320,9 +1491,23 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
            continue;
        }
  
@@ -4231,7 +4262,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
  
        ++NumLocalLoadsFound;
        if (BB->hasProfile())
-@@ -1330,11 +1497,18 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1330,11 +1515,18 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
  
        uint32_t Offset = TargetAddress - DataSection->getAddress();
        StringRef ConstantData = DataSection->getContents();
@@ -4251,7 +4282,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
        It = std::next(BB->replaceInstruction(It, Instrs), Instrs.size() - 1);
  
        ++NumLocalLoadsSimplified;
-@@ -1352,8 +1526,20 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1352,8 +1544,20 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
  }
  
  Error SimplifyRODataLoads::runOnFunctions(BinaryContext &BC) {
@@ -4272,7 +4303,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
      if (shouldOptimize(Function) && simplifyRODataLoads(Function))
        Modified.insert(&Function);
    }
-@@ -1918,21 +2104,41 @@ Error StripRepRet::runOnFunctions(BinaryContext &BC) {
+@@ -1918,21 +2122,41 @@ Error StripRepRet::runOnFunctions(BinaryContext &BC) {
  }
  
  Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
@@ -4317,7 +4348,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
          if (CalleeSymbol->getName() != "memcpy" &&
              CalleeSymbol->getName() != "memcpy@PLT" &&
              CalleeSymbol->getName() != "_memcpy8")
-@@ -1941,23 +2147,55 @@ Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
+@@ -1941,23 +2165,55 @@ Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
          const bool IsMemcpy8 = (CalleeSymbol->getName() == "_memcpy8");
          const bool IsTailCall = BC.MIB->isTailCall(Inst);
  
@@ -4379,7 +4410,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
  
          ++NumInlined;
          NumInlinedDyno += BB.getKnownExecutionCount();
-@@ -2014,12 +2252,20 @@ std::set<size_t> SpecializeMemcpy1::getCallSitesToOptimize(
+@@ -2014,12 +2270,20 @@ std::set<size_t> SpecializeMemcpy1::getCallSitesToOptimize(
  }
  
  Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
@@ -4402,7 +4433,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
    uint64_t NumSpecialized = 0;
    uint64_t NumSpecializedDyno = 0;
    for (auto &BFI : BC.getBinaryFunctions()) {
-@@ -2038,11 +2284,16 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2038,11 +2302,16 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
        for (auto II = CurBB->begin(); II != CurBB->end(); ++II) {
          MCInst &Inst = *II;
  
@@ -4421,7 +4452,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
          if (CalleeSymbol->getName() != "memcpy" &&
              CalleeSymbol->getName() != "memcpy@PLT")
            continue;
-@@ -2057,6 +2308,7 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2057,6 +2326,7 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
  
          // Create a copy of a call to memcpy(dest, src, size).
          MCInst MemcpyInstr = Inst;
@@ -4429,7 +4460,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
  
          BinaryBasicBlock *OneByteMemcpyBB = CurBB->splitAt(II);
  
-@@ -2075,6 +2327,9 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2075,6 +2345,9 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
          InstructionListType CmpJCC =
              BC.MIB->createCmpJE(BC.MIB->getIntArgRegister(2), 1,
                                  OneByteMemcpyBB->getLabel(), BC.Ctx.get());
@@ -4439,7 +4470,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
          CurBB->addInstructions(CmpJCC);
          CurBB->addSuccessor(MemcpyBB);
  
-@@ -2089,8 +2344,15 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2089,8 +2362,15 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
            MemcpyBB->setExecutionCount(1);
  
          InstructionListType OneByteMemcpy = BC.MIB->createOneByteMemcpy();
@@ -4455,7 +4486,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
          ++NumSpecialized;
          NumSpecializedDyno += CurBB->getKnownExecutionCount();
  
-@@ -2115,13 +2377,18 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -2115,13 +2395,18 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
  
  void RemoveNops::runOnFunction(BinaryFunction &BF) {
    const BinaryContext &BC = BF.getBinaryContext();
@@ -15778,10 +15809,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4e5367e817df23f397f9fb4c56662153
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..f979a6ab11044ded2a6156caae02dc8ea5b761e5
+index 0000000000000000000000000000000000000000..0f988722bad7600ab48606373046cb5fdb92319d
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3163 @@
+@@ -0,0 +1,3187 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -17523,6 +17554,30 @@ index 0000000000000000000000000000000000000000..f979a6ab11044ded2a6156caae02dc8e
 +  }
 +
 +  bool isLEA64r(const MCInst &) const override { return false; }
++
++  bool canShortenInstruction(const BinaryFunction &Function,
++                             const BinaryBasicBlock &Block,
++                             const MCInst &Inst) const override {
++    switch (Inst.getOpcode()) {
++    case ARM::t2B:
++    case ARM::t2Bcc:
++      break;
++    default:
++      return true;
++    }
++
++    // MC can relax a same-fragment branch after every local label has a final
++    // offset.  A cross-function or cross-fragment symbol is unresolved in the
++    // per-function assembler, so ARMAsmBackend conservatively widens a narrow
++    // branch before AArch32 JITLink sees the fixed firmware addresses and does
++    // not shrink it again.  Preserve the input wide form in those cases; this
++    // avoids turning an attempted shortening into linked code growth.
++    const MCSymbol *Target = getTargetSymbol(Inst);
++    const BinaryBasicBlock *TargetBlock =
++        Target ? Function.getBasicBlockForLabel(Target) : nullptr;
++    return TargetBlock &&
++           TargetBlock->getFragmentNum() == Block.getFragmentNum();
++  }
 +
 +  bool shortenInstruction(MCInst &Inst,
 +                          const MCSubtargetInfo &) const override {
@@ -24285,7 +24340,7 @@ index 0000000000000000000000000000000000000000..c2ffbfd0b77a15e6ee4e2189153d1e97
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-simplify-rodata-loads.s b/bolt/test/ARM/thumb-native-simplify-rodata-loads.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..09a61a714c47138ecf9fa075cb9d1c215168ff50
+index 0000000000000000000000000000000000000000..cc70508549c731f9463dacb0dffe5c785dd87bbc
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-native-simplify-rodata-loads.s
 @@ -0,0 +1,93 @@
@@ -24328,7 +24383,7 @@ index 0000000000000000000000000000000000000000..09a61a714c47138ecf9fa075cb9d1c21
 +# UNRESOLVED: <load_unresolved_pool>:
 +# UNRESOLVED: ldr.w r0, [pc, #0x4]
 +# UNRESOLVED-NEXT: bx lr
-+# REJECTED: False ['read_only_load_elision'] ['missing_emitted_body'] 6 6 2 True
++# REJECTED: False ['read_only_load_elision'] ['exceeds_qualified_range'] 6 6 2 True
 +
 +  .syntax unified
 +  .thumb
@@ -28058,10 +28113,10 @@ index 0000000000000000000000000000000000000000..00ad60dc513e8f74e18a033f82dd2707
 +Reset_Handler
 diff --git a/bolt/test/ARM/thumb2-branch-shortening.s b/bolt/test/ARM/thumb2-branch-shortening.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..5b7bfe96f97ae94edc4615671318df3d67eeffe8
+index 0000000000000000000000000000000000000000..f59aacfd261ede5a5a198bc55b3b2014e70107b9
 --- /dev/null
 +++ b/bolt/test/ARM/thumb2-branch-shortening.s
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,77 @@
 +## The generic shortening pass used to return immediately on every non-x86
 +## target even though the Cortex-M pass schedule advertised it.  Wide Thumb-2
 +## direct branches can be narrowed without changing architectural effects;
@@ -28073,18 +28128,21 @@ index 0000000000000000000000000000000000000000..5b7bfe96f97ae94edc4615671318df3d
 +# RUN:   --eliminate-unreachable=false --frame-opt=none \
 +# RUN:   --fastdyn-firmware-report=%t.report.json -v=1 -o %t.bolt 2>&1 \
 +# RUN:   | FileCheck %s --check-prefix=BOLT
-+# RUN: llvm-objdump -d --start-address=0x08000008 --stop-address=0x08000018 %t.bolt | FileCheck %s --check-prefix=CODE
-+# RUN: %python -c "import json; d=json.load(open('%t.report.json')); f=next(x for x in d['functions'] if x['name']=='shorten_worker'); print(f['firmware_modified'],f['firmware_modification_reasons'],f['firmware_publication_rejections'])" | FileCheck %s --check-prefix=REPORT
++# RUN: llvm-objdump -d %t.bolt | FileCheck %s --check-prefix=CODE
++# RUN: %python -c "import json; d=json.load(open('%t.report.json')); fs={x['name']:x for x in d['functions']}; print(fs['shorten_worker']['firmware_modified'],fs['shorten_worker']['firmware_modification_reasons'],fs['shorten_worker']['firmware_publication_rejections']); print(fs['external_tail_worker']['firmware_modification_attempted'],fs['external_tail_worker']['firmware_modified'],fs['external_tail_worker']['firmware_modification_reasons'],fs['external_tail_worker']['firmware_publication_rejections'])" | FileCheck %s --check-prefix=REPORT
 +
 +# BOLT: BOLT-INFO: 2 instructions were shortened
-+# BOLT: BOLT: 1 out of 2 functions were overwritten.
++# BOLT: BOLT: 1 out of 4 functions were overwritten.
 +# BOLT: BOLT-INFO: not adding new segments
 +# CODE: <shorten_worker>:
 +# CODE: cmp r0, #0x0
 +# CODE-NEXT: b{{eq|ne}}
 +# CODE-NEXT: b
 +# CODE-NOT: b{{eq|ne}}.w
++# CODE: <external_tail_worker>:
++# CODE-NEXT: b.w {{.*}} <external_target>
 +# REPORT: True ['instruction_shortening'] []
++# REPORT-NEXT: False False [] []
 +
 +  .syntax unified
 +  .thumb
@@ -28097,8 +28155,8 @@ index 0000000000000000000000000000000000000000..5b7bfe96f97ae94edc4615671318df3d
 +  .thumb_func
 +Reset_Handler:
 +  bl shorten_worker
++  bl external_tail_worker
 +  bx lr
-+  nop
 +  .size Reset_Handler, .-Reset_Handler
 +
 +  .globl shorten_worker
@@ -28115,6 +28173,21 @@ index 0000000000000000000000000000000000000000..5b7bfe96f97ae94edc4615671318df3d
 +  movs r0, #1
 +  bx lr
 +  .size shorten_worker, .-shorten_worker
++
++  .globl external_tail_worker
++  .type external_tail_worker,%function
++  .thumb_func
++external_tail_worker:
++  b.w external_target
++  .size external_tail_worker, .-external_tail_worker
++
++  .globl external_target
++  .type external_target,%function
++  .thumb_func
++external_target:
++  movs r0, #3
++  bx lr
++  .size external_target, .-external_target
 +
 +  .section .isr_vector,"a",%progbits
 +  .globl g_pfnVectors
@@ -28781,7 +28854,7 @@ index 0000000000000000000000000000000000000000..d98cb794d1a20e85a709b4fea9bb2817
 +  .word 0
 diff --git a/bolt/test/ARM/thumb2-terminal-literal-pool.s b/bolt/test/ARM/thumb2-terminal-literal-pool.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..58687e973855f2865ff0696e62fe91331ae30df1
+index 0000000000000000000000000000000000000000..3522837c3084fb2b62146ce32728b1dbda7358c5
 --- /dev/null
 +++ b/bolt/test/ARM/thumb2-terminal-literal-pool.s
 @@ -0,0 +1,78 @@
@@ -28798,7 +28871,7 @@ index 0000000000000000000000000000000000000000..58687e973855f2865ff0696e62fe9133
 +# RUN: llvm-objdump -d --start-address=0x08000008 --stop-address=0x08000014 %t.bolt | FileCheck %s --check-prefix=CODE
 +
 +# BOLT: BOLT-INFO: Thumb literal-pool placement qualified 1 function(s), attached 1 owner block(s), rebound 1 PC-relative reference(s), and retained 1 function(s); skipped 1 unreferenced island function(s)
-+# BOLT: BOLT: 2 out of 4 functions were overwritten.
++# BOLT: BOLT: 1 out of 4 functions were overwritten.
 +# BOLT: BOLT-INFO: not adding new segments
 +# REPORT: True 1 134217740 134217744 134217744 1 4 False 0
 +# CODE: <terminal_wide_worker>:

@@ -138,18 +138,20 @@ caller-saved exchange across qualified leaf and direct-call functions plus
 live-in/call-boundary retention controls, a shared-external-program
 retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v152 run accepts all fifty-eight profiles without
+The 19 November v153 run accepts all fifty-eight profiles without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
 recorded audited pass and satisfying the firmware publication invariants
 replace input bytes. The per-profile overwrite counts are retained in the
 machine-readable report rather than duplicated here. The headline real-image
-counts are now 75/127 ESCape32 functions and 376/607 FreeRTOS functions; the
+counts are now 75/127 ESCape32 functions and 374/607 FreeRTOS functions; the
 Thumb-1 method, M3 propagation and M3 linked-read-only-load fixtures each
 install one bounded worker. The independent RTOS compatibility cohort adds
-ChibiOS (7/27 overwritten), ThreadX (66/85) and Zephyr (64/129). These are
-function-publication and representation counts, not runtime benefit.
+ChibiOS (7/27 overwritten), ThreadX (66/85) and Zephyr (54/129). v153 removes
+twelve byte-identical false participants from the FreeRTOS and Zephyr totals;
+it does not remove a linked optimization. These are function-publication and
+representation counts, not runtime benefit.
 These are publication counts,
 not performance results. The narrow-data gate intentionally installs no body:
 it validates typed data-relocation consumption and compact publication.
@@ -750,7 +752,8 @@ be allocatable, non-writable and free of static/dynamic relocations across a
 conservative four-byte range. In the executed M3 fixture, a complete `.rodata`
 reference changes `ldr.w` to `movw` in a same-size six-byte function and is
 attributed as `synthesized_from_original_instruction`. A second candidate
-using an unresolved local literal pool is rejected as `missing_emitted_body`;
+using an unresolved local literal pool is rejected after final linking as
+`exceeds_qualified_range`;
 the original `ldr.w; bx` and both immutable original identities are published.
 Reference and candidate write `(0x1234, 0x5678)`. This is semantic and origin
 evidence, not a speedup measurement. See the run-local
@@ -776,15 +779,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v152-exact-literal-anchor
+  --output build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v152-exact-literal-anchor/report.json),
-SHA-256 `c2234118f31997ba2f23a01e1d6a93e63fe55eff145c6ab806c03700af2b98c9`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/report.json),
+SHA-256 `8af8810bb87386938941ad791bbbd3385740223706a9adc0e270857a64a2d006`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v152-exact-literal-anchor/validation-manifest.json),
-SHA-256 `7004cc29ef2e5e9e5cb06b47f048d7c7b211b5d14e5c57069f9ad19395e9bf98`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/validation-manifest.json),
+SHA-256 `1f5c9090f577159ef50c731895b290fcdbfc2e3d0ea5568d359b2d9e8119f8c0`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -796,25 +799,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`e07837b1181f98def89eae0c7aeed75d6a6ef4953ca1fe5e5dd746a21b981d2d`,
+`615463eba3068b1c99a113c93d690743becd11f7a697184c0161073606b83f36`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`d891f43a9a447372a17ebc63842639973ba0fc7fa3b146b9dbd8767b6bbbdb9f`.
+`92cd601909d8e54ddd12fdb65204d80f625e55c91d6ff5c617e4d3da66795c20`.
 The current combined ARM BOLT/AArch32 JITLink lit run passes 94/94
 (82 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
 explicitly skip 150 target-inapplicable parameterizations: Core is 86/150,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v152-exact-literal-anchor/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/core-tests.xml)
 has SHA-256
-`eb321b6347eb59ecb3c1a6c59366283323f7d753d870bb01ed9a1dc120cb1071`;
+`971261dd4becb9e1570ba5640e2f8685e0c19c1dabf8d533deea07a22e9dc8a4`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v152-exact-literal-anchor/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v152-exact-literal-anchor/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v153-shortening-eligibility/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`e66608e8d9ae2a179883b4267a25c7f4110b204688bfa7738a76a311038069e3`
-and `4ae883d6f9afc03349ca49217f6b07cdd754364346340e66c297be8162c0e6c3`.
+`aa9768e457086e148cf8dd5a2340018000a3fe4689c19a766e2f3b0fcb345b9d`
+and `162c03b2db4780984035c85f40abda829d5726f0bb0162ecbdfdcbf6f1051a8c`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1342,9 +1345,10 @@ target.  Matched live-in, callee-observed, indirect-call and live-after-call
 controls remain byte-identical.  Reference and candidate produce
 `(42, 4, 8, 42, 54, 43, 12, 43)` under FastDyn.  Unknown/external and tail
 calls, debug locations, asynchronous register observers and measured
-profitability remain outside this result.  The full pipeline records an
-instruction-shortening attempt on the tail-call control, but compact
-publication reproduces its original 12 bytes and register identities.
+profitability remain outside this result. v153 makes shortening eligibility
+target-owned, so the cross-function tail-call control is no longer recorded as
+an attempted optimization; it retains its original 12 bytes and register
+identities.
 
 v144 makes the Cortex-M exception boundary explicit instead of inheriting
 BOLT's ordinary call/return model.  Vector slot 1 is now a typed reset entry;
@@ -1464,8 +1468,11 @@ retaining the `PUSH`, stack store, `POP`, and all eight exact origins. On the
 real M0+ image, ordinary FOP forwards 105 loads in 35 functions; frame-restore
 failures fall from 100 to 18 and compact publication rises from 55/127 to
 75/127 functions. On the real M4 image it forwards 1,200 loads in 359
-functions and publishes 376/607 functions. The two handler candidates whose
-forwarded values feed architectural state remain rejected as
+functions and publishes 374/607 functions. v153 corrects the earlier 376
+count: `__aeabi_memclr` and `__aeabi_memset4` were byte-identical bodies
+tentatively marked by cross-function branch shortening and then widened back.
+The two handler candidates whose forwarded values feed architectural state
+remain rejected as
 `exception_return_input_changed` and `exception_state_input_changed`.
 Seventeen of the remaining M0+ failures form or escape an SP/r7-derived
 address and one has unresolved frame-pointer state; these retain their input
@@ -1522,6 +1529,36 @@ rejections; Zephyr retains exactly one
 58/58, ARM/JITLink remains 94/94, and the unit split remains 130 passes plus
 150 target-inapplicable skips. These are additional safely installed bodies,
 not a performance claim.
+
+v153 corrects a different target-integration defect in the generic instruction
+shortening pass. A per-function MC stream can resolve labels in the same
+function fragment, but it cannot resolve a cross-function Thumb branch at its
+final fixed firmware address. The ARM assembler therefore widens a tentatively
+narrowed external branch before AArch32 JITLink sees it, and JITLink does not
+shrink it later. v152 consequently counted some byte-identical bodies as
+modified and could reject other candidates early as `missing_emitted_body`
+using an isolated size that was not the final linked size.
+
+`MCPlusBuilder::canShortenInstruction` now makes that eligibility target-owned.
+ARM narrows `t2B`/`t2Bcc` only when the target is a basic block in the same
+fragment; all previously qualified local shortening remains available. The
+focused test narrows two local branches while retaining a cross-function
+`b.w` with no modification attempt. For compact non-relocation firmware,
+isolated size uncertainty is deferred to the existing atomic final-link range
+check. An unresolved local-pool rewrite is now truthfully rejected as
+`exceeds_qualified_range`, rather than as a missing body.
+
+The corpus audit proves that ten v152 Zephyr participants and two FreeRTOS M4
+participants emitted exactly the original bytes. Removing those false
+participants changes truthful publication counts to 54/129 and 374/607; it
+does not remove an optimization. ChibiOS remains 7/27 and ThreadX 66/85. The
+only linked size failures are ChibiOS `main` (1,004 bytes for a 952-byte range)
+and Zephyr `z_arm_fault` (488 for 460); both retain their input atomically with
+`exceeds_qualified_range`. Zephyr `z_arm_svc` independently remains
+`exception_contract_unsupported`. The complete production/FastDyn gate is
+58/58, ARM/JITLink is 94/94, and the BOLT unit split is 130 passes plus 150
+explicit target-inapplicable skips. These results improve activity accounting
+and rejection diagnosis; they are not a runtime speedup claim.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
