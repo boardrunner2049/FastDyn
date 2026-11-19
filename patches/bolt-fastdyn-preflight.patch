@@ -624,7 +624,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe75d39632 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..d24994ebac2f39e45ad8127b612fdd79cae54e66 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -643,7 +643,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
  #include <unordered_map>
  #include <unordered_set>
  
-@@ -53,6 +55,89 @@ class BinaryBasicBlock;
+@@ -53,6 +55,95 @@ class BinaryBasicBlock;
  class BinaryContext;
  class BinaryFunction;
  
@@ -700,6 +700,11 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
 +/// never executed.
 +struct InlineDataBlock {
 +  uint64_t OriginalAddress{0};
++  /// Keep the data start at OriginalAddress by filling only the proven
++  /// non-executable interval after the owner.  This is stronger than ordinary
++  /// alignment: a shortened live instruction path must not move an observable
++  /// firmware literal address.
++  bool PreserveOriginalAddress{false};
 +  InlineDataBlockOwnerKind OwnerKind{
 +      InlineDataBlockOwnerKind::NonFallthroughControl};
 +  uint32_t Alignment{1};
@@ -714,6 +719,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
 +
 +  bool operator==(const InlineDataBlock &Other) const {
 +    return OriginalAddress == Other.OriginalAddress &&
++           PreserveOriginalAddress == Other.PreserveOriginalAddress &&
 +           OwnerKind == Other.OwnerKind &&
 +           Alignment == Other.Alignment &&
 +           EstimatedAlignmentPadding == Other.EstimatedAlignmentPadding &&
@@ -733,7 +739,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
  /// Different types of indirect branches encountered during disassembly.
  enum class IndirectBranchType : char {
    UNKNOWN = 0,             /// Unable to determine type.
-@@ -367,6 +452,35 @@ public:
+@@ -367,6 +458,43 @@ public:
      initSizeMap();
    }
  
@@ -758,6 +764,14 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
 +    addAnnotation(Inst, "InlineDataBlocks", Blocks);
 +  }
 +
++  InlineDataBlocks *getInlineDataBlocks(MCInst &Inst) const {
++    const std::optional<unsigned> Index =
++        getAnnotationIndex("InlineDataBlocks");
++    if (!Index || !hasAnnotation(Inst, *Index))
++      return nullptr;
++    return &getAnnotationAs<InlineDataBlocks>(Inst, *Index);
++  }
++
 +  const InlineDataBlocks *getInlineDataBlocks(const MCInst &Inst) const {
 +    const std::optional<unsigned> Index =
 +        getAnnotationIndex("InlineDataBlocks");
@@ -769,7 +783,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
    /// Create and return a target-specific MC symbolizer for the \p Function.
    /// When \p CreateNewSymbols is set, the symbolizer can create new symbols
    /// e.g. for jump table references.
-@@ -591,10 +705,54 @@ public:
+@@ -591,10 +719,54 @@ public:
      return Analysis->isCall(Inst) || isTailCall(Inst);
    }
  
@@ -824,7 +838,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
    /// Returns the registers that are trusted at function entry.
    ///
    /// Each register should be treated as if a successfully authenticated
-@@ -1170,6 +1328,18 @@ public:
+@@ -1170,6 +1342,18 @@ public:
      return false;
    }
  
@@ -843,7 +857,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
    /// Return a number of the operand representing a memory.
    /// Return -1 if the instruction doesn't have an explicit memory field.
    virtual int getMemoryOperandNo(const MCInst &Inst) const {
-@@ -1177,6 +1347,22 @@ public:
+@@ -1177,6 +1361,22 @@ public:
      return -1;
    }
  
@@ -866,7 +880,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
    /// Return true if the instruction is encoded using EVEX (AVX-512).
    virtual bool hasEVEXEncoding(const MCInst &Inst) const { return false; }
  
-@@ -1297,6 +1483,11 @@ public:
+@@ -1297,6 +1497,11 @@ public:
      return 0;
    }
  
@@ -878,7 +892,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
    /// Return true if \p Inst is a instruction that copies either the frame
    /// pointer or the stack pointer to another general purpose register or
    /// writes it to a memory location.
-@@ -1559,6 +1750,12 @@ public:
+@@ -1559,6 +1764,12 @@ public:
      return Expr;
    }
  
@@ -891,7 +905,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
    /// Return a BitVector marking all sub or super registers of \p Reg, including
    /// itself.
    virtual const BitVector &getAliases(MCPhysReg Reg,
-@@ -1616,6 +1813,59 @@ public:
+@@ -1616,6 +1827,59 @@ public:
      llvm_unreachable("not implemented");
    }
  
@@ -951,7 +965,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
    /// Set of Registers used by the Rep instruction
    virtual void getRepRegs(BitVector &Regs) const {
      llvm_unreachable("not implemented");
-@@ -1700,6 +1950,14 @@ public:
+@@ -1700,6 +1964,14 @@ public:
      return 0;
    }
  
@@ -966,7 +980,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1751,6 +2009,24 @@ public:
+@@ -1751,6 +2023,24 @@ public:
      return false;
    }
  
@@ -991,7 +1005,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..2dea1a49c19d84d80a996feb73bcd0fe
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +2065,56 @@ public:
+@@ -1789,6 +2079,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -2220,7 +2234,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..bf5d89617216806439e9acb058988c0f
  
    // Create local MC context to isolate the effect of ephemeral code emission.
 diff --git a/bolt/lib/Core/BinaryEmitter.cpp b/bolt/lib/Core/BinaryEmitter.cpp
-index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01bdf3c1344 100644
+index 1402531e0f5e731086cca587e141ba9d78e78e0b..f14db2b9aa19d45925cc6d68d8e608889f2e8166 100644
 --- a/bolt/lib/Core/BinaryEmitter.cpp
 +++ b/bolt/lib/Core/BinaryEmitter.cpp
 @@ -19,11 +19,13 @@
@@ -2276,11 +2290,20 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
      Streamer.emitLabel(StartSymbol);
    }
  
-@@ -446,17 +460,129 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -446,17 +460,138 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
      BF.duplicateConstantIslands();
    }
  
 +  const bool AddressStable = BF.requiresAddressStableLayout();
++  // Keep an emitter-local origin for absolute-offset records.  Size-only
++  // emission uses a private MCContext and therefore cannot refer to BF's
++  // ordinary symbol, but it still needs the same MCOrg constraint as final
++  // emission.  Without that constraint a terminal literal pool is emitted
++  // early during sizing; Thumb literal loads can then widen solely because
++  // the temporary pool address is misaligned, producing a false overflow.
++  MCSymbol *const FunctionBodyStart =
++      Streamer.getContext().createTempSymbol("firmbolt_body");
++  Streamer.emitLabel(FunctionBodyStart);
 +  // MC alignment directives are relative to the temporary per-function
 +  // fragment. Firmware functions are subsequently placed at fixed guest
 +  // addresses which need not have the same residue. Track the architectural
@@ -2409,7 +2432,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
      }
  
      SMLoc LastLocSeen;
-@@ -472,6 +598,35 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -472,6 +607,35 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
          continue;
        }
  
@@ -2445,7 +2468,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
        if (!EmitCodeOnly) {
          // A symbol to be emitted before the instruction to mark its location.
          MCSymbol *InstrLabel = BC.MIB->getInstLabel(Instr);
-@@ -515,22 +670,192 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
+@@ -515,22 +679,219 @@ void BinaryEmitter::emitFunctionBody(BinaryFunction &BF, FunctionFragment &FF,
          }
        }
  
@@ -2527,8 +2550,35 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
 +              Block.Bytes.empty() ||
 +              Block.DataStartOffset >= Block.Bytes.size())
 +            report_fatal_error("invalid instruction-owned data block");
-+          const uint64_t Padding = offsetToAlignment(
-+              BF.getAddress() + EmittedOffset, Align(Block.Alignment));
++          const uint64_t CurrentAddress = BF.getAddress() + EmittedOffset;
++          uint64_t Padding = 0;
++          if (Block.PreserveOriginalAddress) {
++            if (CurrentAddress > Block.OriginalAddress ||
++                !isAligned(Align(Block.Alignment), Block.OriginalAddress))
++              report_fatal_error(
++                  "instruction-owned data cannot retain its original address");
++            // Anchor the block with an MCOrg-style fragment so relaxation of
++            // an earlier shortened branch changes the unreachable fill, not
++            // the observable literal address. A guessed byte count here is
++            // wrong: MC may widen the branch only after this method returns.
++            // Apply the constraint in both final and size-only emission.  The
++            // latter must model the real pool alignment so that a narrow LDR
++            // is not spuriously widened by placing its label at a temporary,
++            // unaligned address.  MC relaxation adjusts the fill after all
++            // instruction widths are known and diagnoses growth past the
++            // fixed address.
++            MCContext &Context = Streamer.getContext();
++            const MCExpr *Target = MCBinaryExpr::createAdd(
++                MCSymbolRefExpr::create(FunctionBodyStart, Context),
++                MCConstantExpr::create(
++                    Block.OriginalAddress - BF.getAddress(), Context),
++                Context);
++            Streamer.emitValueToOffset(Target, 0, SMLoc());
++            EmittedOffset = Block.OriginalAddress - BF.getAddress();
++          } else {
++            Padding = offsetToAlignment(CurrentAddress,
++                                        Align(Block.Alignment));
++          }
 +          if (!Block.AlignmentFillValueSize ||
 +              Padding % Block.AlignmentFillValueSize)
 +            report_fatal_error(
@@ -2640,7 +2690,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
  
    // AArch64 requires CI to be aligned to 8 bytes due to access instructions
    // restrictions. E.g. the ldr with imm, where imm must be aligned to 8 bytes.
-@@ -585,6 +910,31 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
+@@ -585,6 +946,31 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
      if (FunctionOffset == EndOffset)
        continue; // Size is zero, nothing to emit
  
@@ -2672,7 +2722,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
      auto emitCI = [&](uint64_t &FunctionOffset, uint64_t EndOffset) {
        if (FunctionOffset >= EndOffset)
          return;
-@@ -635,10 +985,19 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
+@@ -635,10 +1021,19 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
              LLVM_DEBUG(dbgs() << "BOLT-DEBUG: emitted label "
                                << IS->second->getName() << " at offset 0x"
                                << Twine::utohexstr(IS->first) << '\n');
@@ -2694,7 +2744,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
            } else if (Islands.ColdSymbols.count(IS->second) != 0) {
              LLVM_DEBUG(dbgs()
                         << "BOLT-DEBUG: emitted label "
-@@ -791,6 +1150,8 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
+@@ -791,6 +1186,8 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
  
    for (auto &JTI : BF.jumpTables()) {
      JumpTable &JT = *JTI.second;
@@ -2703,7 +2753,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
      // Only emit shared jump tables once, when processing the first parent
      if (JT.Parents.size() > 1 && JT.Parents[0] != &BF)
        continue;
-@@ -812,6 +1173,42 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
+@@ -812,6 +1209,42 @@ void BinaryEmitter::emitJumpTables(const BinaryFunction &BF) {
    }
  }
  
@@ -2746,7 +2796,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
  void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
                                    MCSection *ColdSection) {
    // Pre-process entries for aggressive splitting.
-@@ -839,6 +1236,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -839,6 +1272,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
    }
    MCSymbol *JTLabel = nullptr;
    uint64_t Offset = 0;
@@ -2754,7 +2804,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
    for (MCSymbol *Entry : JT.Entries) {
      auto LI = JT.Labels.find(Offset);
      if (LI == JT.Labels.end())
-@@ -876,8 +1274,48 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -876,8 +1310,48 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
        Streamer.emitLabel(JTLabel);
      }
    emitEntry:
@@ -2805,7 +2855,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..1debd0f2c3d0fe8ac3d66a41f0fdc01b
      } else { // JTT_PIC
        const MCSymbolRefExpr *JTExpr =
            MCSymbolRefExpr::create(JTLabel, Streamer.getContext());
-@@ -888,6 +1326,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
+@@ -888,6 +1362,7 @@ void BinaryEmitter::emitJumpTable(const JumpTable &JT, MCSection *HotSection,
        Streamer.emitValue(Value, JT.EntrySize);
      }
      Offset += JT.EntrySize;
@@ -3605,10 +3655,10 @@ index 6f588d2b95fd6481f9009d2d6ebf7d7eaf0c4e0d..98e9b6ae017b8d4b3379f574d5655bf1
  
    OS << "Jump table " << getName() << " for function ";
 diff --git a/bolt/lib/Core/MCPlusBuilder.cpp b/bolt/lib/Core/MCPlusBuilder.cpp
-index 1bcae94214909b267d57cf7d4efcc01905edbf29..2e7dcae0c9718d3bb45620acc4bb906a93b66ad6 100644
+index 1bcae94214909b267d57cf7d4efcc01905edbf29..a277c76d18246832206bbbbfaacbec68550662a2 100644
 --- a/bolt/lib/Core/MCPlusBuilder.cpp
 +++ b/bolt/lib/Core/MCPlusBuilder.cpp
-@@ -29,6 +29,32 @@ using namespace llvm;
+@@ -29,6 +29,33 @@ using namespace llvm;
  using namespace bolt;
  using namespace MCPlus;
  
@@ -3624,6 +3674,7 @@ index 1bcae94214909b267d57cf7d4efcc01905edbf29..2e7dcae0c9718d3bb45620acc4bb906a
 +  OS << "owned-data-blocks(" << Blocks.size() << ")";
 +  for (const InlineDataBlock &Block : Blocks)
 +    OS << " [original=0x" << Twine::utohexstr(Block.OriginalAddress)
++       << ", preserve-original-address=" << Block.PreserveOriginalAddress
 +       << ", owner="
 +       << (Block.OwnerKind ==
 +                   InlineDataBlockOwnerKind::ProvenLocalCallTransfer
@@ -4578,10 +4629,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..6aa6c5335dc0fa9b435553024144b88dcb07f815
+index 0000000000000000000000000000000000000000..f0033ae615f42d2951911eaa8c5e7c09bf441f34
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,5284 @@
+@@ -0,0 +1,5334 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -6172,6 +6223,7 @@ index 0000000000000000000000000000000000000000..6aa6c5335dc0fa9b435553024144b88d
 +      // alignment. This makes the cloned label word-aligned even when layout
 +      // changes the owner's modulo-four address.
 +      Plan.Block.OriginalAddress = BF.getAddress() + Plan.StartOffset;
++      Plan.Block.PreserveOriginalAddress = !AllowLiteralAddressChanges;
 +      Plan.Block.Alignment = 4;
 +      Plan.Block.EstimatedAlignmentPadding =
 +          Plan.StartOffset - Plan.BlockStartOffset;
@@ -6527,8 +6579,19 @@ index 0000000000000000000000000000000000000000..6aa6c5335dc0fa9b435553024144b88d
 +        if (const InlineDataBlocks *Blocks =
 +                BC.MIB->getInlineDataBlocks(Inst))
 +          for (const InlineDataBlock &Block : *Blocks) {
-+            InlineOffset += offsetToAlignment(BF.getAddress() + InlineOffset,
-+                                              Align(Block.Alignment));
++            const uint64_t CurrentAddress = BF.getAddress() + InlineOffset;
++            if (Block.PreserveOriginalAddress) {
++              if (CurrentAddress > Block.OriginalAddress ||
++                  !isAligned(Align(Block.Alignment),
++                             Block.OriginalAddress)) {
++                InvalidInlinePlacement = true;
++                break;
++              }
++              InlineOffset = Block.OriginalAddress - BF.getAddress();
++            } else {
++              InlineOffset += offsetToAlignment(CurrentAddress,
++                                                Align(Block.Alignment));
++            }
 +            InlineOffset += Block.Bytes.size();
 +          }
 +      }
@@ -6790,12 +6853,12 @@ index 0000000000000000000000000000000000000000..6aa6c5335dc0fa9b435553024144b88d
 +        !AllowLiteralAddressChanges) {
 +      uint64_t EstimatedOffset = 0;
 +      bool LiteralAddressChanged = false;
-+      for (const BinaryBasicBlock &BB : BF) {
++      for (BinaryBasicBlock &BB : BF) {
 +        if ((BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
 +            BB.getAlignment() > 1)
 +          EstimatedOffset +=
 +              reportBlockAlignmentPadding(BF, BB, EstimatedOffset);
-+        for (const MCInst &Inst : BB) {
++        for (MCInst &Inst : BB) {
 +          if (BC.MIB->isPseudo(Inst))
 +            continue;
 +          const std::optional<uint32_t> Size =
@@ -6811,19 +6874,40 @@ index 0000000000000000000000000000000000000000..6aa6c5335dc0fa9b435553024144b88d
 +                  JT->getOutputSize() + JT->InlineTrailingBytes.size();
 +          if (const InlineData *Data = BC.MIB->getInlineData(Inst))
 +            EstimatedOffset += Data->Size;
-+          if (const InlineDataBlocks *Blocks =
-+                  BC.MIB->getInlineDataBlocks(Inst))
-+            for (const InlineDataBlock &Block : *Blocks) {
-+              EstimatedOffset += offsetToAlignment(
-+                  BF.getAddress() + EstimatedOffset,
-+                  Align(Block.Alignment));
-+              if (BF.getAddress() + EstimatedOffset !=
-+                  Block.OriginalAddress) {
++          if (InlineDataBlocks *Blocks =
++                  BC.MIB->getInlineDataBlocks(Inst)) {
++            for (InlineDataBlock &Block : *Blocks) {
++              const uint64_t CurrentAddress =
++                  BF.getAddress() + EstimatedOffset;
++              uint64_t Padding = 0;
++              if (Block.PreserveOriginalAddress) {
++                if (CurrentAddress > Block.OriginalAddress ||
++                    !isAligned(Align(Block.Alignment),
++                               Block.OriginalAddress)) {
++                  LiteralAddressChanged = true;
++                  break;
++                }
++                Padding = Block.OriginalAddress - CurrentAddress;
++              } else {
++                Padding = offsetToAlignment(CurrentAddress,
++                                            Align(Block.Alignment));
++              }
++              if (!Block.AlignmentFillValueSize ||
++                  Padding % Block.AlignmentFillValueSize) {
 +                LiteralAddressChanged = true;
 +                break;
 +              }
-+              EstimatedOffset += Block.Bytes.size();
++              // PreserveOriginalAddress is an absolute post-link constraint,
++              // not a pre-link padding prediction. MC relaxation may widen a
++              // shortened branch back to its original encoding. Keeping the
++              // tentative gap here would then double-count it in the final
++              // size gate. The emitter derives the actual non-executable fill
++              // from its linked cursor and rejects growth past the address.
++              Block.EstimatedAlignmentPadding =
++                  Block.PreserveOriginalAddress ? 0 : Padding;
++              EstimatedOffset += Padding + Block.Bytes.size();
 +            }
++          }
 +          if (LiteralAddressChanged)
 +            break;
 +        }
@@ -8421,12 +8505,17 @@ index 0000000000000000000000000000000000000000..6aa6c5335dc0fa9b435553024144b88d
 +            json::Array PoolRanges;
 +            uint64_t BlockCursor = EstimatedOffset + Size;
 +            for (const InlineDataBlock &Block : *Blocks) {
-+              BlockCursor += offsetToAlignment(
-+                  BF.getAddress() + BlockCursor,
-+                  Align(Block.Alignment));
++              if (Block.PreserveOriginalAddress)
++                BlockCursor = Block.OriginalAddress - BF.getAddress();
++              else
++                BlockCursor += offsetToAlignment(
++                    BF.getAddress() + BlockCursor,
++                    Align(Block.Alignment));
 +              json::Object Pool;
 +              Pool["original_address"] =
 +                  static_cast<int64_t>(Block.OriginalAddress);
++              Pool["preserve_original_address"] =
++                  Block.PreserveOriginalAddress;
 +              Pool["owner_kind"] =
 +                  Block.OwnerKind ==
 +                          InlineDataBlockOwnerKind::ProvenLocalCallTransfer
@@ -9322,7 +9411,17 @@ index 0000000000000000000000000000000000000000..6aa6c5335dc0fa9b435553024144b88d
 +                  "instruction-owned literal pool in %s has no matching "
 +                  "non-fallthrough owner proof",
 +                  BF.getPrintName().c_str());
-+            NextOutput = alignTo(NextOutput, Block.Alignment);
++            if (Block.PreserveOriginalAddress) {
++              if (NextOutput > Block.OriginalAddress)
++                return createStringError(
++                    inconvertibleErrorCode(),
++                    "instruction-owned literal pool in %s grew past its "
++                    "original address",
++                    BF.getPrintName().c_str());
++              NextOutput = Block.OriginalAddress;
++            } else {
++              NextOutput = alignTo(NextOutput, Block.Alignment);
++            }
 +            const uint64_t BlockOutput = NextOutput;
 +            json::Array Labels;
 +            for (const auto &[Offset, Label] : Block.Labels) {
@@ -9367,6 +9466,8 @@ index 0000000000000000000000000000000000000000..6aa6c5335dc0fa9b435553024144b88d
 +                static_cast<int64_t>(Output);
 +            Pool["original_address"] =
 +                static_cast<int64_t>(Block.OriginalAddress);
++            Pool["preserve_original_address"] =
++                Block.PreserveOriginalAddress;
 +            Pool["owner_kind"] =
 +                Block.OwnerKind ==
 +                        InlineDataBlockOwnerKind::ProvenLocalCallTransfer
@@ -12862,7 +12963,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd88b49479a 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4e5367e817df23f397f9fb4c566621535f50ccc0 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -8,6 +8,7 @@
@@ -14293,7 +14394,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
        uint64_t DataMark = Function.getOutputDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5815,12 +6698,103 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5815,12 +6698,108 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -14349,9 +14450,12 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
 +
 +          ELFSymTy DataMarkSym = FunctionSymbol;
 +          DataMarkSym.st_name = AddToStrTab("$d");
++          const InlineDataBlock &FirstBlock = Blocks->front();
 +          DataMarkSym.st_value =
-+              alignTo(Cursor, Blocks->front().Alignment) +
-+              Blocks->front().DataStartOffset;
++              (FirstBlock.PreserveOriginalAddress
++                   ? FirstBlock.OriginalAddress
++                   : alignTo(Cursor, FirstBlock.Alignment)) +
++              FirstBlock.DataStartOffset;
 +          DataMarkSym.st_size = 0;
 +          DataMarkSym.setType(ELF::STT_NOTYPE);
 +          DataMarkSym.setBinding(ELF::STB_LOCAL);
@@ -14359,7 +14463,9 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
 +          Symbols.emplace_back(DataMarkSym);
 +
 +          for (const InlineDataBlock &Block : *Blocks) {
-+            Cursor = alignTo(Cursor, Block.Alignment);
++            Cursor = Block.PreserveOriginalAddress
++                         ? Block.OriginalAddress
++                         : alignTo(Cursor, Block.Alignment);
 +            Cursor += Block.Bytes.size();
 +          }
 +          ELFSymTy CodeMarkSym = DataMarkSym;
@@ -14399,7 +14505,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
        uint64_t DataMark = Function.getOutputColdDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5831,11 +6805,78 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5831,11 +6810,78 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -14479,7 +14585,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
    };
  
    // For regular (non-dynamic) symbol table, exclude symbols referring
-@@ -5866,13 +6907,23 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5866,13 +6912,23 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    };
  
@@ -14505,7 +14611,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
      // In relocation mode, if this is a folded function, use the parent function
      // instead so that the symbol gets updated to the parent's output address.
      // In non-relocation mode, folded functions are emitted at their original
-@@ -5943,9 +6994,17 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5943,9 +6999,17 @@ void RewriteInstance::updateELFSymbolTable(
        // If the symbol matched a function that was not emitted, update the
        // corresponding section index but otherwise leave it unchanged.
        if (Function->isEmitted()) {
@@ -14525,7 +14631,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
          NewSymbol.st_shndx = Function->getCodeSection()->getIndex();
        } else if (Symbol.st_shndx < ELF::SHN_LORESERVE) {
          NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
-@@ -5965,22 +7024,48 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5965,22 +7029,48 @@ void RewriteInstance::updateELFSymbolTable(
          return BC->getMarkerType(Symbol.getType(), Symbol.st_size,
                                   *SymbolName) != MarkerSymType::NONE;
        };
@@ -14583,7 +14689,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
  
          // Remove symbols that cannot be mapped to the output, e.g.
          // data-in-code labels (jump tables) whose addresses BOLT
-@@ -5988,7 +7073,8 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5988,7 +7078,8 @@ void RewriteInstance::updateELFSymbolTable(
          if (!OutputAddress)
            continue;
  
@@ -14593,7 +14699,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
          // Force secondary entry points to have zero size.
          NewSymbol.st_size = 0;
  
-@@ -6001,6 +7087,28 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6001,6 +7092,28 @@ void RewriteInstance::updateELFSymbolTable(
              });
  
          if (FF == Function->getLayout().fragment_end()) {
@@ -14622,7 +14728,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
            assert(
                OutputAddress >= Function->getCodeSection()->getOutputAddress() &&
                OutputAddress < (Function->getCodeSection()->getOutputAddress() +
-@@ -6036,12 +7144,15 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6036,12 +7149,15 @@ void RewriteInstance::updateELFSymbolTable(
              NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
          }
  
@@ -14643,7 +14749,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
            assert(!IsDynSym && "cannot delete symbol");
            continue;
          }
-@@ -6050,11 +7161,13 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6050,11 +7166,13 @@ void RewriteInstance::updateELFSymbolTable(
  
    registerSymbol:
      if (IsDynSym)
@@ -14660,7 +14766,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
    }
  
    if (IsDynSym) {
-@@ -6165,6 +7278,20 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6165,6 +7283,20 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    });
  
@@ -14681,7 +14787,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
    for (const ELFSymTy &Symbol : Symbols)
      Write(0, Symbol);
  }
-@@ -6736,7 +7863,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
+@@ -6736,7 +7868,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
  }
  
  uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
@@ -14697,7 +14803,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
    if (!Function)
      return 0;
  
-@@ -6745,7 +7879,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
+@@ -6745,7 +7884,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
    if (Function->isFolded())
      Function = Function->getFoldedIntoFunction();
  
@@ -14710,7 +14816,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
  }
  
  uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
-@@ -6758,6 +7896,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
+@@ -6758,6 +7901,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
  
    if (const BinaryFunction *BF =
            BC->getBinaryFunctionContainingAddress(OldAddress)) {
@@ -14720,7 +14826,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
      if (BF->isEmitted()) {
        // If OldAddress is another entry point of the function or the target of
        // an indirect goto, then BOLT could get the new address.
-@@ -6796,7 +7937,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6796,7 +7942,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      if (Function->getImageAddress() == 0 || Function->getImageSize() == 0)
        continue;
  
@@ -14740,7 +14846,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
             "Unexpected large function");
  
      const auto HasAddress = [](const FunctionFragment &FF) {
-@@ -6816,6 +7968,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6816,6 +7973,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
        continue;
      }
  
@@ -14763,7 +14869,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
      OverwrittenScore += Function->getFunctionScore();
      ++CountOverwrittenFunctions;
  
-@@ -6826,12 +7994,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6826,12 +7999,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      safePWrite(OS, reinterpret_cast<char *>(Function->getImageAddress()),
                 Function->getImageSize(), Function->getFileOffset());
  
@@ -14782,7 +14888,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
  
        OS.seek(Pos);
      }
-@@ -6947,6 +8118,862 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +8123,862 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -15645,7 +15751,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8987,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8992,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -15660,7 +15766,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..1ea805a2391a44c8578b1c9d69ee8cd8
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
      // Overwrite function body to make sure we never execute these instructions.
-@@ -7002,6 +9037,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +9042,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -26522,7 +26628,7 @@ index 0000000000000000000000000000000000000000..6583e469d8ca0e090cee3c457c383df6
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb1-local-call-transfer-literal-pool.s b/bolt/test/ARM/thumb1-local-call-transfer-literal-pool.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..2cd15d47a13764f1fc105314ca5ad850cf2fc2ec
+index 0000000000000000000000000000000000000000..abeebd9d3c6895b9b96b18735a7696ff6a0a78ba
 --- /dev/null
 +++ b/bolt/test/ARM/thumb1-local-call-transfer-literal-pool.s
 @@ -0,0 +1,98 @@
@@ -26547,7 +26653,7 @@ index 0000000000000000000000000000000000000000..2cd15d47a13764f1fc105314ca5ad850
 +# CODE: <proven_transfer>:
 +# CODE: ldr r1
 +# CODE-NEXT: bl
-+# CODE-NEXT: nop
++# CODE-NEXT: movs r0, r0
 +# CODE-NEXT: {{.*}}.word 0x11223344
 +# CODE: <lr_read_transfer>:
 +# CODE: mov r0, lr
@@ -27649,33 +27755,42 @@ index 0000000000000000000000000000000000000000..dd953c0a1e29394a9e5fcf203d2efb51
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb1-terminal-literal-address-reject.s b/bolt/test/ARM/thumb1-terminal-literal-address-reject.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..7c553313e6dc272f4927df5abb7b6e3ca49dfa13
+index 0000000000000000000000000000000000000000..320935104df1106ee0d2fbf49456f59440a6d391
 --- /dev/null
 +++ b/bolt/test/ARM/thumb1-terminal-literal-address-reject.s
-@@ -0,0 +1,53 @@
-+## Owning a terminal pool does not authorize changing its guest address under
-+## the default firmware contract. Strict branch repair retains the explicit
-+## branch around the pool, so CFG normalization must now preserve the literal
-+## address and publish atomically instead of reaching a late-link rejection.
+@@ -0,0 +1,65 @@
++## Shortening live code before a terminal pool must not move the pool under
++## the default firmware contract. The proven non-fallthrough owner permits
++## unreachable zero fill after the branch, retaining both the shorter live path
++## and the exact original literal address inside the original footprint.
 +
-+# RUN: llvm-mc -filetype=obj -triple thumbv6m-none-eabi -mcpu=cortex-m0plus %s -o %t.o
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 %s -o %t.o
 +# RUN: ld.lld -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
-+# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m0plus \
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
 +# RUN:   --fastdyn-firmware-report=%t.report.json -v=1 -o %t.bolt 2>&1 \
 +# RUN:   | FileCheck %s --check-prefix=BOLT
 +# RUN: %python -c "import json; d=json.load(open('%t.report.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='terminal_changed'); print(f['firmware_modification_attempted'],f['firmware_modified'],f['firmware_publication_rejections'])" | FileCheck %s --check-prefix=REPORT
-+# RUN: llvm-objcopy --dump-section .text=%t.input.text %t.exe
-+# RUN: llvm-objcopy --dump-section .text=%t.output.text %t.bolt
-+# RUN: cmp %t.input.text %t.output.text
++# RUN: llvm-nm %t.exe | grep literal_identity | FileCheck %s --check-prefix=ADDRESS
++# RUN: llvm-nm %t.bolt | grep literal_identity | FileCheck %s --check-prefix=ADDRESS
++# RUN: llvm-objdump -d --start-address=0x08000008 --stop-address=0x08000018 %t.bolt | FileCheck %s --check-prefix=CODE
 +
 +# BOLT: BOLT-INFO: Thumb literal-pool placement qualified 1 function(s), attached 1 owner block(s), rebound 1 PC-relative reference(s), and retained 0 function(s)
++# BOLT: BOLT-INFO: 1 instructions were shortened
 +# BOLT: BOLT: 1 out of 2 functions were overwritten.
 +# BOLT: BOLT-INFO: not adding new segments
 +# REPORT: True True []
++# ADDRESS: 08000014 {{.*}} literal_identity
++# CODE: <terminal_changed>:
++# CODE: cmp
++# CODE-NEXT: b{{eq|ne}}
++# CODE-NEXT: movs
++# CODE: ldr
++# CODE-NEXT: bx lr
++# CODE-NEXT: movs r0, r0
 +
 +  .syntax unified
 +  .thumb
-+  .eabi_attribute Tag_CPU_arch, 12
++  .eabi_attribute Tag_CPU_arch, 10
 +  .eabi_attribute Tag_CPU_arch_profile, 'M'
 +  .text
 +  .p2align 2
@@ -27692,11 +27807,14 @@ index 0000000000000000000000000000000000000000..7c553313e6dc272f4927df5abb7b6e3c
 +  .type terminal_changed,%function
 +  .thumb_func
 +terminal_changed:
-+  ldr r0, .Lliteral
-+  b .Lreturn
-+.Lreturn:
++  cmp r1, #0
++  bne.w .Lload
++  movs r1, #1
++.Lload:
++  ldr.n r0, .Lliteral
 +  bx lr
-+  .p2align 2
++.globl literal_identity
++literal_identity:
 +.Lliteral:
 +  .word 9
 +  .size terminal_changed, .-terminal_changed
@@ -27766,7 +27884,7 @@ index 0000000000000000000000000000000000000000..11176e8dd01dd666ed4112ec5a49199c
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb1-terminal-pop-padded-literal-pool.s b/bolt/test/ARM/thumb1-terminal-pop-padded-literal-pool.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..a42d3f3d0c565cc5459f707f9440efc2f306bddc
+index 0000000000000000000000000000000000000000..f512cc9ce952d7ad57a5082ebceed580d15368ff
 --- /dev/null
 +++ b/bolt/test/ARM/thumb1-terminal-pop-padded-literal-pool.s
 @@ -0,0 +1,71 @@
@@ -27793,7 +27911,7 @@ index 0000000000000000000000000000000000000000..a42d3f3d0c565cc5459f707f9440efc2
 +# CODE: push {r4, lr}
 +# CODE-NEXT: ldr r0, [pc, #0x4]
 +# CODE-NEXT: pop {r4, pc}
-+# CODE-NEXT: nop
++# CODE-NEXT: movs r0, r0
 +# CODE-NEXT: 8000010: {{.*}}.word 0x00000007
 +
 +  .syntax unified
@@ -28663,7 +28781,7 @@ index 0000000000000000000000000000000000000000..d98cb794d1a20e85a709b4fea9bb2817
 +  .word 0
 diff --git a/bolt/test/ARM/thumb2-terminal-literal-pool.s b/bolt/test/ARM/thumb2-terminal-literal-pool.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..0f46d8b3bb68cad26cb77eb16970c991c1d0d14b
+index 0000000000000000000000000000000000000000..58687e973855f2865ff0696e62fe91331ae30df1
 --- /dev/null
 +++ b/bolt/test/ARM/thumb2-terminal-literal-pool.s
 @@ -0,0 +1,78 @@
@@ -28686,7 +28804,7 @@ index 0000000000000000000000000000000000000000..0f46d8b3bb68cad26cb77eb16970c991
 +# CODE: <terminal_wide_worker>:
 +# CODE: ldr.w r0, [pc, #0x4]
 +# CODE-NEXT: bx lr
-+# CODE-NEXT: nop
++# CODE-NEXT: movs r0, r0
 +# CODE-NEXT: 8000010: {{.*}}.word 0x12345678
 +
 +  .syntax unified

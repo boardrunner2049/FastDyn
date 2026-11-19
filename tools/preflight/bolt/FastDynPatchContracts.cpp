@@ -1588,6 +1588,7 @@ Error ThumbLiteralPoolPlacement::runOnFunctions(BinaryContext &BC) {
       // alignment. This makes the cloned label word-aligned even when layout
       // changes the owner's modulo-four address.
       Plan.Block.OriginalAddress = BF.getAddress() + Plan.StartOffset;
+      Plan.Block.PreserveOriginalAddress = !AllowLiteralAddressChanges;
       Plan.Block.Alignment = 4;
       Plan.Block.EstimatedAlignmentPadding =
           Plan.StartOffset - Plan.BlockStartOffset;
@@ -1943,8 +1944,19 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
         if (const InlineDataBlocks *Blocks =
                 BC.MIB->getInlineDataBlocks(Inst))
           for (const InlineDataBlock &Block : *Blocks) {
-            InlineOffset += offsetToAlignment(BF.getAddress() + InlineOffset,
-                                              Align(Block.Alignment));
+            const uint64_t CurrentAddress = BF.getAddress() + InlineOffset;
+            if (Block.PreserveOriginalAddress) {
+              if (CurrentAddress > Block.OriginalAddress ||
+                  !isAligned(Align(Block.Alignment),
+                             Block.OriginalAddress)) {
+                InvalidInlinePlacement = true;
+                break;
+              }
+              InlineOffset = Block.OriginalAddress - BF.getAddress();
+            } else {
+              InlineOffset += offsetToAlignment(CurrentAddress,
+                                                Align(Block.Alignment));
+            }
             InlineOffset += Block.Bytes.size();
           }
       }
@@ -2206,12 +2218,12 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
         !AllowLiteralAddressChanges) {
       uint64_t EstimatedOffset = 0;
       bool LiteralAddressChanged = false;
-      for (const BinaryBasicBlock &BB : BF) {
+      for (BinaryBasicBlock &BB : BF) {
         if ((BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
             BB.getAlignment() > 1)
           EstimatedOffset +=
               reportBlockAlignmentPadding(BF, BB, EstimatedOffset);
-        for (const MCInst &Inst : BB) {
+        for (MCInst &Inst : BB) {
           if (BC.MIB->isPseudo(Inst))
             continue;
           const std::optional<uint32_t> Size =
@@ -2227,19 +2239,40 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
                   JT->getOutputSize() + JT->InlineTrailingBytes.size();
           if (const InlineData *Data = BC.MIB->getInlineData(Inst))
             EstimatedOffset += Data->Size;
-          if (const InlineDataBlocks *Blocks =
-                  BC.MIB->getInlineDataBlocks(Inst))
-            for (const InlineDataBlock &Block : *Blocks) {
-              EstimatedOffset += offsetToAlignment(
-                  BF.getAddress() + EstimatedOffset,
-                  Align(Block.Alignment));
-              if (BF.getAddress() + EstimatedOffset !=
-                  Block.OriginalAddress) {
+          if (InlineDataBlocks *Blocks =
+                  BC.MIB->getInlineDataBlocks(Inst)) {
+            for (InlineDataBlock &Block : *Blocks) {
+              const uint64_t CurrentAddress =
+                  BF.getAddress() + EstimatedOffset;
+              uint64_t Padding = 0;
+              if (Block.PreserveOriginalAddress) {
+                if (CurrentAddress > Block.OriginalAddress ||
+                    !isAligned(Align(Block.Alignment),
+                               Block.OriginalAddress)) {
+                  LiteralAddressChanged = true;
+                  break;
+                }
+                Padding = Block.OriginalAddress - CurrentAddress;
+              } else {
+                Padding = offsetToAlignment(CurrentAddress,
+                                            Align(Block.Alignment));
+              }
+              if (!Block.AlignmentFillValueSize ||
+                  Padding % Block.AlignmentFillValueSize) {
                 LiteralAddressChanged = true;
                 break;
               }
-              EstimatedOffset += Block.Bytes.size();
+              // PreserveOriginalAddress is an absolute post-link constraint,
+              // not a pre-link padding prediction. MC relaxation may widen a
+              // shortened branch back to its original encoding. Keeping the
+              // tentative gap here would then double-count it in the final
+              // size gate. The emitter derives the actual non-executable fill
+              // from its linked cursor and rejects growth past the address.
+              Block.EstimatedAlignmentPadding =
+                  Block.PreserveOriginalAddress ? 0 : Padding;
+              EstimatedOffset += Padding + Block.Bytes.size();
             }
+          }
           if (LiteralAddressChanged)
             break;
         }
@@ -3837,12 +3870,17 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
             json::Array PoolRanges;
             uint64_t BlockCursor = EstimatedOffset + Size;
             for (const InlineDataBlock &Block : *Blocks) {
-              BlockCursor += offsetToAlignment(
-                  BF.getAddress() + BlockCursor,
-                  Align(Block.Alignment));
+              if (Block.PreserveOriginalAddress)
+                BlockCursor = Block.OriginalAddress - BF.getAddress();
+              else
+                BlockCursor += offsetToAlignment(
+                    BF.getAddress() + BlockCursor,
+                    Align(Block.Alignment));
               json::Object Pool;
               Pool["original_address"] =
                   static_cast<int64_t>(Block.OriginalAddress);
+              Pool["preserve_original_address"] =
+                  Block.PreserveOriginalAddress;
               Pool["owner_kind"] =
                   Block.OwnerKind ==
                           InlineDataBlockOwnerKind::ProvenLocalCallTransfer
@@ -4738,7 +4776,17 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
                   "instruction-owned literal pool in %s has no matching "
                   "non-fallthrough owner proof",
                   BF.getPrintName().c_str());
-            NextOutput = alignTo(NextOutput, Block.Alignment);
+            if (Block.PreserveOriginalAddress) {
+              if (NextOutput > Block.OriginalAddress)
+                return createStringError(
+                    inconvertibleErrorCode(),
+                    "instruction-owned literal pool in %s grew past its "
+                    "original address",
+                    BF.getPrintName().c_str());
+              NextOutput = Block.OriginalAddress;
+            } else {
+              NextOutput = alignTo(NextOutput, Block.Alignment);
+            }
             const uint64_t BlockOutput = NextOutput;
             json::Array Labels;
             for (const auto &[Offset, Label] : Block.Labels) {
@@ -4783,6 +4831,8 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
                 static_cast<int64_t>(Output);
             Pool["original_address"] =
                 static_cast<int64_t>(Block.OriginalAddress);
+            Pool["preserve_original_address"] =
+                Block.PreserveOriginalAddress;
             Pool["owner_kind"] =
                 Block.OwnerKind ==
                         InlineDataBlockOwnerKind::ProvenLocalCallTransfer

@@ -5607,11 +5607,11 @@ def main() -> int:
         corpus_expectations = {
             "chibios": {
                 "vector": "source=.vectors section, entries=120",
-                "overwritten": "6 out of 27 functions were overwritten",
+                "overwritten": "7 out of 27 functions were overwritten",
             },
             "threadx": {
                 "vector": "source=.vectors section, entries=51",
-                "overwritten": "58 out of 85 functions were overwritten",
+                "overwritten": "66 out of 85 functions were overwritten",
             },
             "zephyr": {
                 "vector": (
@@ -5621,7 +5621,7 @@ def main() -> int:
                 # startup assembly emits it as STT_NOTYPE in an executable
                 # section.  Counting 130 here would regress that marker into
                 # a manufactured BinaryFunction.
-                "overwritten": "60 out of 129 functions were overwritten",
+                "overwritten": "64 out of 129 functions were overwritten",
             },
         }.get(label)
         if corpus_expectations is not None:
@@ -5637,6 +5637,32 @@ def main() -> int:
                 (output / f"bolt-pass-report-{label}.json").read_text()
             ) if args.full_pipeline else None
         )
+        if native_pass_report is not None and label in {
+            "chibios", "threadx", "zephyr",
+        }:
+            expected_rejections = 1 if label == "zephyr" else 0
+            observed_rejections = int(
+                native_pass_report["summary"]
+                ["firmware_publication_rejected_function_count"]
+            )
+            rejection_reasons = sorted(
+                reason
+                for function in native_pass_report["functions"]
+                for reason in function.get(
+                    "firmware_publication_rejections", []
+                )
+            )
+            expected_reasons = (
+                ["exception_contract_unsupported"]
+                if label == "zephyr" else []
+            )
+            if (observed_rejections != expected_rejections
+                    or rejection_reasons != expected_reasons):
+                raise RuntimeError(
+                    f"{label} publication cohort changed: expected "
+                    f"{expected_rejections} {expected_reasons}, observed "
+                    f"{observed_rejections} {rejection_reasons}"
+                )
         provenance_validation = None
         exclusive_access_validation = None
         if native_pass_report is not None:
@@ -10617,8 +10643,8 @@ def main() -> int:
                 "R_ARM_THM_JUMP6 CBZ/CBNZ wrapped-REL handling, forward-range validation, retained relocation publication, and Cortex-M3 execution",
                 "R_ARM_ABS8/R_ARM_ABS16 signed REL addends, signed-or-unsigned overflow ranges, typed executable-section data ownership, retained relocation publication, and Cortex-M3 execution",
                 "Thumb-2 ADR.W and PC-relative MOVW/MOVT instruction references",
-                "fixed-address literal pools and firmware allocated-range preservation",
-                "guarded interleaved/shared and terminal non-fallthrough Thumb-1 literal pools with exact-address prepublication fallback and final validation, typed ARM SHT_REL dependencies, mapping-symbol reconstruction, and Cortex-M0 execution",
+                "fixed-address literal pools and firmware allocated-range preservation, including an absolute original-address MC relaxation anchor in both size-only and final emission",
+                "guarded interleaved/shared and terminal non-fallthrough Thumb-1 literal pools with exact-address anchored publication and final validation, typed ARM SHT_REL dependencies, mapping-symbol reconstruction, and Cortex-M0 execution",
                 "compiler-shaped terminal Thumb literal pools whose return or unconditional owner is followed by exact unreachable alignment no-ops in the same CFG block",
                 "retained ARM SHT_REL source-offset remapping for moved instruction-owned data and symbol-index remapping after output symtab rebuilding",
                 "relaxed value-only shared-pool cloning into explicit symbol-bounded typed capacity, with address-producing ADR clones rejected",
