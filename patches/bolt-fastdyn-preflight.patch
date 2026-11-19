@@ -200,10 +200,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f32237f184ec19172c74648df01ca8dfb7db4d6b 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..bbe0b45f1bbff541497ce858f6c1b57d7162af49 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,72 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,73 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -271,12 +271,13 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f32237f184ec19172c74648df01ca8df
 +    ExceptionReturnChanged = 1U << 8,
 +    ExceptionStateChanged = 1U << 9,
 +    ExceptionStateInputChanged = 1U << 10,
++    ExceptionReturnInputChanged = 1U << 11,
 +  };
 +
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +258,17 @@ public:
+@@ -192,6 +259,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -294,7 +295,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f32237f184ec19172c74648df01ca8df
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +409,70 @@ private:
+@@ -332,6 +410,70 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -365,7 +366,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f32237f184ec19172c74648df01ca8df
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1609,79 @@ public:
+@@ -1468,6 +1610,79 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -445,7 +446,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f32237f184ec19172c74648df01ca8df
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2148,63 @@ public:
+@@ -1934,6 +2149,63 @@ public:
      return *this;
    }
  
@@ -509,7 +510,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f32237f184ec19172c74648df01ca8df
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2602,8 @@ public:
+@@ -2331,6 +2603,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -4441,10 +4442,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..c875f849513cc2c7f469d178db8c469408d42cca
+index 0000000000000000000000000000000000000000..aa4d5a85297d59873db8503faa3f75d24283c542
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,5046 @@
+@@ -0,0 +1,5075 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -4764,7 +4765,7 @@ index 0000000000000000000000000000000000000000..c875f849513cc2c7f469d178db8c4694
 +}
 +
 +static constexpr std::array<
-+    std::pair<FirmwarePublicationRejection, StringLiteral>, 11>
++    std::pair<FirmwarePublicationRejection, StringLiteral>, 12>
 +    FirmwarePublicationRejectionNames = {{
 +        {FirmwarePublicationRejection::InstructionCountChanged,
 +         "instruction_count_changed"},
@@ -4788,6 +4789,8 @@ index 0000000000000000000000000000000000000000..c875f849513cc2c7f469d178db8c4694
 +         "exception_state_changed"},
 +        {FirmwarePublicationRejection::ExceptionStateInputChanged,
 +         "exception_state_input_changed"},
++        {FirmwarePublicationRejection::ExceptionReturnInputChanged,
++         "exception_return_input_changed"},
 +    }};
 +
 +StringLiteral
@@ -6416,6 +6419,33 @@ index 0000000000000000000000000000000000000000..c875f849513cc2c7f469d178db8c4694
 +          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
 +                    << BF.getPrintName()
 +                    << ": a forwarded value feeds architectural state\n";
++          continue;
++        }
++
++        // An unchanged BX/MOV-to-PC spelling is likewise insufficient when a
++        // transformed value can become its EXC_RETURN token. Stack-consuming
++        // POP/LDM/LDR forms remain covered by the exact instruction and
++        // store-preserving contract; this register dependency check closes
++        // the indirect-register form without pretending to model stacked
++        // exception state.
++        bool ChangedExceptionReturnInput = false;
++        if (ForwardedData.any())
++          for (const BinaryBasicBlock &BB : BF)
++            for (const MCInst &Inst : BB) {
++              if (BC.MIB->isPseudo(Inst) ||
++                  !BC.MIB->isPossibleExceptionReturn(Inst))
++                continue;
++              BitVector Used(BC.MRI->getNumRegs(), false);
++              BC.MIB->getUsedRegs(Inst, Used);
++              ChangedExceptionReturnInput |= Used.anyCommon(ForwardedData);
++            }
++        if (ChangedExceptionReturnInput) {
++          BF.rejectFirmwarePublication(
++              FirmwarePublicationRejection::ExceptionReturnInputChanged);
++          ++RejectedFunctions;
++          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
++                    << BF.getPrintName()
++                    << ": a forwarded value feeds exception return\n";
 +          continue;
 +        }
 +      }
@@ -19096,10 +19126,10 @@ index 0000000000000000000000000000000000000000..5f7a91ef591e21f1509131027473ae96
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/cortex-m-handler-fop.s b/bolt/test/ARM/cortex-m-handler-fop.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..b9adda858658e697c2b6d5c48871f4f47545f815
+index 0000000000000000000000000000000000000000..645bf87de5424d09f130566b92bcaba0608b0f69
 --- /dev/null
 +++ b/bolt/test/ARM/cortex-m-handler-fop.s
-@@ -0,0 +1,183 @@
+@@ -0,0 +1,202 @@
 +## Exact vector entries may use the narrow exception-entry contract: ordinary
 +## FOP replaces a stack reload with a same-width move while retaining the
 +## stack store, instruction count/order, entry address and BX LR exception
@@ -19114,16 +19144,18 @@ index 0000000000000000000000000000000000000000..b9adda858658e697c2b6d5c48871f4f4
 +# RUN:   | FileCheck %s --check-prefix=BOLT
 +# RUN: %python -c "import json; d=json.load(open('%t.json')); fs={x['name']:x for x in d['functions']}; a=fs['Reset_Handler']; b=fs['irq_handler']; c=fs['pop_handler']; d=fs['register_handler']; e=fs['load_handler']; s=fs['state_handler']; g=fs['unsupported_handler']; f=lambda x:[i for i in x['instructions'] if i['is_possible_exception_return']]; q=lambda x:[i['cortex_m_state_effect'] for i in x['instructions'] if i['cortex_m_state_effect'] != 'none']; print(a['cortex_m_vector_entry'],a['cortex_m_reset_entry'],a['cortex_m_exception_entry'],len(f(a))); print(b['cortex_m_vector_entry'],b['cortex_m_reset_entry'],b['cortex_m_exception_entry'],b['firmware_modified'],f(b)[0]['text'].strip(),f(b)[0]['original_address']); print(c['cortex_m_vector_entry'],c['cortex_m_reset_entry'],c['cortex_m_exception_entry'],c['firmware_modified'],f(c)[0]['text'].strip(),f(c)[0]['original_address']); print(d['cortex_m_vector_entry'],d['cortex_m_reset_entry'],d['cortex_m_exception_entry'],d['firmware_modified'],f(d)[0]['text'].strip(),f(d)[0]['original_address']); print(e['cortex_m_vector_entry'],e['cortex_m_reset_entry'],e['cortex_m_exception_entry'],e['firmware_modified'],f(e)[0]['text'].strip(),f(e)[0]['original_address']); print(s['cortex_m_vector_entry'],s['cortex_m_exception_entry'],s['firmware_modified'],','.join(q(s))); print(g['cortex_m_vector_entry'],g['firmware_modified'],','.join(g['firmware_modification_reasons']),','.join(g['firmware_publication_rejections']))" | FileCheck %s --check-prefix=REPORT
 +# RUN: %python -c "import json; n={x['name']:x for x in json.load(open('%t.json'))['functions']}['state_input_handler']; print(n['cortex_m_vector_entry'],n['firmware_modified'],','.join(n['firmware_modification_reasons']),','.join(n['firmware_publication_rejections']))" | FileCheck %s --check-prefix=STATE-INPUT
++# RUN: %python -c "import json; n={x['name']:x for x in json.load(open('%t.json'))['functions']}['return_input_handler']; print(n['cortex_m_vector_entry'],n['firmware_modified'],','.join(n['firmware_modification_reasons']),','.join(n['firmware_publication_rejections']))" | FileCheck %s --check-prefix=RETURN-INPUT
 +# RUN: llvm-objdump -d --mcpu=cortex-m3 %t.bolt \
 +# RUN:   | FileCheck %s --check-prefix=DISASM
 +
-+# BOLT: primary-entry-handlers=8
++# BOLT: primary-entry-handlers=9
 +# BOLT-SAME: reset-entry-functions=1
-+# BOLT-SAME: exception-entry-functions=7
-+# BOLT: FOP optimized 5 redundant load(s)
++# BOLT-SAME: exception-entry-functions=8
++# BOLT: FOP optimized 6 redundant load(s)
 +# BOLT: retained original handler unsupported_handler: transformation exceeds the exception-entry contract
 +# BOLT: retained original handler state_input_handler: a forwarded value feeds architectural state
-+# BOLT: BOLT: 3 out of 8 functions were overwritten.
++# BOLT: retained original handler return_input_handler: a forwarded value feeds exception return
++# BOLT: BOLT: 3 out of 9 functions were overwritten.
 +
 +# REPORT: True True False 1
 +# REPORT-NEXT: True False True True bx lr 134217740
@@ -19134,6 +19166,7 @@ index 0000000000000000000000000000000000000000..b9adda858658e697c2b6d5c48871f4f4
 +# REPORT-NEXT: True False cfg_normalization,frame_load_forwarding exception_contract_unsupported
 +
 +# STATE-INPUT: True False frame_load_forwarding exception_state_input_changed
++# RETURN-INPUT: True False frame_load_forwarding exception_return_input_changed
 +
 +# DISASM: <irq_handler>:
 +# DISASM: str r0, [sp]
@@ -19169,6 +19202,10 @@ index 0000000000000000000000000000000000000000..b9adda858658e697c2b6d5c48871f4f4
 +# DISASM: str r0, [sp]
 +# DISASM-NEXT: ldr r1, [sp]
 +# DISASM-NEXT: msr basepri, r1
++# DISASM: bx lr
++# DISASM: <return_input_handler>:
++# DISASM: str r0, [sp]
++# DISASM-NEXT: ldr.w lr, [sp]
 +# DISASM: bx lr
 +
 +  .syntax unified
@@ -19271,6 +19308,17 @@ index 0000000000000000000000000000000000000000..b9adda858658e697c2b6d5c48871f4f4
 +  bx lr
 +  .size state_input_handler, .-state_input_handler
 +
++  .globl return_input_handler
++  .type return_input_handler,%function
++  .thumb_func
++return_input_handler:
++  sub sp, #4
++  str r0, [sp]
++  ldr lr, [sp]
++  add sp, #4
++  bx lr
++  .size return_input_handler, .-return_input_handler
++
 +  .section .isr_vector,"a",%progbits
 +  .globl g_pfnVectors
 +g_pfnVectors:
@@ -19283,6 +19331,7 @@ index 0000000000000000000000000000000000000000..b9adda858658e697c2b6d5c48871f4f4
 +  .word load_handler
 +  .word state_handler
 +  .word state_input_handler
++  .word return_input_handler
 diff --git a/bolt/test/ARM/cortex-m-v8-profiles.s b/bolt/test/ARM/cortex-m-v8-profiles.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..9fbed017a73e08f6fbc0fe42e3b9ef64b14678a5

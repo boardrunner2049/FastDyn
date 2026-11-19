@@ -317,7 +317,7 @@ json::Array firmwareModificationReasons(const BinaryFunction &BF) {
 }
 
 static constexpr std::array<
-    std::pair<FirmwarePublicationRejection, StringLiteral>, 11>
+    std::pair<FirmwarePublicationRejection, StringLiteral>, 12>
     FirmwarePublicationRejectionNames = {{
         {FirmwarePublicationRejection::InstructionCountChanged,
          "instruction_count_changed"},
@@ -341,6 +341,8 @@ static constexpr std::array<
          "exception_state_changed"},
         {FirmwarePublicationRejection::ExceptionStateInputChanged,
          "exception_state_input_changed"},
+        {FirmwarePublicationRejection::ExceptionReturnInputChanged,
+         "exception_return_input_changed"},
     }};
 
 StringLiteral
@@ -1969,6 +1971,33 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
           BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
                     << BF.getPrintName()
                     << ": a forwarded value feeds architectural state\n";
+          continue;
+        }
+
+        // An unchanged BX/MOV-to-PC spelling is likewise insufficient when a
+        // transformed value can become its EXC_RETURN token. Stack-consuming
+        // POP/LDM/LDR forms remain covered by the exact instruction and
+        // store-preserving contract; this register dependency check closes
+        // the indirect-register form without pretending to model stacked
+        // exception state.
+        bool ChangedExceptionReturnInput = false;
+        if (ForwardedData.any())
+          for (const BinaryBasicBlock &BB : BF)
+            for (const MCInst &Inst : BB) {
+              if (BC.MIB->isPseudo(Inst) ||
+                  !BC.MIB->isPossibleExceptionReturn(Inst))
+                continue;
+              BitVector Used(BC.MRI->getNumRegs(), false);
+              BC.MIB->getUsedRegs(Inst, Used);
+              ChangedExceptionReturnInput |= Used.anyCommon(ForwardedData);
+            }
+        if (ChangedExceptionReturnInput) {
+          BF.rejectFirmwarePublication(
+              FirmwarePublicationRejection::ExceptionReturnInputChanged);
+          ++RejectedFunctions;
+          BC.outs() << "BOLT-INFO: Firm-BOLT retained original handler "
+                    << BF.getPrintName()
+                    << ": a forwarded value feeds exception return\n";
           continue;
         }
       }

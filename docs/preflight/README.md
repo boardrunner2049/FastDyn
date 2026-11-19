@@ -138,7 +138,7 @@ caller-saved exchange across qualified leaf and direct-call functions plus
 live-in/call-boundary retention controls, a shared-external-program
 retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v146 run accepts all fifty-five without
+The 19 November v147 run accepts all fifty-five without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -774,15 +774,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v146-exception-state-inputs
+  --output build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v146-exception-state-inputs/report.json),
-SHA-256 `0013276e8459bb250ae67bb584c7d4d1703750bef4aec399382b83bad8fc7cc7`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/report.json),
+SHA-256 `31e2895fd34c8242d3d2d6d8874f1e0597d4a1827b98b1893d94d781d3979cae`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v146-exception-state-inputs/validation-manifest.json),
-SHA-256 `8b5b614ffb903b4069c9754318060b54f0be89d095d41b51f1c6356e71b25268`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/validation-manifest.json),
+SHA-256 `d5569d73daa4316e60297d2b59b0dfeec60a6f07c1088f9285b469a7b6faaa30`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -794,25 +794,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`a380c3cd3d6b4add94d032743f3fc08f912c04070bd499b4f82a240352d74f3b`,
+`4f2ca5336e630461aba7da41c242dada2a8662f0e7b9fa783b5fb24ff735a9dc`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`dfcfa73f1e5263c7046968b0d5754cab736c31b96948c6040de587259598f700`.
+`88cf09d106412c0f3864a0f0f9a8cc1e87c60984bd837153e603c6945f3df2be`.
 The current combined ARM BOLT/AArch32 JITLink lit run passes 90/90
 (78 ARM and 12 JITLink). The BOLT unit executables pass 130 tests and
 explicitly skip 150 target-inapplicable parameterizations: Core is 86/150,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v146-exception-state-inputs/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/core-tests.xml)
 has SHA-256
-`0f711b787da6185da7c8c7474c56d0d7394d53a79ae78fb6d15bf2a88ac08383`;
+`92a703d90cf662de0ae5933b5f23ed6eecac2f5949ed28f7e63aff3a1b859f76`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v146-exception-state-inputs/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v146-exception-state-inputs/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v147-exception-return-inputs-final/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`186528cd463cb3bda7b1a8e77dc61f0f7415f9c5ce806588cea40f12cafaf103`
-and `12efcb0ca1d4529be69cf9971d9fb1c8748f8514a2d53eaff4111df0fce213e4`.
+`6bbdd71024b1eb11e7b57a4f9bbc3b31c9224a9f1caa9fa9a6042659f25582c9`
+and `4514437b46fba453f9e790485442c12ae90740d1f8dde506736a911f1852f350`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1400,6 +1400,16 @@ The paired negative forwards `r1` directly into `MSR BASEPRI`; it records
 intentionally does not discharge dependencies after later register kills, so
 it may retain a safe handler rather than publish without a path-sensitive
 value proof.
+
+v147 applies that dependency boundary to exception-return inputs as well. A
+byte-identical `BX LR` is not sufficient if FOP changes the value in `LR` that
+Handler mode may interpret as an EXC_RETURN token. The negative fixture spills
+`r0`, reloads it into `lr`, then executes `BX LR`; BOLT's FOP proposes the
+forwarding, and publication rejects it as `exception_return_input_changed` and
+restores `LDR.W LR,[SP]`. Unrelated handler forwarding remains accepted. This
+closes register-fed `BX`/move-to-PC forms; stack-consuming `POP`, `LDM` and
+load-to-PC forms remain protected by exact instruction/order and retained-store
+requirements rather than a complete model of stacked architectural state.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
