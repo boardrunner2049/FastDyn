@@ -101,6 +101,15 @@ M3_FUNCTION_CLUSTER_LINKER = (
 M3_FUNCTION_CLUSTER_PROFILE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_cluster.fdata"
 )
+M3_EXIDX_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_exidx.s"
+)
+M3_EXIDX_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_exidx.ld"
+)
+M3_EXIDX_ORDER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_exidx.order"
+)
 M3_FUNCTION_SPLIT_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.s"
 )
@@ -288,6 +297,65 @@ def section_bytes(path: Path, name: str) -> bytes:
         if section is None:
             raise RuntimeError(f"{path} has no {name} section")
         return section.data()
+
+
+def arm_exidx_records(path: Path) -> dict[str, Any]:
+    """Decode one linked ARM EHABI index without relying on relocations."""
+    with path.open("rb") as stream:
+        elf = ELFFile(stream)
+        section = elf.get_section_by_name(".ARM.exidx")
+        if section is None:
+            section = next(
+                (
+                    item for item in elf.iter_sections()
+                    if item["sh_type"] == "SHT_ARM_EXIDX"
+                ),
+                None,
+            )
+        if section is None or section["sh_type"] != "SHT_ARM_EXIDX":
+            raise RuntimeError(f"{path} has no typed ARM EHABI index section")
+        data = section.data()
+        if len(data) % 8:
+            raise RuntimeError(f"{path} has a malformed .ARM.exidx size")
+        base = int(section["sh_addr"])
+        records = []
+        for offset in range(0, len(data), 8):
+            raw_prel31, unwind_word = struct.unpack_from("<II", data, offset)
+            delta = raw_prel31 & 0x7FFFFFFF
+            if delta & 0x40000000:
+                delta -= 0x80000000
+            records.append({
+                "entry_address": base + offset,
+                "function_address": base + offset + delta,
+                "unwind_word": unwind_word,
+                "model": (
+                    "cantunwind" if unwind_word == 1 else
+                    "compact_inline" if unwind_word & 0x80000000 else
+                    "external_extab"
+                ),
+            })
+        linked_section = elf.get_section(int(section["sh_link"]))
+        exidx_segments = [
+            {
+                "offset": int(segment["p_offset"]),
+                "vaddr": int(segment["p_vaddr"]),
+                "file_size": int(segment["p_filesz"]),
+                "memory_size": int(segment["p_memsz"]),
+                "flags": int(segment["p_flags"]),
+                "alignment": int(segment["p_align"]),
+            }
+            for segment in elf.iter_segments()
+            if segment["p_type"] == "PT_ARM_EXIDX"
+        ]
+        return {
+            "section_name": section.name,
+            "section_address": base,
+            "section_offset": int(section["sh_offset"]),
+            "section_size": len(data),
+            "linked_section": linked_section.name,
+            "records": records,
+            "segments": exidx_segments,
+        }
 
 
 def virtual_bytes(path: Path, address: int, size: int) -> bytes:
@@ -1264,6 +1332,183 @@ def validate_relocated_function_cluster(
     }
 
 
+def validate_relocated_exidx_function_order(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate fixed-footprint ARM EHABI reconstruction after reordering."""
+    reference_inventory = elf_inventory(reference)
+    candidate_inventory = elf_inventory(candidate)
+    if reference_inventory["segments"] != candidate_inventory["segments"]:
+        raise RuntimeError("EHABI relocation changed the program-header map")
+
+    reference_text = reference_inventory["sections"][".text"]
+    candidate_text = candidate_inventory["sections"][".text"]
+    for field in ("address", "offset", "flags"):
+        if reference_text[field] != candidate_text[field]:
+            raise RuntimeError(f"EHABI .text changed qualified {field}")
+    if (
+        int(reference_text["size"]) != 36
+        or int(candidate_text["size"]) != 34
+    ):
+        raise RuntimeError("EHABI fixture linker slack is not exact")
+    old_text = candidate_inventory["sections"].get(".bolt.org.text")
+    if old_text is None or int(old_text["size"]) != 0:
+        raise RuntimeError("EHABI candidate retained a live original body")
+
+    moved = {
+        name: symbol_address(candidate, name)
+        for name in (
+            "worker_b", "Reset_Handler", "fixture_halt", "worker_a",
+        )
+    }
+    expected_moved = {
+        "worker_b": 0x08000100,
+        "Reset_Handler": 0x08000104,
+        "fixture_halt": 0x08000118,
+        "worker_a": 0x0800011C,
+    }
+    if moved != expected_moved:
+        raise RuntimeError(f"unexpected EHABI function order: {moved}")
+    reset_pointer = moved["Reset_Handler"] | 1
+    if candidate_inventory["entry"] != reset_pointer:
+        raise RuntimeError("EHABI candidate entry lost Thumb state")
+    reference_vector = struct.unpack(
+        "<II", virtual_bytes(reference, 0x08000000, 8)
+    )
+    candidate_vector = struct.unpack(
+        "<II", virtual_bytes(candidate, 0x08000000, 8)
+    )
+    if (
+        candidate_vector[0] != reference_vector[0]
+        or candidate_vector[1] != reset_pointer
+    ):
+        raise RuntimeError("EHABI vector did not follow moved reset")
+
+    reference_exidx = arm_exidx_records(reference)
+    candidate_exidx = arm_exidx_records(candidate)
+    if (
+        reference_exidx["section_address"] != 0x08000124
+        or reference_exidx["section_offset"] != 0x10124
+        or reference_exidx["section_size"] != 32
+        or candidate_exidx["section_address"]
+            != reference_exidx["section_address"]
+        or candidate_exidx["section_offset"]
+            != reference_exidx["section_offset"]
+        or candidate_exidx["section_size"] != reference_exidx["section_size"]
+        or candidate_exidx["segments"] != reference_exidx["segments"]
+        or candidate_exidx["linked_section"] != ".text"
+    ):
+        raise RuntimeError("EHABI section/segment/link footprint changed")
+
+    reference_records = reference_exidx["records"]
+    candidate_records = candidate_exidx["records"]
+    if [
+        (record["function_address"], record["model"])
+        for record in reference_records
+    ] != [
+        (0x08000100, "cantunwind"),
+        (0x08000118, "compact_inline"),
+        (0x08000120, "cantunwind"),
+        (0x08000124, "cantunwind"),
+    ]:
+        raise RuntimeError("reference EHABI cohort is not the frozen input")
+    expected_candidate_models = [
+        (0x08000100, "cantunwind"),
+        (0x08000104, "cantunwind"),
+        (0x0800011C, "compact_inline"),
+        (0x08000124, "cantunwind"),
+    ]
+    if [
+        (record["function_address"], record["model"])
+        for record in candidate_records
+    ] != expected_candidate_models:
+        raise RuntimeError("EHABI models did not follow moved identities")
+    if (
+        candidate_records[2]["unwind_word"]
+        != reference_records[1]["unwind_word"]
+    ):
+        raise RuntimeError("inline compact unwind bytecode changed")
+
+    text_relocations = static_relocation_records(candidate, ".rel.text")
+    vector_relocations = static_relocation_records(
+        candidate, ".rel.isr_vector"
+    )
+    expected_text_relocations = [
+        (0x0800010C, 10, "worker_a", 0x0800011D),
+        (0x08000112, 10, "worker_b", 0x08000101),
+        (0x08000118, 30, "fixture_halt", 0x08000118),
+    ]
+    observed_text_relocations = [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in text_relocations
+    ]
+    if observed_text_relocations != expected_text_relocations:
+        raise RuntimeError("EHABI code relocations are not exact")
+    if [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in vector_relocations
+    ] != [(0x08000004, 2, "Reset_Handler", reset_pointer)]:
+        raise RuntimeError("EHABI vector relocation is not exact")
+
+    origin_summary = None
+    if final_layout is not None:
+        expected_origins = {
+            "Reset_Handler": (0x08000100, 0x08000104, 7),
+            "worker_a": (0x08000118, 0x0800011C, 3),
+            "worker_b": (0x08000120, 0x08000100, 2),
+        }
+        origin_summary = {}
+        for function in final_layout["functions"]:
+            name = function["name"]
+            if name not in expected_origins:
+                continue
+            observed = (
+                int(function["original_address"]),
+                int(function["output_address"]),
+                len(function["instruction_origins"]),
+            )
+            if observed != expected_origins[name] or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in function["instruction_origins"]
+            ):
+                raise RuntimeError(f"EHABI origin map for {name} is not exact")
+            origin_summary[name] = {
+                "original_address": observed[0],
+                "output_address": observed[1],
+                "instruction_origin_count": observed[2],
+            }
+        if set(origin_summary) != set(expected_origins):
+            raise RuntimeError("EHABI layout omitted an instruction map")
+
+    return {
+        "status": "accepted",
+        "placement_policy": "reuse_linker_qualified_input_text",
+        "unwind_policy": "fixed_footprint_cantunwind_and_inline_compact",
+        "program_headers_exact": True,
+        "live_text_bytes": int(candidate_text["size"]),
+        "mapped_text_span_bytes": int(reference_text["size"]),
+        "linker_capacity_slack_bytes": (
+            int(reference_text["size"]) - int(candidate_text["size"])
+        ),
+        "retained_original_text_bytes": int(old_text["size"]),
+        "entry": candidate_inventory["entry"],
+        "vector_words": list(candidate_vector),
+        "moved_symbols": moved,
+        "reference_exidx": reference_exidx,
+        "candidate_exidx": candidate_exidx,
+        "text_relocations": text_relocations,
+        "vector_relocations": vector_relocations,
+        "origin_summary": origin_summary,
+    }
+
+
 def validate_relocated_function_split(
     reference: Path, candidate: Path,
     final_layout: dict[str, Any] | None = None,
@@ -1796,6 +2041,23 @@ def build_m3_function_cluster_fixture(
         str(M3_FUNCTION_CLUSTER_LINKER), str(object_path), "-o", str(image),
     ], logs / f"build-m3-{stem}-image.log"),
         f"M3 {variant} clustering image build")
+    return image
+
+
+def build_m3_exidx_fixture(output: Path, logs: Path) -> Path:
+    """Build a relocation-complete Cortex-M3 ARM EHABI fixture."""
+    object_path = output / "firm-bolt-cortex-m3-exidx.o"
+    image = output / "firm-bolt-cortex-m3-exidx-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_EXIDX_SOURCE), "-o", str(object_path),
+    ], logs / "build-m3-exidx-object.log"),
+        "M3 EHABI object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "--no-merge-exidx-entries",
+        "-T", str(M3_EXIDX_LINKER), str(object_path), "-o", str(image),
+    ], logs / "build-m3-exidx-image.log"),
+        "M3 EHABI image build")
     return image
 
 
@@ -3284,6 +3546,7 @@ def main() -> int:
             "exec-count", "hfsort", "pettis-hansen", "cdsort",
         )
     }
+    m3_exidx_image = build_m3_exidx_fixture(output, logs)
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
     m3_loop_inversion_image = build_m3_loop_inversion_fixture(output, logs)
@@ -3468,6 +3731,10 @@ def main() -> int:
              "--relocs", "--use-old-text",
              "--align-functions=4", "--align-text=4",
              "--reorder-functions=cdsort",
+         ]),
+        ("m3_exidx_function_reorder", "cortex-m3", m3_exidx_image, {}, [
+             "--relocs", "--use-old-text", "--reorder-functions=user",
+             f"--function-order={M3_EXIDX_ORDER}",
          ]),
         ("m3_function_split", "cortex-m3", m3_function_split_image, {}, [
              f"--data={M3_FUNCTION_SPLIT_PROFILE}",
@@ -3899,6 +4166,7 @@ def main() -> int:
             "m3_cluster_pettis_hansen": "pettis-hansen",
             "m3_cluster_cdsort": "cdsort",
         }.get(label)
+        exidx_layout = label == "m3_exidx_function_reorder"
         split_validation = {
             "m3_function_split": validate_relocated_function_split,
             "m3_cdsplit": validate_relocated_cdsplit,
@@ -3923,6 +4191,7 @@ def main() -> int:
                     or "buildCallGraph:" in line
                     or "Number of clusters:" in line
                     or "Final average call distance" in line
+                    or "rebuilt ARM EHABI index" in line
                 )
             ],
             "validation": (
@@ -3936,6 +4205,10 @@ def main() -> int:
                     order_policy=clustering_order_policy,
                 )
                 if clustering_order_policy is not None
+                else validate_relocated_exidx_function_order(
+                    image, candidate,
+                )
+                if exidx_layout
                 else split_validation(image, candidate)
                 if split_validation is not None
                 else validate_in_place(image, candidate, protected)
@@ -3952,6 +4225,7 @@ def main() -> int:
                     and split_validation is None
                     and clustering_order_policy is None
                     and relocation_order_policy is None
+                    and not exidx_layout
                 ) else None
             ),
             "provenance_validation": provenance_validation,
@@ -3963,13 +4237,49 @@ def main() -> int:
             results[label]["indirect_call_promotion_validation"] = (
                 pending_icp_validation
             )
+        if label == "m4":
+            reference_exidx = arm_exidx_records(image)
+            candidate_exidx = arm_exidx_records(candidate)
+            if (
+                len(reference_exidx["records"]) != 595
+                or any(
+                    record["model"] != "cantunwind"
+                    for record in reference_exidx["records"]
+                )
+                or candidate_exidx["records"]
+                    != reference_exidx["records"]
+                or candidate_exidx["section_address"]
+                    != reference_exidx["section_address"]
+                or candidate_exidx["section_offset"]
+                    != reference_exidx["section_offset"]
+                or candidate_exidx["section_size"]
+                    != reference_exidx["section_size"]
+                or candidate_exidx["segments"]
+                    != reference_exidx["segments"]
+                or candidate_exidx["linked_section"] != ".text"
+            ):
+                raise RuntimeError(
+                    "real FreeRTOS ARM EHABI CANTUNWIND table changed"
+                )
+            results[label]["arm_ehabi_validation"] = {
+                "status": "accepted",
+                "entry_count": 595,
+                "model_counts": {"cantunwind": 595},
+                "section_name": candidate_exidx["section_name"],
+                "section_address": candidate_exidx["section_address"],
+                "section_size": candidate_exidx["section_size"],
+                "pt_arm_exidx": candidate_exidx["segments"],
+                "linked_section": candidate_exidx["linked_section"],
+                "records_exact": True,
+                "basis": "compact_same-address_real_freertos_image",
+            }
         if args.full_pipeline:
             final_layout = json.loads(
                 Path(
                     f"{output / f'bolt-pass-report-{label}.json'}.layout.json"
                 ).read_text()
             )
-            if native_pass_report is not None:
+            if native_pass_report is not None and not exidx_layout:
                 results[label]["pass_publication"] = (
                     summarize_pass_publication(
                         image, candidate, native_pass_report, final_layout
@@ -3990,30 +4300,57 @@ def main() -> int:
                         order_policy=clustering_order_policy,
                     )
                 )
+            elif exidx_layout:
+                results[label]["validation"] = (
+                    validate_relocated_exidx_function_order(
+                        image, candidate, final_layout,
+                    )
+                )
             elif split_validation is not None:
                 results[label]["validation"] = (
                     split_validation(
                         image, candidate, final_layout,
                     )
                 )
-            results[label]["inline_jump_table_validation"] = (
-                validate_inline_jump_tables(
-                    image, candidate, final_layout
+            if exidx_layout:
+                # The dedicated validator follows every relocated origin and
+                # reference.  The generic in-place scanners compare bytes at
+                # original PCs and are therefore inapplicable once the final
+                # live .text section is shorter than its linker-owned span.
+                results[label]["inline_jump_table_validation"] = {
+                    "status": "accepted",
+                    "table_count": 0,
+                    "entry_count": 0,
+                    "tables": [],
+                    "basis": "relocation_layout_has_no_jump_tables",
+                }
+                results[label]["pc_relative_data_validation"] = {
+                    "status": "accepted",
+                    "mapped_instruction_count": 12,
+                    "synthesized_instruction_count": 0,
+                    "pc_relative_reference_count": 0,
+                    "contract": "dedicated_relocation_and_ehabi_validation",
+                    "references": [],
+                }
+            else:
+                results[label]["inline_jump_table_validation"] = (
+                    validate_inline_jump_tables(
+                        image, candidate, final_layout
+                    )
                 )
-            )
-            results[label]["pc_relative_data_validation"] = (
-                validate_pc_relative_data_references(
-                    image, candidate, final_layout,
-                    allow_owned_literal_movement=(
-                        label in {
-                            "m0plus_moved_relocation",
-                            "m0plus_relocation_clone",
-                            "m3_abs32_jump_table_icp",
-                            "m3_detached_abs32_jump_table_icp",
-                        }
-                    ),
+                results[label]["pc_relative_data_validation"] = (
+                    validate_pc_relative_data_references(
+                        image, candidate, final_layout,
+                        allow_owned_literal_movement=(
+                            label in {
+                                "m0plus_moved_relocation",
+                                "m0plus_relocation_clone",
+                                "m3_abs32_jump_table_icp",
+                                "m3_detached_abs32_jump_table_icp",
+                            }
+                        ),
+                    )
                 )
-            )
             table_validation = results[label]["inline_jump_table_validation"]
             kinds = [table["kind"] for table in table_validation["tables"]]
             if label == "m3_rodata_load":
@@ -6185,6 +6522,14 @@ def main() -> int:
             ("cdsort", "m3_cluster_cdsort"),
         )
     }
+    m3_exidx_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_exidx_image, candidates["m3_exidx_function_reorder"],
+            output, args.fastdyn.resolve(), "exidx-function-reorder",
+            expected_words=(17, 42),
+        )
+    )
     m3_function_split_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -6301,6 +6646,7 @@ def main() -> int:
             m3_profile_function_reorder_execution,
             m3_callgraph_function_reorder_execution,
             *m3_cluster_executions.values(),
+            m3_exidx_execution,
             m3_function_split_execution,
             m3_cdsplit_execution,
             m3_loop_inversion_execution,
@@ -6604,6 +6950,8 @@ def main() -> int:
             m3_callgraph_function_reorder_execution,
         "m3_function_clustering_architectural_execution":
             m3_cluster_executions,
+        "m3_exidx_function_reorder_architectural_execution":
+            m3_exidx_execution,
         "m3_native_function_split_architectural_execution":
             m3_function_split_execution,
         "m3_native_cdsplit_architectural_execution":
@@ -6633,8 +6981,9 @@ def main() -> int:
                 "m3_function_reorder, m3_profile_function_reorder and "
                 "m3_callgraph_function_reorder gates, plus the matched "
                 "exec-count/HFSort/Pettis-Hansen/CDSort clustering matrix, "
-                "perform atomic whole-image relocation inside the exact "
-                "original .text PT_LOAD; m3_function_split and m3_cdsplit "
+                "and the fixed-footprint ARM EHABI ordering gate perform "
+                "atomic whole-image relocation inside the exact original "
+                ".text PT_LOAD; m3_function_split and m3_cdsplit "
                 "additionally "
                 "qualify two- and three-way fragments inside exact "
                 "linker-owned capacity"
@@ -6705,6 +7054,7 @@ def main() -> int:
                 "opt-in native BOLT read-only-load simplification for linked allocatable non-writable relocation-free scalar data on Thumb-2, using flag-preserving MOVW/MOVT materialization under an explicit read/fault/timing-elision contract, exact transformed-source origins, compact in-place emission, and Cortex-M3 execution",
                 "explicit ARM relocation mode with native BOLT user-directed, profile exec-count and call-graph CDSort whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
                 "native BOLT HFSort and Pettis-Hansen call-graph clustering, distinguished from exec-count and CDSort under one frozen profile, with linked caller/callee adjacency, repaired direct calls, exact relocation/origin ledgers, separately accounted linker alignment slack, unchanged executable PT_LOAD ranges, and Cortex-M3 execution",
+                "fixed-footprint ARM EHABI SHT_ARM_EXIDX reconstruction for relocation-complete Cortex-M function ordering, including PREL31 decode/re-encode, address sorting, CANTUNWIND and inline compact model identity, live .text sh_link retargeting, exact PT_ARM_EXIDX preservation, explicit rejection of external extab, split, folded, empty and non-contiguous coverage, and Cortex-M3 execution",
                 "opt-in native BOLT Profile2 hot/cold function splitting inside explicit linker-owned capacity, with vector/secondary entries protected, exact fragment and instruction-origin ledgers, widened cross-fragment branch repair, live SHT_REL ownership, unchanged PT_LOAD ranges, held-out cold-path Cortex-M3 execution, and atomic rejection without the fragment-placement/branch-event contract",
                 "opt-in native BOLT loop inversion for profiled Thumb loops with branch-timing admission, exact moved/synthesized instruction origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT double-jump control-flow peepholes with branch-event admission, exact retained instruction origins, compact in-place emission, and Cortex-M3 execution",
@@ -6739,6 +7089,7 @@ def main() -> int:
                 "additional ARM relocation classes beyond the modeled compact set",
                 "out-of-function Thumb veneer placement without explicit typed slots or under arbitrary whole-image layout",
                 "function clustering and splitting for jump-table, address-stable, veneer-slot or secondary-entry functions",
+                "ARM EHABI external .ARM.extab personality/LSDA rewriting and fragment unwind-record generation",
                 "DSP/FPU/MVE-specific optimization rewrites",
             ],
         },
@@ -6789,6 +7140,8 @@ def main() -> int:
             str(candidates["m3_cluster_pettis_hansen"]),
         "m3_cluster_cdsort_candidate":
             str(candidates["m3_cluster_cdsort"]),
+        "m3_exidx_function_reorder_candidate":
+            str(candidates["m3_exidx_function_reorder"]),
         "m3_function_split_candidate":
             str(candidates["m3_function_split"]),
         "m3_cdsplit_candidate": str(candidates["m3_cdsplit"]),

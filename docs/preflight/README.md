@@ -108,8 +108,9 @@ profile-execution-count and CDSort call-graph relocation-complete whole-image
 function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
 Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
 function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
-fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v118 run accepts all thirty-seven without
+fixtures, a relocation-complete ARM EHABI function-reordering fixture, and the
+real Cortex-M4 FreeRTOS image.
+The 18 November production-parity-v119 run accepts all thirty-eight without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -745,26 +746,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v118-function-clustering-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v119-arm-ehabi-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v118-function-clustering-2026-11-18/report.json),
-SHA-256 `e8f3721a0715eb92ccb4f4ea1222f76151680941c75a0f633bb72dd7dd0c636a`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v119-arm-ehabi-2026-11-18/report.json),
+SHA-256 `bff8d96abd19a9a12ff0fb38d593a920a6d73374ecf50656a73c05d4b5a9738f`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v118-function-clustering-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v119-arm-ehabi-2026-11-18/validation-manifest.json)
 (SHA-256
-`cee81b78972b240a985c547805a615c5484511d080d952f6a6fe3fe1bba12bd3`)
+`ad24e8d67358290f1c711f5db571d40d9a3238dc249cdc80c4291a972eb441c9`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`5d99e8ba9161eabc94acc597f5b483b79cf7358e5c8b8818fd15ae1a6c033131`),
+`8ba7512363a35a884f58874492129130d086b58eabf31439d741c734a432f7ac`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`5c0077f57e0dfcb0efaf4ce99de5fa66ee0232d5e8e361d9016f00cfdd023160`.
+`02804c458ce4c178814cb6336a97102c2ab684990fadd8aa5cd5046f8d8c675a`.
 
 Targeted validation completes 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -796,7 +797,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v118 validation passes 59/59 BOLT ARM lit tests, 12/12 AArch32
+The current v119 validation passes 60/60 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -811,6 +812,18 @@ Thumb pointer bit; intentionally even ABS32 switch-table entries compensate
 for local function-symbol typing; and origin maps parse locations as canonical
 byte addresses. The final ARM suite includes the switch-table regressions that
 initially caught the low-bit error.
+
+v119 also closes the fixed-footprint ARM EHABI ordering gap. BOLT now decodes
+the PREL31 code address in every allocatable `SHT_ARM_EXIDX` record, carries
+the `CANTUNWIND` or inline compact model with the original function identity,
+sorts by final code address and re-encodes the table after layout. The executed
+Cortex-M3 candidate moves all three functions, keeps `.ARM.exidx` at exactly
+32 bytes and its original address/file offset, preserves the `PT_ARM_EXIDX`
+mapping and live `.text` link, maps all 12 instructions and matches reference
+RAM `(17, 42)`. The real M4 compact control retains all 595 `CANTUNWIND`
+records and its 4,760-byte index exactly. External `.ARM.extab` personality or
+LSDA records, split/folded fragment records and variable-footprint index growth
+reject explicitly; they are not silently treated as qualified unwind support.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
