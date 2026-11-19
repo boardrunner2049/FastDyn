@@ -41,7 +41,8 @@ def test_reject_changed_or_unmeasured_config(tmp_path):
          'inputs':{'case':{'passes':True}},'plan':{'timing_inputs':{'case':{'config_sha256':file_sha256(config)}}},
          'runtime':{'qemu_sha256':'sha256:def','ram_storage':'as-configured'}}
     path.write_text(json.dumps(doc))
-    assert _selected_cache(path,config)==('fast','sha256:abc',doc['runtime'],None)
+    with pytest.raises(FileNotFoundError, match="plan.json"):
+        _selected_cache(path,config)
     config.write_text('unmeasured')
     with pytest.raises(ValueError,match='configuration was not measured'):
         _selected_cache(path,config)

@@ -165,6 +165,13 @@ def verify_candidate_receipt(path, doc, config):
     """
     _require(doc["status"] == "ok" and doc["reason"] == "speedup_established",
              "candidate lacks a measured speedup")
+    cases = doc["plan"]["timing_inputs"]
+    _require(bool(cases) and set(cases) == set(doc["inputs"]),
+             "insufficient performance evidence")
+    config_digest = file_sha256(config)
+    _require(any(case["config_sha256"] == config_digest for case in cases.values()),
+             "configuration was not measured")
+
     root = path.parent
     plan = _read(root / "plan.json")
     pairs, seed, alpha = plan["pair_count_per_input"], plan["seed"], plan["alpha"]
@@ -174,10 +181,7 @@ def verify_candidate_receipt(path, doc, config):
              and type(seed) is int and plan["warmups_per_arm"] == 1
              and plan["test"] == "one-sided-exact-balanced-paired-wins",
              "invalid paired timing plan")
-    cases = plan["timing_inputs"]
-    _require(bool(cases) and set(cases) == set(plan["orders"]) == set(doc["inputs"])
-             and any(case["config_sha256"] == file_sha256(config) for case in cases.values()),
-             "configuration was not measured")
+    _require(set(cases) == set(plan["orders"]), "timing plan cases and orders disagree")
     runtime = doc["runtime"]
     _require(set(runtime) == {"qemu_sha256", "ram_storage"} and runtime["qemu_sha256"],
              "missing measured runtime")
