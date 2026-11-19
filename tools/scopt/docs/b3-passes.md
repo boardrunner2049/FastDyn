@@ -104,6 +104,20 @@ rule 2) and are never guarded in v1 (deferred; candidate `chain-indirect`, §14)
 removed × C' entries > 0 (one per folded env load, decided branch, nopped instruction). B4:
 removed stores × unit entries; `b4_predicted_unprofitable` flags < 0.5 % of train BENCH.
 
+The GENERAL chaining passes reserve up to one main-loop link installation per
+target per recorded training replay. Their aggregate profile cannot show
+whether every target appeared in every replay. They model only remaining hits
+as avoided lookups and reject targets with zero estimated reuse. A new guard
+charges every lookup attempt at the exit, including traffic to unmatched
+targets. Added targets must improve the estimate when the exit already has a
+guard. The SPEC cost model uses its own arming path.
+
+Pass parameters `c_link` and `min_target_hits` default to zero. Set `c_link`
+to a measured nonnegative cost in nanoseconds per GENERAL installation.
+`min_target_hits` can require a higher aggregate exact count. The ledger
+records observed target hits, estimated avoided lookups, estimated installs,
+and total guard attempts. These estimates guide selection for measurement.
+
 ## Writing a semantic (region) pass
 
 A region pass gets one variant at a time and proposes same-length patches on it:

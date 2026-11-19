@@ -18,15 +18,24 @@ target's guard key differs from the one already on the exit),
 ``not_profitable`` (§10.3), ``slot_budget`` (256 units per pass).
 ``tbb``/``ldr pc,[rX]``/``bx rX`` exits are ``indirect_multiway`` and are
 never guarded in v1 (design §3.1 rule 2, §14: candidate ``chain-indirect``).
+
+Each GENERAL target's first hit in a replay exits through the main loop to
+install the native link. Only later matching hits can avoid a lookup.
+Aggregate profiles cannot say which targets were used on each replay, so
+we reserve up to one installation per target per recorded replay. A new
+guard charges all lookup traffic at its exit. The separate SPEC cost model
+accounts for its variants’ arming path. Set ``c_link`` to a calibrated nonnegative cost per GENERAL installation
+or ``min_target_hits`` to require a higher aggregate exact hit count.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+import math
 from typing import Any, ClassVar
 
 from ..analysis.api import ScopeRef
-from ..analysis.profitability import exit_saving
+from ..analysis.profitability import DEFAULTS
 from .base import Budgets, EditKind, GuardedSlot, Outcome, PassDescriptor, PassResult
 from ._b3util import refusal_result
 
@@ -45,7 +54,8 @@ def _descriptor(name: str) -> PassDescriptor:
         preserves=frozenset({"profile.counts", "cfg.known_edges"}),
         invalidates=frozenset({"code", "meta", "layout"}),
         params_schema={"targets_per_exit": int, "max_units": int, "min_pass_share": float,
-                       "c_lookup": float, "c_guard": float, "c_fail": float})
+                       "c_lookup": float, "c_guard": float, "c_fail": float,
+                       "min_target_hits": int, "c_link": float})
 
 
 def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResult:
@@ -59,13 +69,25 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
                           b3.layout_reason or "")
     st = view.b3
     p = ctx.params
-    cal = {k: float(p[k]) for k in ("c_lookup", "c_guard", "c_fail") if k in p}
+    lookup = float(p.get("c_lookup", DEFAULTS["c_lookup"]))
+    guard = float(p.get("c_guard", DEFAULTS["c_guard"]))
+    fail = float(p.get("c_fail", DEFAULTS["c_fail"]))
+    link = float(p.get("c_link", 0.0))
+    if not math.isfinite(link) or link < 0:
+        raise ValueError("c_link must be nonnegative and finite")
     min_share = float(p.get("min_pass_share", 0.5))
     per_exit = int(p.get("targets_per_exit", 2))
+    min_target_hits = int(p.get("min_target_hits", 0))
+    if min_target_hits < 0:
+        raise ValueError("min_target_hits must be nonnegative")
     max_units = int(p.get("max_units", MAX_UNITS))
     sid = ScopeRef("snapshot", ctx.snapshot_id)
     edges = ctx.analysis("return-edges", sid).value
     ctx.analysis("envlayout", sid)
+    profile_view = ctx.profile("steady")
+    profile = profile_view.profile if profile_view is not None else None
+    collection = profile.collection if profile is not None else {}
+    replays = max(1, len(collection.get("runs", ())), collection.get("repetitions") or 0)
     units = b3.units()
     vsrc = st.variant_sources()
     refused: Counter[str] = Counter()
@@ -73,6 +95,11 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
     touched: set[str] = set()
     n_slots = 0
     guarded_w = 0
+    avoided_w = 0
+    installed_w = 0
+    guard_attempts = 0
+    targets_below_threshold = 0
+    targets_without_reuse = 0
     for row in edges.exits:
         if row.exit_class != exit_class:
             continue
@@ -94,8 +121,19 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
             refused["no_free_slot"] += 1
             continue
         have = {s.vaddr for s in x.slots} if x is not None else set()
-        cands = [c for c in row.candidates if c.admitted and c.dst is not None and
-                 c.vaddr not in have][:max(0, per_exit - len(have))]
+        eligible = [c for c in row.candidates if c.admitted and c.dst is not None and
+                    c.vaddr not in have]
+        cands = []
+        for c in eligible:
+            if c.count <= replays:
+                targets_without_reuse += 1
+            elif min_target_hits and (c.status != "exact" or c.count < min_target_hits):
+                targets_below_threshold += 1
+            else:
+                cands.append(c)
+        if eligible and not cands:
+            refused["not_profitable"] += 1
+            continue
         if not cands:
             refused["target_not_profiled" if not have else "slot_budget"] += 1
             continue
@@ -105,9 +143,12 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
             k0 = None
         total = sum(int(c.count) for c in row.candidates)
         guarded = sum(s.weight for s in x.slots) if x is not None else 0
+        # Charge a fresh guard once for every lookup attempt. If the exit
+        # already has a SPEC or GENERAL slot, that fixed cost is already paid.
+        marginal = 0.0 if x is not None else -total * (guard + fail)
         picked = []
         for c in cands:
-            if not free:
+            if not free or len(picked) >= per_exit - len(have):
                 break
             cu = units[c.dst]
             try:
@@ -118,24 +159,40 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
             if k0 is not None and kc != k0:
                 refused["continuation_key_mismatch"] += 1
                 continue
+            installs = min(int(c.count), replays)
+            avoided = int(c.count) - installs
+            benefit = avoided * lookup - installs * link + int(c.count) * fail
+            if benefit <= 0:
+                refused["not_profitable"] += 1
+                continue
+            marginal += benefit
             k0 = kc
-            picked.append((c, cu, free.pop(0)))
+            picked.append((c, cu, free.pop(0), installs, avoided))
         if not picked:
             continue
-        sv = exit_saving(guarded + sum(int(c.count) for c, _, _ in picked), total, cal,
-                         min_share=min_share)
-        if not sv.profitable:
+        guarded += sum(int(c.count) for c, _, _, _, _ in picked)
+        if marginal <= 0 or guarded < min_share * max(guarded, total):
             refused["not_profitable"] += 1
             continue
-        for c, cu, slot in picked:
+        guard_attempts += total
+        for c, cu, slot, installs, avoided in picked:
             edits.redirect_exit(GuardedSlot(row.uid, row.exit_id, slot, "GENERAL", exit_class,
                                             c.vaddr, cu.key, tail_off=row.tail_off),
                                 dependency_additions=(f"edge:{row.uid}->{cu.uid}",))
             n_slots += 1
             guarded_w += int(c.count)
+            avoided_w += avoided
+            installed_w += installs
         touched.add(row.uid)
     stats = {"exits": n_x, "slots": n_slots, "units": len(touched),
-             "train_lookups_guarded": guarded_w}
+             "train_lookups_guarded": guarded_w,
+             "estimated_train_lookups_avoided": avoided_w,
+             "estimated_train_link_installs": installed_w,
+             "train_guard_attempts": guard_attempts,
+             "training_replays": replays,
+             "targets_without_estimated_reuse": targets_without_reuse}
+    if min_target_hits:
+        stats["targets_below_minimum_exact_hits"] = targets_below_threshold
     if n_slots:
         stats.update({f"refused:{k}": v for k, v in refused.items()})
         return PassResult(Outcome.CANDIDATE, "", f"{n_slots} GENERAL slots",
