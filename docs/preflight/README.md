@@ -1622,6 +1622,29 @@ bind the corpus result, regression XML and clean-apply check. This is static
 publication evidence under an explicitly changed branch-event/timing
 contract; it is not authentic exception-schedule execution or a speedup claim.
 
+v156 adds the missing architectural execution check without expanding the
+admitted transformation. A Cortex-M3 fixture invokes SVC twice. Its primary
+`SVCall_Handler` reads `IPSR`, contains the exact conditional branch-to-next
+shape, increments a non-stacked register and returns through `BX LR`. The
+reference and optimized images both write RAM words `(42, 11)`: the first
+requires both handler invocations and both exception returns to complete, and
+the second proves execution in exception 11. The optimized live handler is
+10 bytes rather than 12, preserves four surviving instruction identities, the
+typed `MRS IPSR` effect and the possible exception return, and changes no other
+function. The range-filling NOP after the live body is not executed.
+
+The aggregate production/FastDyn gate is therefore 60/60. The backend binary
+and patch are unchanged from v155, so its 84/84 ARM BOLT, 12/12 AArch32
+JITLink and 130-pass/150-skip unit evidence remains the regression basis. The
+new
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v156-handler-execution-r2/report.json)
+and
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v156-handler-execution-r2/validation-manifest.json)
+bind both executed images and RAM results. This establishes real SVC entry and
+`EXC_RETURN` continuation for the bounded fixture, not full Zephyr execution,
+nested exception/tail-chaining equivalence, asynchronous device-interrupt
+equivalence or a runtime speedup.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

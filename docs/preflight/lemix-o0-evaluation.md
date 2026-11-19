@@ -1151,11 +1151,11 @@ PYTHONPATH=src taskset -c 0 \
 The raw commands, logs, samples, disassemblies, inventories, candidate bodies, machine outputs, hashes, counterexamples, and costs are retained separately as supporting data. Primary baseline entry points are [manifest.json](../../build/preflight/lemix-o0-rerun-2026-11-16/manifest.json), [bolt-arm-options.json](../../build/preflight/lemix-o0-rerun-2026-11-16/bolt-arm-options.json), [samples.jsonl](../../build/preflight/lemix-o0-rerun-2026-11-16/samples.jsonl), [paired-results.json](../../build/preflight/lemix-o0-rerun-2026-11-16/paired-results.json), [binary-layout-inventory.json](../../build/preflight/lemix-o0-rerun-2026-11-16/binary-layout-inventory.json), [candidate-universe.csv](../../build/preflight/lemix-o0-rerun-2026-11-16/candidate-universe.csv), [stage-funnel.csv](../../build/preflight/lemix-o0-rerun-2026-11-16/stage-funnel.csv), [search-seeds-and-costs.json](../../build/preflight/lemix-o0-rerun-2026-11-16/search-seeds-and-costs.json), and [budget-and-costs.json](../../build/preflight/lemix-o0-rerun-2026-11-16/budget-and-costs.json). Prototype entry points are [prototype manifest](../../build/preflight/preflight-sdk-v1-2026-11-16/manifest.json), [stage ledger](../../build/preflight/preflight-sdk-v1-2026-11-16/stage-ledger.jsonl), and [pass outcomes](../../build/preflight/preflight-sdk-v1-2026-11-16/pass-outcomes.json). This document consolidates the historical screening experiment, focused rerun, and bounded prototype; historical raw evidence remains unchanged.
 
 The current full Cortex-M production evidence is the
-[v155 machine report](../../build/preflight/firm-bolt-cortex-m-v155-handler-branch-elision-r1/report.json),
-SHA-256 `3d38097debf5497ddecf7d75fa1bb38cb14194bf5c832f7b6643bd2812a8546c`;
-its [validation manifest](../../build/preflight/firm-bolt-cortex-m-v155-handler-branch-elision-r1/validation-manifest.json),
-SHA-256 `c9d0bf97a005168fb228085eb30d7cfc8382e1626a1a6d46bb2592a1ab30091c`,
-binds the exact regression commands and XML evidence. It accepts 59/59
+[v156 machine report](../../build/preflight/firm-bolt-cortex-m-v156-handler-execution-r2/report.json),
+SHA-256 `5d7504cabdf22bf1e69056dcdd9fc9fb3b2d361e0c4241c53bb4007d9f35645a`;
+its [validation manifest](../../build/preflight/firm-bolt-cortex-m-v156-handler-execution-r2/validation-manifest.json),
+SHA-256 `255c1c02b3f80b1262046917d4d5aa2b669361dd1fea0bbd610e7fc87d3992ac`,
+binds the exact production command, executed artifacts and inherited unchanged-backend regression evidence. It accepts 60/60
 production and architectural profiles with ordinary FOP enabled. v138 adapted
 BOLT's x86-oriented `RegReAssign` pass through target-owned legality, encoding
 and byte-cost hooks; v139 added typed `SHT_ARM_EXIDX` range analysis; v140 and
@@ -1376,9 +1376,22 @@ remains rejected under the option. This is static publication evidence
 under an explicit branch-event/timing admission, not authentic
 exception-schedule execution or a runtime benefit.
 
+v156 adds actual Handler-mode execution for that bounded contract. A dedicated
+Cortex-M3 image invokes SVC twice. `SVCall_Handler` records `IPSR`, executes the
+same conditional branch-to-next pattern, increments a non-stacked register and
+returns through `BX LR`. The reference and candidate each write RAM words
+`(42, 11)`: 42 requires both handler executions and exception returns to
+complete, while 11 is the architectural SVCall exception number. The candidate
+removes only original identity `0x08000052→0x08000054`, preserves the other four
+instruction identities, the `MRS IPSR` state effect and `BX LR`, and reduces
+the live handler from 12 to 10 bytes. The aggregate gate becomes 60/60. This
+establishes SVC entry and `EXC_RETURN` continuation in the fixture; it does not
+establish full Zephyr execution, nested exception or tail-chaining schedules,
+asynchronous device interrupts, or speedup.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `a6d358638c71a84d3b5ed126f3220ddce094a218ef47ab6054c53955d9bc5228`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `cd92986d54730d571f05858f66e358cc7763c35123f567868e2c4fcc4afabfce`. Regression runs complete 84/84 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v155 validation manifest](../../build/preflight/firm-bolt-cortex-m-v155-handler-branch-elision-r1/validation-manifest.json), SHA-256 `c9d0bf97a005168fb228085eb30d7cfc8382e1626a1a6d46bb2592a1ab30091c`, binds these results to the commands and artifacts.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `a6d358638c71a84d3b5ed126f3220ddce094a218ef47ab6054c53955d9bc5228`; it clean-applies to the pinned revision and matches the tested checkout. The tested `llvm-bolt` SHA-256 is `cd92986d54730d571f05858f66e358cc7763c35123f567868e2c4fcc4afabfce`. Regression runs complete 84/84 ARM BOLT lit tests, 12/12 AArch32 JITLink lit tests, and 130 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 86/150, Passes 5/0 and Profile 39/0). The [v156 validation manifest](../../build/preflight/firm-bolt-cortex-m-v156-handler-execution-r2/validation-manifest.json), SHA-256 `255c1c02b3f80b1262046917d4d5aa2b669361dd1fea0bbd610e7fc87d3992ac`, binds the 60-profile production run and SVC execution to the unchanged v155 backend regression evidence.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

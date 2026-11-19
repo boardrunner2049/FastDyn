@@ -55,6 +55,10 @@ THREADX_IMAGE = ROOT / "tests/binaries/rtos/threadx.elf"
 ZEPHYR_IMAGE = ROOT / "tests/binaries/rtos/zephyr.elf"
 M3_SOURCE = ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3.s"
 M3_LINKER = ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3.ld"
+M3_HANDLER_BRANCH_ELISION_SOURCE = (
+    ROOT
+    / "tests/preflight/fixtures/firm_bolt_cortex_m3_handler_branch_elision.s"
+)
 M3_JUMP6_YAML = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_jump6.yaml"
 )
@@ -3198,6 +3202,22 @@ def build_m3_fixture(output: Path, logs: Path) -> Path:
     return image
 
 
+def build_m3_handler_branch_elision_fixture(
+        output: Path, logs: Path) -> Path:
+    """Build a real SVC-entry/EXC_RETURN execution fixture."""
+    image = output / "firm-bolt-cortex-m3-handler-branch-reference.elf"
+    command = [
+        str(ARM_GCC), "-mcpu=cortex-m3", "-mthumb", "-nostdlib",
+        "-Wl,--emit-relocs", f"-Wl,-T,{M3_LINKER}",
+        str(M3_HANDLER_BRANCH_ELISION_SOURCE), "-o", str(image),
+    ]
+    require_success(
+        run(command, logs / "build-m3-handler-branch.log"),
+        "M3 handler branch-elision fixture build",
+    )
+    return image
+
+
 def build_m3_function_reorder_fixture(
     output: Path, logs: Path, *, variant: str = "user",
 ) -> Path:
@@ -5092,6 +5112,9 @@ def main() -> int:
     m0_icp_method_load_profile = write_m0_icp_method_load_profile(output)
     m3_image = build_m3_fixture(output, logs)
     m3_profile = write_m3_profile(output)
+    m3_handler_branch_elision_image = (
+        build_m3_handler_branch_elision_fixture(output, logs)
+    )
     m3_jump6_image = build_m3_jump6_fixture(output, logs)
     m3_narrow_data_image = build_m3_narrow_data_fixture(output, logs)
     m3_inline_image = build_m3_inline_fixture(output, logs)
@@ -5287,6 +5310,10 @@ def main() -> int:
             f"--data={m3_profile}",
             "--reorder-blocks=ext-tsp",
         ] if args.full_pipeline else []),
+        ("m3_handler_branch_elision", "cortex-m3",
+         m3_handler_branch_elision_image, {".isr_vector": None}, [
+             "--firmbolt-allow-handler-fallthrough-branch-elision",
+         ]),
         ("m3_jump6", "cortex-m3", m3_jump6_image,
          {".isr_vector": None}, []),
         ("m3_narrow_data", "cortex-m3", m3_narrow_data_image,
@@ -5657,6 +5684,7 @@ def main() -> int:
         if native_pass_report is not None and label in {
             "chibios", "threadx", "zephyr",
             "zephyr_handler_branch_elision",
+            "m3_handler_branch_elision",
         }:
             expected_rejections = 1 if label == "zephyr" else 0
             observed_rejections = int(
@@ -5681,11 +5709,19 @@ def main() -> int:
                     f"{expected_rejections} {expected_reasons}, observed "
                     f"{observed_rejections} {rejection_reasons}"
                 )
-            if label == "zephyr_handler_branch_elision":
+            if label in {
+                "zephyr_handler_branch_elision",
+                "m3_handler_branch_elision",
+            }:
+                handler_name = (
+                    "z_arm_svc"
+                    if label == "zephyr_handler_branch_elision"
+                    else "SVCall_Handler"
+                )
                 handler = next(
                     function
                     for function in native_pass_report["functions"]
-                    if function["name"] == "z_arm_svc"
+                    if function["name"] == handler_name
                 )
                 originals = {
                     int(instruction["original_address"]): instruction
@@ -5765,7 +5801,7 @@ def main() -> int:
                     )
                 handler_branch_elision_validation = {
                     "status": "accepted",
-                    "function": "z_arm_svc",
+                    "function": handler_name,
                     "removed_original_identity": int(
                         removed[0]["original_address"]
                     ),
@@ -6467,6 +6503,7 @@ def main() -> int:
             if label in {
                 "chibios", "threadx", "zephyr",
                 "zephyr_handler_branch_elision",
+                "m3_handler_branch_elision",
             }:
                 observed_final_rejections = sorted(
                     (
@@ -6486,6 +6523,7 @@ def main() -> int:
                          ("exception_contract_unsupported",)),
                     ],
                     "zephyr_handler_branch_elision": [],
+                    "m3_handler_branch_elision": [],
                 }[label]
                 if observed_final_rejections != expected_final_rejections:
                     raise RuntimeError(
@@ -9876,6 +9914,15 @@ def main() -> int:
         validate_m3_execution(m3_image, candidates["m3"], output,
                               args.fastdyn.resolve())
     )
+    m3_handler_branch_elision_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_handler_branch_elision_image,
+            candidates["m3_handler_branch_elision"], output,
+            args.fastdyn.resolve(), "handler-fallthrough-branch-elision",
+            expected_words=(42, 11),
+        )
+    )
     m3_jump6_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -10224,7 +10271,8 @@ def main() -> int:
             m0_call_veneer_execution, m0_reserved_veneer_execution,
             m0_icp_execution, m0_icp_tail_execution,
             m0_icp_method_load_execution,
-            m3_execution, m3_jump6_execution, m3_narrow_data_execution,
+            m3_execution, m3_handler_branch_elision_execution,
+            m3_jump6_execution, m3_narrow_data_execution,
             m3_inline_execution, m3_inline_memcpy_execution,
             m3_memcpy1_specialization_execution,
             m3_three_way_branch_execution,
@@ -10685,6 +10733,8 @@ def main() -> int:
         "m0plus_native_method_load_elimination_architectural_execution":
             m0_icp_method_load_execution,
         "m3_architectural_execution": m3_execution,
+        "m3_handler_branch_elision_architectural_execution":
+            m3_handler_branch_elision_execution,
         "m3_jump6_architectural_execution": m3_jump6_execution,
         "m3_narrow_data_architectural_execution":
             m3_narrow_data_execution,
@@ -10833,6 +10883,7 @@ def main() -> int:
                 "Cortex-M55 MVE integer/floating-point decode and exact re-emission",
                 "Cortex-M85 PACBTI-M decode with whole-function preservation",
                 "Cortex-M vector import with distinct reset and Handler-mode exception-entry contracts",
+                "opt-in exact conditional branch-to-next deletion in a primary Cortex-M handler with all surviving identities ordered, typed state effects and possible exception returns retained, plus Cortex-M3 SVC entry, IPSR=11 and EXC_RETURN execution",
                 "target-classified Cortex-M possible exception returns through BX LR, BX register, MOV PC, register, POP/LDM PC and single-load-to-PC forms, with exact original identity and instruction retention",
                 "typed Cortex-M architectural-state effects for special-register access, interrupt masking, barriers, exclusive-monitor changes, exception triggers, event scheduling, floating-point context and security-state transitions",
                 "exact identity, target effect class, decoded instruction and relative-order retention for architectural-state instructions in exception handlers",
@@ -10867,7 +10918,7 @@ def main() -> int:
                 "TBB/TBH bases produced by non-ADR or ambiguous data flow",
                 "switch bounds reloaded across observable memory or asynchronous effects",
                 "experimental stack-store removal",
-                "secondary vector entries and handler transformations beyond the same-count FOP contract; possible exception-return and architectural-state instructions are modeled, while full stacked-state values, nested exception scheduling and device-interrupt arrival remain outside the admitted transformation contract",
+                "secondary vector entries and handler transformations beyond the same-count FOP or exact admitted branch-to-next contract; possible exception-return and architectural-state instructions are modeled, while full stacked-state values, nested exception scheduling and device-interrupt arrival remain outside the admitted transformation contract",
                 "TrustZone gateway, security-test, and Secure/Non-secure transition transformations",
                 "PACBTI-M function transformations",
                 "layout changes that violate strict modeled-time state",
