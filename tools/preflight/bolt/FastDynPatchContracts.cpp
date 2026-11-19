@@ -256,7 +256,7 @@ using FirmwareModification = BinaryFunction::FirmwareModification;
 using FirmwarePublicationRejection =
     BinaryFunction::FirmwarePublicationRejection;
 
-static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 23>
+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 24>
     FirmwareModificationNames = {{
         {FirmwareModification::CFGNormalization, "cfg_normalization"},
         {FirmwareModification::UnreachableCodeElimination,
@@ -294,6 +294,7 @@ static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 23>
          "jump_table_footprint_reduction"},
         {FirmwareModification::IdenticalCodeFolding,
          "identical_code_folding"},
+        {FirmwareModification::InlineMemcpy, "inline_memcpy"},
     }};
 
 json::Array firmwareModificationReasons(const BinaryFunction &BF) {

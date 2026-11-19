@@ -126,9 +126,10 @@ rebuilding, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
 relocation-complete compact and generic ARM EHABI function-reordering
 fixtures, a platform-qualified absolute `R_ARM_TARGET1` dispatch-table
 function-reordering fixture, a relocation-mode PC-relative `MOVW/MOVT`
-zero-addend fixture and a separately executed non-zero-addend fixture, and the
+zero-addend fixture and a separately executed non-zero-addend fixture, an
+opt-in fixed-size native `memcpy` inlining fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November production-parity-v131 run accepts all forty-eight without
+The 19 November production-parity-v132 run accepts all forty-nine without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -764,13 +765,13 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v131-pcrel-nonzero-addends-final2-2026-11-19
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v132-inline-memcpy-final1-2026-11-19
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v131-pcrel-nonzero-addends-final2-2026-11-19/report.json),
-SHA-256 `fa9bb19ecf96a01f7180d695627c9b5f219f4c2cbd25b4329f604f5ad8fb39f2`.
-The machine-readable
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v132-inline-memcpy-final1-2026-11-19/report.json),
+SHA-256 `58b82e5e2257c99d50a01946739f68f3367e83c16da98b655461dee8a5c27778`.
+The preceding v131 machine-readable
 [`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v131-pcrel-nonzero-addends-final2-2026-11-19/validation-manifest.json)
 has SHA-256
 `f9c201958a108f05ce8d73f034710e99426071a9a2d8cf9efda5a2d226c8efa3`
@@ -779,11 +780,22 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 has SHA-256
-`8a6c7144f65f08e024f4de42455fdeb44dbfcd0290e4110434435c42f4ac33e6`,
+`954f40c28b0412e3a9c0490cea739e10a1806764af7caeb8e0f08a58d599ca06`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`c7eb711fc7665745ae1ddb4139a81ca78e4b9f08104108869a491e729a3c53fb`.
+`f10676919a6b65c9493657d4b71180f22aeee5cc193887f9bb748f9b32106c05`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 82/82
+(70 ARM and 12 JITLink). The BOLT unit executables pass 124 tests and
+explicitly skip 132 target-inapplicable parameterizations: Core is 80/132,
+Passes is 5/0 and Profile is 39/0. The retained
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v132-inline-memcpy-final1-2026-11-19/core-tests.xml)
+has SHA-256
+`1d49c99e12fc5905e1d772bf87186620dc66dc9164d92036fe149f5545175550`;
+the combined
+[`arm-and-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v132-inline-memcpy-final1-2026-11-19/arm-and-jitlink-lit.xml)
+has SHA-256
+`d44c0991446a22f943d36d045532569c2af2c3873a47a962f11f93b850b5936b`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1053,6 +1065,26 @@ and
 [`absolute pair`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb2-abs-mov-pair-addend-reorder.s);
 the production source is
 [`firm_bolt_cortex_m3_pcrel_mov_pair_addend.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair_addend.s).
+
+v132 places BOLT's existing `InlineMemcpy` pass in the audited ARM schedule
+instead of introducing a second optimizer. It recognizes an exact,
+unpredicated constant byte count reaching `r2` and expands only sizes 1--32.
+The generated Thumb sequence uses byte loads/stores through `r3`, so it is
+alignment-safe and does not require a post-M0 instruction extension. The pass
+is off unless `--firmbolt-allow-inline-memcpy` admits disjoint ordinary RAM,
+valid source/destination ranges, AAPCS caller-clobbers and the changed
+call/fault/event shape. The executed M3 fixture replaces one three-byte call
+with three loads and three stores, shrinks `copy_three` from 28 to 18 live
+bytes, attributes all six generated memory operations to the exact original
+call identity and produces `0x00332211` in both reference and candidate under
+FastDyn. Unknown size, size 33 and an intervening call remain unchanged; a
+missing contract rejects before publication. The complete gate is 49/49 and
+adds no segment. This is pass-integration, effect-contract, compact-emission
+and execution evidence, not a throughput result or arbitrary `memcpy`
+qualification. The focused source regression is
+[`thumb-native-inline-memcpy.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb-native-inline-memcpy.s),
+and the executed fixture is
+[`firm_bolt_cortex_m3_inline_memcpy.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_inline_memcpy.s).
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

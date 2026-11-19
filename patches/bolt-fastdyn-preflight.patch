@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..a04f7787f3ad823168e168027f7b09b24eb40005 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..552c2fa33a7317be5cc6ebe0820bbc4c85f2c847 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,62 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,63 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -163,6 +163,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..a04f7787f3ad823168e168027f7b09b2
 +    BlockAlignment = 1U << 20,
 +    JumpTableFootprintReduction = 1U << 21,
 +    IdenticalCodeFolding = 1U << 22,
++    InlineMemcpy = 1U << 23,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -193,7 +194,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..a04f7787f3ad823168e168027f7b09b2
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +248,17 @@ public:
+@@ -192,6 +249,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -211,7 +212,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..a04f7787f3ad823168e168027f7b09b2
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +399,54 @@ private:
+@@ -332,6 +400,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -266,7 +267,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..a04f7787f3ad823168e168027f7b09b2
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1583,70 @@ public:
+@@ -1468,6 +1584,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -337,7 +338,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..a04f7787f3ad823168e168027f7b09b2
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2113,48 @@ public:
+@@ -1934,6 +2114,48 @@ public:
      return *this;
    }
  
@@ -386,7 +387,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..a04f7787f3ad823168e168027f7b09b2
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2552,8 @@ public:
+@@ -2331,6 +2553,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -3195,7 +3196,7 @@ index ea620bb82184d2bf88d1b9d79d130e0e3d6535a7..5f6b2424f39163db9ff858d8c3590721
    BC.outs() << "BOLT-INFO: Allocation combiner: " << NumCombined
              << " empty spaces coalesced (dyn count: " << DynamicCountCombined
 diff --git a/bolt/lib/Passes/BinaryPasses.cpp b/bolt/lib/Passes/BinaryPasses.cpp
-index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016f22611ee 100644
+index 5c8208f96bc4abbce40038105e206f7afb040b9a..01668c64486335e56a518f2f07a6347bc77890f0 100644
 --- a/bolt/lib/Passes/BinaryPasses.cpp
 +++ b/bolt/lib/Passes/BinaryPasses.cpp
 @@ -14,6 +14,7 @@
@@ -3206,7 +3207,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
  #include "bolt/Passes/RegAnalysis.h"
  #include "bolt/Passes/ReorderAlgorithm.h"
  #include "bolt/Passes/ReorderFunctions.h"
-@@ -111,6 +112,18 @@ static cl::list<Peepholes::PeepholeOpts> Peepholes(
+@@ -111,6 +112,25 @@ static cl::list<Peepholes::PeepholeOpts> Peepholes(
                            "enable all peephole optimizations")),
      cl::cat(BoltOptCategory));
  
@@ -3222,10 +3223,17 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
 +             "events to be replaced by constants on Cortex-M"),
 +    cl::init(false), cl::Hidden, cl::cat(BoltOptCategory));
 +
++static cl::opt<bool> FirmBOLTAllowInlineMemcpy(
++    "firmbolt-allow-inline-memcpy",
++    cl::desc("allow qualified fixed-size Cortex-M memcpy calls to become "
++             "byte loads/stores under an admitted disjoint ordinary-RAM, "
++             "AAPCS caller-clobber, call-event and fault/event contract"),
++    cl::init(false), cl::Hidden, cl::cat(BoltOptCategory));
++
  static cl::opt<unsigned>
      PrintFuncStat("print-function-statistics",
                    cl::desc("print statistics about basic block ordering"),
-@@ -243,7 +256,7 @@ namespace bolt {
+@@ -243,7 +263,7 @@ namespace bolt {
  
  bool BinaryFunctionPass::shouldOptimize(const BinaryFunction &BF) const {
    return BF.isSimple() && BF.getState() == BinaryFunction::State::CFG &&
@@ -3234,7 +3242,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
  }
  
  bool BinaryFunctionPass::shouldPrint(const BinaryFunction &BF) const {
-@@ -323,6 +336,10 @@ void NormalizeCFG::runOnFunction(BinaryFunction &BF) {
+@@ -323,6 +343,10 @@ void NormalizeCFG::runOnFunction(BinaryFunction &BF) {
    if (NumDuplicateEdges || NeedsFixBranches)
      BF.fixBranches();
  
@@ -3245,7 +3253,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
    NumDuplicateEdgesMerged += NumDuplicateEdges;
    NumBlocksRemoved += NumRemoved;
  }
-@@ -368,6 +385,9 @@ void EliminateUnreachableBlocks::runOnFunction(BinaryFunction &Function) {
+@@ -368,6 +392,9 @@ void EliminateUnreachableBlocks::runOnFunction(BinaryFunction &Function) {
    if (Count) {
      auto L = BC.scopeLock();
      Modified.insert(&Function);
@@ -3255,7 +3263,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
      if (opts::Verbosity > 0)
        BC.outs() << "BOLT-INFO: removed " << Count
                  << " dead basic block(s) accounting for " << Bytes
-@@ -428,6 +448,9 @@ Error ReorderBasicBlocks::runOnFunctions(BinaryContext &BC) {
+@@ -428,6 +455,9 @@ Error ReorderBasicBlocks::runOnFunctions(BinaryContext &BC) {
      const bool LayoutChanged =
          modifyFunctionLayout(BF, opts::ReorderBlocks, opts::MinBranchClusters);
      if (LayoutChanged) {
@@ -3265,7 +3273,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
        ModifiedFuncCount.fetch_add(1, std::memory_order_relaxed);
        if (opts::PrintFuncStat > 0) {
          const uint64_t Distance = BF.getLayout().getEditDistance(OldBlockOrder);
-@@ -563,18 +586,53 @@ Error FixupBranches::runOnFunctions(BinaryContext &BC) {
+@@ -563,18 +593,53 @@ Error FixupBranches::runOnFunctions(BinaryContext &BC) {
    if (ShouldRunRegisterAnalysis)
      RA.emplace(BC, nullptr, nullptr);
  
@@ -3324,7 +3332,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
    }
    return Error::success();
  }
-@@ -653,7 +711,7 @@ Error FinalizeFunctions::runOnFunctions(BinaryContext &BC) {
+@@ -653,7 +718,7 @@ Error FinalizeFunctions::runOnFunctions(BinaryContext &BC) {
  }
  
  Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
@@ -3333,7 +3341,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
      return Error::success();
  
    // If the function wouldn't fit, mark it as non-simple. Otherwise, we may emit
-@@ -663,17 +721,27 @@ Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
+@@ -663,17 +728,27 @@ Error CheckLargeFunctions::runOnFunctions(BinaryContext &BC) {
      std::tie(HotSize, ColdSize) =
          BC.calculateEmittedSize(BF, /*FixBranches=*/false);
      uint64_t MainFragmentSize = HotSize;
@@ -3368,7 +3376,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
        BF.setSimple(false);
      }
    };
-@@ -1138,8 +1206,11 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
+@@ -1138,8 +1213,11 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
    const BinaryContext &BC = Function.getBinaryContext();
    for (BinaryBasicBlock &BB : Function) {
      for (MCInst &Inst : BB) {
@@ -3382,7 +3390,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
          continue;
  
        MCInst OriginalInst;
-@@ -1166,12 +1237,28 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
+@@ -1166,12 +1244,28 @@ uint64_t ShortenInstructions::shortenInstructions(BinaryFunction &Function) {
  
  Error ShortenInstructions::runOnFunctions(BinaryContext &BC) {
    std::atomic<uint64_t> NumShortened{0};
@@ -3413,7 +3421,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
        nullptr, "ShortenInstructions");
  
    if (NumShortened)
-@@ -1226,15 +1313,42 @@ Error Peepholes::runOnFunctions(BinaryContext &BC) {
+@@ -1226,15 +1320,42 @@ Error Peepholes::runOnFunctions(BinaryContext &BC) {
    if (Opts == PEEP_NONE)
      return Error::success();
  
@@ -3457,7 +3465,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
        assert(Function.validateCFG());
      }
    }
-@@ -1303,6 +1417,8 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1303,6 +1424,8 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
            BC.getSectionForAddress(TargetAddress);
        if (!DataSection || DataSection->isWritable())
          continue;
@@ -3466,7 +3474,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
  
        if (DataSection->isText()) {
          // If data is not part of a function, check if it is part of a global CI
-@@ -1320,9 +1436,23 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1320,9 +1443,23 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
            continue;
        }
  
@@ -3492,7 +3500,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
  
        ++NumLocalLoadsFound;
        if (BB->hasProfile())
-@@ -1330,11 +1460,18 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1330,11 +1467,18 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
  
        uint32_t Offset = TargetAddress - DataSection->getAddress();
        StringRef ConstantData = DataSection->getContents();
@@ -3512,7 +3520,7 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
        It = std::next(BB->replaceInstruction(It, Instrs), Instrs.size() - 1);
  
        ++NumLocalLoadsSimplified;
-@@ -1352,8 +1489,20 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
+@@ -1352,8 +1496,20 @@ bool SimplifyRODataLoads::simplifyRODataLoads(BinaryFunction &BF) {
  }
  
  Error SimplifyRODataLoads::runOnFunctions(BinaryContext &BC) {
@@ -3533,7 +3541,114 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..48d1d85c24ab45b2222b3f18eb0b2016
      if (shouldOptimize(Function) && simplifyRODataLoads(Function))
        Modified.insert(&Function);
    }
-@@ -2115,13 +2264,18 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
+@@ -1918,21 +2074,41 @@ Error StripRepRet::runOnFunctions(BinaryContext &BC) {
+ }
+ 
+ Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
+-  if (!BC.isX86() && !BC.isAArch64())
++  if (!BC.isX86() && !BC.isAArch64() && !BC.isARM())
+     return Error::success();
+ 
++  if (BC.isARM() && !opts::FirmBOLTAllowInlineMemcpy)
++    return createStringError(
++        inconvertibleErrorCode(),
++        "Cortex-M memcpy inlining changes call, memory-access and fault/event "
++        "observations; add --firmbolt-allow-inline-memcpy only for an "
++        "admitted disjoint ordinary-RAM contract");
++
+   uint64_t NumInlined = 0;
+   uint64_t NumInlinedDyno = 0;
+   for (auto &BFI : BC.getBinaryFunctions()) {
++    BinaryFunction &BF = BFI.second;
++    if (BC.isARM() && !shouldOptimize(BF))
++      continue;
+     for (BinaryBasicBlock &BB : BFI.second) {
+       for (auto II = BB.begin(); II != BB.end(); ++II) {
+         MCInst &Inst = *II;
+ 
+-        if (!BC.MIB->isCall(Inst) || MCPlus::getNumPrimeOperands(Inst) != 1 ||
+-            !Inst.getOperand(0).isExpr())
++        if (!BC.MIB->isCall(Inst))
++          continue;
++
++        // X86 and AArch64 direct calls carry one expression operand.  Thumb
++        // BL also carries predicate operands, with the target expression in a
++        // target-defined position.  Use the MCPlusBuilder's qualified target
++        // accessor instead of imposing the hosted operand layout on ARM.
++        if (!BC.isARM() &&
++            (MCPlus::getNumPrimeOperands(Inst) != 1 ||
++             !Inst.getOperand(0).isExpr()))
+           continue;
+ 
+         const MCSymbol *CalleeSymbol = BC.MIB->getTargetSymbol(Inst);
++        if (!CalleeSymbol)
++          continue;
+         if (CalleeSymbol->getName() != "memcpy" &&
+             CalleeSymbol->getName() != "memcpy@PLT" &&
+             CalleeSymbol->getName() != "_memcpy8")
+@@ -1941,23 +2117,55 @@ Error InlineMemcpy::runOnFunctions(BinaryContext &BC) {
+         const bool IsMemcpy8 = (CalleeSymbol->getName() == "_memcpy8");
+         const bool IsTailCall = BC.MIB->isTailCall(Inst);
+ 
++        // The Cortex-M ABI has no standardized _memcpy8 end-pointer helper.
++        // Keep that target-specific spelling unchanged until its exact return
++        // contract is supplied by a firmware profile.
++        if (BC.isARM() && IsMemcpy8)
++          continue;
++
+         // Extract size from preceding instructions (AArch64 only).
+         // Pattern: MOV X2, #nb-bytes; BL memcpy src, dest, X2.
+         std::optional<uint64_t> KnownSize =
+             BC.MIB->findMemcpySizeInBytes(BB, II);
+ 
++        if (BC.isARM() && opts::Verbosity >= 2)
++          BC.outs() << "BOLT-DEBUG: Cortex-M memcpy candidate in "
++                    << BF.getPrintName() << " targets "
++                    << CalleeSymbol->getName() << " with size "
++                    << (KnownSize ? Twine(*KnownSize) : Twine("unknown"))
++                    << "\n";
++
+         if (BC.isAArch64() && (!KnownSize.has_value() || *KnownSize > 64))
+           continue;
+ 
+-        const InstructionListType NewCode =
++        // Thumb-1 byte-immediate loads/stores cover offsets 0..31.  Byte-wise
++        // copying deliberately preserves access widths; wider accesses would
++        // introduce alignment and device-observation assumptions.  Zero-size
++        // calls remain calls because erasing their call event is a separate
++        // contract decision.
++        if (BC.isARM() &&
++            (!KnownSize.has_value() || *KnownSize == 0 || *KnownSize > 32))
++          continue;
++
++        InstructionListType NewCode =
+             BC.MIB->createInlineMemcpy(IsMemcpy8, KnownSize);
+-        II = BB.replaceInstruction(II, NewCode);
+-        std::advance(II, NewCode.size() - 1);
++        if (BC.isARM()) {
++          for (MCInst &Replacement : NewCode)
++            annotateFastDynTransformedFrom(BC, Inst, Replacement);
++          BF.setFirmwareModified(
++              BinaryFunction::FirmwareModification::InlineMemcpy);
++        }
++        std::optional<MCInst> TailReturn;
+         if (IsTailCall) {
+-          MCInst Return;
+-          BC.MIB->createReturn(Return);
+-          II = BB.insertInstruction(std::next(II), std::move(Return));
++          TailReturn.emplace();
++          BC.MIB->createReturn(*TailReturn);
++          if (BC.isARM())
++            annotateFastDynTransformedFrom(BC, Inst, *TailReturn);
+         }
++        II = BB.replaceInstruction(II, NewCode);
++        std::advance(II, NewCode.size() - 1);
++        if (TailReturn)
++          II = BB.insertInstruction(std::next(II), std::move(*TailReturn));
+ 
+         ++NumInlined;
+         NumInlinedDyno += BB.getKnownExecutionCount();
+@@ -2115,13 +2323,18 @@ Error SpecializeMemcpy1::runOnFunctions(BinaryContext &BC) {
  
  void RemoveNops::runOnFunction(BinaryFunction &BF) {
    const BinaryContext &BC = BF.getBinaryContext();
@@ -3567,10 +3682,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..394ce6790198f56961d4a4bd87fa590ba0f55adc
+index 0000000000000000000000000000000000000000..6c765ff6df4373ceac53c415808cfe5992acc8a2
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4688 @@
+@@ -0,0 +1,4689 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -3829,7 +3944,7 @@ index 0000000000000000000000000000000000000000..394ce6790198f56961d4a4bd87fa590b
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 23>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 24>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -3867,6 +3982,7 @@ index 0000000000000000000000000000000000000000..394ce6790198f56961d4a4bd87fa590b
 +         "jump_table_footprint_reduction"},
 +        {FirmwareModification::IdenticalCodeFolding,
 +         "identical_code_folding"},
++        {FirmwareModification::InlineMemcpy, "inline_memcpy"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -10314,7 +10430,7 @@ index c8c9298805268db2cc2c54ac660bd4bedd946879..a8c2e3e4ad1da401a18a5196a6ffa1f6
    }
  
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..b8c33e54c6b54bc732aa1def13fc0e1a03d3e028 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..404c7531a92adfbc9a7bac44ecd1c873591e2b96 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -10346,7 +10462,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..b8c33e54c6b54bc732aa1def13fc0e1a
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +380,147 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -372,6 +380,153 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -10394,7 +10510,8 @@ index 18c84468b04ce23388d824e28c0029be48789a45..b8c33e54c6b54bc732aa1def13fc0e1a
 +      BC.outs()
 +          << "BOLT-INFO: Cortex-M audited pass schedule: profile import/stats, "
 +             "firmware constraints, reference validation, admitted native "
-+             "indirect-call promotion, inlining, tail duplication and "
++             "indirect-call promotion, inlining, fixed-size memcpy, tail "
++             "duplication and "
 +             "control-flow peepholes, "
 +             "shortening, NOP "
 +             "cleanup, CFG normalization, block layout, unreachable-code "
@@ -10428,6 +10545,11 @@ index 18c84468b04ce23388d824e28c0029be48789a45..b8c33e54c6b54bc732aa1def13fc0e1a
 +        std::make_unique<JTFootprintReduction>(PrintJTFootprintReduction),
 +        opts::JTFootprintReductionFlag);
 +    Manager.registerPass(std::make_unique<IndirectCallPromotion>(PrintICP));
++    // Recover fixed memcpy sizes before the generic inliner splits blocks at
++    // call sites; the size definition and BL must remain in one straight-line
++    // block for the target hook's reaching-definition proof.
++    Manager.registerPass(std::make_unique<InlineMemcpy>(NeverPrint),
++                         opts::StringOps);
 +    Manager.registerPass(std::make_unique<Inliner>(PrintInline));
 +    Manager.registerPass(std::make_unique<ShortenInstructions>(NeverPrint),
 +                         opts::ShortenInstructions);
@@ -10494,7 +10616,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..b8c33e54c6b54bc732aa1def13fc0e1a
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +556,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +562,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -10512,7 +10634,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..b8c33e54c6b54bc732aa1def13fc0e1a
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -454,6 +614,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -454,6 +620,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
                         opts::RegReAssign);
  
    Manager.registerPass(std::make_unique<Inliner>(PrintInline));
@@ -10522,7 +10644,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..b8c33e54c6b54bc732aa1def13fc0e1a
  
    Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
                         opts::ICF != IdenticalCodeFolding::ICFLevel::None);
-@@ -554,6 +717,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -554,6 +723,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -10532,7 +10654,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..b8c33e54c6b54bc732aa1def13fc0e1a
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +734,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +740,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -13141,10 +13263,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..d537104bdf1ceacc55a44939af48361a260c87e9
+index 0000000000000000000000000000000000000000..6c06f98dc2572968818c97069b41cbca1ac79a93
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2508 @@
+@@ -0,0 +1,2589 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -13230,6 +13352,87 @@ index 0000000000000000000000000000000000000000..d537104bdf1ceacc55a44939af48361a
 +    static constexpr MCPhysReg ArgRegs[] = {ARM::R0, ARM::R1, ARM::R2,
 +                                            ARM::R3};
 +    return ArgNo < std::size(ArgRegs) ? ArgRegs[ArgNo] : getNoRegister();
++  }
++
++  std::optional<uint64_t>
++  extractMoveImmediate(const MCInst &Inst, MCPhysReg TargetReg) const override {
++    if (ARM_MC::isPredicated(Inst, Info))
++      return std::nullopt;
++    unsigned ImmediateOperand = 1;
++    switch (Inst.getOpcode()) {
++    case ARM::tMOVi8:
++      // Decoded MOVS carries its explicit CPSR definition before the
++      // immediate: Rd, CPSR, imm, pred, pred-reg.  MC-generated forms may omit
++      // that tied output, so accept both canonical layouts.
++      if (Inst.getNumOperands() > 1 && Inst.getOperand(1).isReg())
++        ImmediateOperand = 2;
++      break;
++    case ARM::t2MOVi:
++    case ARM::t2MOVi16:
++      break;
++    default:
++      return std::nullopt;
++    }
++    if (Inst.getNumOperands() <= ImmediateOperand ||
++        !Inst.getOperand(0).isReg() ||
++        !Inst.getOperand(ImmediateOperand).isImm() ||
++        !getAliases(TargetReg)[Inst.getOperand(0).getReg()] ||
++        Inst.getOperand(ImmediateOperand).getImm() < 0)
++      return std::nullopt;
++    return static_cast<uint64_t>(Inst.getOperand(ImmediateOperand).getImm());
++  }
++
++  std::optional<uint64_t>
++  findMemcpySizeInBytes(const BinaryBasicBlock &BB,
++                        InstructionListType::iterator CallInst) const override {
++    const MCPhysReg SizeReg = getIntArgRegister(2);
++    BitVector WrittenRegs(RegInfo->getNumRegs());
++    const BitVector &SizeRegAliases = getAliases(SizeReg);
++    for (auto InstIt = CallInst; InstIt != BB.begin();) {
++      --InstIt;
++      // A preceding call may clobber r2 under AAPCS even when its compact MC
++      // operand list names only LR. Any control transfer also breaks the
++      // straight-line reaching-definition proof.
++      if (isCall(*InstIt) || isBranch(*InstIt) || isReturn(*InstIt))
++        return std::nullopt;
++      // Some narrow Thumb move-immediate descriptors expose CPSR's optional
++      // definition ahead of the explicit destination in the generic def
++      // iterator.  Recognize the exact qualified r2 definition first, then
++      // use the full clobber set as the unknown-definition barrier.
++      if (std::optional<uint64_t> Size =
++              extractMoveImmediate(*InstIt, SizeReg))
++        return Size;
++      WrittenRegs.reset();
++      getWrittenRegs(*InstIt, WrittenRegs);
++      if (WrittenRegs.anyCommon(SizeRegAliases))
++        return std::nullopt;
++    }
++    return std::nullopt;
++  }
++
++  InstructionListType
++  createInlineMemcpy(bool ReturnEnd,
++                     std::optional<uint64_t> KnownSize) const override {
++    assert(!ReturnEnd && "Cortex-M _memcpy8 is not qualified");
++    assert(KnownSize && *KnownSize > 0 && *KnownSize <= 32 &&
++           "Cortex-M memcpy inlining requires a size in [1, 32]");
++
++    InstructionListType Code;
++    for (uint64_t Offset = 0; Offset < *KnownSize; ++Offset) {
++      Code.emplace_back(MCInstBuilder(ARM::tLDRBi)
++                            .addReg(ARM::R3)
++                            .addReg(ARM::R1)
++                            .addImm(Offset)
++                            .addImm(ARMCC::AL)
++                            .addReg(0));
++      Code.emplace_back(MCInstBuilder(ARM::tSTRBi)
++                            .addReg(ARM::R3)
++                            .addReg(ARM::R0)
++                            .addImm(Offset)
++                            .addImm(ARMCC::AL)
++                            .addReg(0));
++    }
++    return Code;
 +  }
 +
 +  bool isStackAccess(const MCInst &Inst, bool &IsLoad, bool &IsStore,
@@ -19411,6 +19614,151 @@ index 0000000000000000000000000000000000000000..d68d700729c300302960379b06361a21
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-native-inline-memcpy.s b/bolt/test/ARM/thumb-native-inline-memcpy.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..ee05bce43c2973d85b26a6ac1387e61aa64d2d45
+--- /dev/null
++++ b/bolt/test/ARM/thumb-native-inline-memcpy.s
+@@ -0,0 +1,139 @@
++## BOLT's existing InlineMemcpy pass is target-generic, but ARM previously had
++## no size recovery or instruction generator.  Firm-BOLT admits the Cortex-M
++## form only under an explicit contract: fixed size, disjoint byte-addressable
++## ordinary RAM, and accepted call/fault/event changes.  Unknown and oversized
++## calls remain unchanged.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --inline-memcpy \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   -o %t.denied 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=DENIED
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --inline-memcpy \
++# RUN:   --firmbolt-allow-inline-memcpy \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   --fastdyn-firmware-report=%t.json \
++# RUN:   -o %t.bolt 2>&1 | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 \
++# RUN:   --disassemble-symbols=copy_three %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=COPY
++# RUN: llvm-objdump -d --mcpu=cortex-m3 \
++# RUN:   --disassemble-symbols=copy_unknown %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=UNKNOWN
++# RUN: llvm-objdump -d --mcpu=cortex-m3 \
++# RUN:   --disassemble-symbols=copy_large %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=LARGE
++# RUN: llvm-objdump -d --mcpu=cortex-m3 \
++# RUN:   --disassemble-symbols=copy_clobbered %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=CLOBBERED
++# RUN: %python -c "import json; d=json.load(open('%t.json')); l=json.load(open('%t.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='copy_three'); lf=next(x for x in l['functions'] if x['name']=='copy_three'); t=[x for x in lf['instruction_origins'] if x['origin_kind']=='synthesized_from_original_instruction']; print(f['firmware_modified'],f['firmware_modification_reasons'],len(t),len(set(x['source_original_address'] for x in t)),sum(x['may_load'] for x in t),sum(x['may_store'] for x in t))" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# DENIED: Cortex-M memcpy inlining changes call, memory-access and fault/event observations
++# LOG: inlined 1 memcpy() calls
++# COPY: <copy_three>:
++# COPY: movs r2, #0x3
++# COPY-NEXT: ldrb r3, [r1]
++# COPY-NEXT: strb r3, [r0]
++# COPY-NEXT: ldrb r3, [r1, #0x1]
++# COPY-NEXT: strb r3, [r0, #0x1]
++# COPY-NEXT: ldrb r3, [r1, #0x2]
++# COPY-NEXT: strb r3, [r0, #0x2]
++# COPY-NEXT: bx lr
++# COPY-NOT: bl
++# UNKNOWN: <copy_unknown>:
++# UNKNOWN: bl {{.*}}<memcpy>
++# LARGE: <copy_large>:
++# LARGE: movs r2, #0x21
++# LARGE-NEXT: bl {{.*}}<memcpy>
++# CLOBBERED: <copy_clobbered>:
++# CLOBBERED: movs r2, #0x3
++# CLOBBERED-NEXT: bl {{.*}}<clobber>
++# CLOBBERED-NEXT: bl {{.*}}<memcpy>
++# REPORT: True ['unreachable_code_elimination', 'inline_memcpy'] 6 1 3 3
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl copy_three
++  bl copy_unknown
++  bl copy_large
++  bl copy_clobbered
++1:
++  b 1b
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl copy_three
++  .type copy_three,%function
++  .thumb_func
++copy_three:
++  movs r2, #3
++  bl memcpy
++  bx lr
++  /* Exact, symbol-bounded non-entry capacity. The CFG proves these bytes
++     unreachable before compact emission consumes the range. */
++  .rept 8
++  nop
++  .endr
++  .size copy_three, .-copy_three
++
++  .globl copy_unknown
++  .type copy_unknown,%function
++  .thumb_func
++copy_unknown:
++  mov r2, r3
++  bl memcpy
++  bx lr
++  .size copy_unknown, .-copy_unknown
++
++  .globl copy_large
++  .type copy_large,%function
++  .thumb_func
++copy_large:
++  movs r2, #33
++  bl memcpy
++  bx lr
++  .size copy_large, .-copy_large
++
++  .globl copy_clobbered
++  .type copy_clobbered,%function
++  .thumb_func
++copy_clobbered:
++  movs r2, #3
++  bl clobber
++  bl memcpy
++  bx lr
++  .size copy_clobbered, .-copy_clobbered
++
++  .globl clobber
++  .type clobber,%function
++  .thumb_func
++clobber:
++  movs r2, #17
++  bx lr
++  .size clobber, .-clobber
++
++  .globl memcpy
++  .type memcpy,%function
++  .thumb_func
++memcpy:
++  bx lr
++  .size memcpy, .-memcpy
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-inlining.s b/bolt/test/ARM/thumb-native-inlining.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..9c9bfffe7e1b7ebef0d8e722eb3aec5325a1dd29
@@ -23830,7 +24178,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..849d97eaf540e780f5b5a67a0ee451c867abe8c3 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..de71815fd0aaa8eaa8f49c767ee48c59983f82f1 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -23892,7 +24240,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..849d97eaf540e780f5b5a67a0ee451c8
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +154,643 @@ protected:
+@@ -125,6 +154,687 @@ protected:
  };
  } // namespace
  
@@ -24183,6 +24531,50 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..849d97eaf540e780f5b5a67a0ee451c8
 +                  ->materializeConstant(*BC, WordLoad, StringRef("\x01", 1),
 +                                        0)
 +                  .empty());
++}
++
++TEST_P(MCPlusBuilderTester, ARM_FixedSizeInlineMemcpy) {
++  if (GetParam() != Triple::thumb)
++    GTEST_SKIP();
++
++  MCInst NarrowSize = MCInstBuilder(ARM::tMOVi8)
++                          .addReg(ARM::R2)
++                          .addReg(ARM::CPSR)
++                          .addImm(3)
++                          .addImm(ARMCC::AL)
++                          .addReg(0);
++  EXPECT_EQ(BC->MIB->extractMoveImmediate(NarrowSize, ARM::R2), 3u);
++  EXPECT_EQ(BC->MIB->extractMoveImmediate(NarrowSize, ARM::R1), std::nullopt);
++
++  MCInst PredicatedSize = NarrowSize;
++  PredicatedSize.getOperand(3).setImm(ARMCC::EQ);
++  EXPECT_EQ(BC->MIB->extractMoveImmediate(PredicatedSize, ARM::R2),
++            std::nullopt);
++
++  MCInst RegisterSize = MCInstBuilder(ARM::tMOVr)
++                            .addReg(ARM::R2)
++                            .addReg(ARM::R3)
++                            .addImm(ARMCC::AL)
++                            .addReg(0);
++  EXPECT_EQ(BC->MIB->extractMoveImmediate(RegisterSize, ARM::R2),
++            std::nullopt);
++
++  InstructionListType Copy =
++      BC->MIB->createInlineMemcpy(/*ReturnEnd=*/false, 3);
++  ASSERT_EQ(Copy.size(), 6u);
++  auto It = Copy.begin();
++  for (unsigned Offset = 0; Offset != 3; ++Offset) {
++    EXPECT_EQ(It->getOpcode(), ARM::tLDRBi);
++    EXPECT_EQ(It->getOperand(0).getReg(), ARM::R3);
++    EXPECT_EQ(It->getOperand(1).getReg(), ARM::R1);
++    EXPECT_EQ(It->getOperand(2).getImm(), Offset);
++    ++It;
++    EXPECT_EQ(It->getOpcode(), ARM::tSTRBi);
++    EXPECT_EQ(It->getOperand(0).getReg(), ARM::R3);
++    EXPECT_EQ(It->getOperand(1).getReg(), ARM::R0);
++    EXPECT_EQ(It->getOperand(2).getImm(), Offset);
++    ++It;
++  }
 +}
 +
 +TEST_P(MCPlusBuilderTester, ARM_StackOffsetExpressions) {
