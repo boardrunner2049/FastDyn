@@ -132,10 +132,11 @@ size-one `memcpy` specialization fixture, an opt-in profile-driven native
 three-way-branch fixture, an opt-in native conditional-tail-call
 simplification fixture, an opt-in profile-driven Thumb IT conditional-move
 fixture, an Armv6-M conditional-move retention fixture, an opt-in target-aware
-Thumb-2 register-reassignment fixture with a separately checked inline compact
-EHABI model-0 program, and the
+Thumb-2 register-reassignment fixture with separately checked inline and
+uniquely owned external compact EHABI programs, a shared-external-program
+retention fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November v140 run accepts all fifty-five without
+The 19 November v141 run accepts all fifty-five without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -771,15 +772,15 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment
+  --output build/preflight/firm-bolt-cortex-m-v141-external-ehabi-register-reassignment
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/report.json),
-SHA-256 `cd4e26232de8a7da91e91601c91799d287d27bc177566844b7b9a99556e021b0`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v141-external-ehabi-register-reassignment/report.json),
+SHA-256 `e5dbc0262ff83eea8481907fc42ef2f643508f413968217ce82318941ffaf63f`.
 The matching
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/validation-manifest.json),
-SHA-256 `f991c7fb62eddf15c8b7dda4d89fd000aa0d5607718eab6266e0ccedadb689e8`,
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v141-external-ehabi-register-reassignment/validation-manifest.json),
+SHA-256 `19eb9cb77a32661174621f4d4866c74daa12b23e06d3e5512654dd0e8147911a`,
 binds the exact commands and XML evidence to the report, patch and tested
 binary hashes.
 The preceding v131 machine-readable
@@ -791,25 +792,25 @@ XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
 with SHA-256
-`1669c0a84441a2065ce41c91abcd35a6e92b2798918f7fc18d309fd4ac071f91`,
+`911334e1bd7882defc78cb112c82497456ea5722c815b8ed509b7e0d107223c6`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`55017c4b10f38c0e675b24b34fa11bd31d39fc158fa230edbdb32a82d3fbee62`.
-The current combined ARM BOLT/AArch32 JITLink lit run passes 88/88
-(76 ARM and 12 JITLink). The BOLT unit executables pass 128 tests and
+`d4085de0aaf8561a48a4bbf5751c856a57827e7ed50da3be5d92e40cfd532a48`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 89/89
+(77 ARM and 12 JITLink). The BOLT unit executables pass 128 tests and
 explicitly skip 144 target-inapplicable parameterizations: Core is 84/144,
 Passes is 5/0 and Profile is 39/0. The retained
-[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/core-tests.xml)
+[`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-v141-external-ehabi-register-reassignment/core-tests.xml)
 has SHA-256
-`05c28c631f089c64503a7da7d3b9e7547eb91df8e468954480fea3fc11e77dbe`;
+`caa880f60451a21564cdd6a113403c76cc138a93927fe15d692499cdab86f943`;
 the ARM and JITLink results are
-[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/arm-bolt-lit.xml)
+[`arm-bolt-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v141-external-ehabi-register-reassignment/arm-bolt-lit.xml)
 and
-[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v140-inline-ehabi-register-reassignment/aarch32-jitlink-lit.xml),
+[`aarch32-jitlink-lit.xml`](../../build/preflight/firm-bolt-cortex-m-v141-external-ehabi-register-reassignment/aarch32-jitlink-lit.xml),
 with SHA-256 values
-`b629cc255d806b72f4bae43748c480cd1d60583a7994d89c4626d51bd27c89c7`
-and `907432fb572a8b8d1c32df2bdc5dc0d293894d8820d2afcde2c82d619a25c6c8`.
+`e51d81000b336a0b26fc7b1b7325373fece7222d7d1205b07f85f7e6fe26f08b`
+and `91bd6ffa0d25dcebf77baf9bce67fc9f3b16dc3204484ac9e57262a1efc8a56d`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -1281,6 +1282,30 @@ noncontiguous one-byte mask.  The complete FOP-enabled production gate remains
 report 128 passes plus 144 target-inapplicable skips.  This closes inline
 model-0 unwind coupling for register reassignment; it does not authorize
 rewriting shared, external or generic EHABI programs.
+
+v141 extends that coupling to bounded external ARM-defined compact programs
+without treating language-specific data as opcodes.  A shared typed EHABI
+service decodes personality indexes 0--2 into architectural opcode order and
+records the exact file-backed storage range.  Register reassignment admits the
+program only when one exact function owns that complete range and every
+register-bearing opcode can be re-encoded at the same size.  Compact in-place
+publication updates the exact `.ARM.extab` bytes; relocation publication
+composes multiple private updates in one section before rebuilding their
+PREL31 index entries.  This composition rule closes a bug found during the
+gate where a later record update could otherwise have restored an earlier
+record from immutable input bytes.
+
+The expanded fixture transforms four 26-byte workers: one `CANTUNWIND`, one
+inline compact and two separately owned external personality-index-1 records.
+All become 18-byte workers and every admitted `pop {r8}` becomes `pop {r4}` in
+both publication modes.  A separate fixture gives two ranges the same external
+record; both functions remain unchanged and the shared `pop {r8}` is retained.
+Generic personalities and unsupported or width-changing bytecodes remain
+opaque.  The complete production gate remains 55/55, ARM BOLT lit is now
+77/77, AArch32 JITLink lit is 12/12, and the unit split remains 128 passes plus
+144 explicit target-inapplicable skips.  This closes uniquely owned external
+compact coupling; it does not authorize shared-record mutation, generic/LSDA
+payload interpretation or general liveness-backed register allocation.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

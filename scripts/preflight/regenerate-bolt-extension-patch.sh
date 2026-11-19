@@ -29,7 +29,9 @@ fi
 temporary_patch="$(mktemp)"
 cleanup() {
     git -C "${bolt_source}" reset -q -- \
+        bolt/include/bolt/Core/ARMUnwindInfo.h \
         bolt/include/bolt/Passes/FastDynPatchContracts.h \
+        bolt/lib/Core/ARMUnwindInfo.cpp \
         bolt/lib/Passes/FastDynPatchContracts.cpp \
         bolt/lib/Target/ARM \
         bolt/test/ARM 2>/dev/null || true
@@ -40,7 +42,9 @@ trap cleanup EXIT
 # Intent-to-add makes the complete overlay appear in the mechanical diff while
 # retaining it as an untracked working-tree file after generation.
 git -C "${bolt_source}" add -N -- \
+    bolt/include/bolt/Core/ARMUnwindInfo.h \
     bolt/include/bolt/Passes/FastDynPatchContracts.h \
+    bolt/lib/Core/ARMUnwindInfo.cpp \
     bolt/lib/Passes/FastDynPatchContracts.cpp \
     bolt/lib/Target/ARM \
     bolt/test/ARM \

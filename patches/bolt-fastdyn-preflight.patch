@@ -11,6 +11,79 @@ index 8deb5cea0401ba8e276ecb774a16ae42b47fa226..65b744b52f16f5ac4be7a3c2bbe5ddda
  set(BOLT_TARGETS_TO_BUILD_default)
  foreach (tgt ${BOLT_TARGETS_TO_BUILD_all})
    if (tgt IN_LIST LLVM_TARGETS_TO_BUILD)
+diff --git a/bolt/include/bolt/Core/ARMUnwindInfo.h b/bolt/include/bolt/Core/ARMUnwindInfo.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..d22f9f60e8e38d09bd653fab5ea93a2f7b59eb4c
+--- /dev/null
++++ b/bolt/include/bolt/Core/ARMUnwindInfo.h
+@@ -0,0 +1,67 @@
++//===- bolt/Core/ARMUnwindInfo.h --------------------------------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_BOLT_CORE_ARMUNWINDINFO_H
++#define LLVM_BOLT_CORE_ARMUNWINDINFO_H
++
++#include "llvm/ADT/ArrayRef.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/Support/Error.h"
++#include <cstdint>
++#include <optional>
++
++namespace llvm {
++namespace bolt {
++
++class BinaryContext;
++class BinarySection;
++
++enum class ARMUnwindModel : uint8_t {
++  CantUnwind,
++  InlineCompact,
++  ExternalCompact,
++  Generic,
++};
++
++/// A completely bounded ARM-defined compact unwind program. Opcodes are in
++/// architectural execution order, independent of ELF byte order. For an
++/// inline record StorageSection is null and StorageAddress is the exidx word;
++/// for an external record they identify the exact validated extab byte range.
++struct ARMCompactUnwindProgram {
++  unsigned PersonalityIndex{0};
++  BinarySection *StorageSection{nullptr};
++  uint64_t StorageAddress{0};
++  uint64_t StorageSize{0};
++  SmallVector<uint8_t, 8> Opcodes;
++};
++
++struct ARMUnwindRecord {
++  ARMUnwindModel Model{ARMUnwindModel::CantUnwind};
++  std::optional<ARMCompactUnwindProgram> Compact;
++};
++
++/// Decode one exidx unwind word at p WordAddress. External compact records
++/// are accepted only when their complete ARM-defined payload is allocatable,
++/// file-backed and range-bounded. Generic records are classified but their
++/// language-specific payload remains opaque to this service.
++Expected<ARMUnwindRecord>
++decodeARMUnwindRecord(BinaryContext &BC, uint32_t Word,
++                      uint64_t WordAddress);
++
++/// Encode p Opcodes back into the exact fixed-size storage described by
++/// p Program. The returned bytes use the ELF byte order requested by
++/// p IsLittleEndian and never resize the linked record.
++Expected<SmallVector<uint8_t, 16>>
++encodeARMCompactUnwindProgram(const ARMCompactUnwindProgram &Program,
++                              ArrayRef<uint8_t> Opcodes,
++                              bool IsLittleEndian);
++
++} // namespace bolt
++} // namespace llvm
++
++#endif
 diff --git a/bolt/include/bolt/Core/BinaryContext.h b/bolt/include/bolt/Core/BinaryContext.h
 index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92fa048f3c9 100644
 --- a/bolt/include/bolt/Core/BinaryContext.h
@@ -523,7 +596,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..f08277df5db38142222b7169fdc7021bb988e82a 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..464fe5f3d1d66a1c8dd2c9e81ce7ba3d87654a55 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -711,7 +784,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f08277df5db38142222b7169fdc7021b
    /// Return a BitVector marking all sub or super registers of \p Reg, including
    /// itself.
    virtual const BitVector &getAliases(MCPhysReg Reg,
-@@ -1616,6 +1752,34 @@ public:
+@@ -1616,6 +1752,51 @@ public:
      llvm_unreachable("not implemented");
    }
  
@@ -733,20 +806,37 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f08277df5db38142222b7169fdc7021b
 +    return std::nullopt;
 +  }
 +
-+  /// Rewrite an inline ARM EHABI compact unwind word for the same exact
-+  /// register-name exchange.  Return std::nullopt when the target does not
++  /// Rewrite one complete ARM-defined compact unwind opcode stream for the
++  /// same exact register-name exchange. Return false when the target does not
 +  /// implement the format or when its fixed-width bytecode cannot express the
-+  /// exchanged unwind state without changing other effects.
++  /// exchanged unwind state without changing other effects. Callers must use
++  /// a disposable copy because failure may occur after an earlier opcode was
++  /// changed.
++  virtual bool rewriteCompactUnwindRegisters(MutableArrayRef<uint8_t> Opcodes,
++                                             MCPhysReg A,
++                                             MCPhysReg B) const {
++    return false;
++  }
++
++  /// Convenience adapter for an inline compact personality-model-0 word.
 +  virtual std::optional<uint32_t>
 +  rewriteInlineCompactUnwindRegisters(uint32_t Word, MCPhysReg A,
 +                                      MCPhysReg B) const {
-+    return std::nullopt;
++    if ((Word & 0xff000000U) != 0x80000000U)
++      return std::nullopt;
++    uint8_t Opcodes[3] = {static_cast<uint8_t>(Word >> 16),
++                          static_cast<uint8_t>(Word >> 8),
++                          static_cast<uint8_t>(Word)};
++    if (!rewriteCompactUnwindRegisters(Opcodes, A, B))
++      return std::nullopt;
++    return 0x80000000U | (static_cast<uint32_t>(Opcodes[0]) << 16) |
++           (static_cast<uint32_t>(Opcodes[1]) << 8) | Opcodes[2];
 +  }
 +
    /// Set of Registers used by the Rep instruction
    virtual void getRepRegs(BitVector &Regs) const {
      llvm_unreachable("not implemented");
-@@ -1700,6 +1864,14 @@ public:
+@@ -1700,6 +1881,14 @@ public:
      return 0;
    }
  
@@ -761,7 +851,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f08277df5db38142222b7169fdc7021b
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1751,6 +1923,24 @@ public:
+@@ -1751,6 +1940,24 @@ public:
      return false;
    }
  
@@ -786,7 +876,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f08277df5db38142222b7169fdc7021b
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +1979,56 @@ public:
+@@ -1789,6 +1996,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -1222,21 +1312,22 @@ index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fa
    /// The shortest distance for any branch instruction on AArch64.
    static constexpr size_t ShortestJumpBits = 11;
 diff --git a/bolt/include/bolt/Passes/RegReAssign.h b/bolt/include/bolt/Passes/RegReAssign.h
-index a7554a1215104275a92e51769e8f84997154c1ca..2c9bcdd3247363636b2255f1b060692083d0e8d2 100644
+index a7554a1215104275a92e51769e8f84997154c1ca..d813776a57508fcc8c08c88b692431b2cf1837b5 100644
 --- a/bolt/include/bolt/Passes/RegReAssign.h
 +++ b/bolt/include/bolt/Passes/RegReAssign.h
-@@ -31,6 +31,10 @@ class RegReAssign : public BinaryFunctionPass {
+@@ -31,6 +31,11 @@ class RegReAssign : public BinaryFunctionPass {
  
    /// Stats
    DenseSet<const BinaryFunction *> FuncsChanged;
 +  /// Cortex-M functions whose ARM EHABI unwind program is not invariant under
 +  /// register renaming. CANTUNWIND-covered functions remain eligible.
 +  DenseSet<const BinaryFunction *> CortexMUnwindBlockedFunctions;
-+  DenseMap<const BinaryFunction *, uint32_t> CortexMInlineUnwindWords;
++  DenseMap<const BinaryFunction *, SmallVector<uint8_t, 8>>
++      CortexMCompactUnwindPrograms;
    int64_t StaticBytesSaved{0};
    int64_t DynBytesSaved{0};
  
-@@ -38,6 +42,7 @@ class RegReAssign : public BinaryFunctionPass {
+@@ -38,6 +43,7 @@ class RegReAssign : public BinaryFunctionPass {
    void rankRegisters(BinaryFunction &Function);
    void aggressivePassOverFunction(BinaryFunction &Function);
    bool conservativePassOverFunction(BinaryFunction &Function);
@@ -1316,6 +1407,190 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..25f179ec3862306342fd1ab1f74ec1cc
  std::unique_ptr<RelocationHandler>
  createRelocationHandler(Triple::ArchType Arch);
  
+diff --git a/bolt/lib/Core/ARMUnwindInfo.cpp b/bolt/lib/Core/ARMUnwindInfo.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..f63df682b4aa770e31787b473da8c0de717091eb
+--- /dev/null
++++ b/bolt/lib/Core/ARMUnwindInfo.cpp
+@@ -0,0 +1,178 @@
++//===- bolt/Core/ARMUnwindInfo.cpp ----------------------------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "bolt/Core/ARMUnwindInfo.h"
++#include "bolt/Core/BinaryContext.h"
++#include "bolt/Core/BinarySection.h"
++#include "llvm/Support/Endian.h"
++#include "llvm/Support/MathExtras.h"
++#include <cassert>
++#include <cinttypes>
++#include <limits>
++
++using namespace llvm;
++
++namespace llvm {
++namespace bolt {
++
++Expected<ARMUnwindRecord>
++decodeARMUnwindRecord(BinaryContext &BC, uint32_t Word,
++                      uint64_t WordAddress) {
++  if (Word == 1)
++    return ARMUnwindRecord{ARMUnwindModel::CantUnwind, std::nullopt};
++
++  const auto AppendWordOpcodes = [](SmallVectorImpl<uint8_t> &Opcodes,
++                                    uint32_t Value, unsigned Count) {
++    for (int Shift = static_cast<int>(Count - 1) * 8; Shift >= 0; Shift -= 8)
++      Opcodes.push_back(static_cast<uint8_t>(Value >> Shift));
++  };
++
++  if (Word & 0x80000000U) {
++    if ((Word & 0xff000000U) != 0x80000000U)
++      return createStringError(
++          errc::not_supported,
++          "inline ARM EHABI word at 0x%" PRIx64
++          " is not compact personality model 0",
++          WordAddress);
++    ARMCompactUnwindProgram Program;
++    Program.StorageAddress = WordAddress;
++    Program.StorageSize = sizeof(uint32_t);
++    AppendWordOpcodes(Program.Opcodes, Word, 3);
++    return ARMUnwindRecord{ARMUnwindModel::InlineCompact,
++                           std::move(Program)};
++  }
++
++  const int64_t Delta = SignExtend64<31>(Word & 0x7fffffffU);
++  if (WordAddress >
++      static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
++    return createStringError(errc::result_out_of_range,
++                             "ARM PREL31 place is not representable");
++  const int64_t SignedTarget = static_cast<int64_t>(WordAddress) + Delta;
++  if (SignedTarget < 0)
++    return createStringError(errc::result_out_of_range,
++                             "ARM PREL31 target underflows address zero");
++  const uint64_t Target = static_cast<uint64_t>(SignedTarget);
++
++  ErrorOr<BinarySection &> TargetSection = BC.getSectionForAddress(Target);
++  if (!TargetSection || !TargetSection->isAllocatable() ||
++      TargetSection->isText() ||
++      !TargetSection->getName().starts_with(".ARM.extab") ||
++      !TargetSection->containsRange(Target, sizeof(uint32_t)))
++    return createStringError(
++        errc::executable_format_error,
++        "ARM EHABI record at 0x%" PRIx64
++        " does not reference a complete allocatable .ARM.extab word",
++        WordAddress);
++
++  const uint64_t Offset = Target - TargetSection->getAddress();
++  const StringRef Contents = TargetSection->getContents();
++  if (Offset > Contents.size() ||
++      Contents.size() - Offset < sizeof(uint32_t))
++    return createStringError(errc::executable_format_error,
++                             "ARM EHABI entry at 0x%" PRIx64
++                             " has no file-backed header word",
++                             Target);
++  const uint32_t Header = BC.AsmInfo->isLittleEndian()
++                              ? support::endian::read32le(Contents.data() +
++                                                          Offset)
++                              : support::endian::read32be(Contents.data() +
++                                                          Offset);
++  if (!(Header & 0x80000000U))
++    return ARMUnwindRecord{ARMUnwindModel::Generic, std::nullopt};
++  if (Header & 0x70000000U)
++    return createStringError(errc::executable_format_error,
++                             "ARM EHABI compact entry at 0x%" PRIx64
++                             " has reserved header bits set",
++                             Target);
++
++  const unsigned PersonalityIndex = (Header >> 24) & 0x0f;
++  if (PersonalityIndex > 2)
++    return createStringError(errc::not_supported,
++                             "ARM EHABI compact personality index %u at "
++                             "0x%" PRIx64 " is not supported",
++                             PersonalityIndex, Target);
++  const uint64_t AdditionalWords =
++      PersonalityIndex == 0 ? 0 : (Header >> 16) & 0xff;
++  const uint64_t RequiredBytes =
++      sizeof(uint32_t) * (1 + AdditionalWords);
++  if (!TargetSection->containsRange(Target, RequiredBytes) ||
++      RequiredBytes > Contents.size() - Offset)
++    return createStringError(errc::executable_format_error,
++                             "ARM EHABI compact entry at 0x%" PRIx64
++                             " extends beyond section %s",
++                             Target,
++                             TargetSection->getName().str().c_str());
++
++  ARMCompactUnwindProgram Program;
++  Program.PersonalityIndex = PersonalityIndex;
++  Program.StorageSection = &*TargetSection;
++  Program.StorageAddress = Target;
++  Program.StorageSize = RequiredBytes;
++  AppendWordOpcodes(Program.Opcodes, Header,
++                    PersonalityIndex == 0 ? 3 : 2);
++  for (uint64_t I = 0; I < AdditionalWords; ++I) {
++    const char *WordData =
++        Contents.data() + Offset + sizeof(uint32_t) * (I + 1);
++    const uint32_t OpcodeWord =
++        BC.AsmInfo->isLittleEndian()
++            ? support::endian::read32le(WordData)
++            : support::endian::read32be(WordData);
++    AppendWordOpcodes(Program.Opcodes, OpcodeWord, 4);
++  }
++  return ARMUnwindRecord{ARMUnwindModel::ExternalCompact,
++                         std::move(Program)};
++}
++
++Expected<SmallVector<uint8_t, 16>>
++encodeARMCompactUnwindProgram(const ARMCompactUnwindProgram &Program,
++                              ArrayRef<uint8_t> Opcodes,
++                              bool IsLittleEndian) {
++  const uint64_t AdditionalWords =
++      Program.PersonalityIndex == 0 ? 0 : (Program.StorageSize / 4) - 1;
++  const uint64_t ExpectedOpcodes =
++      Program.PersonalityIndex == 0 ? 3 : 2 + AdditionalWords * 4;
++  if ((Program.PersonalityIndex > 2) ||
++      Program.StorageSize != 4 * (1 + AdditionalWords) ||
++      Opcodes.size() != ExpectedOpcodes)
++    return createStringError(errc::invalid_argument,
++                             "ARM compact unwind program shape changed");
++
++  SmallVector<uint8_t, 16> Output(Program.StorageSize);
++  const auto WriteWord = [IsLittleEndian](uint8_t *Data, uint32_t Value) {
++    if (IsLittleEndian)
++      support::endian::write32le(Data, Value);
++    else
++      support::endian::write32be(Data, Value);
++  };
++  uint32_t Header = 0x80000000U |
++                    (static_cast<uint32_t>(Program.PersonalityIndex) << 24);
++  size_t OpcodeOffset = 0;
++  if (Program.PersonalityIndex == 0) {
++    Header |= static_cast<uint32_t>(Opcodes[0]) << 16;
++    Header |= static_cast<uint32_t>(Opcodes[1]) << 8;
++    Header |= Opcodes[2];
++    OpcodeOffset = 3;
++  } else {
++    Header |= static_cast<uint32_t>(AdditionalWords) << 16;
++    Header |= static_cast<uint32_t>(Opcodes[0]) << 8;
++    Header |= Opcodes[1];
++    OpcodeOffset = 2;
++  }
++  WriteWord(Output.data(), Header);
++  for (uint64_t I = 0; I < AdditionalWords; ++I) {
++    uint32_t Word = 0;
++    for (unsigned Byte = 0; Byte < 4; ++Byte)
++      Word = (Word << 8) | Opcodes[OpcodeOffset++];
++    WriteWord(Output.data() + 4 * (I + 1), Word);
++  }
++  assert(OpcodeOffset == Opcodes.size() && "opcode shape was prevalidated");
++  return Output;
++}
++
++} // namespace bolt
++} // namespace llvm
 diff --git a/bolt/lib/Core/AddressMap.cpp b/bolt/lib/Core/AddressMap.cpp
 index eeae878a8aa1a2f0865811d58c96885b792af4d7..e51293c0b32715f2047b927276a90a08092e91eb 100644
 --- a/bolt/lib/Core/AddressMap.cpp
@@ -3041,6 +3316,18 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..06fba964a7bd4a1b207187dc56a063f6
    std::map<uint64_t, Relocation> &Rels =
        IsCI ? Islands->Relocations : Relocations;
    if (BC.MIB->shouldRecordCodeRelocation(RelType))
+diff --git a/bolt/lib/Core/CMakeLists.txt b/bolt/lib/Core/CMakeLists.txt
+index 430a1c93a9f0c88df88c6bc2d2e633fe28e558c5..fcecd519aa272ee12c862cb8dbbe9a9c7adfd332 100644
+--- a/bolt/lib/Core/CMakeLists.txt
++++ b/bolt/lib/Core/CMakeLists.txt
+@@ -13,6 +13,7 @@ set(LLVM_LINK_COMPONENTS
+ 
+ add_llvm_library(LLVMBOLTCore
+   AddressMap.cpp
++  ARMUnwindInfo.cpp
+   BinaryBasicBlock.cpp
+   BinaryContext.cpp
+   BinaryData.cpp
 diff --git a/bolt/lib/Core/JumpTable.cpp b/bolt/lib/Core/JumpTable.cpp
 index 6f588d2b95fd6481f9009d2d6ebf7d7eaf0c4e0d..98e9b6ae017b8d4b3379f574d5655bf157c121ee 100644
 --- a/bolt/lib/Core/JumpTable.cpp
@@ -10701,10 +10988,16 @@ index 66ca6800b1a5fabbeca2e5e5f09b5289599f7912..2c28baca1b1598b39f4cd9809c920d45
        while (RegIdx != -1) {
          dbgs() << "\tREG" << RegIdx;
 diff --git a/bolt/lib/Passes/RegReAssign.cpp b/bolt/lib/Passes/RegReAssign.cpp
-index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc97507f1ac 100644
+index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..330b69cf5162661319d3f6828dabb5ecfd0c69ea 100644
 --- a/bolt/lib/Passes/RegReAssign.cpp
 +++ b/bolt/lib/Passes/RegReAssign.cpp
-@@ -16,6 +16,10 @@
+@@ -11,11 +11,16 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "bolt/Passes/RegReAssign.h"
++#include "bolt/Core/ARMUnwindInfo.h"
+ #include "bolt/Core/BinaryFunctionCallGraph.h"
+ #include "bolt/Core/MCPlus.h"
  #include "bolt/Passes/DataflowAnalysis.h"
  #include "bolt/Passes/DataflowInfoManager.h"
  #include "bolt/Utils/Utils.h"
@@ -10715,7 +11008,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc9
  #include <numeric>
  
  #define DEBUG_TYPE "regreassign"
-@@ -31,11 +35,139 @@ static cl::opt<bool> AggressiveReAssign(
+@@ -31,11 +36,154 @@ static cl::opt<bool> AggressiveReAssign(
      cl::desc("use register liveness analysis to try to find more opportunities "
               "for -reg-reassign optimization"),
      cl::cat(BoltOptCategory));
@@ -10734,7 +11027,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc9
 +
 +struct CortexMEHABIQualification {
 +  DenseSet<const BinaryFunction *> BlockedFunctions;
-+  DenseMap<const BinaryFunction *, uint32_t> InlineCompactWords;
++  DenseMap<const BinaryFunction *, SmallVector<uint8_t, 8>> CompactPrograms;
 +  uint64_t CantUnwindFunctions{0};
 +};
 +
@@ -10766,10 +11059,14 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc9
 +
 +  struct Entry {
 +    uint64_t Start{0};
-+    uint32_t UnwindWord{0};
++    ARMUnwindRecord Unwind;
 +    bool IsSentinel{false};
 +    SmallVector<const BinaryFunction *, 2> Functions;
 +  };
++
++  // One external program can describe several ranges. Register reassignment
++  // may mutate it only when one exact function owns the complete payload.
++  DenseMap<uint64_t, const BinaryFunction *> ExternalCompactOwners;
 +
 +  for (BinarySection &Section : BC.allocatableSections()) {
 +    if (Section.getELFType() != ELF::SHT_ARM_EXIDX)
@@ -10795,12 +11092,16 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc9
 +            errc::executable_format_error,
 +            "ARM EHABI index section %s is not strictly address-sorted",
 +            Section.getName().str().c_str());
-+      Entries.push_back({*Start, ReadWord(Contents.data() + Offset + 4),
-+                         false, {}});
++      const uint32_t UnwindWord = ReadWord(Contents.data() + Offset + 4);
++      Expected<ARMUnwindRecord> Unwind = decodeARMUnwindRecord(
++          BC, UnwindWord, Place + sizeof(uint32_t));
++      if (!Unwind)
++        return Unwind.takeError();
++      Entries.push_back({*Start, std::move(*Unwind), false, {}});
 +    }
 +
 +    Entry &Last = Entries.back();
-+    if (Last.UnwindWord == 1 &&
++    if (Last.Unwind.Model == ARMUnwindModel::CantUnwind &&
 +        !BC.getBinaryFunctionAtAddress(Last.Start))
 +      Last.IsSentinel = true;
 +
@@ -10830,17 +11131,24 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc9
 +    for (const Entry &Current : Entries) {
 +      if (Current.IsSentinel)
 +        continue;
-+      if (Current.UnwindWord == 1) {
++      if (Current.Unwind.Model == ARMUnwindModel::CantUnwind) {
 +        Result.CantUnwindFunctions += Current.Functions.size();
 +        continue;
 +      }
-+      // Inline compact model 0 has three fixed opcode bytes.  Keep shared
-+      // ranges and external/generic tables unchanged until their record
-+      // ownership or storage is rewritten as one atomic unit.
-+      if ((Current.UnwindWord & 0xff000000U) == 0x80000000U &&
-+          Current.Functions.size() == 1) {
-+        Result.InlineCompactWords[Current.Functions.front()] =
-+            Current.UnwindWord;
++      if (Current.Unwind.Compact && Current.Functions.size() == 1) {
++        const BinaryFunction *BF = Current.Functions.front();
++        const ARMCompactUnwindProgram &Program = *Current.Unwind.Compact;
++        if (Current.Unwind.Model == ARMUnwindModel::ExternalCompact) {
++          auto [Owner, Inserted] = ExternalCompactOwners.try_emplace(
++              Program.StorageAddress, BF);
++          if (!Inserted) {
++            Result.CompactPrograms.erase(Owner->second);
++            Result.BlockedFunctions.insert(Owner->second);
++            Result.BlockedFunctions.insert(BF);
++            continue;
++          }
++        }
++        Result.CompactPrograms[BF] = Program.Opcodes;
 +        continue;
 +      }
 +      for (const BinaryFunction *BF : Current.Functions)
@@ -10855,7 +11163,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc9
  void RegReAssign::swap(BinaryFunction &Function, MCPhysReg A, MCPhysReg B) {
    BinaryContext &BC = Function.getBinaryContext();
    const BitVector &AliasA = BC.MIB->getAliases(A, false);
-@@ -404,6 +536,92 @@ bool RegReAssign::conservativePassOverFunction(BinaryFunction &Function) {
+@@ -404,6 +552,94 @@ bool RegReAssign::conservativePassOverFunction(BinaryFunction &Function) {
    return true;
  }
  
@@ -10883,11 +11191,13 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc9
 +  } Best;
 +
 +  for (const auto &[Compact, Expensive] : Candidates) {
-+    if (auto It = CortexMInlineUnwindWords.find(&Function);
-+        It != CortexMInlineUnwindWords.end() &&
-+        !BC.MIB->rewriteInlineCompactUnwindRegisters(
-+            It->second, Compact, Expensive))
-+      continue;
++    if (auto It = CortexMCompactUnwindPrograms.find(&Function);
++        It != CortexMCompactUnwindPrograms.end()) {
++      SmallVector<uint8_t, 8> Rewritten = It->second;
++      if (!BC.MIB->rewriteCompactUnwindRegisters(Rewritten, Compact,
++                                                 Expensive))
++        continue;
++    }
 +    int64_t CandidateStatic = 0;
 +    int64_t CandidateDynamic = 0;
 +    bool Touched = false;
@@ -10948,7 +11258,7 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc9
  void RegReAssign::setupAggressivePass(BinaryContext &BC,
                                        std::map<uint64_t, BinaryFunction> &BFs) {
    setupConservativePass(BC, BFs);
-@@ -449,11 +667,60 @@ void RegReAssign::setupConservativePass(
+@@ -449,11 +685,61 @@ void RegReAssign::setupConservativePass(
  }
  
  Error RegReAssign::runOnFunctions(BinaryContext &BC) {
@@ -10980,17 +11290,18 @@ index 67ec8d77d60bc45d0a6ec9d85c8927e39b54032c..7b41d6b1beda1be1d1badc22a4511fc9
 +    if (!EHABI)
 +      return EHABI.takeError();
 +    CortexMUnwindBlockedFunctions = std::move(EHABI->BlockedFunctions);
-+    CortexMInlineUnwindWords = std::move(EHABI->InlineCompactWords);
++    CortexMCompactUnwindPrograms = std::move(EHABI->CompactPrograms);
 +    if (EHABI->CantUnwindFunctions ||
-+        !CortexMUnwindBlockedFunctions.empty())
++        !CortexMUnwindBlockedFunctions.empty() ||
++        !CortexMCompactUnwindPrograms.empty())
 +      BC.outs() << "BOLT-INFO: Reg Reassignment Pass: ARM EHABI admitted "
 +                << EHABI->CantUnwindFunctions
 +                << " CANTUNWIND-covered function(s) and retained "
 +                << CortexMUnwindBlockedFunctions.size()
 +                << " function(s) with unsupported compact, shared or generic "
 +                   "unwind programs; "
-+                << CortexMInlineUnwindWords.size()
-+                << " single-function inline compact program(s) remain "
++                << CortexMCompactUnwindPrograms.size()
++                << " single-function compact program(s) remain "
 +                   "candidate-qualified.\n";
 +
 +    for (auto &I : BC.getBinaryFunctions())
@@ -11649,10 +11960,18 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33f357762f 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..b308b0c03e77031496b3539b4a2179335e931013 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
-@@ -19,6 +19,7 @@
+@@ -8,6 +8,7 @@
+ 
+ #include "bolt/Rewrite/RewriteInstance.h"
+ #include "bolt/Core/AddressMap.h"
++#include "bolt/Core/ARMUnwindInfo.h"
+ #include "bolt/Core/BinaryContext.h"
+ #include "bolt/Core/BinaryEmitter.h"
+ #include "bolt/Core/BinaryFunction.h"
+@@ -19,6 +20,7 @@
  #include "bolt/Core/Relocation.h"
  #include "bolt/Passes/BinaryPasses.h"
  #include "bolt/Passes/CacheMetrics.h"
@@ -11660,7 +11979,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  #include "bolt/Passes/IdenticalCodeFolding.h"
  #include "bolt/Passes/PAuthGadgetScanner.h"
  #include "bolt/Passes/ReorderFunctions.h"
-@@ -37,6 +38,7 @@
+@@ -37,6 +39,7 @@
  #include "bolt/Utils/CommandLineOpts.h"
  #include "bolt/Utils/Utils.h"
  #include "llvm/ADT/AddressRanges.h"
@@ -11668,7 +11987,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  #include "llvm/ADT/STLExtras.h"
  #include "llvm/BinaryFormat/ELF.h"
  #include "llvm/DebugInfo/DWARF/DWARFContext.h"
-@@ -59,15 +61,19 @@
+@@ -59,15 +62,19 @@
  #include "llvm/Support/Error.h"
  #include "llvm/Support/FileSystem.h"
  #include "llvm/Support/ManagedStatic.h"
@@ -11688,7 +12007,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  
  #undef  DEBUG_TYPE
  #define DEBUG_TYPE "bolt"
-@@ -380,6 +386,11 @@ MCPlusBuilder *createMCPlusBuilder(const Triple::ArchType Arch,
+@@ -380,6 +387,11 @@ MCPlusBuilder *createMCPlusBuilder(const Triple::ArchType Arch,
      return createAArch64MCPlusBuilder(Analysis, Info, RegInfo, STI);
  #endif
  
@@ -11700,7 +12019,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  #ifdef RISCV_AVAILABLE
    if (Arch == Triple::riscv64 || Arch == Triple::riscv32)
      return createRISCVMCPlusBuilder(Analysis, Info, RegInfo, STI);
-@@ -400,6 +411,12 @@ createRelocationHandler(Triple::ArchType Arch) {
+@@ -400,6 +412,12 @@ createRelocationHandler(Triple::ArchType Arch) {
      return createAArch64RelocationHandler();
  #endif
  
@@ -11713,7 +12032,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  #ifdef RISCV_AVAILABLE
    if (Arch == Triple::riscv32)
      return createRISCVRelocationHandler(false);
-@@ -494,10 +511,12 @@ RewriteInstance::RewriteInstance(ELFObjectFileBase *File, const int Argc,
+@@ -494,10 +512,12 @@ RewriteInstance::RewriteInstance(ELFObjectFileBase *File, const int Argc,
    Stderr.SetUnbuffered();
    LLVM_DEBUG(dbgs().SetUnbuffered());
  
@@ -11728,7 +12047,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      Expected<SubtargetFeatures> FeaturesOrErr = File->getFeatures();
      if (auto E = FeaturesOrErr.takeError()) {
        Err = std::move(E);
-@@ -812,7 +831,12 @@ Error RewriteInstance::discoverStorage(ELFObjectFile<ELFT> *ELFObjFile) {
+@@ -812,7 +832,12 @@ Error RewriteInstance::discoverStorage(ELFObjectFile<ELFT> *ELFObjFile) {
    NewTextSegmentAddress = NextAvailableAddress;
    NewTextSegmentOffset = NextAvailableOffset;
  
@@ -11742,7 +12061,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      // This is where the black magic happens. Creating PHDR table in a segment
      // other than that containing ELF header is tricky. Some loaders and/or
      // parts of loaders will apply e_phoff from ELF header assuming both are in
-@@ -1070,8 +1094,8 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1070,8 +1095,8 @@ void RewriteInstance::discoverFileObjects() {
    if (!SortedSymbols.empty())
      --LastSymbol;
  
@@ -11753,7 +12072,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    // Compilers usually merge multiple data objects in a single $d-$x interval,
    // but we need every data object to be marked with $d. Because of that we
    // keep track of marker symbols with all locations of data objects.
-@@ -1099,7 +1123,17 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1099,7 +1124,17 @@ void RewriteInstance::discoverFileObjects() {
                         << " lacks code marker\n";
            }
          }
@@ -11772,7 +12091,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
        }
  
        if (MarkerType != MarkerSymType::NONE) {
-@@ -1116,7 +1150,7 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1116,7 +1151,7 @@ void RewriteInstance::discoverFileObjects() {
      }
    };
  
@@ -11781,7 +12100,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      addExtraDataMarkerPerSymbol();
      LastSymbol = std::stable_partition(
          SortedSymbols.begin(), SortedSymbols.end(),
-@@ -1271,6 +1305,18 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1271,6 +1306,18 @@ void RewriteInstance::discoverFileObjects() {
        continue;
      }
  
@@ -11800,7 +12119,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      // Assembly functions could be ST_NONE with 0 size. Check that the
      // corresponding section is a code section and they are not inside any
      // other known function to consider them.
-@@ -1488,7 +1534,8 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1488,7 +1535,8 @@ void RewriteInstance::discoverFileObjects() {
    adjustFunctionBoundaries(MarkerSymbols);
    splitUnmarkedTailFunctions(MarkerSymbols);
  
@@ -11810,7 +12129,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    for (auto &[Address, Type] : MarkerSymbols) {
      auto *BF = BC->getBinaryFunctionContainingAddress(Address,
                                                        /*CheckPastEnd*/ false,
-@@ -1499,10 +1546,22 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1499,10 +1547,22 @@ void RewriteInstance::discoverFileObjects() {
        continue;
      }
      const auto EntryOffset = Address - BF->getAddress();
@@ -11834,7 +12153,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      if (Type == MarkerSymType::DATA) {
        BF->markDataAtOffset(EntryOffset);
        BC->AddressToConstantIslandMap[Address] = BF;
-@@ -1510,8 +1569,12 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1510,8 +1570,12 @@ void RewriteInstance::discoverFileObjects() {
      }
      llvm_unreachable("Unknown marker");
    }
@@ -11848,7 +12167,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      [[maybe_unused]] const RelocationHandler &RH = BC->getRelocationHandler();
      // Check for dynamic relocations that might be contained in
      // constant islands.
-@@ -2406,6 +2469,23 @@ void RewriteInstance::adjustFunctionBoundaries(
+@@ -2406,6 +2470,23 @@ void RewriteInstance::adjustFunctionBoundaries(
        if (NextFunction && SymbolAddress >= NextFunction->getAddress())
          break;
  
@@ -11872,7 +12191,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
        if (!Function.isSymbolValidInScope(Symbol, SymbolSize))
          break;
  
-@@ -2522,7 +2602,6 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2522,7 +2603,6 @@ Error RewriteInstance::readSpecialSections() {
    NamedRegionTimer T("readSpecialSections", "read special sections",
                       TimerGroupName, TimerGroupDesc, opts::TimeRewrite);
  
@@ -11880,7 +12199,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    bool HasSymbolTable = false;
    bool HasDebugInfo = false;
  
-@@ -2547,6 +2626,16 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2547,6 +2627,16 @@ Error RewriteInstance::readSpecialSections() {
                 << "\n");
    }
  
@@ -11897,7 +12216,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    // Set IsRelro section attribute based on PT_GNU_RELRO segment.
    markGnuRelroSections();
  
-@@ -2562,11 +2651,14 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2562,11 +2652,14 @@ Error RewriteInstance::readSpecialSections() {
      BC->updateLSDAEncoding();
    }
  
@@ -11913,7 +12232,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    HasSymbolTable = (bool)BC->getUniqueSectionByName(".symtab");
    EHFrameSection = BC->getUniqueSectionByName(".eh_frame");
  
-@@ -2589,15 +2681,31 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2589,15 +2682,31 @@ Error RewriteInstance::readSpecialSections() {
    }
  
    if (opts::RelocationMode == cl::boolOrDefault::BOU_TRUE &&
@@ -11948,7 +12267,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  
    if (BC->IsLinuxKernel && BC->HasRelocations) {
      BC->outs() << "BOLT-INFO: disabling relocation mode for Linux kernel\n";
-@@ -2644,11 +2752,121 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2644,11 +2753,121 @@ Error RewriteInstance::readSpecialSections() {
    return readELFDynamic();
  }
  
@@ -12070,7 +12389,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    // RV32 support is currently limited to statically linked, non-PIE
    // programs. Reject anything that requires features still out of scope
    // (PLT, GOT, dynamic relocations, TLS, instrumentation runtime).
-@@ -2680,7 +2898,7 @@ void RewriteInstance::adjustCommandLineOptions() {
+@@ -2680,7 +2899,7 @@ void RewriteInstance::adjustCommandLineOptions() {
      opts::SplitEH = false;
    }
  
@@ -12079,7 +12398,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
        opts::SplitStrategy == opts::SplitFunctionsStrategy::CDSplit) {
      BC->errs() << "BOLT-ERROR: CDSplit is not supported with LongJmp. Try with "
                    "'--compact-code-model'\n";
-@@ -2864,6 +3082,23 @@ int64_t getRelocationAddend(const ELFObjectFileBase *Obj,
+@@ -2864,6 +3083,23 @@ int64_t getRelocationAddend(const ELFObjectFileBase *Obj,
    return getRelocationAddend(cast<ELF64LEObjectFile>(Obj), Rel);
  }
  
@@ -12103,7 +12422,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  template <typename ELFT>
  uint32_t getRelocationSymbol(const ELFObjectFile<ELFT> *Obj,
                               const RelocationRef &RelRef) {
-@@ -2892,6 +3127,133 @@ uint32_t getRelocationSymbol(const ELFObjectFileBase *Obj,
+@@ -2892,6 +3128,133 @@ uint32_t getRelocationSymbol(const ELFObjectFileBase *Obj,
      return getRelocationSymbol(ELF32LE, Rel);
    return getRelocationSymbol(cast<ELF64LEObjectFile>(Obj), Rel);
  }
@@ -12237,7 +12556,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  } // anonymous namespace
  
  bool RewriteInstance::analyzeRelocation(
-@@ -2911,6 +3273,7 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2911,6 +3274,7 @@ bool RewriteInstance::analyzeRelocation(
    };
  
    const bool IsAArch64 = BC->isAArch64();
@@ -12245,7 +12564,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    const bool IsRISCV = BC->isRISCV();
  
    const size_t RelSize = RH.getSizeForType(RType);
-@@ -2923,8 +3286,10 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2923,8 +3287,10 @@ bool RewriteInstance::analyzeRelocation(
    Addend = getRelocationAddend(InputFile, Rel);
  
    const bool IsPCRelative = RH.isPCRelative(RType);
@@ -12257,7 +12576,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    auto SymbolIter = Rel.getSymbol();
    if (SymbolIter == InputFile->symbol_end()) {
      SymbolAddress = ExtractedValue - Addend + PCRelOffset;
-@@ -2936,9 +3301,22 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2936,9 +3302,22 @@ bool RewriteInstance::analyzeRelocation(
      const SymbolRef &Symbol = *SymbolIter;
      SymbolName = std::string(cantFail(Symbol.getName()));
      SymbolAddress = cantFail(Symbol.getAddress());
@@ -12282,7 +12601,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      // Check for PLT entry registered with symbol name
      // LLD may give a defined RISC-V IFUNC symbol the .iplt entry address.
      // R_RISCV_CALL_PLT must still resolve it through the registered @PLT
-@@ -2952,6 +3330,71 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2952,6 +3331,71 @@ bool RewriteInstance::analyzeRelocation(
        SymbolAddress = BD ? BD->getAddress() : 0;
      }
    }
@@ -12354,7 +12673,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    // For PIE or dynamic libs, the linker may choose not to put the relocation
    // result at the address if it is a X86_64_64 one because it will emit a
    // dynamic relocation (X86_RELATIVE) for the dynamic linker and loader to
-@@ -3007,7 +3450,7 @@ bool RewriteInstance::analyzeRelocation(
+@@ -3007,7 +3451,7 @@ bool RewriteInstance::analyzeRelocation(
      if (SkipVerification)
        return true;
  
@@ -12363,7 +12682,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
        return true;
  
      if (SymbolName == "__hot_start" || SymbolName == "__hot_end")
-@@ -3087,7 +3530,7 @@ void RewriteInstance::processDynamicRelocations() {
+@@ -3087,7 +3531,7 @@ void RewriteInstance::processDynamicRelocations() {
  }
  
  void RewriteInstance::processRelocations() {
@@ -12372,7 +12691,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      return;
  
    for (const SectionRef &Section : InputFile->sections()) {
-@@ -3292,6 +3735,19 @@ void RewriteInstance::readRelocations(const SectionRef &Section) {
+@@ -3292,6 +3736,19 @@ void RewriteInstance::readRelocations(const SectionRef &Section) {
                        << "non-allocatable section\n");
      return;
    }
@@ -12392,7 +12711,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    const bool SkipRelocs = StringSwitch<bool>(RelocatedSectionName)
                                .Cases({".plt", ".rela.plt", ".got.plt",
                                        ".eh_frame", ".gcc_except_table"},
-@@ -3312,7 +3768,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3312,7 +3769,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    const RelocationHandler &RH = BC->getRelocationHandler();
    const bool IsAArch64 = BC->isAArch64();
    const bool IsX86 = BC->isX86();
@@ -12405,7 +12724,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    const bool IsWritable = BinarySection(*BC, RelocatedSection).isWritable();
  
    SmallString<16> TypeName;
-@@ -3354,6 +3814,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3354,6 +3815,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    bool IsSectionRelocation;
    if (!analyzeRelocation(Rel, RType, SymbolName, IsSectionRelocation,
                           SymbolAddress, Addend, ExtractedValue)) {
@@ -12416,7 +12735,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      LLVM_DEBUG({
        dbgs() << "BOLT-WARNING: failed to analyze relocation @ offset = "
               << formatv("{0:x}; type name = {1}\n", Rel.getOffset(), TypeName);
-@@ -3361,6 +3825,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3361,6 +3826,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
      ++NumFailedRelocations;
      return;
    }
@@ -12426,7 +12745,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  
    if (!IsFromCode && !IsWritable && (IsX86 || IsAArch64) &&
        RH.isPCRelative(RType)) {
-@@ -3384,6 +3851,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3384,6 +3852,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    }
  
    const uint64_t Address = SymbolAddress + Addend;
@@ -12436,7 +12755,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  
    LLVM_DEBUG({
      dbgs() << "BOLT-DEBUG: ";
-@@ -3396,7 +3866,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3396,7 +3867,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          BC->getBinaryFunctionContainingAddress(Rel.getOffset(),
                                                 /*CheckPastEnd*/ false,
                                                 /*UseMaxSize*/ true);
@@ -12468,7 +12787,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      if (!IsAArch64 && !ContainingBF->containsAddress(Rel.getOffset())) {
        if (opts::Verbosity >= 1)
          BC->outs() << formatv(
-@@ -3421,8 +3914,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3421,8 +3915,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
  
    ErrorOr<BinarySection &> ReferencedSection{std::errc::bad_address};
    symbol_iterator SymbolIter = Rel.getSymbol();
@@ -12479,7 +12798,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      section_iterator Section =
          cantFail(Symbol.getSection(), "cannot get symbol section");
      if (Section != InputFile->section_end()) {
-@@ -3493,11 +3988,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3493,11 +3989,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    // Only look for a referenced function when the symbol itself denotes code
    // or it is a section relocation.
    BinaryFunction *ReferencedBF = nullptr;
@@ -12494,7 +12813,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      if (BinaryFunction *BF =
              BC->getBinaryFunctionContainingAddress(SymbolAddress)) {
        if (BF != ReferencedBF) {
-@@ -3562,8 +4057,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3562,8 +4058,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
      uint64_t RefFunctionOffset = 0;
  
      // Adjust the point of reference to a code location inside a function.
@@ -12506,7 +12825,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
        if (RH.isInstructionReference(RType)) {
          // Instruction labels are created while disassembling so we just leave
          // the symbol empty for now. Since the extracted value is typically
-@@ -3573,21 +4069,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3573,21 +4070,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          // address in order to be able to correctly reconstruct the reference
          // later.
          ReferencedSymbol = nullptr;
@@ -12535,7 +12854,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
              ReferencedBF->registerInternalRefDataRelocation(RefFunctionOffset,
                                                              Rel.getOffset());
            }
-@@ -3599,12 +4097,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3599,12 +4098,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
                << formatv("function {0} detected at address {1:x}\n",
                           *ReferencedBF, Rel.getOffset());
        }
@@ -12553,7 +12872,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
          dbgs() << formatv(" at offset {0:x}", RefFunctionOffset);
        dbgs() << '\n';
      });
-@@ -3709,6 +4209,38 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3709,6 +4210,38 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    if (IsFromCode)
      ContainingBF->addRelocation(Rel.getOffset(), ReferencedSymbol, RType,
                                  Addend, ExtractedValue);
@@ -12592,7 +12911,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    else if (IsToCode || ForceRelocation)
      BC->addRelocation(Rel.getOffset(), ReferencedSymbol, RType, Addend,
                        ExtractedValue);
-@@ -4379,6 +4911,18 @@ void RewriteInstance::emitAndLink() {
+@@ -4379,6 +4912,18 @@ void RewriteInstance::emitAndLink() {
    // two instances.
    std::unique_ptr<MCStreamer> Streamer = BC->createStreamer(OS);
  
@@ -12611,7 +12930,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    if (EHFrameSection) {
      if (opts::UseOldText || opts::StrictMode) {
        // The section is going to be regenerated from scratch.
-@@ -4773,7 +5317,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
+@@ -4773,7 +5318,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
      MapSection(*FuncSection, Function.getAddress());
      Function.setImageAddress(FuncSection->getAllocAddress());
      Function.setImageSize(FuncSection->getOutputSize());
@@ -12625,7 +12944,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
             "Unexpected large function");
  
      if (!Function.isSplit())
-@@ -4945,8 +5494,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4945,8 +5495,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
    if (std::optional<AddressMap> Map = AddressMap::parse(*BC))
      BC->setIOAddressMap(std::move(*Map));
  
@@ -12680,7 +12999,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  }
  
  void RewriteInstance::updateSegmentInfo() {
-@@ -4959,6 +5553,15 @@ void RewriteInstance::updateSegmentInfo() {
+@@ -4959,6 +5554,15 @@ void RewriteInstance::updateSegmentInfo() {
      NewWritableSegmentSize = NextAvailableAddress - NewWritableSegmentAddress;
    }
  
@@ -12696,7 +13015,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    if (NewTextSegmentSize) {
      SegmentInfo TextSegment = {NewTextSegmentAddress,
                                 NewTextSegmentSize,
-@@ -5026,7 +5629,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5026,7 +5630,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
  
    Phnum = Obj.getHeader().e_phnum;
  
@@ -12715,7 +13034,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      BC->outs() << "BOLT-INFO: not adding new segments\n";
      return;
    }
-@@ -5103,6 +5716,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5103,6 +5717,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
        }
        break;
      }
@@ -12754,7 +13073,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      case ELF::PT_GNU_STACK:
        if (opts::UseGnuStack) {
          assert(BC->NewSegments.size() == 1 &&
-@@ -5217,6 +5862,7 @@ writeCompressedDebugSection(StringRef SectionName,
+@@ -5217,6 +5863,7 @@ writeCompressedDebugSection(StringRef SectionName,
  template <typename ELFT>
  void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
    using ShdrTy = typename ELFT::Shdr;
@@ -12762,7 +13081,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  
    const ELFFile<ELFT> &Obj = File->getELFFile();
    raw_fd_ostream &OS = Out->os();
-@@ -5254,15 +5900,172 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
+@@ -5254,15 +5901,172 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
        Size = Section.sh_size;
        StringRef Dataref = InputFile->getData().substr(Section.sh_offset, Size);
        std::string Data;
@@ -12939,7 +13258,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
          Size = 0;
        } else {
          OS << Dataref;
-@@ -5459,7 +6262,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
+@@ -5459,7 +6263,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
      if (BinSec->isAnonymous())
        continue;
  
@@ -12957,7 +13276,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    }
  
    for (BinarySection &Section : BC->allocatableSections()) {
-@@ -5658,9 +6470,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
+@@ -5658,9 +6471,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
  
    // Write all section header entries while patching section references.
    for (ELFShdrTy &Section : OutputSections) {
@@ -13004,7 +13323,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      OS.write(reinterpret_cast<const char *>(&Section), sizeof(Section));
    }
  
-@@ -5715,6 +6561,25 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5715,6 +6562,25 @@ void RewriteInstance::updateELFSymbolTable(
  
    // Symbols for the new symbol table.
    std::vector<ELFSymTy> Symbols;
@@ -13030,7 +13349,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  
    bool EmittedColdFileSymbol = false;
  
-@@ -5804,7 +6669,9 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5804,7 +6670,9 @@ void RewriteInstance::updateELFSymbolTable(
          }
        }
      }
@@ -13041,16 +13360,17 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
        uint64_t DataMark = Function.getOutputDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5815,12 +6682,103 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5815,12 +6683,103 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
 -      CodeMarkSym.st_name = AddToStrTab("$x");
 +      CodeMarkSym.st_name = AddToStrTab(BC->isARM() ? "$t" : "$x");
-+      CodeMarkSym.st_value = CodeMark;
-+      Symbols.emplace_back(DataMarkSym);
-+      Symbols.emplace_back(CodeMarkSym);
-+    }
+       CodeMarkSym.st_value = CodeMark;
+       Symbols.emplace_back(DataMarkSym);
+       Symbols.emplace_back(CodeMarkSym);
+     }
+-    if (Function.hasConstantIsland() && Function.isSplit()) {
 +    if (BC->isARM() && Function.isEmitted() &&
 +        (BC->HasRelocations || Function.isFirmwareModified()) &&
 +        Function.hasConstantIsland() &&
@@ -13066,11 +13386,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
 +      DataMarkSym.setBinding(ELF::STB_LOCAL);
 +      ELFSymTy CodeMarkSym = DataMarkSym;
 +      CodeMarkSym.st_name = AddToStrTab("$t");
-       CodeMarkSym.st_value = CodeMark;
-       Symbols.emplace_back(DataMarkSym);
-       Symbols.emplace_back(CodeMarkSym);
-     }
--    if (Function.hasConstantIsland() && Function.isSplit()) {
++      CodeMarkSym.st_value = CodeMark;
++      Symbols.emplace_back(DataMarkSym);
++      Symbols.emplace_back(CodeMarkSym);
++    }
 +    if (BC->isARM() && Function.isEmitted() && Function.hasCFG() &&
 +        (BC->HasRelocations || Function.isFirmwareModified())) {
 +      // Instruction-owned Thumb literal pools move with their guarded basic
@@ -13147,7 +13466,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
        uint64_t DataMark = Function.getOutputColdDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5831,11 +6789,78 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5831,11 +6790,78 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -13227,7 +13546,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    };
  
    // For regular (non-dynamic) symbol table, exclude symbols referring
-@@ -5866,13 +6891,23 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5866,13 +6892,23 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    };
  
@@ -13253,7 +13572,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      // In relocation mode, if this is a folded function, use the parent function
      // instead so that the symbol gets updated to the parent's output address.
      // In non-relocation mode, folded functions are emitted at their original
-@@ -5943,9 +6978,17 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5943,9 +6979,17 @@ void RewriteInstance::updateELFSymbolTable(
        // If the symbol matched a function that was not emitted, update the
        // corresponding section index but otherwise leave it unchanged.
        if (Function->isEmitted()) {
@@ -13273,7 +13592,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
          NewSymbol.st_shndx = Function->getCodeSection()->getIndex();
        } else if (Symbol.st_shndx < ELF::SHN_LORESERVE) {
          NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
-@@ -5965,22 +7008,48 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5965,22 +7009,48 @@ void RewriteInstance::updateELFSymbolTable(
          return BC->getMarkerType(Symbol.getType(), Symbol.st_size,
                                   *SymbolName) != MarkerSymType::NONE;
        };
@@ -13331,7 +13650,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  
          // Remove symbols that cannot be mapped to the output, e.g.
          // data-in-code labels (jump tables) whose addresses BOLT
-@@ -5988,7 +7057,8 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5988,7 +7058,8 @@ void RewriteInstance::updateELFSymbolTable(
          if (!OutputAddress)
            continue;
  
@@ -13341,7 +13660,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
          // Force secondary entry points to have zero size.
          NewSymbol.st_size = 0;
  
-@@ -6001,6 +7071,28 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6001,6 +7072,28 @@ void RewriteInstance::updateELFSymbolTable(
              });
  
          if (FF == Function->getLayout().fragment_end()) {
@@ -13370,7 +13689,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
            assert(
                OutputAddress >= Function->getCodeSection()->getOutputAddress() &&
                OutputAddress < (Function->getCodeSection()->getOutputAddress() +
-@@ -6036,12 +7128,15 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6036,12 +7129,15 @@ void RewriteInstance::updateELFSymbolTable(
              NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
          }
  
@@ -13391,7 +13710,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
            assert(!IsDynSym && "cannot delete symbol");
            continue;
          }
-@@ -6050,11 +7145,13 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6050,11 +7146,13 @@ void RewriteInstance::updateELFSymbolTable(
  
    registerSymbol:
      if (IsDynSym)
@@ -13408,7 +13727,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    }
  
    if (IsDynSym) {
-@@ -6165,6 +7262,20 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6165,6 +7263,20 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    });
  
@@ -13429,7 +13748,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    for (const ELFSymTy &Symbol : Symbols)
      Write(0, Symbol);
  }
-@@ -6736,7 +7847,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
+@@ -6736,7 +7848,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
  }
  
  uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
@@ -13445,7 +13764,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    if (!Function)
      return 0;
  
-@@ -6745,7 +7863,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
+@@ -6745,7 +7864,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
    if (Function->isFolded())
      Function = Function->getFoldedIntoFunction();
  
@@ -13458,7 +13777,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  }
  
  uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
-@@ -6758,6 +7880,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
+@@ -6758,6 +7881,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
  
    if (const BinaryFunction *BF =
            BC->getBinaryFunctionContainingAddress(OldAddress)) {
@@ -13468,7 +13787,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      if (BF->isEmitted()) {
        // If OldAddress is another entry point of the function or the target of
        // an indirect goto, then BOLT could get the new address.
-@@ -6796,7 +7921,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6796,7 +7922,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      if (Function->getImageAddress() == 0 || Function->getImageSize() == 0)
        continue;
  
@@ -13488,7 +13807,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
             "Unexpected large function");
  
      const auto HasAddress = [](const FunctionFragment &FF) {
-@@ -6816,6 +7952,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6816,6 +7953,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
        continue;
      }
  
@@ -13511,7 +13830,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
      OverwrittenScore += Function->getFunctionScore();
      ++CountOverwrittenFunctions;
  
-@@ -6826,12 +7978,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6826,12 +7979,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      safePWrite(OS, reinterpret_cast<char *>(Function->getImageAddress()),
                 Function->getImageSize(), Function->getFileOffset());
  
@@ -13530,7 +13849,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  
        OS.seek(Pos);
      }
-@@ -6947,6 +8102,762 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +8103,862 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -13561,6 +13880,46 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
 +                               "ARM PREL31 target underflows address zero");
 +    return static_cast<uint64_t>(Target);
 +  };
++  const auto RewriteExternalCompactProgram =
++      [&](const ARMCompactUnwindProgram &Program, unsigned A,
++          unsigned B) -> Error {
++    if (!Program.StorageSection)
++      return createStringError(errc::invalid_argument,
++                               "ARM compact program has no external storage");
++    SmallVector<uint8_t, 8> Opcodes = Program.Opcodes;
++    if (!BC->MIB->rewriteCompactUnwindRegisters(Opcodes, A, B))
++      return createStringError(
++          errc::not_supported,
++          "external ARM EHABI compact program at 0x%" PRIx64
++          " cannot encode register reassignment",
++          Program.StorageAddress);
++    Expected<SmallVector<uint8_t, 16>> Encoded =
++        encodeARMCompactUnwindProgram(Program, Opcodes, IsLittleEndian);
++    if (!Encoded)
++      return Encoded.takeError();
++
++    BinarySection &Storage = *Program.StorageSection;
++    // Multiple private programs can share one extab section. Clone the latest
++    // output buffer so a later rewrite cannot restore an earlier record from
++    // immutable input bytes.
++    StringRef Input = Storage.getOutputContents();
++    if (Input.empty())
++      Input = Storage.getContents();
++    const uint64_t Offset = Program.StorageAddress - Storage.getAddress();
++    if (Offset > Input.size() || Encoded->size() > Input.size() - Offset)
++      return createStringError(
++          errc::executable_format_error,
++          "external ARM EHABI compact program at 0x%" PRIx64
++          " no longer fits its linked section",
++          Program.StorageAddress);
++    uint8_t *NewContents = new uint8_t[Input.size()];
++    memcpy(NewContents, Input.data(), Input.size());
++    memcpy(NewContents + Offset, Encoded->data(), Encoded->size());
++    Storage.updateContents(NewContents, Input.size());
++    Storage.setOutputAddress(Storage.getAddress());
++    Storage.setOutputFileOffset(Storage.getInputFileOffset());
++    return Error::success();
++  };
 +
 +  // Compact in-place firmware mode keeps EHABI record addresses unchanged,
 +  // but --emit-relocs metadata is still copied later.  Publish an exact
@@ -13580,7 +13939,8 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
 +            Section.getName().str().c_str(),
 +            static_cast<uint64_t>(Contents.size()));
 +      uint8_t *NewContents = nullptr;
-+      uint64_t RewrittenPrograms = 0;
++      uint64_t RewrittenInlinePrograms = 0;
++      uint64_t RewrittenExternalPrograms = 0;
 +      for (uint64_t Offset = 0; Offset < Contents.size(); Offset += 8) {
 +        for (const uint64_t FieldOffset : {uint64_t(0), uint64_t(4)}) {
 +          const uint64_t Address =
@@ -13609,6 +13969,29 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
 +        if (InputUnwindWord == 1)
 +          continue;
 +        const auto [A, B] = *BF->getFirmwareRegisterReassignment();
++        Expected<ARMUnwindRecord> Unwind = decodeARMUnwindRecord(
++            *BC, InputUnwindWord,
++            Section.getAddress() + Offset + sizeof(uint32_t));
++        if (!Unwind) {
++          delete[] NewContents;
++          return Unwind.takeError();
++        }
++        if (Unwind->Model == ARMUnwindModel::ExternalCompact) {
++          if (Error E = RewriteExternalCompactProgram(*Unwind->Compact, A, B)) {
++            delete[] NewContents;
++            return E;
++          }
++          ++RewrittenExternalPrograms;
++          continue;
++        }
++        if (Unwind->Model != ARMUnwindModel::InlineCompact) {
++          delete[] NewContents;
++          return createStringError(
++              errc::not_supported,
++              "ARM EHABI program for %s cannot publish register "
++              "reassignment",
++              BF->getPrintName().c_str());
++        }
 +        std::optional<uint32_t> OutputUnwindWord =
 +            BC->MIB->rewriteInlineCompactUnwindRegisters(InputUnwindWord,
 +                                                         A, B);
@@ -13626,16 +14009,21 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
 +        }
 +        WriteWord(reinterpret_cast<char *>(NewContents + Offset + 4),
 +                  *OutputUnwindWord);
-+        ++RewrittenPrograms;
++        ++RewrittenInlinePrograms;
 +      }
 +      if (NewContents) {
 +        Section.updateContents(NewContents, Contents.size());
 +        Section.setOutputAddress(Section.getAddress());
 +        Section.setOutputFileOffset(Section.getInputFileOffset());
-+        BC->outs() << "BOLT-INFO: rewrote " << RewrittenPrograms
++        BC->outs() << "BOLT-INFO: rewrote " << RewrittenInlinePrograms
 +                   << " ARM EHABI inline compact register program(s) in "
 +                   << Section.getName() << '\n';
 +      }
++      if (RewrittenExternalPrograms)
++        BC->outs() << "BOLT-INFO: rewrote " << RewrittenExternalPrograms
++                   << " ARM EHABI external compact register program(s) "
++                      "referenced by "
++                   << Section.getName() << '\n';
 +    }
 +    return Error::success();
 +  }
@@ -14186,6 +14574,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
 +    uint8_t *NewContents = new uint8_t[OutputSize];
 +    size_t ExternalCompactReferences = 0;
 +    size_t ExternalGenericReferences = 0;
++    size_t RewrittenExternalRegisterPrograms = 0;
 +    for (size_t I = 0; I < OutputEntries.size(); ++I) {
 +      const ExidxEntry &Entry = *OutputEntries[I].Input;
 +      const uint64_t Place = Section.getAddress() + I * 8;
@@ -14224,26 +14613,51 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
 +      }
 +      if (RegisterReassignment && Entry.UnwindWord != 1) {
 +        if (Entry.ExtabSection) {
-+          delete[] NewContents;
-+          return createStringError(
-+              errc::not_supported,
-+              "external ARM EHABI program at 0x%" PRIx64
-+              " cannot publish register reassignment",
-+              Entry.ExtabTarget);
++          if (Entry.PersonalityTarget) {
++            delete[] NewContents;
++            return createStringError(
++                errc::not_supported,
++                "generic ARM EHABI program at 0x%" PRIx64
++                " cannot publish register reassignment",
++                Entry.ExtabTarget);
++          }
++          Expected<ARMUnwindRecord> Unwind = decodeARMUnwindRecord(
++              *BC, Entry.UnwindWord,
++              Section.getAddress() + Entry.InputOffset + sizeof(uint32_t));
++          if (!Unwind) {
++            delete[] NewContents;
++            return Unwind.takeError();
++          }
++          if (Unwind->Model != ARMUnwindModel::ExternalCompact ||
++              !Unwind->Compact) {
++            delete[] NewContents;
++            return createStringError(
++                errc::not_supported,
++                "external ARM EHABI program at 0x%" PRIx64
++                " is not a bounded compact record",
++                Entry.ExtabTarget);
++          }
++          const auto [A, B] = *RegisterReassignment;
++          if (Error E = RewriteExternalCompactProgram(*Unwind->Compact, A, B)) {
++            delete[] NewContents;
++            return E;
++          }
++          ++RewrittenExternalRegisterPrograms;
++        } else {
++          const auto [A, B] = *RegisterReassignment;
++          std::optional<uint32_t> Rewritten =
++              BC->MIB->rewriteInlineCompactUnwindRegisters(
++                  Entry.UnwindWord, A, B);
++          if (!Rewritten) {
++            delete[] NewContents;
++            return createStringError(
++                errc::not_supported,
++                "inline ARM EHABI program at 0x%" PRIx64
++                " cannot encode register reassignment",
++                Entry.InputStart);
++          }
++          OutputUnwindWord = *Rewritten;
 +        }
-+        const auto [A, B] = *RegisterReassignment;
-+        std::optional<uint32_t> Rewritten =
-+            BC->MIB->rewriteInlineCompactUnwindRegisters(
-+                Entry.UnwindWord, A, B);
-+        if (!Rewritten) {
-+          delete[] NewContents;
-+          return createStringError(
-+              errc::not_supported,
-+              "inline ARM EHABI program at 0x%" PRIx64
-+              " cannot encode register reassignment",
-+              Entry.InputStart);
-+        }
-+        OutputUnwindWord = *Rewritten;
 +      }
 +      if (Entry.ExtabSection) {
 +        const uint64_t ExtabOffset =
@@ -14280,6 +14694,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
 +               << ExternalGenericReferences
 +               << " relocation-complete generic reference(s) after function "
 +                  "layout\n";
++    if (RewrittenExternalRegisterPrograms)
++      BC->outs() << "BOLT-INFO: rewrote "
++                 << RewrittenExternalRegisterPrograms
++                 << " ARM EHABI external compact register program(s) after "
++                    "function layout\n";
 +    if (SplitFragments)
 +      BC->outs() << "BOLT-INFO: ARM EHABI index " << Section.getName()
 +                 << " published " << SplitFragments
@@ -14293,7 +14712,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8871,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8972,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -14308,7 +14727,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
      // Overwrite function body to make sure we never execute these instructions.
-@@ -7002,6 +8921,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +9022,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -14320,10 +14739,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..fa861d250cf1bdfc7fd240be92c8ea33
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..3f0249e74f83ffc00a4609db934647fb4ae9e6e3
+index 0000000000000000000000000000000000000000..5c05ec4981af6940b5ea960af7c67b5ba16d7eb8
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3041 @@
+@@ -0,0 +1,3033 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -15448,22 +15867,15 @@ index 0000000000000000000000000000000000000000..3f0249e74f83ffc00a4609db934647fb
 +    return int64_t{2};
 +  }
 +
-+  std::optional<uint32_t>
-+  rewriteInlineCompactUnwindRegisters(uint32_t Word, MCPhysReg A,
-+                                      MCPhysReg B) const override {
-+    if (!hasThumb2() || (Word & 0xff000000U) != 0x80000000U)
-+      return std::nullopt;
++  bool rewriteCompactUnwindRegisters(MutableArrayRef<uint8_t> Bytes,
++                                     MCPhysReg A,
++                                     MCPhysReg B) const override {
++    if (!hasThumb2() || Bytes.empty())
++      return false;
 +    const unsigned RegisterA = RegInfo->getEncodingValue(A);
 +    const unsigned RegisterB = RegInfo->getEncodingValue(B);
 +    if (RegisterA > 15 || RegisterB > 15 || RegisterA == RegisterB)
-+      return std::nullopt;
-+
-+    uint8_t Bytes[4] = {
-+        static_cast<uint8_t>(Word >> 24),
-+        static_cast<uint8_t>(Word >> 16),
-+        static_cast<uint8_t>(Word >> 8),
-+        static_cast<uint8_t>(Word),
-+    };
++      return false;
 +    const auto SwapMaskBits = [RegisterA, RegisterB](uint32_t Mask) {
 +      const bool HasA = Mask & (1U << RegisterA);
 +      const bool HasB = Mask & (1U << RegisterB);
@@ -15475,18 +15887,18 @@ index 0000000000000000000000000000000000000000..3f0249e74f83ffc00a4609db934647fb
 +      return Mask;
 +    };
 +
-+    for (size_t Offset = 1; Offset < 4;) {
++    for (size_t Offset = 0; Offset < Bytes.size();) {
 +      const uint8_t Opcode = Bytes[Offset++];
 +      if ((Opcode & 0x80) == 0)
 +        continue;
 +      switch (Opcode & 0xf0) {
 +      case 0x80: {
-+        if (Offset >= 4)
-+          return std::nullopt;
++        if (Offset >= Bytes.size())
++          return false;
 +        uint32_t Mask = (static_cast<uint32_t>(Opcode & 0x0f) << 12) |
 +                        (static_cast<uint32_t>(Bytes[Offset]) << 4);
 +        if (!Mask)
-+          return std::nullopt;
++          return false;
 +        Mask = SwapMaskBits(Mask);
 +        Bytes[Offset - 1] = 0x80 | ((Mask >> 12) & 0x0f);
 +        Bytes[Offset++] = (Mask >> 4) & 0xff;
@@ -15495,7 +15907,7 @@ index 0000000000000000000000000000000000000000..3f0249e74f83ffc00a4609db934647fb
 +      case 0x90: {
 +        unsigned Register = Opcode & 0x0f;
 +        if (Register == 13 || Register == 15)
-+          return std::nullopt;
++          return false;
 +        if (Register == RegisterA)
 +          Register = RegisterB;
 +        else if (Register == RegisterB)
@@ -15511,34 +15923,35 @@ index 0000000000000000000000000000000000000000..3f0249e74f83ffc00a4609db934647fb
 +          ++Last;
 +        const uint32_t Expected = ((1U << (Last - 3)) - 1) << 4;
 +        if ((Mask & 0x0ff0U) != Expected || (Mask & ~0x0ff0U))
-+          return std::nullopt;
++          return false;
 +        Bytes[Offset - 1] = 0xa0 | (Last - 4) | (Opcode & 0x08);
 +        break;
 +      }
 +      case 0xb0:
 +        switch (Opcode) {
 +        case 0xb0:
-+          Offset = 4;
++          Offset = Bytes.size();
 +          break;
 +        case 0xb1:
-+          if (Offset >= 4 || !Bytes[Offset] || (Bytes[Offset] & 0xf0))
-+            return std::nullopt;
++          if (Offset >= Bytes.size() || !Bytes[Offset] ||
++              (Bytes[Offset] & 0xf0))
++            return false;
 +          ++Offset;
 +          break;
 +        case 0xb2: {
 +          bool Terminated = false;
-+          while (Offset < 4)
++          while (Offset < Bytes.size())
 +            if (!(Bytes[Offset++] & 0x80)) {
 +              Terminated = true;
 +              break;
 +            }
 +          if (!Terminated)
-+            return std::nullopt;
++            return false;
 +          break;
 +        }
 +        case 0xb3:
-+          if (Offset >= 4)
-+            return std::nullopt;
++          if (Offset >= Bytes.size())
++            return false;
 +          ++Offset;
 +          break;
 +        case 0xb4:
@@ -15546,29 +15959,27 @@ index 0000000000000000000000000000000000000000..3f0249e74f83ffc00a4609db934647fb
 +        default:
 +          if (Opcode >= 0xb8)
 +            break;
-+          return std::nullopt;
++          return false;
 +        }
 +        break;
 +      case 0xc0:
 +        if (Opcode == 0xc6 || Opcode == 0xc7 || Opcode == 0xc8 ||
 +            Opcode == 0xc9) {
-+          if (Offset >= 4)
-+            return std::nullopt;
++          if (Offset >= Bytes.size())
++            return false;
 +          ++Offset;
 +          break;
 +        }
-+        return std::nullopt;
++        return false;
 +      case 0xd0:
 +        if (Opcode & 0x08)
-+          return std::nullopt;
++          return false;
 +        break;
 +      default:
-+        return std::nullopt;
++        return false;
 +      }
 +    }
-+    return (static_cast<uint32_t>(Bytes[0]) << 24) |
-+           (static_cast<uint32_t>(Bytes[1]) << 16) |
-+           (static_cast<uint32_t>(Bytes[2]) << 8) | Bytes[3];
++    return true;
 +  }
 +
 +  void removeNonScavengeableRegs(BitVector &Regs) const override {
@@ -21955,10 +22366,10 @@ index 0000000000000000000000000000000000000000..762c4853da15350f46eb320ae9786a2d
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-register-reassignment.s b/bolt/test/ARM/thumb-native-register-reassignment.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..aa4076696a821e6ac46ced5b0d52de98a1c44bd9
+index 0000000000000000000000000000000000000000..c2ffbfd0b77a15e6ee4e2189153d1e97c9b8747e
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-native-register-reassignment.s
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,197 @@
 +## BOLT's original RegReAssign profitability model is x86-specific. Firm-BOLT
 +## provides a target hook that swaps only qualified AAPCS callee-saved register
 +## pairs and accounts for the exact Thumb encodings unlocked by that swap.
@@ -21981,7 +22392,11 @@ index 0000000000000000000000000000000000000000..aa4076696a821e6ac46ced5b0d52de98
 +# RUN:   %t.bolt | FileCheck %s --check-prefix=DISASM
 +# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=compact_worker \
 +# RUN:   %t.bolt | FileCheck %s --check-prefix=COMPACT-DISASM
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=external_worker \
++# RUN:   %t.bolt | FileCheck %s --check-prefix=EXTERNAL-DISASM
 +# RUN: llvm-readobj --unwind %t.bolt | FileCheck %s --check-prefix=EHABI
++# RUN: llvm-readobj --unwind %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=EXTERNAL-EHABI
 +# RUN: %python -c "import json; d=json.load(open('%t.json')); f={x['name']:x for x in d['functions']}['worker']; print(f['firmware_modified'],f['firmware_modification_reasons'],d['summary']['unmapped_instruction_count'])" \
 +# RUN:   | FileCheck %s --check-prefix=REPORT
 +# RUN: llvm-bolt %t.named.exe --firmbolt-cortex-m-cpu=cortex-m3 \
@@ -21990,17 +22405,23 @@ index 0000000000000000000000000000000000000000..aa4076696a821e6ac46ced5b0d52de98
 +# RUN:   -o %t.reloc.bolt 2>&1 | FileCheck %s --check-prefix=RELOC-LOG
 +# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=compact_worker \
 +# RUN:   %t.reloc.bolt | FileCheck %s --check-prefix=COMPACT-DISASM
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=external_worker \
++# RUN:   %t.reloc.bolt | FileCheck %s --check-prefix=EXTERNAL-DISASM
 +# RUN: llvm-readobj --unwind %t.reloc.bolt \
 +# RUN:   | FileCheck %s --check-prefix=RELOC-EHABI
++# RUN: llvm-readobj --unwind %t.reloc.bolt \
++# RUN:   | FileCheck %s --check-prefix=EXTERNAL-EHABI
 +
 +# DENIED: Cortex-M register reassignment changes transient register state
-+# LOG: BOLT-INFO: Reg Reassignment Pass: ARM EHABI admitted 2 CANTUNWIND-covered function(s) and retained 0 function(s) with unsupported compact, shared or generic unwind programs; 1 single-function inline compact program(s) remain candidate-qualified.
++# LOG: BOLT-INFO: Reg Reassignment Pass: ARM EHABI admitted 2 CANTUNWIND-covered function(s) and retained 0 function(s) with unsupported compact, shared or generic unwind programs; 3 single-function compact program(s) remain candidate-qualified.
 +# LOG: BOLT-INFO: Reg Reassignment Pass Stats:
-+# LOG-NEXT: 2 functions affected.
-+# LOG-NEXT: 16 static bytes saved.
++# LOG-NEXT: 4 functions affected.
++# LOG-NEXT: 32 static bytes saved.
 +# LOG: BOLT-INFO: rewrote 1 ARM EHABI inline compact register program(s) in .ARM
++# LOG: BOLT-INFO: rewrote 2 ARM EHABI external compact register program(s) referenced by .ARM
 +# RELOC-LOG: BOLT-INFO: rebuilt ARM EHABI index .ARM
 +# RELOC-LOG-SAME: after function layout
++# RELOC-LOG: BOLT-INFO: rewrote 2 ARM EHABI external compact register program(s) after function layout
 +# DISASM-LABEL: <worker>:
 +# DISASM-NEXT: sub sp, #0x8
 +# DISASM-NEXT: str r4, [sp, #0x4]
@@ -22019,10 +22440,22 @@ index 0000000000000000000000000000000000000000..aa4076696a821e6ac46ced5b0d52de98
 +# COMPACT-DISASM-NEXT: ldr r4, [sp, #0x4]
 +# COMPACT-DISASM-NEXT: add sp, #0x8
 +# COMPACT-DISASM-NEXT: bx lr
++# EXTERNAL-DISASM-LABEL: <external_worker>:
++# EXTERNAL-DISASM-NEXT: sub sp, #0x8
++# EXTERNAL-DISASM-NEXT: str r4, [sp, #0x4]
++# EXTERNAL-DISASM-NEXT: mov.w r4, r1
++# EXTERNAL-DISASM-NEXT: ldr r0, [r4]
++# EXTERNAL-DISASM-NEXT: str r0, [r4, #0x4]
++# EXTERNAL-DISASM-NEXT: ldr r4, [sp, #0x4]
++# EXTERNAL-DISASM-NEXT: add sp, #0x8
++# EXTERNAL-DISASM-NEXT: bx lr
 +# EHABI: FunctionAddress: 0x8000022
 +# EHABI: Model: Compact (Inline)
 +# EHABI: 0x80 0x01 ; pop {r4}
 +# EHABI: 0xB0 ; finish
++# EXTERNAL-EHABI-COUNT-2: ExceptionHandlingTable: .ARM.extab
++# EXTERNAL-EHABI-NOT: 0x80 0x10 ; pop {r8}
++# EXTERNAL-EHABI: 0x80 0x01 ; pop {r4}
 +# RELOC-EHABI: FunctionAddress: 0x800001A
 +# RELOC-EHABI: Model: Compact (Inline)
 +# RELOC-EHABI: 0x80 0x01 ; pop {r4}
@@ -22085,6 +22518,49 @@ index 0000000000000000000000000000000000000000..aa4076696a821e6ac46ced5b0d52de98
 +  bx lr
 +  .fnend
 +  .size compact_worker, .-compact_worker
++
++  // Personality model 1 forces the same register-bearing bytecode into a
++  // separately allocated .ARM.extab payload. The function and its private
++  // record must be renamed together in compact and relocation publication.
++  .weak __aeabi_unwind_cpp_pr1
++  .globl external_worker
++  .type external_worker,%function
++  .thumb_func
++external_worker:
++  .fnstart
++  .personalityindex 1
++  .save {r8}
++  sub sp, #8
++  str.w r8, [sp, #4]
++  mov.w r8, r1
++  ldr.w r0, [r8, #0]
++  str.w r0, [r8, #4]
++  ldr.w r8, [sp, #4]
++  add sp, #8
++  bx lr
++  .fnend
++  .size external_worker, .-external_worker
++
++  // A second private record in the same output section ensures publication
++  // composes edits instead of recreating the section from immutable input for
++  // each function and accidentally restoring the first program.
++  .globl external_worker_two
++  .type external_worker_two,%function
++  .thumb_func
++external_worker_two:
++  .fnstart
++  .personalityindex 1
++  .save {r8}
++  sub sp, #8
++  str.w r8, [sp, #4]
++  mov.w r8, r1
++  ldr.w r0, [r8, #0]
++  str.w r0, [r8, #4]
++  ldr.w r8, [sp, #4]
++  add sp, #8
++  bx lr
++  .fnend
++  .size external_worker_two, .-external_worker_two
 +
 +  .section .isr_vector,"a",%progbits
 +  .globl g_pfnVectors
@@ -22794,6 +23270,107 @@ index 0000000000000000000000000000000000000000..669e22f84404336d2405b7f3a38b2014
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word reset_entry
+diff --git a/bolt/test/ARM/thumb-register-reassignment-shared-extab.s b/bolt/test/ARM/thumb-register-reassignment-shared-extab.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..484944da727e8a76c6275095811ed7dc2e60c59b
+--- /dev/null
++++ b/bolt/test/ARM/thumb-register-reassignment-shared-extab.s
+@@ -0,0 +1,95 @@
++## An external compact EHABI program is mutable only when one exact function
++## owns its complete storage. Two ranges naming the same extab record must keep
++## both otherwise-profitable register-reassignment candidates unchanged.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: ld.lld --no-merge-exidx-entries -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --reg-reassign \
++# RUN:   --firmbolt-allow-register-reassignment -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 --disassemble-symbols=worker_a \
++# RUN:   %t.bolt | FileCheck %s --check-prefix=DISASM
++# RUN: llvm-readobj --unwind %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=EHABI
++
++# LOG: BOLT-INFO: Reg Reassignment Pass: ARM EHABI admitted 1 CANTUNWIND-covered function(s) and retained 2 function(s) with unsupported compact, shared or generic unwind programs; 0 single-function compact program(s) remain candidate-qualified.
++# LOG: BOLT-INFO: Reg Reassignment Pass: no changes were made.
++# DISASM-LABEL: <worker_a>:
++# DISASM-NEXT: sub sp, #0x8
++# DISASM-NEXT: str.w r8, [sp, #0x4]
++# DISASM-NEXT: mov.w r8, r1
++# EHABI: ExceptionHandlingTable: .ARM.extab
++# EHABI-COUNT-2: 0x80 0x10 ; pop {r8}
++
++  .syntax unified
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++reset_ehabi_anchor:
++  .thumb_func
++Reset_Handler:
++  movs r0, #0
++  bl worker_a
++1:
++  b 1b
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl worker_a
++  .type worker_a,%function
++worker_a_ehabi_anchor:
++  .thumb_func
++worker_a:
++  sub sp, #8
++  str.w r8, [sp, #4]
++  mov.w r8, r1
++  ldr.w r0, [r8, #0]
++  str.w r0, [r8, #4]
++  ldr.w r8, [sp, #4]
++  add sp, #8
++  bx lr
++  .size worker_a, .-worker_a
++
++  .globl worker_b
++  .type worker_b,%function
++worker_b_ehabi_anchor:
++  .thumb_func
++worker_b:
++  sub sp, #8
++  str.w r8, [sp, #4]
++  mov.w r8, r1
++  ldr.w r0, [r8, #0]
++  str.w r0, [r8, #4]
++  ldr.w r8, [sp, #4]
++  add sp, #8
++  bx lr
++  .size worker_b, .-worker_b
++code_end:
++
++  .section .ARM.extab.shared,"a",%progbits
++  .p2align 2
++shared_extab:
++  // Personality index 1, no additional words, pop {r8}.
++  .long 0x81008010
++
++  .section .ARM.exidx.shared,"ao?",%0x70000001,.text
++  .p2align 2
++  .long reset_ehabi_anchor(PREL31)
++  .long 1
++  .long worker_a_ehabi_anchor(PREL31)
++  .long shared_extab(PREL31)
++  .long worker_b_ehabi_anchor(PREL31)
++  .long shared_extab(PREL31)
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-reserved-veneer-slot-live-reject.s b/bolt/test/ARM/thumb-reserved-veneer-slot-live-reject.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..d3bfc642eacebf89071782ba2b1063e90b191c18
@@ -26438,7 +27015,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ba9b40b4b82eb3a54b0b060e312891ebbc9a28b8 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..356dd4fdeb503e5611b762e21c0599202389c3b4 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -26453,7 +27030,15 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ba9b40b4b82eb3a54b0b060e312891eb
  #ifdef X86_AVAILABLE
  #include "X86Subtarget.h"
  #endif // X86_AVAILABLE
-@@ -59,6 +64,15 @@ protected:
+@@ -23,6 +28,7 @@
+ 
+ #include "bolt/Core/BinaryBasicBlock.h"
+ #include "bolt/Core/BinaryFunction.h"
++#include "bolt/Core/ARMUnwindInfo.h"
+ #include "bolt/Rewrite/RewriteInstance.h"
+ #include "llvm/BinaryFormat/ELF.h"
+ #include "llvm/DebugInfo/DWARF/DWARFContext.h"
+@@ -59,6 +65,15 @@ protected:
  
    void prepareElf() {
      memcpy(ElfBuf, "\177ELF", 4);
@@ -26469,7 +27054,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ba9b40b4b82eb3a54b0b060e312891eb
      ELF64LE::Ehdr *EHdr = reinterpret_cast<typename ELF64LE::Ehdr *>(ElfBuf);
      EHdr->e_ident[llvm::ELF::EI_CLASS] = llvm::ELF::ELFCLASS64;
      EHdr->e_ident[llvm::ELF::EI_DATA] = llvm::ELF::ELFDATA2LSB;
-@@ -81,13 +95,28 @@ protected:
+@@ -81,13 +96,28 @@ protected:
    }
  
    void initializeBolt() {
@@ -26500,7 +27085,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ba9b40b4b82eb3a54b0b060e312891eb
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +154,884 @@ protected:
+@@ -125,6 +155,905 @@ protected:
  };
  } // namespace
  
@@ -26704,6 +27289,27 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..ba9b40b4b82eb3a54b0b060e312891eb
 +  EXPECT_EQ(*BC->MIB->rewriteInlineCompactUnwindRegisters(
 +                0x80a4b0b0U, ARM::R4, ARM::R8),
 +            0x80a4b0b0U);
++
++  SmallVector<uint8_t, 8> ExternalProgram = {
++      0x00, 0x80, 0x10, 0xb0, 0xb0, 0xb0};
++  EXPECT_TRUE(BC->MIB->rewriteCompactUnwindRegisters(
++      ExternalProgram, ARM::R4, ARM::R8));
++  const SmallVector<uint8_t, 8> ExpectedExternal = {
++      0x00, 0x80, 0x01, 0xb0, 0xb0, 0xb0};
++  EXPECT_EQ(ExternalProgram, ExpectedExternal);
++
++  ARMCompactUnwindProgram Program;
++  Program.PersonalityIndex = 1;
++  Program.StorageSize = 8;
++  Program.Opcodes = ExternalProgram;
++  Expected<SmallVector<uint8_t, 16>> Encoded =
++      encodeARMCompactUnwindProgram(Program, ExternalProgram,
++                                    /*IsLittleEndian=*/true);
++  if (!Encoded)
++    FAIL() << toString(Encoded.takeError());
++  const SmallVector<uint8_t, 16> ExpectedEncoded = {
++      0x80, 0x00, 0x01, 0x81, 0xb0, 0xb0, 0xb0, 0x01};
++  EXPECT_EQ(*Encoded, ExpectedEncoded);
 +}
 +
 +TEST_P(MCPlusBuilderTester, ARM_TailDuplicationPropagationReplacements) {
