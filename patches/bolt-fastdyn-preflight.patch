@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f88e4f5540465631e21e99c6a40a70e7ba0e1c89 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..02084c89613325b2b2c17bdc2ed648789841f2b9 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,67 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,68 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -167,6 +167,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f88e4f5540465631e21e99c6a40a70e7
 +    Memcpy1Specialization = 1U << 24,
 +    ThreeWayBranch = 1U << 25,
 +    ConditionalTailCallSimplification = 1U << 26,
++    ConditionalMoveConversion = 1U << 27,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -198,7 +199,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f88e4f5540465631e21e99c6a40a70e7
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +253,17 @@ public:
+@@ -192,6 +254,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -216,7 +217,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f88e4f5540465631e21e99c6a40a70e7
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +404,54 @@ private:
+@@ -332,6 +405,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -271,7 +272,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f88e4f5540465631e21e99c6a40a70e7
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1588,70 @@ public:
+@@ -1468,6 +1589,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -342,7 +343,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f88e4f5540465631e21e99c6a40a70e7
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2118,48 @@ public:
+@@ -1934,6 +2119,48 @@ public:
      return *this;
    }
  
@@ -391,7 +392,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..f88e4f5540465631e21e99c6a40a70e7
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2557,8 @@ public:
+@@ -2331,6 +2558,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -505,7 +506,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..068aa429224fd814937ae583ddf08e14480d428c 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..7ee28517eab6588fe9d57a5ca14541a172af7971 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -700,7 +701,32 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..068aa429224fd814937ae583ddf08e14
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +1932,56 @@ public:
+@@ -1751,6 +1894,24 @@ public:
+     return false;
+   }
+ 
++  /// Return whether a sequence of \p NumMoves can be represented as
++  /// conditional moves under \p CC. Targets with a native conditional-move
++  /// opcode normally have no sequence-length restriction. Targets such as
++  /// Thumb, where predication is carried by a separate IT instruction, use
++  /// this hook to enforce architectural block limits before mutating the CFG.
++  virtual bool canMaterializeConditionalMoveSequence(unsigned CC,
++                                                     unsigned NumMoves) const {
++    return true;
++  }
++
++  /// Create a target prefix required by a conditional-move sequence. Native
++  /// conditional-move targets return std::nullopt. Thumb returns the explicit
++  /// IT instruction whose mask covers the following \p NumMoves instructions.
++  virtual std::optional<MCInst>
++  createConditionalMovePrefix(unsigned CC, unsigned NumMoves) const {
++    return std::nullopt;
++  }
++
+   /// Lower a tail call instruction \p Inst if required by target.
+   virtual bool lowerTailCall(MCInst &Inst) {
+     llvm_unreachable("not implemented");
+@@ -1789,6 +1950,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -3798,6 +3824,146 @@ index 5c8208f96bc4abbce40038105e206f7afb040b9a..bf72e4dd48e2c4d0b03123c09bb9e4ca
  }
  
  Error RemoveNops::runOnFunctions(BinaryContext &BC) {
+diff --git a/bolt/lib/Passes/CMOVConversion.cpp b/bolt/lib/Passes/CMOVConversion.cpp
+index e3f8f3c78977d2ac14710cab0eb16ab130532391..3f15edccbef9c0704db8a19e19b78757bb3e4b61 100644
+--- a/bolt/lib/Passes/CMOVConversion.cpp
++++ b/bolt/lib/Passes/CMOVConversion.cpp
+@@ -13,6 +13,7 @@
+ #include "bolt/Passes/CMOVConversion.h"
+ #include "bolt/Core/BinaryBasicBlock.h"
+ #include "bolt/Core/BinaryContext.h"
++#include "bolt/Passes/FastDynPatchContracts.h"
+ #include "bolt/Utils/CommandLineOpts.h"
+ #include "llvm/ADT/PostOrderIterator.h"
+ #include "llvm/Support/CommandLine.h"
+@@ -49,6 +50,11 @@ static cl::opt<bool> ConvertBasePtrStackMemOperand(
+              "for binaries compiled with -fomit-frame-pointer)"),
+     cl::ReallyHidden, cl::init(false), cl::cat(BoltOptCategory));
+ 
++static cl::opt<bool> FirmBOLTAllowConditionalMoves(
++    "firmbolt-allow-conditional-moves",
++    cl::desc("admit Cortex-M branch-to-IT conditional move conversion"),
++    cl::ReallyHidden, cl::init(false), cl::cat(BoltOptCategory));
++
+ } // namespace opts
+ 
+ namespace llvm {
+@@ -105,12 +111,14 @@ bool canConvertInstructions(const BinaryContext &BC, const BinaryBasicBlock &BB,
+   // Only pseudo instructions, can't be converted into CMOV
+   if (LastInst == nullptr)
+     return false;
++  unsigned NumMoves = 0;
+   for (const MCInst &Inst : BB) {
+     if (BC.MIB->isPseudo(Inst))
+       continue;
+     // Unconditional branch as a last instruction is OK
+     if (&Inst == LastInst && BC.MIB->isUnconditionalBranch(Inst))
+       continue;
++    ++NumMoves;
+     MCInst Cmov(Inst);
+     // GPR move is OK
+     if (!BC.MIB->convertMoveToConditionalMove(
+@@ -123,17 +131,25 @@ bool canConvertInstructions(const BinaryContext &BC, const BinaryBasicBlock &BB,
+       return false;
+     }
+   }
+-  return true;
++  return BC.MIB->canMaterializeConditionalMoveSequence(CC, NumMoves);
+ }
+ 
+-void convertMoves(const BinaryContext &BC, BinaryBasicBlock &BB, unsigned CC) {
++void convertMoves(BinaryContext &BC, BinaryBasicBlock &BB, unsigned CC,
++                  const MCInst &OriginalBranch) {
++  unsigned NumMoves = 0;
++  for (const MCInst &Inst : BB)
++    if (!BC.MIB->isPseudo(Inst) && !BC.MIB->isUnconditionalBranch(Inst))
++      ++NumMoves;
++  std::optional<MCInst> Prefix =
++      BC.MIB->createConditionalMovePrefix(CC, NumMoves);
+   for (auto II = BB.begin(), IE = BB.end(); II != IE; ++II) {
+     if (BC.MIB->isPseudo(*II))
+       continue;
+     if (BC.MIB->isUnconditionalBranch(*II)) {
+-      // XXX: this invalidates II but we return immediately
++      // This invalidates II. The branch is the final non-pseudo instruction,
++      // so stop the conversion loop and still materialize any target prefix.
+       BB.eraseInstruction(II);
+-      return;
++      break;
+     }
+     bool Result = BC.MIB->convertMoveToConditionalMove(
+         *II, CC, opts::ConvertStackMemOperand,
+@@ -141,6 +157,10 @@ void convertMoves(const BinaryContext &BC, BinaryBasicBlock &BB, unsigned CC) {
+     assert(Result && "unexpected instruction");
+     (void)Result;
+   }
++  if (Prefix) {
++    annotateFastDynTransformedFrom(BC, OriginalBranch, *Prefix);
++    BB.insertInstruction(BB.getFirstNonPseudo(), std::move(*Prefix));
++  }
+ }
+ 
+ // Returns misprediction rate if the profile data is available, -1 otherwise.
+@@ -243,11 +263,15 @@ void CMOVConversion::runOnFunction(BinaryFunction &Function) {
+       continue;
+     }
+ 
++    // Keep the exact branch identity before erasing it. Targets with an
++    // explicit predication prefix attribute that synthesized instruction to
++    // this original control decision.
++    const MCInst OriginalBranch(*BranchInstrIter);
+     // remove conditional branch
+     BB->eraseInstruction(std::prev(BranchInstrIter.base()));
+     BB->removeAllSuccessors();
+     // Convert instructions from the conditional successor into cmov's in BB.
+-    convertMoves(BC, *ConditionalSucc, CC);
++    convertMoves(BC, *ConditionalSucc, CC, OriginalBranch);
+     BB->addInstructions(ConditionalSucc->begin(), ConditionalSucc->end());
+     ConditionalSucc->markValid(false);
+ 
+@@ -263,6 +287,9 @@ void CMOVConversion::runOnFunction(BinaryFunction &Function) {
+   }
+   if (Modified)
+     Function.eraseInvalidBBs();
++  if (Modified && BC.isARM())
++    Function.setFirmwareModified(
++        BinaryFunction::FirmwareModification::ConditionalMoveConversion);
+   if (opts::Verbosity > 1) {
+     BC.outs() << "BOLT-INFO: CMOVConversion: " << Function << ", ";
+     Local.dumpTo(BC.outs());
+@@ -271,15 +298,30 @@ void CMOVConversion::runOnFunction(BinaryFunction &Function) {
+ }
+ 
+ Error CMOVConversion::runOnFunctions(BinaryContext &BC) {
+-  if (!BC.isX86()) {
+-    BC.errs() << "BOLT-ERROR: " << getName() << " is specific to X86\n";
++  if (!BC.isX86() && !BC.isARM()) {
++    BC.errs() << "BOLT-ERROR: " << getName()
++              << " is supported only on X86 and qualified ARM\n";
+     exit(1);
+   }
+ 
++  if (BC.isARM() && !opts::FirmBOLTAllowConditionalMoves)
++    return createStringError(
++        inconvertibleErrorCode(),
++        "Cortex-M conditional-move conversion removes a branch and changes "
++        "branch identity, interrupt opportunities and modeled timing; add "
++        "--firmbolt-allow-conditional-moves only for an admitted flags, "
++        "branch-event and schedule contract");
++
+   for (auto &It : BC.getBinaryFunctions()) {
+     BinaryFunction &Function = It.second;
+     if (!shouldOptimize(Function))
+       continue;
++    if (BC.isARM() &&
++        (Function.isMultiEntry() || Function.isSplit() ||
++         Function.hasEHRanges() || Function.isCortexMVectorEntry() ||
++         Function.isFirmwareVeneerSlot() || Function.hasJumpTables() ||
++         Function.requiresAddressStableLayout()))
++      continue;
+     runOnFunction(Function);
+   }
+ 
 diff --git a/bolt/lib/Passes/CMakeLists.txt b/bolt/lib/Passes/CMakeLists.txt
 index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b64da040f4 100644
 --- a/bolt/lib/Passes/CMakeLists.txt
@@ -3812,10 +3978,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..588429e29ebfd217b4b80e4e90ec10a30fc5666e
+index 0000000000000000000000000000000000000000..86701db443bb9f9e1bc2674605491ba4c8acc2c7
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4812 @@
+@@ -0,0 +1,4814 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -4074,7 +4240,7 @@ index 0000000000000000000000000000000000000000..588429e29ebfd217b4b80e4e90ec10a3
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 27>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 28>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -4118,6 +4284,8 @@ index 0000000000000000000000000000000000000000..588429e29ebfd217b4b80e4e90ec10a3
 +        {FirmwareModification::ThreeWayBranch, "three_way_branch"},
 +        {FirmwareModification::ConditionalTailCallSimplification,
 +         "conditional_tail_call_simplification"},
++        {FirmwareModification::ConditionalMoveConversion,
++         "conditional_move_conversion"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -10750,7 +10918,7 @@ index 8f95ddb0fc630d07a9eddc056a51dfe109c23885..093908fbda28277266f1913f32ec59b2
      BinaryFunction &Function = It.second;
      if (!shouldRunOnFunction(Function))
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..23d468d73eaf33b4367f3f622f4907577a6b5059 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..d75308444a1ed234bc6724f24a168844ceac3766 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -10782,7 +10950,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..23d468d73eaf33b4367f3f622f490757
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +380,170 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -372,6 +380,173 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -10831,7 +10999,8 @@ index 18c84468b04ce23388d824e28c0029be48789a45..23d468d73eaf33b4367f3f622f490757
 +          << "BOLT-INFO: Cortex-M audited pass schedule: profile import/stats, "
 +             "firmware constraints, reference validation, admitted native "
 +             "indirect-call promotion, inlining, fixed-size and size-one "
-+             "specialized memcpy, three-way branch reordering, tail "
++             "specialized memcpy, three-way branch reordering, Thumb "
++             "conditional-move conversion, tail "
 +             "duplication, conditional tail-call simplification and "
 +             "control-flow peepholes, "
 +             "shortening, NOP "
@@ -10898,6 +11067,8 @@ index 18c84468b04ce23388d824e28c0029be48789a45..23d468d73eaf33b4367f3f622f490757
 +      Manager.registerPass(std::make_unique<SplitFunctions>(PrintSplit));
 +    Manager.registerPass(std::make_unique<LoopInversionPass>());
 +    Manager.registerPass(std::make_unique<TailDuplication>());
++    Manager.registerPass(std::make_unique<CMOVConversion>(),
++                         opts::CMOVConversionFlag);
 +    Manager.registerPass(std::make_unique<Peepholes>(PrintPeepholes));
 +    Manager.registerPass(
 +        std::make_unique<FixupBranches>(PrintAfterBranchFixup));
@@ -10953,7 +11124,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..23d468d73eaf33b4367f3f622f490757
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +579,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +582,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -10971,7 +11142,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..23d468d73eaf33b4367f3f622f490757
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -454,6 +637,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -454,6 +640,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
                         opts::RegReAssign);
  
    Manager.registerPass(std::make_unique<Inliner>(PrintInline));
@@ -10981,7 +11152,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..23d468d73eaf33b4367f3f622f490757
  
    Manager.registerPass(std::make_unique<IdenticalCodeFolding>(PrintICF),
                         opts::ICF != IdenticalCodeFolding::ICFLevel::None);
-@@ -554,6 +740,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -554,6 +743,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -10991,7 +11162,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..23d468d73eaf33b4367f3f622f490757
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +757,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +760,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -13600,10 +13771,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..3783e528118e52ffd05e85eb9278a42e
    for (BinarySection &Section : BC->allocatableSections())
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..680b2fd9dbae6ef571b735e6bd643eb7ce752a53
+index 0000000000000000000000000000000000000000..75b93c6dc220e0c612e22945240a33bcaa0b6fdb
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,2690 @@
+@@ -0,0 +1,2775 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -13662,10 +13833,95 @@ index 0000000000000000000000000000000000000000..680b2fd9dbae6ef571b735e6bd643eb7
 +  }
 +
 +  bool isConditionalMove(const MCInst &Inst) const override {
-+    const MCInstrDesc &Desc = Info->get(Inst.getOpcode());
-+    if (!Desc.isMoveReg() && !Desc.isMoveImmediate())
++    switch (Inst.getOpcode()) {
++    case ARM::tMOVr:
++    case ARM::t2MOVr:
++    case ARM::t2MOVi:
++    case ARM::t2MOVi16:
++      break;
++    default:
 +      return false;
++    }
 +    return ARM_MC::isPredicated(Inst, Info);
++  }
++
++  bool canMaterializeConditionalMoveSequence(unsigned CC,
++                                             unsigned NumMoves) const override {
++    if (!isValidCondCode(CC) || NumMoves == 0)
++      return false;
++    // Armv8-M permits only the single-instruction form under the restricted
++    // IT policy. Earlier Cortex-M profiles admit the architectural four-slot
++    // IT block. Never split one BOLT hammock into multiple IT blocks: doing so
++    // could allow an intervening flag definition to change later predicates.
++    // BinaryContext already requires an exact CPU and proves that it matches
++    // the ELF subarchitecture before constructing this builder.  Use that
++    // qualified identity here: MCSubtargetInfo's internal target triple can be
++    // the generic "arm--" triple even though its CPU/features are precise.
++    const bool RestrictedIT =
++        StringSwitch<bool>(STI->getCPU())
++            .Cases({"cortex-m23", "cortex-m33"}, true)
++            .Cases({"cortex-m55", "cortex-m85"}, true)
++            .Default(false);
++    return NumMoves <= (RestrictedIT ? 1U : 4U);
++  }
++
++  std::optional<MCInst>
++  createConditionalMovePrefix(unsigned CC, unsigned NumMoves) const override {
++    if (!canMaterializeConditionalMoveSequence(CC, NumMoves))
++      return std::nullopt;
++    MCInst IT;
++    IT.setOpcode(ARM::t2IT);
++    IT.addOperand(MCOperand::createImm(CC));
++    // All converted moves use the same predicate (an all-Then block). The
++    // least-significant set bit terminates the IT mask: 8,4,2,1 for one to
++    // four instructions respectively.
++    IT.addOperand(MCOperand::createImm(1U << (4U - NumMoves)));
++    return IT;
++  }
++
++  bool
++  convertMoveToConditionalMove(MCInst &Inst, unsigned CC,
++                               bool AllowStackMemOp,
++                               bool AllowBasePtrStackMemOp) const override {
++    (void)AllowStackMemOp;
++    (void)AllowBasePtrStackMemOp;
++    if (!isValidCondCode(CC) || mayLoad(Inst) || mayStore(Inst))
++      return false;
++
++    switch (Inst.getOpcode()) {
++    case ARM::tMOVr:
++    case ARM::t2MOVr:
++    case ARM::t2MOVi:
++    case ARM::t2MOVi16:
++      break;
++    default:
++      return false;
++    }
++    const MCInstrDesc &Desc = Info->get(Inst.getOpcode());
++    const int PredOpIdx = Desc.findFirstPredOperandIdx();
++    if (PredOpIdx < 0 || static_cast<unsigned>(PredOpIdx + 1) >=
++                             Inst.getNumOperands() ||
++        !Inst.getOperand(PredOpIdx).isImm() ||
++        Inst.getOperand(PredOpIdx).getImm() != ARMCC::AL ||
++        !Inst.getOperand(PredOpIdx + 1).isReg())
++      return false;
++
++    // IT predicates consume the incoming flags. A move which writes CPSR can
++    // change the predicate for later IT slots and has different flag effects
++    // on the not-taken path. Keep every such form in the original branch.
++    if (ARM_MC::isCPSRDefined(Inst, Info))
++      return false;
++
++    // PC moves are control transfers, and SP moves interact with exception
++    // stack selection and unwind state. They require separate contracts.
++    for (unsigned I = 0; I < static_cast<unsigned>(PredOpIdx); ++I)
++      if (Inst.getOperand(I).isReg() &&
++          (Inst.getOperand(I).getReg() == ARM::PC ||
++           Inst.getOperand(I).getReg() == ARM::SP))
++        return false;
++
++    Inst.getOperand(PredOpIdx).setImm(CC);
++    return true;
 +  }
 +
 +  bool isUnconditionalBranch(const MCInst &Inst) const override {
@@ -19382,6 +19638,217 @@ index 0000000000000000000000000000000000000000..be9694630c66d306d493dd4feffd9b24
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-native-conditional-move.s b/bolt/test/ARM/thumb-native-conditional-move.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..643b788df08a331eac19766f63b6381c56ce7a53
+--- /dev/null
++++ b/bolt/test/ARM/thumb-native-conditional-move.s
+@@ -0,0 +1,205 @@
++## BOLT's CMOVConversion pass folds a profiled branch-and-move hammock into
++## target conditional moves. Thumb has no x86-like CMOV opcode, so Firm-BOLT
++## emits an explicit IT block and predicates only flag-neutral register moves.
++
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %s -o %t.o
++# RUN: link_fdata %s %t.o %t.fdata --no-lbr
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler %t.o -o %t.exe
++# RUN: not llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --data=%t.fdata --cmov-conversion \
++# RUN:   --cmov-conversion-misprediction-threshold=-1 \
++# RUN:   --cmov-conversion-bias-threshold=-1 -o %t.denied 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=DENIED
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --data=%t.fdata --cmov-conversion \
++# RUN:   --cmov-conversion-misprediction-threshold=-1 \
++# RUN:   --cmov-conversion-bias-threshold=-1 \
++# RUN:   --firmbolt-allow-conditional-moves \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m3 \
++# RUN:   --disassemble-symbols=select_one,select_four,select_explicit_branch,reject_five,reject_flags \
++# RUN:   %t.bolt | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.json')); l=json.load(open('%t.json.layout.json')); fs={x['name']:x for x in d['functions']}; ls={x['name']:x for x in l['functions']}; print(fs['select_one']['firmware_modified'],fs['select_one']['firmware_modification_reasons'],len(ls['select_one']['instruction_origins']),d['summary']['unmapped_instruction_count']); print(fs['select_four']['firmware_modified'],fs['select_explicit_branch']['firmware_modified'],fs['reject_five']['firmware_modified'],fs['reject_flags']['firmware_modified'])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++# RUN: llvm-mc -filetype=obj -triple thumbv8m.main-none-eabi \
++# RUN:   -mcpu=cortex-m33 -defsym=M33=1 %s -o %t.m33.o
++# RUN: link_fdata %s %t.m33.o %t.m33.fdata --no-lbr
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e Reset_Handler \
++# RUN:   %t.m33.o -o %t.m33.exe
++# RUN: llvm-bolt %t.m33.exe --firmbolt-cortex-m-cpu=cortex-m33 \
++# RUN:   --firmbolt-arm-full-pipeline --data=%t.m33.fdata --cmov-conversion \
++# RUN:   --cmov-conversion-misprediction-threshold=-1 \
++# RUN:   --cmov-conversion-bias-threshold=-1 \
++# RUN:   --firmbolt-allow-conditional-moves \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   -o %t.m33.bolt 2>&1 | FileCheck %s --check-prefix=M33-LOG
++# RUN: llvm-objdump -d --mcpu=cortex-m33 \
++# RUN:   --disassemble-symbols=select_one,select_four %t.m33.bolt \
++# RUN:   | FileCheck %s --check-prefix=M33-DISASM
++
++# DENIED: Cortex-M conditional-move conversion removes a branch
++# LOG: CMOVConversion total: converted static 3/3
++# DISASM-LABEL: <select_one>:
++# DISASM: cmp r0, #0x0
++# DISASM-NEXT: it eq
++# DISASM-NEXT: moveq.w r1, r2
++# DISASM-NEXT: mov r0, r1
++# DISASM-NEXT: bx lr
++# DISASM-LABEL: <select_four>:
++# DISASM: cmp r0, #0x0
++# DISASM-NEXT: itttt eq
++# DISASM-NEXT: moveq.w r1, r4
++# DISASM-NEXT: moveq.w r2, r5
++# DISASM-NEXT: moveq.w r3, r6
++# DISASM-NEXT: moveq.w r4, r7
++# DISASM-LABEL: <select_explicit_branch>:
++# DISASM: cmp r0, #0x0
++# DISASM-NEXT: it ne
++# DISASM-NEXT: movne.w r1, r2
++# DISASM-NEXT: mov r0, r1
++# DISASM-NEXT: bx lr
++# DISASM-LABEL: <reject_five>:
++# DISASM: bne
++# DISASM-NOT: itttt
++# DISASM-LABEL: <reject_flags>:
++# DISASM: bne
++# REPORT: True ['conditional_move_conversion'] 5 0
++# REPORT-NEXT: True True False False
++# M33-LOG: CMOVConversion total: converted static 2/2
++# M33-DISASM-LABEL: <select_one>:
++# M33-DISASM: it eq
++# M33-DISASM-NEXT: moveq.w r1, r2
++# M33-DISASM-LABEL: <select_four>:
++# M33-DISASM: bne
++# M33-DISASM-NOT: itttt
++
++  .syntax unified
++  .thumb
++  .ifdef M33
++  .eabi_attribute Tag_CPU_arch, 17
++  .else
++  .eabi_attribute Tag_CPU_arch, 10
++  .endif
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++  .text
++  .p2align 2
++
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  movs r0, #0
++  bl select_one
++  bl select_four
++  bl select_explicit_branch
++  bl reject_five
++  bl reject_flags
++1:
++  b 1b
++  .size Reset_Handler, .-Reset_Handler
++
++  .globl select_one
++  .type select_one,%function
++  .thumb_func
++select_one:
++  cmp r0, #0
++.Lselect_one_br:
++  bne .Lselect_one_merge
++.Lselect_one_move:
++  mov.w r1, r2
++.Lselect_one_merge:
++  mov r0, r1
++  bx lr
++  .size select_one, .-select_one
++
++# FDATA: 1 select_one 0 100
++# FDATA: 1 select_one 4 50
++# FDATA: 1 select_one 8 100
++
++  .globl select_four
++  .type select_four,%function
++  .thumb_func
++select_four:
++  cmp r0, #0
++.Lselect_four_br:
++  bne .Lselect_four_merge
++.Lselect_four_moves:
++  mov.w r1, r4
++  mov.w r2, r5
++  mov.w r3, r6
++  mov.w r4, r7
++.Lselect_four_merge:
++  mov r0, r1
++  bx lr
++  .size select_four, .-select_four
++
++# FDATA: 1 select_four 0 100
++# FDATA: 1 select_four 4 50
++# FDATA: 1 select_four 14 100
++
++  .globl select_explicit_branch
++  .type select_explicit_branch,%function
++  .thumb_func
++select_explicit_branch:
++  cmp r0, #0
++  beq .Lselect_explicit_merge
++.Lselect_explicit_move:
++  mov.w r1, r2
++  b .Lselect_explicit_merge
++.Lselect_explicit_merge:
++  mov r0, r1
++  bx lr
++  .size select_explicit_branch, .-select_explicit_branch
++
++# FDATA: 1 select_explicit_branch 0 100
++# FDATA: 1 select_explicit_branch 4 50
++# FDATA: 1 select_explicit_branch a 100
++
++  .globl reject_five
++  .type reject_five,%function
++  .thumb_func
++reject_five:
++  cmp r0, #0
++.Lreject_five_br:
++  bne .Lreject_five_merge
++.Lreject_five_moves:
++  mov.w r1, r4
++  mov.w r2, r5
++  mov.w r3, r6
++  mov.w r4, r7
++  mov.w r5, r1
++.Lreject_five_merge:
++  mov r0, r1
++  bx lr
++  .size reject_five, .-reject_five
++
++# FDATA: 1 reject_five 0 100
++# FDATA: 1 reject_five 4 50
++# FDATA: 1 reject_five 18 100
++
++  .globl reject_flags
++  .type reject_flags,%function
++  .thumb_func
++reject_flags:
++  cmp r0, #0
++.Lreject_flags_br:
++  bne .Lreject_flags_merge
++.Lreject_flags_move:
++  movs.w r1, r2
++.Lreject_flags_merge:
++  mov r0, r1
++  bx lr
++  .size reject_flags, .-reject_flags
++
++# FDATA: 1 reject_flags 0 100
++# FDATA: 1 reject_flags 4 50
++# FDATA: 1 reject_flags 8 100
++
++  .section .isr_vector,"a",%progbits
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-native-conditional-tail-call.s b/bolt/test/ARM/thumb-native-conditional-tail-call.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..21315ba1312ea2d2a08f032b684aa1d3dc015ade
@@ -24913,7 +25380,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..4faa725f620eb565bd02d86e4bcecba76715e4c0 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..95ffa0db40583adb007ffdb34639ca68ca326fb1 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -24975,7 +25442,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..4faa725f620eb565bd02d86e4bcecba7
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +154,740 @@ protected:
+@@ -125,6 +154,799 @@ protected:
  };
  } // namespace
  
@@ -25209,6 +25676,65 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..4faa725f620eb565bd02d86e4bcecba7
 +  MCInst DestinationAlias = NarrowBinary(ARM::tADDrr);
 +  EXPECT_FALSE(BC->MIB->replaceRegWithReg(
 +      DestinationAlias, ARM::R0, ARM::R3));
++}
++
++TEST_P(MCPlusBuilderTester, ARM_ConditionalMoveITSequences) {
++  if (GetParam() != Triple::thumb)
++    GTEST_SKIP();
++
++  MCInst NarrowMove = MCInstBuilder(ARM::tMOVr)
++                          .addReg(ARM::R0)
++                          .addReg(ARM::R2)
++                          .addImm(ARMCC::AL)
++                          .addReg(0);
++  ASSERT_TRUE(BC->MIB->convertMoveToConditionalMove(
++      NarrowMove, ARMCC::EQ, /*AllowStackMemOp=*/false,
++      /*AllowBasePtrStackMemOp=*/false));
++  EXPECT_EQ(NarrowMove.getOperand(2).getImm(), ARMCC::EQ);
++  EXPECT_TRUE(BC->MIB->isConditionalMove(NarrowMove));
++
++  MCInst WideMove = MCInstBuilder(ARM::t2MOVr)
++                        .addReg(ARM::R8)
++                        .addReg(ARM::R2)
++                        .addImm(ARMCC::AL)
++                        .addReg(0)
++                        .addReg(0);
++  ASSERT_TRUE(BC->MIB->convertMoveToConditionalMove(
++      WideMove, ARMCC::NE, /*AllowStackMemOp=*/false,
++      /*AllowBasePtrStackMemOp=*/false));
++  EXPECT_EQ(WideMove.getOperand(2).getImm(), ARMCC::NE);
++
++  for (unsigned NumMoves = 1; NumMoves <= 4; ++NumMoves) {
++    ASSERT_TRUE(
++        BC->MIB->canMaterializeConditionalMoveSequence(ARMCC::EQ, NumMoves));
++    std::optional<MCInst> IT =
++        BC->MIB->createConditionalMovePrefix(ARMCC::EQ, NumMoves);
++    ASSERT_TRUE(IT);
++    EXPECT_EQ(IT->getOpcode(), ARM::t2IT);
++    EXPECT_EQ(IT->getOperand(0).getImm(), ARMCC::EQ);
++    EXPECT_EQ(IT->getOperand(1).getImm(), 1U << (4U - NumMoves));
++  }
++  EXPECT_FALSE(BC->MIB->canMaterializeConditionalMoveSequence(ARMCC::EQ, 5));
++  EXPECT_FALSE(BC->MIB->createConditionalMovePrefix(ARMCC::EQ, 5));
++
++  MCInst FlagMove = MCInstBuilder(ARM::t2MOVr)
++                        .addReg(ARM::R0)
++                        .addReg(ARM::R2)
++                        .addImm(ARMCC::AL)
++                        .addReg(0)
++                        .addReg(ARM::CPSR);
++  EXPECT_FALSE(BC->MIB->convertMoveToConditionalMove(
++      FlagMove, ARMCC::EQ, /*AllowStackMemOp=*/false,
++      /*AllowBasePtrStackMemOp=*/false));
++
++  MCInst StackMove = MCInstBuilder(ARM::tMOVr)
++                         .addReg(ARM::SP)
++                         .addReg(ARM::R2)
++                         .addImm(ARMCC::AL)
++                         .addReg(0);
++  EXPECT_FALSE(BC->MIB->convertMoveToConditionalMove(
++      StackMove, ARMCC::EQ, /*AllowStackMemOp=*/false,
++      /*AllowBasePtrStackMemOp=*/false));
 +}
 +
 +TEST_P(MCPlusBuilderTester, ARM_ReadOnlyConstantMaterialization) {

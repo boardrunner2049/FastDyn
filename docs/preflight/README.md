@@ -130,9 +130,10 @@ zero-addend fixture and a separately executed non-zero-addend fixture, an
 opt-in fixed-size native `memcpy` inlining fixture, an opt-in guarded
 size-one `memcpy` specialization fixture, an opt-in profile-driven native
 three-way-branch fixture, an opt-in native conditional-tail-call
-simplification fixture, and the
+simplification fixture, an opt-in profile-driven Thumb IT conditional-move
+fixture, and the
 real Cortex-M4 FreeRTOS image.
-The 19 November production-parity-v135 run accepts all fifty-two without
+The 19 November production-parity-v136 run accepts all fifty-three without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -768,12 +769,17 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v135-conditional-tail-call-final1-2026-11-19
+  --output build/preflight/firm-bolt-cortex-m-v136-conditional-move
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v135-conditional-tail-call-final1-2026-11-19/report.json),
-SHA-256 `efa1d4d8ab6b78b14ae7f3ad310f427cbdae5d8510c36d56e696b829fdb61e6c`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-v136-conditional-move/report.json),
+SHA-256 `fa418b29fe4ffbc17916a6206edae82d5156ec3eff1a31f3b163a152e76634c5`.
+The matching
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-v136-conditional-move/validation-manifest.json),
+SHA-256 `2860fb14238210240bb17c6ab2e51f2e09b301d9bf4d4f2b88b41b91a387cb62`,
+binds the exact commands and XML evidence to the report, patch and tested
+binary hashes.
 The preceding v131 machine-readable
 [`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v131-pcrel-nonzero-addends-final2-2026-11-19/validation-manifest.json)
 has SHA-256
@@ -781,16 +787,16 @@ has SHA-256
 and records the exact regression commands, outcomes and hashes of their
 XML/JSON evidence.
 The reproducible pinned-source patch is
-[`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
-has SHA-256
-`fd1bac8ec94da8f4730c1e98fbca1bd1a9c73a571f00675115bd19bcf0657846`,
+[`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch),
+with SHA-256
+`0c7dcd082f829194b26b461f6955ce598e7e82a08819c64b5f0dce477f9f3408`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`27036bf9a0c8af075387cd26d05ef22df1f4347d18ebb29431dcf09a9f465be2`.
-The current combined ARM BOLT/AArch32 JITLink lit run passes 85/85
-(73 ARM and 12 JITLink). The BOLT unit executables pass 126 tests and
-explicitly skip 138 target-inapplicable parameterizations: Core is 82/138,
+`8a0a0a5e139539ee1ac3b21360bb2501859f4ab68016fa0ac8781a2e2184770d`.
+The current combined ARM BOLT/AArch32 JITLink lit run passes 86/86
+(74 ARM and 12 JITLink). The BOLT unit executables pass 127 tests and
+explicitly skip 141 target-inapplicable parameterizations: Core is 83/141,
 Passes is 5/0 and Profile is 39/0. The retained
 [`core-tests.xml`](../../build/preflight/firm-bolt-cortex-m-production-parity-v133-memcpy1-final2-2026-11-19/core-tests.xml)
 has SHA-256 (the immediately preceding v133 run)
@@ -1155,6 +1161,37 @@ regression is
 [`thumb-native-conditional-tail-call.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb-native-conditional-tail-call.s),
 and the executed fixture is
 [`firm_bolt_cortex_m3_conditional_tail_call.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_conditional_tail_call.s).
+
+v136 reuses BOLT's existing `CMOVConversion` CFG pass.  The target mismatch is
+explicit: x86 encodes each conditional move independently, whereas Thumb
+requires a preceding IT instruction that describes the following predicated
+instructions.  Firm-BOLT adds target hooks for sequence qualification and
+prefix creation, recognizes only flag-neutral `tMOVr`, `t2MOVr`, `t2MOVi` and
+`t2MOVi16` forms, and emits an all-Then IT mask.  Loads, stores, flag-defining
+moves, PC/SP moves, already predicated forms and blocks exceeding the target's
+IT limit remain unchanged.  Armv6-M/Armv7-M profiles admit at most four moves;
+the conservative Armv8-M policy admits one.  The pass remains off unless
+`--firmbolt-allow-conditional-moves` separately admits removal of the branch
+event and changes to interrupt opportunities and modeled timing.  It excludes
+multi-entry, split, EH-range, vector, veneer, jump-table and address-stable
+functions.
+
+The executed Cortex-M3 fixture replaces one `bne` with `it eq` and predicates
+the existing `mov.w`; the worker remains exactly 12 bytes.  The IT instruction
+maps to the removed branch's original identity, the other four instructions
+retain exact origins, and no instruction is unmapped.  Reference and candidate
+execute both selected-value paths to RAM words `(42, 7)` under FastDyn.  The
+missing-contract control rejects before publication.  Focused regression also
+covers one- and four-slot IT blocks, an explicit trailing branch, five-slot
+retention and rejection of a flag-setting move.  The complete FOP-enabled gate
+is 53/53, ARM BOLT lit is 74/74, AArch32 JITLink lit is 12/12, and the current
+BOLT unit runs have 127 passes and 141 explicit target-inapplicable skips.
+These are pass-integration and architectural-execution results; the single
+execution timings are not a performance experiment.  The focused source
+regression is
+[`thumb-native-conditional-move.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb-native-conditional-move.s),
+and the executed fixture is
+[`firm_bolt_cortex_m3_conditional_move.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_conditional_move.s).
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
