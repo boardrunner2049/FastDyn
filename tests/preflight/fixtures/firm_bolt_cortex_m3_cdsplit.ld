@@ -20,6 +20,18 @@ SECTIONS
     . = . + 8;
   } > FLASH
 
+  .ARM.exidx :
+  {
+    *(.ARM.exidx*)
+  } > FLASH
+
+  /* One additional EHABI range record is linker-owned capacity.  The
+     following allocated marker keeps the gap file- and memory-backed. */
+  .firmbolt.exidx.end ADDR(.ARM.exidx) + SIZEOF(.ARM.exidx) + 8 :
+  {
+    BYTE(0)
+  } > FLASH
+
   .data :
   {
     *(.data*)

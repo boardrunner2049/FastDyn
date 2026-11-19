@@ -10595,7 +10595,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2da747179 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..4d8ae17eac2ef0f33da358456216c64d7b736286 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -10756,17 +10756,17 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
    for (auto &[Address, Type] : MarkerSymbols) {
      auto *BF = BC->getBinaryFunctionContainingAddress(Address,
                                                        /*CheckPastEnd*/ false,
-@@ -1499,10 +1546,22 @@ void RewriteInstance::discoverFileObjects() {
+@@ -1499,8 +1546,20 @@ void RewriteInstance::discoverFileObjects() {
        continue;
      }
      const auto EntryOffset = Address - BF->getAddress();
 -    if (Type == MarkerSymType::CODE) {
 +    if (Type == MarkerSymType::CODE || Type == MarkerSymType::THUMB_CODE) {
-       BF->markCodeAtOffset(EntryOffset);
-       continue;
-     }
-+    if (Type == MarkerSymType::ARM_CODE) {
 +      BF->markCodeAtOffset(EntryOffset);
++      continue;
++    }
++    if (Type == MarkerSymType::ARM_CODE) {
+       BF->markCodeAtOffset(EntryOffset);
 +      // Cortex-M implements Thumb execution only.  A few firmware images
 +      // nevertheless contain unreachable ARM-state library bodies.  Preserve
 +      // the containing function byte-for-byte instead of feeding those bytes
@@ -10775,11 +10775,9 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
 +        BF->setSimple(false);
 +        ++UnsupportedARMModeRegions;
 +      }
-+      continue;
-+    }
+       continue;
+     }
      if (Type == MarkerSymType::DATA) {
-       BF->markDataAtOffset(EntryOffset);
-       BC->AddressToConstantIslandMap[Address] = BF;
 @@ -1510,8 +1569,12 @@ void RewriteInstance::discoverFileObjects() {
      }
      llvm_unreachable("Unknown marker");
@@ -11619,10 +11617,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
        ELFSymTy CodeMarkSym = DataMarkSym;
 -      CodeMarkSym.st_name = AddToStrTab("$x");
 +      CodeMarkSym.st_name = AddToStrTab(BC->isARM() ? "$t" : "$x");
-+      CodeMarkSym.st_value = CodeMark;
-+      Symbols.emplace_back(DataMarkSym);
-+      Symbols.emplace_back(CodeMarkSym);
-+    }
+       CodeMarkSym.st_value = CodeMark;
+       Symbols.emplace_back(DataMarkSym);
+       Symbols.emplace_back(CodeMarkSym);
+     }
+-    if (Function.hasConstantIsland() && Function.isSplit()) {
 +    if (BC->isARM() && Function.isEmitted() &&
 +        (BC->HasRelocations || Function.isFirmwareModified()) &&
 +        Function.hasConstantIsland() &&
@@ -11638,11 +11637,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
 +      DataMarkSym.setBinding(ELF::STB_LOCAL);
 +      ELFSymTy CodeMarkSym = DataMarkSym;
 +      CodeMarkSym.st_name = AddToStrTab("$t");
-       CodeMarkSym.st_value = CodeMark;
-       Symbols.emplace_back(DataMarkSym);
-       Symbols.emplace_back(CodeMarkSym);
-     }
--    if (Function.hasConstantIsland() && Function.isSplit()) {
++      CodeMarkSym.st_value = CodeMark;
++      Symbols.emplace_back(DataMarkSym);
++      Symbols.emplace_back(CodeMarkSym);
++    }
 +    if (BC->isARM() && Function.isEmitted() && Function.hasCFG() &&
 +        (BC->HasRelocations || Function.isFirmwareModified())) {
 +      // Instruction-owned Thumb literal pools move with their guarded basic
@@ -12102,7 +12100,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
  
        OS.seek(Pos);
      }
-@@ -6947,6 +7761,564 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +7761,637 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -12158,6 +12156,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
 +    uint64_t PersonalityTarget{0};
 +    SmallVector<const BinaryFunction *, 4> Functions;
 +    bool IsSentinel{false};
++  };
++
++  struct OutputExidxEntry {
++    const ExidxEntry *Input{nullptr};
++    uint64_t OutputStart{0};
 +  };
 +
 +  for (BinarySection &Section : BC->allocatableSections()) {
@@ -12432,18 +12435,13 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
 +    }
 +
 +    SmallVector<std::pair<uint64_t, size_t>, 64> OutputFunctions;
++    size_t SplitFragments = 0;
 +    for (size_t I = 0; I < Entries.size(); ++I) {
 +      ExidxEntry &Entry = Entries[I];
 +      if (Entry.IsSentinel)
 +        continue;
 +      Entry.OutputStart = std::numeric_limits<uint64_t>::max();
 +      for (const BinaryFunction *BF : Entry.Functions) {
-+        if (BF->isSplit())
-+          return createStringError(
-+              errc::not_supported,
-+              "ARM EHABI-covered function %s is split; fragment unwind "
-+              "records are not qualified",
-+              BF->getPrintName().c_str());
 +        // The canonical function contributes the one live output range.  A
 +        // compatible folded alias was checked above and needs no duplicate
 +        // EHABI entry at the same output address.
@@ -12457,43 +12455,111 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
 +              BF->getPrintName().c_str());
 +        Entry.OutputStart = std::min(Entry.OutputStart, OutputAddress);
 +        OutputFunctions.emplace_back(OutputAddress, I);
++
++        // EHABI describes address ranges, not source functions.  Every
++        // emitted split fragment therefore starts a range carrying the same
++        // exact input unwind identity as its main fragment.  A later sort may
++        // coalesce adjacent ranges with the same identity, but it must retain
++        // a new record when another unwind model lies between fragments.
++        for (const FunctionFragment &FF :
++             BF->getLayout().getSplitFragments()) {
++          if (FF.empty())
++            continue;
++          if (!FF.getAddress() || !FF.getImageSize())
++            return createStringError(
++                errc::not_supported,
++                "ARM EHABI-covered split fragment %u of function %s has no "
++                "complete final placement",
++                FF.getFragmentNum().get(), BF->getPrintName().c_str());
++          Entry.OutputStart = std::min(Entry.OutputStart, FF.getAddress());
++          OutputFunctions.emplace_back(FF.getAddress(), I);
++          ++SplitFragments;
++        }
 +      }
 +    }
 +
 +    llvm::sort(OutputFunctions);
-+    SmallDenseSet<size_t, 32> ClosedGroups;
++    SmallVector<OutputExidxEntry, 32> OutputEntries;
 +    std::optional<size_t> CurrentGroup;
++    uint64_t PreviousAddress = 0;
 +    for (const auto &[Address, Group] : OutputFunctions) {
-+      (void)Address;
-+      if (CurrentGroup && *CurrentGroup == Group)
-+        continue;
-+      if (ClosedGroups.contains(Group))
++      if (CurrentGroup && Address == PreviousAddress && *CurrentGroup != Group)
 +        return createStringError(
 +            errc::not_supported,
-+            "ARM EHABI merged range at 0x%" PRIx64
-+            " becomes non-contiguous after function layout",
-+            Entries[Group].InputStart);
-+      if (CurrentGroup)
-+        ClosedGroups.insert(*CurrentGroup);
++            "ARM EHABI output address 0x%" PRIx64
++            " has incompatible unwind range identities",
++            Address);
++      PreviousAddress = Address;
++      if (CurrentGroup && *CurrentGroup == Group)
++        continue;
++      OutputEntries.push_back({&Entries[Group], Address});
 +      CurrentGroup = Group;
 +    }
-+
-+    SmallVector<ExidxEntry *, 32> OutputEntries;
-+    for (ExidxEntry &Entry : Entries)
-+      if (!Entry.IsSentinel &&
-+          Entry.OutputStart != std::numeric_limits<uint64_t>::max())
-+        OutputEntries.push_back(&Entry);
-+    llvm::sort(OutputEntries, [](const ExidxEntry *A, const ExidxEntry *B) {
-+      return A->OutputStart < B->OutputStart;
-+    });
 +    if (Entries.back().IsSentinel) {
 +      if (!OutputEntries.empty() &&
-+          Entries.back().OutputStart <= OutputEntries.back()->OutputStart)
++          Entries.back().OutputStart <= OutputEntries.back().OutputStart)
 +        return createStringError(
 +            errc::not_supported,
 +            "ARM EHABI sentinel no longer follows emitted code");
-+      OutputEntries.push_back(&Entries.back());
++      OutputEntries.push_back(
++          {&Entries.back(), Entries.back().OutputStart});
 +    }
++
++    // The index remains at its linked address.  Table growth is admitted only
++    // inside bytes that are already file- and memory-backed by the same
++    // PT_LOAD and are not owned by another allocatable section.  This makes
++    // linker-provided padding an explicit capacity contract and prevents a
++    // fragment record from silently overwriting literals, data, or a later
++    // section.  Segment extension is deliberately a separate feature.
++    const uint64_t OutputSize = OutputEntries.size() * 8;
++    const uint64_t SectionAddress = Section.getAddress();
++    const uint64_t SectionOffset = Section.getInputFileOffset();
++    auto SegmentIt = BC->SegmentMapInfo.upper_bound(SectionAddress);
++    if (SegmentIt == BC->SegmentMapInfo.begin())
++      return createStringError(errc::executable_format_error,
++                               "ARM EHABI index is not in a PT_LOAD");
++    --SegmentIt;
++    const SegmentInfo &Segment = SegmentIt->second;
++    if (SectionAddress < Segment.Address ||
++        SectionAddress + Section.getSize() > Segment.Address + Segment.Size ||
++        SectionOffset < Segment.FileOffset ||
++        SectionOffset + Section.getSize() >
++            Segment.FileOffset + Segment.FileSize ||
++        SectionAddress - Segment.Address !=
++            SectionOffset - Segment.FileOffset)
++      return createStringError(
++          errc::executable_format_error,
++          "ARM EHABI index %s lacks one exact file-backed PT_LOAD mapping",
++          Section.getName().str().c_str());
++
++    uint64_t Capacity = std::min(Segment.Address + Segment.Size -
++                                     SectionAddress,
++                                 Segment.FileOffset + Segment.FileSize -
++                                     SectionOffset);
++    for (const BinarySection &Other : BC->allocatableSections()) {
++      if (&Other == &Section || Other.isLinkOnly() || Other.isVirtual())
++        continue;
++      const uint64_t OtherSize = Other.getOutputSize();
++      if (!OtherSize)
++        continue;
++      const uint64_t OtherAddress =
++          Other.getOutputAddress() ? Other.getOutputAddress()
++                                   : Other.getAddress();
++      const uint64_t OtherOffset =
++          Other.getOutputFileOffset() ? Other.getOutputFileOffset()
++                                      : Other.getInputFileOffset();
++      if (OtherAddress > SectionAddress)
++        Capacity = std::min(Capacity, OtherAddress - SectionAddress);
++      if (OtherOffset > SectionOffset)
++        Capacity = std::min(Capacity, OtherOffset - SectionOffset);
++    }
++    if (OutputSize > Capacity)
++      return createStringError(
++          errc::not_supported,
++          "ARM EHABI index %s needs 0x%" PRIx64
++          " bytes after fragment layout but has only 0x%" PRIx64
++          " bytes of exact linked capacity",
++          Section.getName().str().c_str(), OutputSize, Capacity);
 +
 +    // Retained SHT_REL records use the address of one of the two words in an
 +    // input index entry.  Record the exact corresponding output word after
@@ -12501,9 +12567,9 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
 +    // removes relocations for a folded child entry.  This mapping is consumed
 +    // while copying the non-allocatable relocation section later; rewriting
 +    // only the allocatable bytes would leave misleading stale metadata.
-+    DenseMap<const ExidxEntry *, size_t> OutputEntryIndices;
++    DenseMap<const ExidxEntry *, SmallVector<size_t, 1>> OutputEntryIndices;
 +    for (size_t I = 0; I < OutputEntries.size(); ++I)
-+      OutputEntryIndices[OutputEntries[I]] = I;
++      OutputEntryIndices[OutputEntries[I].Input].push_back(I);
 +    for (const ExidxEntry &Entry : Entries) {
 +      for (const uint64_t FieldOffset : {uint64_t(0), uint64_t(4)}) {
 +        const uint64_t InputFieldAddress =
@@ -12518,8 +12584,9 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
 +              InputFieldAddress);
 +        const auto OutputIt = OutputEntryIndices.find(&Entry);
 +        if (OutputIt != OutputEntryIndices.end())
-+          It->second.push_back(Section.getAddress() + OutputIt->second * 8 +
-+                               FieldOffset);
++          for (const size_t OutputIndex : OutputIt->second)
++            It->second.push_back(Section.getAddress() + OutputIndex * 8 +
++                                 FieldOffset);
 +      }
 +    }
 +
@@ -12608,15 +12675,14 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
 +      ExtabSection->setOutputFileOffset(ExtabSection->getInputFileOffset());
 +    }
 +
-+    const size_t OutputSize = OutputEntries.size() * 8;
 +    uint8_t *NewContents = new uint8_t[OutputSize];
 +    size_t ExternalCompactReferences = 0;
 +    size_t ExternalGenericReferences = 0;
 +    for (size_t I = 0; I < OutputEntries.size(); ++I) {
-+      const ExidxEntry &Entry = *OutputEntries[I];
++      const ExidxEntry &Entry = *OutputEntries[I].Input;
 +      const uint64_t Place = Section.getAddress() + I * 8;
 +      Expected<uint32_t> FunctionPrel31 =
-+          EncodePrel31(Entry.OutputStart, Place);
++          EncodePrel31(OutputEntries[I].OutputStart, Place);
 +      if (!FunctionPrel31) {
 +        delete[] NewContents;
 +        return FunctionPrel31.takeError();
@@ -12659,6 +12725,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
 +               << ExternalGenericReferences
 +               << " relocation-complete generic reference(s) after function "
 +                  "layout\n";
++    if (SplitFragments)
++      BC->outs() << "BOLT-INFO: ARM EHABI index " << Section.getName()
++                 << " published " << SplitFragments
++                 << " placed split fragment(s) through exact source unwind "
++                    "identities\n";
 +  }
 +
 +  return Error::success();
@@ -12667,7 +12738,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +8332,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8405,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -12682,7 +12753,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..9ddd188a4ea17628ce459f3b492787e2
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
      // Overwrite function body to make sure we never execute these instructions.
-@@ -7002,6 +8382,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +8455,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -17098,10 +17169,10 @@ index 0000000000000000000000000000000000000000..f92bcc1c85276b812bb9d4cd925b14d2
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-function-cdsplit-relocs.s b/bolt/test/ARM/thumb-function-cdsplit-relocs.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c237bb5f50
+index 0000000000000000000000000000000000000000..200d886f5b8807910595fcebb331a6562e447937
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-function-cdsplit-relocs.s
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,246 @@
 +## Qualify BOLT's second-stage cache-directed hot/warm/cold splitting on a
 +## relocation-complete Cortex-M image.  This is distinct from Profile2: a
 +## cover-call benefit moves five nonzero-count blocks to the warm fragment,
@@ -17110,7 +17181,8 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +# RUN: split-file %s %t
 +# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
 +# RUN:   %t/fixture.s -o %t/fixture.o
-+# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture.o -o %t/reference.elf
++# RUN: ld.lld --emit-relocs --no-merge-exidx-entries -T %t/link.ld \
++# RUN:   %t/fixture.o -o %t/reference.elf
 +
 +## ARM runs LongJmp, whose ordinary model handles at most two fragments.
 +## Reject CDSplit cleanly unless the caller selects its compatible compact
@@ -17133,6 +17205,8 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +# RUN:   | FileCheck %s --check-prefix=ELF
 +# RUN: llvm-readelf -rW %t/candidate.elf \
 +# RUN:   | FileCheck %s --check-prefix=RELOCS
++# RUN: llvm-readelf --unwind %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=UNWIND
 +# RUN: llvm-nm --numeric-sort %t/candidate.elf \
 +# RUN:   | FileCheck %s --check-prefix=SYMBOLS
 +# RUN: llvm-objdump -d %t/candidate.elf \
@@ -17140,17 +17214,32 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +# RUN: %python -c "import json; d=json.load(open('%t/report.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='cdsplit_worker'); print(d['split_function_count'],[(x['fragment_number'],x['kind'],x['output_address'],x['output_size'],x['block_count']) for x in f['fragments']],len(f['instruction_origins']),f['firmware_modification_reasons'])" \
 +# RUN:   | FileCheck %s --check-prefix=REPORT
 +
++## The same transformation must reject atomically when the linker did not
++## reserve space for the additional range record.
++# RUN: ld.lld --emit-relocs --no-merge-exidx-entries -T %t/no-capacity.ld \
++# RUN:   %t/fixture.o -o %t/no-capacity.elf
++# RUN: not llvm-bolt %t/no-capacity.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --merge-text-sections --align-functions=4 --align-text=4 \
++# RUN:   --reorder-blocks=ext-tsp --split-functions \
++# RUN:   --split-strategy=cdsplit --call-scale=10 --compact-code-model \
++# RUN:   --firmbolt-allow-function-splitting -o %t/no-capacity-candidate.elf \
++# RUN:   2>&1 | FileCheck %s --check-prefix=CAPACITY
++
 +# MODEL-REJECT: BOLT-ERROR: CDSplit is not supported with LongJmp. Try with '--compact-code-model'
++# CAPACITY: BOLT-ERROR: 'cannot rebuild ARM EHABI index tables': ARM EHABI index .ARM.exidx needs 0x20 bytes after fragment layout but has only 0x19 bytes of exact linked capacity
 +# BOLT: BOLT-INFO: basic block reordering modified layout of 1 functions
 +# BOLT: BOLT-INFO: Firm-BOLT publication policy checked 1 attempted function(s), rejected 0
 +# BOLT: BOLT-INFO: merged 3 code sections into .text [0x8000100, 0x8000190)
 +# BOLT: BOLT-INFO: FastDyn wrote linker-resolved firmware layout
-+# BOLT: BOLT-INFO: not adding new segments
++# BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 4 live entries from 3 input entries
++# BOLT: BOLT-INFO: ARM EHABI index .ARM.exidx published 2 placed split fragment(s) through exact source unwind identities
 +
 +# ELF: Entry point address: 0x800010d
 +# ELF: .bolt.org.text {{.*}} 08000100 {{.*}} 000000 {{.*}} AX
 +# ELF: .text {{.*}} 08000100 {{.*}} 000090 {{.*}} AX
-+# ELF: LOAD {{.*}} 0x08000000 {{.*}} 0x00008 0x00008 R
++# ELF: .ARM.exidx ARM_EXIDX {{.*}} 000020
++# ELF: LOAD {{.*}} 0x08000000 {{.*}} 0x00010 0x00010 R
 +# ELF-NEXT: LOAD {{.*}} 0x08000100 {{.*}} 0x00090 0x00090 R E
 +
 +# RELOCS: R_ARM_THM_CALL 08000101 cdsplit_worker
@@ -17171,6 +17260,15 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +# CODE: b.w 0x800010a <cdsplit_worker+0xa>
 +# CODE: 08000184 <cdsplit_worker.cold>:
 +# CODE: b.w 0x800010a <cdsplit_worker+0xa>
++
++# UNWIND: FunctionAddress: 0x8000100
++# UNWIND: Model: CantUnwind
++# UNWIND: FunctionAddress: 0x800010C
++# UNWIND: Model: Compact
++# UNWIND: FunctionAddress: 0x8000130
++# UNWIND: Model: CantUnwind
++# UNWIND: FunctionAddress: 0x8000188
++# UNWIND: Model: CantUnwind
 +
 +# REPORT: 1 [(0, 'main', 134217984, 12, 3), (1, 'cold', 134218116, 12, 1), (2, 'warm', 134218032, 84, 5)] 49 ['block_reordering', 'function_splitting']
 +
@@ -17196,6 +17294,8 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +.type cdsplit_worker, %function
 +.thumb_func
 +cdsplit_worker:
++  .fnstart
++  .cantunwind
 +  cmp r0, #2
 +  bge .Lchain_start
 +.Lfast:
@@ -17233,13 +17333,18 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +  b .Lexit
 +.Lexit:
 +  bx lr
++  .fnend
 +.size cdsplit_worker, . - cdsplit_worker
++
++.weak __aeabi_unwind_cpp_pr1
 +
 +.align 2
 +.global Reset_Handler
 +.type Reset_Handler, %function
 +.thumb_func
 +Reset_Handler:
++  .fnstart
++  .personalityindex 1
 +  movw r4, #0
 +  movt r4, #0x2000
 +  movs r0, #1
@@ -17257,6 +17362,7 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +.global fixture_halt
 +fixture_halt:
 +  b fixture_halt
++  .fnend
 +.size Reset_Handler, . - Reset_Handler
 +
 +//--- link.ld
@@ -17270,6 +17376,13 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +  .text ORIGIN(FLASH) + 0x100 : {
 +    *(.text*)
 +    . = . + 8;
++  } > FLASH
++  .ARM.exidx : { *(.ARM.exidx*) } > FLASH
++  /* One additional EHABI record is linker-owned capacity.  A following
++     allocated byte makes the gap part of the existing PT_LOAD while keeping
++     its ownership distinct from the index. */
++  .firmbolt.exidx.end ADDR(.ARM.exidx) + SIZEOF(.ARM.exidx) + 8 : {
++    BYTE(0)
 +  } > FLASH
 +  .data : { *(.data*) } > RAM AT > FLASH
 +  .bss (NOLOAD) : { *(.bss*) *(COMMON) } > RAM
@@ -17288,6 +17401,24 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +1 cdsplit_worker 3a 1 cdsplit_worker 3c 0 100
 +1 cdsplit_worker 4c 1 cdsplit_worker 4e 0 100
 +1 cdsplit_worker 60 1 cdsplit_worker 62 0 100
++
++//--- no-capacity.ld
++ENTRY(Reset_Handler)
++MEMORY {
++  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
++  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
++}
++SECTIONS {
++  .isr_vector ORIGIN(FLASH) : { KEEP(*(.isr_vector)) } > FLASH
++  .text ORIGIN(FLASH) + 0x100 : {
++    *(.text*)
++    . = . + 8;
++  } > FLASH
++  .ARM.exidx : { *(.ARM.exidx*) } > FLASH
++  .firmbolt.exidx.end : { BYTE(0) } > FLASH
++  .data : { *(.data*) } > RAM AT > FLASH
++  .bss (NOLOAD) : { *(.bss*) *(COMMON) } > RAM
++}
 diff --git a/bolt/test/ARM/thumb-function-clustering-relocs.s b/bolt/test/ARM/thumb-function-clustering-relocs.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..8ca7fe81e6f3cf83c164e2aeea5b4d64740b28c7

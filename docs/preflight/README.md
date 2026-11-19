@@ -114,10 +114,11 @@ profile-execution-count and CDSort call-graph relocation-complete whole-image
 function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
 Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
 function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
-fixtures, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
+fixtures, including linked split-fragment EHABI growth and retained-relocation
+rebuilding, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
 relocation-complete compact and generic ARM EHABI
 function-reordering fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v127 run accepts all forty-five without
+The 18 November production-parity-v128 run accepts all forty-five without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -753,26 +754,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v127-exidx-relocations-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v128-fragment-ehabi-relocations-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v127-exidx-relocations-2026-11-18/report.json),
-SHA-256 `08ac9567075feaf10358986cb113272379832dcf530fc5c03596c3ab61d8fce9`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v128-fragment-ehabi-relocations-2026-11-18/report.json),
+SHA-256 `dfa8594f47b1562b7492da3f3b33e51f3b6756b802b3a59790cefa4737f37e7f`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v127-exidx-relocations-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v128-fragment-ehabi-relocations-2026-11-18/validation-manifest.json)
 (SHA-256
-`e1a423ef68fb7b3bdca6ea90e394f901ce03244688f37fb8871f37ee6f0a4bfb`)
+`beeda83a076c888da5a84d18f71ac2325dca52fabae03d98ba0f0e0af32a2246`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`bf684df85f6f4c802e7f1008aa7f483920c5f104343cb54752089dc453782c68`),
+`a2ff74fc91f03a27e04974f79cb76d200a14951e8e397e1e30c36fbf392b1e8d`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`6770bb8df43dd2dd5f2ce1df7f70f26fd2e2f311790ee0b878bfd30e17bf68df`.
+`0c262afbeae56163365c24a032a082b28743e05a6fd7d50347ee162f8c6a1eb6`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -804,7 +805,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v127 validation passes 65/65 BOLT ARM lit tests, 12/12 AArch32
+The current v128 validation passes 65/65 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -829,10 +830,11 @@ Cortex-M3 candidate moves all three functions, keeps `.ARM.exidx` at exactly
 mapping and live `.text` link, maps all 12 instructions and matches reference
 RAM `(17, 42)`. The real M4 compact control retains all 595 `CANTUNWIND`
 records and its 4,760-byte index exactly. External `.ARM.extab` personality or
-LSDA records and split fragments outside the qualified models reject
-explicitly; they are not silently treated as unwind support. v126 additionally
+LSDA records and, at v119, all split fragments rejected explicitly; they were
+not silently treated as unwind support. v126 additionally
 qualifies compatible folded aliases and bounded index shrinkage as described
-below.
+below, and v128 qualifies split-fragment range replication inside exact linked
+capacity.
 
 v120 extends that path to bounded external ARM-defined compact records. Each
 PREL31 target must resolve to a complete file-backed allocatable `.ARM.extab`
@@ -850,10 +852,10 @@ from Thumb identity `0x08000125` to `0x08000101`; Firm-BOLT rewrites the extab
 header from `0x7ffffffd` to `0x7fffffd9`, preserves all eight opaque bytes
 after it, keeps the 12-byte extab and 32-byte exidx at their original
 addresses, preserves all 13 instruction origins, and matches reference RAM
-`(17, 42)`. Arbitrary language-specific descriptor interpretation and
-split-fragment unwind remain unsupported. Variable-footprint index growth
-remains unsupported; v127 qualifies shrinkage caused by removal of compatible
-folded-alias records both with and without retained GNU `SHT_REL` metadata.
+`(17, 42)`. Arbitrary language-specific descriptor interpretation remains
+unsupported. At v121 split-fragment unwind and variable-footprint index growth
+were also unsupported; v127 later qualified shrinkage, and v128 qualifies
+capacity-bounded fragment growth with retained GNU `SHT_REL` metadata.
 
 v122 reuses BOLT's ordinary `AlignerPass` rather than adding a parallel
 alignment algorithm. Cortex-M basic-block alignment is opt-in, requires an
@@ -919,8 +921,9 @@ reference and candidate both produce `(42, 42)`. A byte-identical twin with a
 rejected after linking, and the wrapper removes the disposable partial output
 instead of publishing it. Retained relocation records on an index that would
 need compaction also reject until their offsets can be rebuilt. This qualifies
-compatible unwind aliases and bounded shrinkage, not arbitrary EHABI merging,
-split-fragment unwind, language-specific descriptors or index growth.
+At v125 this qualified compatible unwind aliases and bounded shrinkage, not
+arbitrary EHABI merging, split-fragment unwind, language-specific descriptors
+or index growth; v128 adds the separately checked fragment-growth case.
 
 v126 extends that comparison to separately emitted ARM-defined external
 compact records. Distinct `.ARM.extab` targets may alias only when neither is
@@ -955,6 +958,25 @@ candidate again produce `(17, 17)`. A YAML regression makes the GNU relocation
 graph reproducible without requiring GNU ld in the lit environment; the
 production profile separately builds the same graph with the pinned GNU linker.
 
+v128 closes the split-fragment unwind gap without inventing a second unwind
+model. EHABI ranges are derived from final main/warm/cold placement and retain
+the exact source function's decoded unwind identity. When another function's
+unwind range separates two fragments, Firm-BOLT emits another index record for
+the later run; adjacent fragments covered by the same range do not create
+redundant records. Growth is permitted only inside bytes already backed by the
+same `PT_LOAD` in both file and memory and not owned by another allocated
+section. The GNU-linked CDSplit fixture grows `.ARM.exidx` from three
+records/24 bytes to four records/32 bytes and `PT_ARM_EXIDX` with it. Its
+retained `.rel.ARM.exidx` grows from five records/40 bytes to six records/48
+bytes: the worker's source `R_ARM_PREL31` dependency is cloned at the new warm
+range, the external compact Reset model keeps its exact table dependency, and
+the section-relative sentinel moves from `0x10` to `0x18`. All other program
+headers remain exact. FastDyn executes the hot, warm and held-out cold paths in
+both images and observes `(5, 42, 2)`. A matched image without the eight-byte
+linker-owned index gap rejects atomically: 32 bytes are required and only 25
+are qualified. This is unwind/reference/placement and execution evidence, not
+a throughput result or permission to extend arbitrary firmware segments.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands without a proven non-fallthrough owner, ARM relocation classes
@@ -962,7 +984,7 @@ beyond the now-qualified JUMP6/ABS8/ABS16 set,
 veneer placement without explicit typed slots or under arbitrary
 whole-image layout, clustering and splitting of
 address-stable, jump-table, veneer or multi-entry functions beyond the
-executed complete-reference layout, Profile2 and CDSplit relocation gates,
+executed complete-reference layout,
 non-ADR/ambiguous table-base data flow, DSP/FPU/MVE-specific optimization rules,
 Secure/Non-secure and PACBTI-M state transformations. Cortex-M4 DSP/FPU,
 Cortex-M55 MVE and Cortex-M85 PACBTI-M decode/exact retention are qualified

@@ -143,6 +143,11 @@ M3_CDSPLIT_SOURCE = (
 M3_CDSPLIT_LINKER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_cdsplit.ld"
 )
+M3_CDSPLIT_NO_EXIDX_CAPACITY_LINKER = (
+    ROOT
+    / "tests/preflight/fixtures/"
+      "firm_bolt_cortex_m3_cdsplit_no_exidx_capacity.ld"
+)
 M3_CDSPLIT_PROFILE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_cdsplit.fdata"
 )
@@ -474,10 +479,20 @@ def arm_exidx_relocations(path: Path) -> dict[str, Any]:
         records = []
         for relocation in section.iter_relocations():
             symbol = symbols.get_symbol(int(relocation["r_info_sym"]))
+            symbol_name = symbol.name
+            if (
+                not symbol_name
+                and symbol["st_info"]["type"] == "STT_SECTION"
+                and isinstance(symbol["st_shndx"], int)
+            ):
+                symbol_section = elf.get_section(int(symbol["st_shndx"]))
+                if symbol_section is not None:
+                    symbol_name = symbol_section.name
             records.append({
                 "offset": int(relocation["r_offset"]),
                 "type": int(relocation["r_info_type"]),
-                "symbol": symbol.name,
+                "symbol": symbol_name,
+                "symbol_value": int(symbol["st_value"]),
             })
         return {
             "section_size": int(section["sh_size"]),
@@ -2517,8 +2532,16 @@ def validate_relocated_cdsplit(
     """Validate cache-directed three-way splitting as one firmware image."""
     reference_inventory = elf_inventory(reference)
     candidate_inventory = elf_inventory(candidate)
-    if reference_inventory["segments"] != candidate_inventory["segments"]:
-        raise RuntimeError("CDSplit candidate changed the loadable segment map")
+    reference_non_exidx = [
+        segment for segment in reference_inventory["segments"]
+        if segment["type"] != "PT_ARM_EXIDX"
+    ]
+    candidate_non_exidx = [
+        segment for segment in candidate_inventory["segments"]
+        if segment["type"] != "PT_ARM_EXIDX"
+    ]
+    if reference_non_exidx != candidate_non_exidx:
+        raise RuntimeError("CDSplit candidate changed a non-EXIDX segment")
     reference_text = reference_inventory["sections"][".text"]
     candidate_text = candidate_inventory["sections"][".text"]
     for field in ("address", "offset", "size", "flags", "alignment"):
@@ -2527,6 +2550,85 @@ def validate_relocated_cdsplit(
     old_text = candidate_inventory["sections"].get(".bolt.org.text")
     if old_text is None or int(old_text["size"]) != 0:
         raise RuntimeError("CDSplit candidate retained a live original body")
+
+    reference_exidx = arm_exidx_records(reference)
+    candidate_exidx = arm_exidx_records(candidate)
+    reference_exidx_addresses = [
+        int(record["function_address"])
+        for record in reference_exidx["records"]
+    ]
+    candidate_exidx_addresses = [
+        int(record["function_address"])
+        for record in candidate_exidx["records"]
+    ]
+    if (
+        reference_exidx["section_address"]
+            != candidate_exidx["section_address"]
+        or reference_exidx["section_offset"]
+            != candidate_exidx["section_offset"]
+        or reference_exidx["section_size"] != 24
+        or candidate_exidx["section_size"] != 32
+        or reference_exidx["linked_section"] != ".text"
+        or candidate_exidx["linked_section"] != ".text"
+        or reference_exidx_addresses
+            != [0x08000100, 0x08000164, 0x08000188]
+        or candidate_exidx_addresses
+            != [0x08000100, 0x0800010C, 0x08000130, 0x08000188]
+        or [record["model"] for record in reference_exidx["records"]]
+            != ["cantunwind", "external_extab", "cantunwind"]
+        or [record["model"] for record in candidate_exidx["records"]]
+            != [
+                "cantunwind", "external_extab", "cantunwind", "cantunwind",
+            ]
+        or section_bytes(reference, ".ARM.extab")
+            != section_bytes(candidate, ".ARM.extab")
+    ):
+        raise RuntimeError("CDSplit EHABI fragment ranges are not exact")
+    expected_exidx_segment = [{
+        **reference_exidx["segments"][0],
+        "file_size": 32,
+        "memory_size": 32,
+    }]
+    if (
+        len(reference_exidx["segments"]) != 1
+        or reference_exidx["segments"][0]["file_size"] != 24
+        or reference_exidx["segments"][0]["memory_size"] != 24
+        or candidate_exidx["segments"] != expected_exidx_segment
+    ):
+        raise RuntimeError("CDSplit did not grow PT_ARM_EXIDX exactly")
+    reference_exidx_relocations = arm_exidx_relocations(reference)
+    candidate_exidx_relocations = arm_exidx_relocations(candidate)
+    exidx_base = int(reference_exidx["section_address"])
+    reference_relocation_shape = [
+        (record["offset"], record["type"], record["symbol_value"])
+        for record in reference_exidx_relocations["records"]
+    ]
+    candidate_relocation_shape = [
+        (record["offset"], record["type"], record["symbol_value"])
+        for record in candidate_exidx_relocations["records"]
+    ]
+    if (
+        reference_exidx_relocations["section_size"] != 40
+        or candidate_exidx_relocations["section_size"] != 48
+        or reference_relocation_shape != [
+            (exidx_base, 42, 0x08000100),
+            (exidx_base + 8, 0, 0),
+            (exidx_base + 8, 42, 0x08000100),
+            (exidx_base + 12, 42, 0x08000008),
+            (16, 42, 0x08000100),
+        ]
+        or candidate_relocation_shape != [
+            (exidx_base, 42, 0x08000100),
+            (exidx_base + 16, 42, 0x08000100),
+            (exidx_base + 8, 0, 0),
+            (exidx_base + 8, 42, 0x08000100),
+            (exidx_base + 12, 42, 0x08000008),
+            (24, 42, 0x08000100),
+        ]
+    ):
+        raise RuntimeError(
+            "CDSplit did not clone/remap retained EHABI relocations exactly"
+        )
 
     moved = {
         name: symbol_address(candidate, name)
@@ -2744,7 +2846,26 @@ def validate_relocated_cdsplit(
         "status": "accepted",
         "placement_policy": "reuse_linker_qualified_input_text",
         "split_policy": "cdsplit_hot_warm_cold_with_compact_branch_model",
-        "program_headers_exact": True,
+        "non_exidx_program_headers_exact": True,
+        "ehabi_fragment_ranges": {
+            "reference_entry_count": len(reference_exidx["records"]),
+            "candidate_entry_count": len(candidate_exidx["records"]),
+            "reference_function_addresses": reference_exidx_addresses,
+            "candidate_function_addresses": candidate_exidx_addresses,
+            "reference_bytes": reference_exidx["section_size"],
+            "candidate_bytes": candidate_exidx["section_size"],
+            "pt_arm_exidx": candidate_exidx["segments"],
+            "reference_relocation_count": len(
+                reference_exidx_relocations["records"]
+            ),
+            "candidate_relocation_count": len(
+                candidate_exidx_relocations["records"]
+            ),
+            "reference_relocation_bytes":
+                reference_exidx_relocations["section_size"],
+            "candidate_relocation_bytes":
+                candidate_exidx_relocations["section_size"],
+        },
         "text_range": {
             "address": candidate_text["address"],
             "size": candidate_text["size"],
@@ -2901,20 +3022,28 @@ def build_m3_function_split_fixture(output: Path, logs: Path) -> Path:
     return image
 
 
-def build_m3_cdsplit_fixture(output: Path, logs: Path) -> Path:
+def build_m3_cdsplit_fixture(
+    output: Path, logs: Path, *, exidx_capacity: bool = True,
+) -> Path:
     """Build the relocation-complete hot/warm/cold CDSplit fixture."""
-    object_path = output / "firm-bolt-cortex-m3-cdsplit.o"
-    image = output / "firm-bolt-cortex-m3-cdsplit-reference.elf"
+    suffix = "" if exidx_capacity else "-no-exidx-capacity"
+    object_path = output / f"firm-bolt-cortex-m3-cdsplit{suffix}.o"
+    image = output / f"firm-bolt-cortex-m3-cdsplit{suffix}-reference.elf"
     require_success(run([
         str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
         "-mcpu=cortex-m3", str(M3_CDSPLIT_SOURCE),
         "-o", str(object_path),
-    ], logs / "build-m3-cdsplit-object.log"),
+    ], logs / f"build-m3-cdsplit{suffix}-object.log"),
         "M3 CDSplit object build")
+    linker = (
+        M3_CDSPLIT_LINKER if exidx_capacity
+        else M3_CDSPLIT_NO_EXIDX_CAPACITY_LINKER
+    )
     require_success(run([
-        str(LD_LLD), "--emit-relocs", "-T", str(M3_CDSPLIT_LINKER),
+        str(ARM_LD), "--emit-relocs", "--no-merge-exidx-entries",
+        "-T", str(linker),
         str(object_path), "-o", str(image),
-    ], logs / "build-m3-cdsplit-image.log"),
+    ], logs / f"build-m3-cdsplit{suffix}-image.log"),
         "M3 CDSplit image build")
     return image
 
@@ -4474,6 +4603,9 @@ def main() -> int:
     m3_exidx_generic_image = build_m3_generic_exidx_fixture(output, logs)
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
+    m3_cdsplit_no_exidx_capacity_image = build_m3_cdsplit_fixture(
+        output, logs, exidx_capacity=False,
+    )
     m3_loop_inversion_image = build_m3_loop_inversion_fixture(output, logs)
     m3_loop_inversion_profile = write_m3_loop_inversion_profile(output)
     m3_peephole_image = build_m3_peephole_fixture(output, logs)
@@ -7194,6 +7326,31 @@ def main() -> int:
             "reject cleanly"
         )
 
+    cdsplit_without_exidx_capacity = run(
+        [str(args.bolt.resolve()),
+         str(m3_cdsplit_no_exidx_capacity_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         f"--data={M3_CDSPLIT_PROFILE}",
+         "--relocs", "--use-old-text", "--merge-text-sections",
+         "--align-functions=4", "--align-text=4",
+         "--reorder-blocks=ext-tsp", "--split-functions",
+         "--split-strategy=cdsplit", "--call-scale=10",
+         "--compact-code-model",
+         "--firmbolt-allow-function-splitting",
+         "-o", str(output / "must-not-grow-exidx-without-capacity.elf")],
+        logs / "reject-cdsplit-without-exidx-capacity.log",
+    )
+    if (
+        cdsplit_without_exidx_capacity.returncode == 0
+        or "needs 0x20 bytes after fragment layout but has only 0x19 bytes "
+           "of exact linked capacity" not in
+        (cdsplit_without_exidx_capacity.stdout
+         + cdsplit_without_exidx_capacity.stderr)
+    ):
+        raise RuntimeError(
+            "Cortex-M CDSplit grew EHABI without exact linker capacity"
+        )
+
     taildup_copy_propagation = run(
         [str(args.bolt.resolve()), str(m3_taildup_propagation_image),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -8341,7 +8498,7 @@ def main() -> int:
                           "explicit fragment-placement and cross-fragment "
                           "branch-event contracts, using the compatible "
                           "compact branch model inside exact linker-owned "
-                          ".text capacity",
+                          ".text and EHABI index capacity",
             },
             "m3_taildup_worker": {
                 "path": str(m3_taildup_profile),
@@ -8434,6 +8591,7 @@ def main() -> int:
                 True,
             "over_budget_block_alignment_rejected": True,
             "cdsplit_without_compact_branch_model_rejected": True,
+            "cdsplit_without_exidx_capacity_rejected": True,
             "tail_duplication_propagation_without_contract_rejected": True,
             "unadmitted_loop_inversion_left_unchanged": True,
             "unadmitted_control_flow_peephole_rejected": True,
@@ -8627,7 +8785,7 @@ def main() -> int:
                 "explicit ARM relocation mode with native BOLT user-directed, profile exec-count and call-graph CDSort whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
                 "native BOLT HFSort and Pettis-Hansen call-graph clustering, distinguished from exec-count and CDSort under one frozen profile, with linked caller/callee adjacency, repaired direct calls, exact relocation/origin ledgers, separately accounted linker alignment slack, unchanged executable PT_LOAD ranges, and Cortex-M3 execution",
                 "native BOLT function and profile-guided basic-block alignment in explicit relocation mode, with executed-padding/timing admission, the default guest-instruction-count gate, exact instruction origins across padding, post-alignment branch repair, linker-owned capacity accounting, atomic over-budget rejection, and Cortex-M3 execution",
-                "ARM EHABI SHT_ARM_EXIDX reconstruction for relocation-complete Cortex-M function ordering, including PREL31 decode/re-encode, address sorting, CANTUNWIND, inline compact, bounded external compact and relocation-complete generic personality models, live .text sh_link retargeting, exact fixed-footprint preservation, and Cortex-M3 execution",
+                "ARM EHABI SHT_ARM_EXIDX reconstruction for relocation-complete Cortex-M function ordering and admitted function splitting, including PREL31 decode/re-encode, address sorting, CANTUNWIND, inline compact, bounded external compact and relocation-complete generic personality models, exact source-unwind identity replication across noncontiguous hot/warm/cold fragments, live .text sh_link retargeting, checked variable-footprint growth only inside file- and memory-backed linker capacity, PT_ARM_EXIDX repair, and Cortex-M3 execution",
                 "opt-in native BOLT Profile2 hot/cold function splitting inside explicit linker-owned capacity, with vector/secondary entries protected, exact fragment and instruction-origin ledgers, widened cross-fragment branch repair, live SHT_REL ownership, unchanged PT_LOAD ranges, held-out cold-path Cortex-M3 execution, and atomic rejection without the fragment-placement/branch-event contract",
                 "opt-in native BOLT loop inversion for profiled Thumb loops with branch-timing admission, exact moved/synthesized instruction origins, compact in-place emission, and Cortex-M3 execution",
                 "opt-in native BOLT double-jump control-flow peepholes with branch-event admission, exact retained instruction origins, compact in-place emission, and Cortex-M3 execution",
@@ -8665,7 +8823,7 @@ def main() -> int:
                 "additional ARM relocation classes beyond the modeled compact set",
                 "out-of-function Thumb veneer placement without explicit typed slots or under arbitrary whole-image layout",
                 "function clustering and splitting for jump-table, address-stable, veneer-slot or secondary-entry functions",
-                "ARM EHABI language-specific descriptor interpretation, generic/LSDA alias folding, variable-footprint growth and split-fragment unwind-record generation",
+                "ARM EHABI language-specific descriptor interpretation, generic/LSDA alias folding, and arbitrary segment-extending index growth without prelinked capacity",
                 "DSP/FPU/MVE-specific optimization rewrites",
             ],
         },

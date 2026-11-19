@@ -23,6 +23,8 @@ g_pfnVectors:
 .type cdsplit_worker, %function
 .thumb_func
 cdsplit_worker:
+  .fnstart
+  .cantunwind
   cmp r0, #2
   bge .Lchain_start
 .Lfast:
@@ -60,13 +62,18 @@ cdsplit_worker:
   b .Lexit
 .Lexit:
   bx lr
+  .fnend
 .size cdsplit_worker, . - cdsplit_worker
+
+.weak __aeabi_unwind_cpp_pr1
 
 .align 2
 .global Reset_Handler
 .type Reset_Handler, %function
 .thumb_func
 Reset_Handler:
+  .fnstart
+  .personalityindex 1
   movw r4, #0
   movt r4, #0x2000
   movs r0, #1
@@ -87,4 +94,5 @@ cold_callsite:
 .global fixture_halt
 fixture_halt:
   b fixture_halt
+  .fnend
 .size Reset_Handler, . - Reset_Handler
