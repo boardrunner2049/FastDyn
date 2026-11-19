@@ -819,14 +819,22 @@ def _compose(src_code: bytes, final: bytes, h: Any, history: Sequence[tuple[str,
              target: str) -> list[Patch]:
     """Final bytes as patches relative to the captured code: one per original host
     instruction that changed (template of the last pass that touched it)."""
-    # Fusing the two IRQ-poll instructions creates one instruction. Splitting
-    # this certificate at the former MOV boundary would cut its displacement.
-    if len(history) == 1:
-        _, patch = history[0]
-        if patch.template_id == "irq_entry_mem_compare":
+    # Preserve verified multi-instruction folds as whole certificates. Splitting
+    # one at an original MOV boundary could cut through the new displacement.
+    if history and all(p.template_id in {"irq_entry_mem_compare", "pc_update_mem_add"}
+                       for _, p in history):
+        ordered = sorted((p for _, p in history), key=lambda p: p.host_off)
+        rebuilt = bytearray(src_code)
+        end = 0
+        for patch in ordered:
             a, b = patch.host_off, patch.host_off + len(patch.old_bytes)
-            if src_code[a:b] == patch.old_bytes and src_code[:a] + patch.new_bytes + src_code[b:] == final:
-                return [replace(patch, target=target)]
+            if a < end or src_code[a:b] != patch.old_bytes:
+                break
+            rebuilt[a:b] = patch.new_bytes
+            end = b
+        else:
+            if bytes(rebuilt) == final:
+                return [replace(p, target=target) for p in ordered]
     out = []
     for o in h.ops:
         a, b = o.off, o.end

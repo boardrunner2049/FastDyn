@@ -2130,7 +2130,17 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
             bad15.append(f"{uid} (rule 7, {len(triples15)} distinct LOG_REG triples in the "
                          "snapshot): edit_inside_log_block")
 
+    pc_targets = None
+
     def placement(u: Any, patches: Sequence[Any], who: str) -> None:
+        nonlocal pc_targets
+        pc_folds = {}
+        if any(p.template_id == "pc_update_mem_add" for p in patches):
+            from .analysis.pc_update import folded_exits, recorded_targets
+            from .validate_sym.program import world_of
+            if pc_targets is None:
+                pc_targets = recorded_targets(snapshot)
+            pc_folds = folded_exits(u, world_of(snapshot, layout), pc_targets)
         nonlocal npat, need_d2, need_d3
         if not patches:
             return
@@ -2145,6 +2155,8 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
             if any(lb.overlaps(a, b) for lb in h.log_blocks):
                 bad15.append(f"{who} @{a}: edit_inside_log_block")
             kinds = {bl.kind for bl in blocks if bl.start < b and a < bl.end}
+            if p.template_id == "pc_update_mem_add" and pc_folds.get(a) != (p.old_bytes, p.new_bytes):
+                bad15.append(f"{who} @{a}: invalid ARM PC update or unproved exit")
             if p.template_id == "irq_entry_mem_compare":
                 from .analysis.irq_entry import matches_irq_patch
                 if (len(patches) != 1 or "prefix" not in kinds

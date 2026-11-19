@@ -208,6 +208,7 @@ Both pipelines use the exact steady-phase training profile. Supply the original 
 
 * `b2-arena-slide` moves every relocatable block by the same multiple of 64 bytes. It searches one host page of placements for the lowest predicted number of page crossings between entries, measured exit sites and their targets. All inter-block distances stay the same. The linker resolves the references and verifies the resulting artifact.
 * `irq-entry` fuses the native load and sign test at eligible non-icount translation-block entries. It preserves the interrupt branch and the offsets of all later instructions. The checker requires a dead scratch register on both successors, an identified QEMU return relocation, no incoming reference to the removed instruction, and a whole-block equivalence proof.
+* `exit-pc-fold` replaces a relative ARM program-counter load, add and store with one x86-64 memory add at recorded TCG exits. The immediate, guest-state width, code size, jump slots and recovery offsets stay fixed. HostSym checks the original and rewritten translation block on every enumerated path. Run `scopt optimize "$SNAPSHOT" --pipeline tools/scopt/pipelines/exit-pc-fold.toml --profile "$PROFILE" --runtime-identity "$RUNTIME" --store "$STORE" --qemu "$QEMU"` from the FastDyn root. Use a fresh paired warm-cache comparison to qualify the resulting firmware artifact.
 
 ```sh
 scopt optimize "$SNAPSHOT" --pipeline b2-arena-slide --profile "$TRAIN_PROFILE" \

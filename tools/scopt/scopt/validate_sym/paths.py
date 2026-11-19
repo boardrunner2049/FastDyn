@@ -206,6 +206,16 @@ class _Mem:
         self.p = p
         self.in_stub = in_stub
 
+    @staticmethod
+    def _index(ci: Any, op: Any) -> str:
+        name = ci.reg_name(op.mem.index) if op.mem.index else ""
+        # Capstone calls the x86-64 SIB no-index encoding RIZ. REX.X
+        # changes that bit pattern into R12, which must remain a real index.
+        if (name == "riz" and ci.addr_size == 8 and ci.modrm & 7 == 4
+                and ci.sib & 0x38 == 0x20 and not ci.rex & 2):
+            return ""
+        return name
+
     def _rip(self, ci: Any, op: Any) -> int:
         return ci.address + ci.size + op.mem.disp
 
@@ -222,7 +232,7 @@ class _Mem:
         if mo.segment != 0:
             raise Unsupported("segment")
         base = ci.reg_name(mo.base) if mo.base else ""
-        index = ci.reg_name(mo.index) if mo.index else ""
+        index = self._index(ci, op)
         if base == "rip":
             a = self._rip(ci, op)
             rel = a - self.p.base
@@ -257,7 +267,7 @@ class _Mem:
         if mo.segment != 0:
             raise Unsupported("segment")
         base = ci.reg_name(mo.base) if mo.base else ""
-        index = ci.reg_name(mo.index) if mo.index else ""
+        index = self._index(ci, op)
         self._note_stub(st, ci)
         if base == "rip":
             raise Unsupported("rip_store")

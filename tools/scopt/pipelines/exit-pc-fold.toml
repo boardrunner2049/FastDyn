@@ -1,0 +1,9 @@
+schema = "scopt.pipeline"
+version = 1
+name = "exit-pc-fold"
+description = "Fold profiled ARM PC updates at captured x86-64 dispatch exits."
+allowed_capabilities = ["PURE_REWRITE"]
+
+[[pass]]
+name = "fold-exit-pc-update"
+version = 1
