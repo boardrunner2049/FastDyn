@@ -108,9 +108,9 @@ profile-execution-count and CDSort call-graph relocation-complete whole-image
 function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
 Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
 function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
-fixtures, a relocation-complete ARM EHABI function-reordering fixture, and the
-real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v120 run accepts all thirty-eight without
+fixtures, relocation-complete compact and generic ARM EHABI
+function-reordering fixtures, and the real Cortex-M4 FreeRTOS image.
+The 18 November production-parity-v121 run accepts all thirty-nine without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -746,26 +746,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v120-extab-compact-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v121-generic-extab-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v120-extab-compact-2026-11-18/report.json),
-SHA-256 `72be7d0839c40d085f0d2512c19df4bf73f6387d5da0401f0b013965ece38609`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v121-generic-extab-2026-11-18/report.json),
+SHA-256 `0982b55372e71943a785b8db6289296c198e583bb3144d464343dcc3e1b5d1b6`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v120-extab-compact-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v121-generic-extab-2026-11-18/validation-manifest.json)
 (SHA-256
-`7227a399362415a2ed7c7046340eb249fe051e4826de0fbf177bcc55d1f15c13`)
+`2086015c25d1b783859a19a9d4389a347f870eb9fb6395b4c6ac20ee068728e6`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`b1e9828775e6e0ba049ebcf6634fe23997cfc0781cf90a0d81f1bfb78a242501`),
+`37f5da4e8bd8d27c9e822e84f898b5aa78a80a8c10ef8f5449f4a1b46fa0a67c`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`b3b4d6d274dda3738580d62c59aa75ffd7213571b8ad9b3379eb3950e8640353`.
+`dd06ef13919fb6b59099368fa15b0ac0cc2bb5dc25eedb125631138a30c45567`.
 
 Targeted validation completes 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -797,7 +797,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v120 validation passes 60/60 BOLT ARM lit tests, 12/12 AArch32
+The current v121 validation passes 60/60 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -831,8 +831,18 @@ range with valid reserved bits, personality index 0–2 and enough encoded
 opcode words. The executed reset entry uses personality index 1: after its
 index slot moves, Firm-BOLT re-encodes the external pointer from `0x7ffffff4`
 to `0x7fffffec`, while both resolve to table identity `0x08000124`. The exact
-eight-byte extab and 32-byte exidx footprints remain fixed. A generic
-personality/LSDA fixture still rejects before publication.
+eight-byte extab and 32-byte exidx footprints remain fixed.
+
+v121 adds relocation-complete generic personalities without interpreting
+language-specific data. The generic header must have one exact retained
+`R_ARM_PREL31` relocation to an exact discovered function; missing or
+ambiguous identity rejects before publication. The executed personality moves
+from Thumb identity `0x08000125` to `0x08000101`; Firm-BOLT rewrites the extab
+header from `0x7ffffffd` to `0x7fffffd9`, preserves all eight opaque bytes
+after it, keeps the 12-byte extab and 32-byte exidx at their original
+addresses, preserves all 13 instruction origins, and matches reference RAM
+`(17, 42)`. Arbitrary language-specific descriptor interpretation,
+split/folded fragment unwind and variable-footprint growth remain unsupported.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

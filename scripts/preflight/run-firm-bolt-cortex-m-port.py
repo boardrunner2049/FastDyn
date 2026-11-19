@@ -110,6 +110,12 @@ M3_EXIDX_LINKER = (
 M3_EXIDX_ORDER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_exidx.order"
 )
+M3_EXIDX_GENERIC_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_exidx_generic.s"
+)
+M3_EXIDX_GENERIC_ORDER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_exidx_generic.order"
+)
 M3_FUNCTION_SPLIT_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.s"
 )
@@ -356,6 +362,12 @@ def arm_exidx_records(path: Path) -> dict[str, Any]:
                 extab_header = struct.unpack_from(
                     "<I", target_section.data(), target_offset
                 )[0]
+                personality_address = None
+                if not extab_header & 0x80000000:
+                    personality_delta = extab_header & 0x7FFFFFFF
+                    if personality_delta & 0x40000000:
+                        personality_delta -= 0x80000000
+                    personality_address = target + personality_delta
                 external = {
                     "target_address": target,
                     "section_name": target_section.name,
@@ -368,6 +380,7 @@ def arm_exidx_records(path: Path) -> dict[str, Any]:
                         (extab_header >> 24) & 0x0F
                         if extab_header & 0x80000000 else None
                     ),
+                    "personality_address": personality_address,
                 }
             records.append({
                 "entry_address": base + offset,
@@ -1479,6 +1492,7 @@ def validate_relocated_exidx_function_order(
         "header_word": 0x8100B0B0,
         "model": "compact",
         "personality_index": 1,
+        "personality_address": None,
     }
     if (
         reference_external != expected_external
@@ -1565,6 +1579,204 @@ def validate_relocated_exidx_function_order(
         "candidate_exidx": candidate_exidx,
         "text_relocations": text_relocations,
         "vector_relocations": vector_relocations,
+        "origin_summary": origin_summary,
+    }
+
+
+def validate_relocated_generic_exidx_function_order(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate relocation-complete generic EHABI personality repair."""
+    reference_inventory = elf_inventory(reference)
+    candidate_inventory = elf_inventory(candidate)
+    if reference_inventory["segments"] != candidate_inventory["segments"]:
+        raise RuntimeError("generic EHABI changed the program-header map")
+
+    reference_text = reference_inventory["sections"][".text"]
+    candidate_text = candidate_inventory["sections"][".text"]
+    for field in ("address", "offset", "flags", "alignment"):
+        if reference_text[field] != candidate_text[field]:
+            raise RuntimeError(f"generic EHABI .text changed {field}")
+    if (
+        int(reference_text["size"]) != 38
+        or int(candidate_text["size"]) != 36
+    ):
+        raise RuntimeError("generic EHABI text footprint is not frozen")
+    old_text = candidate_inventory["sections"].get(".bolt.org.text")
+    if old_text is None or int(old_text["size"]) != 0:
+        raise RuntimeError("generic EHABI retained a live original body")
+
+    moved = {
+        name: symbol_address(candidate, name)
+        for name in (
+            "__firmbolt_personality_v0", "worker_b", "Reset_Handler",
+            "fixture_halt", "worker_a",
+        )
+    }
+    expected_moved = {
+        "__firmbolt_personality_v0": 0x08000100,
+        "worker_b": 0x08000102,
+        "Reset_Handler": 0x08000106,
+        "fixture_halt": 0x0800011A,
+        "worker_a": 0x0800011E,
+    }
+    if moved != expected_moved:
+        raise RuntimeError(f"unexpected generic EHABI order: {moved}")
+    reset_pointer = moved["Reset_Handler"] | 1
+    if candidate_inventory["entry"] != reset_pointer:
+        raise RuntimeError("generic EHABI entry lost Thumb state")
+    reference_vector = struct.unpack(
+        "<II", virtual_bytes(reference, 0x08000000, 8)
+    )
+    candidate_vector = struct.unpack(
+        "<II", virtual_bytes(candidate, 0x08000000, 8)
+    )
+    if (
+        candidate_vector[0] != reference_vector[0]
+        or candidate_vector[1] != reset_pointer
+    ):
+        raise RuntimeError("generic EHABI vector did not follow reset")
+
+    reference_extab = reference_inventory["sections"][".ARM.extab"]
+    candidate_extab = candidate_inventory["sections"][".ARM.extab"]
+    for field in ("address", "offset", "size", "flags", "alignment"):
+        if candidate_extab[field] != reference_extab[field]:
+            raise RuntimeError(f"generic EHABI extab changed {field}")
+    if (
+        int(reference_extab["address"]) != 0x08000128
+        or int(reference_extab["offset"]) != 0x10128
+        or int(reference_extab["size"]) != 12
+    ):
+        raise RuntimeError("generic EHABI extab input is not frozen")
+    reference_extab_bytes = section_bytes(reference, ".ARM.extab")
+    candidate_extab_bytes = section_bytes(candidate, ".ARM.extab")
+    if (
+        reference_extab_bytes[4:] != b"\xb0\xb0\xb0\x00LOBF"
+        or candidate_extab_bytes[4:] != reference_extab_bytes[4:]
+    ):
+        raise RuntimeError("generic EHABI opaque handler bytes changed")
+
+    reference_exidx = arm_exidx_records(reference)
+    candidate_exidx = arm_exidx_records(candidate)
+    for field, expected in (
+        ("section_address", 0x08000134),
+        ("section_offset", 0x10134),
+        ("section_size", 32),
+    ):
+        if reference_exidx[field] != expected:
+            raise RuntimeError("generic EHABI reference index is not frozen")
+        if candidate_exidx[field] != reference_exidx[field]:
+            raise RuntimeError(f"generic EHABI index changed {field}")
+    if (
+        candidate_exidx["segments"] != reference_exidx["segments"]
+        or candidate_exidx["linked_section"] != ".text"
+    ):
+        raise RuntimeError("generic EHABI index segment/link changed")
+
+    reference_records = reference_exidx["records"]
+    candidate_records = candidate_exidx["records"]
+    if [
+        (record["function_address"], record["model"])
+        for record in reference_records
+    ] != [
+        (0x08000100, "external_extab"),
+        (0x08000118, "compact_inline"),
+        (0x08000120, "cantunwind"),
+        (0x08000126, "cantunwind"),
+    ]:
+        raise RuntimeError("generic EHABI reference cohort changed")
+    if [
+        (record["function_address"], record["model"])
+        for record in candidate_records
+    ] != [
+        (0x08000100, "cantunwind"),
+        (0x08000106, "external_extab"),
+        (0x0800011E, "compact_inline"),
+        (0x08000126, "cantunwind"),
+    ]:
+        raise RuntimeError("generic EHABI models lost moved identities")
+    reference_generic = reference_records[0]["external"]
+    candidate_generic = candidate_records[1]["external"]
+    if (
+        reference_generic["model"] != "generic"
+        or reference_generic["target_address"] != 0x08000128
+        or reference_generic["personality_address"] != 0x08000125
+        or candidate_generic["model"] != "generic"
+        or candidate_generic["target_address"] != 0x08000128
+        or candidate_generic["personality_address"] != 0x08000101
+    ):
+        raise RuntimeError("generic EHABI personality identity was not rebound")
+
+    personality_relocations = static_relocation_records(
+        candidate, ".rel.ARM.extab"
+    )
+    if [
+        (
+            record["offset"], record["type"], record["symbol"],
+            record["symbol_value"],
+        )
+        for record in personality_relocations
+    ] != [
+        (0x08000128, 42, "__firmbolt_personality_v0", 0x08000101)
+    ]:
+        raise RuntimeError("generic EHABI personality relocation is not exact")
+
+    origin_summary = None
+    if final_layout is not None:
+        expected_origins = {
+            "Reset_Handler": (0x08000100, 0x08000106),
+            "worker_a": (0x08000118, 0x0800011E),
+            "worker_b": (0x08000120, 0x08000102),
+            "__firmbolt_personality_v0": (0x08000124, 0x08000100),
+        }
+        origin_summary = {}
+        for function in final_layout["functions"]:
+            name = function["name"]
+            if name not in expected_origins:
+                continue
+            observed = (
+                int(function["original_address"]),
+                int(function["output_address"]),
+            )
+            origins = function["instruction_origins"]
+            if observed != expected_origins[name] or not origins or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in origins
+            ):
+                raise RuntimeError(
+                    f"generic EHABI origin map for {name} is not exact"
+                )
+            origin_summary[name] = {
+                "original_address": observed[0],
+                "output_address": observed[1],
+                "instruction_origin_count": len(origins),
+            }
+        if set(origin_summary) != set(expected_origins):
+            raise RuntimeError("generic EHABI layout omitted an origin map")
+
+    return {
+        "status": "accepted",
+        "placement_policy": "reuse_linker_qualified_input_text",
+        "unwind_policy": (
+            "fixed_footprint_relocation_complete_generic_personality"
+        ),
+        "program_headers_exact": True,
+        "live_text_bytes": int(candidate_text["size"]),
+        "mapped_text_span_bytes": int(reference_text["size"]),
+        "linker_capacity_slack_bytes": (
+            int(reference_text["size"]) - int(candidate_text["size"])
+        ),
+        "retained_original_text_bytes": int(old_text["size"]),
+        "entry": candidate_inventory["entry"],
+        "vector_words": list(candidate_vector),
+        "moved_symbols": moved,
+        "reference_extab_hex": reference_extab_bytes.hex(),
+        "candidate_extab_hex": candidate_extab_bytes.hex(),
+        "opaque_extab_suffix_exact": True,
+        "reference_exidx": reference_exidx,
+        "candidate_exidx": candidate_exidx,
+        "personality_relocations": personality_relocations,
         "origin_summary": origin_summary,
     }
 
@@ -2118,6 +2330,24 @@ def build_m3_exidx_fixture(output: Path, logs: Path) -> Path:
         "-T", str(M3_EXIDX_LINKER), str(object_path), "-o", str(image),
     ], logs / "build-m3-exidx-image.log"),
         "M3 EHABI image build")
+    return image
+
+
+def build_m3_generic_exidx_fixture(output: Path, logs: Path) -> Path:
+    """Build a generic-personality, relocation-complete EHABI fixture."""
+    object_path = output / "firm-bolt-cortex-m3-exidx-generic.o"
+    image = output / "firm-bolt-cortex-m3-exidx-generic-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_EXIDX_GENERIC_SOURCE),
+        "-o", str(object_path),
+    ], logs / "build-m3-exidx-generic-object.log"),
+        "M3 generic EHABI object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "--no-merge-exidx-entries",
+        "-T", str(M3_EXIDX_LINKER), str(object_path), "-o", str(image),
+    ], logs / "build-m3-exidx-generic-image.log"),
+        "M3 generic EHABI image build")
     return image
 
 
@@ -3607,6 +3837,7 @@ def main() -> int:
         )
     }
     m3_exidx_image = build_m3_exidx_fixture(output, logs)
+    m3_exidx_generic_image = build_m3_generic_exidx_fixture(output, logs)
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
     m3_loop_inversion_image = build_m3_loop_inversion_fixture(output, logs)
@@ -3795,6 +4026,12 @@ def main() -> int:
         ("m3_exidx_function_reorder", "cortex-m3", m3_exidx_image, {}, [
              "--relocs", "--use-old-text", "--reorder-functions=user",
              f"--function-order={M3_EXIDX_ORDER}",
+         ]),
+        ("m3_exidx_generic_function_reorder", "cortex-m3",
+         m3_exidx_generic_image, {}, [
+             "--relocs", "--use-old-text", "--reorder-functions=user",
+             "--align-functions=1",
+             f"--function-order={M3_EXIDX_GENERIC_ORDER}",
          ]),
         ("m3_function_split", "cortex-m3", m3_function_split_image, {}, [
              f"--data={M3_FUNCTION_SPLIT_PROFILE}",
@@ -4226,7 +4463,13 @@ def main() -> int:
             "m3_cluster_pettis_hansen": "pettis-hansen",
             "m3_cluster_cdsort": "cdsort",
         }.get(label)
-        exidx_layout = label == "m3_exidx_function_reorder"
+        exidx_validator = {
+            "m3_exidx_function_reorder":
+                validate_relocated_exidx_function_order,
+            "m3_exidx_generic_function_reorder":
+                validate_relocated_generic_exidx_function_order,
+        }.get(label)
+        exidx_layout = exidx_validator is not None
         split_validation = {
             "m3_function_split": validate_relocated_function_split,
             "m3_cdsplit": validate_relocated_cdsplit,
@@ -4265,9 +4508,7 @@ def main() -> int:
                     order_policy=clustering_order_policy,
                 )
                 if clustering_order_policy is not None
-                else validate_relocated_exidx_function_order(
-                    image, candidate,
-                )
+                else exidx_validator(image, candidate)
                 if exidx_layout
                 else split_validation(image, candidate)
                 if split_validation is not None
@@ -4362,7 +4603,7 @@ def main() -> int:
                 )
             elif exidx_layout:
                 results[label]["validation"] = (
-                    validate_relocated_exidx_function_order(
+                    exidx_validator(
                         image, candidate, final_layout,
                     )
                 )
@@ -4386,7 +4627,11 @@ def main() -> int:
                 }
                 results[label]["pc_relative_data_validation"] = {
                     "status": "accepted",
-                    "mapped_instruction_count": 12,
+                    "mapped_instruction_count": (
+                        13
+                        if label == "m3_exidx_generic_function_reorder"
+                        else 12
+                    ),
                     "synthesized_instruction_count": 0,
                     "pc_relative_reference_count": 0,
                     "contract": "dedicated_relocation_and_ehabi_validation",
@@ -6590,6 +6835,15 @@ def main() -> int:
             expected_words=(17, 42),
         )
     )
+    m3_exidx_generic_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_exidx_generic_image,
+            candidates["m3_exidx_generic_function_reorder"],
+            output, args.fastdyn.resolve(), "exidx-generic-function-reorder",
+            expected_words=(17, 42),
+        )
+    )
     m3_function_split_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -6707,6 +6961,7 @@ def main() -> int:
             m3_callgraph_function_reorder_execution,
             *m3_cluster_executions.values(),
             m3_exidx_execution,
+            m3_exidx_generic_execution,
             m3_function_split_execution,
             m3_cdsplit_execution,
             m3_loop_inversion_execution,
@@ -7012,6 +7267,8 @@ def main() -> int:
             m3_cluster_executions,
         "m3_exidx_function_reorder_architectural_execution":
             m3_exidx_execution,
+        "m3_exidx_generic_function_reorder_architectural_execution":
+            m3_exidx_generic_execution,
         "m3_native_function_split_architectural_execution":
             m3_function_split_execution,
         "m3_native_cdsplit_architectural_execution":
@@ -7202,6 +7459,8 @@ def main() -> int:
             str(candidates["m3_cluster_cdsort"]),
         "m3_exidx_function_reorder_candidate":
             str(candidates["m3_exidx_function_reorder"]),
+        "m3_exidx_generic_function_reorder_candidate":
+            str(candidates["m3_exidx_generic_function_reorder"]),
         "m3_function_split_candidate":
             str(candidates["m3_function_split"]),
         "m3_cdsplit_candidate": str(candidates["m3_cdsplit"]),

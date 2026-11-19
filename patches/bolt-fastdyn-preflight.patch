@@ -1047,10 +1047,10 @@ index 7b4aa38dc04fd6d3b90b4669b82faff39423233f..3a8182897fd04d3ecd93c42db02073fa
    /// The shortest distance for any branch instruction on AArch64.
    static constexpr size_t ShortestJumpBits = 11;
 diff --git a/bolt/include/bolt/Rewrite/RewriteInstance.h b/bolt/include/bolt/Rewrite/RewriteInstance.h
-index 551c0341b9946c65c318bb4626e9156b1cd855ac..d04aa7a417e34a5b63afaeaee1ee4590601688cc 100644
+index 551c0341b9946c65c318bb4626e9156b1cd855ac..b023ae5866bd31f7b0bbf2e2f886248f5b5239e4 100644
 --- a/bolt/include/bolt/Rewrite/RewriteInstance.h
 +++ b/bolt/include/bolt/Rewrite/RewriteInstance.h
-@@ -243,6 +243,13 @@ private:
+@@ -243,6 +243,14 @@ private:
    /// Used by non-relocation mode and for patched functions.
    void rewriteFunctionsInPlace(raw_fd_ostream &OS);
  
@@ -1058,13 +1058,14 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..d04aa7a417e34a5b63afaeaee1ee4590
 +  /// The first implementation preserves the exact table footprint and admits
 +  /// CANTUNWIND, inline-compact and bounded external compact records whose
 +  /// original coverage groups remain contiguous.  Ambiguous groups, split
-+  /// functions and generic personality/LSDA records fail closed.
++  /// functions, generic personalities without exact relocations and changed
++  /// opaque language-specific bytes fail closed.
 +  Error rewriteARMExidxSections();
 +
    /// Return the input file range [Start, End) that BOLT reuses for new
    /// content (like with --use-old-text). Return std::nullopt when no input
    /// region is being reused.
-@@ -537,6 +544,19 @@ private:
+@@ -537,6 +545,19 @@ private:
    uint64_t NextAvailableAddress{0};
  
    /// Location and size of dynamic relocations.
@@ -1084,7 +1085,7 @@ index 551c0341b9946c65c318bb4626e9156b1cd855ac..d04aa7a417e34a5b63afaeaee1ee4590
    std::optional<uint64_t> DynamicRelocationsAddress;
    uint64_t DynamicRelocationsSize{0};
    uint64_t DynamicRelativeRelocationsCount{0};
-@@ -657,6 +677,11 @@ MCPlusBuilder *createMCPlusBuilder(const Triple::ArchType Arch,
+@@ -657,6 +678,11 @@ MCPlusBuilder *createMCPlusBuilder(const Triple::ArchType Arch,
                                     const MCRegisterInfo *RegInfo,
                                     const MCSubtargetInfo *STI);
  
@@ -9887,7 +9888,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce506eb6fcd 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..df66ed34e57c843ea03821b07e322e046225c0ae 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -19,6 +19,7 @@
@@ -10778,11 +10779,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
        ELFSymTy CodeMarkSym = DataMarkSym;
 -      CodeMarkSym.st_name = AddToStrTab("$x");
 +      CodeMarkSym.st_name = AddToStrTab(BC->isARM() ? "$t" : "$x");
-       CodeMarkSym.st_value = CodeMark;
-       Symbols.emplace_back(DataMarkSym);
-       Symbols.emplace_back(CodeMarkSym);
-     }
--    if (Function.hasConstantIsland() && Function.isSplit()) {
++      CodeMarkSym.st_value = CodeMark;
++      Symbols.emplace_back(DataMarkSym);
++      Symbols.emplace_back(CodeMarkSym);
++    }
 +    if (BC->isARM() && Function.isEmitted() &&
 +        (BC->HasRelocations || Function.isFirmwareModified()) &&
 +        Function.hasConstantIsland() &&
@@ -10798,10 +10798,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
 +      DataMarkSym.setBinding(ELF::STB_LOCAL);
 +      ELFSymTy CodeMarkSym = DataMarkSym;
 +      CodeMarkSym.st_name = AddToStrTab("$t");
-+      CodeMarkSym.st_value = CodeMark;
-+      Symbols.emplace_back(DataMarkSym);
-+      Symbols.emplace_back(CodeMarkSym);
-+    }
+       CodeMarkSym.st_value = CodeMark;
+       Symbols.emplace_back(DataMarkSym);
+       Symbols.emplace_back(CodeMarkSym);
+     }
+-    if (Function.hasConstantIsland() && Function.isSplit()) {
 +    if (BC->isARM() && Function.isEmitted() && Function.hasCFG() &&
 +        (BC->HasRelocations || Function.isFirmwareModified())) {
 +      // Instruction-owned Thumb literal pools move with their guarded basic
@@ -11260,7 +11261,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
  
        OS.seek(Pos);
      }
-@@ -6947,6 +7659,312 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +7659,461 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -11309,8 +11310,9 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
 +    uint64_t InputStart{0};
 +    uint64_t OutputStart{0};
 +    uint32_t UnwindWord{0};
-+    const BinarySection *ExtabSection{nullptr};
++    BinarySection *ExtabSection{nullptr};
 +    uint64_t ExtabTarget{0};
++    uint64_t PersonalityTarget{0};
 +    SmallVector<const BinaryFunction *, 4> Functions;
 +    bool IsSentinel{false};
 +  };
@@ -11336,8 +11338,9 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
 +      if (!InputStart)
 +        return InputStart.takeError();
 +      const uint32_t UnwindWord = ReadWord(Contents.data() + Offset + 4);
-+      const BinarySection *ExtabSection = nullptr;
++      BinarySection *ExtabSection = nullptr;
 +      uint64_t ExtabTarget = 0;
++      uint64_t PersonalityTarget = 0;
 +      if (UnwindWord != 1 && !(UnwindWord & 0x80000000U)) {
 +        Expected<uint64_t> Target =
 +            DecodePrel31(UnwindWord, Place + sizeof(uint32_t));
@@ -11366,36 +11369,91 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
 +              *Target);
 +        const uint32_t Header =
 +            ReadWord(ExtabContents.data() + ExtabOffset);
-+        if (!(Header & 0x80000000U))
-+          return createStringError(
-+              errc::not_supported,
-+              "ARM EHABI generic personality/LSDA entry at 0x%" PRIx64
-+              " is not qualified for function layout",
-+              *Target);
-+        if (Header & 0x70000000U)
-+          return createStringError(
-+              errc::executable_format_error,
-+              "ARM EHABI compact entry at 0x%" PRIx64
-+              " has reserved header bits set",
-+              *Target);
-+        const unsigned PersonalityIndex = (Header >> 24) & 0x0f;
-+        if (PersonalityIndex > 2)
-+          return createStringError(
-+              errc::not_supported,
-+              "ARM EHABI compact personality index %u at 0x%" PRIx64
-+              " is not qualified for function layout",
-+              PersonalityIndex, *Target);
-+        const uint64_t RequiredBytes =
-+            PersonalityIndex == 0
-+                ? sizeof(uint32_t)
-+                : sizeof(uint32_t) * (1 + ((Header >> 16) & 0xff));
-+        if (!TargetSection->containsRange(*Target, RequiredBytes) ||
-+            RequiredBytes > ExtabContents.size() - ExtabOffset)
-+          return createStringError(
-+              errc::executable_format_error,
-+              "ARM EHABI compact entry at 0x%" PRIx64
-+              " extends beyond section %s",
-+              *Target, TargetSection->getName().str().c_str());
++        if (!(Header & 0x80000000U)) {
++          Expected<uint64_t> DecodedPersonality =
++              DecodePrel31(Header, *Target);
++          if (!DecodedPersonality)
++            return DecodedPersonality.takeError();
++          size_t ExactRelocations = 0;
++          size_t SiteRelocations = 0;
++          if (TargetSection->hasSectionRef()) {
++            const SectionRef TargetSectionRef =
++                TargetSection->getSectionRef();
++            for (const SectionRef &RelocationSection :
++                 InputFile->sections()) {
++              section_iterator RelocatedSection =
++                  cantFail(RelocationSection.getRelocatedSection());
++              if (RelocatedSection == InputFile->section_end() ||
++                  *RelocatedSection != TargetSectionRef)
++                continue;
++              for (const RelocationRef &Rel :
++                   RelocationSection.relocations()) {
++                if (Rel.getOffset() != *Target)
++                  continue;
++                ++SiteRelocations;
++                if (Relocation::getType(Rel) != ELF::R_ARM_PREL31)
++                  continue;
++                const symbol_iterator Symbol = Rel.getSymbol();
++                if (Symbol == InputFile->symbol_end())
++                  return createStringError(
++                      errc::executable_format_error,
++                      "ARM EHABI generic personality at 0x%" PRIx64
++                      " disagrees with retained relocation symbol",
++                      *Target);
++                uint64_t SymbolIdentity = cantFail(Symbol->getAddress());
++                if (cantFail(Symbol->getFlags()) & SymbolRef::SF_Thumb)
++                  SymbolIdentity |= 1;
++                if (SymbolIdentity != *DecodedPersonality)
++                  return createStringError(
++                      errc::executable_format_error,
++                      "ARM EHABI generic personality at 0x%" PRIx64
++                      " disagrees with retained relocation symbol",
++                      *Target);
++                ++ExactRelocations;
++              }
++            }
++          }
++          if (SiteRelocations != 1 || ExactRelocations != 1)
++            return createStringError(
++                errc::not_supported,
++                "ARM EHABI generic entry at 0x%" PRIx64
++                " lacks an exact R_ARM_PREL31 personality identity",
++                *Target);
++          const uint64_t PersonalityAddress =
++              *DecodedPersonality & ~uint64_t(1);
++          if (!BC->getBinaryFunctionAtAddress(PersonalityAddress))
++            return createStringError(
++                errc::not_supported,
++                "ARM EHABI generic personality identity 0x%" PRIx64
++                " has no exact discovered function",
++                *DecodedPersonality);
++          PersonalityTarget = *DecodedPersonality;
++        } else {
++          if (Header & 0x70000000U)
++            return createStringError(
++                errc::executable_format_error,
++                "ARM EHABI compact entry at 0x%" PRIx64
++                " has reserved header bits set",
++                *Target);
++          const unsigned PersonalityIndex = (Header >> 24) & 0x0f;
++          if (PersonalityIndex > 2)
++            return createStringError(
++                errc::not_supported,
++                "ARM EHABI compact personality index %u at 0x%" PRIx64
++                " is not qualified for function layout",
++                PersonalityIndex, *Target);
++          const uint64_t RequiredBytes =
++              PersonalityIndex == 0
++                  ? sizeof(uint32_t)
++                  : sizeof(uint32_t) * (1 + ((Header >> 16) & 0xff));
++          if (!TargetSection->containsRange(*Target, RequiredBytes) ||
++              RequiredBytes > ExtabContents.size() - ExtabOffset)
++            return createStringError(
++                errc::executable_format_error,
++                "ARM EHABI compact entry at 0x%" PRIx64
++                " extends beyond section %s",
++                *Target, TargetSection->getName().str().c_str());
++        }
 +        ExtabSection = &*TargetSection;
 +        ExtabTarget = *Target;
 +      }
@@ -11405,7 +11463,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
 +            "ARM EHABI index section %s is not strictly address-sorted",
 +            Section.getName().str().c_str());
 +      Entries.push_back({*InputStart, 0, UnwindWord, ExtabSection, ExtabTarget,
-+                         {}, false});
++                         PersonalityTarget, {}, false});
 +    }
 +
 +    // A linker may append a final CANTUNWIND sentinel at the end of the
@@ -11524,8 +11582,94 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
 +      return createStringError(errc::executable_format_error,
 +                               "ARM EHABI entry accounting mismatch");
 +
++    // Generic entries carry a personality PREL31 in .ARM.extab and may be
++    // followed by language-specific bytes.  Admit them only when the linked
++    // personality relocation survived as an exact symbolic identity, its
++    // final encoded value resolves to that identity, and every non-header
++    // byte in the table remains unchanged at the same address.
++    SmallVector<BinarySection *, 4> GenericSections;
++    for (const ExidxEntry &Entry : Entries)
++      if (Entry.PersonalityTarget &&
++          !llvm::is_contained(GenericSections, Entry.ExtabSection))
++        GenericSections.push_back(Entry.ExtabSection);
++    for (BinarySection *ExtabSection : GenericSections) {
++      const StringRef Input = ExtabSection->getContents();
++      const uint64_t OutputAddress = ExtabSection->getOutputAddress()
++                                         ? ExtabSection->getOutputAddress()
++                                         : ExtabSection->getAddress();
++      if (OutputAddress != ExtabSection->getAddress())
++        return createStringError(
++            errc::not_supported,
++            "ARM EHABI generic table %s changed address",
++            ExtabSection->getName().str().c_str());
++      uint8_t *NewExtabContents = new uint8_t[Input.size()];
++      memcpy(NewExtabContents, Input.data(), Input.size());
++
++      for (const ExidxEntry &Entry : Entries) {
++        if (!Entry.PersonalityTarget || Entry.ExtabSection != ExtabSection)
++          continue;
++        const uint64_t Offset =
++            Entry.ExtabTarget - ExtabSection->getAddress();
++        if (Offset > Input.size() ||
++            Input.size() - Offset < sizeof(uint32_t)) {
++          delete[] NewExtabContents;
++          return createStringError(
++              errc::executable_format_error,
++              "ARM EHABI generic entry at 0x%" PRIx64
++              " has no final personality word",
++              Entry.ExtabTarget);
++        }
++        const uint64_t PersonalityState = Entry.PersonalityTarget & 1;
++        const uint64_t OutputFunctionAddress =
++            getNewFunctionAddress(Entry.PersonalityTarget & ~uint64_t(1));
++        if (!OutputFunctionAddress) {
++          delete[] NewExtabContents;
++          return createStringError(
++              errc::not_supported,
++              "ARM EHABI generic personality identity 0x%" PRIx64
++              " has no final function address",
++              Entry.PersonalityTarget);
++        }
++        const uint64_t ExpectedPersonality =
++            OutputFunctionAddress | PersonalityState;
++        Expected<uint32_t> OutputPersonality =
++            EncodePrel31(ExpectedPersonality, OutputAddress + Offset);
++        if (!OutputPersonality) {
++          delete[] NewExtabContents;
++          return OutputPersonality.takeError();
++        }
++        WriteWord(reinterpret_cast<char *>(NewExtabContents + Offset),
++                  *OutputPersonality);
++      }
++
++      for (size_t I = 0; I < Input.size(); ++I) {
++        const bool IsPersonalityWord = llvm::any_of(
++            Entries, [&](const ExidxEntry &Entry) {
++              if (!Entry.PersonalityTarget ||
++                  Entry.ExtabSection != ExtabSection)
++                return false;
++              const uint64_t Offset =
++                  Entry.ExtabTarget - ExtabSection->getAddress();
++              return Offset <= I && I < Offset + sizeof(uint32_t);
++            });
++        if (!IsPersonalityWord &&
++            Input[I] != reinterpret_cast<char *>(NewExtabContents)[I]) {
++          delete[] NewExtabContents;
++          return createStringError(
++              errc::not_supported,
++              "ARM EHABI generic table %s changed opaque byte at offset "
++              "0x%zx",
++              ExtabSection->getName().str().c_str(), I);
++        }
++      }
++      ExtabSection->updateContents(NewExtabContents, Input.size());
++      ExtabSection->setOutputAddress(ExtabSection->getAddress());
++      ExtabSection->setOutputFileOffset(ExtabSection->getInputFileOffset());
++    }
++
 +    uint8_t *NewContents = new uint8_t[Contents.size()];
-+    size_t ExternalExtabReferences = 0;
++    size_t ExternalCompactReferences = 0;
++    size_t ExternalGenericReferences = 0;
 +    for (size_t I = 0; I < OutputEntries.size(); ++I) {
 +      const ExidxEntry &Entry = *OutputEntries[I];
 +      const uint64_t Place = Section.getAddress() + I * 8;
@@ -11553,7 +11697,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
 +          return ExtabPrel31.takeError();
 +        }
 +        OutputUnwindWord = *ExtabPrel31;
-+        ++ExternalExtabReferences;
++        if (Entry.PersonalityTarget)
++          ++ExternalGenericReferences;
++        else
++          ++ExternalCompactReferences;
 +      }
 +      WriteWord(reinterpret_cast<char *>(NewContents + I * 8 + 4),
 +                OutputUnwindWord);
@@ -11563,8 +11710,11 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
 +    Section.setOutputFileOffset(Section.getInputFileOffset());
 +    BC->outs() << "BOLT-INFO: rebuilt ARM EHABI index " << Section.getName()
 +               << " with " << Entries.size()
-+               << " fixed-footprint entries and " << ExternalExtabReferences
-+               << " external compact reference(s) after function layout\n";
++               << " fixed-footprint entries, " << ExternalCompactReferences
++               << " external compact reference(s), and "
++               << ExternalGenericReferences
++               << " relocation-complete generic reference(s) after function "
++                  "layout\n";
 +  }
 +
 +  return Error::success();
@@ -11573,7 +11723,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..e7023200517159bb1e11e925173bcce5
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6960,6 +7978,14 @@ void RewriteInstance::rewriteFile() {
+@@ -6960,6 +8127,14 @@ void RewriteInstance::rewriteFile() {
  
    rewriteFunctionsInPlace(OS);
  
@@ -15609,10 +15759,10 @@ index 0000000000000000000000000000000000000000..6ae6e4fb9ea8eb0437e668e8334ec7c0
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-exidx-function-reorder.s b/bolt/test/ARM/thumb-exidx-function-reorder.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..883b2f8f807379dde7fd011686b4ac3e0b9205d5
+index 0000000000000000000000000000000000000000..e0f1709ff0d6f0b1c86bc18d88bd653b96cc435d
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-exidx-function-reorder.s
-@@ -0,0 +1,261 @@
+@@ -0,0 +1,302 @@
 +## ARM EHABI index entries embed linked PREL31 code addresses and LLD does not
 +## retain their synthetic relocations under --emit-relocs.  Qualify exact,
 +## fixed-footprint reconstruction after Cortex-M function reordering.  The
@@ -15649,19 +15799,36 @@ index 0000000000000000000000000000000000000000..883b2f8f807379dde7fd011686b4ac3e
 +# RUN: llvm-readelf --unwind %t/compact-pr2-candidate.elf \
 +# RUN:   | FileCheck %s --check-prefix=PR2
 +
-+## Generic .ARM.extab records contain a second level of PREL31 and opaque
-+## language-specific data.  Keep that representation fail-closed instead of
-+## moving code under stale personality/LSDA references.
++## Generic .ARM.extab records contain a second-level personality PREL31 and
++## opaque language-specific data.  Qualify exact retained relocation identity
++## plus unchanged opaque bytes; reject the same input without that relocation.
 +# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
 +# RUN:   %t/extab.s -o %t/extab.o
 +# RUN: ld.lld --emit-relocs --no-merge-exidx-entries -T %t/link.ld \
 +# RUN:   %t/extab.o -o %t/extab.elf
-+# RUN: not llvm-bolt %t/extab.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN: llvm-bolt %t/extab.elf --firmbolt-cortex-m-cpu=cortex-m3 \
 +# RUN:   --relocs --use-old-text --reorder-functions=user \
-+# RUN:   --function-order=%t/order.txt -o %t/extab-candidate.elf 2>&1 \
-+# RUN:   | FileCheck %s --check-prefix=EXTAB
++# RUN:   --align-functions=1 --function-order=%t/generic-order.txt \
++# RUN:   -o %t/extab-candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=GENERIC-BOLT
++# RUN: llvm-readelf --unwind %t/extab-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=GENERIC
++# RUN: llvm-nm --numeric-sort %t/extab-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=GENERIC-ORDER
++# RUN: llvm-objdump -s -j .ARM.extab %t/extab-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=GENERIC-BYTES
++# RUN: llvm-readelf -r %t/extab-candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=GENERIC-RELOC
++# RUN: llvm-objcopy --remove-section=.rel.ARM.extab %t/extab.elf \
++# RUN:   %t/extab-no-personality-reloc.elf
++# RUN: not llvm-bolt %t/extab-no-personality-reloc.elf \
++# RUN:   --firmbolt-cortex-m-cpu=cortex-m3 --relocs --use-old-text \
++# RUN:   --reorder-functions=user --align-functions=1 \
++# RUN:   --function-order=%t/generic-order.txt \
++# RUN:   -o %t/extab-no-personality-reloc-candidate.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=MISSING-PERSONALITY
 +
-+# BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 4 fixed-footprint entries and 1 external compact reference(s) after function layout
++# BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 4 fixed-footprint entries, 1 external compact reference(s), and 0 relocation-complete generic reference(s) after function layout
 +# BOLT: BOLT-INFO: not adding new segments
 +
 +# ORDER: 08000100 T worker_b
@@ -15685,13 +15852,31 @@ index 0000000000000000000000000000000000000000..883b2f8f807379dde7fd011686b4ac3e
 +# LAYOUT: .ARM.exidx ARM_EXIDX 0800012c 01012c 000020 {{.*}} AL 3
 +# LAYOUT: EXIDX 0x01012c 0x0800012c 0x0800012c 0x00020 0x00020 R 0x4
 +
-+# PR2-BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 4 fixed-footprint entries and 1 external compact reference(s) after function layout
++# PR2-BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 4 fixed-footprint entries, 1 external compact reference(s), and 0 relocation-complete generic reference(s) after function layout
 +
 +# PR2: ExceptionHandlingTable: .ARM.extab
 +# PR2: Model: Compact
 +# PR2: PersonalityIndex: 2
 +
-+# EXTAB: BOLT-ERROR: 'cannot rebuild ARM EHABI index tables': ARM EHABI generic personality/LSDA entry
++# GENERIC-BOLT: BOLT-INFO: rebuilt ARM EHABI index .ARM.exidx with 4 fixed-footprint entries, 0 external compact reference(s), and 1 relocation-complete generic reference(s) after function layout
++
++# GENERIC: FunctionAddress: 0x8000104
++# GENERIC: ExceptionHandlingTable: .ARM.extab
++# GENERIC: Model: Generic
++# GENERIC: PersonalityRoutineAddress: 0x8000101
++# GENERIC: PersonalityRoutineName: __gxx_personality_v0
++
++# GENERIC-ORDER: 08000100 T __gxx_personality_v0
++# GENERIC-ORDER: 08000102 T worker_b
++# GENERIC-ORDER: 08000104 T Reset_Handler
++# GENERIC-ORDER: 0800010a T worker_a
++
++# GENERIC-BYTES: Contents of section .ARM.extab:
++# GENERIC-BYTES-NEXT: 800010c f5ffff7f b0b0b000 00000000
++
++# GENERIC-RELOC: 0800010c {{.*}} R_ARM_PREL31 08000101 __gxx_personality_v0
++
++# MISSING-PERSONALITY: BOLT-ERROR: 'cannot rebuild ARM EHABI index tables': ARM EHABI generic entry at 0x800010c lacks an exact R_ARM_PREL31 personality identity
 +
 +//--- fixture.s
 +.syntax unified
@@ -15871,6 +16056,12 @@ index 0000000000000000000000000000000000000000..883b2f8f807379dde7fd011686b4ac3e
 +}
 +
 +//--- order.txt
++worker_b
++Reset_Handler
++worker_a
++
++//--- generic-order.txt
++__gxx_personality_v0
 +worker_b
 +Reset_Handler
 +worker_a
