@@ -27,9 +27,13 @@ supplies an ARM `MCPlusBuilder`, Cortex-M CPU/ELF-attribute qualification,
 Thumb callable-symbol handling, direct branch/call construction, ARM
 relocation handling, AArch32 JITLink support and annotation-safe ARM emission.
 The reference path includes Thumb-2 `ADR.W` and PC-relative `MOVW/MOVT` from
-input relocation selection through final in-place linking; these relocation
-semantics existed in the handler but were previously omitted by the ARM
-`MCPlusBuilder` admission switch.
+input relocation selection through final in-place linking. Relocation-mode
+function movement reconstructs the common zero-addend split expressions as
+per-instruction `S-P` values, retains `R_ARM_THM_MOVW_PREL_NC` and
+`R_ARM_THM_MOVT_PREL` at their new instruction addresses, and binds the
+subtraction PC only after architectural operand decoding has completed.
+Non-zero split-field addends remain fail-closed until the paired implicit
+addend can be reconstructed without guessing.
 Thumb-2 clustered relaxation now has a compact firmware path as well: when
 ordinary checked compaction leaves enough space inside the caller's own typed
 function range, Firm-BOLT can append a 10-byte `MOVW r12; MOVT r12; BX r12`
@@ -118,8 +122,9 @@ fixtures, including linked split-fragment EHABI growth and retained-relocation
 rebuilding, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
 relocation-complete compact and generic ARM EHABI function-reordering
 fixtures, a platform-qualified absolute `R_ARM_TARGET1` dispatch-table
+function-reordering fixture, a relocation-mode PC-relative `MOVW/MOVT`
 function-reordering fixture, and the real Cortex-M4 FreeRTOS image.
-The 19 November production-parity-v129 run accepts all forty-six without
+The 19 November production-parity-v130 run accepts all forty-seven without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -755,26 +760,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v129-target1-absolute-relocation-2026-11-19
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v130-pcrel-mov-pairs-2026-11-19
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v129-target1-absolute-relocation-2026-11-19/report.json),
-SHA-256 `6e7d43ca53ea984fa75307616b5d1c576651ef895ce5c20cd935920c87a8423e`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v130-pcrel-mov-pairs-2026-11-19/report.json),
+SHA-256 `3e61780d76cbe62c0bad03669f6588f8ad85ab5a744a4ec12ecf839e6131d323`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v129-target1-absolute-relocation-2026-11-19/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v130-pcrel-mov-pairs-2026-11-19/validation-manifest.json)
 has SHA-256
-`01c2e06e41207edafba1c5b9786b39912e0fef661081a61cfd18df14d81da6aa`
+`45ddcaeb81c7643c87ee33c2a9a21cf24b3afea1a5e07e416bb8a697545b0ce9`
 and records the exact regression commands, outcomes and hashes of their
 XML/JSON evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 has SHA-256
-`7ba88b0544db008bd6bd1800fef5948dc3eb3dacbdb49054655f22e042e192fc`,
+`a16becb09870825b641aa2aed3ee3d7551be5f50412d6eef0e8553676073f0f0`,
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`291e21575bc060fd7fad031666788f1a55439346f404a70df4daadb66025edae`.
+`a3afb17dce231ad66162312b1e1d462ca850601c9441acb877039607c35ca58d`.
 
 An earlier targeted checkpoint completed 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -993,14 +998,39 @@ Thumb bit. Reference and candidate both execute through FastDyn and write
 TLS-number interval that had silently classified TARGET1, PREL31, MOVW/MOVT
 and branch relocations as TLS. Typed EHABI relocations remain owned by their
 dedicated complete index rebuilder. Split PC-relative MOVW/MOVT expressions
-are exact-retained in compact mode and reject relocation-mode movement until
-paired `S-P` expression reconstruction is implemented. This is relocation,
+were exact-retained in compact mode at that checkpoint. This is relocation,
 placement and execution evidence, not a throughput result.
+
+v130 adds relocation-mode movement for the common zero-addend Thumb-2
+PC-relative `MOVW`/`MOVT` pair. The symbolizer reconstructs each field as
+`:lower16:(S-P)` or `:upper16:(S-P)` and defers the temporary PC-label
+annotation until ARM's decoder has validated the architectural operand count;
+attaching BOLT metadata during the decoder callback would otherwise turn four
+architectural operands into six. In the executed M3 gate, `pcrel_worker` moves
+from `0x0800010a` to `0x08000100`, while `external_data` remains at
+`0x08001000`. The retained `R_ARM_THM_MOVW_PREL_NC` and
+`R_ARM_THM_MOVT_PREL` records move to `0x08000100` and `0x08000104`, all ten
+worker instruction identities map exactly, no instruction is synthesized and
+no segment is added. Reference and candidate both execute in FastDyn and
+write RAM word `42`. ARM BOLT lit passes 67/67, AArch32 JITLink passes 12/12,
+and BOLT unit tests pass 123 with 129 explicit skips. Non-zero split-field
+implicit addends still require paired reconstruction and remain unsupported
+and fail-closed. This is reference/link/layout/execution evidence, not a
+throughput result or a claim about arbitrary producer encodings.
+The source-level regression is
+[`thumb2-pcrel-mov-pair-reorder.s`](../../third_party/preflight/llvm-project/bolt/test/ARM/thumb2-pcrel-mov-pair-reorder.s),
+and the production execution gate uses the
+[`firm_bolt_cortex_m3_pcrel_mov_pair.s`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair.s)
+fixture with its explicit
+[`linker layout`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair.ld)
+and
+[`function order`](../../tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair.order).
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands without a proven non-fallthrough owner, ARM relocation classes
-beyond the now-qualified JUMP6/ABS8/ABS16 set,
+beyond the now-qualified JUMP6/ABS8/ABS16 and common zero-addend split PREL
+set, paired non-zero split-field addend reconstruction,
 veneer placement without explicit typed slots or under arbitrary
 whole-image layout, clustering and splitting of
 address-stable, jump-table, veneer or multi-entry functions beyond the
