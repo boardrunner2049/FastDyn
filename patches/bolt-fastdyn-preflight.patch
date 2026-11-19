@@ -127,10 +127,10 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2ace2457cdd97a11b4744c3c85bbd92f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..aae8d8aeb5b7d3d4176834ee1f30883508946acb 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..2fe444aec4387343c7a95f48958a0484e3cc92cf 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
-@@ -136,6 +136,59 @@ inline raw_ostream &operator<<(raw_ostream &OS,
+@@ -136,6 +136,60 @@ inline raw_ostream &operator<<(raw_ostream &OS,
  /// or the main fragment.
  class BinaryFunction {
  public:
@@ -160,6 +160,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..aae8d8aeb5b7d3d4176834ee1f308835
 +    MethodLoadElimination = 1U << 17,
 +    ReadOnlyLoadElision = 1U << 18,
 +    FunctionSplitting = 1U << 19,
++    BlockAlignment = 1U << 20,
 +  };
 +
 +  /// Independent architectural reasons that currently pin instruction/data
@@ -190,7 +191,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..aae8d8aeb5b7d3d4176834ee1f308835
    enum class State : char {
      Empty = 0,     /// Function body is empty.
      Disassembled,  /// Function have been disassembled.
-@@ -192,6 +245,17 @@ public:
+@@ -192,6 +246,17 @@ public:
      /// Offsets in function that are data values in a constant island identified
      /// after disassembling
      std::map<uint64_t, MCSymbol *> Offsets;
@@ -208,7 +209,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..aae8d8aeb5b7d3d4176834ee1f308835
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +396,54 @@ private:
+@@ -332,6 +397,54 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -263,7 +264,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..aae8d8aeb5b7d3d4176834ee1f308835
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1580,70 @@ public:
+@@ -1468,6 +1581,70 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -334,7 +335,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..aae8d8aeb5b7d3d4176834ee1f308835
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2110,48 @@ public:
+@@ -1934,6 +2111,48 @@ public:
      return *this;
    }
  
@@ -383,7 +384,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..aae8d8aeb5b7d3d4176834ee1f308835
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2549,8 @@ public:
+@@ -2331,6 +2550,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -721,6 +722,20 @@ index 9a4877a6d36bba951371de0b8057c6d83fc50feb..be20d28a0fd4eb2bd673b4b17491c140
  std::unique_ptr<RelocationHandler> createRISCVRelocationHandler(bool Is64Bit);
  
  } // namespace bolt
+diff --git a/bolt/include/bolt/Passes/Aligner.h b/bolt/include/bolt/Passes/Aligner.h
+index eb077182c9456a98cd5df819fce43ce6c2e5cfea..950e2906c511e93dbd195c9437016850d5e78840 100644
+--- a/bolt/include/bolt/Passes/Aligner.h
++++ b/bolt/include/bolt/Passes/Aligner.h
+@@ -31,7 +31,8 @@ private:
+   std::atomic<uint64_t> AlignedBlocksCount{0};
+ 
+   /// Assign alignment to basic blocks based on profile.
+-  void alignBlocks(BinaryFunction &Function, const MCCodeEmitter *Emitter);
++  uint64_t alignBlocks(BinaryFunction &Function,
++                       const MCCodeEmitter *Emitter);
+ 
+ public:
+   explicit AlignerPass() : BinaryFunctionPass(false) {}
 diff --git a/bolt/include/bolt/Passes/FastDynPatchContracts.h b/bolt/include/bolt/Passes/FastDynPatchContracts.h
 new file mode 100644
 index 0000000000000000000000000000000000000000..1e8b673e06eeb97d608dafd307a21a9f21273348
@@ -2893,6 +2908,133 @@ index 1bcae94214909b267d57cf7d4efcc01905edbf29..dade3fa69c71b7f3188cf3b9a290054e
  namespace opts {
  cl::opt<bool>
      TerminalHLT("terminal-x86-hlt",
+diff --git a/bolt/lib/Passes/Aligner.cpp b/bolt/lib/Passes/Aligner.cpp
+index 798148491abefdc645a2723eea4798480a692786..d08c1a59bd8e034f727b652a899e4122ca9330fc 100644
+--- a/bolt/lib/Passes/Aligner.cpp
++++ b/bolt/lib/Passes/Aligner.cpp
+@@ -12,11 +12,22 @@
+ 
+ #include "bolt/Passes/Aligner.h"
+ #include "bolt/Core/ParallelUtilities.h"
++#include "llvm/Support/CommandLine.h"
+ 
+ #define DEBUG_TYPE "bolt-aligner"
+ 
+ using namespace llvm;
+ 
++namespace opts {
++extern cl::OptionCategory BoltOptCategory;
++
++static cl::opt<bool> FirmBOLTAllowBlockAlignment(
++    "firmbolt-allow-block-alignment",
++    cl::desc("allow profile-guided basic-block alignment padding in the "
++             "Cortex-M firmware pipeline"),
++    cl::init(false), cl::Hidden, cl::cat(BoltOptCategory));
++} // namespace opts
++
+ namespace llvm {
+ namespace bolt {
+ 
+@@ -64,16 +75,23 @@ static void alignCompact(BinaryFunction &Function,
+         std::min(size_t(BC.AlignFunctionsMaxBytes), ColdSize));
+ }
+ 
+-void AlignerPass::alignBlocks(BinaryFunction &Function,
+-                              const MCCodeEmitter *Emitter) {
++uint64_t AlignerPass::alignBlocks(BinaryFunction &Function,
++                                  const MCCodeEmitter *Emitter) {
+   if (!Function.hasValidProfile() || !Function.isSimple())
+-    return;
++    return 0;
+ 
+   const BinaryContext &BC = Function.getBinaryContext();
++  const bool IsFirmware = BC.isARM();
++  if (IsFirmware &&
++      (Function.requiresAddressStableLayout() ||
++       Function.isCortexMVectorEntry() || Function.isFirmwareVeneerSlot() ||
++       Function.hasJumpTables()))
++    return 0;
+ 
+   const uint64_t FuncCount =
+       std::max<uint64_t>(1, Function.getKnownExecutionCount());
+   BinaryBasicBlock *PrevBB = nullptr;
++  uint64_t AlignedBlocks = 0;
+   for (BinaryBasicBlock *BB : Function.getLayout().blocks()) {
+     uint64_t Count = BB->getKnownExecutionCount();
+ 
+@@ -101,6 +119,7 @@ void AlignerPass::alignBlocks(BinaryFunction &Function,
+ 
+     BB->setAlignment(BC.BlockAlignment);
+     BB->setAlignmentMaxBytes(BytesToUse);
++    ++AlignedBlocks;
+ 
+     // Update stats.
+     LLVM_DEBUG(
+@@ -109,13 +128,34 @@ void AlignerPass::alignBlocks(BinaryFunction &Function,
+       AlignedBlocksCount += BB->getKnownExecutionCount();
+     );
+   }
++  if (AlignedBlocks && IsFirmware)
++    Function.setFirmwareModified(
++        BinaryFunction::FirmwareModification::BlockAlignment);
++  return AlignedBlocks;
+ }
+ 
+ Error AlignerPass::runOnFunctions(BinaryContext &BC) {
+   if (!BC.HasRelocations)
+     return Error::success();
+ 
++  if (BC.isARM() && BC.AlignBlocks) {
++    if (!opts::FirmBOLTAllowBlockAlignment)
++      return createStringError(
++          inconvertibleErrorCode(),
++          "Cortex-M basic-block alignment inserts executed padding; add "
++          "--firmbolt-allow-block-alignment only for an admitted branch/"
++          "timing contract");
++    if (BC.PreserveFirmwareInstructionCount)
++      return createStringError(
++          inconvertibleErrorCode(),
++          "Cortex-M basic-block alignment is incompatible with the default "
++          "guest instruction-count contract; add "
++          "--firmbolt-preserve-guest-instruction-count=false");
++  }
++
+   AlignHistogram.resize(BC.BlockAlignment);
++  std::atomic<uint64_t> QualifiedFunctions{0};
++  std::atomic<uint64_t> AlignedBasicBlocks{0};
+ 
+   ParallelUtilities::WorkFuncTy WorkFun = [&](BinaryFunction &BF) {
+     // Create a separate MCCodeEmitter to allow lock free execution
+@@ -126,6 +166,7 @@ Error AlignerPass::runOnFunctions(BinaryContext &BC) {
+       alignCompact(BF, Emitter.MCE.get());
+     else
+       alignMaxBytes(BF);
++    ++QualifiedFunctions;
+ 
+     // Record the function's effective code alignment so layout passes can align
+     // the tentative section base to the eventual section alignment without
+@@ -148,13 +189,20 @@ Error AlignerPass::runOnFunctions(BinaryContext &BC) {
+     BC.updateMaxCodeAlignment(Align, InMainSection, InColdSection);
+ 
+     if (BC.AlignBlocks && !BC.PreserveBlocksAlignment)
+-      alignBlocks(BF, Emitter.MCE.get());
++      AlignedBasicBlocks += alignBlocks(BF, Emitter.MCE.get());
+   };
+ 
+   ParallelUtilities::runOnEachFunction(
+       BC, ParallelUtilities::SchedulingPolicy::SP_TRIVIAL, WorkFun,
+       ParallelUtilities::PredicateTy(nullptr), "AlignerPass");
+ 
++  if (BC.isARM())
++    BC.outs() << "BOLT-INFO: Cortex-M alignment qualified "
++              << QualifiedFunctions << " function(s) at " << BC.AlignFunctions
++              << "-byte function alignment and aligned "
++              << AlignedBasicBlocks << " profiled basic block(s) at "
++              << BC.BlockAlignment << " bytes\n";
++
+   LLVM_DEBUG(
+     dbgs() << "BOLT-DEBUG: max bytes per basic block alignment distribution:\n";
+     for (unsigned I = 1; I < AlignHistogram.size(); ++I)
 diff --git a/bolt/lib/Passes/AllocCombiner.cpp b/bolt/lib/Passes/AllocCombiner.cpp
 index ea620bb82184d2bf88d1b9d79d130e0e3d6535a7..5f6b2424f39163db9ff858d8c359072138bab798 100644
 --- a/bolt/lib/Passes/AllocCombiner.cpp
@@ -3323,10 +3465,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460d8302c45
+index 0000000000000000000000000000000000000000..9b51759a9dec1365346616edb9c74971ef033484
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,4445 @@
+@@ -0,0 +1,4464 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -3528,6 +3670,16 @@ index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460
 +  return BC.computeInstructionSize(Inst);
 +}
 +
++uint64_t reportBlockAlignmentPadding(const BinaryFunction &BF,
++                                     const BinaryBasicBlock &BB,
++                                     uint64_t Offset) {
++  if (BB.getAlignment() <= 1)
++    return 0;
++  const uint64_t Padding =
++      offsetToAlignment(BF.getAddress() + Offset, BB.getAlign());
++  return Padding <= BB.getAlignmentMaxBytes() ? Padding : 0;
++}
++
 +uint64_t reportFunctionSize(BinaryContext &BC, const BinaryFunction &BF) {
 +  if (!BF.hasCFG())
 +    return BF.getSize();
@@ -3536,7 +3688,10 @@ index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460
 +  if (!BC.isARM())
 +    return BF.estimateSize();
 +  uint64_t Size = 0;
-+  for (const BinaryBasicBlock &BB : BF)
++  for (const BinaryBasicBlock &BB : BF) {
++    if ((BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
++        BB.getAlignment() > 1)
++      Size += reportBlockAlignmentPadding(BF, BB, Size);
 +    for (const MCInst &Inst : BB) {
 +      Size += reportInstructionSize(BC, Inst);
 +      if (const InlineData *Data = BC.MIB->getInlineData(Inst))
@@ -3552,6 +3707,7 @@ index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460
 +          JT && JT->isThumbInline())
 +        Size += JT->getSize() + JT->InlineTrailingBytes.size();
 +    }
++  }
 +  return Size;
 +}
 +
@@ -3559,7 +3715,7 @@ index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460
 +using FirmwarePublicationRejection =
 +    BinaryFunction::FirmwarePublicationRejection;
 +
-+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 20>
++static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 21>
 +    FirmwareModificationNames = {{
 +        {FirmwareModification::CFGNormalization, "cfg_normalization"},
 +        {FirmwareModification::UnreachableCodeElimination,
@@ -3592,6 +3748,7 @@ index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460
 +        {FirmwareModification::ReadOnlyLoadElision,
 +         "read_only_load_elision"},
 +        {FirmwareModification::FunctionSplitting, "function_splitting"},
++        {FirmwareModification::BlockAlignment, "block_alignment"},
 +    }};
 +
 +json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -4792,8 +4949,7 @@ index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460
 +    for (const BinaryBasicBlock &BB : BF) {
 +      if ((BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
 +          BB.getAlignment() > 1)
-+        InlineOffset += offsetToAlignment(BF.getAddress() + InlineOffset,
-+                                          BB.getAlign());
++        InlineOffset += reportBlockAlignmentPadding(BF, BB, InlineOffset);
 +      for (const MCInst &Inst : BB) {
 +        if (BC.MIB->isPseudo(Inst))
 +          continue;
@@ -4890,8 +5046,8 @@ index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460
 +      for (const BinaryBasicBlock &BB : BF) {
 +        if ((BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
 +            BB.getAlignment() > 1)
-+          EstimatedOffset += offsetToAlignment(
-+              BF.getAddress() + EstimatedOffset, BB.getAlign());
++          EstimatedOffset +=
++              reportBlockAlignmentPadding(BF, BB, EstimatedOffset);
 +        for (const MCInst &Inst : BB) {
 +          if (BC.MIB->isPseudo(Inst))
 +            continue;
@@ -6353,6 +6509,11 @@ index 0000000000000000000000000000000000000000..54d9e76279402535c0a95f14acaf0460
 +      }
 +      ControlEdgeSetPreserved = FunctionOriginalEdges == PostControlEdges;
 +      for (BinaryBasicBlock &BB : BF) {
++        if (!BF.requiresAddressStableLayout() &&
++            (BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
++            BB.getAlignment() > 1)
++          EstimatedOffset +=
++              reportBlockAlignmentPadding(BF, BB, EstimatedOffset);
 +        const std::optional<uint64_t> SourceBlockAddress =
 +            BB.getOffset() == BinaryBasicBlock::INVALID_OFFSET
 +                ? std::nullopt
@@ -9620,7 +9781,7 @@ index c8c9298805268db2cc2c54ac660bd4bedd946879..a8c2e3e4ad1da401a18a5196a6ffa1f6
    }
  
 diff --git a/bolt/lib/Rewrite/BinaryPassManager.cpp b/bolt/lib/Rewrite/BinaryPassManager.cpp
-index 18c84468b04ce23388d824e28c0029be48789a45..e16b7de9195abf98e20b47991b7895a8cc00107e 100644
+index 18c84468b04ce23388d824e28c0029be48789a45..87c63a3bbeaecd906942a6019bc07e56535d2c4a 100644
 --- a/bolt/lib/Rewrite/BinaryPassManager.cpp
 +++ b/bolt/lib/Rewrite/BinaryPassManager.cpp
 @@ -12,6 +12,7 @@
@@ -9644,7 +9805,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..e16b7de9195abf98e20b47991b7895a8
  cl::opt<bool>
      PrintNormalized("print-normalized",
                      cl::desc("print functions after CFG is normalized"),
-@@ -372,6 +379,124 @@ Error BinaryFunctionPassManager::runPasses() {
+@@ -372,6 +379,133 @@ Error BinaryFunctionPassManager::runPasses() {
  Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
    BinaryFunctionPassManager Manager(BC);
  
@@ -9747,6 +9908,15 @@ index 18c84468b04ce23388d824e28c0029be48789a45..e16b7de9195abf98e20b47991b7895a8
 +                             "after audited Cortex-M transformations"),
 +                         opts::PrintDynoStats || opts::DynoStatsAll);
 +    Manager.registerPass(std::make_unique<AssignSections>());
++    // Use BOLT's ordinary profile-guided function/basic-block alignment on
++    // relocation-complete Cortex-M images. Unlike a hosted process, firmware
++    // cannot assume that the default 64-byte alignment is free flash, so run
++    // it only when the producer explicitly requests an alignment policy. The
++    // writer then proves that all padding fits the linker-qualified range, and
++    // LongJmp accounts for that growth before final Thumb branch repair.
++    if (opts::AlignFunctions.getNumOccurrences() || opts::AlignBlocks ||
++        opts::PreserveBlocksAlignment)
++      Manager.registerPass(std::make_unique<AlignerPass>());
 +    Manager.registerPass(std::make_unique<LongJmpPass>(PrintLongJmp));
 +    Manager.registerPass(
 +        std::make_unique<FinalizeFunctions>(PrintFinalized));
@@ -9769,7 +9939,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..e16b7de9195abf98e20b47991b7895a8
    if (BC.isAArch64())
      Manager.registerPass(
          std::make_unique<PointerAuthCFIAnalyzer>(PrintPAuthCFIAnalyzer));
-@@ -407,6 +532,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -407,6 +541,17 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<PrintProfileQualityStats>(NeverPrint));
  
@@ -9787,7 +9957,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..e16b7de9195abf98e20b47991b7895a8
    Manager.registerPass(std::make_unique<ValidateInternalCalls>(NeverPrint));
  
    Manager.registerPass(std::make_unique<ValidateMemRefs>(NeverPrint));
-@@ -554,6 +690,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -554,6 +699,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
          std::make_unique<PointerAuthCFIFixup>(PrintPAuthCFIFixup));
    }
  
@@ -9797,7 +9967,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..e16b7de9195abf98e20b47991b7895a8
    if (BC.isRISCV())
      Manager.registerPass(std::make_unique<RISCVLongJmpPass>(PrintLongJmp));
  
-@@ -568,6 +707,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
+@@ -568,6 +716,30 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
  
    Manager.registerPass(std::make_unique<AllocCombinerPass>(PrintFOP));
  
@@ -16326,7 +16496,7 @@ index 0000000000000000000000000000000000000000..1fb077e1f5fdeaed1fa531d5c69d90c2
 +1 cdsplit_worker 60 1 cdsplit_worker 62 0 100
 diff --git a/bolt/test/ARM/thumb-function-clustering-relocs.s b/bolt/test/ARM/thumb-function-clustering-relocs.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..1874976e47c6b82c6d1ca5cfb2ea20d01fb0eedc
+index 0000000000000000000000000000000000000000..8ca7fe81e6f3cf83c164e2aeea5b4d64740b28c7
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-function-clustering-relocs.s
 @@ -0,0 +1,179 @@
@@ -16381,34 +16551,34 @@ index 0000000000000000000000000000000000000000..1874976e47c6b82c6d1ca5cfb2ea20d0
 +# CLUSTER: BOLT-INFO: not adding new segments
 +
 +# EXEC: 08000100 T worker_a
-+# EXEC: 08000112 T worker_b
-+# EXEC: 08000122 T worker_c
-+# EXEC: 08000132 T Reset_Handler
++# EXEC: 08000114 T worker_b
++# EXEC: 08000124 T worker_c
++# EXEC: 08000134 T Reset_Handler
 +
 +# GRAPH: 08000100 T worker_b
 +# GRAPH: 08000110 T worker_a
-+# GRAPH: 08000122 T worker_c
-+# GRAPH: 08000132 T Reset_Handler
++# GRAPH: 08000124 T worker_c
++# GRAPH: 08000134 T Reset_Handler
 +
 +# CDSORT: 08000100 T worker_c
 +# CDSORT: 08000110 T worker_a
-+# CDSORT: 08000122 T Reset_Handler
-+# CDSORT: 08000146 T worker_b
++# CDSORT: 08000124 T Reset_Handler
++# CDSORT: 08000148 T worker_b
 +
-+# ELF: Entry point address: 0x8000133
++# ELF: Entry point address: 0x8000135
 +# ELF: .bolt.org.text {{.*}} 08000100 {{.*}} 000000 {{.*}} AX
-+# ELF: .text {{.*}} 08000100 {{.*}} 000056 {{.*}} AX
++# ELF: .text {{.*}} 08000100 {{.*}} 000058 {{.*}} AX
 +# ELF: LOAD {{.*}} 0x08000000 {{.*}} 0x00008 0x00008 R
 +# ELF-NEXT: LOAD {{.*}} 0x08000100 {{.*}} 0x00058 0x00058 R E
 +
-+# RELOCS: R_ARM_THM_CALL 08000123 worker_c
++# RELOCS: R_ARM_THM_CALL 08000125 worker_c
 +# RELOCS-NEXT: R_ARM_THM_CALL 08000111 worker_a
 +# RELOCS-NEXT: R_ARM_THM_CALL 08000111 worker_a
 +# RELOCS-NEXT: R_ARM_THM_CALL 08000101 worker_b
-+# RELOCS-NEXT: R_ARM_THM_JUMP24 08000152 fixture_halt
-+# RELOCS: R_ARM_ABS32 08000133 Reset_Handler
++# RELOCS-NEXT: R_ARM_THM_JUMP24 08000154 fixture_halt
++# RELOCS: R_ARM_ABS32 08000135 Reset_Handler
 +
-+# ORIGINS: [('worker_a', '0x8000100', '0x8000110', 8), ('worker_b', '0x8000112', '0x8000100', 8), ('worker_c', '0x8000122', '0x8000122', 8), ('Reset_Handler', '0x8000132', '0x8000132', 12)]
++# ORIGINS: [('worker_a', '0x8000100', '0x8000110', 8), ('worker_b', '0x8000112', '0x8000100', 8), ('worker_c', '0x8000122', '0x8000124', 8), ('Reset_Handler', '0x8000132', '0x8000134', 12)]
 +
 +//--- fixture.s
 +.syntax unified
@@ -18336,6 +18506,155 @@ index 0000000000000000000000000000000000000000..a521b65ecf5da4f842a3f06ee63259da
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-profile-guided-alignment.s b/bolt/test/ARM/thumb-profile-guided-alignment.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..3e820634562b75174a88c36ad0dc8deb95cae27b
+--- /dev/null
++++ b/bolt/test/ARM/thumb-profile-guided-alignment.s
+@@ -0,0 +1,143 @@
++## Qualify BOLT's ordinary profile-guided basic-block alignment for a
++## relocation-complete Cortex-M image.  Firmware admission is explicit because
++## fall-through alignment NOPs are executed guest work, and the final writer
++## must prove that their bytes fit linker-owned flash capacity.
++
++# RUN: split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/fixture.s -o %t/fixture.o
++# RUN: ld.lld --emit-relocs -T %t/capacity.ld %t/fixture.o -o %t/reference.elf
++# RUN: ld.lld --emit-relocs -T %t/tight.ld %t/fixture.o -o %t/tight.elf
++
++# RUN: not llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --align-functions=1 --align-blocks --block-alignment=16 \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   -o %t/no-contract.elf 2>&1 | FileCheck %s --check-prefix=NO-CONTRACT
++
++# RUN: not llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --align-functions=1 --align-blocks --block-alignment=16 \
++# RUN:   --firmbolt-allow-block-alignment \
++# RUN:   -o %t/count-contract.elf 2>&1 | FileCheck %s --check-prefix=COUNT
++
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --align-functions=1 --align-blocks --block-alignment=16 \
++# RUN:   --firmbolt-allow-block-alignment \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   --fastdyn-firmware-report=%t/aligned.json -v=1 \
++# RUN:   -o %t/aligned.elf 2>&1 | FileCheck %s --check-prefix=ALIGN
++# RUN: llvm-nm --numeric-sort %t/aligned.elf \
++# RUN:   | FileCheck %s --check-prefix=NM
++# RUN: llvm-objdump -d --no-show-raw-insn %t/aligned.elf \
++# RUN:   | FileCheck %s --check-prefix=DIS
++# RUN: %python -c "import json; d=json.load(open('%t/aligned.json')); f=next(x for x in d['functions'] if x['name']=='hot_worker'); print(f['firmware_modification_reasons']); print([(hex(i['original_address']),hex(i['estimated_output_offset'])) for i in f['instructions']])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# RUN: not llvm-bolt %t/tight.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --data=%t/profile.fdata --relocs --use-old-text \
++# RUN:   --align-functions=1 --align-blocks --block-alignment=16 \
++# RUN:   --firmbolt-allow-block-alignment \
++# RUN:   --firmbolt-preserve-guest-instruction-count=false \
++# RUN:   -o %t/over-budget.elf 2>&1 | FileCheck %s --check-prefix=BUDGET
++
++# NO-CONTRACT: Cortex-M basic-block alignment inserts executed padding
++# COUNT: Cortex-M basic-block alignment is incompatible with the default guest instruction-count contract
++# ALIGN: BOLT-INFO: Cortex-M alignment qualified 2 function(s) at 1-byte function alignment and aligned 1 profiled basic block(s) at 16 bytes
++# ALIGN: BOLT-INFO: not adding new segments
++# NM: 08000100 T hot_worker
++# NM: 08000110 T hot_loop
++# DIS: 08000100 <hot_worker>:
++# DIS: 8000100: movs r1, #0
++# DIS: 800010a: nop
++# DIS: 800010e: nop
++# DIS: 08000110 <hot_loop>:
++# DIS: 8000110: adds r1, #0x1
++# REPORT: block_alignment
++# BUDGET: Cortex-M firmware emission requires every allocatable section to fit an existing qualified range
++
++//--- fixture.s
++.syntax unified
++.cpu cortex-m3
++.thumb
++.eabi_attribute Tag_CPU_arch, 10
++.eabi_attribute Tag_CPU_arch_profile, 'M'
++
++.section .isr_vector, "a", %progbits
++.align 2
++.global g_pfnVectors
++.type g_pfnVectors, %object
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++.size g_pfnVectors, . - g_pfnVectors
++
++.section .text, "ax", %progbits
++.align 1
++.global hot_worker
++.type hot_worker, %function
++.thumb_func
++hot_worker:
++  movs r1, #0
++  movs r2, #0
++  adds r2, #1
++  adds r2, #1
++  adds r2, #1
++.global hot_loop
++hot_loop:
++  adds r1, #1
++  cmp r1, r0
++  bne hot_loop
++  mov r0, r1
++  bx lr
++.size hot_worker, . - hot_worker
++
++.global Reset_Handler
++.type Reset_Handler, %function
++.thumb_func
++Reset_Handler:
++  movw r4, #0
++  movt r4, #0x2000
++  movs r0, #10
++  bl hot_worker
++  str r0, [r4]
++.global fixture_halt
++fixture_halt:
++  b fixture_halt
++.size Reset_Handler, . - Reset_Handler
++
++//--- capacity.ld
++ENTRY(Reset_Handler)
++MEMORY {
++  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
++  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
++}
++SECTIONS {
++  .isr_vector ORIGIN(FLASH) : { KEEP(*(.isr_vector)) } > FLASH
++  .text ORIGIN(FLASH) + 0x100 : {
++    *(.text*)
++    /* Explicit linker-owned capacity for alignment and branch repair. */
++    . = . + 32;
++  } > FLASH
++  .data : { *(.data*) } > RAM AT > FLASH
++  .bss (NOLOAD) : { *(.bss*) *(COMMON) } > RAM
++}
++
++//--- tight.ld
++ENTRY(Reset_Handler)
++MEMORY {
++  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
++  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
++}
++SECTIONS {
++  .isr_vector ORIGIN(FLASH) : { KEEP(*(.isr_vector)) } > FLASH
++  .text ORIGIN(FLASH) + 0x100 : { *(.text*) } > FLASH
++  .data : { *(.data*) } > RAM AT > FLASH
++  .bss (NOLOAD) : { *(.bss*) *(COMMON) } > RAM
++}
++
++//--- profile.fdata
++1 Reset_Handler a 1 hot_worker 0 0 100
++1 hot_worker e 1 hot_worker a 0 900
++1 hot_worker e 1 hot_worker 10 0 100
 diff --git a/bolt/test/ARM/thumb-profiled-block-layout.s b/bolt/test/ARM/thumb-profiled-block-layout.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..669e22f84404336d2405b7f3a38b2014b86a9426

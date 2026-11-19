@@ -108,9 +108,10 @@ profile-execution-count and CDSort call-graph relocation-complete whole-image
 function-ordering Cortex-M3 fixtures, a matched-profile exec-count/HFSort/
 Pettis-Hansen/CDSort function-clustering matrix, an opt-in Profile2 hot/cold
 function-splitting and cache-directed hot/warm/cold CDSplit Cortex-M3
-fixtures, relocation-complete compact and generic ARM EHABI
+fixtures, an opt-in profile-guided hot-block-alignment Cortex-M3 fixture,
+relocation-complete compact and generic ARM EHABI
 function-reordering fixtures, and the real Cortex-M4 FreeRTOS image.
-The 18 November production-parity-v121 run accepts all thirty-nine without
+The 18 November production-parity-v122 run accepts all forty without
 adding a segment and uses
 compact, policy-checked publication: BOLT may
 analyze and assemble all qualified functions, but only functions changed by a
@@ -160,9 +161,9 @@ Pettis-Hansen order `worker_b`, `worker_a`, `worker_c`; CDSort orders
 `worker_c`, `worker_a`, `worker_b`. HFSort/Pettis-Hansen report four graph
 nodes, four callsites, three hot functions, two clusters and a 12-byte final
 average call distance, retaining the linked `worker_a`/`worker_c` pair as an
-adjacent cluster. Each candidate has 86 live bytes in the unchanged 88-byte
-executable PT_LOAD; the two-byte linker alignment slack is reported
-separately. Five text relocations and the vector relocation follow the moved
+adjacent cluster. Each candidate has 88 live bytes in the unchanged 88-byte
+executable PT_LOAD; ordinary function alignment now consumes the two bytes
+previously reported as linker slack. Five text relocations and the vector relocation follow the moved
 Thumb identities, all 36 instruction origins are exact, and FastDyn executes
 every reference/candidate pair to `(17, 42, 29)`. This qualifies the bounded
 relocation-complete integration, not a runtime benefit or arbitrary firmware
@@ -746,26 +747,26 @@ Reproduce the current complete gate with:
 ```bash
 python3 scripts/preflight/run-firm-bolt-cortex-m-port.py \
   --skip-build --full-pipeline --frame-opt=all \
-  --output build/preflight/firm-bolt-cortex-m-production-parity-v121-generic-extab-2026-11-18
+  --output build/preflight/firm-bolt-cortex-m-production-parity-v122-alignment-final3-2026-11-18
 ```
 
 The complete accepted/rejected stage evidence is in the current
-[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v121-generic-extab-2026-11-18/report.json),
-SHA-256 `0982b55372e71943a785b8db6289296c198e583bb3144d464343dcc3e1b5d1b6`.
+[`report.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v122-alignment-final3-2026-11-18/report.json),
+SHA-256 `7c043174555565e751e037c6a1597365198614fde4da1d00b09241ba85a74d7f`.
 The machine-readable
-[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v121-generic-extab-2026-11-18/validation-manifest.json)
+[`validation-manifest.json`](../../build/preflight/firm-bolt-cortex-m-production-parity-v122-alignment-final3-2026-11-18/validation-manifest.json)
 (SHA-256
-`2086015c25d1b783859a19a9d4389a347f870eb9fb6395b4c6ac20ee068728e6`)
+`14957fc32d6b269a6afbc236498cef31cb37a9b266999e2e5643986def5d94ae`)
 records the exact regression commands, outcomes and hashes of their XML/JSON
 evidence.
 The reproducible pinned-source patch is
 [`bolt-fastdyn-preflight.patch`](../../patches/bolt-fastdyn-preflight.patch)
 (SHA-256
-`37f5da4e8bd8d27c9e822e84f898b5aa78a80a8c10ef8f5449f4a1b46fa0a67c`),
+`f157a7d638044803660ece230ca6f21cba23fda55b1f8762e8473faf7926bc57`),
 which clean-applies to pinned revision
 `7864c0736a8a09670dfbfc513f1e9649799f2486`,
 and the tested `llvm-bolt` binary SHA-256 is
-`dd06ef13919fb6b59099368fa15b0ac0cc2bb5dc25eedb125631138a30c45567`.
+`3d659e138e132123806e0cdd2a4119bbff812696a99899a7e9cf0b5c2744f18a`.
 
 Targeted validation completes 55/55 BOLT ARM tests, 11/11 AArch32 JITLink lit
 tests, all 208 BOLT Core parameterizations, all 45 ARM-filtered Core
@@ -797,7 +798,7 @@ AArch64/RISC-V/X86 expectation failures. The
 complete aggregate was not rerun after the unit correction, so it is not
 reported as a green full-suite result.
 
-The current v121 validation passes 60/60 BOLT ARM lit tests, 12/12 AArch32
+The current v122 validation passes 61/61 BOLT ARM lit tests, 12/12 AArch32
 JITLink lit tests, and 123 passed plus 129 explicitly target-inapplicable BOLT
 Unit parameterizations. The function-order tests exercise explicit,
 profile-derived execution-count, CDSort, HFSort and Pettis-Hansen call-graph
@@ -843,6 +844,20 @@ after it, keeps the 12-byte extab and 32-byte exidx at their original
 addresses, preserves all 13 instruction origins, and matches reference RAM
 `(17, 42)`. Arbitrary language-specific descriptor interpretation,
 split/folded fragment unwind and variable-footprint growth remain unsupported.
+
+v122 reuses BOLT's ordinary `AlignerPass` rather than adding a parallel
+alignment algorithm. Cortex-M basic-block alignment is opt-in, requires an
+explicit executed-padding/event contract, and remains incompatible with the
+default guest-instruction-count preservation contract. Address-stable,
+vector-entry, veneer-slot and jump-table functions remain excluded. In the
+executed M3 gate the hot loop moves from `0x0800010a` to the requested
+16-byte boundary at `0x08000110`; six Thumb NOP bytes are accounted as
+executed padding, all original instruction origins remain exact, and the
+candidate uses 44 live bytes inside the linker's 74-byte text capacity with
+unchanged program headers. Reference and candidate both write RAM word `10`.
+Missing admission, the strict instruction-count contract and an over-budget
+placement each reject atomically. This is pass integration and preservation
+evidence, not a runtime-performance claim.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

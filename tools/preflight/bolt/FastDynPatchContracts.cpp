@@ -199,6 +199,16 @@ uint64_t reportInstructionSize(BinaryContext &BC, const MCInst &Inst) {
   return BC.computeInstructionSize(Inst);
 }
 
+uint64_t reportBlockAlignmentPadding(const BinaryFunction &BF,
+                                     const BinaryBasicBlock &BB,
+                                     uint64_t Offset) {
+  if (BB.getAlignment() <= 1)
+    return 0;
+  const uint64_t Padding =
+      offsetToAlignment(BF.getAddress() + Offset, BB.getAlign());
+  return Padding <= BB.getAlignmentMaxBytes() ? Padding : 0;
+}
+
 uint64_t reportFunctionSize(BinaryContext &BC, const BinaryFunction &BF) {
   if (!BF.hasCFG())
     return BF.getSize();
@@ -207,7 +217,10 @@ uint64_t reportFunctionSize(BinaryContext &BC, const BinaryFunction &BF) {
   if (!BC.isARM())
     return BF.estimateSize();
   uint64_t Size = 0;
-  for (const BinaryBasicBlock &BB : BF)
+  for (const BinaryBasicBlock &BB : BF) {
+    if ((BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
+        BB.getAlignment() > 1)
+      Size += reportBlockAlignmentPadding(BF, BB, Size);
     for (const MCInst &Inst : BB) {
       Size += reportInstructionSize(BC, Inst);
       if (const InlineData *Data = BC.MIB->getInlineData(Inst))
@@ -223,6 +236,7 @@ uint64_t reportFunctionSize(BinaryContext &BC, const BinaryFunction &BF) {
           JT && JT->isThumbInline())
         Size += JT->getSize() + JT->InlineTrailingBytes.size();
     }
+  }
   return Size;
 }
 
@@ -230,7 +244,7 @@ using FirmwareModification = BinaryFunction::FirmwareModification;
 using FirmwarePublicationRejection =
     BinaryFunction::FirmwarePublicationRejection;
 
-static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 20>
+static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 21>
     FirmwareModificationNames = {{
         {FirmwareModification::CFGNormalization, "cfg_normalization"},
         {FirmwareModification::UnreachableCodeElimination,
@@ -263,6 +277,7 @@ static constexpr std::array<std::pair<FirmwareModification, StringLiteral>, 20>
         {FirmwareModification::ReadOnlyLoadElision,
          "read_only_load_elision"},
         {FirmwareModification::FunctionSplitting, "function_splitting"},
+        {FirmwareModification::BlockAlignment, "block_alignment"},
     }};
 
 json::Array firmwareModificationReasons(const BinaryFunction &BF) {
@@ -1463,8 +1478,7 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
     for (const BinaryBasicBlock &BB : BF) {
       if ((BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
           BB.getAlignment() > 1)
-        InlineOffset += offsetToAlignment(BF.getAddress() + InlineOffset,
-                                          BB.getAlign());
+        InlineOffset += reportBlockAlignmentPadding(BF, BB, InlineOffset);
       for (const MCInst &Inst : BB) {
         if (BC.MIB->isPseudo(Inst))
           continue;
@@ -1561,8 +1575,8 @@ Error CortexMFirmwarePublicationPolicy::runOnFunctions(BinaryContext &BC) {
       for (const BinaryBasicBlock &BB : BF) {
         if ((BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
             BB.getAlignment() > 1)
-          EstimatedOffset += offsetToAlignment(
-              BF.getAddress() + EstimatedOffset, BB.getAlign());
+          EstimatedOffset +=
+              reportBlockAlignmentPadding(BF, BB, EstimatedOffset);
         for (const MCInst &Inst : BB) {
           if (BC.MIB->isPseudo(Inst))
             continue;
@@ -3024,6 +3038,11 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
       }
       ControlEdgeSetPreserved = FunctionOriginalEdges == PostControlEdges;
       for (BinaryBasicBlock &BB : BF) {
+        if (!BF.requiresAddressStableLayout() &&
+            (BC.AlignBlocks || BC.PreserveBlocksAlignment) &&
+            BB.getAlignment() > 1)
+          EstimatedOffset +=
+              reportBlockAlignmentPadding(BF, BB, EstimatedOffset);
         const std::optional<uint64_t> SourceBlockAddress =
             BB.getOffset() == BinaryBasicBlock::INVALID_OFFSET
                 ? std::nullopt

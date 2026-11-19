@@ -101,6 +101,18 @@ M3_FUNCTION_CLUSTER_LINKER = (
 M3_FUNCTION_CLUSTER_PROFILE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_cluster.fdata"
 )
+M3_ALIGNMENT_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_alignment.s"
+)
+M3_ALIGNMENT_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_alignment.ld"
+)
+M3_ALIGNMENT_TIGHT_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_alignment_tight.ld"
+)
+M3_ALIGNMENT_PROFILE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_alignment.fdata"
+)
 M3_EXIDX_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_exidx.s"
 )
@@ -1168,34 +1180,34 @@ def validate_relocated_function_cluster(
         "exec-count": {
             "worker_a": 0x08000100,
             "worker_a_call_c": 0x08000106,
-            "worker_b": 0x08000112,
-            "worker_c": 0x08000122,
-            "Reset_Handler": 0x08000132,
-            "fixture_halt": 0x08000152,
+            "worker_b": 0x08000114,
+            "worker_c": 0x08000124,
+            "Reset_Handler": 0x08000134,
+            "fixture_halt": 0x08000154,
         },
         "hfsort": {
             "worker_b": 0x08000100,
             "worker_a": 0x08000110,
             "worker_a_call_c": 0x08000116,
-            "worker_c": 0x08000122,
-            "Reset_Handler": 0x08000132,
-            "fixture_halt": 0x08000152,
+            "worker_c": 0x08000124,
+            "Reset_Handler": 0x08000134,
+            "fixture_halt": 0x08000154,
         },
         "pettis-hansen": {
             "worker_b": 0x08000100,
             "worker_a": 0x08000110,
             "worker_a_call_c": 0x08000116,
-            "worker_c": 0x08000122,
-            "Reset_Handler": 0x08000132,
-            "fixture_halt": 0x08000152,
+            "worker_c": 0x08000124,
+            "Reset_Handler": 0x08000134,
+            "fixture_halt": 0x08000154,
         },
         "cdsort": {
             "worker_c": 0x08000100,
             "worker_a": 0x08000110,
             "worker_a_call_c": 0x08000116,
-            "Reset_Handler": 0x08000122,
-            "fixture_halt": 0x08000142,
-            "worker_b": 0x08000146,
+            "Reset_Handler": 0x08000124,
+            "fixture_halt": 0x08000144,
+            "worker_b": 0x08000148,
         },
     }
     if order_policy not in policies:
@@ -1217,10 +1229,10 @@ def validate_relocated_function_cluster(
             )
     if (
         int(reference_text["size"]) != 88
-        or int(candidate_text["size"]) != 86
+        or int(candidate_text["size"]) != 88
     ):
         raise RuntimeError(
-            f"{order_policy} did not account for the two-byte linker slack"
+            f"{order_policy} did not account for function-alignment padding"
         )
     old_text = candidate_inventory["sections"].get(".bolt.org.text")
     if old_text is None or int(old_text["size"]) != 0:
@@ -1373,8 +1385,9 @@ def validate_relocated_function_cluster(
         "order_policy": order_policy,
         "program_headers_exact": True,
         "mapped_executable_span_bytes": 88,
-        "live_text_bytes": 86,
-        "linker_capacity_slack_bytes": 2,
+        "live_text_bytes": 88,
+        "function_alignment_padding_bytes": 2,
+        "linker_capacity_slack_bytes": 0,
         "retained_original_text_bytes": int(old_text["size"]),
         "entry": candidate_inventory["entry"],
         "vector_words": list(candidate_vector),
@@ -1384,6 +1397,98 @@ def validate_relocated_function_cluster(
         "vector_relocations": vector_relocations,
         "repaired_control_transfers": repaired_control_transfers,
         "origin_summary": origin_summary,
+    }
+
+
+def validate_profile_guided_alignment(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate admitted hot-block padding and its exact firmware footprint."""
+    reference_inventory = elf_inventory(reference)
+    candidate_inventory = elf_inventory(candidate)
+    if reference_inventory["segments"] != candidate_inventory["segments"]:
+        raise RuntimeError("block alignment changed qualified PT_LOAD ranges")
+
+    expected_symbols = {
+        "hot_worker": 0x08000100,
+        "hot_loop": 0x08000110,
+        "Reset_Handler": 0x0800011A,
+        "fixture_halt": 0x0800012A,
+    }
+    observed_symbols = {
+        name: symbol_address(candidate, name) for name in expected_symbols
+    }
+    if observed_symbols != expected_symbols:
+        raise RuntimeError(
+            "profile alignment symbols differ: "
+            f"expected {expected_symbols}, observed {observed_symbols}"
+        )
+
+    vector = section_bytes(candidate, ".isr_vector")
+    if len(vector) < 8 or struct.unpack_from("<I", vector, 4)[0] != (
+        expected_symbols["Reset_Handler"] | 1
+    ):
+        raise RuntimeError("aligned Reset handler vector was not rebound")
+
+    text = candidate_inventory["sections"][".text"]
+    reference_text = reference_inventory["sections"][".text"]
+    if int(text["alignment"]) != 16:
+        raise RuntimeError("aligned Thumb text did not retain 16-byte alignment")
+
+    expected_origin_outputs = {
+        0x08000100: 0x08000100,
+        0x08000102: 0x08000102,
+        0x08000104: 0x08000104,
+        0x08000106: 0x08000106,
+        0x08000108: 0x08000108,
+        0x0800010A: 0x08000110,
+        0x0800010C: 0x08000112,
+        0x0800010E: 0x08000114,
+        0x08000112: 0x08000116,
+        0x08000114: 0x08000118,
+    }
+    observed_origin_outputs: dict[int, int] = {}
+    if final_layout is not None:
+        worker = next(
+            (item for item in final_layout.get("functions", [])
+             if item.get("name") == "hot_worker"),
+            None,
+        )
+        if worker is None:
+            raise RuntimeError("aligned layout omitted hot_worker")
+        if "block_alignment" not in worker["firmware_modification_reasons"]:
+            raise RuntimeError(
+                "aligned worker lacks block-alignment pass ledger"
+            )
+        observed_origin_outputs = {
+            int(item["original_address"]): int(item["output_address"])
+            for item in worker["instruction_origins"]
+        }
+        if observed_origin_outputs != expected_origin_outputs:
+            raise RuntimeError(
+                "aligned instruction origins are not exact: "
+                f"{observed_origin_outputs}"
+            )
+
+    return {
+        "status": "accepted",
+        "placement_policy": "reuse_linker_qualified_input_text",
+        "program_headers_exact": True,
+        "function_alignment": 1,
+        "basic_block_alignment": 16,
+        "aligned_block_original_address": 0x0800010A,
+        "aligned_block_output_address": 0x08000110,
+        "executed_alignment_padding_bytes": 6,
+        "reference_text_capacity_bytes": int(reference_text["size"]),
+        "live_candidate_text_bytes": int(text["size"]),
+        "text_section_alignment": int(text["alignment"]),
+        "moved_symbols": observed_symbols,
+        "origin_outputs": {
+            hex(key): hex(value)
+            for key, value in observed_origin_outputs.items()
+        },
+        "origin_map_exact": final_layout is not None,
     }
 
 
@@ -2313,6 +2418,28 @@ def build_m3_function_cluster_fixture(
         str(M3_FUNCTION_CLUSTER_LINKER), str(object_path), "-o", str(image),
     ], logs / f"build-m3-{stem}-image.log"),
         f"M3 {variant} clustering image build")
+    return image
+
+
+def build_m3_alignment_fixture(
+    output: Path, logs: Path, *, tight: bool = False,
+) -> Path:
+    """Build the relocation-complete profile-guided alignment fixture."""
+    stem = "alignment-tight" if tight else "alignment"
+    object_path = output / f"firm-bolt-cortex-m3-{stem}.o"
+    image = output / f"firm-bolt-cortex-m3-{stem}-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_ALIGNMENT_SOURCE),
+        "-o", str(object_path),
+    ], logs / f"build-m3-{stem}-object.log"),
+        f"M3 {stem} object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "-T",
+        str(M3_ALIGNMENT_TIGHT_LINKER if tight else M3_ALIGNMENT_LINKER),
+        str(object_path), "-o", str(image),
+    ], logs / f"build-m3-{stem}-image.log"),
+        f"M3 {stem} image build")
     return image
 
 
@@ -3836,6 +3963,10 @@ def main() -> int:
             "exec-count", "hfsort", "pettis-hansen", "cdsort",
         )
     }
+    m3_alignment_image = build_m3_alignment_fixture(output, logs)
+    m3_alignment_tight_image = build_m3_alignment_fixture(
+        output, logs, tight=True
+    )
     m3_exidx_image = build_m3_exidx_fixture(output, logs)
     m3_exidx_generic_image = build_m3_generic_exidx_fixture(output, logs)
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
@@ -4022,6 +4153,15 @@ def main() -> int:
              "--relocs", "--use-old-text",
              "--align-functions=4", "--align-text=4",
              "--reorder-functions=cdsort",
+         ]),
+        ("m3_profile_alignment", "cortex-m3", m3_alignment_image,
+         {".isr_vector": None}, [
+             f"--data={M3_ALIGNMENT_PROFILE}",
+             "--relocs", "--use-old-text",
+             "--align-functions=1", "--align-blocks",
+             "--block-alignment=16",
+             "--firmbolt-allow-block-alignment",
+             "--firmbolt-preserve-guest-instruction-count=false",
          ]),
         ("m3_exidx_function_reorder", "cortex-m3", m3_exidx_image, {}, [
              "--relocs", "--use-old-text", "--reorder-functions=user",
@@ -4431,6 +4571,13 @@ def main() -> int:
                         "M3 native ABS32 jump-table fixture did not publish "
                         "exactly one relocation-safe hot-index promotion"
                     )
+            if label == "m3_profile_alignment":
+                if int(summary["firmware_modification_reason_counts"]
+                       ["block_alignment"]) != 1:
+                    raise RuntimeError(
+                        "M3 alignment fixture did not record exactly one "
+                        "profile-aligned function"
+                    )
         literal_pool_placement_validation = parse_literal_pool_summary(
             process.stdout + process.stderr
         )
@@ -4474,6 +4621,7 @@ def main() -> int:
             "m3_function_split": validate_relocated_function_split,
             "m3_cdsplit": validate_relocated_cdsplit,
         }.get(label)
+        alignment_validation = label == "m3_profile_alignment"
         results[label] = {
             "cpu": cpu,
             "bolt_summary": [
@@ -4495,6 +4643,7 @@ def main() -> int:
                     or "Number of clusters:" in line
                     or "Final average call distance" in line
                     or "rebuilt ARM EHABI index" in line
+                    or "Cortex-M alignment qualified" in line
                 )
             ],
             "validation": (
@@ -4508,6 +4657,8 @@ def main() -> int:
                     order_policy=clustering_order_policy,
                 )
                 if clustering_order_policy is not None
+                else validate_profile_guided_alignment(image, candidate)
+                if alignment_validation
                 else exidx_validator(image, candidate)
                 if exidx_layout
                 else split_validation(image, candidate)
@@ -4527,6 +4678,7 @@ def main() -> int:
                     and clustering_order_policy is None
                     and relocation_order_policy is None
                     and not exidx_layout
+                    and not alignment_validation
                 ) else None
             ),
             "provenance_validation": provenance_validation,
@@ -4599,6 +4751,12 @@ def main() -> int:
                     validate_relocated_function_cluster(
                         image, candidate, final_layout,
                         order_policy=clustering_order_policy,
+                    )
+                )
+            elif alignment_validation:
+                results[label]["validation"] = (
+                    validate_profile_guided_alignment(
+                        image, candidate, final_layout,
                     )
                 )
             elif exidx_layout:
@@ -6134,6 +6292,67 @@ def main() -> int:
             "unadmitted Cortex-M function splitting did not reject"
         )
 
+    alignment_without_contract = run(
+        [str(args.bolt.resolve()), str(m3_alignment_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         f"--data={M3_ALIGNMENT_PROFILE}",
+         "--relocs", "--use-old-text", "--align-functions=1",
+         "--align-blocks", "--block-alignment=16",
+         "--firmbolt-preserve-guest-instruction-count=false",
+         "-o", str(output / "must-not-emit-unadmitted-alignment.elf")],
+        logs / "reject-unadmitted-block-alignment.log",
+    )
+    if (
+        alignment_without_contract.returncode == 0
+        or "basic-block alignment inserts executed padding" not in
+        (alignment_without_contract.stdout
+         + alignment_without_contract.stderr)
+    ):
+        raise RuntimeError(
+            "unadmitted Cortex-M block alignment did not reject"
+        )
+
+    alignment_with_count_contract = run(
+        [str(args.bolt.resolve()), str(m3_alignment_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         f"--data={M3_ALIGNMENT_PROFILE}",
+         "--relocs", "--use-old-text", "--align-functions=1",
+         "--align-blocks", "--block-alignment=16",
+         "--firmbolt-allow-block-alignment",
+         "-o", str(output / "must-not-emit-counted-alignment.elf")],
+        logs / "reject-block-alignment-count-contract.log",
+    )
+    if (
+        alignment_with_count_contract.returncode == 0
+        or "incompatible with the default guest instruction-count contract"
+        not in (alignment_with_count_contract.stdout
+                + alignment_with_count_contract.stderr)
+    ):
+        raise RuntimeError(
+            "Cortex-M block alignment violated the instruction-count gate"
+        )
+
+    alignment_over_budget = run(
+        [str(args.bolt.resolve()), str(m3_alignment_tight_image),
+         "--firmbolt-cortex-m-cpu=cortex-m3",
+         f"--data={M3_ALIGNMENT_PROFILE}",
+         "--relocs", "--use-old-text", "--align-functions=1",
+         "--align-blocks", "--block-alignment=16",
+         "--firmbolt-allow-block-alignment",
+         "--firmbolt-preserve-guest-instruction-count=false",
+         "-o", str(output / "must-not-emit-over-budget-alignment.elf")],
+        logs / "reject-over-budget-block-alignment.log",
+    )
+    if (
+        alignment_over_budget.returncode == 0
+        or "requires every allocatable section to fit an existing qualified "
+           "range" not in (alignment_over_budget.stdout
+                            + alignment_over_budget.stderr)
+    ):
+        raise RuntimeError(
+            "over-budget Cortex-M alignment did not reject atomically"
+        )
+
     cdsplit_without_compact_model = run(
         [str(args.bolt.resolve()), str(m3_cdsplit_image),
          "--firmbolt-cortex-m-cpu=cortex-m3",
@@ -6827,6 +7046,14 @@ def main() -> int:
             ("cdsort", "m3_cluster_cdsort"),
         )
     }
+    m3_alignment_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_single_word_execution(
+            m3_alignment_image, candidates["m3_profile_alignment"], output,
+            args.fastdyn.resolve(), "profile-guided-alignment",
+            expected_word=10,
+        )
+    )
     m3_exidx_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -6960,6 +7187,7 @@ def main() -> int:
             m3_profile_function_reorder_execution,
             m3_callgraph_function_reorder_execution,
             *m3_cluster_executions.values(),
+            m3_alignment_execution,
             m3_exidx_execution,
             m3_exidx_generic_execution,
             m3_function_split_execution,
@@ -6995,7 +7223,8 @@ def main() -> int:
                 "default; explicitly disabled only for the "
                 "m0plus_relocation_clone, m0plus_branch, "
                 "m0plus_call_veneer, m3_taildup and "
-                "m3_taildup_propagation fixtures"
+                "m3_taildup_propagation fixtures; m3_profile_alignment "
+                "admits executed alignment padding"
                 "; the m3_loop_inversion fixture also admits branch-count "
                 "changes; m0plus_icp, m0plus_icp_tail, "
                 "m0plus_icp_method_load, m3_icp, "
@@ -7015,7 +7244,8 @@ def main() -> int:
             ),
             "execution_multiplicity_changes": (
                 "explicitly admitted only for the m3_taildup, "
-                "m3_taildup_propagation and m3_loop_inversion fixtures; "
+                "m3_taildup_propagation, m3_loop_inversion and "
+                "m3_profile_alignment fixtures; "
                 "the propagation fixture separately admits deletion of a "
                 "register-only definition proven not live-out; executed "
                 "branch-identity "
@@ -7107,6 +7337,14 @@ def main() -> int:
                           "orders inside the linker-qualified input .text "
                           "flash extent; algorithm effects are compared "
                           "without changing profile evidence",
+            },
+            "m3_profile_alignment": {
+                "path": str(M3_ALIGNMENT_PROFILE),
+                "sha256": sha256(M3_ALIGNMENT_PROFILE),
+                "format": "BOLT function-relative branch/call profile",
+                "policy": "ordinary BOLT hot-block alignment under an "
+                          "explicit executed-padding/timing contract and "
+                          "linker-qualified flash capacity",
             },
             "m3_function_split": {
                 "path": str(M3_FUNCTION_SPLIT_PROFILE),
@@ -7212,6 +7450,10 @@ def main() -> int:
             "unadmitted_inlining_rejected": True,
             "unadmitted_tail_duplication_rejected": True,
             "unadmitted_function_splitting_rejected": True,
+            "unadmitted_block_alignment_rejected": True,
+            "block_alignment_under_instruction_count_contract_rejected":
+                True,
+            "over_budget_block_alignment_rejected": True,
             "cdsplit_without_compact_branch_model_rejected": True,
             "tail_duplication_propagation_without_contract_rejected": True,
             "unadmitted_loop_inversion_left_unchanged": True,
@@ -7265,6 +7507,8 @@ def main() -> int:
             m3_callgraph_function_reorder_execution,
         "m3_function_clustering_architectural_execution":
             m3_cluster_executions,
+        "m3_profile_guided_alignment_architectural_execution":
+            m3_alignment_execution,
         "m3_exidx_function_reorder_architectural_execution":
             m3_exidx_execution,
         "m3_exidx_generic_function_reorder_architectural_execution":
@@ -7371,6 +7615,7 @@ def main() -> int:
                 "opt-in native BOLT read-only-load simplification for linked allocatable non-writable relocation-free scalar data on Thumb-2, using flag-preserving MOVW/MOVT materialization under an explicit read/fault/timing-elision contract, exact transformed-source origins, compact in-place emission, and Cortex-M3 execution",
                 "explicit ARM relocation mode with native BOLT user-directed, profile exec-count and call-graph CDSort whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
                 "native BOLT HFSort and Pettis-Hansen call-graph clustering, distinguished from exec-count and CDSort under one frozen profile, with linked caller/callee adjacency, repaired direct calls, exact relocation/origin ledgers, separately accounted linker alignment slack, unchanged executable PT_LOAD ranges, and Cortex-M3 execution",
+                "native BOLT function and profile-guided basic-block alignment in explicit relocation mode, with executed-padding/timing admission, the default guest-instruction-count gate, exact instruction origins across padding, post-alignment branch repair, linker-owned capacity accounting, atomic over-budget rejection, and Cortex-M3 execution",
                 "fixed-footprint ARM EHABI SHT_ARM_EXIDX reconstruction for relocation-complete Cortex-M function ordering, including PREL31 decode/re-encode, address sorting, CANTUNWIND and inline compact model identity, live .text sh_link retargeting, exact PT_ARM_EXIDX preservation, explicit rejection of external extab, split, folded, empty and non-contiguous coverage, and Cortex-M3 execution",
                 "opt-in native BOLT Profile2 hot/cold function splitting inside explicit linker-owned capacity, with vector/secondary entries protected, exact fragment and instruction-origin ledgers, widened cross-fragment branch repair, live SHT_REL ownership, unchanged PT_LOAD ranges, held-out cold-path Cortex-M3 execution, and atomic rejection without the fragment-placement/branch-event contract",
                 "opt-in native BOLT loop inversion for profiled Thumb loops with branch-timing admission, exact moved/synthesized instruction origins, compact in-place emission, and Cortex-M3 execution",
@@ -7457,6 +7702,8 @@ def main() -> int:
             str(candidates["m3_cluster_pettis_hansen"]),
         "m3_cluster_cdsort_candidate":
             str(candidates["m3_cluster_cdsort"]),
+        "m3_profile_alignment_candidate":
+            str(candidates["m3_profile_alignment"]),
         "m3_exidx_function_reorder_candidate":
             str(candidates["m3_exidx_function_reorder"]),
         "m3_exidx_generic_function_reorder_candidate":
