@@ -26,16 +26,20 @@ we reserve up to one installation per target per recorded replay. A new
 guard charges all lookup traffic at its exit. The separate SPEC cost model
 accounts for its variants’ arming path. Set ``c_link`` to a calibrated nonnegative cost per GENERAL installation
 or ``min_target_hits`` to require a higher aggregate exact hit count.
+For returns, ``min_return_share`` can additionally require one target to
+account for a strict majority of all exactly attributed steady return hits.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from fractions import Fraction
 import math
 from typing import Any, ClassVar
 
 from ..analysis.api import ScopeRef
 from ..analysis.profitability import DEFAULTS
+from ..formats.profile_v1 import METHOD
 from .base import Budgets, EditKind, GuardedSlot, Outcome, PassDescriptor, PassResult
 from ._b3util import refusal_result
 
@@ -45,6 +49,11 @@ MAX_UNITS = 256
 
 
 def _descriptor(name: str) -> PassDescriptor:
+    params = {"targets_per_exit": int, "max_units": int, "min_pass_share": float,
+              "c_lookup": float, "c_guard": float, "c_fail": float,
+              "min_target_hits": int, "c_link": float, "compact_guard": bool}
+    if name == "chain-returns":
+        params["min_return_share"] = float
     return PassDescriptor(
         name=name, version=1, unit_scope="snapshot",
         requires=(("hostops", 1), ("return-edges", 1), ("envlayout", 1), ("profile.counts", 1)),
@@ -53,9 +62,37 @@ def _descriptor(name: str) -> PassDescriptor:
         budgets=Budgets(max_wall_s=120.0, max_units=MAX_UNITS),
         preserves=frozenset({"profile.counts", "cfg.known_edges"}),
         invalidates=frozenset({"code", "meta", "layout"}),
-        params_schema={"targets_per_exit": int, "max_units": int, "min_pass_share": float,
-                       "c_lookup": float, "c_guard": float, "c_fail": float,
-                       "min_target_hits": int, "c_link": float, "compact_guard": bool})
+        params_schema=params)
+
+
+def _exact_return_hits(exits, profile_view) -> int | None:
+    """Resolve exact steady lookup-hit traffic once per return source.
+
+    The complete profile supplies outbound lookup edges, including external
+    and refused continuation hits. Check the source for exact coverage, and
+    require positive traffic to be attributable to one lookup tail. The edge
+    entering steady belongs to that phase even if its source entered in boot.
+    """
+    if profile_view is None or profile_view.profile is None:
+        return None
+    collection = profile_view.profile.collection
+    if collection.get("method") != METHOD or collection.get("complete") is not True:
+        return None
+    counts_by_source = Counter(row.uid for row in exits if row.exit_kind == "goto_ptr")
+    total = 0
+    seen = set()
+    for row in exits:
+        if row.exit_kind != "goto_ptr" or row.exit_class != "return" or row.uid in seen:
+            continue
+        seen.add(row.uid)
+        entries = profile_view.count(row.uid, "steady", "entries")
+        hits = sum(c.count for c in row.candidates)
+        if (not entries.exact
+                or any(c.status != "exact" for c in row.candidates)
+                or (hits and counts_by_source[row.uid] != 1)):
+            return None
+        total += hits
+    return total
 
 
 def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResult:
@@ -86,6 +123,19 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
     ctx.analysis("envlayout", sid)
     profile_view = ctx.profile("steady")
     profile = profile_view.profile if profile_view is not None else None
+    dominance_stats = {}
+    if "min_return_share" in p:
+        share = float(p["min_return_share"])
+        if not 0.5 < share <= 1.0:
+            raise ValueError("min_return_share must be greater than 0.5 and at most 1")
+        total_hits = _exact_return_hits(edges.exits, profile_view)
+        if total_hits is None:
+            return PassResult(Outcome.SKIPPED_UNKNOWN, "return_traffic_inexact")
+        if not total_hits:
+            return PassResult(Outcome.NO_CHANGE, "no_exact_return_traffic")
+        min_target_hits = max(min_target_hits, math.ceil(total_hits * Fraction(str(share))))
+        dominance_stats = {"train_exact_return_hits": total_hits,
+                           "min_return_share": share, "min_exact_target_hits": min_target_hits}
     collection = profile.collection if profile is not None else {}
     replays = max(1, len(collection.get("runs", ())), collection.get("repetitions") or 0)
     units = b3.units()
@@ -192,7 +242,7 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
              "estimated_train_link_installs": installed_w,
              "train_guard_attempts": guard_attempts,
              "training_replays": replays,
-             "targets_without_estimated_reuse": targets_without_reuse}
+             "targets_without_estimated_reuse": targets_without_reuse, **dominance_stats}
     if min_target_hits:
         stats["targets_below_minimum_exact_hits"] = targets_below_threshold
     if n_slots:

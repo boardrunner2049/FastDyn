@@ -1,0 +1,10 @@
+schema = "scopt.pipeline"
+version = 1
+name = "dominant-return"
+description = "Install one compact GENERAL return guard for a dominant exact training target."
+allowed_capabilities = ["REDIRECT_EXIT"]
+
+[[pass]]
+name = "chain-returns"
+version = 1
+params = { min_return_share = 0.9, compact_guard = true, targets_per_exit = 1, max_units = 1 }

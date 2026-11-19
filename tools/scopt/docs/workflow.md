@@ -140,6 +140,29 @@ $PY tests/qemu/b5_evaluate.py --out-root <out root> --out <out root>/evaluation/
 The gate and evaluation reports, and the map from each requirement to its evidence,
 are kept by the maintainer and are not part of the repository.
 
+## Try a dominant return
+
+The built-in `dominant-return` pipeline considers one compact GENERAL guard on an
+admitted return. A continuation needs at least 90% of all captured, exact steady
+return lookup hits. The denominator includes hits to external and otherwise
+ineligible targets. The pass leaves the cache without a new guard when training
+is incomplete, a positive lookup count cannot be attributed to one return tail,
+or the normal admission and profitability checks reject the target.
+
+Use a complete steady training profile and the matching B3 inputs.
+
+```sh
+scopt optimize "$SNAPSHOT" --pipeline dominant-return --profile "$TRAIN_PROFILE" \
+    --store "$STORE" --qemu "$QEMU" --v6-exe "$QEMU_SHA256" \
+    --runtime-identity "$RUNTIME_IDENTITY" --prep "$PREP" --elf "$ELF" --json
+```
+
+To change the training threshold, pass `--params` with a JSON file such as
+`{"chain-returns": {"min_return_share": 0.95}}`. Valid shares are greater than
+0.5 and at most 1. The pass reports the exact denominator and the required
+integer target count. Normal GENERAL validation and held-out performance
+selection also apply to this pipeline.
+
 ## Choose a cache for deployment
 
 A successful package contains a candidate that passed the optimizer’s correctness checks. Its artifact ID identifies content and provenance. For offline optimization, the JSON field `artifact_dir` gives the candidate and `selected_artifact` defaults to the input warm snapshot. To promote a candidate on performance, measure it against that original warm snapshot.

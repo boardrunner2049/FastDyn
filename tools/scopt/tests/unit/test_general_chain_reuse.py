@@ -4,19 +4,22 @@ from types import SimpleNamespace
 import pytest
 
 from scopt.analysis.return_edges import Candidate
+from scopt.formats.profile_v1 import Count, METHOD
+from scopt.guard import COMPACT_GUARD
 from scopt.ids import TBKey
+from scopt.manager import load_pipeline
 from scopt.passes.base import Outcome
-from scopt.passes.chain_returns import general_slots
+from scopt.passes.chain_returns import _exact_return_hits, general_slots
 
 
 def run_slots(monkeypatch, hits, *, params=None, replays=1, exit_class="return",
-              existing=()):
+              existing=(), complete=True, source_status="exact"):
     monkeypatch.setattr("scopt.guard.guard_key", lambda flags, cs: (flags, cs))
     candidates = tuple(
         Candidate(f"target-{i}", i * 0x200, count, status, 1.0, count, i, ())
         for i, (count, status) in enumerate(hits, start=1)
     )
-    exit_row = SimpleNamespace(exit_class=exit_class, uid="source", tail_off=0,
+    exit_row = SimpleNamespace(exit_class=exit_class, exit_kind="goto_ptr", uid="source", tail_off=0,
                                admitted=True, free_slots=(0, 1), exit_id="exit",
                                candidates=candidates)
     units = {item.dst: SimpleNamespace(uid=item.dst, key=TBKey(item.vaddr, None, 2, 0, 0))
@@ -27,14 +30,17 @@ def run_slots(monkeypatch, hits, *, params=None, replays=1, exit_class="return",
                           exit_plan=lambda uid, off: plan))
     b3 = SimpleNamespace(layout_bound=True, offsets=object(), units=lambda: units)
     rows = SimpleNamespace(exits=(exit_row,))
-    collection = {"runs": [{}] * replays, "repetitions": 1}
-    profile = SimpleNamespace(profile=SimpleNamespace(collection=collection))
+    collection = {"runs": [{}] * replays, "repetitions": 1, "method": METHOD, "complete": complete}
+    profile = SimpleNamespace(profile=SimpleNamespace(collection=collection),
+                              count=lambda *_: Count(sum(n for n, _ in hits), source_status))
     ctx = SimpleNamespace(b3=b3, params=params or {}, snapshot_id="s",
                           analysis=lambda name, scope: SimpleNamespace(value=rows),
                           profile=lambda phase: profile, budget=lambda: None)
     redirected = []
     edits = SimpleNamespace(redirect_exit=lambda slot, **kw: redirected.append(slot))
     result = general_slots(view, ctx, edits, exit_class)
+    if params and params.get("min_return_share") and redirected:
+        assert [row.guard_template_id for row in redirected] == [COMPACT_GUARD]
     return result, [row.target_vaddr for row in redirected]
 
 
@@ -87,3 +93,49 @@ def test_two_marginally_profitable_targets_share_one_fresh_guard(monkeypatch):
     assert result.stats["estimated_train_link_installs"] == 2
     assert result.stats["estimated_train_lookups_avoided"] == 2
     assert result.stats["train_guard_attempts"] == 4
+
+
+def test_dominant_return_uses_existing_compact_general_guard(monkeypatch):
+    p, = load_pipeline("dominant-return").passes
+    assert p.name == "chain-returns" and p.version == 1
+    result, targets = run_slots(monkeypatch, [(11, "exact"), (1, "exact")], params=p.params)
+    assert result.outcome == Outcome.CANDIDATE
+    assert targets == [0x200]
+    assert result.stats["train_exact_return_hits"] == 12
+    assert result.stats["min_exact_target_hits"] == 11
+
+
+def test_dominant_return_stays_warm_when_no_target_meets_exact_share(monkeypatch):
+    p, = load_pipeline("dominant-return").passes
+    result, targets = run_slots(monkeypatch, [(89, "exact"), (11, "exact")], params=p.params)
+    assert not targets and result.stats["slots"] == 0
+    assert result.stats["train_exact_return_hits"] == 100
+    assert result.stats["min_exact_target_hits"] == 90
+
+
+@pytest.mark.parametrize("complete,status,source", [
+    (False, "exact", "exact"), (True, "lower_bound", "exact"), (True, "exact", "unknown"),
+])
+def test_dominant_return_stays_warm_on_inexact_training(monkeypatch, complete, status, source):
+    p, = load_pipeline("dominant-return").passes
+    result, targets = run_slots(monkeypatch, [(100, "exact"), (1, status)], params=p.params,
+                                complete=complete, source_status=source)
+    assert not targets and result.reason == "return_traffic_inexact"
+    assert result.outcome == Outcome.SKIPPED_UNKNOWN
+
+
+def test_exact_dominance_denominator_includes_refused_and_external_returns():
+    def source(uid, count, dst, reason=(), exit_class="return"):
+        c = Candidate(dst, None, count, "exact", 1.0, count, 1, reason)
+        return SimpleNamespace(uid=uid, exit_kind="goto_ptr", exit_class=exit_class, candidates=(c,))
+
+    collection = {"complete": True, "method": METHOD}
+    # An edge entering steady may have a source whose entries were all in boot.
+    view = SimpleNamespace(profile=SimpleNamespace(collection=collection),
+                           count=lambda uid, *_: Count(0 if uid == "out" else 100, "exact"))
+    rows = [source("hot", 80, "target"),
+            source("out", 12, None, ("continuation_not_in_snapshot",)),
+            source("rejected", 8, "other", ("not_relocatable",)),
+            source("static", 90, "tail", exit_class="static")]
+    assert _exact_return_hits(rows, view) == 100
+    assert _exact_return_hits([*rows, source("hot", 80, "second", exit_class="static")], view) is None
