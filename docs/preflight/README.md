@@ -1896,6 +1896,30 @@ and [validation manifest](evidence/firmbolt-cortex-m-v164-validation.json).
 This milestone adds producer/linker/rewriter correctness and a conservative
 retention boundary; it does not establish a new optimization or speedup.
 
+v165 closes a fail-closed coverage gap inside that retention boundary. The
+v164 policy classified scalar `WLS`, `DLS` and `LE` forms but omitted the MVE
+tail-predicated `WLSTP`, `DLSTP`, `LETP` and `LCTP` families, which manipulate
+the same hidden low-overhead-loop state and, for tail predication, VPR. The ARM
+target now assigns separate typed `branch_future` and `low_overhead_loop`
+effects and retains every scalar and MVE loop-state form as an opaque whole
+function. This prevents the ordinary CFG and dataflow pipeline from silently
+treating those instructions as stateless control flow.
+
+Opaque retention is now auditable rather than represented only by
+`simple=false`. `BinaryFunction` records the exact original offset, opcode and
+typed Cortex-M state effect during disassembly, before an unsupported function's
+instruction map can be discarded. The final pass report persists those records.
+Focused M55 fixtures check scalar `WLS`/`LE`, MVE `WLSTP.8`/`LETP`, and MVE
+`DLSTP.16`/`LCTP`/`LETP`; the Branch Future fixture separately checks exact
+`BF`, `BFCSEL` and `BFL` identities. The unchanged 63/63 production matrix and
+130,082-origin audit pass alongside 91/91 ARM BOLT lit, 13/13 AArch32 JITLink
+lit, 19/19 focused JITLink units, and 131 BOLT unit passes plus 150 explicit
+target skips. Evidence is in the
+[`v165 report`](../../build/preflight/firm-bolt-cortex-m-v165-lob-state-effects-r2/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v165-validation.json).
+This is a safety-model and diagnostic improvement; it does not yet authorize
+layout or optimization inside low-overhead-loop functions.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

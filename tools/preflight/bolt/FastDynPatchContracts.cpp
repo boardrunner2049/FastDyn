@@ -384,6 +384,10 @@ cortexMStateEffectName(MCPlusBuilder::CortexMStateEffect Effect) {
     return "floating_point_context";
   case EffectKind::SecurityState:
     return "security_state";
+  case EffectKind::BranchFuture:
+    return "branch_future";
+  case EffectKind::LowOverheadLoop:
+    return "low_overhead_loop";
   }
   llvm_unreachable("unknown Cortex-M state effect");
 }
@@ -3776,6 +3780,7 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
     json::Array OriginalControlEdgeInventory;
     json::Array PostControlEdgeInventory;
     json::Array InlineJumpTables;
+    json::Array OpaqueCortexMStateEffects;
     bool ControlEdgeSetPreserved = false;
     uint64_t EstimatedOffset = 0;
     uint64_t Ordinal = 0;
@@ -4199,6 +4204,20 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
           }
         }
       }
+    } else {
+      // Unsupported architectural-state instructions deliberately prevent CFG
+      // construction. Preserve their typed effects in the report anyway so a
+      // retained function is auditable by exact original address and opcode,
+      // rather than being reduced to an unexplained simple=false flag.
+      for (const auto &Record : BF.getCortexMStateEffects()) {
+        json::Object Entry;
+        Entry["original_address"] =
+            static_cast<int64_t>(BF.getAddress() + Record.Offset);
+        Entry["opcode"] = BC.MII->getName(Record.Opcode).str();
+        Entry["cortex_m_state_effect"] =
+            cortexMStateEffectName(Record.Effect);
+        OpaqueCortexMStateEffects.push_back(std::move(Entry));
+      }
     }
 
     json::Object Function;
@@ -4232,6 +4251,8 @@ Error FastDynFirmwareReport::runOnFunctions(BinaryContext &BC) {
     Function["injected"] = BF.isInjected();
     Function["original_instructions"] =
         std::move(OriginalInstructionInventory);
+    Function["opaque_cortex_m_state_effects"] =
+        std::move(OpaqueCortexMStateEffects);
     Function["original_control_edges"] =
         std::move(OriginalControlEdgeInventory);
     Function["post_control_edges"] = std::move(PostControlEdgeInventory);

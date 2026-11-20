@@ -206,7 +206,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..2d891bac5b2cb2305ebf988137932f3f
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
 diff --git a/bolt/include/bolt/Core/BinaryFunction.h b/bolt/include/bolt/Core/BinaryFunction.h
-index cbe206ae8846477a763ca02e6825f4a143cb6cb9..bbe0b45f1bbff541497ce858f6c1b57d7162af49 100644
+index cbe206ae8846477a763ca02e6825f4a143cb6cb9..21620518c2ecf7424fe2faa39d779bb5444bb4b6 100644
 --- a/bolt/include/bolt/Core/BinaryFunction.h
 +++ b/bolt/include/bolt/Core/BinaryFunction.h
 @@ -136,6 +136,73 @@ inline raw_ostream &operator<<(raw_ostream &OS,
@@ -301,7 +301,23 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..bbe0b45f1bbff541497ce858f6c1b57d
      SmallPtrSet<MCSymbol *, 4> Symbols;
      DenseMap<const MCSymbol *, BinaryFunction *> ProxySymbols;
      DenseMap<const MCSymbol *, MCSymbol *> ColdSymbols;
-@@ -332,6 +410,70 @@ private:
+@@ -226,6 +304,15 @@ public:
+   using cfi_iterator = CFIInstrMapType::iterator;
+   using const_cfi_iterator = CFIInstrMapType::const_iterator;
+ 
++  /// Exact disassembly-time identity for a Cortex-M architectural-state
++  /// effect. Unsupported functions may release their temporary instruction
++  /// map, so publication/reporting services consume this persistent record.
++  struct CortexMStateEffectRecord {
++    uint32_t Offset;
++    unsigned Opcode;
++    MCPlusBuilder::CortexMStateEffect Effect;
++  };
++
+ private:
+   /// Current state of the function.
+   State CurrentState{State::Empty};
+@@ -332,6 +419,70 @@ private:
    /// In relocation mode we still disassemble and re-assemble such functions.
    bool IsSimple{true};
  
@@ -372,7 +388,32 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..bbe0b45f1bbff541497ce858f6c1b57d
    /// Indication that the function should be ignored for optimization purposes.
    /// If we can skip emission of some functions, then ignored functions could
    /// be not fully disassembled and will not be emitted.
-@@ -1468,6 +1610,79 @@ public:
+@@ -550,6 +701,8 @@ private:
+   using InstrMapType = std::map<uint32_t, MCInst>;
+   InstrMapType Instructions;
+ 
++  SmallVector<CortexMStateEffectRecord, 4> CortexMStateEffects;
++
+   /// We don't decode Call Frame Info encoded in DWARF program state
+   /// machine. Instead we define a "CFI State" - a frame information that
+   /// is a result of executing FDE CFI program up to a given point. The
+@@ -913,6 +1066,15 @@ public:
+     return make_range(Instructions.begin(), Instructions.end());
+   }
+ 
++  void recordCortexMStateEffect(uint32_t Offset, unsigned Opcode,
++                                MCPlusBuilder::CortexMStateEffect Effect) {
++    CortexMStateEffects.push_back({Offset, Opcode, Effect});
++  }
++
++  ArrayRef<CortexMStateEffectRecord> getCortexMStateEffects() const {
++    return CortexMStateEffects;
++  }
++
+   /// Returns whether there are any labels at Offset.
+   bool hasLabelAt(unsigned Offset) const { return Labels.count(Offset) != 0; }
+ 
+@@ -1468,6 +1630,79 @@ public:
    /// Return true if the function could be correctly processed.
    bool isSimple() const { return IsSimple; }
  
@@ -452,7 +493,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..bbe0b45f1bbff541497ce858f6c1b57d
    /// Return true if the function should be ignored for optimization purposes.
    bool isIgnored() const { return IsIgnored; }
  
-@@ -1934,6 +2149,63 @@ public:
+@@ -1934,6 +2169,63 @@ public:
      return *this;
    }
  
@@ -516,7 +557,7 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..bbe0b45f1bbff541497ce858f6c1b57d
    void setPseudo(bool Pseudo) { IsPseudo = Pseudo; }
  
    void setPreserveNops(bool Value) { PreserveNops = Value; }
-@@ -2331,6 +2603,8 @@ public:
+@@ -2331,6 +2623,8 @@ public:
      uint64_t Size = 0;
      for (auto DataIter = Islands->DataOffsets.begin();
           DataIter != Islands->DataOffsets.end(); ++DataIter) {
@@ -630,7 +671,7 @@ index 52b9ccee1f7e13f4243043de7f4ed70aa13088dc..8c95ab83a3eafe27f2bc5659d5d8bcb2
      assert(Labels.count(0) != 0 && "labels must have an entry at 0");
      return Labels.find(0)->second;
 diff --git a/bolt/include/bolt/Core/MCPlusBuilder.h b/bolt/include/bolt/Core/MCPlusBuilder.h
-index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba477573ceb01e 100644
+index 04621e8fad9697e275c1e5df91f49474b2d7f048..c82074a8a3e2a1345aece6516f4af00885571083 100644
 --- a/bolt/include/bolt/Core/MCPlusBuilder.h
 +++ b/bolt/include/bolt/Core/MCPlusBuilder.h
 @@ -18,6 +18,7 @@
@@ -789,7 +830,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    /// Create and return a target-specific MC symbolizer for the \p Function.
    /// When \p CreateNewSymbols is set, the symbolizer can create new symbols
    /// e.g. for jump table references.
-@@ -591,10 +719,54 @@ public:
+@@ -591,10 +719,56 @@ public:
      return Analysis->isCall(Inst) || isTailCall(Inst);
    }
  
@@ -833,6 +874,8 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
 +    EventSchedule,
 +    FloatingPointContext,
 +    SecurityState,
++    BranchFuture,
++    LowOverheadLoop,
 +  };
 +
 +  virtual CortexMStateEffect
@@ -844,7 +887,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    /// Returns the registers that are trusted at function entry.
    ///
    /// Each register should be treated as if a successfully authenticated
-@@ -1170,6 +1342,18 @@ public:
+@@ -1170,6 +1344,18 @@ public:
      return false;
    }
  
@@ -863,7 +906,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    /// Return a number of the operand representing a memory.
    /// Return -1 if the instruction doesn't have an explicit memory field.
    virtual int getMemoryOperandNo(const MCInst &Inst) const {
-@@ -1177,6 +1361,22 @@ public:
+@@ -1177,6 +1363,22 @@ public:
      return -1;
    }
  
@@ -886,7 +929,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    /// Return true if the instruction is encoded using EVEX (AVX-512).
    virtual bool hasEVEXEncoding(const MCInst &Inst) const { return false; }
  
-@@ -1297,6 +1497,11 @@ public:
+@@ -1297,6 +1499,11 @@ public:
      return 0;
    }
  
@@ -898,7 +941,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    /// Return true if \p Inst is a instruction that copies either the frame
    /// pointer or the stack pointer to another general purpose register or
    /// writes it to a memory location.
-@@ -1559,6 +1764,12 @@ public:
+@@ -1559,6 +1766,12 @@ public:
      return Expr;
    }
  
@@ -911,7 +954,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    /// Return a BitVector marking all sub or super registers of \p Reg, including
    /// itself.
    virtual const BitVector &getAliases(MCPhysReg Reg,
-@@ -1616,6 +1827,59 @@ public:
+@@ -1616,6 +1829,59 @@ public:
      llvm_unreachable("not implemented");
    }
  
@@ -971,7 +1014,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    /// Set of Registers used by the Rep instruction
    virtual void getRepRegs(BitVector &Regs) const {
      llvm_unreachable("not implemented");
-@@ -1700,6 +1964,14 @@ public:
+@@ -1700,6 +1966,14 @@ public:
      return 0;
    }
  
@@ -986,7 +1029,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    /// Replace instruction opcode to be a tail call instead of jump.
    virtual bool convertJmpToTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1735,6 +2007,24 @@ public:
+@@ -1735,6 +2009,24 @@ public:
  
    /// Replace instruction with a shorter version that could be relaxed later
    /// if needed.
@@ -1011,7 +1054,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    virtual bool shortenInstruction(MCInst &Inst,
                                    const MCSubtargetInfo &STI) const {
      llvm_unreachable("not implemented");
-@@ -1751,6 +2041,24 @@ public:
+@@ -1751,6 +2043,24 @@ public:
      return false;
    }
  
@@ -1036,7 +1079,7 @@ index 04621e8fad9697e275c1e5df91f49474b2d7f048..f442e8ff23ca2feb4048b3938aba4775
    /// Lower a tail call instruction \p Inst if required by target.
    virtual bool lowerTailCall(MCInst &Inst) {
      llvm_unreachable("not implemented");
-@@ -1789,6 +2097,56 @@ public:
+@@ -1789,6 +2099,56 @@ public:
      return IndirectBranchType::UNKNOWN;
    }
  
@@ -2971,7 +3014,7 @@ index 1402531e0f5e731086cca587e141ba9d78e78e0b..df043f0523561a4262164e1d5c2ad7c1
  }
  
 diff --git a/bolt/lib/Core/BinaryFunction.cpp b/bolt/lib/Core/BinaryFunction.cpp
-index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db394aee0089 100644
+index 8955112a95dcbec0398854856935ef0120f0a3df..cf9813d40caa2e124a0833268789d1f5c7d7fb2d 100644
 --- a/bolt/lib/Core/BinaryFunction.cpp
 +++ b/bolt/lib/Core/BinaryFunction.cpp
 @@ -25,6 +25,7 @@
@@ -3411,7 +3454,16 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
      if (MCSymbol *IslandSym = getOrCreateIslandAccess(Address)) {
        Labels[Offset] = IslandSym;
        return IslandSym;
-@@ -1348,6 +1726,27 @@ Error BinaryFunction::disassemble() {
+@@ -1323,6 +1701,8 @@ Error BinaryFunction::disassemble() {
+   auto &Ctx = BC.Ctx;
+   auto &MIB = BC.MIB;
+ 
++  CortexMStateEffects.clear();
++
+   BC.SymbolicDisAsm->setSymbolizer(MIB->createTargetSymbolizer(*this));
+ 
+   // Insert a label at the beginning of the function. This will be our first
+@@ -1348,6 +1728,27 @@ Error BinaryFunction::disassemble() {
        if (isZeroPaddingAt(Offset))
          break;
  
@@ -3439,7 +3491,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
        BC.errs()
            << "BOLT-WARNING: unable to disassemble instruction at offset 0x"
            << Twine::utohexstr(Offset) << " (address 0x"
-@@ -1364,6 +1763,11 @@ Error BinaryFunction::disassemble() {
+@@ -1364,6 +1765,11 @@ Error BinaryFunction::disassemble() {
        break;
      }
  
@@ -3451,7 +3503,22 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
      // Check integrity of LLVM assembler/disassembler.
      if (opts::CheckEncoding && !BC.MIB->isBranch(Instruction) &&
          !BC.MIB->isCall(Instruction) && !BC.MIB->isNoop(Instruction)) {
-@@ -1519,12 +1923,20 @@ add_instruction:
+@@ -1409,6 +1815,14 @@ Error BinaryFunction::disassemble() {
+       }
+     }
+ 
++    if (BC.isARM()) {
++      const MCPlusBuilder::CortexMStateEffect Effect =
++          BC.MIB->getCortexMStateEffect(Instruction);
++      if (Effect != MCPlusBuilder::CortexMStateEffect::None)
++        recordCortexMStateEffect(static_cast<uint32_t>(Offset),
++                                 Instruction.getOpcode(), Effect);
++    }
++
+     bool IsUnsupported = BC.MIB->isUnsupportedInstruction(Instruction);
+     if (IsUnsupported)
+       setIgnored();
+@@ -1519,12 +1933,20 @@ add_instruction:
        }
      }
  
@@ -3476,7 +3543,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
        // NOTE: disassembly loses the correct size information for noops on x86.
        //       E.g. nopw 0x0(%rax,%rax,1) is 9 bytes, but re-encoded it's only
        //       5 bytes. Preserve the size info using annotations.
-@@ -2575,7 +2987,8 @@ void BinaryFunction::postProcessCFG() {
+@@ -2575,7 +2997,8 @@ void BinaryFunction::postProcessCFG() {
      postProcessProfile();
  
      // Eliminate inconsistencies between branch instructions and CFG.
@@ -3486,7 +3553,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
    }
  
    // The final cleanup of intermediate structures.
-@@ -3262,6 +3675,12 @@ bool BinaryFunction::finalizeCFIState() {
+@@ -3262,6 +3685,12 @@ bool BinaryFunction::finalizeCFIState() {
  }
  
  bool BinaryFunction::requiresPreciseAddressMap() const {
@@ -3499,7 +3566,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
    return opts::UpdateDebugSections || opts::EnableBAT || hasSDTMarker() ||
           hasPseudoProbe();
  }
-@@ -3667,8 +4086,43 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3667,8 +4096,43 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
      if (!BB->analyzeBranch(TBB, FBB, CondBranch, UncondBranch))
        continue;
  
@@ -3545,7 +3612,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
        BB->eraseInstruction(BB->findInstruction(UncondBranch));
  
      // Basic block that follows the current one in the final layout.
-@@ -3682,6 +4136,13 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3682,6 +4146,13 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
        // the conditional branch with an unconditional if required.
        if (CondBranch)
          BB->eraseInstruction(BB->findInstruction(CondBranch));
@@ -3559,7 +3626,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
        if (BB->getSuccessor() == NextBB)
          continue;
        BB->addBranchInstruction(BB->getSuccessor());
-@@ -3702,9 +4163,18 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3702,9 +4173,18 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
            continue;
          }
  
@@ -3579,7 +3646,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
          continue;
        }
  
-@@ -3720,6 +4190,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3720,6 +4200,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          }
          std::swap(TSuccessor, FSuccessor);
          BB->swapConditionalSuccessors();
@@ -3592,7 +3659,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
          auto L = BC.scopeLock();
          if (BLI)
            BLI->removeAnnotation(*CondBranch);
-@@ -3729,10 +4205,28 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3729,10 +4215,28 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          return true;
        };
  
@@ -3622,7 +3689,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
  
        // Update conditional branch destination if needed.
        if (MIB->getTargetSymbol(*CondBranch) != TSuccessor->getLabel()) {
-@@ -3740,9 +4234,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3740,9 +4244,14 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
          MIB->replaceBranchTarget(*CondBranch, TSuccessor->getLabel(), Ctx);
        }
  
@@ -3639,7 +3706,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
  
        if (BC.isX86()) {
          // We are going to generate two branches. Check if their targets are in
-@@ -3756,7 +4255,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
+@@ -3756,7 +4265,12 @@ void BinaryFunction::fixBranches(const BranchLivenessInfo *BLI) {
            swapSuccessors();
        }
  
@@ -3653,7 +3720,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
      }
      // Cases where the number of successors is 0 (block ends with a
      // terminator) or more than 2 (switch table) don't require branch
-@@ -3831,6 +4335,12 @@ void BinaryFunction::postProcessBranches() {
+@@ -3831,6 +4345,12 @@ void BinaryFunction::postProcessBranches() {
        }
        if (!BC.MIB->isTerminator(*LastInstrRI) &&
            !BC.MIB->isCall(*LastInstrRI)) {
@@ -3666,7 +3733,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
          LLVM_DEBUG(dbgs() << "BOLT-DEBUG: adding return to basic block "
                            << BB.getName() << " in function " << *this << '\n');
          MCInst ReturnInstr;
-@@ -4526,14 +5036,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4526,14 +5046,40 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
    setOutputAddress(SymbolInfo->Address);
    setOutputSize(SymbolInfo->Size);
  
@@ -3712,7 +3779,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
          BinaryData *BD = BC.getBinaryDataAtAddress(getAddress() + OldOffset);
          if (!BD)
            continue;
-@@ -4608,9 +5144,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4608,9 +5154,18 @@ void BinaryFunction::updateOutputValues(const BOLTLinker &Linker) {
        // input range. Just assign the BB the output address of the
        // function.
        auto MaybeBBAddress = BC.getIOAddressMap().lookup(BB->getLabel());
@@ -3734,7 +3801,7 @@ index 8955112a95dcbec0398854856935ef0120f0a3df..51cdcece0c27574073356e87b703db39
        BB->setOutputStartAddress(BBAddress);
  
        if (PrevBB) {
-@@ -4915,7 +5460,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
+@@ -4915,7 +5470,8 @@ void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
    LLVM_DEBUG(dbgs() << "BOLT-DEBUG: addRelocation in "
                      << formatv("{0}@{1:x} against {2}\n", *this, Offset,
                                 (Symbol ? Symbol->getName() : "<undef>")));
@@ -4800,10 +4867,10 @@ index a7514d4be945aafb0f78d81b540daa872fa93bdd..397739cfba15bd1555025f58ffae24b6
    FixRelaxationPass.cpp
 diff --git a/bolt/lib/Passes/FastDynPatchContracts.cpp b/bolt/lib/Passes/FastDynPatchContracts.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..a527b815390c87571d07b14b8785ea3a8c51e9fb
+index 0000000000000000000000000000000000000000..217f589ef9f226a7a95fc49cf2c3f15bbb8d2718
 --- /dev/null
 +++ b/bolt/lib/Passes/FastDynPatchContracts.cpp
-@@ -0,0 +1,5486 @@
+@@ -0,0 +1,5507 @@
 +//===- bolt/Passes/FastDynPatchContracts.cpp ------------------------------===//
 +//
 +// Patch-anchor guard for FastDyn's native BOLT pipeline.
@@ -5190,6 +5257,10 @@ index 0000000000000000000000000000000000000000..a527b815390c87571d07b14b8785ea3a
 +    return "floating_point_context";
 +  case EffectKind::SecurityState:
 +    return "security_state";
++  case EffectKind::BranchFuture:
++    return "branch_future";
++  case EffectKind::LowOverheadLoop:
++    return "low_overhead_loop";
 +  }
 +  llvm_unreachable("unknown Cortex-M state effect");
 +}
@@ -8582,6 +8653,7 @@ index 0000000000000000000000000000000000000000..a527b815390c87571d07b14b8785ea3a
 +    json::Array OriginalControlEdgeInventory;
 +    json::Array PostControlEdgeInventory;
 +    json::Array InlineJumpTables;
++    json::Array OpaqueCortexMStateEffects;
 +    bool ControlEdgeSetPreserved = false;
 +    uint64_t EstimatedOffset = 0;
 +    uint64_t Ordinal = 0;
@@ -9005,6 +9077,20 @@ index 0000000000000000000000000000000000000000..a527b815390c87571d07b14b8785ea3a
 +          }
 +        }
 +      }
++    } else {
++      // Unsupported architectural-state instructions deliberately prevent CFG
++      // construction. Preserve their typed effects in the report anyway so a
++      // retained function is auditable by exact original address and opcode,
++      // rather than being reduced to an unexplained simple=false flag.
++      for (const auto &Record : BF.getCortexMStateEffects()) {
++        json::Object Entry;
++        Entry["original_address"] =
++            static_cast<int64_t>(BF.getAddress() + Record.Offset);
++        Entry["opcode"] = BC.MII->getName(Record.Opcode).str();
++        Entry["cortex_m_state_effect"] =
++            cortexMStateEffectName(Record.Effect);
++        OpaqueCortexMStateEffects.push_back(std::move(Entry));
++      }
 +    }
 +
 +    json::Object Function;
@@ -9038,6 +9124,8 @@ index 0000000000000000000000000000000000000000..a527b815390c87571d07b14b8785ea3a
 +    Function["injected"] = BF.isInjected();
 +    Function["original_instructions"] =
 +        std::move(OriginalInstructionInventory);
++    Function["opaque_cortex_m_state_effects"] =
++        std::move(OpaqueCortexMStateEffects);
 +    Function["original_control_edges"] =
 +        std::move(OriginalControlEdgeInventory);
 +    Function["post_control_edges"] = std::move(PostControlEdgeInventory);
@@ -16216,10 +16304,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      writeEHFrameHeader();
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..145255b040c36d3c1e9858d3e93a6c80edfcb92b
+index 0000000000000000000000000000000000000000..4138bed61f313d0adb50b4f026f23dd78d39cbcc
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3422 @@
+@@ -0,0 +1,3453 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -17717,6 +17805,16 @@ index 0000000000000000000000000000000000000000..145255b040c36d3c1e9858d3e93a6c80
 +    case ARM::t2DLS:
 +    case ARM::t2LEUpdate:
 +    case ARM::t2LE:
++    case ARM::MVE_DLSTP_8:
++    case ARM::MVE_DLSTP_16:
++    case ARM::MVE_DLSTP_32:
++    case ARM::MVE_DLSTP_64:
++    case ARM::MVE_WLSTP_8:
++    case ARM::MVE_WLSTP_16:
++    case ARM::MVE_WLSTP_32:
++    case ARM::MVE_WLSTP_64:
++    case ARM::MVE_LETP:
++    case ARM::MVE_LCTP:
 +      return true;
 +    default:
 +      return false;
@@ -17810,6 +17908,27 @@ index 0000000000000000000000000000000000000000..145255b040c36d3c1e9858d3e93a6c80
 +    case ARM::t2TTAT:
 +    case ARM::t2TTT:
 +      return CortexMStateEffect::SecurityState;
++    case ARM::t2BFi:
++    case ARM::t2BFic:
++    case ARM::t2BFr:
++    case ARM::t2BFLi:
++    case ARM::t2BFLr:
++      return CortexMStateEffect::BranchFuture;
++    case ARM::t2WLS:
++    case ARM::t2DLS:
++    case ARM::t2LEUpdate:
++    case ARM::t2LE:
++    case ARM::MVE_DLSTP_8:
++    case ARM::MVE_DLSTP_16:
++    case ARM::MVE_DLSTP_32:
++    case ARM::MVE_DLSTP_64:
++    case ARM::MVE_WLSTP_8:
++    case ARM::MVE_WLSTP_16:
++    case ARM::MVE_WLSTP_32:
++    case ARM::MVE_WLSTP_64:
++    case ARM::MVE_LETP:
++    case ARM::MVE_LCTP:
++      return CortexMStateEffect::LowOverheadLoop;
 +    default:
 +      break;
 +    }
@@ -30425,10 +30544,10 @@ index 0000000000000000000000000000000000000000..3522837c3084fb2b62146ce32728b1db
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumbv8-branch-future-relocations.s b/bolt/test/ARM/thumbv8-branch-future-relocations.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..7ea7b1fa9dc8454d819ad42fcad8db946189584c
+index 0000000000000000000000000000000000000000..91a318cfbd499ed195d335bc8fef725ffa3c481f
 --- /dev/null
 +++ b/bolt/test/ARM/thumbv8-branch-future-relocations.s
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,113 @@
 +## Armv8.1-M branch-future instructions have multiple PC-relative operands,
 +## while ELF carries a relocation only for the long target.  FirmBOLT must not
 +## symbolize the short branch-location or BFCSEL after-target with that record.
@@ -30449,6 +30568,8 @@ index 0000000000000000000000000000000000000000..7ea7b1fa9dc8454d819ad42fcad8db94
 +# RUN:   | FileCheck %s --check-prefix=DISASM
 +# RUN: %python -c "import json; d=json.load(open('%t.json')); print([(f['name'],f['simple'],f['firmware_modified']) for f in d['functions'] if f['name'].endswith('_worker')])" \
 +# RUN:   | FileCheck %s --check-prefix=REPORT
++# RUN: %python -c "import json; d=json.load(open('%t.json')); print([(f['name'],[(hex(e['original_address']),e['opcode'],e['cortex_m_state_effect']) for e in f['opaque_cortex_m_state_effects']]) for f in d['functions'] if f['name'].endswith('_worker')])" \
++# RUN:   | FileCheck %s --check-prefix=EFFECTS
 +
 +# RELOCS-DAG: R_ARM_THM_BF16{{.*}}bf_target
 +# RELOCS-DAG: R_ARM_THM_BF12{{.*}}bfc_target
@@ -30465,6 +30586,7 @@ index 0000000000000000000000000000000000000000..7ea7b1fa9dc8454d819ad42fcad8db94
 +# DISASM: bfl
 +
 +# REPORT: [('bf_worker', False, False), ('bfc_worker', False, False), ('bfl_worker', False, False)]
++# EFFECTS: [('bf_worker', [('0x800000c', 't2BFi', 'branch_future')]), ('bfc_worker', [('0x8000014', 't2BFic', 'branch_future')]), ('bfl_worker', [('0x800001c', 't2BFLi', 'branch_future')])]
 +
 +  .syntax unified
 +  .thumb
@@ -30539,6 +30661,110 @@ index 0000000000000000000000000000000000000000..7ea7b1fa9dc8454d819ad42fcad8db94
 +  .word Reset_Handler
 +  .word 0
 +  .word 0
+diff --git a/bolt/test/ARM/thumbv8-low-overhead-loop-retention.s b/bolt/test/ARM/thumbv8-low-overhead-loop-retention.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..c948c93057e1ee5c676031c55f38dd63995ad0f7
+--- /dev/null
++++ b/bolt/test/ARM/thumbv8-low-overhead-loop-retention.s
+@@ -0,0 +1,98 @@
++## Scalar and MVE tail-predicated low-overhead-loop instructions mutate hidden
++## architectural loop state in addition to their visible LR/VPR operands.
++## FirmBOLT must retain the complete containing function until that state,
++## exception invalidation and implicit branch behavior are represented.
++
++# RUN: llvm-mc -filetype=obj -triple=thumbv8.1m.main-none-eabi \
++# RUN:   -mcpu=cortex-m55 -arm-add-build-attributes %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 \
++# RUN:   --section-start=.isr_vector=0x08001000 -e Reset_Handler \
++# RUN:   %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m55 \
++# RUN:   --frame-opt=all --fastdyn-firmware-report=%t.json \
++# RUN:   -o %t.bolt 2>&1 | FileCheck %s --check-prefix=BOLT
++# RUN: llvm-objdump -d --mcpu=cortex-m55 --no-show-raw-insn %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.json')); print([(f['name'],f['simple'],f['firmware_modified']) for f in d['functions'] if f['name'].endswith('_worker')])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++# RUN: %python -c "import json; d=json.load(open('%t.json')); print([(f['name'],[(hex(e['original_address']),e['opcode'],e['cortex_m_state_effect']) for e in f['opaque_cortex_m_state_effects']]) for f in d['functions'] if f['name'].endswith('_worker')])" \
++# RUN:   | FileCheck %s --check-prefix=EFFECTS
++
++# BOLT: BOLT-INFO: not adding new segments
++
++# DISASM: <scalar_worker>:
++# DISASM: wls lr, r0
++# DISASM: le lr
++# DISASM: <mve_while_worker>:
++# DISASM: wlstp.8 lr, r0
++# DISASM: letp lr
++# DISASM: <mve_do_worker>:
++# DISASM: dlstp.16 lr, r0
++# DISASM: lctp
++# DISASM: letp lr
++
++# REPORT: [('scalar_worker', False, False), ('mve_while_worker', False, False), ('mve_do_worker', False, False)]
++# EFFECTS: [('scalar_worker', [('0x800000c', 't2WLS', 'low_overhead_loop'), ('0x8000012', 't2LEUpdate', 'low_overhead_loop')]), ('mve_while_worker', [('0x8000018', 'MVE_WLSTP_8', 'low_overhead_loop'), ('0x800001e', 'MVE_LETP', 'low_overhead_loop')]), ('mve_do_worker', [('0x8000024', 'MVE_DLSTP_16', 'low_overhead_loop'), ('0x8000028', 'MVE_LCTP', 'low_overhead_loop'), ('0x800002e', 'MVE_LETP', 'low_overhead_loop')])]
++
++  .syntax unified
++  .thumb
++
++  .section .text.entry,"ax",%progbits
++  .p2align 2
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl scalar_worker
++  bl mve_while_worker
++  b mve_do_worker
++  .size Reset_Handler, .-Reset_Handler
++
++  .section .text.workers,"ax",%progbits
++  .p2align 2
++  .globl scalar_worker
++  .type scalar_worker,%function
++  .thumb_func
++scalar_worker:
++  wls lr, r0, .Lscalar_end
++.Lscalar_loop:
++  adds r1, #1
++  le lr, .Lscalar_loop
++.Lscalar_end:
++  bx lr
++  .size scalar_worker, .-scalar_worker
++
++  .p2align 2
++  .globl mve_while_worker
++  .type mve_while_worker,%function
++  .thumb_func
++mve_while_worker:
++  wlstp.8 lr, r0, .Lmve_while_end
++.Lmve_while_loop:
++  nop
++  letp lr, .Lmve_while_loop
++.Lmve_while_end:
++  bx lr
++  .size mve_while_worker, .-mve_while_worker
++
++  .p2align 2
++  .globl mve_do_worker
++  .type mve_do_worker,%function
++  .thumb_func
++mve_do_worker:
++  dlstp.16 lr, r0
++.Lmve_do_loop:
++  lctp
++  nop
++  letp lr, .Lmve_do_loop
++  bx lr
++  .size mve_do_worker, .-mve_do_worker
++
++  .section .isr_vector,"a",%progbits
++  .p2align 2
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++  .word 0
++  .word 0
 diff --git a/bolt/test/link_fdata.py b/bolt/test/link_fdata.py
 index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c050a19b9 100755
 --- a/bolt/test/link_fdata.py
@@ -30600,7 +30826,7 @@ index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c
              # Replace all symbols enclosed in ##
              print(expr[0], re.sub(replace_pat, replace_symbol, expr[1]), file=f)
 diff --git a/bolt/unittests/Core/MCPlusBuilder.cpp b/bolt/unittests/Core/MCPlusBuilder.cpp
-index 606de9fde80f4f24196700c5a2f5b3eb99b39517..d10ce73f947d0e318485b1b3de2521f3ac621692 100644
+index 606de9fde80f4f24196700c5a2f5b3eb99b39517..9cc2f7e7605221f9affaaf515833c8a89b8ef2bc 100644
 --- a/bolt/unittests/Core/MCPlusBuilder.cpp
 +++ b/bolt/unittests/Core/MCPlusBuilder.cpp
 @@ -12,6 +12,11 @@
@@ -30673,7 +30899,7 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..d10ce73f947d0e318485b1b3de2521f3
          DWARFContext::create(*ObjFile), {llvm::outs(), llvm::errs()}));
      ASSERT_FALSE(!BC);
      BC->initializeTarget(std::unique_ptr<MCPlusBuilder>(
-@@ -125,6 +158,1122 @@ protected:
+@@ -125,6 +158,1130 @@ protected:
  };
  } // namespace
  
@@ -30766,6 +30992,14 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..d10ce73f947d0e318485b1b3de2521f3
 +            Effect::FloatingPointContext);
 +  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::t2SG)),
 +            Effect::SecurityState);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::t2BFi)),
++            Effect::BranchFuture);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::t2WLS)),
++            Effect::LowOverheadLoop);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::MVE_WLSTP_8)),
++            Effect::LowOverheadLoop);
++  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::MVE_LCTP)),
++            Effect::LowOverheadLoop);
 +  EXPECT_EQ(BC->MIB->getCortexMStateEffect(MCInstBuilder(ARM::tADDi3)),
 +            Effect::None);
 +}
