@@ -665,6 +665,8 @@ def import_snapshot(prep: str | os.PathLike | None = None, *, sc: str | None = N
             progress(f"import: {res.summary['records']['valid']} records checked; "
                      f"writing the snapshot to {Path(store) / 'snapshots'}")
         write_store(res, store, progress=progress)
+        from .warm_origin import record_import
+        record_import(res.store_dir, sc, prep)
     return res
 
 

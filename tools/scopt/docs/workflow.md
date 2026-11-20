@@ -165,7 +165,9 @@ selection also apply to this pipeline.
 
 ## Choose a cache for deployment
 
-A successful package contains a candidate that passed the optimizer’s correctness checks. Its artifact ID identifies content and provenance. For offline optimization, the JSON field `artifact_dir` gives the candidate and `selected_artifact` defaults to the input warm snapshot. To promote a candidate on performance, measure it against that original warm snapshot.
+A successful package contains a candidate that passed the optimizer’s correctness checks. Its artifact ID identifies content and provenance. For offline optimization, `artifact_dir` identifies the generated candidate. The default deployment choice in `selected_artifact` is the ordinary warm cache recorded by `scopt prepare`. New snapshot imports record cold-capture digests and links from reimported artifacts to their parent snapshot IDs. If scopt cannot establish the original capture, `selected_artifact` is null and `selection_reason` is `warm_baseline_unverified`.
+
+For a staged pipeline across stores, pass the ordinary warm snapshot explicitly with `--warm-baseline "$WARM"`. For an older import, supply its original `--prep "$PREP"` and `--warm-stage "$B4_ARTIFACT"` for each missing intermediate. Scopt checks the capture digest and packaged input/output snapshot IDs. Timing with `--select-with` then compares the complete candidate against ordinary warm, and a losing comparison selects that same ordinary warm cache.
 
 ```sh
 scopt optimize "$SNAPSHOT" --pipeline "$PIPELINE" --store "$STORE" --profile "$PROFILE" \

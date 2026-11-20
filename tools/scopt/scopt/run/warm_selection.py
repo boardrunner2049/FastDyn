@@ -185,7 +185,7 @@ def select_warm_cache(
     training_inputs: Sequence[Path] = (), qemu: Path | None = None, pairs: int = MIN_PAIRS,
     seed: int = 193483, timeout_s: float = 90, alpha: float = DEFAULT_ALPHA,
     training_only: bool = False, expected_artifacts: Mapping[str, Any] | None = None,
-    expected_cases: Mapping[str, Any] | None = None,
+    expected_cases: Mapping[str, Any] | None = None, expected_warm_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Run a predeclared paired campaign; retain warm on weak or invalid candidate evidence.
 
@@ -224,6 +224,8 @@ def select_warm_cache(
                   "cache_sha256": "sha256:" + sha256_sparse(caches[arm])}
             for arm, artifact in artifacts.items()
         }
+        if expected_warm_sha256 is not None and report["artifacts"]["warm"]["cache_sha256"] != expected_warm_sha256:
+            return finish("error", None, "warm_baseline_changed")
         same = (report["artifacts"]["warm"]["cache_sha256"] ==
                 report["artifacts"]["candidate"]["cache_sha256"])
         report["byte_identical"] = same

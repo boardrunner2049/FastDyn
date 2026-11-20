@@ -76,9 +76,12 @@ def _inline_pipeline(pipeline, enable, only):
 
 
 def _select_output(doc, original_snapshot, cases_path, out, timing=None):
+    doc["warm_baseline"] = str(original_snapshot) if original_snapshot is not None else None
+    doc["warm_baseline_sha256"] = (timing or {}).get("expected_warm_sha256")
     if cases_path is None:
-        if original_snapshot is not None:
-            doc.update(selected_artifact=str(original_snapshot), selection_reason="candidate_unmeasured")
+        doc.update(selected_artifact=str(original_snapshot) if original_snapshot is not None else None,
+                   selection_reason="candidate_unmeasured" if original_snapshot is not None
+                   else "warm_baseline_unverified")
         return
     from .select_warm import _cases
     from ..run.warm_selection import select_warm_cache
@@ -123,6 +126,10 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
               help="--b3: scopt prepare dir (patch-plan content for patch-join).")
 @click.option("--elf", type=click.Path(exists=True, dir_okay=False),
               help="--b3: guest firmware ELF (sha256 must equal the bundle image_hash).")
+@click.option("--warm-baseline", type=click.Path(path_type=Path, exists=True, file_okay=False),
+              help="Ordinary warm store snapshot, including when it is in another store.")
+@click.option("--warm-stage", multiple=True, type=click.Path(path_type=Path, exists=True, file_okay=False),
+              help="Published intermediate artifact proving a missing reimport edge (repeatable).")
 @click.option("--select-with", type=click.Path(path_type=Path, exists=True, dir_okay=False),
               help="After packaging, compare against the original warm snapshot using these timing cases.")
 @click.option("--selection-out", type=click.Path(path_type=Path, file_okay=False),
@@ -131,7 +138,7 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @click.option("--json", "as_json", is_flag=True)
 def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, params_file, b3_mode,
                  ri_file, v6_exes, selftest_file, prep, elf, as_json, select_with=None, selection_out=None,
-                 qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05):
+                 qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=()):
     """Run PIPELINE on SNAPSHOT, link, validate (V1-V9) and publish the artifact.
 
     SNAPSHOT is a store snapshot directory or a SnapshotId in --store. Exit
@@ -145,7 +152,21 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
     if bool(select_with) != bool(selection_out):
         raise click.UsageError("Use --select-with and --selection-out together.")
     timing = dict(qemu=qemu, pairs=pairs, seed=seed, timeout_s=timeout, alpha=alpha)
-    original_snapshot = Path(getattr(snap, "path", snapshot)).resolve()
+    from ..formats.artifact import ArtifactError
+    from ..importer.warm_origin import ordinary_warm
+
+    try:
+        origin = ordinary_warm(Path(getattr(snap, "path", None) or snapshot),
+                                          baseline=warm_baseline, prep=prep, stages=warm_stage)
+    except (OSError, KeyError, ValueError, ArtifactError) as exc:
+        raise click.UsageError(f"Invalid ordinary warm baseline evidence: {exc}") from exc
+    original_snapshot = origin.path if origin else None
+    if origin:
+        timing["expected_warm_sha256"] = origin.cache_sha256
+    if origin is None and (warm_baseline or warm_stage or select_with):
+        raise click.UsageError("Cannot establish the original warm baseline. Supply --warm-baseline "
+                               "and its --prep directory for older imports, and --warm-stage for "
+                               "any missing intermediate artifacts.")
     views, notes = _profiles(profiles, snap)
     params = json.loads(Path(params_file).read_text()) if params_file else None
     from ..passes.base import B3_EDIT_KINDS, NATIVE_EDIT_KINDS, EditKind
@@ -236,7 +257,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
             click.echo(f"REJECTED: {res.reason}")
             click.echo(f"  {res.rejection_path}")
     if doc.get("selection_reason") and not as_json:
-        click.echo(f"deployment selection: {doc['selected_artifact']} ({doc['selection_reason']})")
+        click.echo(f"deployment selection: {doc['selected_artifact'] or 'none'} ({doc['selection_reason']})")
     sys.exit(0 if res.published and doc.get("selection_status") != "error" else 2)
 
 
@@ -295,7 +316,7 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, 
         else:
             click.echo(f"REJECTED ({r['outcome']}): {pk.reason}\n  {doc['rejection_path']}")
     if doc.get("selection_reason") and not as_json:
-        click.echo(f"deployment selection: {doc['selected_artifact']} ({doc['selection_reason']})")
+        click.echo(f"deployment selection: {doc['selected_artifact'] or 'none'} ({doc['selection_reason']})")
     sys.exit(0 if pk.status == "published" and doc.get("selection_status") != "error" else 2)
 
 
