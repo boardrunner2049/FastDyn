@@ -4470,7 +4470,15 @@ Error llvm::bolt::recordFastDynFirmwareRelocationTranslations(
         if (!Blocks)
           continue;
         for (const InlineDataBlock &Block : *Blocks) {
-          NextOutput = alignTo(NextOutput, Block.Alignment);
+          // The MCOrg used for an address-preserving block is relative to the
+          // emitted function fragment.  Recover the address that was actually
+          // linked instead of silently recording the requested absolute
+          // address.  The final firmware-layout gate below rejects the
+          // candidate if moving the function made these differ.
+          NextOutput = Block.PreserveOriginalAddress
+                           ? BF.getOutputAddress() +
+                                 (Block.OriginalAddress - BF.getAddress())
+                           : alignTo(NextOutput, Block.Alignment);
           for (const InlineDataBlockRelocation &Reloc : Block.Relocations) {
             const uint64_t InputAddress =
                 Block.OriginalAddress + Reloc.Offset;
@@ -4529,6 +4537,45 @@ Error llvm::bolt::recordFastDynFirmwareRelocationTranslations(
 }
 
 Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
+  // Correctness must not depend on requesting a diagnostic JSON artifact.
+  // Instruction-owned pools use an MCOrg relative to their emitted function
+  // fragment.  Once JITLink has assigned the function's final address, prove
+  // that every block admitted under the absolute-address contract actually
+  // retained that guest address.  This gate intentionally runs even when
+  // --fastdyn-firmware-report is absent so an ordinary production invocation
+  // cannot publish a layout that only the reporting path would have rejected.
+  for (auto &BFI : BC.getBinaryFunctions()) {
+    BinaryFunction &BF = BFI.second;
+    if (!BF.hasCFG() || !BF.isEmitted())
+      continue;
+    for (const BinaryBasicBlock &BB : BF)
+      for (const MCInst &Inst : BB) {
+        const InlineDataBlocks *Blocks = BC.MIB->getInlineDataBlocks(Inst);
+        if (!Blocks)
+          continue;
+        for (const InlineDataBlock &Block : *Blocks) {
+          if (!Block.PreserveOriginalAddress)
+            continue;
+          if (Block.OriginalAddress < BF.getAddress())
+            return createStringError(
+                inconvertibleErrorCode(),
+                "instruction-owned literal pool in %s has invalid original "
+                "address 0x%" PRIx64,
+                BF.getPrintName().c_str(), Block.OriginalAddress);
+          const uint64_t LinkedBlockOutput =
+              BF.getOutputAddress() +
+              (Block.OriginalAddress - BF.getAddress());
+          if (LinkedBlockOutput != Block.OriginalAddress)
+            return createStringError(
+                inconvertibleErrorCode(),
+                "instruction-owned literal pool in %s changed the "
+                "observable address from 0x%" PRIx64 " to 0x%" PRIx64,
+                BF.getPrintName().c_str(), Block.OriginalAddress,
+                LinkedBlockOutput);
+        }
+      }
+  }
+
   if (!FastDynFirmwareReport::isEnabled())
     return Error::success();
   json::Array Functions;
@@ -4950,13 +4997,23 @@ Error llvm::bolt::finalizeFastDynFirmwareLayout(BinaryContext &BC) {
                   "non-fallthrough owner proof",
                   BF.getPrintName().c_str());
             if (Block.PreserveOriginalAddress) {
-              if (NextOutput > Block.OriginalAddress)
+              const uint64_t LinkedBlockOutput =
+                  BF.getOutputAddress() +
+                  (Block.OriginalAddress - BF.getAddress());
+              if (NextOutput > LinkedBlockOutput)
                 return createStringError(
                     inconvertibleErrorCode(),
                     "instruction-owned literal pool in %s grew past its "
-                    "original address",
+                    "linked address",
                     BF.getPrintName().c_str());
-              NextOutput = Block.OriginalAddress;
+              NextOutput = LinkedBlockOutput;
+              if (NextOutput != Block.OriginalAddress)
+                return createStringError(
+                    inconvertibleErrorCode(),
+                    "instruction-owned literal pool in %s changed the "
+                    "observable address from 0x%" PRIx64 " to 0x%" PRIx64,
+                    BF.getPrintName().c_str(), Block.OriginalAddress,
+                    NextOutput);
             } else {
               NextOutput = alignTo(NextOutput, Block.Alignment);
             }

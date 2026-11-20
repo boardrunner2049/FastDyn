@@ -2074,6 +2074,44 @@ and [validation manifest](evidence/firmbolt-cortex-m-v170-validation.json).
 This is policy, relocation and architectural-execution coverage, not a
 performance or full-parity result.
 
+v171 adds a qualified firmware interpretation of `R_ARM_GOT_PREL` (type 96)
+without importing a hosted-process GOT model. Generic JITLink would otherwise
+synthesize a linker-owned GOT entry, which is not the firmware object's fixed
+RAM slot. FirmBOLT instead requires `--firmbolt-arm-got=fixed-static` and proves
+one exact `.got` slot: the input has no interpreter, the slot lies in a fixed,
+non-executable, file-backed load segment, its word names the exact referenced
+object, no dynamic relocation owns it, and the binding is unique. The emitted
+expression is `G(S)+A-P`; the relocation continues to name `S`, while the
+linker edge binds to a graph-local symbol at the retained `G(S)` address.
+Unqualified, dynamic, ambiguous and synthesized-GOT cases fail closed.
+
+The Cortex-M3 fixture keeps `.got` at `0x20000100`, where the slot contains the
+address `0x20000200` of mutable object `value`. Function ordering moves
+`got_worker` from `0x08000128` to `0x08000100` and its owned relocation from
+`0x08000134` to `0x0800010c`. The final field still resolves to
+`G(value)+6 = 0x20000106`, the live `R_ARM_GOT_PREL value` record and `$d/$t`
+transitions follow the moved pool, and reference/candidate FastDyn execution
+both write `[42]`. The first linked attempt also exposed a publication defect:
+an address-preserving MC fragment is relative to its moved function, while the
+old report recorded the requested absolute pool address. The post-link gate
+now computes the actual linked pool address and rejects a change even when no
+JSON report is requested. A negative candidate moving `0x08000134` to
+`0x0800010c` under the absolute-address contract publishes no output.
+
+The expanded production matrix passes 65/65 profiles and binds 130,138 final
+instruction origins in 1,955 functions, including 98,743 origins in 1,140
+modified functions and 57,601 potentially faulting accesses. Regression gates
+pass 94/94 ARM BOLT lit, 13/13 AArch32 JITLink lit, all 76 JITLink units (19
+focused AArch32), 88 Core units plus 150 target-inapplicable skips, 5 Pass and
+39 Profile units. The mechanical patch SHA-256 is
+`3297667d3ab29dd125436d493012d76acf4bb93b0f04e3612ed04d57c284f86b`;
+it reverse-applies exactly across all 169 overlay files on pinned LLVM.
+Evidence is in the
+[`v171 report`](../../build/preflight/firm-bolt-cortex-m-production-parity-v171-fixed-got-2026-11-20/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v171-validation.json).
+This is a fixed-static firmware-GOT and atomic-publication result, not support
+for Linux dynamic GOTs, GOT-relative `R_ARM_TARGET2`, or a performance claim.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

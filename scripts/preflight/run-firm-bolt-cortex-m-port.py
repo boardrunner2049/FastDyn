@@ -188,6 +188,15 @@ M3_RWPI_SOURCE = (
 M3_RWPI_LINKER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_rwpi.ld"
 )
+M3_GOT_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_got.s"
+)
+M3_GOT_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_got.ld"
+)
+M3_GOT_ORDER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_got.order"
+)
 M3_FUNCTION_SPLIT_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.s"
 )
@@ -2197,6 +2206,152 @@ def validate_rwpi_static_base(
     }
 
 
+def validate_relocated_fixed_static_got(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate an exact retained firmware GOT object and GOT_PREL edge."""
+    ref = elf_inventory(reference)
+    out = elf_inventory(candidate)
+    if ref["segments"] != out["segments"]:
+        raise RuntimeError("fixed-static GOT candidate changed PT_LOAD ranges")
+
+    for name, address, size in (
+        (".got", 0x20000100, 4),
+        (".data", 0x20000200, 4),
+    ):
+        reference_section = ref["sections"][name]
+        candidate_section = out["sections"][name]
+        for field in ("address", "offset", "size", "flags", "alignment"):
+            if candidate_section[field] != reference_section[field]:
+                raise RuntimeError(f"fixed-static GOT changed {name} {field}")
+        if (
+            int(reference_section["address"]) != address
+            or int(reference_section["size"]) != size
+        ):
+            raise RuntimeError(f"fixed-static GOT reference {name} drifted")
+    if section_bytes(reference, ".got") != struct.pack("<I", 0x20000200):
+        raise RuntimeError("reference GOT slot does not name value exactly")
+    if section_bytes(candidate, ".got") != section_bytes(reference, ".got"):
+        raise RuntimeError("candidate changed the retained fixed GOT slot")
+    if section_bytes(candidate, ".data") != struct.pack("<I", 42):
+        raise RuntimeError("candidate changed the fixed GOT target object")
+
+    reference_worker = symbol_address(reference, "got_worker")
+    candidate_worker = symbol_address(candidate, "got_worker")
+    if reference_worker != 0x08000128 or candidate_worker != 0x08000100:
+        raise RuntimeError(
+            "fixed-static GOT worker did not take the frozen moved layout"
+        )
+    reference_relocations = [
+        relocation for relocation in static_relocation_records(
+            reference, ".rel.text"
+        ) if relocation["type"] == 96
+    ]
+    candidate_relocations = [
+        relocation for relocation in static_relocation_records(
+            candidate, ".rel.text"
+        ) if relocation["type"] == 96
+    ]
+    if (
+        len(reference_relocations) != 1
+        or len(candidate_relocations) != 1
+        or reference_relocations[0]["offset"] != 0x08000134
+        or candidate_relocations[0]["offset"] != 0x0800010C
+        or reference_relocations[0]["symbol"] != "value"
+        or candidate_relocations[0]["symbol"] != "value"
+        or candidate_relocations[0]["symbol_value"] != 0x20000200
+    ):
+        raise RuntimeError(
+            "R_ARM_GOT_PREL identity did not follow the live literal word: "
+            f"reference={reference_relocations}, "
+            f"candidate={candidate_relocations}"
+        )
+
+    resolved_fields = []
+    for image, relocation in (
+        (reference, reference_relocations[0]),
+        (candidate, candidate_relocations[0]),
+    ):
+        site = int(relocation["offset"])
+        field = int.from_bytes(
+            virtual_bytes(image, site, 4), "little", signed=False
+        )
+        resolved_fields.append({
+            "site": site,
+            "field": field,
+            "resolved": (site + field) & 0xFFFFFFFF,
+        })
+    if any(item["resolved"] != 0x20000106 for item in resolved_fields):
+        raise RuntimeError(
+            "R_ARM_GOT_PREL output lost G(value)+A-P arithmetic"
+        )
+
+    mapping = validate_arm_mapping_symbols(candidate)
+    text_transitions = {
+        (record["kind"], record["address"])
+        for record in mapping["records"]
+        if record["section"] == ".text"
+    }
+    if ("$d", 0x0800010C) not in text_transitions or (
+            "$t", 0x08000110) not in text_transitions:
+        raise RuntimeError(
+            "moved GOT_PREL word lost exact ARM code/data mapping symbols"
+        )
+
+    origin_summary = None
+    if final_layout is not None:
+        worker = next(
+            function for function in final_layout["functions"]
+            if function["name"] == "got_worker"
+        )
+        pools = worker["owned_literal_pools"]
+        origins = worker["instruction_origins"]
+        if (
+            worker["original_address"] != 0x08000128
+            or worker["output_address"] != 0x08000100
+            or worker["original_size"] != 16
+            or worker["output_size"] != 16
+            or worker["firmware_modification_reasons"]
+                != ["cfg_normalization", "literal_pool_placement"]
+            or worker["firmware_publication_rejections"]
+            or len(origins) != 5
+            or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in origins
+            )
+            or len(pools) != 1
+            or pools[0]["original_address"] != 0x08000134
+            or pools[0]["output_address"] != 0x0800010C
+            or pools[0]["preserve_original_address"]
+            or pools[0]["relocation_count"] != 1
+        ):
+            raise RuntimeError(
+                "fixed-static GOT origin/pool publication ledger changed"
+            )
+        origin_summary = {
+            "instruction_origin_count": len(origins),
+            "pool_original_address": pools[0]["original_address"],
+            "pool_output_address": pools[0]["output_address"],
+            "pool_relocation_count": pools[0]["relocation_count"],
+        }
+
+    return {
+        "status": "accepted",
+        "policy": "exact_retained_nonexec_file_backed_got_slot",
+        "program_headers_exact": True,
+        "got_address": 0x20000100,
+        "got_slot_value": 0x20000200,
+        "target_address": 0x20000200,
+        "target_value": 42,
+        "reference_relocation": reference_relocations[0],
+        "candidate_relocation": candidate_relocations[0],
+        "resolved_fields": resolved_fields,
+        "mapping_symbols": sorted(text_transitions),
+        "origin_summary": origin_summary,
+    }
+
+
 def validate_relocated_safe_icf(
     reference: Path, candidate: Path
 ) -> dict[str, Any]:
@@ -4041,6 +4196,24 @@ def build_m3_rwpi_fixture(output: Path, logs: Path) -> Path:
         str(object_path), "-o", str(image),
     ], logs / "build-m3-rwpi-image.log"),
         "M3 RWPI image build")
+    return image
+
+
+def build_m3_got_fixture(output: Path, logs: Path) -> Path:
+    """Build a fixed-static firmware GOT reference graph."""
+    object_path = output / "firm-bolt-cortex-m3-got.o"
+    image = output / "firm-bolt-cortex-m3-got-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_GOT_SOURCE),
+        "-o", str(object_path),
+    ], logs / "build-m3-got-object.log"),
+        "M3 fixed-static GOT object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "-T", str(M3_GOT_LINKER),
+        str(object_path), "-o", str(image),
+    ], logs / "build-m3-got-image.log"),
+        "M3 fixed-static GOT image build")
     return image
 
 
@@ -5915,6 +6088,7 @@ def main() -> int:
         suffix="-addend",
     )
     m3_rwpi_image = build_m3_rwpi_fixture(output, logs)
+    m3_got_image = build_m3_got_fixture(output, logs)
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
     m3_cdsplit_no_exidx_capacity_image = build_m3_cdsplit_fixture(
@@ -6226,6 +6400,13 @@ def main() -> int:
         ("m3_rwpi_static_base", "cortex-m3", m3_rwpi_image,
          {".isr_vector": None}, [
              "--firmbolt-arm-static-base=segment-start",
+         ]),
+        ("m3_fixed_static_got", "cortex-m3", m3_got_image, {}, [
+             "--firmbolt-arm-got=fixed-static",
+             "--firmbolt-allow-literal-address-changes",
+             "--relocs", "--use-old-text", "--reorder-functions=user",
+             "--align-functions=1",
+             f"--function-order={M3_GOT_ORDER}",
          ]),
         ("m3_function_split", "cortex-m3", m3_function_split_image, {}, [
              f"--data={M3_FUNCTION_SPLIT_PROFILE}",
@@ -7449,6 +7630,7 @@ def main() -> int:
         }.get(label)
         pcrel_mov_pair_layout = pcrel_mov_pair_addend is not None
         rwpi_static_base_layout = label == "m3_rwpi_static_base"
+        fixed_static_got_layout = label == "m3_fixed_static_got"
         split_validation = {
             "m3_function_split": validate_relocated_function_split,
             "m3_cdsplit": validate_relocated_cdsplit,
@@ -7539,6 +7721,8 @@ def main() -> int:
                 if pcrel_mov_pair_layout
                 else validate_rwpi_static_base(image, candidate)
                 if rwpi_static_base_layout
+                else validate_relocated_fixed_static_got(image, candidate)
+                if fixed_static_got_layout
                 else split_validation(image, candidate)
                 if split_validation is not None
                 else validate_in_place(image, candidate, protected)
@@ -7558,6 +7742,7 @@ def main() -> int:
                     and not exidx_layout
                     and not target1_layout
                     and not pcrel_mov_pair_layout
+                    and not fixed_static_got_layout
                     and not alignment_validation
                     and not safe_icf_layout
                 ) else None
@@ -7769,13 +7954,22 @@ def main() -> int:
                 results[label]["validation"] = validate_rwpi_static_base(
                     image, candidate, final_layout,
                 )
+            elif fixed_static_got_layout:
+                results[label]["validation"] = (
+                    validate_relocated_fixed_static_got(
+                        image, candidate, final_layout,
+                    )
+                )
             elif split_validation is not None:
                 results[label]["validation"] = (
                     split_validation(
                         image, candidate, final_layout,
                     )
                 )
-            if exidx_layout or safe_icf_layout or pcrel_mov_pair_layout:
+            if (
+                exidx_layout or safe_icf_layout or pcrel_mov_pair_layout
+                or fixed_static_got_layout
+            ):
                 # The dedicated validator follows every relocated origin and
                 # reference.  The generic in-place scanners compare bytes at
                 # original PCs and are therefore inapplicable once the final
@@ -7794,25 +7988,33 @@ def main() -> int:
                             len(function.get("instruction_origins", []))
                             for function in final_layout["functions"]
                         )
-                        if safe_icf_layout or pcrel_mov_pair_layout else
+                        if (
+                            safe_icf_layout or pcrel_mov_pair_layout
+                            or fixed_static_got_layout
+                        ) else
                         13
                         if label == "m3_exidx_generic_function_reorder"
                         else 12
                     ),
                     "synthesized_instruction_count": 0,
                     "pc_relative_reference_count": (
-                        2 if pcrel_mov_pair_layout else 0
+                        2 if pcrel_mov_pair_layout else
+                        1 if fixed_static_got_layout else 0
                     ),
                     "contract": (
                         "dedicated_relocation_and_pcrel_mov_validation"
                         if pcrel_mov_pair_layout else
+                        "dedicated_fixed_static_got_graph_validation"
+                        if fixed_static_got_layout else
                         "dedicated_relocation_and_safe_icf_validation"
                         if safe_icf_layout else
                         "dedicated_relocation_and_ehabi_validation"
                     ),
                     "references": (
                         results[label]["validation"]["relocations"]
-                        if pcrel_mov_pair_layout else []
+                        if pcrel_mov_pair_layout else
+                        [results[label]["validation"]["candidate_relocation"]]
+                        if fixed_static_got_layout else []
                     ),
                 }
             else:
@@ -9962,6 +10164,47 @@ def main() -> int:
             "published_candidate": False,
         }
 
+    got_negative_controls = {}
+    for control, policy_args, diagnostic in (
+        (
+            "unqualified",
+            [],
+            "qualify it with --firmbolt-arm-got=fixed-static",
+        ),
+        (
+            "absolute_literal_address",
+            ["--firmbolt-arm-got=fixed-static"],
+            "changed the observable address from 0x8000134 to 0x800010c",
+        ),
+    ):
+        rejected_output = output / f"got-{control}-rejected.elf"
+        rejected_output.unlink(missing_ok=True)
+        rejected = run([
+            str(args.bolt.resolve()), str(m3_got_image),
+            "--firmbolt-cortex-m-cpu=cortex-m3",
+            "--firmbolt-arm-full-pipeline",
+            "--eliminate-unreachable=false", "--frame-opt=all",
+            *policy_args,
+            "--relocs", "--use-old-text", "--reorder-functions=user",
+            "--align-functions=1", f"--function-order={M3_GOT_ORDER}",
+            "-o", str(rejected_output),
+        ], logs / f"got-{control}-rejected.log")
+        rejected_text = rejected.stdout + rejected.stderr
+        if (
+            rejected.returncode == 0
+            or diagnostic not in rejected_text
+            or rejected_output.exists()
+        ):
+            raise RuntimeError(
+                f"fixed-static GOT {control} control did not reject atomically"
+            )
+        got_negative_controls[control] = {
+            "status": "accepted",
+            "returncode": rejected.returncode,
+            "diagnostic": diagnostic,
+            "published_candidate": False,
+        }
+
     clustering_orders = {
         label: results[label]["validation"]["ordered_workers"]
         for label in (
@@ -11344,6 +11587,14 @@ def main() -> int:
             expected_words=(42, 42, 42),
         )
     )
+    m3_fixed_static_got_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_got_image, candidates["m3_fixed_static_got"],
+            output, args.fastdyn.resolve(), "fixed-static-got",
+            expected_words=(42,),
+        )
+    )
     m3_function_split_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -11537,6 +11788,7 @@ def main() -> int:
             m3_pcrel_mov_pair_execution,
             m3_pcrel_mov_pair_addend_execution,
             m3_rwpi_execution,
+            m3_fixed_static_got_execution,
             m3_function_split_execution,
             m3_cdsplit_execution,
             m3_loop_inversion_execution,
@@ -11902,6 +12154,7 @@ def main() -> int:
         },
         "negative_controls": {
             "target1_policy": target1_negative_controls,
+            "fixed_static_got_policy": got_negative_controls,
             "m4_as_m3_rejected": True,
             "m4_as_m7_exact_cpu_rejected": {
                 "status": "accepted",
@@ -12045,6 +12298,8 @@ def main() -> int:
         "m3_pcrel_mov_pair_addend_function_reorder_architectural_execution":
             m3_pcrel_mov_pair_addend_execution,
         "m3_rwpi_static_base_architectural_execution": m3_rwpi_execution,
+        "m3_fixed_static_got_architectural_execution":
+            m3_fixed_static_got_execution,
         "m3_native_function_split_architectural_execution":
             m3_function_split_execution,
         "m3_native_cdsplit_architectural_execution":
@@ -12171,6 +12426,7 @@ def main() -> int:
                 "opt-in native BOLT register reassignment for qualified Thumb-2 AAPCS callee-saved R4-R6/R8-R10 pairs, using exact target operand-class validation and wide-to-narrow load/store re-encoding under an explicit transient-register/interrupt-observer contract; typed SHT_ARM_EXIDX qualification admits CANTUNWIND per function independent of section name while compact/generic unwind programs remain exact, with R7/R9/R11, CFI, vector, split, multi-entry, jump-table and address-stable exclusions, exact origins, compact in-place emission, real FreeRTOS .ARM classification, and Cortex-M3 execution",
                 "opt-in native BOLT read-only-load simplification for linked allocatable non-writable relocation-free scalar data on Thumb-2, using flag-preserving MOVW/MOVT materialization under an explicit read/fault/timing-elision contract, exact transformed-source origins, compact in-place emission, and Cortex-M3 execution",
                 "explicit ARM relocation mode with native BOLT user-directed, profile exec-count and call-graph CDSort whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
+                "explicit fixed-static firmware GOT graphs for R_ARM_GOT_PREL, requiring one exact retained file-backed non-executable .got slot, preserving the target-object identity and source addend across whole-image layout, rebuilding the live SHT_REL record and ARM mapping symbols, rejecting unqualified or address-contract-violating candidates atomically, and executing the moved Cortex-M3 image",
                 "native BOLT HFSort and Pettis-Hansen call-graph clustering, distinguished from exec-count and CDSort under one frozen profile, with linked caller/callee adjacency, repaired direct calls, exact relocation/origin ledgers, separately accounted linker alignment slack, unchanged executable PT_LOAD ranges, and Cortex-M3 execution",
                 "native BOLT function and profile-guided basic-block alignment in explicit relocation mode, with executed-padding/timing admission, the default guest-instruction-count gate, exact instruction origins across padding, post-alignment branch repair, linker-owned capacity accounting, atomic over-budget rejection, and Cortex-M3 execution",
                 "ARM EHABI SHT_ARM_EXIDX reconstruction for relocation-complete Cortex-M function ordering and admitted function splitting, including PREL31 decode/re-encode, address sorting, CANTUNWIND, inline compact, bounded external compact and relocation-complete generic personality models, exact source-unwind identity replication across noncontiguous hot/warm/cold fragments, live .text sh_link retargeting, checked variable-footprint growth only inside file- and memory-backed linker capacity, PT_ARM_EXIDX repair, and Cortex-M3 execution",
@@ -12293,6 +12549,8 @@ def main() -> int:
             ]),
         "m3_rwpi_static_base_candidate":
             str(candidates["m3_rwpi_static_base"]),
+        "m3_fixed_static_got_candidate":
+            str(candidates["m3_fixed_static_got"]),
         "m3_function_split_candidate":
             str(candidates["m3_function_split"]),
         "m3_cdsplit_candidate": str(candidates["m3_cdsplit"]),
