@@ -2185,11 +2185,49 @@ emission state from other BOLT targets. The M4 candidate now runs with
 `--update-debug-sections`, verifies 30 compile units with four-byte aranges and
 introduces no new verifier error class/count. ARM lit passes 97/97; nine
 focused AArch64 target-scoping controls pass; the complete diagnostic suite
-improves from 37 to 23 recorded failures. The current mechanical patch SHA-256
+improves from 37 to 23 recorded failures. The v174 mechanical patch SHA-256
 is `50303183c1573bf2ef55d8537299b681f77d97ab8ba951250e14450b4c604a94`;
 it reverse-applies exactly across 176 overlay files on pinned LLVM. Evidence is
 in the [v174 validation manifest](evidence/firmbolt-cortex-m-v174-validation.json).
 The residual full-suite failures keep complete x86/global parity open.
+
+v175 tests that preservation boundary against independent firmware producers
+rather than treating one real GCC-built M4 image as representative. The frozen
+matrix builds the same Cortex-M3 fixture with Clang 18.1.3 and Arm GNU GCC
+13.3.1 at DWARF2, 3, 4 and 5, plus split DWARF5 for both producers. All ten
+reference/candidate pairs satisfy their declared verifier and section-retention
+contract. Clang and GCC DWARF5, including both rewritten DWO files, verify
+cleanly. GCC DWARF2 through 4 each retain the reference's single
+`Invalid DWARF expressions` result: the selected LLVM verifier cannot decode
+the producer's `DW_OP_GNU_entry_value` tail, and FirmBOLT now preserves that
+tail byte-for-byte instead of dropping it and making the candidate spuriously
+clean.
+
+The GCC DWARF5 arm exposed the actual rewrite defect. Its reference was clean,
+but the first candidate's location lists still named base-type DIE offsets
+`0x26` and `0x2c` after rebuilt DIE layout moved those types. Location writers
+now reserve fixed-width reference operands during initial serialization and
+patch them after final DIE offsets are known. The new split-DWARF gate then
+exposed a second integration defect: target lookup had erased the qualified
+Armv7-M subarchitecture, and a DWO has no linked `.ARM.attributes` from which
+to recover it. Binary contexts now retain the input triple, and temporary DWO
+streamers inherit the already-qualified Cortex-M target. The original split
+probe aborted; both final split candidates and their DWO files verify cleanly.
+
+The complete v175 gate remains 68/68 profiles, 1,963 function instances,
+130,186 exact final origins and 57,618 potentially faulting origins; the real
+M4 candidate again completes 10,000 FastDyn units with exact repeated RAM
+state. Regression gates pass 97/97 ARM BOLT lit, 13/13 AArch32 JITLink lit,
+all 76 JITLink units, 88 Core units plus 150 explicit target skips, 5 Pass and
+39 Profile units, and five passed plus one unsupported shared-DWARF controls.
+The full 1,131-test diagnostic remains at the same recorded 23 failures. The
+mechanical patch SHA-256 is
+`cd8fd420628ed16a58912caae736c917ef271ffc74485b7ba3dfa02af011dfc6`;
+it reverse-applies exactly across 178 overlay files on pinned LLVM. Evidence is
+in the [v175 validation manifest](evidence/firmbolt-cortex-m-v175-validation.json)
+and the [production report](../../build/preflight/firm-bolt-cortex-m-v175-dwarf-producers-r4/report.json).
+This qualifies the named producers and split mode, not arbitrary compiler
+extensions, DWP packages, compressed debug sections or complete x86 parity.
 
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is

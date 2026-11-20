@@ -4,7 +4,7 @@ Updated 20 November 2026. `unsupported` means a capability is outside the
 selected implementation/model; it is not a failed proof or semantic
 counterexample.
 
-The latest aggregate gate is v174: 68/68 production and architectural profiles
+The latest aggregate gate is v175: 68/68 production and architectural profiles
 pass. It accepts all twelve Cortex-M CPUs implemented by the pinned LLVM target,
 binds execution features to the selected CPU, treats ELF attributes as evidence
 rather than authorization, and either retains an incompatible region or rejects
@@ -33,8 +33,13 @@ width is preserved across legacy ranges/locations/aranges and DWARF5 list
 headers, eliminating 1,706 invalid ranges and nine invalid locations from the
 first candidate. ARM-only emission state is also target-scoped so selected
 AArch64 constant-island, text-data and relaxation controls retain their
-established behavior. The full BOLT suite remains a diagnostic with 23 recorded
-failures in the mixed-version test environment, so v174 is not a global parity
+behavior. The independent producer gate adds Clang 18.1.3 and Arm GNU GCC
+13.3.1 over DWARF2 through 5, plus split DWARF5 for both. It remaps base-type
+DIE references in rebuilt location-list expressions, preserves undecodable
+producer-extension tails byte-for-byte, and carries the qualified Cortex-M
+triple into DWO streamers whose objects have no linked ARM attributes.
+The full BOLT suite remains a diagnostic with 23 recorded failures in the
+mixed-version test environment, so v175 is not a global parity
 claim.
 The long
 backend row retains older v58/v107 checkpoint details for
@@ -128,6 +133,15 @@ below carry the newer mechanisms and claim boundaries.
 | ELF32 DWARF preservation | Implemented for the real M4 production arm; mixed-address-size sections remain fail-closed | Per-CU address width now controls DWARF4 ranges/locations/aranges and DWARF5 list headers. The initial M4 candidate had 1,706 invalid address ranges and nine invalid locations; the accepted candidate has zero, retains all required debug sections, verifies 30 CUs and emits all 30 `.debug_aranges` headers with address size four. Reference and candidate retain the same two pre-existing verifier error classes/counts. | Add independently built DWARF2/3/4/5 firmware and split/compressed-debug corpora; one M4 image does not qualify arbitrary producers. |
 | Cross-target isolation | Selected AArch64 behavior restored; full global suite remains diagnostic | ARM instruction-owned data sizing, executable data-object treatment, mapping aliases and thunk origins/accounting are now target-scoped. Nine direct AArch64 constant-island/text-data/relaxation controls pass and the full-suite failure count falls from 37 to 23. | Build the pinned compiler/test dependencies and baseline every remaining full-suite failure before calling it environmental or a FirmBOLT regression. |
 | Real M4 installation | Accepted preservation fixture, not performance evidence | The M4 candidate completes 10,000 FastDyn work units; two reference runs and the candidate have the same 2 MiB RAM-prefix hash. The 68-profile gate retains 130,186 origins and 57,618 potentially faulting origins. | Add statistically powered fixed-work performance trials separately; exact state agreement does not establish a speedup. |
+
+## v175 producer and split-DWARF gaps
+
+| Area | Classification | Evidence | Remaining boundary |
+| --- | --- | --- | --- |
+| Location-expression DIE references | Implemented for rebuilt DWARF4/5 location lists | The first GCC DWARF5 candidate referenced stale base-type DIE offsets `0x26` and `0x2c` and introduced one verifier failure. The final two-stage writer reserves fixed-width operands and patches them after DIE layout; reference and candidate both verify cleanly. | Add corpus cases for every base-type-reference opcode and very large DWARF units; the current fixture does not qualify every expression opcode or producer extension. |
+| Unknown producer expression operations | Exact raw-tail preservation implemented; semantic interpretation remains unsupported | GCC DWARF2/3/4 references each contain one LLVM-verifier failure around `DW_OP_GNU_entry_value`. Final candidates retain the same class/count and the same raw operation tail instead of silently deleting it. | Teach or reuse a verifier that understands the producer extension before claiming clean semantic validation. Matching an input diagnostic proves non-loss under this rewrite, not that the original expression is valid. |
+| Split DWARF target and emission | Implemented for Clang/GCC DWARF5 DWO files on Cortex-M3 | The first split probe aborted because target lookup erased Armv7-M and the DWO lacked `.ARM.attributes`. The retained qualified triple and parent-derived temporary streamer produce one DWO per case; both skeleton+DWO pairs verify cleanly. | DWP packages, multiple interacting split units, DWARF4 split mode, compressed debug sections and alternate comp-dir/path arrangements remain unqualified. |
+| Independent producer matrix | Accepted bounded coverage, not universal producer support | Ten cases pass: Clang and GCC DWARF2–5 plus split DWARF5 for each. The gate hashes tools, fixtures, references, candidates and DWO files and distinguishes clean cases from retained reference findings. | Extend from a predeclared real-firmware corpus; two compilers and one fixture do not establish arbitrary firmware-debug compatibility. |
 
 ## Enforced stop conditions
 

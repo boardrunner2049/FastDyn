@@ -85,7 +85,7 @@ index 0000000000000000000000000000000000000000..d22f9f60e8e38d09bd653fab5ea93a2f
 +
 +#endif
 diff --git a/bolt/include/bolt/Core/BinaryContext.h b/bolt/include/bolt/Core/BinaryContext.h
-index e35d6caad3a280e53dc457f3620a86f27a32f1f1..7f4e4cf68eaf0bd0ac002869014146bd8135d39f 100644
+index e35d6caad3a280e53dc457f3620a86f27a32f1f1..32bd42445a17b2f70500a42964776110f89012fd 100644
 --- a/bolt/include/bolt/Core/BinaryContext.h
 +++ b/bolt/include/bolt/Core/BinaryContext.h
 @@ -98,10 +98,13 @@ inline raw_ostream &operator<<(raw_ostream &OS, const SegmentInfo &SegInfo) {
@@ -262,7 +262,16 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..7f4e4cf68eaf0bd0ac002869014146bd
    /// Indicates if the binary is stripped
    bool IsStripped{false};
  
-@@ -1006,6 +1128,11 @@ public:
+@@ -997,6 +1119,8 @@ public:
+ 
+   bool isMachO() const { return TheTriple->isOSBinFormatMachO(); }
+ 
++  const Triple &getTriple() const { return *TheTriple; }
++
+   const RelocationHandler &getRelocationHandler() const {
+     assert(RelocHandler && "relocation handler is not initialized");
+     return *RelocHandler;
+@@ -1006,6 +1130,11 @@ public:
      return TheTriple->getArch() == llvm::Triple::aarch64;
    }
  
@@ -635,8 +644,28 @@ index cbe206ae8846477a763ca02e6825f4a143cb6cb9..21620518c2ecf7424fe2faa39d779bb5
        auto NextData = std::next(DataIter);
        auto CodeIter = Islands->CodeOffsets.lower_bound(*DataIter);
        if (CodeIter == Islands->CodeOffsets.end() &&
+diff --git a/bolt/include/bolt/Core/DIEBuilder.h b/bolt/include/bolt/Core/DIEBuilder.h
+index a9ccd35c90298d9e9a97803dadbb4099e87019a0..4be7cbe4e6babdaab1fdaf55ab92b2da1358fd9c 100644
+--- a/bolt/include/bolt/Core/DIEBuilder.h
++++ b/bolt/include/bolt/Core/DIEBuilder.h
+@@ -78,6 +78,15 @@ public:
+     DWARFUnitInfo(DWARFUnitInfo &&) = default;
+   };
+ 
++  /// Clone a location expression while remapping references to base-type
++  /// DIEs. During the initial stage reference operands are widened to fixed
++  /// four-byte ULEB128 slots so the final stage can replace them after DIE
++  /// layout without changing the containing location-list section size.
++  /// Returns true when the expression contains a base-type reference.
++  bool cloneExpressionReferences(ArrayRef<uint8_t> Input, DWARFUnit &U,
++                                 SmallVectorImpl<uint8_t> &Output,
++                                 bool UseFinalOffsets);
++
+   enum class ProcessingType { DWARF4TUs, DWARF5TUs, CUs };
+ 
+ private:
 diff --git a/bolt/include/bolt/Core/DebugData.h b/bolt/include/bolt/Core/DebugData.h
-index b06b0d90a7aeeb7dcb603d9eccfb1b2aa31111e3..4c5d76f949891603f69d46cd9af9bb2eca4407d8 100644
+index b06b0d90a7aeeb7dcb603d9eccfb1b2aa31111e3..528f1e9315d7204ebab288ce6f7920ad72c0456d 100644
 --- a/bolt/include/bolt/Core/DebugData.h
 +++ b/bolt/include/bolt/Core/DebugData.h
 @@ -181,6 +181,7 @@ struct CUInfo {
@@ -679,16 +708,16 @@ index b06b0d90a7aeeb7dcb603d9eccfb1b2aa31111e3..4c5d76f949891603f69d46cd9af9bb2e
    std::mutex WriterMutex;
  
    /// Offset of an empty address ranges list.
-@@ -576,13 +582,18 @@ enum class LocWriterKind { DebugLocWriter, DebugLoclistWriter };
+@@ -576,13 +582,23 @@ enum class LocWriterKind { DebugLocWriter, DebugLoclistWriter };
  class SimpleBinaryPatcher;
  class DebugLocWriter {
  protected:
 -  DebugLocWriter(uint8_t DwarfVersion, LocWriterKind Kind)
 -      : DwarfVersion(DwarfVersion), Kind(Kind) {
 +  DebugLocWriter(uint8_t DwarfVersion, LocWriterKind Kind,
-+                 uint8_t AddressByteSize)
++                 uint8_t AddressByteSize, DWARFUnit *CU)
 +      : DwarfVersion(DwarfVersion), Kind(Kind),
-+        AddressByteSize(AddressByteSize) {
++        AddressByteSize(AddressByteSize), CU(CU) {
      init();
    }
  
@@ -698,10 +727,32 @@ index b06b0d90a7aeeb7dcb603d9eccfb1b2aa31111e3..4c5d76f949891603f69d46cd9af9bb2e
 +      : DwarfVersion(DwarfVersion), AddressByteSize(AddressByteSize) {
 +    init();
 +  };
++  DebugLocWriter(DWARFUnit &CU, uint8_t DwarfVersion)
++      : DwarfVersion(DwarfVersion), AddressByteSize(CU.getAddressByteSize()),
++        CU(&CU) {
++    init();
++  };
    virtual ~DebugLocWriter(){};
  
    /// Writes out location lists and stores internal patches.
-@@ -598,6 +609,9 @@ public:
+@@ -592,12 +608,26 @@ public:
+   /// Writes out locations in to a local buffer, and adds Debug Info patches.
+   virtual void finalize(DIEBuilder &DIEBldr, DIE &Die);
+ 
++  /// Patch fixed-width base-type DIE references in expressions after the
++  /// containing DIE unit has reached its final layout.
++  void patchExpressionReferences(DIEBuilder &DIEBldr);
++
++  /// Serialize one expression and remember any base-type references that
++  /// require a final-layout patch. Public for the shared DWARF4/5 encoders.
++  void writeExpression(DIEBuilder &DIEBldr, ArrayRef<uint8_t> Expression,
++                       DebugBufferVector &Buffer,
++                       raw_svector_ostream &Stream,
++                       bool UseULEBLength = false);
++
+   /// Return internal buffer.
+   virtual std::unique_ptr<DebugBufferVector> getBuffer();
+ 
    /// Returns DWARF version.
    uint8_t getDwarfVersion() const { return DwarfVersion; }
  
@@ -711,21 +762,29 @@ index b06b0d90a7aeeb7dcb603d9eccfb1b2aa31111e3..4c5d76f949891603f69d46cd9af9bb2e
    /// Offset of an empty location list.
    static constexpr uint32_t EmptyListOffset = 0;
  
-@@ -619,6 +633,7 @@ protected:
+@@ -619,6 +649,15 @@ protected:
    std::unique_ptr<raw_svector_ostream> LocStream;
    uint8_t DwarfVersion{4};
    LocWriterKind Kind{LocWriterKind::DebugLocWriter};
 +  uint8_t AddressByteSize{8};
++  DWARFUnit *CU{nullptr};
++
++  struct ExpressionReferencePatch {
++    uint64_t BufferOffset;
++    SmallVector<uint8_t, 16> Input;
++    uint64_t EncodedSize;
++  };
++  SmallVector<ExpressionReferencePatch, 4> ExpressionReferencePatches;
  
  private:
    /// Inits all the related data structures.
-@@ -648,7 +663,8 @@ public:
+@@ -648,7 +687,8 @@ public:
    DebugLoclistWriter() = delete;
    DebugLoclistWriter(DWARFUnit &Unit, uint8_t DV, bool SD,
                       DebugAddrWriter &AddrW)
 -      : DebugLocWriter(DV, LocWriterKind::DebugLoclistWriter),
 +      : DebugLocWriter(DV, LocWriterKind::DebugLoclistWriter,
-+                       Unit.getAddressByteSize()),
++                       Unit.getAddressByteSize(), &Unit),
          AddrWriter(AddrW), CU(Unit), IsSplitDwarf(SD) {
      if (DwarfVersion >= 5) {
        LocBodyBuffer = std::make_unique<DebugBufferVector>();
@@ -2209,7 +2268,7 @@ index a6d0ca94811540361916aefd3b59633d3b0296bc..31df428351f12f26190801e8de267190
  
  BinaryBasicBlock::BinaryBranchInfo &
 diff --git a/bolt/lib/Core/BinaryContext.cpp b/bolt/lib/Core/BinaryContext.cpp
-index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e321692ee 100644
+index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4357d5bb5 100644
 --- a/bolt/lib/Core/BinaryContext.cpp
 +++ b/bolt/lib/Core/BinaryContext.cpp
 @@ -103,6 +103,14 @@ static cl::opt<bool> DropDWOPageCache(
@@ -2377,7 +2436,22 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
    case llvm::Triple::riscv64:
    case llvm::Triple::riscv32: {
      ArchName = TheTriple.getArchName();
-@@ -257,7 +369,7 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
+@@ -228,8 +340,13 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
+   const std::string TripleName = TheTriple.str();
+ 
+   std::string Error;
++  // lookupTarget() canonicalizes the supplied triple to the requested target
++  // architecture.  Keep the input triple intact so qualified subarchitectures
++  // (notably armv6m/armv7m/armv7em) remain available to temporary contexts and
++  // debug-object streamers created after target selection.
++  Triple LookupTriple = TheTriple;
+   const Target *TheTarget =
+-      TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
++      TargetRegistry::lookupTarget(ArchName, LookupTriple, Error);
+   if (!TheTarget)
+     return createStringError(make_error_code(std::errc::not_supported),
+                              Twine("BOLT-ERROR: ", Error));
+@@ -257,7 +374,7 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
    AsmInfo->setAllowAtInName(true);
  
    std::unique_ptr<const MCSubtargetInfo> STI(
@@ -2386,7 +2460,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
    if (!STI)
      return createStringError(
          make_error_code(std::errc::not_supported),
-@@ -566,6 +678,23 @@ BinaryContext::getSubBinaryData(BinaryData *BD) {
+@@ -566,6 +683,23 @@ BinaryContext::getSubBinaryData(BinaryData *BD) {
  std::pair<const MCSymbol *, uint64_t>
  BinaryContext::handleAddressRef(uint64_t Address, BinaryFunction &BF,
                                  bool IsPCRel) {
@@ -2410,7 +2484,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
    if (isAArch64()) {
      // Check if this is an access to a constant island and create bookkeeping
      // to keep track of it and emit it later as part of this function.
-@@ -613,7 +742,8 @@ BinaryContext::handleAddressRef(uint64_t Address, BinaryFunction &BF,
+@@ -613,7 +747,8 @@ BinaryContext::handleAddressRef(uint64_t Address, BinaryFunction &BF,
    // a section, it could be an absolute address too.
    ErrorOr<BinarySection &> Section = getSectionForAddress(Address);
    if (Section && Section->isText()) {
@@ -2420,7 +2494,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
        if (Address != BF.getAddress()) {
          // The address could potentially escape. Mark it as another entry
          // point into the function.
-@@ -888,9 +1018,30 @@ void BinaryContext::populateJumpTables() {
+@@ -888,9 +1023,30 @@ void BinaryContext::populateJumpTables() {
      if (NextJTI != JTE)
        NextJTAddress = NextJTI->second->getAddress();
  
@@ -2454,7 +2528,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
      if (!Success) {
        // Re-analysis here is stricter than during disassembly (the referenced
        // function is now disassembled), so it may fail on a table we accepted
-@@ -1104,6 +1255,10 @@ BinaryContext::duplicateJumpTable(BinaryFunction &Function, JumpTable *JT,
+@@ -1104,6 +1260,10 @@ BinaryContext::duplicateJumpTable(BinaryFunction &Function, JumpTable *JT,
                      *getSectionForAddress(JT->getAddress()));
    NewJT->Parents = JT->Parents;
    NewJT->Entries = JT->Entries;
@@ -2465,7 +2539,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
    NewJT->Counts = JT->Counts;
    uint64_t JumpTableID = ++DuplicatedJumpTables;
    // Invert it to differentiate from regular jump tables whose IDs are their
-@@ -1616,7 +1771,23 @@ void BinaryContext::processInterproceduralReferences() {
+@@ -1616,7 +1776,23 @@ void BinaryContext::processInterproceduralReferences() {
      }
  
      ErrorOr<BinarySection &> Section = getSectionForAddress(Address);
@@ -2490,7 +2564,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
  
      if (!Section->isText())
        continue;
-@@ -2399,9 +2570,9 @@ void BinaryContext::printCFI(raw_ostream &OS, const MCCFIInstruction &Inst) {
+@@ -2399,9 +2575,9 @@ void BinaryContext::printCFI(raw_ostream &OS, const MCCFIInstruction &Inst) {
  MarkerSymType BinaryContext::getMarkerType(unsigned SymbolType,
                                             uint64_t SymbolSize,
                                             StringRef SymbolName) const {
@@ -2503,7 +2577,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
    if (isX86() || SymbolSize)
      return MarkerSymType::NONE;
  
-@@ -2411,6 +2582,14 @@ MarkerSymType BinaryContext::getMarkerType(unsigned SymbolType,
+@@ -2411,6 +2587,14 @@ MarkerSymType BinaryContext::getMarkerType(unsigned SymbolType,
    if (SymbolName == "$x" || SymbolName.starts_with("$x."))
      return MarkerSymType::CODE;
  
@@ -2518,7 +2592,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
    // $x<ISA>
    if (isRISCV() && SymbolName.starts_with("$x"))
      return MarkerSymType::CODE;
-@@ -2640,7 +2819,11 @@ BinarySection &BinaryContext::registerSection(BinarySection *Section) {
+@@ -2640,7 +2824,11 @@ BinarySection &BinaryContext::registerSection(BinarySection *Section) {
    assert(Res.second && "can't register the same section twice.");
  
    // Only register allocatable sections in the AddressToSection map.
@@ -2531,7 +2605,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..ad2892aec9c55510c2c9b1e3e8a8b85e
      AddressToSection.insert(std::make_pair(Section->getAddress(), Section));
    NameToSection.insert(
        std::make_pair(std::string(Section->getName()), Section));
-@@ -2974,7 +3157,7 @@ BinaryContext::calculateEmittedSize(BinaryFunction &BF, bool FixBranches) {
+@@ -2974,7 +3162,7 @@ BinaryContext::calculateEmittedSize(BinaryFunction &BF, bool FixBranches) {
      return std::make_pair(BF.getSize(), 0);
  
    // Adjust branch instruction to match the current layout.
@@ -4016,8 +4090,46 @@ index 430a1c93a9f0c88df88c6bc2d2e633fe28e558c5..fcecd519aa272ee12c862cb8dbbe9a9c
    BinaryBasicBlock.cpp
    BinaryContext.cpp
    BinaryData.cpp
+diff --git a/bolt/lib/Core/DIEBuilder.cpp b/bolt/lib/Core/DIEBuilder.cpp
+index 452e0b573572151ea60d6b05949b3cc306bfc3c6..aa4a062dc24655d73eda26c4f5ebd5d5cda6cc7e 100644
+--- a/bolt/lib/Core/DIEBuilder.cpp
++++ b/bolt/lib/Core/DIEBuilder.cpp
+@@ -739,6 +739,15 @@ bool DIEBuilder::cloneExpression(const DataExtractor &Data,
+   uint64_t OpOffset = 0;
+   bool DoesContainReference = false;
+   for (const DWARFExpression::Operation &Op : Expression) {
++    if (Op.isError()) {
++      // Preserve producer extensions and otherwise undecodable tails exactly.
++      // Dropping an unknown operation merely because BOLT cannot interpret it
++      // changes debugger-visible state and can also make a malformed input
++      // appear spuriously valid.
++      const StringRef Bytes = Data.getData().drop_front(OpOffset);
++      OutputBuffer.append(Bytes.begin(), Bytes.end());
++      break;
++    }
+     const Descr &Description = Op.getDescription();
+     // DW_OP_const_type is variable-length and has 3
+     // operands. Thus far we only support 2.
+@@ -806,6 +815,17 @@ bool DIEBuilder::cloneExpression(const DataExtractor &Data,
+   return DoesContainReference;
+ }
+ 
++bool DIEBuilder::cloneExpressionReferences(
++    ArrayRef<uint8_t> Input, DWARFUnit &U,
++    SmallVectorImpl<uint8_t> &Output, bool UseFinalOffsets) {
++  DataExtractor Data(Input, U.isLittleEndian());
++  DWARFExpression Expression(Data, U.getAddressByteSize(),
++                             U.getFormParams().Format);
++  return cloneExpression(Data, Expression, U, Output,
++                         UseFinalOffsets ? CloneExpressionStage::PATCH
++                                         : CloneExpressionStage::INIT);
++}
++
+ void DIEBuilder::cloneBlockAttribute(
+     DIE &Die, DWARFUnit &U,
+     const DWARFAbbreviationDeclaration::AttributeSpec AttrSpec,
 diff --git a/bolt/lib/Core/DebugData.cpp b/bolt/lib/Core/DebugData.cpp
-index df8f7aa33485c46cc2d7d10b229c5ef548423cb5..ad1d1a4bfd2d48ee450e6d3d7ba14f9a62a4621f 100644
+index df8f7aa33485c46cc2d7d10b229c5ef548423cb5..b6cec9944c0b5269df522cf6aea295e06d9b21d7 100644
 --- a/bolt/lib/Core/DebugData.cpp
 +++ b/bolt/lib/Core/DebugData.cpp
 @@ -129,7 +129,22 @@ static void printLE64(const std::string &S) {
@@ -4191,7 +4303,7 @@ index df8f7aa33485c46cc2d7d10b229c5ef548423cb5..ad1d1a4bfd2d48ee450e6d3d7ba14f9a
  }
  
  void DebugLocWriter::addList(DIEBuilder &DIEBldr, DIE &Die, DIEValue &AttrInfo,
-@@ -624,16 +656,14 @@ void DebugLocWriter::addList(DIEBuilder &DIEBldr, DIE &Die, DIEValue &AttrInfo,
+@@ -624,21 +656,59 @@ void DebugLocWriter::addList(DIEBuilder &DIEBldr, DIE &Die, DIEValue &AttrInfo,
    const uint32_t EntryOffset = LocBuffer->size();
  
    for (const DebugLocationEntry &Entry : LocList) {
@@ -4199,19 +4311,68 @@ index df8f7aa33485c46cc2d7d10b229c5ef548423cb5..ad1d1a4bfd2d48ee450e6d3d7ba14f9a
 -                           llvm::endianness::little);
 -    support::endian::write(*LocStream, static_cast<uint64_t>(Entry.HighPC),
 -                           llvm::endianness::little);
+-    support::endian::write(*LocStream, static_cast<uint16_t>(Entry.Expr.size()),
+-                           llvm::endianness::little);
+-    *LocStream << StringRef(reinterpret_cast<const char *>(Entry.Expr.data()),
+-                            Entry.Expr.size());
 +    writeAddress(*LocStream, Entry.LowPC, AddressByteSize);
 +    writeAddress(*LocStream, Entry.HighPC, AddressByteSize);
-     support::endian::write(*LocStream, static_cast<uint16_t>(Entry.Expr.size()),
-                            llvm::endianness::little);
-     *LocStream << StringRef(reinterpret_cast<const char *>(Entry.Expr.data()),
-                             Entry.Expr.size());
++    writeExpression(DIEBldr, Entry.Expr, *LocBuffer, *LocStream);
    }
 -  LocStream->write_zeros(16);
 +  LocStream->write_zeros(getLegacyTerminatorSize());
    LocListDebugInfoPatches.push_back({0xdeadbeee, EntryOffset});
    replaceLocValbyForm(DIEBldr, Die, AttrInfo, AttrInfo.getForm(), EntryOffset);
    LocListPatches.push_back({&Die, AttrInfo.getAttribute(), AttrInfo.getForm()});
-@@ -667,14 +697,14 @@ void DebugLocWriter::applyBase(DIEBuilder &DIEBldr, uint64_t Base) {
+ }
+ 
++void DebugLocWriter::writeExpression(DIEBuilder &DIEBldr,
++                                     ArrayRef<uint8_t> Expression,
++                                     DebugBufferVector &Buffer,
++                                     raw_svector_ostream &Stream,
++                                     bool UseULEBLength) {
++  SmallVector<uint8_t, 16> Encoded;
++  const bool HasReference =
++      CU && DIEBldr.cloneExpressionReferences(Expression, *CU, Encoded, false);
++  if (!CU)
++    Encoded.append(Expression.begin(), Expression.end());
++
++  if (UseULEBLength)
++    encodeULEB128(Encoded.size(), Stream);
++  else
++    support::endian::write(Stream, static_cast<uint16_t>(Encoded.size()),
++                           llvm::endianness::little);
++  const uint64_t BufferOffset = Buffer.size();
++  Stream << StringRef(reinterpret_cast<const char *>(Encoded.data()),
++                      Encoded.size());
++  if (HasReference)
++    ExpressionReferencePatches.push_back(
++        {BufferOffset, SmallVector<uint8_t, 16>(Expression.begin(),
++                                                Expression.end()),
++         Encoded.size()});
++}
++
++void DebugLocWriter::patchExpressionReferences(DIEBuilder &DIEBldr) {
++  if (!CU)
++    return;
++  for (const ExpressionReferencePatch &Patch : ExpressionReferencePatches) {
++    SmallVector<uint8_t, 16> Encoded;
++    const bool HasReference = DIEBldr.cloneExpressionReferences(
++        Patch.Input, *CU, Encoded, true);
++    assert(HasReference && "recorded expression lost its DIE reference");
++    assert(Encoded.size() == Patch.EncodedSize &&
++           "fixed-width expression reference changed section size");
++    assert(Patch.BufferOffset + Encoded.size() <= LocBuffer->size() &&
++           "location expression patch exceeds buffer");
++    llvm::copy(Encoded, LocBuffer->begin() + Patch.BufferOffset);
++  }
++  ExpressionReferencePatches.clear();
++}
++
+ std::unique_ptr<DebugBufferVector> DebugLocWriter::getBuffer() {
+   return std::move(LocBuffer);
+ }
+@@ -667,21 +737,21 @@ void DebugLocWriter::applyBase(DIEBuilder &DIEBldr, uint64_t Base) {
    LocListPatches.clear();
  }
  
@@ -4229,7 +4390,37 @@ index df8f7aa33485c46cc2d7d10b229c5ef548423cb5..ad1d1a4bfd2d48ee450e6d3d7ba14f9a
    encodeULEB128(0, Stream);
    support::endian::write(Stream,
                           static_cast<uint8_t>(dwarf::DW_LLE_end_of_list),
-@@ -729,7 +759,7 @@ static void writeDWARF5LocList(uint32_t &NumberOfEntries, DIEValue &AttrInfo,
+                          llvm::endianness::little);
+ }
+ 
+-static void writeLegacyLocList(DIEValue &AttrInfo,
++static void writeLegacyLocList(DebugLocWriter &Writer, DIEValue &AttrInfo,
+                                DebugLocationsVector &LocList,
+                                DIEBuilder &DIEBldr, DIE &Die,
+                                DebugAddrWriter &AddrWriter,
+@@ -704,10 +774,7 @@ static void writeLegacyLocList(DIEValue &AttrInfo,
+     support::endian::write(LocStream,
+                            static_cast<uint32_t>(Entry.HighPC - Entry.LowPC),
+                            llvm::endianness::little);
+-    support::endian::write(LocStream, static_cast<uint16_t>(Entry.Expr.size()),
+-                           llvm::endianness::little);
+-    LocStream << StringRef(reinterpret_cast<const char *>(Entry.Expr.data()),
+-                           Entry.Expr.size());
++    Writer.writeExpression(DIEBldr, Entry.Expr, LocBuffer, LocStream);
+   }
+   support::endian::write(LocStream,
+                          static_cast<uint8_t>(dwarf::DW_LLE_end_of_list),
+@@ -715,7 +782,8 @@ static void writeLegacyLocList(DIEValue &AttrInfo,
+   replaceLocValbyForm(DIEBldr, Die, AttrInfo, AttrInfo.getForm(), EntryOffset);
+ }
+ 
+-static void writeDWARF5LocList(uint32_t &NumberOfEntries, DIEValue &AttrInfo,
++static void writeDWARF5LocList(DebugLocWriter &Writer,
++                               uint32_t &NumberOfEntries, DIEValue &AttrInfo,
+                                DebugLocationsVector &LocList, DIE &Die,
+                                DIEBuilder &DIEBldr, DebugAddrWriter &AddrWriter,
+                                DebugBufferVector &LocBodyBuffer,
+@@ -729,15 +797,14 @@ static void writeDWARF5LocList(uint32_t &NumberOfEntries, DIEValue &AttrInfo,
    RelativeLocListOffsets.push_back(LocBodyBuffer.size());
    ++NumberOfEntries;
    if (LocList.empty()) {
@@ -4238,7 +4429,35 @@ index df8f7aa33485c46cc2d7d10b229c5ef548423cb5..ad1d1a4bfd2d48ee450e6d3d7ba14f9a
      return;
    }
  
-@@ -803,8 +833,8 @@ void DebugLoclistWriter::finalizeDWARF5(DIEBuilder &DIEBldr, DIE &Die) {
+   auto writeExpression = [&](uint32_t Index) -> void {
+     const DebugLocationEntry &Entry = LocList[Index];
+-    encodeULEB128(Entry.Expr.size(), LocBodyStream);
+-    LocBodyStream << StringRef(
+-        reinterpret_cast<const char *>(Entry.Expr.data()), Entry.Expr.size());
++    Writer.writeExpression(DIEBldr, Entry.Expr, LocBodyBuffer, LocBodyStream,
++                           true);
+   };
+   for (unsigned I = 0; I < LocList.size();) {
+     if (emitWithBase<DebugLocationsVector, dwarf::LoclistEntries,
+@@ -767,12 +834,12 @@ void DebugLoclistWriter::addList(DIEBuilder &DIEBldr, DIE &Die,
+                                  DIEValue &AttrInfo,
+                                  DebugLocationsVector &LocList) {
+   if (DwarfVersion < 5)
+-    writeLegacyLocList(AttrInfo, LocList, DIEBldr, Die, AddrWriter, *LocBuffer,
+-                       CU, *LocStream);
++    writeLegacyLocList(*this, AttrInfo, LocList, DIEBldr, Die, AddrWriter,
++                       *LocBuffer, CU, *LocStream);
+   else
+-    writeDWARF5LocList(NumberOfEntries, AttrInfo, LocList, Die, DIEBldr,
+-                       AddrWriter, *LocBodyBuffer, RelativeLocListOffsets, CU,
+-                       *LocBodyStream);
++    writeDWARF5LocList(*this, NumberOfEntries, AttrInfo, LocList, Die,
++                       DIEBldr, AddrWriter, *LocBodyBuffer,
++                       RelativeLocListOffsets, CU, *LocBodyStream);
+ }
+ 
+ void DebugLoclistWriter::finalizeDWARF5(DIEBuilder &DIEBldr, DIE &Die) {
+@@ -803,10 +870,13 @@ void DebugLoclistWriter::finalizeDWARF5(DIEBuilder &DIEBldr, DIE &Die) {
                               SizeOfArraySection + RelativeOffset);
  
    std::unique_ptr<DebugBufferVector> Header =
@@ -4248,7 +4467,12 @@ index df8f7aa33485c46cc2d7d10b229c5ef548423cb5..ad1d1a4bfd2d48ee450e6d3d7ba14f9a
 +                       CU.getAddressByteSize(), 0, NumberOfEntries});
    *LocStream << *Header;
    *LocStream << *LocArrayBuffer;
++  const uint64_t BodyOffset = LocBuffer->size();
++  for (ExpressionReferencePatch &Patch : ExpressionReferencePatches)
++    Patch.BufferOffset += BodyOffset;
    *LocStream << *LocBodyBuffer;
+ 
+   if (!isSplitDwarf()) {
 diff --git a/bolt/lib/Core/JumpTable.cpp b/bolt/lib/Core/JumpTable.cpp
 index 6f588d2b95fd6481f9009d2d6ebf7d7eaf0c4e0d..98e9b6ae017b8d4b3379f574d5655bf157c121ee 100644
 --- a/bolt/lib/Core/JumpTable.cpp
@@ -13892,10 +14116,21 @@ index 18c84468b04ce23388d824e28c0029be48789a45..e4b527098e0bd5284cab5548443f5c9e
        std::make_unique<RetpolineInsertion>(PrintRetpolineInsertion));
  
 diff --git a/bolt/lib/Rewrite/DWARFRewriter.cpp b/bolt/lib/Rewrite/DWARFRewriter.cpp
-index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2065658af 100644
+index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76c6ee2691 100644
 --- a/bolt/lib/Rewrite/DWARFRewriter.cpp
 +++ b/bolt/lib/Rewrite/DWARFRewriter.cpp
-@@ -770,14 +770,13 @@ void DWARFRewriter::mergePerBucketLocs(DIEBuilder &PartDIEBlder,
+@@ -555,10 +555,6 @@ static void emitDWOBuilder(const std::string &DWOName,
+                            DebugStrOffsetsWriter &StrOffstsWriter,
+                            DebugStrWriter &StrWriter, GDBIndex &GDBIndexSection,
+                            DebugRangesSectionWriter &TempRangesSectionWriter) {
+-  // Populate debug_info and debug_abbrev for current dwo into StringRef.
+-  DWODIEBuilder.generateAbbrevs();
+-  DWODIEBuilder.finish();
+-
+   SmallVector<char, 20> OutBuffer;
+   std::shared_ptr<raw_svector_ostream> ObjOS =
+       std::make_shared<raw_svector_ostream>(OutBuffer);
+@@ -770,14 +766,13 @@ void DWARFRewriter::mergePerBucketLocs(DIEBuilder &PartDIEBlder,
          Accum.LoclistsOffset += BufferSize;
        } else if (!LocListWriter) {
          LegacyLocBase = Accum.LegacyLocOffset;
@@ -13916,7 +14151,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2
        }
      }
  
-@@ -828,13 +827,18 @@ void DWARFRewriter::mergePerBucketRanges(DIEBuilder &PartDIEBlder,
+@@ -828,13 +823,18 @@ void DWARFRewriter::mergePerBucketRanges(DIEBuilder &PartDIEBlder,
    if (!LocalWriters.LegacyRangesWriter || !LegacyRangesSectionWriter)
      return;
  
@@ -13936,14 +14171,13 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2
    const uint64_t GlobalOffset =
        LegacyRangesSectionWriter->getSectionOffset() - LocalTerminatorSize;
    for (DWARFUnit *CU : SortedCUs)
-@@ -888,12 +892,15 @@ void DWARFRewriter::createRangeLocListAndAddressWriters() {
+@@ -888,12 +888,14 @@ void DWARFRewriter::createRangeLocListAndAddressWriters() {
        auto AddrW =
            std::make_unique<DebugAddrWriter>(&BC, CU.getAddressByteSize());
        AddressWritersByCU[CU.getOffset()] = std::move(AddrW);
 -      LocListWritersByCU[CU.getOffset()] = std::make_unique<DebugLocWriter>();
 +      LocListWritersByCU[CU.getOffset()] =
-+          std::make_unique<DebugLocWriter>(CU.getVersion(),
-+                                           CU.getAddressByteSize());
++          std::make_unique<DebugLocWriter>(CU, CU.getVersion());
        if (std::optional<uint64_t> DWOId = CU.getDWOId()) {
          assert(LegacyRangesWritersByCU.count(*DWOId) == 0 &&
                 "LegacyRangeLists writer for DWO unit already exists.");
@@ -13954,7 +14188,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2
          LegacyRangesSectionWriterByCU->initSection(CU);
          LegacyRangesWritersByCU[*DWOId] =
              std::move(LegacyRangesSectionWriterByCU);
-@@ -925,7 +932,8 @@ void DWARFRewriter::processMainBinaryCU(DWARFUnit &Unit, DIEBuilder &DIEBlder,
+@@ -925,7 +927,8 @@ void DWARFRewriter::processMainBinaryCU(DWARFUnit &Unit, DIEBuilder &DIEBlder,
    } else {
      if (!LocalWriter.LegacyRangesWriter) {
        LocalWriter.LegacyRangesWriter =
@@ -13964,7 +14198,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2
        LocalWriter.LegacyRangesWriter->initSection();
      }
    }
-@@ -939,7 +947,10 @@ void DWARFRewriter::processMainBinaryCU(DWARFUnit &Unit, DIEBuilder &DIEBlder,
+@@ -939,7 +942,10 @@ void DWARFRewriter::processMainBinaryCU(DWARFUnit &Unit, DIEBuilder &DIEBlder,
      RangesBase = RangesSectionWriter.getSectionOffset() +
                   getDWARF5RngListLocListHeaderSize(Unit.getFormParams().Format);
      RangesSectionWriter.initSection(Unit);
@@ -13976,7 +14210,27 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2
      // DWARF4: only split-dwarf CUs need a ranges base
      RangesBase = LocalWriter.LegacyRangesWriter->getSectionOffset();
    }
-@@ -1036,7 +1047,8 @@ void DWARFRewriter::updateDebugInfo() {
+@@ -982,13 +988,16 @@ void DWARFRewriter::processBucket(
+                                *DWODIEBuilder.getUnitDIEbyUnit(SplitCU));
+     if (Unit.getVersion() >= 5)
+       TempRangesSectionWriter.finalizeSection();
+-    emitDWOBuilder(DWOName, DWODIEBuilder, *this, SplitCU, Unit,
+-                   DebugLocDWoWriter, DWOStrOffstsWriter, DWOStrWriter,
+-                   GDBIndexSection, TempRangesSectionWriter);
++    DWODIEBuilder.generateAbbrevs();
++    DWODIEBuilder.finish();
+     {
+       std::lock_guard<std::mutex> Lock(DebugNamesUpdateMutex);
+       DWODIEBuilder.updateDebugNamesTable();
+     }
++    DebugLocDWoWriter.patchExpressionReferences(DWODIEBuilder);
++    emitDWOBuilder(DWOName, DWODIEBuilder, *this, SplitCU, Unit,
++                   DebugLocDWoWriter, DWOStrOffstsWriter, DWOStrWriter,
++                   GDBIndexSection, TempRangesSectionWriter);
+   };
+ 
+   for (DWARFUnit *CU : PartDIEBlder.getProcessedCUs()) {
+@@ -1036,7 +1045,8 @@ void DWARFRewriter::updateDebugInfo() {
      FinalAddrWriter = std::make_unique<DebugAddrWriter>(&BC);
    }
    if (BC.isDWARFLegacyUsed()) {
@@ -13986,7 +14240,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2
      LegacyRangesSectionWriter->initSection();
    }
  
-@@ -1893,7 +1905,7 @@ CUOffsetMap DWARFRewriter::finalizeTypeSections(DIEBuilder &DIEBlder,
+@@ -1893,7 +1903,7 @@ CUOffsetMap DWARFRewriter::finalizeTypeSections(DIEBuilder &DIEBlder,
      CUMap[CU->getOffset()] = {StartOffset,
                                CUOffset - StartOffset -
                                    dwarf::getUnitLengthFieldByteSize(Format),
@@ -13995,7 +14249,19 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2
    }
  
    // Emit Type Unit of DWARF 4 to .debug_type section
-@@ -2096,7 +2108,7 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+@@ -2085,6 +2095,11 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+     std::lock_guard<std::mutex> Lock(DebugNamesUpdateMutex);
+     DIEBlder.updateDebugNamesTable();
+   }
++  for (DWARFUnit *CU : CUs) {
++    auto LocIt = LocListWritersByCU.find(CU->getOffset());
++    if (LocIt != LocListWritersByCU.end())
++      LocIt->second->patchExpressionReferences(DIEBlder);
++  }
+   // generate debug_info and CUMap
+   for (DWARFUnit *CU : CUs) {
+     emitUnit(DIEBlder, Streamer, *CU);
+@@ -2096,7 +2111,7 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
      CUMap[CU->getOffset()] = {StartOffset,
                                CUOffset - StartOffset -
                                    dwarf::getUnitLengthFieldByteSize(Format),
@@ -14004,7 +14270,36 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2
    }
  }
  
-@@ -2453,9 +2465,11 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
+@@ -2107,9 +2122,17 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+ namespace {
+ 
+ std::unique_ptr<BinaryContext>
+-createDwarfOnlyBC(const object::ObjectFile &File) {
++createDwarfOnlyBC(const object::ObjectFile &File,
++                  const BinaryContext &ParentBC) {
++  Triple TheTriple = File.makeTriple();
++  // A split-DWARF object does not carry the linked image's ARM build
++  // attributes.  Preserve the already-qualified Cortex-M subarchitecture
++  // when creating the temporary context used only to stream debug sections;
++  // otherwise an arm-- DWO triple cannot be checked against the selected CPU.
++  if (ParentBC.isARM())
++    TheTriple = ParentBC.getTriple();
+   return cantFail(BinaryContext::createBinaryContext(
+-      File.makeTriple(), std::make_shared<orc::SymbolStringPool>(),
++      TheTriple, std::make_shared<orc::SymbolStringPool>(),
+       File.getFileName(), nullptr, false,
+       DWARFContext::create(File, DWARFContext::ProcessDebugRelocations::Ignore,
+                            nullptr, "", WithColor::defaultErrorHandler,
+@@ -2362,7 +2385,7 @@ void DWARFRewriter::writeDWOFiles(
+ 
+   const object::ObjectFile *File =
+       (*DWOCU)->getContext().getDWARFObj().getFile();
+-  std::unique_ptr<BinaryContext> TmpBC = createDwarfOnlyBC(*File);
++  std::unique_ptr<BinaryContext> TmpBC = createDwarfOnlyBC(*File, BC);
+   std::unique_ptr<MCStreamer> Streamer = TmpBC->createStreamer(TempOut->os());
+   const MCObjectFileInfo &MCOFI = *Streamer->getContext().getObjectFileInfo();
+   StringMap<KnownSectionsEntry> KnownSections = createKnownSectionsMap(MCOFI);
+@@ -2453,9 +2476,11 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
    auto Writer =
        std::unique_ptr<MCObjectWriter>(BC.createObjectWriter(*LocStream));
  
@@ -14018,7 +14313,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..ef056eb5d0a572496ec99c5cd4db7af2
  
    for (uint64_t CUOffset : CUOrder) {
      auto It = LocListWritersByCU.find(CUOffset);
-@@ -2481,13 +2495,18 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
+@@ -2481,13 +2506,18 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
  
      std::unique_ptr<DebugBufferVector> CurrCULocationLists =
          LocWriter->getBuffer();
@@ -23689,10 +23984,10 @@ index 0000000000000000000000000000000000000000..6ae6e4fb9ea8eb0437e668e8334ec7c0
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-dwarf32-address-width.s b/bolt/test/ARM/thumb-dwarf32-address-width.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..c63ea72010bdafbbfaf89d942a5ad314aade07ba
+index 0000000000000000000000000000000000000000..a7c2831c7af3ee1953a4d904406aa4c71648418d
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-dwarf32-address-width.s
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,149 @@
 +## BOLT's legacy DWARF writers must use the compile unit's address size.
 +## Cortex-M is ELF32, so range/location tuples and .debug_aranges entries are
 +## pairs of four-byte addresses rather than the eight-byte pairs used by x86-64.
@@ -23735,6 +24030,42 @@ index 0000000000000000000000000000000000000000..c63ea72010bdafbbfaf89d942a5ad314
 +# RUN:   | FileCheck %s --check-prefix=VERIFY
 +# RUN: llvm-dwarfdump --debug-rnglists --debug-loclists %t/candidate-v5.elf \
 +# RUN:   | FileCheck %s --check-prefix=DWARF5
++# RUN: %clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb \
++# RUN:   -O2 -g -gdwarf-5 -gsplit-dwarf -ffreestanding -fno-unwind-tables \
++# RUN:   -fno-asynchronous-unwind-tables -c %t/fixture.c \
++# RUN:   -o %t/fixture-v5-split.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture-v5-split.o %t/aranges.o \
++# RUN:   -o %t/reference-v5-split.elf
++# RUN: mkdir -p %t/split-output
++# RUN: llvm-bolt %t/reference-v5-split.elf \
++# RUN:   --firmbolt-cortex-m-cpu=cortex-m3 --relocs --use-old-text \
++# RUN:   --update-debug-sections --dwarf-output-path=%t/split-output \
++# RUN:   --keep-aranges --always-convert-to-ranges --align-functions=1 \
++# RUN:   -o %t/candidate-v5-split.elf
++# RUN: llvm-dwarfdump --verify --dwo %t/candidate-v5-split.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=VERIFY
++# RUN: %clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb \
++# RUN:   -O2 -g -gdwarf-2 -ffreestanding -fno-unwind-tables \
++# RUN:   -fno-asynchronous-unwind-tables -c %t/fixture.c -o %t/fixture-v2.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture-v2.o %t/aranges.o \
++# RUN:   -o %t/reference-v2.elf
++# RUN: llvm-bolt %t/reference-v2.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --update-debug-sections --keep-aranges \
++# RUN:   --always-convert-to-ranges --align-functions=1 \
++# RUN:   -o %t/candidate-v2.elf
++# RUN: llvm-dwarfdump --verify %t/candidate-v2.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=VERIFY
++# RUN: %clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb \
++# RUN:   -O2 -g -gdwarf-3 -ffreestanding -fno-unwind-tables \
++# RUN:   -fno-asynchronous-unwind-tables -c %t/fixture.c -o %t/fixture-v3.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture-v3.o %t/aranges.o \
++# RUN:   -o %t/reference-v3.elf
++# RUN: llvm-bolt %t/reference-v3.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --update-debug-sections --keep-aranges \
++# RUN:   --always-convert-to-ranges --align-functions=1 \
++# RUN:   -o %t/candidate-v3.elf
++# RUN: llvm-dwarfdump --verify %t/candidate-v3.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=VERIFY
 +
 +# VERIFY: No errors.
 +# ARANGES: Address Range Header:{{.*}}addr_size = 0x04

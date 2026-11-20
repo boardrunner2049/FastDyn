@@ -46,6 +46,9 @@ DEFAULT_BOLT = LLVM_BUILD / "bin/llvm-bolt"
 DEFAULT_LLD = LLVM_BUILD / "bin/ld.lld"
 DEFAULT_FASTDYN = ROOT / "fastdyn-env/bin/fastdyn"
 DEFAULT_OUTPUT = ROOT / "build/preflight/firm-bolt-cortex-m-port"
+DWARF_PRODUCER_MATRIX = (
+    ROOT / "scripts/preflight/run-firm-bolt-dwarf-producer-matrix.py"
+)
 YAML2OBJ = LLVM_BUILD / "bin/yaml2obj"
 LLVM_MC = LLVM_BUILD / "bin/llvm-mc"
 LLVM_DWARFDUMP = LLVM_BUILD / "bin/llvm-dwarfdump"
@@ -12436,6 +12439,17 @@ def main() -> int:
             args.fastdyn.resolve(),
         )
     )
+    dwarf_matrix_output = output / "dwarf-producer-matrix"
+    require_success(run(
+        [sys.executable, str(DWARF_PRODUCER_MATRIX),
+         "--bolt", str(args.bolt.absolute()),
+         "--lld", str(LD_LLD),
+         "--output", str(dwarf_matrix_output)],
+        logs / "dwarf-producer-matrix.log",
+    ), "DWARF producer/version matrix")
+    dwarf_producer_matrix = json.loads(
+        (dwarf_matrix_output / "report.json").read_text()
+    )
     accepted = all(
         item["status"] in {"accepted", "skipped_by_request"}
         for item in (
@@ -12492,7 +12506,7 @@ def main() -> int:
             m4_vfp_frame_execution,
             m4_handler_fop_state_equivalence_execution,
         )
-    )
+    ) and dwarf_producer_matrix["status"] == "accepted"
     report = {
         "schema_version": 1,
         "status": "accepted" if accepted else "rejected",
@@ -12648,6 +12662,7 @@ def main() -> int:
         },
         "host": {"platform": platform.platform(), "python": sys.version},
         "profiles": results,
+        "dwarf_producer_matrix": dwarf_producer_matrix,
         "training_profiles": {
             "m0plus_conditional_move": {
                 "path": str(m0_conditional_move_profile),

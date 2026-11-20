@@ -1783,9 +1783,32 @@ firmware DWARF contract, production run, full-suite diagnostic, hashes and
 176-file cleanly reversible mechanical patch. This is an integration and
 preservation milestone, not a performance or complete x86-parity claim.
 
+v175 extends that debug-preservation claim to an independently built producer
+matrix: Clang 18.1.3 and Arm GNU GCC 13.3.1 at DWARF2 through 5, plus split
+DWARF5 for both. All ten reference/candidate pairs satisfy the frozen verifier
+and section-retention contract. GCC DWARF5 exposed stale base-type DIE offsets
+inside rewritten location-list expressions; fixed-width provisional operands
+are now patched only after final DIE layout. GCC DWARF2 through 4 retain the
+reference's one unsupported-expression finding and its raw
+`DW_OP_GNU_entry_value` tail instead of deleting bytes and appearing falsely
+clean. The first split-DWARF probe also exposed a target-identity loss: target
+lookup normalized away Armv7-M, while the DWO had no linked ARM attributes.
+The qualified parent triple is now retained for temporary DWO streamers, and
+both final skeleton+DWO pairs verify cleanly.
+
+The complete production result remains 68/68 profiles and the real M4
+10,000-work-unit state oracle remains exact. Regression gates pass 97 ARM lit,
+13 AArch32 JITLink lit, all 76 JITLink units and 132 BOLT units plus 150
+target-inapplicable skips. The full 1,131-test diagnostic remains at the same
+23 recorded failures. The
+[v175 manifest](evidence/firmbolt-cortex-m-v175-validation.json) binds the ten
+producer cases, split outputs, regression XML, production report and 178-file
+patch. This is named-producer integration evidence, not arbitrary DWARF,
+performance or complete x86-parity evidence.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `50303183c1573bf2ef55d8537299b681f77d97ab8ba951250e14450b4c604a94`; it reverse-applies exactly to the pinned revision across all 176 overlay files. The exact tested BOLT and DWARF-tool hashes are bound by the v174 manifest. Regression runs complete 97/97 ARM BOLT lit tests, 9/9 selected AArch64 target-scoping controls, five passed plus one unsupported shared-DWARF controls, all 76 JITLink unit tests, and 132 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 88/150, Passes 5/0 and Profile 39/0). The [v174 validation manifest](evidence/firmbolt-cortex-m-v174-validation.json) binds ELF32 DWARF preservation, the 68-profile production run, real M4 execution, the full-suite diagnostic and clean-apply result. Historical [v173](evidence/firmbolt-cortex-m-v173-validation.json), [v172](evidence/firmbolt-cortex-m-v172-validation.json), [v171](evidence/firmbolt-cortex-m-v171-validation.json), and [v170](evidence/firmbolt-cortex-m-v170-validation.json) manifests remain unchanged as TARGET2 GOT-relative, fixed-GOT-family, GOT_PREL and TARGET2 policy evidence.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `cd8fd420628ed16a58912caae736c917ef271ffc74485b7ba3dfa02af011dfc6`; it reverse-applies exactly to the pinned revision across all 178 overlay files. The exact tested BOLT, producer and DWARF-tool hashes are bound by the v175 manifest. Regression runs complete 97/97 ARM BOLT lit tests, 13/13 AArch32 JITLink lit tests, five passed plus one unsupported shared-DWARF controls, all 76 JITLink unit tests, and 132 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 88/150, Passes 5/0 and Profile 39/0). The [v175 validation manifest](evidence/firmbolt-cortex-m-v175-validation.json) binds the producer matrix, split-DWARF preservation, 68-profile production run, real M4 execution, full-suite diagnostic and clean-apply result. Historical [v174](evidence/firmbolt-cortex-m-v174-validation.json), [v173](evidence/firmbolt-cortex-m-v173-validation.json), [v172](evidence/firmbolt-cortex-m-v172-validation.json), [v171](evidence/firmbolt-cortex-m-v171-validation.json), and [v170](evidence/firmbolt-cortex-m-v170-validation.json) manifests remain unchanged as prior debug-width, TARGET2 GOT-relative, fixed-GOT-family, GOT_PREL and TARGET2 policy evidence.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 
