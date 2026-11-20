@@ -1,3 +1,0 @@
-1 Reset_Handler a 1 hot_worker 0 0 100
-1 hot_worker e 1 hot_worker a 0 900
-1 hot_worker e 1 hot_worker 10 0 100

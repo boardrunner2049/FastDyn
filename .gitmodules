@@ -43,7 +43,7 @@
 [submodule "third_party/courbet_deps/fire_modelica_models"]
 	path = third_party/courbet_deps/fire_modelica_models
 	url = https://github.com/mhcho1994/FIRE_Modelica_Models.git
-[submodule "third_party/preflight/llvm-project"]
-	path = third_party/preflight/llvm-project
-	url = https://github.com/llvm/llvm-project.git
-	shallow = true
+[submodule "third_party/firmbolt"]
+	path = third_party/firmbolt
+	url = https://github.com/boardrunner2049/firmbolt.git
+	branch = main

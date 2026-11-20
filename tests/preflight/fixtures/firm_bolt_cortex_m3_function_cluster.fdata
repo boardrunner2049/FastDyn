@@ -1,6 +1,0 @@
-1 Reset_Handler a 1 worker_a 0 0 900
-1 Reset_Handler 12 1 worker_a 0 0 100
-1 Reset_Handler 1a 1 worker_b 0 0 900
-1 worker_a 2 1 worker_a c 0 900
-1 worker_a 2 1 worker_a 4 0 100
-1 worker_a 6 1 worker_c 0 0 100
