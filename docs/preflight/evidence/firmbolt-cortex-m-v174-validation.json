@@ -1,0 +1,169 @@
+{
+  "clean_apply": {
+    "byte_exact_files": 176,
+    "method": "the generated patch reverse-applies cleanly to the current overlay on the pinned base, proving the overlay bytes are exactly the patch result",
+    "pinned_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "reconstructed_patch_byte_exact": true,
+    "status": "accepted"
+  },
+  "dwarf32_contract": {
+    "address_size_bytes": 4,
+    "candidate_aranges_compile_units": 30,
+    "candidate_aranges_non_elf32_units": 0,
+    "candidate_invalid_address_ranges": 0,
+    "candidate_invalid_locations": 0,
+    "candidate_retained_reference_error_counts": {
+      "Invalid DWARF expressions": 2,
+      "Subprogram DIE has no attributes": 1
+    },
+    "compile_units_verified": 30,
+    "initial_failure_before_fix": {
+      "Invalid DW_AT_location": 9,
+      "Invalid address range": 1706,
+      "cause": "legacy DWARF address/range/location/aranges writers serialized ELF32 addresses as eight-byte values"
+    },
+    "policy": "the candidate may retain reference verifier findings, but may not introduce a new error class/count, invalid range/location, missing debug section or non-ELF32 aranges width",
+    "reference_error_counts": {
+      "Invalid DWARF expressions": 2,
+      "Subprogram DIE has no attributes": 1
+    },
+    "required_sections_retained": [
+      ".debug_info",
+      ".debug_abbrev",
+      ".debug_line",
+      ".debug_str",
+      ".debug_ranges",
+      ".debug_loc",
+      ".debug_aranges"
+    ],
+    "status": "accepted",
+    "writers_qualified": [
+      "DWARF4 .debug_ranges",
+      "DWARF4 .debug_loc",
+      "DWARF4 .debug_aranges",
+      "DWARF5 .debug_rnglists",
+      "DWARF5 .debug_loclists"
+    ]
+  },
+  "generated_at_utc": "2026-11-20T07:29:07Z",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "milestone": "v174-cortex-m-elf32-dwarf-preservation",
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-v174-dwarf32-r2"
+  ],
+  "production_profiles": {
+    "accepted": 68,
+    "functions": 1963,
+    "instruction_origins": 130186,
+    "linked_byte_validation_applicable": 67,
+    "linked_byte_validation_not_applicable": 1,
+    "modified_function_instruction_origins": 98761,
+    "modified_functions": 1142,
+    "potentially_faulting_load_store_origins": 57618,
+    "total": 68
+  },
+  "production_status": "accepted",
+  "real_firmware_execution": {
+    "candidate_ram_prefix_exact": true,
+    "completed_work_units": 10000,
+    "cpu_model": "cortex-m4",
+    "debug_sections_updated": true,
+    "reference_repeat_exact": true,
+    "status": "accepted"
+  },
+  "regressions": {
+    "aarch64_target_scoping": {
+      "failed": 0,
+      "passed": 9,
+      "purpose": "constant-island, text-data and seven clustered-relaxation controls that failed before ARM-only state was scoped"
+    },
+    "arm_bolt_lit": {
+      "failed": 0,
+      "passed": 97
+    },
+    "core_units": {
+      "failed": 0,
+      "passed": 88,
+      "skipped_target_inapplicable": 150
+    },
+    "full_bolt_lit_diagnostic": {
+      "expectedly_failed": 1,
+      "failed": 23,
+      "passed": 922,
+      "skipped": 150,
+      "unsupported": 35,
+      "initial_failed_before_target_scoping": 37,
+      "recovered_failures": 14,
+      "status": "diagnostic_not_clean",
+      "remaining_failure_classes": [
+        "the configured clang path names /usr/lib/ccache/clang-18++ for four C++ tests, but that executable does not exist",
+        "the configured clang-18 lacks newer AArch64 compare-and-branch, pointer-authentication, CREL and assembler option support used by pinned tests",
+        "the configured clang-18 lacks newer RISC-V extensions and assembly behavior used by pinned tests",
+        "several profile, DWARF, mapping-symbol, shrink-wrapping and runtime controls remain unresolved against this mixed-version test environment"
+      ]
+    },
+    "jitlink_units": {
+      "failed": 0,
+      "passed": 76
+    },
+    "pass_units": {
+      "failed": 0,
+      "passed": 5
+    },
+    "profile_units": {
+      "failed": 0,
+      "passed": 39
+    },
+    "shared_dwarf_lit": {
+      "failed": 0,
+      "passed": 5,
+      "unsupported": 1
+    }
+  },
+  "repository_base_commit": "cc1fd34f2e8a350d637f347ba217af44ab9d7fb4",
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "scope_limits": [
+    "this milestone establishes ELF32/Cortex-M DWARF address-width preservation and prevents ARM firmware emission state from changing selected AArch64 behavior",
+    "the 68-profile matrix and real M4 run are preservation/installation evidence, not complete x86-backend feature parity",
+    "the full BOLT lit diagnostic is not clean; 23 failures remain and are recorded rather than suppressed",
+    "the M4 FastDyn run checks fixed completed work and exact RAM state, not a statistically powered speedup claim",
+    "DWARF verifier findings already present in the reference are retained and named; the gate forbids new findings rather than claiming the input debug information is perfect",
+    "patch-aware transformation semantics remain a later phase; this production gate uses the current explicit empty patch contract"
+  ],
+  "sha256": {
+    "RTOSDemo.firm-bolt-m4.axf": "e019b4089e7cb7ac201b22c0f5e8c173afad362dff0411426791d7f5185ea286",
+    "aarch64-target-scoping-lit.xml": "b4651588413048544ca74e74a78ec09011ea4472bd0aba5e9cbf0453c1ed9dbb",
+    "arm-bolt-lit.xml": "092912fc67cd02042f688dcdc19940d2c85773c6c53f932372d2d83a441b7488",
+    "bolt/include/bolt/Core/DebugData.h": "f0c313ffc2f5429d4140edbadd6a219de7cf7af6cf7a98d7cde762ab17c4c5a8",
+    "bolt/lib/Core/DebugData.cpp": "48d476023e6e41fa303e5f674fbfb5c4c7732957beb464c0fc4bf969adb626c0",
+    "bolt/lib/Rewrite/DWARFRewriter.cpp": "a88064bed6aa5864b84dc33216e9b691356dd86094959396c406aab287d08041",
+    "bolt/test/ARM/thumb-dwarf32-address-width.s": "584f8ed763efe6182460532f8cc91cb3221df63ca21c3247fc68170ecaa743d6",
+    "core-tests.xml": "342a69b3a786e3d0c176e2f66d84a65f5ded4d1f59e8b263f6218268c3464e4a",
+    "full-bolt-lit.xml": "4f36a88c2c83f69189c42a31d1d2e20634d7298e0bacf6ac2bcd57118f2552ac",
+    "jitlink-tests.xml": "8bc7d7c69c34e91f02fc02c24827447efd6f6bc17345bd1b1babc370d9e5e180",
+    "pass-tests.xml": "54114b90aa37e74da0dbbf3e3871db3ebb5efaf51221cb64076bd61d85932431",
+    "patches/bolt-fastdyn-preflight.patch": "50303183c1573bf2ef55d8537299b681f77d97ab8ba951250e14450b4c604a94",
+    "profile-tests.xml": "3aee184ce1a838ac3de2e49766bc7939e3146ff2c84358c7eabf091239bfa805",
+    "report.json": "54e14bd9f5327939501d0ab3e513e75051bba309349284b3b4b269d2ebff2a94",
+    "scripts/preflight/build-bolt.sh": "43fff57136daa9a852f4a7f629ccfad4d1d6427e4439d3256a609bc7ea47237e",
+    "scripts/preflight/regenerate-bolt-extension-patch.sh": "0637dad43b760be93b75040668f8753399d60adbee9238bd803a9aefa6898d73",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py": "ab4e3b7acf4f543f7ae9980909ce8b72eea2e479c76d605e86ca70d789ec32bb",
+    "shared-dwarf-lit.xml": "4e5b17a3a58c5d901a1ed9a44658a4028bcccc8390714305bf133849778488f9",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "28793e318e2622735a316f53f2733bb30bc5c1e4ce1291c3e6d2502269b73ec1",
+    "third_party/preflight/llvm-build/bin/llvm-dwarfdump": "a4ea38d01e09dc8c3001255241c824d13d07ae0609024cfa49812881eaf9e73d"
+  },
+  "source_changes": {
+    "address_width": "legacy and DWARF5 range/location/aranges writers now serialize the owning compile unit's 4- or 8-byte address size instead of assuming eight bytes",
+    "merge_contract": "range/location section mergers use writer-provided terminator widths and reject mixed address sizes that cannot be represented safely",
+    "target_scoping": "instruction-owned data sizing, mapping aliases, data-object handling and thunk origin/accounting are ARM-only; established AArch64 behavior remains on its original path",
+    "test_contract": "the ELF32 smoke test now expects exact Cortex-M CPU qualification because EM_ARM is supported rather than reporting ARM as an unrecognized machine"
+  }
+}

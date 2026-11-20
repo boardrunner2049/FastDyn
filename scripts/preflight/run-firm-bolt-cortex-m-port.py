@@ -48,6 +48,7 @@ DEFAULT_FASTDYN = ROOT / "fastdyn-env/bin/fastdyn"
 DEFAULT_OUTPUT = ROOT / "build/preflight/firm-bolt-cortex-m-port"
 YAML2OBJ = LLVM_BUILD / "bin/yaml2obj"
 LLVM_MC = LLVM_BUILD / "bin/llvm-mc"
+LLVM_DWARFDUMP = LLVM_BUILD / "bin/llvm-dwarfdump"
 LD_LLD = DEFAULT_LLD
 M0_IMAGE = ROOT / "third_party/preflight/escape32-64k-O0/ESCAPE1-rev12.1.elf"
 M4_IMAGE = ROOT / "tests/sample_binaries/RTOS/RTOSDemo.axf"
@@ -529,6 +530,115 @@ def section_bytes(path: Path, name: str) -> bytes:
         if section is None:
             raise RuntimeError(f"{path} has no {name} section")
         return section.data()
+
+
+def validate_dwarf_preservation(reference: Path, candidate: Path,
+                                logs: Path) -> dict[str, Any]:
+    """Reject any new DWARF verifier class on an ELF32 firmware rewrite.
+
+    Historical firmware can contain verifier findings that predate Firm-BOLT.
+    Requiring a globally clean input would incorrectly reject that firmware;
+    the preservation gate instead freezes the reference error classes/counts
+    and requires the candidate to add none.  Address ranges, locations and
+    aranges are checked explicitly because BOLT's original writers assumed
+    eight-byte addresses while Cortex-M compilation units use four.
+    """
+    aggregate_pattern = re.compile(
+        r"^error: (?P<class>.+) occurred (?P<count>[0-9]+) time\(s\)\.$",
+        re.MULTILINE,
+    )
+
+    def verify(path: Path, tag: str) -> dict[str, Any]:
+        process = run(
+            [str(LLVM_DWARFDUMP), "--verify", str(path)],
+            logs / f"dwarf-verify-{tag}.log",
+        )
+        text = process.stdout + process.stderr
+        aggregate = {
+            match.group("class"): int(match.group("count"))
+            for match in aggregate_pattern.finditer(text)
+        }
+        return {
+            "returncode": process.returncode,
+            "aggregate_error_counts": aggregate,
+            "compile_units_verified": len(re.findall(
+                r"^Verifying unit: ", text, re.MULTILINE,
+            )),
+            "invalid_address_range_mentions": text.count(
+                "Invalid address range"
+            ),
+            "invalid_location_mentions": len(re.findall(
+                r"invalid[^\n]*location|Invalid[^\n]*location", text,
+                re.IGNORECASE,
+            )),
+        }
+
+    reference_verify = verify(reference, "m4-reference")
+    candidate_verify = verify(candidate, "m4-candidate")
+    aranges = run(
+        [str(LLVM_DWARFDUMP), "--debug-aranges", str(candidate)],
+        logs / "dwarf-aranges-m4-candidate.log",
+    )
+    require_success(aranges, "M4 candidate .debug_aranges dump")
+    address_sizes = [
+        int(value, 16)
+        for value in re.findall(
+            r"addr_size = 0x([0-9a-fA-F]+)",
+            aranges.stdout + aranges.stderr,
+        )
+    ]
+
+    debug_sections = (
+        ".debug_info", ".debug_abbrev", ".debug_line", ".debug_str",
+        ".debug_ranges", ".debug_loc", ".debug_aranges",
+    )
+    reference_inventory = elf_inventory(reference)["sections"]
+    candidate_inventory = elf_inventory(candidate)["sections"]
+    missing_candidate_sections = [
+        name for name in debug_sections
+        if name in reference_inventory and name not in candidate_inventory
+    ]
+    accepted = (
+        candidate_verify["aggregate_error_counts"]
+            == reference_verify["aggregate_error_counts"]
+        and candidate_verify["compile_units_verified"]
+            == reference_verify["compile_units_verified"]
+        and candidate_verify["invalid_address_range_mentions"] == 0
+        and candidate_verify["invalid_location_mentions"] == 0
+        and bool(address_sizes)
+        and set(address_sizes) == {4}
+        and not missing_candidate_sections
+    )
+    result = {
+        "status": "accepted" if accepted else "rejected",
+        "reason": None if accepted else "dwarf_preservation_mismatch",
+        "reference": reference_verify,
+        "candidate": candidate_verify,
+        "candidate_aranges_address_sizes": address_sizes,
+        "candidate_aranges_all_elf32": bool(address_sizes)
+            and set(address_sizes) == {4},
+        "required_debug_sections": list(debug_sections),
+        "missing_candidate_sections": missing_candidate_sections,
+        "section_sizes": {
+            name: {
+                "reference": reference_inventory.get(name, {}).get("size"),
+                "candidate": candidate_inventory.get(name, {}).get("size"),
+            }
+            for name in debug_sections
+            if name in reference_inventory or name in candidate_inventory
+        },
+        "policy": (
+            "candidate may retain reference verifier findings but may not "
+            "introduce a new error class/count, invalid range/location, "
+            "missing debug section, or non-ELF32 aranges address width"
+        ),
+    }
+    if not accepted:
+        raise RuntimeError(
+            "real FreeRTOS M4 DWARF preservation failed: "
+            f"{json.dumps(result, sort_keys=True)}"
+        )
+    return result
 
 
 def arm_exidx_records(path: Path) -> dict[str, Any]:
@@ -6947,7 +7057,9 @@ def main() -> int:
              "--firmbolt-preserve-guest-instruction-count=false",
              "--eliminate-unreachable=true",
          ]),
-        ("m4", "cortex-m4", M4_IMAGE, {".isr_vector": None}, ["-v=1"]),
+        ("m4", "cortex-m4", M4_IMAGE, {".isr_vector": None}, [
+            "-v=1", "--update-debug-sections",
+        ]),
         ("m4_vfp_frame", "cortex-m4", m4_vfp_frame_image,
          {".isr_vector": None}, []),
         ("m4_handler_fop_state_equivalence", "cortex-m4", M4_IMAGE,
@@ -8184,6 +8296,9 @@ def main() -> int:
                 pending_icp_validation
             )
         if label == "m4":
+            results[label]["dwarf_preservation_validation"] = (
+                validate_dwarf_preservation(image, candidate, logs)
+            )
             reference_exidx = arm_exidx_records(image)
             candidate_exidx = arm_exidx_records(candidate)
             if (

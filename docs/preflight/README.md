@@ -2180,6 +2180,17 @@ and [validation manifest](evidence/firmbolt-cortex-m-v173-validation.json).
 This closes one platform-policy relocation gap; it is not dynamic-loader,
 whole-firmware-equivalence, performance, or complete x86-parity evidence.
 
+v174 adds real ELF32 firmware debug preservation and isolates firmware-only
+emission state from other BOLT targets. The M4 candidate now runs with
+`--update-debug-sections`, verifies 30 compile units with four-byte aranges and
+introduces no new verifier error class/count. ARM lit passes 97/97; nine
+focused AArch64 target-scoping controls pass; the complete diagnostic suite
+improves from 37 to 23 recorded failures. The current mechanical patch SHA-256
+is `50303183c1573bf2ef55d8537299b681f77d97ab8ba951250e14450b4c604a94`;
+it reverse-applies exactly across 176 overlay files on pinned LLVM. Evidence is
+in the [v174 validation manifest](evidence/firmbolt-cortex-m-v174-validation.json).
+The residual full-suite failures keep complete x86/global parity open.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
@@ -2498,6 +2509,39 @@ rejection prefilter, not a runtime speedup claim. The accepted hot-exit pass
 extends that inventory across the complete dynamic hot path: three translation
 blocks become two, 72 optimized TCG operations become 61, and 768 generated
 host bytes become 696. Full fixed-work measurement remains the acceptance gate.
+
+## FirmBOLT v174: ELF32 DWARF and cross-target isolation
+
+The v174 milestone makes `--update-debug-sections` a checked part of the real
+FreeRTOS/Cortex-M4 production path. The first attempt exposed a concrete
+ELF32 gap: BOLT's legacy range, location and aranges writers serialized guest
+addresses as eight-byte values, producing 1,706 invalid ranges and nine
+invalid locations. The corrected writers use each compile unit's four- or
+eight-byte address size for DWARF4 `.debug_ranges`, `.debug_loc` and
+`.debug_aranges`, and for the DWARF5 rnglists/loclists headers and empty-list
+records. The final M4 candidate verifies all 30 compile units, has zero invalid
+range/location findings, retains every required debug section, and emits 30/30
+aranges contributions with address size four. Its only verifier findings are
+the same two error classes and counts already present in the reference.
+
+The same audit found ARM firmware state leaking into established AArch64
+emission and clustered relaxation. Instruction-owned data accounting, data
+object treatment, mapping aliases and thunk origins are now ARM-only. Nine
+direct AArch64 controls pass, including constant-island/text-data emission and
+all seven affected relaxation cases. The complete BOLT diagnostic improved
+from 37 to 23 failures; the remaining failures are retained in the manifest,
+including missing `clang-18++`, unsupported newer ISA/CREL features and several
+unresolved mixed-toolchain controls. It is therefore diagnostic evidence, not
+a clean global-parity claim.
+
+The production matrix passes 68/68 profiles, covering 1,963 function
+instances, 130,186 exact instruction origins, 1,142 modified functions and
+57,618 potentially faulting instruction origins. The real M4 candidate also
+completes 10,000 FastDyn work units with exact repeated-reference/candidate RAM
+state. This is preservation and installation evidence, not a statistically
+powered speedup result. Exact commands, hashes, error-class accounting and
+regression outcomes are in
+[`evidence/firmbolt-cortex-m-v174-validation.json`](evidence/firmbolt-cortex-m-v174-validation.json).
 
 ## Phase boundary
 

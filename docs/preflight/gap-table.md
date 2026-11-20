@@ -4,7 +4,7 @@ Updated 20 November 2026. `unsupported` means a capability is outside the
 selected implementation/model; it is not a failed proof or semantic
 counterexample.
 
-The latest aggregate gate is v171: 65/65 production and architectural profiles
+The latest aggregate gate is v174: 68/68 production and architectural profiles
 pass. It accepts all twelve Cortex-M CPUs implemented by the pinned LLVM target,
 binds execution features to the selected CPU, treats ELF attributes as evidence
 rather than authorization, and either retains an incompatible region or rejects
@@ -22,11 +22,20 @@ platform-specific static base and binds the referenced object to a fixed
 non-executable input segment. The checked `R_ARM_THM_MOVW_BREL` additionally
 enforces its complete unsigned 16-bit range in both the pinned linker and BOLT.
 Platform-defined EHABI `R_ARM_TARGET2` records now require an explicit ABS32 or
-REL32 link policy; unqualified and GOT-relative forms remain fail-closed.
+REL32 link policy; the separately qualified GOT-relative form requires the
+explicit pinned-LLD policy plus the fixed-static firmware GOT graph.
 `R_ARM_GOT_PREL` is separately qualified for an exact retained static firmware
 GOT slot under an explicit fixed-static contract; it does not synthesize a GOT
 or admit hosted dynamic-linker semantics. Post-link address preservation is
 validated even when report generation is disabled.
+The real FreeRTOS M4 arm now rewrites and verifies ELF32 DWARF: per-CU address
+width is preserved across legacy ranges/locations/aranges and DWARF5 list
+headers, eliminating 1,706 invalid ranges and nine invalid locations from the
+first candidate. ARM-only emission state is also target-scoped so selected
+AArch64 constant-island, text-data and relaxation controls retain their
+established behavior. The full BOLT suite remains a diagnostic with 23 recorded
+failures in the mixed-version test environment, so v174 is not a global parity
+claim.
 The long
 backend row retains older v58/v107 checkpoint details for
 auditability; the dedicated function-ordering and function-splitting rows
@@ -111,6 +120,14 @@ below carry the newer mechanisms and claim boundaries.
 | 1 | Compact Cortex-M final-file publication ordering | Implemented and verified against the real stripped ESCape32 M0+ image | v158 found that the original allocatable `.text` section, finalized because it carries 157 retained ABS32 references, was written after `rewriteFunctionsInPlace()` and silently restored original instructions although the linked scratch image and pass report described optimized bodies. Compact ARM publication now writes finalized allocatable sections and pending relocations first, then installs admitted function bodies as the final writer. A final-ELF gate decodes the two `usart1_isr` identities through the linker-resolved origin map: default policy retains `ldr r3,[r7,#4]` and `ldr r3,[r7]`, while the explicit contract publishes `mov r3,r3` at both identities. Default publication changes 54 functions/266 executable bytes; opt-in changes 55/270, instead of the former misleading 75 selected/zero changed result. The 62/62 production matrix, 85/85 ARM lit, 12/12 JITLink lit and 130-pass/150-skip units remain green. | Closed generically by v159 below; keep pre-link reports insufficient by themselves. |
 | 1 | Linker-to-final-ELF instruction publication identity | Implemented for every mapped instruction in the complete Cortex-M matrix | v159 makes the final-layout schema carry the exact linker-produced bytes for each instruction origin. The driver requires every mapped range to be contained by one function fragment and one executable section, rejects overlaps, and compares the expected bytes with the completed ELF. It validates 128,212 origins in 1,940 functions across 61 applicable profiles: 98,096 origins are in 1,130 modified functions and 58,343 may load or store. Real ESCape32 accounts for 13,243 origins/4,957 potentially faulting accesses; real FreeRTOS M4 accounts for 42,359/19,909. The data-only narrow-relocation fixture is explicitly non-applicable. A negative artifact restores valid original bytes `009a` over linked bytes `1246` at `spill_worker` identity `0x080000ac`; the generic gate rejects the final ELF at that exact identity. The 62/62 matrix, fixed-work oracle, 85/85 ARM lit, 12/12 JITLink and 130-pass/150-skip units remain green. | Extend the same exact final-byte binding to typed inline data, literal pools, veneers and rebuilt unwind/reference records as one whole-artifact publication digest. Publication identity is not semantic equivalence or profitability. |
 | 1 | Fixed-static Cortex-M GOT relocation family | Implemented for an exact retained bare-metal graph, with hosted/dynamic interpretations rejected | v171 first qualifies `R_ARM_GOT_PREL`; v172 adds `R_ARM_BASE_PREL`, `R_ARM_GOT_BREL` and `R_ARM_GOTOFF32` as distinct AArch32 graph edges. v173 then qualifies platform-defined `R_ARM_TARGET2` only under the explicit LLD `got-rel` policy plus that same fixed graph, retaining relocation type 41 rather than silently converting it to type 96. The firmware binder proves one file-backed non-executable `.got`, its exact origin, unique slot/target identities, no interpreter or dynamic owner, and fixed non-executable targets. One fixture preserves a generic-EHABI type-information edge; a second moves an executed code-owned TARGET2 word `0x08000120→0x0800010c`, adjusts its field `8→0x1c`, preserves the exact `0x08000128` slot and six instruction identities, and produces `[42]` in both images. Missing either policy publishes no output. The complete gate is 68/68, ARM lit 96/96, AArch32 JITLink lit 13/13 and units 208 passed plus 150 target-inapplicable skips. | Add new GOT schemas only from explicit linker/runtime metadata. Dynamic GOT/PLT, symbol interposition, runtime relocation and executable GOTOFF targets remain unsupported; this relocation result is not performance evidence. |
+
+## v174 preservation and isolation gaps
+
+| Area | Classification | Evidence | Remaining boundary |
+| --- | --- | --- | --- |
+| ELF32 DWARF preservation | Implemented for the real M4 production arm; mixed-address-size sections remain fail-closed | Per-CU address width now controls DWARF4 ranges/locations/aranges and DWARF5 list headers. The initial M4 candidate had 1,706 invalid address ranges and nine invalid locations; the accepted candidate has zero, retains all required debug sections, verifies 30 CUs and emits all 30 `.debug_aranges` headers with address size four. Reference and candidate retain the same two pre-existing verifier error classes/counts. | Add independently built DWARF2/3/4/5 firmware and split/compressed-debug corpora; one M4 image does not qualify arbitrary producers. |
+| Cross-target isolation | Selected AArch64 behavior restored; full global suite remains diagnostic | ARM instruction-owned data sizing, executable data-object treatment, mapping aliases and thunk origins/accounting are now target-scoped. Nine direct AArch64 constant-island/text-data/relaxation controls pass and the full-suite failure count falls from 37 to 23. | Build the pinned compiler/test dependencies and baseline every remaining full-suite failure before calling it environmental or a FirmBOLT regression. |
+| Real M4 installation | Accepted preservation fixture, not performance evidence | The M4 candidate completes 10,000 FastDyn work units; two reference runs and the candidate have the same 2 MiB RAM-prefix hash. The 68-profile gate retains 130,186 origins and 57,618 potentially faulting origins. | Add statistically powered fixed-work performance trials separately; exact state agreement does not establish a speedup. |
 
 ## Enforced stop conditions
 
