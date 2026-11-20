@@ -206,6 +206,15 @@ M3_GOT_FAMILY_LINKER = (
 M3_GOT_FAMILY_ORDER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_got_family.order"
 )
+M3_TARGET2_GOT_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_target2_got.s"
+)
+M3_TARGET2_GOT_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_target2_got.ld"
+)
+M3_TARGET2_GOT_ORDER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_target2_got.order"
+)
 M3_FUNCTION_SPLIT_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.s"
 )
@@ -2513,6 +2522,130 @@ def validate_relocated_fixed_static_got_family(
     }
 
 
+def validate_relocated_target2_got_code(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate a code-owned TARGET2/GOT_PREL edge after function layout."""
+    ref = elf_inventory(reference)
+    out = elf_inventory(candidate)
+    if ref["segments"] != out["segments"]:
+        raise RuntimeError("TARGET2/GOT candidate changed PT_LOAD ranges")
+    for name, address, expected in (
+        (".rodata", 0x08000124, struct.pack("<I", 42)),
+        (".got", 0x08000128, struct.pack("<I", 0x08000124)),
+    ):
+        left = ref["sections"][name]
+        right = out["sections"][name]
+        for field in ("address", "offset", "size", "flags", "alignment"):
+            if right[field] != left[field]:
+                raise RuntimeError(f"TARGET2/GOT changed {name} {field}")
+        if int(left["address"]) != address:
+            raise RuntimeError(f"TARGET2/GOT {name} address changed")
+        if section_bytes(reference, name) != expected or (
+                section_bytes(candidate, name) != expected):
+            raise RuntimeError(f"TARGET2/GOT {name} contents changed")
+
+    if (
+        symbol_address(reference, "target2_got_worker") != 0x08000114
+        or symbol_address(candidate, "target2_got_worker") != 0x08000100
+    ):
+        raise RuntimeError("TARGET2/GOT worker did not take frozen layout")
+    reference_records = [
+        record for record in static_relocation_records(reference, ".rel.text")
+        if record["type"] == 41
+    ]
+    candidate_records = [
+        record for record in static_relocation_records(candidate, ".rel.text")
+        if record["type"] == 41
+    ]
+    if (
+        len(reference_records) != 1 or len(candidate_records) != 1
+        or reference_records[0]["offset"] != 0x08000120
+        or candidate_records[0]["offset"] != 0x0800010C
+        or reference_records[0]["symbol"] != "value"
+        or candidate_records[0]["symbol"] != "value"
+        or candidate_records[0]["symbol_value"] != 0x08000124
+    ):
+        raise RuntimeError(
+            "R_ARM_TARGET2 identity did not follow the moved code pool"
+        )
+    fields = []
+    for image, record in (
+        (reference, reference_records[0]),
+        (candidate, candidate_records[0]),
+    ):
+        site = int(record["offset"])
+        field = int.from_bytes(virtual_bytes(image, site, 4), "little")
+        fields.append({
+            "site": site,
+            "field": field,
+            "resolved": (site + field) & 0xFFFFFFFF,
+        })
+    if [entry["resolved"] for entry in fields] != [
+            0x08000128, 0x08000128]:
+        raise RuntimeError("TARGET2 GOT_PREL fields lost the exact slot")
+
+    mapping = validate_arm_mapping_symbols(candidate)
+    text_transitions = {
+        (record["kind"], record["address"])
+        for record in mapping["records"] if record["section"] == ".text"
+    }
+    if ("$d", 0x0800010C) not in text_transitions or (
+            "$t", 0x08000110) not in text_transitions:
+        raise RuntimeError("moved TARGET2 pool lost ARM mapping symbols")
+
+    origin_summary = None
+    if final_layout is not None:
+        worker = next(
+            function for function in final_layout["functions"]
+            if function["name"] == "target2_got_worker"
+        )
+        origins = worker["instruction_origins"]
+        pools = worker["owned_literal_pools"]
+        if (
+            worker["original_address"] != 0x08000114
+            or worker["output_address"] != 0x08000100
+            or worker["original_size"] != 16
+            or worker["output_size"] != 16
+            or worker["firmware_modification_reasons"]
+                != ["literal_pool_placement"]
+            or worker["firmware_publication_rejections"]
+            or len(origins) != 6
+            or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in origins
+            )
+            or len(pools) != 1
+            or pools[0]["original_address"] != 0x08000120
+            or pools[0]["output_address"] != 0x0800010C
+            or pools[0]["preserve_original_address"]
+            or pools[0]["relocation_count"] != 1
+        ):
+            raise RuntimeError("TARGET2/GOT publication ledger changed")
+        origin_summary = {
+            "instruction_origin_count": len(origins),
+            "pool_original_address": pools[0]["original_address"],
+            "pool_output_address": pools[0]["output_address"],
+            "pool_relocation_count": pools[0]["relocation_count"],
+        }
+
+    return {
+        "status": "accepted",
+        "policy": "target2_got_rel_with_exact_fixed_static_graph",
+        "program_headers_exact": True,
+        "got_address": 0x08000128,
+        "got_slot_value": 0x08000124,
+        "target_address": 0x08000124,
+        "target_value": 42,
+        "reference_relocation": reference_records[0],
+        "candidate_relocation": candidate_records[0],
+        "resolved_fields": fields,
+        "mapping_symbols": sorted(text_transitions),
+        "origin_summary": origin_summary,
+    }
+
+
 def validate_relocated_safe_icf(
     reference: Path, candidate: Path
 ) -> dict[str, Any]:
@@ -3367,6 +3500,7 @@ def validate_relocated_exidx_function_order(
 def validate_relocated_generic_exidx_function_order(
     reference: Path, candidate: Path,
     final_layout: dict[str, Any] | None = None,
+    target2_policy: str = "rel32",
 ) -> dict[str, Any]:
     """Validate relocation-complete generic EHABI personality repair."""
     reference_inventory = elf_inventory(reference)
@@ -3441,10 +3575,36 @@ def validate_relocated_generic_exidx_function_order(
     typeinfo_address = symbol_address(candidate, "__firmbolt_typeinfo")
     reference_target2 = struct.unpack_from("<i", reference_extab_bytes, 12)[0]
     candidate_target2 = struct.unpack_from("<i", candidate_extab_bytes, 12)[0]
+    if target2_policy not in {"rel32", "got-prel"}:
+        raise RuntimeError(f"unsupported TARGET2 validator policy {target2_policy}")
+    target2_resolved_address = typeinfo_address
+    got_graph = None
+    if target2_policy == "got-prel":
+        reference_got = reference_inventory["sections"].get(".got")
+        candidate_got = candidate_inventory["sections"].get(".got")
+        if reference_got is None or candidate_got is None:
+            raise RuntimeError("TARGET2 GOT_PREL image has no retained .got")
+        for field in ("address", "offset", "size", "flags", "alignment"):
+            if candidate_got[field] != reference_got[field]:
+                raise RuntimeError(f"TARGET2 GOT_PREL changed .got {field}")
+        target2_resolved_address = int(reference_got["address"])
+        got_bytes = section_bytes(reference, ".got")
+        if (
+            int(reference_got["address"]) != 0x0800015C
+            or int(reference_got["size"]) != 4
+            or got_bytes != struct.pack("<I", typeinfo_address)
+            or section_bytes(candidate, ".got") != got_bytes
+        ):
+            raise RuntimeError("TARGET2 GOT_PREL retained graph changed")
+        got_graph = {
+            "got_address": int(reference_got["address"]),
+            "got_slot_value": int.from_bytes(got_bytes, "little"),
+            "target_address": typeinfo_address,
+        }
     if (
         typeinfo_address != 0x08000158
-        or typeinfo_site + reference_target2 != typeinfo_address
-        or typeinfo_site + candidate_target2 != typeinfo_address
+        or typeinfo_site + reference_target2 != target2_resolved_address
+        or typeinfo_site + candidate_target2 != target2_resolved_address
         or section_bytes(candidate, ".rodata")
         != section_bytes(reference, ".rodata")
     ):
@@ -3574,9 +3734,11 @@ def validate_relocated_generic_exidx_function_order(
         "reference_extab_hex": reference_extab_bytes.hex(),
         "candidate_extab_hex": candidate_extab_bytes.hex(),
         "opaque_extab_suffix_exact": True,
-        "target2_policy": "rel32",
+        "target2_policy": target2_policy,
         "target2_site": typeinfo_site,
         "target2_symbol_address": typeinfo_address,
+        "target2_resolved_address": target2_resolved_address,
+        "target2_got_graph": got_graph,
         "reference_exidx": reference_exidx,
         "candidate_exidx": candidate_exidx,
         "personality_relocations": personality_relocations,
@@ -4396,21 +4558,47 @@ def build_m3_got_family_fixture(output: Path, logs: Path) -> Path:
     return image
 
 
-def build_m3_generic_exidx_fixture(output: Path, logs: Path) -> Path:
+def build_m3_target2_got_fixture(output: Path, logs: Path) -> Path:
+    """Build a moved code-owned TARGET2/GOT_PREL firmware reference."""
+    object_path = output / "firm-bolt-cortex-m3-target2-got.o"
+    image = output / "firm-bolt-cortex-m3-target2-got-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", str(M3_TARGET2_GOT_SOURCE),
+        "-o", str(object_path),
+    ], logs / "build-m3-target2-got-object.log"),
+        "M3 TARGET2/GOT object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "--target2=got-rel",
+        "-T", str(M3_TARGET2_GOT_LINKER), str(object_path),
+        "-o", str(image),
+    ], logs / "build-m3-target2-got-image.log"),
+        "M3 TARGET2/GOT image build")
+    return image
+
+
+def build_m3_generic_exidx_fixture(
+    output: Path, logs: Path, target2: str = "rel",
+) -> Path:
     """Build a generic-personality, relocation-complete EHABI fixture."""
-    object_path = output / "firm-bolt-cortex-m3-exidx-generic.o"
-    image = output / "firm-bolt-cortex-m3-exidx-generic-reference.elf"
+    if target2 not in {"rel", "got-rel"}:
+        raise RuntimeError(f"unsupported fixture TARGET2 policy {target2}")
+    suffix = "" if target2 == "rel" else f"-target2-{target2}"
+    object_path = output / f"firm-bolt-cortex-m3-exidx-generic{suffix}.o"
+    image = output / (
+        f"firm-bolt-cortex-m3-exidx-generic{suffix}-reference.elf"
+    )
     require_success(run([
         str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
         "-mcpu=cortex-m3", str(M3_EXIDX_GENERIC_SOURCE),
         "-o", str(object_path),
-    ], logs / "build-m3-exidx-generic-object.log"),
+    ], logs / f"build-m3-exidx-generic{suffix}-object.log"),
         "M3 generic EHABI object build")
     require_success(run([
         str(LD_LLD), "--emit-relocs", "--no-merge-exidx-entries",
-        "--target2=rel",
+        f"--target2={target2}",
         "-T", str(M3_EXIDX_LINKER), str(object_path), "-o", str(image),
-    ], logs / "build-m3-exidx-generic-image.log"),
+    ], logs / f"build-m3-exidx-generic{suffix}-image.log"),
         "M3 generic EHABI image build")
     return image
 
@@ -6257,6 +6445,9 @@ def main() -> int:
     )
     m3_exidx_image = build_m3_exidx_fixture(output, logs)
     m3_exidx_generic_image = build_m3_generic_exidx_fixture(output, logs)
+    m3_exidx_generic_target2_got_image = build_m3_generic_exidx_fixture(
+        output, logs, target2="got-rel",
+    )
     m3_target1_image = build_m3_target1_fixture(output, logs)
     m3_target1_relative_image = build_m3_target1_fixture(
         output, logs, relative=True,
@@ -6269,6 +6460,7 @@ def main() -> int:
     m3_rwpi_image = build_m3_rwpi_fixture(output, logs)
     m3_got_image = build_m3_got_fixture(output, logs)
     m3_got_family_image = build_m3_got_family_fixture(output, logs)
+    m3_target2_got_image = build_m3_target2_got_fixture(output, logs)
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
     m3_cdsplit_no_exidx_capacity_image = build_m3_cdsplit_fixture(
@@ -6559,6 +6751,14 @@ def main() -> int:
              "--align-functions=1",
              f"--function-order={M3_EXIDX_GENERIC_ORDER}",
          ]),
+        ("m3_exidx_generic_target2_got_reorder", "cortex-m3",
+         m3_exidx_generic_target2_got_image, {}, [
+             "--firmbolt-arm-target2=got-rel",
+             "--firmbolt-arm-got=fixed-static",
+             "--relocs", "--use-old-text", "--reorder-functions=user",
+             "--align-functions=1",
+             f"--function-order={M3_EXIDX_GENERIC_ORDER}",
+         ]),
         ("m3_target1_function_reorder", "cortex-m3",
          m3_target1_image, {}, [
              "--firmbolt-arm-target1=abs",
@@ -6595,6 +6795,15 @@ def main() -> int:
              "--relocs", "--use-old-text", "--reorder-functions=user",
              "--align-functions=1",
              f"--function-order={M3_GOT_FAMILY_ORDER}",
+         ]),
+        ("m3_target2_got_code", "cortex-m3",
+         m3_target2_got_image, {}, [
+             "--firmbolt-arm-target2=got-rel",
+             "--firmbolt-arm-got=fixed-static",
+             "--firmbolt-allow-literal-address-changes",
+             "--relocs", "--use-old-text", "--reorder-functions=user",
+             "--align-functions=1",
+             f"--function-order={M3_TARGET2_GOT_ORDER}",
          ]),
         ("m3_function_split", "cortex-m3", m3_function_split_image, {}, [
              f"--data={M3_FUNCTION_SPLIT_PROFILE}",
@@ -7804,12 +8013,17 @@ def main() -> int:
             "m3_cluster_pettis_hansen": "pettis-hansen",
             "m3_cluster_cdsort": "cdsort",
         }.get(label)
-        exidx_validator = {
-            "m3_exidx_function_reorder":
-                validate_relocated_exidx_function_order,
-            "m3_exidx_generic_function_reorder":
-                validate_relocated_generic_exidx_function_order,
+        exidx_target2_policy = {
+            "m3_exidx_generic_function_reorder": "rel32",
+            "m3_exidx_generic_target2_got_reorder": "got-prel",
         }.get(label)
+        exidx_validator = (
+            validate_relocated_exidx_function_order
+            if label == "m3_exidx_function_reorder"
+            else validate_relocated_generic_exidx_function_order
+            if exidx_target2_policy is not None
+            else None
+        )
         exidx_layout = exidx_validator is not None
         target1_layout = label == "m3_target1_function_reorder"
         pcrel_mov_pair_addend = {
@@ -7822,6 +8036,7 @@ def main() -> int:
         fixed_static_got_family_layout = (
             label == "m3_fixed_static_got_family"
         )
+        target2_got_code_layout = label == "m3_target2_got_code"
         split_validation = {
             "m3_function_split": validate_relocated_function_split,
             "m3_cdsplit": validate_relocated_cdsplit,
@@ -7901,6 +8116,11 @@ def main() -> int:
                 if safe_icf_ehabi_layout
                 else validate_relocated_safe_icf(image, candidate)
                 if safe_icf_layout
+                else validate_relocated_generic_exidx_function_order(
+                    image, candidate,
+                    target2_policy=exidx_target2_policy,
+                )
+                if exidx_target2_policy is not None
                 else exidx_validator(image, candidate)
                 if exidx_layout
                 else validate_relocated_target1(image, candidate)
@@ -7918,6 +8138,8 @@ def main() -> int:
                     image, candidate
                 )
                 if fixed_static_got_family_layout
+                else validate_relocated_target2_got_code(image, candidate)
+                if target2_got_code_layout
                 else split_validation(image, candidate)
                 if split_validation is not None
                 else validate_in_place(image, candidate, protected)
@@ -7939,6 +8161,7 @@ def main() -> int:
                     and not pcrel_mov_pair_layout
                     and not fixed_static_got_layout
                     and not fixed_static_got_family_layout
+                    and not target2_got_code_layout
                     and not alignment_validation
                     and not safe_icf_layout
                 ) else None
@@ -8131,7 +8354,12 @@ def main() -> int:
                 )
             elif exidx_layout:
                 results[label]["validation"] = (
-                    exidx_validator(
+                    validate_relocated_generic_exidx_function_order(
+                        image, candidate, final_layout,
+                        target2_policy=exidx_target2_policy,
+                    )
+                    if exidx_target2_policy is not None
+                    else exidx_validator(
                         image, candidate, final_layout,
                     )
                 )
@@ -8162,6 +8390,12 @@ def main() -> int:
                         image, candidate, final_layout,
                     )
                 )
+            elif target2_got_code_layout:
+                results[label]["validation"] = (
+                    validate_relocated_target2_got_code(
+                        image, candidate, final_layout,
+                    )
+                )
             elif split_validation is not None:
                 results[label]["validation"] = (
                     split_validation(
@@ -8171,6 +8405,7 @@ def main() -> int:
             if (
                 exidx_layout or safe_icf_layout or pcrel_mov_pair_layout
                 or fixed_static_got_layout or fixed_static_got_family_layout
+                or target2_got_code_layout
             ):
                 # The dedicated validator follows every relocated origin and
                 # reference.  The generic in-place scanners compare bytes at
@@ -8194,16 +8429,23 @@ def main() -> int:
                             safe_icf_layout or pcrel_mov_pair_layout
                             or fixed_static_got_layout
                             or fixed_static_got_family_layout
+                            or target2_got_code_layout
                         ) else
                         13
-                        if label == "m3_exidx_generic_function_reorder"
+                        if label in {
+                            "m3_exidx_generic_function_reorder",
+                            "m3_exidx_generic_target2_got_reorder",
+                        }
                         else 12
                     ),
                     "synthesized_instruction_count": 0,
                     "pc_relative_reference_count": (
                         2 if pcrel_mov_pair_layout else
                         3 if fixed_static_got_family_layout else
-                        1 if fixed_static_got_layout else 0
+                        1 if (
+                            fixed_static_got_layout
+                            or target2_got_code_layout
+                        ) else 0
                     ),
                     "contract": (
                         "dedicated_relocation_and_pcrel_mov_validation"
@@ -8212,6 +8454,8 @@ def main() -> int:
                         if fixed_static_got_layout else
                         "dedicated_fixed_static_got_family_validation"
                         if fixed_static_got_family_layout else
+                        "dedicated_target2_fixed_static_got_validation"
+                        if target2_got_code_layout else
                         "dedicated_relocation_and_safe_icf_validation"
                         if safe_icf_layout else
                         "dedicated_relocation_and_ehabi_validation"
@@ -8225,7 +8469,9 @@ def main() -> int:
                             relocation["candidate"] for relocation in
                             results[label]["validation"]["relocations"]
                         ]
-                        if fixed_static_got_family_layout else []
+                        if fixed_static_got_family_layout else
+                        [results[label]["validation"]["candidate_relocation"]]
+                        if target2_got_code_layout else []
                     ),
                 }
             else:
@@ -10375,6 +10621,43 @@ def main() -> int:
             "published_candidate": False,
         }
 
+    target2_got_negative_controls = {}
+    for control, policy_args in (
+        ("missing_got_graph", ["--firmbolt-arm-target2=got-rel"]),
+        ("missing_target2_policy", ["--firmbolt-arm-got=fixed-static"]),
+    ):
+        rejected_output = output / f"target2-got-{control}-rejected.elf"
+        rejected_output.unlink(missing_ok=True)
+        rejected = run([
+            str(args.bolt.resolve()),
+            str(m3_exidx_generic_target2_got_image),
+            "--firmbolt-cortex-m-cpu=cortex-m3",
+            *policy_args,
+            "--relocs", "--use-old-text", "--reorder-functions=user",
+            "--align-functions=1",
+            f"--function-order={M3_EXIDX_GENERIC_ORDER}",
+            "-o", str(rejected_output),
+        ], logs / f"target2-got-{control}-rejected.log")
+        rejected_text = rejected.stdout + rejected.stderr
+        diagnostic = (
+            "--firmbolt-arm-target2=got-rel together with "
+            "--firmbolt-arm-got=fixed-static"
+        )
+        if (
+            rejected.returncode == 0
+            or diagnostic not in rejected_text
+            or rejected_output.exists()
+        ):
+            raise RuntimeError(
+                f"TARGET2 GOT_PREL {control} did not reject atomically"
+            )
+        target2_got_negative_controls[control] = {
+            "status": "accepted",
+            "returncode": rejected.returncode,
+            "diagnostic": diagnostic,
+            "published_candidate": False,
+        }
+
     got_negative_controls = {}
     for control, policy_args, diagnostic in (
         (
@@ -11806,6 +12089,16 @@ def main() -> int:
             expected_words=(17, 42),
         )
     )
+    m3_exidx_generic_target2_got_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_exidx_generic_target2_got_image,
+            candidates["m3_exidx_generic_target2_got_reorder"],
+            output, args.fastdyn.resolve(),
+            "exidx-generic-target2-got-reorder",
+            expected_words=(17, 42),
+        )
+    )
     m3_target1_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_single_word_execution(
@@ -11856,6 +12149,15 @@ def main() -> int:
             candidates["m3_fixed_static_got_family"],
             output, args.fastdyn.resolve(), "fixed-static-got-family",
             expected_words=(84,),
+        )
+    )
+    m3_target2_got_code_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_target2_got_image,
+            candidates["m3_target2_got_code"],
+            output, args.fastdyn.resolve(), "target2-got-code",
+            expected_words=(42,),
         )
     )
     m3_function_split_execution = (
@@ -12047,12 +12349,14 @@ def main() -> int:
             m3_alignment_execution,
             m3_exidx_execution,
             m3_exidx_generic_execution,
+            m3_exidx_generic_target2_got_execution,
             m3_target1_execution,
             m3_pcrel_mov_pair_execution,
             m3_pcrel_mov_pair_addend_execution,
             m3_rwpi_execution,
             m3_fixed_static_got_execution,
             m3_fixed_static_got_family_execution,
+            m3_target2_got_code_execution,
             m3_function_split_execution,
             m3_cdsplit_execution,
             m3_loop_inversion_execution,
@@ -12418,6 +12722,7 @@ def main() -> int:
         },
         "negative_controls": {
             "target1_policy": target1_negative_controls,
+            "target2_got_policy": target2_got_negative_controls,
             "fixed_static_got_policy": got_negative_controls,
             "fixed_static_got_family_policy":
                 got_family_negative_controls,
@@ -12557,6 +12862,8 @@ def main() -> int:
             m3_exidx_execution,
         "m3_exidx_generic_function_reorder_architectural_execution":
             m3_exidx_generic_execution,
+        "m3_exidx_generic_target2_got_reorder_architectural_execution":
+            m3_exidx_generic_target2_got_execution,
         "m3_target1_function_reorder_architectural_execution":
             m3_target1_execution,
         "m3_pcrel_mov_pair_function_reorder_architectural_execution":
@@ -12568,6 +12875,8 @@ def main() -> int:
             m3_fixed_static_got_execution,
         "m3_fixed_static_got_family_architectural_execution":
             m3_fixed_static_got_family_execution,
+        "m3_target2_got_code_architectural_execution":
+            m3_target2_got_code_execution,
         "m3_native_function_split_architectural_execution":
             m3_function_split_execution,
         "m3_native_cdsplit_architectural_execution":
@@ -12696,6 +13005,7 @@ def main() -> int:
                 "explicit ARM relocation mode with native BOLT user-directed, profile exec-count and call-graph CDSort whole-image function ordering inside the linker-qualified input .text flash extent, repaired direct calls and vector/entry Thumb pointers, live-section SHT_REL ownership, moved alternate labels, exact origins, atomic rejection, unchanged PT_LOAD ranges, and Cortex-M3 execution",
                 "explicit fixed-static firmware GOT graphs for R_ARM_GOT_PREL, requiring one exact retained file-backed non-executable .got slot, preserving the target-object identity and source addend across whole-image layout, rebuilding the live SHT_REL record and ARM mapping symbols, rejecting unqualified or address-contract-violating candidates atomically, and executing the moved Cortex-M3 image",
                 "the remaining fixed-static firmware GOT family R_ARM_BASE_PREL, R_ARM_GOT_BREL and R_ARM_GOTOFF32, resolved through one exact retained file-backed non-executable GOT origin and target graph with relocation-specific addend arithmetic, rebuilt live SHT_REL records and mapping symbols, atomic policy/address rejection, and moved Cortex-M3 execution",
+                "platform-defined R_ARM_TARGET2 under explicit got-rel policy, admitted only with the same exact fixed-static firmware GOT graph, preserving type 41 and target identity through both a generic EHABI payload and a moved code-owned literal pool, retained slots, moved-function unwind reconstruction, exact origins and Cortex-M3 execution",
                 "native BOLT HFSort and Pettis-Hansen call-graph clustering, distinguished from exec-count and CDSort under one frozen profile, with linked caller/callee adjacency, repaired direct calls, exact relocation/origin ledgers, separately accounted linker alignment slack, unchanged executable PT_LOAD ranges, and Cortex-M3 execution",
                 "native BOLT function and profile-guided basic-block alignment in explicit relocation mode, with executed-padding/timing admission, the default guest-instruction-count gate, exact instruction origins across padding, post-alignment branch repair, linker-owned capacity accounting, atomic over-budget rejection, and Cortex-M3 execution",
                 "ARM EHABI SHT_ARM_EXIDX reconstruction for relocation-complete Cortex-M function ordering and admitted function splitting, including PREL31 decode/re-encode, address sorting, CANTUNWIND, inline compact, bounded external compact and relocation-complete generic personality models, exact source-unwind identity replication across noncontiguous hot/warm/cold fragments, live .text sh_link retargeting, checked variable-footprint growth only inside file- and memory-backed linker capacity, PT_ARM_EXIDX repair, and Cortex-M3 execution",
@@ -12810,6 +13120,8 @@ def main() -> int:
             str(candidates["m3_exidx_function_reorder"]),
         "m3_exidx_generic_function_reorder_candidate":
             str(candidates["m3_exidx_generic_function_reorder"]),
+        "m3_exidx_generic_target2_got_reorder_candidate":
+            str(candidates["m3_exidx_generic_target2_got_reorder"]),
         "m3_pcrel_mov_pair_function_reorder_candidate":
             str(candidates["m3_pcrel_mov_pair_function_reorder"]),
         "m3_pcrel_mov_pair_addend_function_reorder_candidate":
@@ -12822,6 +13134,8 @@ def main() -> int:
             str(candidates["m3_fixed_static_got"]),
         "m3_fixed_static_got_family_candidate":
             str(candidates["m3_fixed_static_got_family"]),
+        "m3_target2_got_code_candidate":
+            str(candidates["m3_target2_got_code"]),
         "m3_function_split_candidate":
             str(candidates["m3_function_split"]),
         "m3_cdsplit_candidate": str(candidates["m3_cdsplit"]),

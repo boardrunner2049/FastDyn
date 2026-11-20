@@ -2146,6 +2146,40 @@ and [validation manifest](evidence/firmbolt-cortex-m-v172-validation.json).
 This is fixed firmware reference-graph, relocation, publication and execution
 coverage—not dynamic-loader support, whole-firmware equivalence or speedup.
 
+v173 closes the explicitly deferred GOT-relative interpretation of
+`R_ARM_TARGET2` (type 41). AAELF32 leaves TARGET2 platform-defined, so
+FirmBOLT does not infer its expression from bytes: the new
+`--firmbolt-arm-target2=got-rel` policy follows pinned LLD's
+`--target2=got-rel` mapping to `G(S)+A-P` and is admitted only together with
+the v171/v172 exact `--firmbolt-arm-got=fixed-static` graph. The output keeps
+relocation type 41 and the logical target identity; it does not silently
+replace the record with `R_ARM_GOT_PREL` type 96.
+
+Two independent Cortex-M3 fixtures exercise the integration boundary. The
+generic-EHABI fixture preserves an opaque type-information dependency in
+`.ARM.extab`, resolving its TARGET2 word through `.got=0x0800015c`; reference
+and candidate execute to RAM words `[17, 42]`. The code-owned fixture moves
+`target2_got_worker` `0x08000114→0x08000100` and its owned relocation word
+`0x08000120→0x0800010c`. Its field changes `8→0x1c`, but both resolve to the
+same slot at `0x08000128`, whose word still names `value=0x08000124`; all six
+instruction identities and the `$d/$t` transitions follow the move, and both
+images execute to `[42]`. Omitting either policy rejects atomically without
+publishing an ELF.
+
+The production matrix now passes 68/68 profiles and binds 130,186 final
+instruction origins in 1,963 functions, including 98,761 origins in 1,142
+modified functions and 57,618 potentially faulting accesses. Regression gates
+pass 96/96 ARM BOLT lit, 13/13 AArch32 JITLink lit, all 76 JITLink units, 88
+Core plus 150 target-inapplicable skips, 5 Pass and 39 Profile units. The
+mechanical patch SHA-256 is
+`99d9f78b2ab8d5aab41383c1d52d06733a3bd2451369359c8a215bdd30118c81`;
+it reverse-applies exactly across all 171 overlay files on pinned LLVM.
+Evidence is in the
+[`v173 report`](../../build/preflight/firm-bolt-cortex-m-production-parity-v173-target2-got-r2-2026-11-20/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v173-validation.json).
+This closes one platform-policy relocation gap; it is not dynamic-loader,
+whole-firmware-equivalence, performance, or complete x86-parity evidence.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
