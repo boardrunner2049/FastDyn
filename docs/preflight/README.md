@@ -1982,6 +1982,37 @@ and [validation manifest](evidence/firmbolt-cortex-m-v167-validation.json).
 This milestone closes a typed relocation/publication gap; it is not a runtime
 speedup or full x86-backend parity claim.
 
+v168 completes the Thumb RWPI relocation family with checked
+`R_ARM_THM_MOVW_BREL` (type 89). This exposed a second integration gap outside
+BOLT: the pinned LLD source classified the relocation as static-base-relative,
+but its Thumb relocation writer and implicit-addend reader had no case for the
+checked form. The pinned linker overlay now emits the T3 MOVW immediate,
+extracts retained `SHT_REL` addends, and diagnoses value `0x10000` as outside
+the required `[0, 65535]` range. BOLT's relocation handler independently
+accepts `0xffff`, rejects `0x10000`, and round-trips the complete 16-bit field.
+The default and explicit `B(S)` policies remain exactly those documented for
+v167; the checked relocation does not weaken target or segment qualification.
+
+The expanded Cortex-M3 fixture resolves the checked symbol at `0x20000024` to
+field `0x24`. Ordinary FOP shrinks `checked_rwpi_worker` from 28 to 26 bytes,
+moves its exact retained relocation from `0x0800014c` to `0x0800014a`, and
+publishes all 12 instruction origins. The existing NC/MOVT worker still shrinks
+32 to 30 bytes and retains its paired `+4` addend reconstruction. Reference and
+candidate both execute under FastDyn to RAM words `[42, 42]`.
+
+The production matrix remains 64/64 and now binds 130,107 final origins in
+1,952 functions, including 98,724 origins in 1,138 modified functions and
+57,590 potentially faulting accesses. Regression gates remain 93/93 ARM BOLT
+lit, 13/13 AArch32 JITLink lit, 19/19 focused JITLink units, and 132 BOLT unit
+passes plus 150 explicit target skips. The mechanical patch SHA-256 is
+`28fa0cb635ff9c323057f6e7cce8fef27333d1c0b17054f4a53ecd434f4ed60b`;
+it clean-applies to pinned LLVM and reproduces all 167 overlay files
+byte-for-byte. Evidence is in the
+[`v168 report`](../../build/preflight/firm-bolt-cortex-m-production-parity-v168-rwpi-checked-2026-11-20/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v168-validation.json).
+This completes a relocation family, not runtime-speed or full x86-parity
+evaluation.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

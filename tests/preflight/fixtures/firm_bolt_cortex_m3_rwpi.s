@@ -21,6 +21,9 @@ Reset_Handler:
   movs r2, #1
   bl rwpi_worker
   str r0, [r9]
+  movs r2, #1
+  bl checked_rwpi_worker
+  str r0, [r9, #4]
   .globl fixture_halt
 fixture_halt:
   b fixture_halt
@@ -45,6 +48,30 @@ rwpi_worker:
   add sp, #4
   pop {r7, pc}
   .size rwpi_worker, .-rwpi_worker
+
+  // The checked BREL form carries the complete unsigned static-base offset
+  // in one MOVW. LLVM MC normally selects the unchecked producer form, so an
+  // explicit relocation exercises the checked ABI record without changing
+  // the instruction encoding.
+  .p2align 2
+  .globl checked_rwpi_worker
+  .type checked_rwpi_worker,%function
+  .thumb_func
+checked_rwpi_worker:
+  push {r7, lr}
+  sub sp, #4
+  add r7, sp, #0
+  str r2, [r7]
+  ldr.w r2, [r7]
+  movw r0, #0
+  .reloc .-4, R_ARM_THM_MOVW_BREL, rw_data_checked
+  add r0, r9
+  ldr r0, [r0]
+  adds r0, r2
+  mov sp, r7
+  add sp, #4
+  pop {r7, pc}
+  .size checked_rwpi_worker, .-checked_rwpi_worker
 
   // The explicit segment-start policy still rejects BREL references whose
   // target can move with executable layout. This cold control must remain
@@ -73,5 +100,9 @@ flash_data:
   .type rw_data,%object
 rw_data:
   .word 13
+  .globl rw_data_checked
+  .type rw_data_checked,%object
+rw_data_checked:
   .word 41
+  .size rw_data_checked, .-rw_data_checked
   .size rw_data, .-rw_data

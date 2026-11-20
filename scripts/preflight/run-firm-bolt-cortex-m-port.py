@@ -43,11 +43,12 @@ if str(SOURCE_ROOT) not in sys.path:
 LLVM_SOURCE = ROOT / "third_party/preflight/llvm-project"
 LLVM_BUILD = ROOT / "third_party/preflight/llvm-build"
 DEFAULT_BOLT = LLVM_BUILD / "bin/llvm-bolt"
+DEFAULT_LLD = LLVM_BUILD / "bin/ld.lld"
 DEFAULT_FASTDYN = ROOT / "fastdyn-env/bin/fastdyn"
 DEFAULT_OUTPUT = ROOT / "build/preflight/firm-bolt-cortex-m-port"
 YAML2OBJ = LLVM_BUILD / "bin/yaml2obj"
 LLVM_MC = LLVM_BUILD / "bin/llvm-mc"
-LD_LLD = Path("/usr/bin/ld.lld-18")
+LD_LLD = DEFAULT_LLD
 M0_IMAGE = ROOT / "third_party/preflight/escape32-64k-O0/ESCAPE1-rev12.1.elf"
 M4_IMAGE = ROOT / "tests/sample_binaries/RTOS/RTOSDemo.axf"
 CHIBIOS_IMAGE = ROOT / "tests/binaries/rtos/chibios.elf"
@@ -1968,6 +1969,10 @@ def validate_rwpi_static_base(
     if rw_data != 0x20000020 or rw_data != symbol_address(
             candidate, "rw_data"):
         raise RuntimeError("RWPI data target or static offset changed")
+    rw_data_checked = symbol_address(reference, "rw_data_checked")
+    if rw_data_checked != 0x20000024 or rw_data_checked != symbol_address(
+            candidate, "rw_data_checked"):
+        raise RuntimeError("checked RWPI data target or static offset changed")
 
     reference_pair = [
         relocation for relocation in static_relocation_records(
@@ -1994,6 +1999,29 @@ def validate_rwpi_static_base(
             "RWPI relocation identities were not remapped with compact FOP: "
             f"reference={reference_pair}, candidate={candidate_pair}"
         )
+    reference_checked = [
+        relocation for relocation in static_relocation_records(
+            reference, ".rel.text"
+        ) if relocation["type"] == 89
+        and relocation["symbol"] == "rw_data_checked"
+    ]
+    candidate_checked = [
+        relocation for relocation in static_relocation_records(
+            candidate, ".rel.text"
+        ) if relocation["type"] == 89
+        and relocation["symbol"] == "rw_data_checked"
+    ]
+    if (
+        len(reference_checked) != 1
+        or len(candidate_checked) != 1
+        or candidate_checked[0]["symbol_value"] != rw_data_checked
+        or candidate_checked[0]["offset"]
+            != reference_checked[0]["offset"] - 2
+    ):
+        raise RuntimeError(
+            "checked RWPI relocation was not range-preserved and remapped: "
+            f"reference={reference_checked}, candidate={candidate_checked}"
+        )
 
     def decoded_mov_immediate(image: Path, address: int) -> int:
         text = elf_inventory(image)["sections"][".text"]
@@ -2018,6 +2046,14 @@ def validate_rwpi_static_base(
         raise RuntimeError(
             "RWPI output does not encode S+A-segment-start: "
             f"{encoded_fields}"
+        )
+    checked_encoded_field = decoded_mov_immediate(
+        candidate, candidate_checked[0]["offset"]
+    )
+    if checked_encoded_field != 0x24:
+        raise RuntimeError(
+            "checked RWPI output does not encode its complete unsigned "
+            f"static-base offset: 0x{checked_encoded_field:x}"
         )
     if symbol_bytes(reference, "unsupported_exec_brel") != symbol_bytes(
             candidate, "unsupported_exec_brel"):
@@ -2047,10 +2083,31 @@ def validate_rwpi_static_base(
             raise RuntimeError(
                 "RWPI compact publication or fail-closed control changed"
             )
+        checked_worker = functions["checked_rwpi_worker"]
+        checked_origins = checked_worker["instruction_origins"]
+        if (
+            not checked_worker["firmware_modified"]
+            or checked_worker["firmware_modification_reasons"]
+                != ["frame_load_forwarding"]
+            or checked_worker["firmware_publication_rejections"]
+            or checked_worker["original_size"] != 28
+            or checked_worker["output_size"] != 26
+            or len(checked_origins) != 12
+            or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in checked_origins
+            )
+        ):
+            raise RuntimeError(
+                "checked RWPI compact publication or origins changed"
+            )
         origin_summary = {
             "instruction_origin_count": len(origins),
             "original_size": 32,
             "output_size": 30,
+            "checked_instruction_origin_count": len(checked_origins),
+            "checked_original_size": 28,
+            "checked_output_size": 26,
             "unsupported_executable_target_retained": True,
         }
 
@@ -2064,8 +2121,13 @@ def validate_rwpi_static_base(
         "source_addend": 4,
         "resolved_static_offset": 0x24,
         "encoded_fields": encoded_fields,
+        "checked_referenced_symbol": "rw_data_checked",
+        "checked_symbol_address": rw_data_checked,
+        "checked_resolved_static_offset": checked_encoded_field,
         "reference_relocations": reference_pair,
         "candidate_relocations": candidate_pair,
+        "reference_checked_relocation": reference_checked[0],
+        "candidate_checked_relocation": candidate_checked[0],
         "origin_summary": origin_summary,
     }
 
@@ -5638,8 +5700,13 @@ def validate_m4_execution(candidate: Path, output: Path,
 
 
 def main() -> int:
+    global LD_LLD
     parser = argparse.ArgumentParser()
     parser.add_argument("--bolt", type=Path, default=DEFAULT_BOLT)
+    parser.add_argument(
+        "--lld", type=Path, default=DEFAULT_LLD,
+        help="pinned LLD build used to create relocation-bearing fixtures",
+    )
     parser.add_argument("--fastdyn", type=Path, default=DEFAULT_FASTDYN)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--skip-build", action="store_true")
@@ -5653,6 +5720,12 @@ def main() -> int:
         help="run BOLT frame optimization using qualified Thumb target hooks",
     )
     args = parser.parse_args()
+    LD_LLD = args.lld.resolve()
+    if not LD_LLD.is_file() or not os.access(LD_LLD, os.X_OK):
+        raise RuntimeError(
+            f"pinned LLD executable is unavailable: {LD_LLD}; "
+            "run scripts/preflight/build-bolt.sh or pass --lld"
+        )
     output = args.output.resolve()
     logs = output / "commands-and-logs"
     output.mkdir(parents=True, exist_ok=True)
@@ -11171,10 +11244,10 @@ def main() -> int:
     )
     m3_rwpi_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
-        validate_m3_single_word_execution(
+        validate_m3_words_execution(
             m3_rwpi_image, candidates["m3_rwpi_static_base"],
             output, args.fastdyn.resolve(), "rwpi-static-base",
-            expected_word=42,
+            expected_words=(42, 42),
         )
     )
     m3_function_split_execution = (
