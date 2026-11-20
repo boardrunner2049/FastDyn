@@ -61,7 +61,8 @@ def host_inline_mode(params: Mapping[str, Any]) -> str:
         return "invalid"
     if mode in (None, "splice") and params.get("allow_faulting"):
         return "faulting"
-    if mode is None and params.get("max_inline_depth") == 2:
+    depth = params.get("max_inline_depth", 1)
+    if mode is None and "max_inline_depth" in params and type(depth) is int and depth >= 1:
         return "splice"
     return mode or "island"
 
@@ -176,8 +177,8 @@ class HostInline:
         if mode == "invalid":
             return PassResult(Outcome.FAILED, "invalid_params", f"mode must be one of {', '.join(_MODES)}")
         depth = params.get("max_inline_depth", 1)
-        if type(depth) is not int or depth not in (1, 2):
-            return PassResult(Outcome.FAILED, "invalid_params", "max_inline_depth must be 1 or 2")
+        if type(depth) is not int or depth < 1:
+            return PassResult(Outcome.FAILED, "invalid_params", "max_inline_depth must be a positive integer")
         faulting = params.get("allow_faulting", params.get("mode") == "faulting")
         if params.get("mode") == "faulting" and not faulting:
             return PassResult(Outcome.FAILED, "invalid_params", "faulting mode requires allow_faulting=true")
@@ -185,11 +186,12 @@ class HostInline:
             return PassResult(Outcome.FAILED, "invalid_params", "island mode requires nonfaulting, one-level inlining")
         if mode != "extreme" and "allow_partial" in params:
             return PassResult(Outcome.FAILED, "invalid_params", "allow_partial requires extreme mode")
-        if mode != "extreme" and depth != 2 and "compact_frame" in params:
-            return PassResult(Outcome.FAILED, "invalid_params", "compact_frame requires extreme mode or two-level splicing")
+        framed = mode == "extreme" or mode != "island" and "max_inline_depth" in params
+        if not framed and "compact_frame" in params:
+            return PassResult(Outcome.FAILED, "invalid_params", "compact_frame requires extreme mode or recursive splicing")
         if "udiv_mode" in params and not faulting:
             return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode requires faulting inlining")
-        if mode == "extreme" or depth == 2:
+        if framed:
             from .host_inline_extreme import HostInlineExtreme
 
             engine = HostInlineExtreme(allow_faulting=faulting)

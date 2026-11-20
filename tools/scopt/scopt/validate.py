@@ -439,6 +439,8 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                         certified.callee.symbol != call.symbol):
                     raise ValueError("linked callee does not match its capture-bound native image")
                 if framed:
+                    if call.splice.frame_chain != certified.callee.frame_chain:
+                        raise ValueError("nested frame bodies differ from the bound executable")
                     if (certified.callee.role != "plugin" or certified.callee.abi != "sysv-amd64" or
                             certified.call.call_class != "plugin" or certified.call.helper_flags != 0 or
                             certified.callee.tcg_typemask != 400):

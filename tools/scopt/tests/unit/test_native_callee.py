@@ -146,3 +146,32 @@ def test_prepare_input_changes_when_policy_or_backend_changes():
     b = prepare_native_images(snap, backend_revision="test-b", bridge_version=1, policy_version=1)
     c = prepare_native_images(snap, backend_revision="test-a", bridge_version=1, policy_version=2)
     assert len({a.input_id, b.input_id, c.input_id}) == 3
+
+
+def test_import_binds_even_unexpanded_frame_bodies_to_the_executable():
+    from scopt.importer.import_cache import _native_binding_problem
+    from scopt.model.native import NativeFrameBody, NativeSplice
+    from tests.unit.test_native_virtual import _case
+
+    unit, request = _case()
+    # Only the outermost frame was emitted. The retained callee's identity still
+    # establishes that the omitted return address cannot be observed.
+    chain = (NativeFrameBody(0x1200, b"\x90\xc3"),)
+    splice = NativeSplice(request.call_off, b"", b"", kind="frame", frame_chain=chain)
+    resolved = SimpleNamespace(role="plugin", tcg_typemask=400, code=request.callee_code,
+                               image_id=request.image_id, elf_address=request.elf_address,
+                               image_offset=request.image_offset, frame_chain=chain)
+    helper = SimpleNamespace(func=request.target_abs, name_str=None, tcg_flags=0, typemask=400)
+    context = SimpleNamespace(helper=lambda _: helper,
+                              code_target=lambda _: SimpleNamespace(module="libfastdyn.so"))
+    source = object()
+    resolvers = {id(source): SimpleNamespace(resolve=lambda _: resolved)}
+
+    def problem(claim):
+        req = replace(request, splice=replace(splice, frame_chain=claim))
+        binding = SimpleNamespace(source=source, chunk=SimpleNamespace(native_fragments=(req,)))
+        return _native_binding_problem(binding, context, {}, unit.uid, resolvers, {})
+
+    assert problem(chain) is None
+    for altered in ((), (replace(chain[0], address=0x1300),), (replace(chain[0], code=b"\xc3"),)):
+        assert problem(altered) == "nested frame bodies differ from the bound executable"

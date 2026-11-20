@@ -64,14 +64,16 @@ class HostInlineExtreme(HostInlineSplice):
         from ..validate_sym.native_virtual import prepare_virtual_splice
 
         extra = {"compact_frame": True} if params.get("compact_frame") else {}
+        if chain := getattr(binding.callee, "frame_chain", ()):
+            extra["frame_chain"] = chain
         return prepare_virtual_splice(
             unit, request, code_address, max_depth=params.get("max_inline_depth", _DEFAULT_INLINE_DEPTH),
             **extra)
 
     def run(self, view, ctx, edits, *, best_effort: bool = False) -> PassResult:
         depth_limit = ctx.params.get("max_inline_depth", _DEFAULT_INLINE_DEPTH)
-        if type(depth_limit) is not int or depth_limit not in (1, 2):
-            return PassResult(Outcome.FAILED, "invalid_params", "max_inline_depth must be 1 or 2")
+        if type(depth_limit) is not int or depth_limit < 1:
+            return PassResult(Outcome.FAILED, "invalid_params", "max_inline_depth must be a positive integer")
         partial = best_effort or ctx.params.get("allow_partial", False)
         # A damaged or derived capture cannot establish the original denominator
         # of the full-coverage claim this pipeline makes.

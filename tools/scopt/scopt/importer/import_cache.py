@@ -382,6 +382,8 @@ def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping
         except CalleeResolutionError as e:
             return f"{e.reason}: {e}"
         expected_role = "plugin" if framed else "qemu"
+        if framed and req.splice.frame_chain != function.frame_chain:
+            return "nested frame bodies differ from the bound executable"
         if (function.role != expected_role
                 or (is_udiv and (function.symbol != req.symbol or function.abi != "sysv-amd64"))
                 or (not framed and not is_udiv and not supports_tcg_integer_abi(function.tcg_typemask))

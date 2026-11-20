@@ -7,7 +7,7 @@ import os
 import stat
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from elftools.common.exceptions import ELFError
 from elftools.elf.elffile import ELFFile
@@ -15,6 +15,7 @@ from elftools.elf.elffile import ELFFile
 from ..canon import hexaddr, is_sha256_id, sha256_id
 from ..decode.symbols import ElfImage, MapEntry, read_elf
 from ..formats.scm_v1 import RunInfo
+from ..model.native import NativeFrameBody
 from ..model.unit import HelperBinding
 from .classify import HostContext
 
@@ -42,11 +43,19 @@ class NativeCallee:
     runtime_identity_id: str
     capture_id: str
     code: bytes = field(repr=False)
+    frame_chain: ClassVar[tuple[NativeFrameBody, ...]] = ()
 
     @property
     def code_ranges(self) -> tuple[tuple[int, int], ...]:
         """ELF virtual address intervals. This version accepts one contiguous range."""
         return ((self.elf_address, self.elf_address + self.size),)
+
+
+@dataclass(frozen=True, slots=True)
+class _FramedNativeCallee(NativeCallee):
+    # Only a discovered chain extends the prepared image's content identity.
+    # Previous manifests and certificates keep their original digest.
+    frame_chain: tuple[NativeFrameBody, ...] = ()
 
 
 class CalleeResolutionError(ValueError):
@@ -83,6 +92,44 @@ class NativeCalleeResolver:
         self._runtime = runtime
         self._capture_id = capture_id
         self._images = {} if images is None else images
+        self._frame_chains = {}
+
+    def _frame_chain(self, image, mapping, bias, address, code):
+        from ..validate_sym.frame_chain import discover_chain
+        from ..validate_sym.native_virtual import legacy_frame_image
+
+        if legacy_frame_image(image.digest):
+            return ()
+        key = (mapping.path, bias, address)
+        if key in self._frame_chains:
+            return self._frame_chains[key]
+        maps = self._context.maps
+
+        def text_bytes(va, size):
+            seg = image.symbols.segment_for(va)
+            m = maps.find(bias + va)
+            if (seg is None or seg.flags & 3 != 1 or va + size > seg.vaddr + seg.filesz
+                    or m is None or not m.executable or m.perms[1:2] == "w"
+                    or (m.path, m.dev, m.inode) != (mapping.path, mapping.dev, mapping.inode)
+                    or bias + va + size > m.end):
+                return None
+            off = seg.offset + va - seg.vaddr
+            if (off != m.offset + bias + va - m.start or off + size > len(image.bytes)
+                    or any(row.path == m.path and row.perms[1:2] == "w"
+                           and max(row.offset, off) < min(row.offset + row.end - row.start, off + size)
+                           for row in maps)):
+                return None
+            return image.bytes[off:off + size]
+
+        def writable_object(va, size):
+            seg = image.symbols.segment_for(va)
+            m = maps.find(bias + va)
+            return (seg is not None and seg.flags & 3 == 2 and va + size <= seg.vaddr + seg.memsz
+                    and m is not None and m.perms.startswith("rw-") and bias + va + size <= m.end)
+
+        chain = discover_chain(NativeFrameBody(address, code), image, text_bytes, writable_object)
+        self._frame_chains[key] = chain
+        return chain
 
     def _verify_binding(self, mapping: MapEntry) -> tuple[str, str, tuple[int, ...]]:
         ri = self._run_info
@@ -193,8 +240,12 @@ class NativeCalleeResolver:
                for m in maps):
             raise CalleeResolutionError("native_image_mismatch", "function has a writable file alias")
         code = data[file_offset:file_offset + entry.size]
-        return NativeCallee(
+        chain = self._frame_chain(image, mapping, bias, entry.value, code) if (
+            role == "plugin" and recorded.tcg_flags == 0 and recorded.typemask == 400
+        ) else ()
+        callee_class = _FramedNativeCallee if chain else NativeCallee
+        return callee_class(
             image.digest, mapping.path, symbol, address, entry.value, file_offset, entry.size,
             sha256_id(code), image.build_id, role, bias, mapping, "x86-64", "sysv-amd64",
             self._run_info.cpuinfo, recorded.typemask, self._runtime["runtime_identity_id"],
-            self._capture_id, code)
+            self._capture_id, code, **({"frame_chain": chain} if chain else {}))

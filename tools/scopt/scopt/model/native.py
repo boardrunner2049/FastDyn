@@ -99,6 +99,17 @@ MAX_INTEGER_SPLICES = 2
 
 
 @dataclass(frozen=True, slots=True)
+class NativeFrameBody:
+    """One complete x86-64 function at its ELF virtual address."""
+
+    address: int
+    code: bytes
+
+    def to_json(self) -> dict[str, Any]:
+        return {"address": self.address, "code": self.code.hex()}
+
+
+@dataclass(frozen=True, slots=True)
 class NativeSplice:
     """Fall-through replacement of a native call and any rewritten argument setup."""
 
@@ -110,6 +121,7 @@ class NativeSplice:
     depth: int = 1
     compact_frame: bool = False
     branches: tuple[NativeBranchRelaxation, ...] = ()
+    frame_chain: tuple[NativeFrameBody, ...] = ()
 
     @property
     def physical_start(self) -> int:
@@ -145,6 +157,8 @@ class NativeSplice:
             doc["depth"] = self.depth
         if self.branches:
             doc["branches"] = [row.to_json() for row in self.branches]
+        if self.frame_chain:
+            doc["frame_chain"] = [body.to_json() for body in self.frame_chain]
         return doc
 
 
@@ -214,7 +228,9 @@ class InlineCall:
             tuple(NativeRelocation(**row) for row in splice_doc.get("relocations", ())),
             splice_doc.get("depth", 1), splice_doc.get("compact_frame", False),
             tuple(NativeBranchRelaxation(row["source_off"], bytes.fromhex(row["source_bytes"]))
-                  for row in splice_doc.get("branches", ())))
+                  for row in splice_doc.get("branches", ())),
+            tuple(NativeFrameBody(row["address"], bytes.fromhex(row["code"]))
+                  for row in splice_doc.get("frame_chain", ())))
         result = cls(data["target"], data["unit_hash"], data["call_off"],
                      bytes.fromhex(data["call_bytes"]), data["continuation_off"],
                      data["helper_id"], data["target_abs"], data["pool_slot_off"],

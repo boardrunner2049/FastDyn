@@ -39,6 +39,9 @@ def optimize(tmp_path, monkeypatch):
     ("faulting,2-level", "splice", True, 2),
     ("extreme,2-level", "extreme", False, 2),
     ("2-level,splice,extreme,faulting", "extreme", True, 2),
+    ("3-level", "splice", False, 3),
+    ("4-level,faulting", "splice", True, 4),
+    ("extreme,splice,17-level", "extreme", False, 17),
 ])
 def test_shorthand_configures_one_pass(optimize, options, mode, faulting, depth):
     result, observed = optimize("host-inline=" + options)
@@ -55,12 +58,12 @@ def test_selector_with_shorthand_preserves_other_toml_params_and_json_overrides(
                         '[[pass]]\nname="host-inline"\nversion=1\n[pass.params]\nmax_sites=11\n')
     params = tmp_path / "params.json"
     params.write_text(json.dumps({"host-inline": {"max_inline_depth": 1, "max_sites": 3}}))
-    result, observed = optimize(str(pipeline), "--only", "host-inline=2-level",
+    result, observed = optimize(str(pipeline), "--only", "host-inline=4-level",
                                 "--enable", "host-inline=faulting", "--params", str(params))
     assert result.exit_code == 0, result.output
     entry, = observed["pipeline"].passes
     assert entry.params == {"max_sites": 11, "mode": "splice", "allow_faulting": True,
-                            "max_inline_depth": 2}
+                            "max_inline_depth": 4}
     assert observed["params"] == {"host-inline": {"max_inline_depth": 1, "max_sites": 3}}
     assert observed["only"] == "host-inline" and tuple(observed["enable"]) == ("host-inline",)
 
@@ -70,7 +73,12 @@ def test_selector_with_shorthand_preserves_other_toml_params_and_json_overrides(
     ("host-inline=faulting,", [], "unknown host-inline option"),
     ("host-inline=island,faulting", [], "island cannot be combined"),
     ("host-inline=island,2-level", [], "island cannot be combined"),
+    ("host-inline=island,4-level", [], "island cannot be combined"),
     ("host-inline=1-level,2-level", [], "one inline depth"),
+    ("host-inline=3-level", ["--enable", "host-inline=4-level"], "one inline depth"),
+    ("host-inline=0-level", [], "positive integer"),
+    ("host-inline=-1-level", [], "positive integer"),
+    ("host-inline=x-level", [], "positive integer"),
     ("identity", ["--only", "host-inline=faulting"], "host-inline is not in pipeline"),
 ])
 def test_invalid_shorthand_reports_usage_error(optimize, pipeline, flags, error):

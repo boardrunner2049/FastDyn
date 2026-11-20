@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Build and qualify an isolated two-frame FastDyn benchmark canary."""
+"""Build and qualify an isolated FastDyn benchmark canary with nested frames."""
 
 from __future__ import annotations
 
 import argparse
 import difflib
+from itertools import pairwise
 import json
 from pathlib import Path
 import shlex
@@ -20,20 +21,43 @@ _BASE_SOURCE = """void benchmark_start(unsigned int cpu_index, void *udata) {
     clock_gettime(CLOCK_MONOTONIC, &g_bench_start_ts);
     g_bench_started = true;
 }"""
-_CANARY_SOURCE = """static __attribute__((noinline, noclone))
+_LEAF_SOURCE = """static __attribute__((noinline, noclone))
 void scopt_depth2_benchmark_worker(void) {
     g_bench_tick_count = 0;
     clock_gettime(CLOCK_MONOTONIC, &g_bench_start_ts);
     g_bench_started = true;
 }
 
-void benchmark_start(unsigned int cpu_index, void *udata) {
+"""
+_ENTRY_SOURCE = """void benchmark_start(unsigned int cpu_index, void *udata) {
     (void)cpu_index;
     (void)udata;
     scopt_depth2_benchmark_worker();
 }"""
 _WORKER = "scopt_depth2_benchmark_worker"
-_AUDITED_SOURCE_ROOT = "/opt/host-inline-depth2"
+
+
+def worker_names(levels: int) -> tuple[str, ...]:
+    if levels < 2:
+        raise ValueError("the nested-frame fixture needs at least 2 levels")
+    if levels == 2:
+        return (_WORKER,)
+    return tuple(f"scopt_level{i}" for i in range(2, levels + 1))
+
+
+def canary_source(workers: tuple[str, ...]) -> str:
+    leaf = _LEAF_SOURCE.replace(_WORKER, workers[-1])
+    wrappers = [
+        f"""static __attribute__((noinline, noclone))
+void {caller}(void) {{
+    {callee}();
+}}
+
+"""
+        for caller, callee in reversed(tuple(pairwise(workers)))
+    ]
+    entry = _ENTRY_SOURCE.replace(_WORKER, workers[0])
+    return leaf + "".join(wrappers) + entry
 
 
 def replace_arg(argv: list[str], flag: str, value: str) -> None:
@@ -41,14 +65,14 @@ def replace_arg(argv: list[str], flag: str, value: str) -> None:
     argv[pos] = value
 
 
-def compile_and_link(work: Path, log: Path) -> Path:
+def compile_and_link(work: Path, log: Path, workers: tuple[str, ...] = (_WORKER,)) -> Path:
     """Reuse the existing plugin's compiler/linker flags and untouched objects."""
     build = ROOT / "build"
     source = ROOT / "virtuals" / "virtuals.c"
     text = source.read_text()
-    if text.count(_BASE_SOURCE) != 1 or _WORKER in text:
+    if text.count(_BASE_SOURCE) != 1 or any(name in text for name in workers):
         raise ValueError(f"{source} does not match the benchmark canary's source precondition")
-    canary = text.replace(_BASE_SOURCE, _CANARY_SOURCE)
+    canary = text.replace(_BASE_SOURCE, canary_source(workers))
     copied = work / "virtuals.c"
     copied.write_text(canary)
     (work / "virtuals.patch").write_text("".join(difflib.unified_diff(
@@ -69,9 +93,10 @@ def compile_and_link(work: Path, log: Path) -> Path:
     if "-MF" in argv:
         replace_arg(argv, "-MF", str(new_object) + ".d")
     # Keep the plugin's byte identity when only the evidence directory moves.
+    debug_root = "/opt/host-inline-depth2" if len(workers) == 1 else "/opt/scopt-depth-chain"
     argv.extend([
-        f"-fdebug-prefix-map={work}={_AUDITED_SOURCE_ROOT}",
-        f"-fmacro-prefix-map={work}={_AUDITED_SOURCE_ROOT}",
+        f"-fdebug-prefix-map={work}={debug_root}",
+        f"-fmacro-prefix-map={work}={debug_root}",
     ])
     command(log, argv, cwd=cwd)
 
@@ -89,7 +114,7 @@ def compile_and_link(work: Path, log: Path) -> Path:
     return plugin
 
 
-def audit(plugin: Path) -> dict:
+def audit(plugin: Path, workers: tuple[str, ...] = (_WORKER,)) -> dict:
     """Record exact canary symbol bytes and direct/nested call geometry."""
     from elftools.elf.elffile import ELFFile
     from scopt.decode.x86 import sweep
@@ -98,7 +123,8 @@ def audit(plugin: Path) -> dict:
     with plugin.open("rb") as stream:
         image = ELFFile(stream)
         table = image.get_section_by_name(".symtab")
-        for name in ("benchmark_start", _WORKER):
+        names = ("benchmark_start", *workers)
+        for name in names:
             sym, = table.get_symbol_by_name(name)
             section = image.get_section(sym["st_shndx"])
             va = sym["st_value"]
@@ -109,7 +135,7 @@ def audit(plugin: Path) -> dict:
             if body[-2:] not in (b"\xc9\xc3", b"\x5d\xc3"):
                 raise ValueError(f"{name} did not build with a normal frame return")
             local = sym["st_info"]["bind"] == "STB_LOCAL"
-            if local != (name == _WORKER):
+            if local != (name != "benchmark_start"):
                 raise ValueError(f"{name} did not retain its intended linkage")
             insns = sweep(body, va)
             if any(i.is_jump for i in insns) or len([i for i in insns if i.is_ret]) != 1:
@@ -127,11 +153,11 @@ def audit(plugin: Path) -> dict:
                              "bytes": body.hex(), "size": len(body), "local": local,
                              "relocations": refs, "call_target": calls[0].branch_target}
 
-        outer, worker = symbols["benchmark_start"], symbols[_WORKER]
-        if outer["call_target"] != worker["elf_va"]:
-            raise ValueError("benchmark_start did not retain a direct local call to the worker")
+        for caller, callee in pairwise(names):
+            if symbols[caller]["call_target"] != symbols[callee]["elf_va"]:
+                raise ValueError(f"{caller} did not retain a direct local call to {callee}")
         plt = image.get_section_by_name(".plt.sec")
-        stub_va = worker["call_target"]
+        stub_va = symbols[workers[-1]]["call_target"]
         if not plt["sh_addr"] <= stub_va <= plt["sh_addr"] + plt["sh_size"] - 16:
             raise ValueError("worker clock call did not target the original-style PLT")
         stub_offset = stub_va - plt["sh_addr"]
@@ -156,10 +182,15 @@ def audit(plugin: Path) -> dict:
 def main() -> None:
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--work-dir", type=Path, required=True, help="fresh canary build and capture directory")
+    cli.add_argument("--levels", type=int, default=2,
+                     help="number of frames, including benchmark_start and the clock worker (default 2)")
     cli.add_argument("--qemu", type=Path,
                      default=ROOT / "third_party/common/qemu/build/qemu-system-arm",
                      help="the existing source-locked QEMU executable")
     args = cli.parse_args()
+    if args.levels < 2:
+        cli.error("--levels must be at least 2")
+    workers = worker_names(args.levels)
     work = args.work_dir.resolve()
     work.mkdir(parents=True, exist_ok=False)
     log = work / "bootstrap.log"
@@ -168,9 +199,9 @@ def main() -> None:
     baseline_hash = digest(baseline_plugin)
     source = ROOT / "virtuals" / "virtuals.c"
     source_hash = digest(source)
-    plugin = compile_and_link(work, log)
-    write_json(work / "depth2-build.json", {
-        **audit(plugin),
+    plugin = compile_and_link(work, log, workers)
+    write_json(work / f"depth{args.levels}-build.json", {
+        **audit(plugin, workers),
         "baseline_plugin_sha256": baseline_hash,
         "baseline_source_sha256": source_hash,
         "canary_source_sha256": digest(work / "virtuals.c"),

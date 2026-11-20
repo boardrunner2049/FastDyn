@@ -219,3 +219,77 @@ def test_captured_benchmark_start_body_matches_live_plugin():
             verify_virtual_splice(unit, replace(request, splice=splice), snapshot.header.code_address)
             matched += 1
     assert matched == 1
+
+
+def _wrapper(address, target):
+    from scopt.model.native import NativeFrameBody
+
+    prologue = bytes.fromhex("f30f1efa 55 4889e5")
+    displacement = (target - address - len(prologue) - 5).to_bytes(4, "little", signed=True)
+    return NativeFrameBody(address, prologue + b"\xe8" + displacement + bytes.fromhex("90 5d c3"))
+
+
+def _deep_case(count=5):
+    from scopt.model.native import NativeFrameBody
+
+    addresses = [0x10000 + 0x100 * i for i in range(count)]
+    bodies = [_wrapper(parent, child) for parent, child in zip(addresses, addresses[1:])]
+    bodies.append(NativeFrameBody(addresses[-1], bytes.fromhex("89f8 c3")))
+    root, *nested = bodies
+    unit, request = _case(entry=root.address, source=root.code, image_id=sha256_id(b"new image"))
+    return unit, request, tuple(nested)
+
+
+@pytest.mark.parametrize("requested", [1, 2, 3, 4, 5, 25, 10**100])
+def test_numeric_depth_removes_exact_prefix_and_keeps_descendant_evidence(requested):
+    unit, request, nested = _deep_case()
+    splice = prepare_virtual_splice(unit, request, _BASE, max_depth=requested, frame_chain=nested)
+    depth = min(requested, 5)
+    assert splice.depth == depth and splice.frame_chain == nested
+    calls = [ins for ins in sweep(splice.code, 0) if ins.is_call]
+    if depth < 5:
+        call, = calls
+        reloc, = splice.relocations
+        assert call.end == reloc.next_off and reloc.target_abs == _PLUGIN + nested[depth - 1].address
+    else:
+        assert not calls and not splice.relocations
+    assert splice.code.count(bytes.fromhex("488d6424f8")) == depth
+    assert splice.code.count(bytes.fromhex("488d642408")) == depth
+    proof = InlineCall.from_json(replace(request, splice=splice).to_json())
+    verify_virtual_splice_body(proof)
+    verify_virtual_splice(unit, proof, _BASE)
+
+
+def test_large_numeric_frame_traversal_uses_explicit_stack():
+    from scopt.validate_sym.native_virtual import _build_frame
+
+    _, request, nested = _deep_case(1050)
+    splice = _build_frame(request, 10000, frame_chain=nested)
+    assert splice.depth == 1050 and not splice.relocations
+
+
+def test_deep_frame_rejects_truncated_chain_cycle_and_unsafe_leaf_even_at_depth_one():
+    unit, request, nested = _deep_case()
+    for changed in (
+        nested[:-1],
+        (*nested[:-1], replace(nested[-1], address=nested[-2].address)),
+        (*nested[:-1], replace(nested[-1], code=bytes.fromhex("4889c5 c3"))),  # RBP clobber
+        (*nested[:-1], replace(nested[-1], code=bytes.fromhex("488d4508 c3"))),  # expose return slot
+        (*nested[:-1], replace(nested[-1], code=bytes.fromhex("ffe0"))),  # indirect jump
+        (*nested[:-1], _wrapper(nested[-1].address, nested[0].address), nested[0]),
+    ):
+        with pytest.raises(NativeInlineError, match="complete capture-bound chain"):
+            prepare_virtual_splice(unit, request, _BASE, max_depth=1, frame_chain=changed)
+
+
+def test_legacy_frame_receipts_saturate_without_new_fields():
+    unit, request = _case()
+    assert (prepare_virtual_splice(unit, request, _BASE, max_depth=91)
+            == prepare_virtual_splice(unit, request, _BASE))
+    unit, request = _case(
+        entry=0x26267, source=bytes.fromhex("f30f1efa554889e54883ec10897dfc488975f0e8b7ffffff90c9c3"),
+        image_id="sha256:fd9e57f674961120fbeb791dd16b5dac8fa211a7695b4cded64d27ce371677fc",
+    )
+    limited = prepare_virtual_splice(unit, request, _BASE, max_depth=100)
+    assert limited == prepare_virtual_splice(unit, request, _BASE, max_depth=2)
+    assert "frame_chain" not in limited.to_json()

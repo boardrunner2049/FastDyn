@@ -11,7 +11,7 @@ from scopt.formats.enums import Encoding, OpMarkKind, SiteKind
 from scopt.formats.layouts import SCM_TB_CHUNK_VERSION_3, SCM_TB_CHUNK_VERSION_4
 from scopt.formats.scm_v1 import ScmEncodeError, ScmInsn, TbChunk, parse_scm
 from scopt.importer.crosscheck import _native_splice_error, _relocated_splice_code
-from scopt.model.native import InlineCall, NativeFragment, NativeOrigin, NativeRelocation, NativeSplice
+from scopt.model.native import InlineCall, NativeFragment, NativeFrameBody, NativeOrigin, NativeRelocation, NativeSplice
 from scopt.model.unit import Bindings, HelperBinding, Insn, OpMark, RecoveryPoint, Site
 from scopt.formats.sc_v5 import ScRecord
 from scopt.splice_layout import (materialize_splice, materialize_splices, prepare_splice_layout,
@@ -403,11 +403,13 @@ def test_v4_depth_is_canonical_and_limited_by_splice_kind():
     chunk, _, _ = _frame_fixture()
     request, = chunk.native_fragments
     assert "depth" not in request.splice.to_json()
-    deep = replace(request, splice=replace(request.splice, depth=2))
-    changed = replace(chunk, native_fragments=(deep,))
-    assert TbChunk.decode(changed.encode())[0] == changed
-    assert deep.splice.to_json()["depth"] == 2
-    for depth in (True, 0, 3):
+    for depth in (2, 3, 4, 17):
+        chain = () if depth == 2 else tuple(NativeFrameBody(16*i, b"\xc3") for i in range(1, depth))
+        deep = replace(request, splice=replace(request.splice, depth=depth, frame_chain=chain))
+        changed = replace(chunk, native_fragments=(deep,))
+        assert TbChunk.decode(changed.encode())[0] == changed
+        assert deep.splice.to_json()["depth"] == depth
+    for depth in (True, 0, -1, 3, 1 << 64):
         changed = replace(chunk, native_fragments=(replace(
             request, splice=replace(request.splice, depth=depth)),))
         with pytest.raises(ScmEncodeError, match="v4_native_(data|layout)"):
@@ -415,10 +417,10 @@ def test_v4_depth_is_canonical_and_limited_by_splice_kind():
 
     integer, _, _ = _fixture()
     request, = integer.native_fragments
-    changed = replace(integer, native_fragments=(replace(
-        request, splice=replace(request.splice, depth=2)),))
-    with pytest.raises(ScmEncodeError, match="v4_native_(data|layout)"):
-        changed.encode()
+    for splice in (replace(request.splice, depth=2),
+                   replace(request.splice, frame_chain=(NativeFrameBody(16, b"\xc3"),))):
+        with pytest.raises(ScmEncodeError, match="v4_native_(data|layout)"):
+            replace(integer, native_fragments=(replace(request, splice=splice),)).encode()
 
 
 def test_splice_followed_by_guard_keeps_both_boundaries():

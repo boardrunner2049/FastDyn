@@ -56,8 +56,8 @@ For the configured inliner alone use `--only host-inline`. For a full-pipeline a
 | `host-inline=splice` | Copy supported nonfaulting integer helper bodies into the caller. |
 | `host-inline=faulting` or `host-inline=splice,faulting` | Also admit supported exception-capable helpers. On the audited ARM UDIV build this includes its precise exception path. |
 | `host-inline=extreme` | Attempt every captured call site at depth one and require full coverage. |
-| `host-inline=2-level` or `host-inline=splice,2-level` | Splice supported nested calls up to depth two and keep eligible edits. |
-| `host-inline=extreme,faulting,2-level` | Combine the depth-two coverage policy with exception-capable inlining. |
+| `host-inline=3-level` or `host-inline=splice,4-level` | Splice supported nested calls up to the requested depth and keep eligible edits. The outermost inlined callee counts as level one. |
+| `host-inline=extreme,faulting,4-level` | Request full site coverage, exception-capable inlining and up to four levels. |
 
 For example, run these on an imported snapshot and its training profile:
 
@@ -66,7 +66,17 @@ scopt optimize "$snapshot" --pipeline host-inline=splice,faulting --profile "$pr
 scopt optimize "$snapshot" --pipeline native-program --only host-inline=splice --store "$store"
 ```
 
-TOML pipeline entries and `--params` files accept the same settings on the canonical pass. For example, a parameter file containing `{"host-inline":{"mode":"extreme","allow_faulting":true,"max_inline_depth":2,"allow_partial":true}}` requests two levels and publishes the verified subset. Depth controls how far a supported nested call expands. Add `extreme` to request full coverage of the captured call sites. Existing invocations of `host-inline-splice` and `host-inline-extreme` retain their historical settings, including exception-capable inlining. New built-in pipeline receipts use the pass name `host-inline` and record the selected parameters.
+Use any positive integer for `N` in `host-inline=N-level`. An explicit `host-inline=1-level` can splice a framed callback and keep its nested call. At higher depths, each nested callee must qualify for inlining. The coverage receipt records the depth reached in `frame_expansion_depths_applied` and the requested ceiling in `frame_expansion_depth_limit`. Add `extreme` to request full coverage of the captured call sites.
+
+The recursive path handles x86-64 FastDyn callbacks whose stack frames each wrap one direct call. It checks the bytes of every function in the chain against the captured plugin, including the final register-only function or recognized benchmark timer. The timer retains its external `clock_gettime` call. Per-unit and total code-growth budgets still apply to the generated splice. Integer TCG helper splices and the ARM UDIV exception path keep their existing eligibility rules.
+
+TOML pipeline entries and `--params` files accept the same settings on the canonical pass. For example, `{"host-inline":{"mode":"extreme","allow_faulting":true,"max_inline_depth":4,"allow_partial":true}}` requests up to four levels and publishes the verified subset. Existing invocations of `host-inline-splice` and `host-inline-extreme` retain their historical settings, including exception-capable inlining. New built-in pipeline receipts use the pass name `host-inline` and record the selected parameters.
+
+To build a five-frame test plugin from the FastDyn checkout and capture its workload with the existing QEMU build, run the command below with a fresh work directory. The capture can exercise `host-inline=3-level` and `host-inline=4-level` from the same starting cache.
+
+```sh
+scopt-env/bin/python tools/scopt/scripts/bootstrap_depth2_canary.py --levels 5 --work-dir /tmp/scopt-five-frames
+```
 
 ### Native helper splice coverage
 

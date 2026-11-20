@@ -364,24 +364,36 @@ def _with_inline_options(pl: Pipeline, options: set[str]) -> Pipeline:
 
     if not options:
         return pl
-    supported = {"island", "splice", "faulting", "extreme", "1-level", "2-level"}
-    unknown = options - supported
+    modes = {"island", "splice", "faulting", "extreme"}
+    depth_options = {option for option in options if option.endswith("-level")}
+    unknown = options - modes - depth_options
     if unknown:
         raise PipelineError(
-            f"unknown host-inline option {sorted(unknown)[0]!r}; choose from {', '.join(sorted(supported))}")
+            f"unknown host-inline option {sorted(unknown)[0]!r}; choose from {', '.join(sorted(modes))} or N-level")
+    depths = set()
+    for option in depth_options:
+        number = option.removesuffix("-level")
+        if not number.isascii() or not number.isdecimal():
+            raise PipelineError("host-inline depth must be a positive integer")
+        try:
+            depth = int(number)
+        except ValueError as exc:
+            raise PipelineError("host-inline depth exceeds the integer parser limit") from exc
+        if depth < 1:
+            raise PipelineError("host-inline depth must be a positive integer")
+        depths.add(depth)
+    if len(depths) > 1:
+        raise PipelineError("host-inline accepts one inline depth")
     if not any(entry.name == "host-inline" for entry in pl.passes):
         raise PipelineError(f"host-inline is not in pipeline {pl.name}")
-    if "island" in options and options - {"island", "1-level"}:
-        raise PipelineError("host-inline island cannot be combined with splice, faulting, extreme or 2-level")
-    depth = options & {"1-level", "2-level"}
-    if len(depth) > 1:
-        raise PipelineError("host-inline accepts one inline depth")
+    if "island" in options and (options - depth_options - {"island"} or depths - {1}):
+        raise PipelineError("host-inline island cannot be combined with splice, faulting, extreme or a depth above one")
     mode = "island" if "island" in options else "splice"
     if "extreme" in options:
         mode = "extreme"
     args = {"mode": mode, "allow_faulting": "faulting" in options}
-    if depth:
-        args["max_inline_depth"] = 2 if "2-level" in depth else 1
+    if depths:
+        args["max_inline_depth"] = depths.pop()
     entries = tuple(replace(entry, params=MappingProxyType({**entry.params, **args}))
                     if entry.name == "host-inline" else entry for entry in pl.passes)
     return replace(pl, passes=entries)
@@ -392,8 +404,8 @@ def load_pipeline(spec: "str | os.PathLike | Mapping[str, Any] | Pipeline", *,
     """A pipeline from a name, a TOML path, a mapping, or a host-inline selector.
 
     A bare name (no suffix or directory) resolves inside the configured pipeline directory.
-    For example, ``host-inline=faulting,2-level`` selects fault-capable splicing with
-    a maximum depth of two. Only the ``extreme`` option requests full site coverage.
+    For example, ``host-inline=faulting,4-level`` selects fault-capable splicing with
+    a maximum depth of four. Only the ``extreme`` option requests full site coverage.
     File paths containing an equals sign retain their literal meaning.
     """
     options = set(inline_options)

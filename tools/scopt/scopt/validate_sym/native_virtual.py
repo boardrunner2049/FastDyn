@@ -17,16 +17,15 @@ instructions and rebind PC-relative operands to exactly the original targets.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import capstone
 from capstone import x86 as X
 
 from ..canon import is_sha256_id
 from ..decode.x86 import decoder, sweep, tiles
 from ..formats.enums import Encoding, OpMarkKind, SiteKind
-from ..model.native import InlineCall, NativeRelocation, NativeSplice
+from ..model.native import InlineCall, NativeFrameBody, NativeRelocation, NativeSplice
 from ..model.unit import TBUnit
+from .frame_chain import valid_chain
 from .native_inline import NativeInlineError, _require, _stack_reg
 from .native_splice import _PADDING, _references_splice
 
@@ -50,39 +49,23 @@ _RESERVE = b"\x48\x8d\x64\x24\xf8"
 _RELEASE = b"\x48\x8d\x64\x24\x08"
 
 
-@dataclass(frozen=True)
-class _FrameBody:
-    address: int
-    code: bytes
+def legacy_frame_image(image_id: str) -> bool:
+    return image_id in (_CANARY_IMAGE_ID, _PLUGIN_IMAGE_ID)
 
 
 # The isolated canary factors the same benchmark work into a private direct
 # callee. The ELF digest binds both bodies and the already-audited clock PLT.
-_CANARY_ENTRY = _FrameBody(0x26267, bytes.fromhex(
+_CANARY_ENTRY = NativeFrameBody(0x26267, bytes.fromhex(
     "f30f1efa554889e54883ec10897dfc488975f0e8b7ffffff90c9c3"
 ))
-_CANARY_WORKER = _FrameBody(0x26236, bytes.fromhex(
+_CANARY_WORKER = NativeFrameBody(0x26236, bytes.fromhex(
     "f30f1efa554889e548c7058f7af40400000000488d05707af404"
     "4889c6bf01000000e87351feffc6056c7af40401905dc3"
 ))
 
 
-def _emit_frame(body: _FrameBody, bias: int, code: bytearray,
-                relocations: list[NativeRelocation], worker: _FrameBody | None = None) -> None:
-    """Emit an audited straight-line body, rebasing its retained references."""
-    insns = sweep(body.code, body.address)
-    _require(bool(insns) and tiles(insns, body.address, body.address + len(body.code))
-             and insns[-1].raw == b"\xc3",
-             "frame_image_unverified", "audited frame must end in a single near RET")
-    code.extend(_RESERVE)
-    first = 1 if insns[0].mnemonic == "endbr64" else 0
-    for insn in insns[first:-1]:
-        _require(not insn.is_ret and not insn.is_jump,
-                 "frame_image_unverified", "audited frame must have one fall-through path")
-        if worker is not None and insn.is_call and insn.branch_target == worker.address:
-            _emit_frame(worker, bias, code, relocations)
-            worker = None
-            continue
+def _emit_instructions(insns, body, bias, code, relocations):
+    for insn in insns:
         off = len(code)
         code.extend(insn.raw)
         target = insn.branch_target if insn.is_call else insn.rip_target
@@ -98,26 +81,52 @@ def _emit_frame(body: _FrameBody, bias: int, code: bytearray,
         field = off + disp_off
         code[field:field + 4] = bytes(4)
         relocations.append(NativeRelocation(field, len(code), bias + target))
-    _require(worker is None, "frame_image_unverified", "audited worker call was absent")
-    code.extend(_RELEASE)
 
 
-def _build_frame(request: InlineCall, max_depth: int = 1, compact_frame: bool = False) -> NativeSplice:
-    _require(type(max_depth) is int and max_depth in (1, 2), "frame_depth", "expected depth 1 or 2")
-    if request.symbol != "benchmark_start":
-        raise NativeInlineError("frame_virtual_unsupported",
-                                f"no closed normal-return audit for virtual {request.symbol}")
-    if request.image_id == _CANARY_IMAGE_ID:
-        body = _CANARY_ENTRY
-        worker = _CANARY_WORKER if max_depth == 2 else None
+def _emit_frames(bodies, bias, code, relocations):
+    """Emit the prefix of each expanded call, then its continuations inside out."""
+    continuations = []
+    for n, body in enumerate(bodies):
+        insns = sweep(body.code, body.address)
+        _require(bool(insns) and tiles(insns, body.address, body.address + len(body.code))
+                 and insns[-1].raw == b"\xc3" and not any(i.is_ret or i.is_jump for i in insns[:-1]),
+                 "frame_image_unverified", "audited frame must have one fall-through path to RET")
+        ops = insns[1 if insns[0].mnemonic == "endbr64" else 0:-1]
+        code.extend(_RESERVE)
+        suffix = ()
+        if n + 1 < len(bodies):
+            child = bodies[n + 1].address
+            calls = [i for i, op in enumerate(ops) if op.is_call and op.branch_target == child]
+            _require(len(calls) == 1, "frame_image_unverified", "expected one direct call to child")
+            call = calls[0]
+            ops, suffix = ops[:call], ops[call + 1:]
+        _emit_instructions(ops, body, bias, code, relocations)
+        continuations.append((body, suffix))
+    for body, suffix in reversed(continuations):
+        _emit_instructions(suffix, body, bias, code, relocations)
+        code.extend(_RELEASE)
+
+
+def _build_frame(request: InlineCall, max_depth: int = 1, compact_frame: bool = False,
+                 frame_chain: tuple[NativeFrameBody, ...] = ()) -> NativeSplice:
+    _require(type(max_depth) is int and max_depth > 0, "frame_depth", "expected a positive integer depth")
+    if legacy_frame_image(request.image_id):
+        if request.symbol != "benchmark_start":
+            raise NativeInlineError("frame_virtual_unsupported",
+                                    f"no closed normal-return audit for virtual {request.symbol}")
+        body = (_CANARY_ENTRY if request.image_id == _CANARY_IMAGE_ID
+                else NativeFrameBody(_BENCHMARK_START, _BENCHMARK_START_CODE))
+        _require(not frame_chain and request.elf_address == body.address and
+                 request.image_offset == body.address and request.callee_code == body.code,
+                 "frame_image_unverified", "virtual differs from the audited FastDyn ELF and body")
+        nested = (_CANARY_WORKER,) if request.image_id == _CANARY_IMAGE_ID else ()
     else:
-        _require(request.image_id == _PLUGIN_IMAGE_ID,
-                 "frame_image_unverified", "virtual differs from the audited FastDyn ELF")
-        body = _FrameBody(_BENCHMARK_START, _BENCHMARK_START_CODE)
-        worker = None
-    _require(request.elf_address == body.address and
-             request.image_offset == body.address and request.callee_code == body.code,
-             "frame_image_unverified", "virtual differs from the audited FastDyn ELF and body")
+        body = NativeFrameBody(request.elf_address, request.callee_code)
+        _require(is_sha256_id(request.image_id) and type(body.address) is int and
+                 0 < body.address < (1 << 64) and type(request.image_offset) is int and
+                 request.image_offset >= 0 and valid_chain(body, frame_chain),
+                 "frame_image_unverified", "expected a complete capture-bound chain of normal-return frames")
+        nested = frame_chain
     _require(type(request.tcg_typemask) is int and request.tcg_typemask == _PLUGIN_CALLBACK_TYPEMASK,
              "frame_abi", "expected a captured void(u32, ptr) plugin callback")
     _require(request.pool_slot_off is None and len(request.call_bytes) == 5 and
@@ -136,7 +145,8 @@ def _build_frame(request: InlineCall, max_depth: int = 1, compact_frame: bool = 
 
     code = bytearray()
     relocations: list[NativeRelocation] = []
-    _emit_frame(body, bias, code, relocations, worker)
+    depth = min(max_depth, 1 + len(nested))
+    _emit_frames((body, *nested[:depth - 1]), bias, code, relocations)
     if compact_frame:
         from .frame_cleanup import cleanup_frame, verify_cleanup
 
@@ -145,8 +155,8 @@ def _build_frame(request: InlineCall, max_depth: int = 1, compact_frame: bool = 
         verify_cleanup(original, original_relocs, code, relocations)
     padding = (len(request.call_bytes) - len(code)) % 8
     return NativeSplice(start_off=request.call_off, prefix=b"", code=bytes(code) + _PADDING[padding],
-                        kind="frame", relocations=tuple(relocations), depth=2 if worker else 1,
-                        compact_frame=compact_frame)
+                        kind="frame", relocations=tuple(relocations), depth=depth,
+                        compact_frame=compact_frame, frame_chain=frame_chain)
 
 
 def _verify_frame_site(unit: TBUnit, request: InlineCall, code_address: int) -> None:
@@ -229,9 +239,10 @@ def _verify_frame_site(unit: TBUnit, request: InlineCall, code_address: int) -> 
 
 
 def prepare_virtual_splice(unit: TBUnit, request: InlineCall, code_address: int, *,
-                           max_depth: int = 1, compact_frame: bool = False) -> NativeSplice:
+                           max_depth: int = 1, compact_frame: bool = False,
+                           frame_chain: tuple[NativeFrameBody, ...] = ()) -> NativeSplice:
     """Certify one framed virtual's exact original caller and byte translation."""
-    splice = _build_frame(request, max_depth, compact_frame)
+    splice = _build_frame(request, max_depth, compact_frame, frame_chain)
     _verify_frame_site(unit, request, code_address)
     return splice
 
@@ -239,7 +250,8 @@ def prepare_virtual_splice(unit: TBUnit, request: InlineCall, code_address: int,
 def verify_virtual_splice_body(request: InlineCall) -> None:
     """Verify the emitted placeholder bytes and complete relocation list."""
     splice = request.splice
-    _require(splice is not None and splice == _build_frame(request, splice.depth, splice.compact_frame),
+    _require(splice is not None and splice == _build_frame(
+        request, splice.depth, splice.compact_frame, splice.frame_chain),
              "frame_correspondence", "exact framed body, padding, or relocation differs")
 
 
@@ -247,5 +259,6 @@ def verify_virtual_splice(unit: TBUnit, request: InlineCall, code_address: int) 
     """Verify correspondence with the original caller and frozen plugin body."""
     splice = request.splice
     _require(splice is not None and splice == prepare_virtual_splice(
-        unit, request, code_address, max_depth=splice.depth, compact_frame=splice.compact_frame),
+        unit, request, code_address, max_depth=splice.depth, compact_frame=splice.compact_frame,
+        frame_chain=splice.frame_chain),
              "frame_correspondence", "framed splice differs from the original caller proof")

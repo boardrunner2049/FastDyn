@@ -393,6 +393,7 @@ def _valid_native_scalar_fields(call: InlineCall) -> bool:
                *call.fragment.continuation_fields)
     if call.splice is not None:
         offsets += (call.splice.start_off, call.splice.depth, call.tcg_typemask)
+        offsets += tuple(body.address for body in call.splice.frame_chain)
         offsets += tuple(n for r in call.splice.relocations
                          for n in (r.field_off, r.next_off, r.target_abs))
         offsets += tuple(r.source_off for r in call.splice.branches)
@@ -443,6 +444,8 @@ def _splice_metadata_matches(req: InlineCall, start: int, size: int,
         return False
     if type(splice.compact_frame) is not bool or (splice.compact_frame and splice.kind != "frame"):
         return False
+    if splice.frame_chain and (splice.kind != "frame" or any(not body.code for body in splice.frame_chain)):
+        return False
     from ..model.native import FULL_UDIV_KINDS, UDIV_KINDS, UDIV_TYPEMASK
 
     if splice.kind in UDIV_KINDS:
@@ -453,7 +456,9 @@ def _splice_metadata_matches(req: InlineCall, start: int, size: int,
                 and (splice.kind in FULL_UDIV_KINDS or splice.code.endswith(req.call_bytes)))
     if splice.kind != "frame":
         return splice.kind == "integer" and splice.depth == 1 and not splice.relocations
-    if (splice.depth not in (1, 2) or splice.prefix or start != req.call_off
+    # Older certificates use an image-pinned one- or two-body expansion.
+    max_witness_depth = 1 + len(splice.frame_chain) if splice.frame_chain else 2
+    if (not 1 <= splice.depth <= max_witness_depth or splice.prefix or start != req.call_off
             or req.tcg_typemask != 400
             or req.pool_slot_off is not None or len(req.call_bytes) != 5
             or req.call_bytes[:1] != b"\xe8" or not splice.code):

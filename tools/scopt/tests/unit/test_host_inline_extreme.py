@@ -94,7 +94,8 @@ def test_complete_coverage_applies_all_staged_calls(world):
 
 
 @pytest.mark.parametrize(("frame_passes", "depth", "partial"), [(True, None, True), (False, None, True),
-                                                                (True, 2, True), (True, 2, False)])
+                                                                (True, 2, True), (True, 3, False),
+                                                                (True, 17, True)])
 def test_extreme_prefers_checked_virtual_and_falls_back_on_refusal(
         world, monkeypatch, frame_passes, depth, partial):
     snap, registry = world
@@ -151,7 +152,7 @@ def test_extreme_prefers_checked_virtual_and_falls_back_on_refusal(
         assert record.stats["sites:frame_virtual_unsupported"] == 1
 
 
-@pytest.mark.parametrize("depth", [0, -1, 3, True, 2.0])
+@pytest.mark.parametrize("depth", [0, -1, "3", True, 2.0])
 def test_extreme_refuses_invalid_depth(world, depth):
     snap, registry = world
     candidate = PassManager(snap, "host-inline-extreme", analyses=registry,
@@ -217,17 +218,20 @@ def test_canonical_extreme_rejects_incomplete_or_disabled_publication(world, tmp
 
 @pytest.mark.parametrize("params", [
     {"mode": "extreme", "max_inline_depth": 2, "allow_partial": True},
+    {"max_inline_depth": 1}, {"mode": "splice", "max_inline_depth": 1},
     {"max_inline_depth": 2}, {"mode": "splice", "max_inline_depth": 2},
     {"mode": "faulting", "max_inline_depth": 2},
+    {"max_inline_depth": 3}, {"mode": "splice", "max_inline_depth": 4, "compact_frame": True},
+    {"mode": "faulting", "max_inline_depth": 32},
 ])
-def test_canonical_two_level_publishes_eligible_sites_despite_incomplete_coverage(world, params):
+def test_recursive_mode_publishes_eligible_sites_despite_incomplete_coverage(world, params):
     snap, registry = world
     result = PassManager(snap, "host-inline", analyses=registry,
                          params={"host-inline": params}).execute()
     row, = result.passes
     assert row.name == "host-inline" and row.reason == "native_inline_partial_coverage"
     coverage = json.loads(row.detail)["coverage"]
-    assert coverage["frame_expansion_depth_limit"] == 2
+    assert coverage["frame_expansion_depth_limit"] == params["max_inline_depth"]
     assert coverage["mode"] == "partial" and not coverage["complete"]
     assert all(edit.payload.splice is not None for edit in result.edits) and len(result.edits) == 2
 
@@ -235,7 +239,7 @@ def test_canonical_two_level_publishes_eligible_sites_despite_incomplete_coverag
 @pytest.mark.parametrize("params", [
     {"mode": "wrong"}, {"mode": "island", "allow_faulting": True},
     {"mode": "island", "max_inline_depth": 2}, {"mode": "faulting", "allow_faulting": False},
-    {"mode": "splice", "udiv_mode": "auto"}, {"allow_partial": True}, {"max_inline_depth": 3},
+    {"mode": "splice", "udiv_mode": "auto"}, {"allow_partial": True}, {"max_inline_depth": -1},
 ])
 def test_invalid_canonical_combinations_do_not_publish_identity(world, tmp_path, params):
     snap, registry = world
