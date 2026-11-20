@@ -1864,6 +1864,38 @@ and [validation manifest](evidence/firmbolt-cortex-m-v163-validation.json).
 CPU-family completeness is relative to pinned LLVM and does not authorize
 MVE/security/PAC transformations or establish performance parity.
 
+v164 closes one Armv8.1-M relocation and integration gap without claiming
+low-overhead-loop transformation support. FirmBOLT, AArch32 JITLink and the
+pinned LLD overlay now implement `R_ARM_THM_BF16`, `R_ARM_THM_BF12` and
+`R_ARM_THM_BF18`, including their distinct split signed fields, halfword
+scaling, architectural PC bias, Thumb function-state bit and exact range
+checks. The stock LLD 18 on this host rejected relocation 136 and could not
+produce the final-link fixture; the patched linker retains all three records
+and resolves `BF`, `BFCSEL` and `BFL` to their checked targets.
+
+The first native BOLT integration run exposed a separate representation bug:
+the symbolizer attached the only long-target relocation to operand zero, but
+operand zero is the short branch-location operand. BFCSEL then asserted while
+decoding its after-target. The target symbolizer now binds the relocation only
+to operand one and preserves the other PC-relative operands as immediates.
+Until FirmBOLT models the architectural low-overhead-loop state machine,
+functions containing `BF`, `BFCSEL`, `BFL`, `WLS`, `DLS` or `LE` remain whole
+and opaque. This is the same fail-closed policy used by mature BOLT targets for
+control flow whose state is not represented; relocation support does not
+silently authorize CFG or dataflow rewrites.
+
+The exact final toolchain passes the unchanged 63/63 production matrix and
+binds 130,082 origins in 1,950 functions. The expanded gates pass 90/90 ARM
+BOLT lit, 13/13 AArch32 JITLink lit, 19/19 focused AArch32 JITLink units, and
+131 BOLT unit tests with 150 explicit target-inapplicable Core skips. The
+three relocation families have boundary round trips, deterministic linked
+instruction words, final-link relocation retention and a native FirmBOLT
+fail-closed fixture. Evidence is in the
+[`v164 report`](../../build/preflight/firm-bolt-cortex-m-v164-branch-future-r2/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v164-validation.json).
+This milestone adds producer/linker/rewriter correctness and a conservative
+retention boundary; it does not establish a new optimization or speedup.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

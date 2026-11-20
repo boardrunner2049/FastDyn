@@ -34,7 +34,11 @@ cleanup() {
         bolt/lib/Core/ARMUnwindInfo.cpp \
         bolt/lib/Passes/FastDynPatchContracts.cpp \
         bolt/lib/Target/ARM \
-        bolt/test/ARM 2>/dev/null || true
+        bolt/test/ARM \
+        lld/test/ELF/arm-thumbv8_1m-branch-future.s \
+        llvm/test/ExecutionEngine/JITLink/AArch32/ELF_thumb_data_pointers.s \
+        llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv8_1m.s \
+        2>/dev/null || true
     rm -f -- "${temporary_patch}"
 }
 trap cleanup EXIT
@@ -48,7 +52,9 @@ git -C "${bolt_source}" add -N -- \
     bolt/lib/Passes/FastDynPatchContracts.cpp \
     bolt/lib/Target/ARM \
     bolt/test/ARM \
-    llvm/test/ExecutionEngine/JITLink/AArch32/ELF_thumb_data_pointers.s
+    lld/test/ELF/arm-thumbv8_1m-branch-future.s \
+    llvm/test/ExecutionEngine/JITLink/AArch32/ELF_thumb_data_pointers.s \
+    llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv8_1m.s
 
 # The Cortex-M backend crosses BOLT Core/Rewrite/Target plus LLVM's AArch32
 # JITLink relocation layer.  Diff the complete pinned checkout so the

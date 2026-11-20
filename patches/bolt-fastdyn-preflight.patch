@@ -16216,10 +16216,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      writeEHFrameHeader();
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..3ad593fe1b241522d0b004f4e85bcb890058713f
+index 0000000000000000000000000000000000000000..145255b040c36d3c1e9858d3e93a6c80edfcb92b
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3386 @@
+@@ -0,0 +1,3422 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -17699,6 +17699,30 @@ index 0000000000000000000000000000000000000000..3ad593fe1b241522d0b004f4e85bcb89
 +        .Default(false);
 +  }
 +
++  bool isUnsupportedInstruction(const MCInst &Inst) const override {
++    // Armv8.1-M low-overhead-loop and branch-future instructions carry
++    // architectural loop state and multiple control-flow labels that BOLT's
++    // ordinary single-successor CFG does not model.  This mirrors the mature
++    // x86 backend's fail-closed treatment of LOOP/LOOPE/LOOPNE: decode and
++    // retain the complete function, including its relocations, but do not
++    // expose it to block layout or data-flow transformations until that state
++    // machine is represented explicitly.
++    switch (Inst.getOpcode()) {
++    case ARM::t2BFi:
++    case ARM::t2BFic:
++    case ARM::t2BFr:
++    case ARM::t2BFLi:
++    case ARM::t2BFLr:
++    case ARM::t2WLS:
++    case ARM::t2DLS:
++    case ARM::t2LEUpdate:
++    case ARM::t2LE:
++      return true;
++    default:
++      return false;
++    }
++  }
++
 +  bool isReturn(const MCInst &Inst) const override {
 +    switch (Inst.getOpcode()) {
 +    case ARM::tBX_RET:
@@ -19150,6 +19174,15 @@ index 0000000000000000000000000000000000000000..3ad593fe1b241522d0b004f4e85bcb89
 +      Type = IsPCRelativeMove ? ELF::R_ARM_THM_MOVT_PREL
 +                              : ELF::R_ARM_THM_MOVT_ABS;
 +      break;
++    case MCFixupKind(ARM::fixup_bf_target):
++      Type = ELF::R_ARM_THM_BF16;
++      break;
++    case MCFixupKind(ARM::fixup_bfc_target):
++      Type = ELF::R_ARM_THM_BF12;
++      break;
++    case MCFixupKind(ARM::fixup_bfl_target):
++      Type = ELF::R_ARM_THM_BF18;
++      break;
 +    default:
 +      if (Kind == FK_Data_1)
 +        Type = ELF::R_ARM_ABS8;
@@ -19202,6 +19235,9 @@ index 0000000000000000000000000000000000000000..3ad593fe1b241522d0b004f4e85bcb89
 +    case ELF::R_ARM_THM_MOVT_ABS:
 +    case ELF::R_ARM_THM_MOVW_PREL_NC:
 +    case ELF::R_ARM_THM_MOVT_PREL:
++    case ELF::R_ARM_THM_BF16:
++    case ELF::R_ARM_THM_BF12:
++    case ELF::R_ARM_THM_BF18:
 +      return true;
 +    default:
 +      return false;
@@ -19608,10 +19644,10 @@ index 0000000000000000000000000000000000000000..3ad593fe1b241522d0b004f4e85bcb89
 +} // namespace llvm::bolt
 diff --git a/bolt/lib/Target/ARM/ARMMCSymbolizer.cpp b/bolt/lib/Target/ARM/ARMMCSymbolizer.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..2e377b6f3fadb52173886bbe64d27f433d1fdc30
+index 0000000000000000000000000000000000000000..6034a89ca94fe1a361f018ccb28758f26e04dff4
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCSymbolizer.cpp
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,57 @@
 +//===- ARMMCSymbolizer.cpp - BOLT ARM/Thumb symbolization ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -19619,6 +19655,7 @@ index 0000000000000000000000000000000000000000..2e377b6f3fadb52173886bbe64d27f43
 +#include "bolt/Core/BinaryFunction.h"
 +#include "bolt/Core/MCPlusBuilder.h"
 +#include "bolt/Core/Relocation.h"
++#include "llvm/BinaryFormat/ELF.h"
 +#include "llvm/MC/MCInst.h"
 +
 +using namespace llvm;
@@ -19644,6 +19681,18 @@ index 0000000000000000000000000000000000000000..2e377b6f3fadb52173886bbe64d27f43
 +      Function.getRelocationInRange(Offset, Offset + InstSize);
 +  if (!Rel || !Rel->Symbol)
 +    return false;
++
++  // Armv8.1-M branch-future instructions have two or three PC-relative
++  // operands but only operand 1 carries R_ARM_THM_BF*.  Operand 0 is the
++  // short branch-location label and BFCSEL operand 2 is derived from it.
++  // Symbolizing either one with the target relocation both corrupts the
++  // instruction and violates DecodeBFAfterTargetOperand's requirement that
++  // operand 0 remain an immediate while decoding is in progress.
++  if (Rel->Type == ELF::R_ARM_THM_BF16 || Rel->Type == ELF::R_ARM_THM_BF12 ||
++      Rel->Type == ELF::R_ARM_THM_BF18) {
++    if (Inst.getNumOperands() != 1)
++      return false;
++  }
 +
 +  const MCExpr *Expr = MCSymbolRefExpr::create(Rel->Symbol, *BC.Ctx);
 +  if (Rel->Addend)
@@ -19696,10 +19745,10 @@ index 0000000000000000000000000000000000000000..6398b51612c5f54f1fd0d4292081284e
 +#endif
 diff --git a/bolt/lib/Target/ARM/ARMRelocationHandler.cpp b/bolt/lib/Target/ARM/ARMRelocationHandler.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..80d4d1ec69bf73a27c8a3f2bb564fb479c8d3b9d
+index 0000000000000000000000000000000000000000..a2c94e297d1393293dff919b6bd5c0c29c2c5bb7
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMRelocationHandler.cpp
-@@ -0,0 +1,385 @@
+@@ -0,0 +1,433 @@
 +//===- ARMRelocationHandler.cpp - ARM/Thumb relocation handling ----------===//
 +
 +#include "bolt/Core/Relocation.h"
@@ -19779,6 +19828,9 @@ index 0000000000000000000000000000000000000000..80d4d1ec69bf73a27c8a3f2bb564fb47
 +    case ELF::R_ARM_THM_MOVT_ABS:
 +    case ELF::R_ARM_THM_MOVW_PREL_NC:
 +    case ELF::R_ARM_THM_MOVT_PREL:
++    case ELF::R_ARM_THM_BF16:
++    case ELF::R_ARM_THM_BF12:
++    case ELF::R_ARM_THM_BF18:
 +      return true;
 +    case ELF::R_ARM_TARGET1:
 +      // TARGET1 is deliberately not guessed from the CPU or object contents:
@@ -19850,6 +19902,12 @@ index 0000000000000000000000000000000000000000..80d4d1ec69bf73a27c8a3f2bb564fb47
 +    case ELF::R_ARM_THM_CALL:
 +    case ELF::R_ARM_THM_JUMP24:
 +      return !(ThumbBranchDelta & 1) && isInt<25>(ThumbBranchDelta);
++    case ELF::R_ARM_THM_BF16:
++      return !(ThumbBranchDelta & 1) && isInt<17>(ThumbBranchDelta);
++    case ELF::R_ARM_THM_BF12:
++      return !(ThumbBranchDelta & 1) && isInt<13>(ThumbBranchDelta);
++    case ELF::R_ARM_THM_BF18:
++      return !(ThumbBranchDelta & 1) && isInt<19>(ThumbBranchDelta);
 +    case ELF::R_ARM_THM_PC8: {
 +      const int64_t LiteralDelta = int64_t(Value) -
 +          int64_t(alignDown(PC + 4, uint64_t(4)));
@@ -19939,6 +19997,22 @@ index 0000000000000000000000000000000000000000..80d4d1ec69bf73a27c8a3f2bb564fb47
 +      return thumbWords((thumbHi(Original) & 0xfbf0) | Imm.Hi,
 +                        (thumbLo(Original) & 0x8f00) | Imm.Lo);
 +    }
++    case ELF::R_ARM_THM_BF16:
++    case ELF::R_ARM_THM_BF12:
++    case ELF::R_ARM_THM_BF18: {
++      Delta = int64_t(Value) - int64_t(PC + 4);
++      const uint32_t HalfwordOffset = uint64_t(Delta) >> 1;
++      const uint16_t HiMask =
++          Type == ELF::R_ARM_THM_BF12
++              ? 0x0001
++              : Type == ELF::R_ARM_THM_BF16 ? 0x001f : 0x007f;
++      const uint16_t LoMask = 0x0ffe;
++      const uint16_t EncHi = (HalfwordOffset >> 11) & HiMask;
++      const uint16_t EncLo = ((HalfwordOffset & 1) << 11) |
++                             (HalfwordOffset & 0x07fe);
++      return thumbWords((thumbHi(Original) & ~HiMask) | EncHi,
++                        (thumbLo(Original) & ~LoMask) | EncLo);
++    }
 +    default:
 +      llvm_unreachable("unsupported ARM relocation encoding");
 +    }
@@ -19997,6 +20071,26 @@ index 0000000000000000000000000000000000000000..80d4d1ec69bf73a27c8a3f2bb564fb47
 +    case ELF::R_ARM_THM_MOVT_PREL:
 +      return jitlink::aarch32::decodeImmMovtT1MovwT3(
 +          thumbHi(Word), thumbLo(Word));
++    case ELF::R_ARM_THM_BF16:
++    case ELF::R_ARM_THM_BF12:
++    case ELF::R_ARM_THM_BF18: {
++      const unsigned Bits =
++          Type == ELF::R_ARM_THM_BF12 ? 12
++          : Type == ELF::R_ARM_THM_BF16 ? 16
++                                        : 18;
++      const uint16_t HiMask = Bits == 12 ? 0x0001 :
++                              Bits == 16 ? 0x001f : 0x007f;
++      const uint32_t HalfwordOffset =
++          ((thumbHi(Word) & HiMask) << 11) |
++          ((thumbLo(Word) & 0x0800) >> 11) |
++          (thumbLo(Word) & 0x07fe);
++      const int64_t ByteOffset = Bits == 12
++                                     ? SignExtend64<12>(HalfwordOffset) << 1
++                                 : Bits == 16
++                                     ? SignExtend64<16>(HalfwordOffset) << 1
++                                     : SignExtend64<18>(HalfwordOffset) << 1;
++      return uint64_t(int64_t(PC + 4) + ByteOffset);
++    }
 +    default:
 +      llvm_unreachable("unsupported ARM relocation extraction");
 +    }
@@ -20057,6 +20151,9 @@ index 0000000000000000000000000000000000000000..80d4d1ec69bf73a27c8a3f2bb564fb47
 +    case ELF::R_ARM_THM_ALU_PREL_11_0:
 +    case ELF::R_ARM_THM_MOVW_PREL_NC:
 +    case ELF::R_ARM_THM_MOVT_PREL:
++    case ELF::R_ARM_THM_BF16:
++    case ELF::R_ARM_THM_BF12:
++    case ELF::R_ARM_THM_BF18:
 +      return true;
 +    default:
 +      return false;
@@ -27311,7 +27408,7 @@ index 0000000000000000000000000000000000000000..e02bdace31317aecbb30f85f2cc9dd42
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-zero-size-absolute-boundary.s b/bolt/test/ARM/thumb-zero-size-absolute-boundary.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..e2b0274dba07265b4fbc63efb11a59d2218ff094
+index 0000000000000000000000000000000000000000..01c2fb3ff4df15d90b174a838573d3426199bcb4
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-zero-size-absolute-boundary.s
 @@ -0,0 +1,59 @@
@@ -27322,7 +27419,7 @@ index 0000000000000000000000000000000000000000..e2b0274dba07265b4fbc63efb11a59d2
 +
 +# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
 +# RUN:   %s -o %t.o
-+# RUN: ld.lld -Ttext=0xec -e Reset_Handler %t.o -o %t.exe
++# RUN: ld.lld --image-base=0 -Ttext=0xec -e Reset_Handler %t.o -o %t.exe
 +# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m3 \
 +# RUN:   --firmbolt-reject-target-incompatible-input --frame-opt=none \
 +# RUN:   -o %t.bolt 2>&1 | FileCheck %s --check-prefix=BOLT
@@ -30326,6 +30423,122 @@ index 0000000000000000000000000000000000000000..3522837c3084fb2b62146ce32728b1db
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumbv8-branch-future-relocations.s b/bolt/test/ARM/thumbv8-branch-future-relocations.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..7ea7b1fa9dc8454d819ad42fcad8db946189584c
+--- /dev/null
++++ b/bolt/test/ARM/thumbv8-branch-future-relocations.s
+@@ -0,0 +1,110 @@
++## Armv8.1-M branch-future instructions have multiple PC-relative operands,
++## while ELF carries a relocation only for the long target.  FirmBOLT must not
++## symbolize the short branch-location or BFCSEL after-target with that record.
++## Until the architectural low-overhead-loop state machine is represented in
++## the CFG, the complete containing functions are retained fail-closed.
++
++# RUN: llvm-mc -filetype=obj -triple=thumbv8.1m.main-none-eabi \
++# RUN:   -mcpu=cortex-m55 -arm-add-build-attributes %s -o %t.o
++# RUN: ld.lld --emit-relocs -Ttext=0x08000000 \
++# RUN:   --section-start=.isr_vector=0x08001000 -e Reset_Handler \
++# RUN:   %t.o -o %t.exe
++# RUN: llvm-readelf -r %t.exe | FileCheck %s --check-prefix=RELOCS
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m55 \
++# RUN:   --frame-opt=none --fastdyn-firmware-report=%t.json \
++# RUN:   -o %t.bolt 2>&1 | FileCheck %s --check-prefix=BOLT
++# RUN: llvm-readelf -r %t.bolt | FileCheck %s --check-prefix=RELOCS
++# RUN: llvm-objdump -d --mcpu=cortex-m55 --no-show-raw-insn %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.json')); print([(f['name'],f['simple'],f['firmware_modified']) for f in d['functions'] if f['name'].endswith('_worker')])" \
++# RUN:   | FileCheck %s --check-prefix=REPORT
++
++# RELOCS-DAG: R_ARM_THM_BF16{{.*}}bf_target
++# RELOCS-DAG: R_ARM_THM_BF12{{.*}}bfc_target
++# RELOCS-DAG: R_ARM_THM_BF18{{.*}}bfl_target
++
++# BOLT: unresolved=0
++# BOLT: BOLT-INFO: not adding new segments
++
++# DISASM: <bf_worker>:
++# DISASM: bf
++# DISASM: <bfc_worker>:
++# DISASM: bfcsel
++# DISASM: <bfl_worker>:
++# DISASM: bfl
++
++# REPORT: [('bf_worker', False, False), ('bfc_worker', False, False), ('bfl_worker', False, False)]
++
++  .syntax unified
++  .thumb
++
++  .section .text.entry,"ax",%progbits
++  .p2align 2
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl bf_worker
++  bl bfc_worker
++  b bfl_worker
++  .size Reset_Handler, .-Reset_Handler
++
++  .section .text.workers,"ax",%progbits
++  .p2align 2
++  .globl bf_worker
++  .type bf_worker,%function
++  .thumb_func
++bf_worker:
++  bf #4, bf_target
++  bx lr
++  .size bf_worker, .-bf_worker
++
++  .p2align 2
++  .globl bfc_worker
++  .type bfc_worker,%function
++  .thumb_func
++bfc_worker:
++  bfcsel #4, bfc_target, #8, eq
++  bx lr
++  .size bfc_worker, .-bfc_worker
++
++  .p2align 2
++  .globl bfl_worker
++  .type bfl_worker,%function
++  .thumb_func
++bfl_worker:
++  bfl #4, bfl_target
++  bx lr
++  .size bfl_worker, .-bfl_worker
++
++  .section .text.targets,"ax",%progbits
++  .p2align 2
++  .globl bf_target
++  .type bf_target,%function
++  .thumb_func
++bf_target:
++  bx lr
++  .size bf_target, .-bf_target
++
++  .globl bfc_target
++  .type bfc_target,%function
++  .thumb_func
++bfc_target:
++  bx lr
++  .size bfc_target, .-bfc_target
++
++  .globl bfl_target
++  .type bfl_target,%function
++  .thumb_func
++bfl_target:
++  bx lr
++  .size bfl_target, .-bfl_target
++
++  .section .isr_vector,"a",%progbits
++  .p2align 2
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++  .word 0
++  .word 0
 diff --git a/bolt/test/link_fdata.py b/bolt/test/link_fdata.py
 index cf9e1f2e621f3de4d745459f0506af7e6c25fc29..e20ce4b998efc57aecbb78438493a20c050a19b9 100755
 --- a/bolt/test/link_fdata.py
@@ -31584,10 +31797,10 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..d10ce73f947d0e318485b1b3de2521f3
  
  INSTANTIATE_TEST_SUITE_P(AArch64, MCPlusBuilderTester,
 diff --git a/bolt/unittests/Core/Relocation.cpp b/bolt/unittests/Core/Relocation.cpp
-index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..a6405fded5a1067fb123e05399a8ee1a86cd396c 100644
+index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..76b7cd20c106693a5ebbc0b1c69fd18f5eb8325f 100644
 --- a/bolt/unittests/Core/Relocation.cpp
 +++ b/bolt/unittests/Core/Relocation.cpp
-@@ -10,12 +10,114 @@
+@@ -10,12 +10,157 @@
  #include "bolt/Core/Relocation.h"
  #include "llvm/BinaryFormat/ELF.h"
  #include "gtest/gtest.h"
@@ -31676,6 +31889,49 @@ index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..a6405fded5a1067fb123e05399a8ee1a
 +            Value);
 +}
 +
++TEST(ARMRelocationHandlerTest, ThumbBranchFutureRoundTripsAndRanges) {
++  std::unique_ptr<RelocationHandler> Handler = createARMRelocationHandler();
++  constexpr uint64_t PC = 0x08010000;
++
++  struct Case {
++    uint32_t Type;
++    uint32_t Original;
++    int64_t FirstInvalidNegative;
++    int64_t LastValidNegative;
++    int64_t LastValidPositive;
++    int64_t FirstInvalidPositive;
++  };
++
++  const Case Cases[] = {
++      {ELF::R_ARM_THM_BF12, 0xe001f102, -4098, -4096, 4094, 4096},
++      {ELF::R_ARM_THM_BF16, 0xe001f140, -65538, -65536, 65534, 65536},
++      {ELF::R_ARM_THM_BF18, 0xc001f100, -262146, -262144, 262142,
++       262144},
++  };
++
++  for (const Case &C : Cases) {
++    SCOPED_TRACE(C.Type);
++    const int64_t Base = int64_t(PC + 4);
++    EXPECT_FALSE(Handler->canEncodeValue(
++        C.Type, uint64_t(Base + C.FirstInvalidNegative), PC));
++    EXPECT_TRUE(Handler->canEncodeValue(
++        C.Type, uint64_t(Base + C.LastValidNegative), PC));
++    EXPECT_TRUE(Handler->canEncodeValue(
++        C.Type, uint64_t(Base + C.LastValidPositive), PC));
++    EXPECT_FALSE(Handler->canEncodeValue(
++        C.Type, uint64_t(Base + C.FirstInvalidPositive), PC));
++    EXPECT_FALSE(Handler->canEncodeValue(C.Type, PC + 1, PC));
++
++    for (const int64_t Delta : {C.LastValidNegative, int64_t(-4),
++                                int64_t(0), C.LastValidPositive}) {
++      const uint64_t Target = uint64_t(Base + Delta);
++      const uint64_t Encoded =
++          Handler->encodeValue(C.Type, Target, PC, C.Original);
++      EXPECT_EQ(Handler->extractValue(C.Type, Encoded, PC), Target);
++    }
++  }
++}
++
 +TEST(ARMRelocationHandlerTest, NarrowAbsoluteDataRangesAndAddends) {
 +  std::unique_ptr<RelocationHandler> Handler = createARMRelocationHandler();
 +  constexpr uint64_t PC = 0x08001000;
@@ -31702,8 +31958,146 @@ index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..a6405fded5a1067fb123e05399a8ee1a
  #ifdef AARCH64_AVAILABLE
  
  TEST(AArch64RelocationHandlerTest, EncodeAndExtractCall26) {
+diff --git a/lld/ELF/Arch/ARM.cpp b/lld/ELF/Arch/ARM.cpp
+index 95527f396a306d8482d105f535d78c38bff918a2..2c0f7fe84940988d21418adce4470b84e4931997 100644
+--- a/lld/ELF/Arch/ARM.cpp
++++ b/lld/ELF/Arch/ARM.cpp
+@@ -212,6 +212,9 @@ void ARM::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels,
+     case R_ARM_REL32:
+     case R_ARM_THM_MOVW_PREL_NC:
+     case R_ARM_THM_MOVT_PREL:
++    case R_ARM_THM_BF16:
++    case R_ARM_THM_BF12:
++    case R_ARM_THM_BF18:
+       rs.processR_PC(type, offset, addend, sym);
+       continue;
+     // R_PC variant (place aligned down to 4-byte boundary):
+@@ -735,6 +738,36 @@ void ARM::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
+   case R_ARM_TLS_DTPOFF32:
+     write32(ctx, loc, val);
+     break;
++  case R_ARM_THM_BF16:
++  case R_ARM_THM_BF12:
++  case R_ARM_THM_BF18: {
++    // Armv8.1-M branch-future target: a signed, halfword-scaled offset with
++    // one low immediate bit stored in instruction bit 11 and the remaining
++    // low bits in instruction bits 10:1. The high field is 1, 5, or 7 bits
++    // for BFCSEL, BF, and BFL respectively.
++    // STT_FUNC values use bit zero to identify Thumb state.  It is not part
++    // of the branch displacement, just as for the ordinary Thumb branch
++    // relocation families.
++    if (rel.sym && rel.sym->isFunc())
++      val &= ~uint64_t(1);
++    const unsigned Bits =
++        rel.type == R_ARM_THM_BF12 ? 12
++        : rel.type == R_ARM_THM_BF16 ? 16
++                                     : 18;
++    checkInt(ctx, loc, val, Bits + 1, rel);
++    checkAlignment(ctx, loc, val, 2, rel);
++    const uint16_t hiMask =
++        Bits == 12 ? 0x0001 : Bits == 16 ? 0x001f : 0x007f;
++    const uint32_t halfwordOffset = uint64_t(val) >> 1;
++    write16(ctx, loc,
++            (read16(ctx, loc) & ~hiMask) |
++                ((halfwordOffset >> 11) & hiMask));
++    write16(ctx, loc + 2,
++            (read16(ctx, loc + 2) & ~0x0ffe) |
++                ((halfwordOffset & 1) << 11) |
++                (halfwordOffset & 0x07fe));
++    break;
++  }
+   case R_ARM_PREL31:
+     checkInt(ctx, loc, val, 31, rel);
+     write32(ctx, loc, (read32(ctx, loc) & 0x80000000) | (val & ~0x80000000));
+@@ -1054,6 +1087,23 @@ int64_t ARM::getImplicitAddend(const uint8_t *buf, RelType type) const {
+                             ((hi & 0x003ff) << 12) |                   // imm0
+                             ((lo & 0x007ff) << 1)); // imm11:0
+   }
++  case R_ARM_THM_BF16:
++  case R_ARM_THM_BF12:
++  case R_ARM_THM_BF18: {
++    uint16_t hi = read16(ctx, buf);
++    uint16_t lo = read16(ctx, buf + 2);
++    const unsigned bits =
++        type == R_ARM_THM_BF12 ? 12
++        : type == R_ARM_THM_BF16 ? 16
++                                 : 18;
++    const uint16_t hiMask =
++        bits == 12 ? 0x0001 : bits == 16 ? 0x001f : 0x007f;
++    const uint32_t halfwordOffset =
++        ((hi & hiMask) << 11) | ((lo & 0x0800) >> 11) | (lo & 0x07fe);
++    return bits == 12 ? SignExtend64<12>(halfwordOffset) << 1
++         : bits == 16 ? SignExtend64<16>(halfwordOffset) << 1
++                      : SignExtend64<18>(halfwordOffset) << 1;
++  }
+   // ELF for the ARM Architecture 4.6.1.1 the implicit addend for MOVW and
+   // MOVT is in the range -32768 <= A < 32768
+   case R_ARM_MOVW_ABS_NC:
+diff --git a/lld/test/ELF/arm-thumbv8_1m-branch-future.s b/lld/test/ELF/arm-thumbv8_1m-branch-future.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..f98253ade73d844f52aaa9b96727d68cd1446015
+--- /dev/null
++++ b/lld/test/ELF/arm-thumbv8_1m-branch-future.s
+@@ -0,0 +1,57 @@
++// REQUIRES: arm
++// RUN: llvm-mc -triple=thumbv8.1m.main-none-eabi -mcpu=cortex-m55 \
++// RUN:   -arm-add-build-attributes -filetype=obj -o %t.o %s
++// RUN: ld.lld --emit-relocs -Ttext=0x08000000 -e _start %t.o -o %t
++// RUN: llvm-readobj -r %t | FileCheck %s --check-prefix=RELOCS
++// RUN: llvm-objdump -d --mcpu=cortex-m55 --no-show-raw-insn %t \
++// RUN:   | FileCheck %s --check-prefix=DISASM
++
++/// Exercise the three Armv8.1-M branch-future relocations through the final
++/// linker.  Their signed, halfword-scaled target occupies split fields that
++/// are different from ordinary Thumb branches.
++
++// RELOCS-DAG: R_ARM_THM_BF16 bf_target
++// RELOCS-DAG: R_ARM_THM_BF12 bfc_target
++// RELOCS-DAG: R_ARM_THM_BF18 bfl_target
++
++// DISASM: <_start>:
++// DISASM: bf 0x8000008, 0x8000010
++// DISASM: bfcsel 0x800000c, 0x8000012, 0x8000010, eq
++// DISASM: bfl 0x8000010, 0x8000014
++// DISASM: bx lr
++
++  .syntax unified
++  .thumb
++  .text
++  .p2align 2
++  .globl _start
++  .type _start,%function
++  .thumb_func
++_start:
++  bf #4, bf_target
++  bfcsel #4, bfc_target, #8, eq
++  bfl #4, bfl_target
++  bx lr
++  .size _start, .-_start
++
++  .p2align 2
++  .globl bf_target
++  .type bf_target,%function
++  .thumb_func
++bf_target:
++  bx lr
++  .size bf_target, .-bf_target
++
++  .globl bfc_target
++  .type bfc_target,%function
++  .thumb_func
++bfc_target:
++  bx lr
++  .size bfc_target, .-bfc_target
++
++  .globl bfl_target
++  .type bfl_target,%function
++  .thumb_func
++bfl_target:
++  bx lr
++  .size bfl_target, .-bfl_target
 diff --git a/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h b/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h
-index 9479c107447d5dc9972a920bdf176cd56071a1eb..2dc76dc336b09f6a89b1c8ce4b5479677722c1a8 100644
+index 9479c107447d5dc9972a920bdf176cd56071a1eb..0a0053349c0b2688c7bf346ba1fa5c2646ee4c14 100644
 --- a/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h
 +++ b/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h
 @@ -39,6 +39,14 @@ enum EdgeKind_aarch32 : Edge::Kind {
@@ -31741,7 +32135,7 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..2dc76dc336b09f6a89b1c8ce4b547967
    /// Write immediate value for PC-relative branch without link. The instruction
    /// can be made conditional by an IT block. If the branch target is not ARM,
    /// we are forced to generate an explicit interworking stub.
-@@ -104,7 +125,16 @@ enum EdgeKind_aarch32 : Edge::Kind {
+@@ -104,7 +125,25 @@ enum EdgeKind_aarch32 : Edge::Kind {
    /// register
    Thumb_MovtPrel,
  
@@ -31755,11 +32149,20 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..2dc76dc336b09f6a89b1c8ce4b547967
 +  /// Thumb-2 ADR add/sub i:imm3:imm8.
 +  Thumb_AluPrel11_0,
 +
-+  LastThumbRelocation = Thumb_AluPrel11_0,
++  /// Armv8.1-M BF signed 16-bit halfword-scaled target.
++  Thumb_Bf16,
++
++  /// Armv8.1-M BFCSEL signed 12-bit halfword-scaled target.
++  Thumb_Bf12,
++
++  /// Armv8.1-M BFL signed 18-bit halfword-scaled target.
++  Thumb_Bf18,
++
++  LastThumbRelocation = Thumb_Bf18,
  
    /// No-op relocation
    None,
-@@ -172,6 +202,14 @@ struct HalfWords {
+@@ -172,6 +211,14 @@ struct HalfWords {
    const uint16_t Lo; // Second halfword
  };
  
@@ -31774,7 +32177,7 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..2dc76dc336b09f6a89b1c8ce4b547967
  /// FixupInfo base class is required for dynamic lookups.
  struct FixupInfoBase {
    LLVM_ABI static const FixupInfoBase *getDynFixupInfo(Edge::Kind K);
-@@ -240,6 +278,32 @@ template <> struct FixupInfo<Thumb_Jump24> : public FixupInfoThumb {
+@@ -240,6 +287,32 @@ template <> struct FixupInfo<Thumb_Jump24> : public FixupInfoThumb {
    static constexpr HalfWords ImmMask{0x07ff, 0x2fff};
  };
  
@@ -31807,7 +32210,7 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..2dc76dc336b09f6a89b1c8ce4b547967
  template <> struct FixupInfo<Thumb_Call> : public FixupInfoThumb {
    static constexpr HalfWords Opcode{0xf000, 0xc000};
    static constexpr HalfWords OpcodeMask{0xf800, 0xc000};
-@@ -270,6 +334,27 @@ template <> struct FixupInfo<Thumb_MovwPrelNC> : public FixupInfoThumbMov {
+@@ -270,6 +343,48 @@ template <> struct FixupInfo<Thumb_MovwPrelNC> : public FixupInfoThumbMov {
    static constexpr HalfWords Opcode{0xf240, 0x0000};
  };
  
@@ -31832,6 +32235,27 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..2dc76dc336b09f6a89b1c8ce4b547967
 +  static constexpr HalfWords ImmMask{0x04a0, 0x70ff};
 +};
 +
++/// Armv8.1-M branch-future targets use a signed, halfword-scaled immediate.
++/// The first operand (the branch-location label) occupies separate opcode
++/// fields and is deliberately excluded from these relocation masks.
++template <> struct FixupInfo<Thumb_Bf16> : public FixupInfoThumb {
++  static constexpr HalfWords Opcode{0xf040, 0xe001};
++  static constexpr HalfWords OpcodeMask{0xf860, 0xf001};
++  static constexpr HalfWords ImmMask{0x001f, 0x0ffe};
++};
++
++template <> struct FixupInfo<Thumb_Bf12> : public FixupInfoThumb {
++  static constexpr HalfWords Opcode{0xf000, 0xe001};
++  static constexpr HalfWords OpcodeMask{0xf840, 0xf001};
++  static constexpr HalfWords ImmMask{0x0001, 0x0ffe};
++};
++
++template <> struct FixupInfo<Thumb_Bf18> : public FixupInfoThumb {
++  static constexpr HalfWords Opcode{0xf000, 0xc001};
++  static constexpr HalfWords OpcodeMask{0xf800, 0xf001};
++  static constexpr HalfWords ImmMask{0x007f, 0x0ffe};
++};
++
  /// Helper function to read the initial addend for Data-class relocations.
  LLVM_ABI Expected<int64_t>
  readAddendData(LinkGraph &G, Block &B, Edge::OffsetT Offset, Edge::Kind Kind);
@@ -31848,7 +32272,7 @@ index 6d72741c3bde056a73724f2eb1ca4fed1e7f4ce9..2554318258b275ad60aecba6d50fd0a6
  
  protected:
 diff --git a/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp b/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp
-index f5ca72796df530c65877d4f8f32460ef79de3abc..68fe1fbf3d9c52bc5bfca7af06ea26312802f77c 100644
+index f5ca72796df530c65877d4f8f32460ef79de3abc..4e2098ffc1f5ad2b8b8113c90352e3cbe87e59b0 100644
 --- a/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp
 +++ b/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp
 @@ -35,6 +35,10 @@ namespace jitlink {
@@ -31877,7 +32301,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..68fe1fbf3d9c52bc5bfca7af06ea2631
    case ELF::R_ARM_THM_JUMP24:
      return aarch32::Thumb_Jump24;
    case ELF::R_ARM_THM_MOVW_ABS_NC:
-@@ -68,6 +80,12 @@ getJITLinkEdgeKind(uint32_t ELFType, const aarch32::ArmConfig &ArmCfg) {
+@@ -68,6 +80,18 @@ getJITLinkEdgeKind(uint32_t ELFType, const aarch32::ArmConfig &ArmCfg) {
      return aarch32::Thumb_MovwPrelNC;
    case ELF::R_ARM_THM_MOVT_PREL:
      return aarch32::Thumb_MovtPrel;
@@ -31887,10 +32311,16 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..68fe1fbf3d9c52bc5bfca7af06ea2631
 +    return aarch32::Thumb_Pc12;
 +  case ELF::R_ARM_THM_ALU_PREL_11_0:
 +    return aarch32::Thumb_AluPrel11_0;
++  case ELF::R_ARM_THM_BF16:
++    return aarch32::Thumb_Bf16;
++  case ELF::R_ARM_THM_BF12:
++    return aarch32::Thumb_Bf12;
++  case ELF::R_ARM_THM_BF18:
++    return aarch32::Thumb_Bf18;
    }
  
    return make_error<JITLinkError>(
-@@ -80,6 +98,10 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
+@@ -80,6 +104,10 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
    switch (static_cast<aarch32::EdgeKind_aarch32>(Kind)) {
    case aarch32::Data_Delta32:
      return ELF::R_ARM_REL32;
@@ -31901,7 +32331,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..68fe1fbf3d9c52bc5bfca7af06ea2631
    case aarch32::Data_Pointer32:
      return ELF::R_ARM_ABS32;
    case aarch32::Data_PRel31:
-@@ -96,6 +118,14 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
+@@ -96,6 +124,14 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
      return ELF::R_ARM_MOVT_ABS;
    case aarch32::Thumb_Call:
      return ELF::R_ARM_THM_CALL;
@@ -31916,7 +32346,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..68fe1fbf3d9c52bc5bfca7af06ea2631
    case aarch32::Thumb_Jump24:
      return ELF::R_ARM_THM_JUMP24;
    case aarch32::Thumb_MovwAbsNC:
-@@ -106,6 +136,12 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
+@@ -106,6 +142,18 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
      return ELF::R_ARM_THM_MOVW_PREL_NC;
    case aarch32::Thumb_MovtPrel:
      return ELF::R_ARM_THM_MOVT_PREL;
@@ -31926,11 +32356,17 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..68fe1fbf3d9c52bc5bfca7af06ea2631
 +    return ELF::R_ARM_THM_PC12;
 +  case aarch32::Thumb_AluPrel11_0:
 +    return ELF::R_ARM_THM_ALU_PREL_11_0;
++  case aarch32::Thumb_Bf16:
++    return ELF::R_ARM_THM_BF16;
++  case aarch32::Thumb_Bf12:
++    return ELF::R_ARM_THM_BF12;
++  case aarch32::Thumb_Bf18:
++    return ELF::R_ARM_THM_BF18;
    case aarch32::None:
      return ELF::R_ARM_NONE;
    }
 diff --git a/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp b/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
-index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402fed66fbd 100644
+index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade970504c2c5870 100644
 --- a/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
 +++ b/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
 @@ -219,6 +219,21 @@ struct ThumbRelocation {
@@ -32022,7 +32458,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
    return (Hi & FixupInfo<K>::OpcodeMask.Hi) == FixupInfo<K>::Opcode.Hi &&
           (Lo & FixupInfo<K>::OpcodeMask.Lo) == FixupInfo<K>::Opcode.Lo;
  }
-@@ -336,6 +404,32 @@ static Error checkOpcode(LinkGraph &G, const ThumbRelocation &R,
+@@ -336,6 +404,52 @@ static Error checkOpcode(LinkGraph &G, const ThumbRelocation &R,
    return Error::success();
  }
  
@@ -32052,10 +32488,30 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
 +                       ((Value >> 1) & 0x07ff));
 +}
 +
++template <unsigned Bits> static int64_t decodeThumbBranchFuture(uint16_t Hi,
++                                                                uint16_t Lo) {
++  static_assert(Bits == 12 || Bits == 16 || Bits == 18);
++  constexpr uint16_t HiMask = Bits == 12 ? 0x0001 :
++                              Bits == 16 ? 0x001f : 0x007f;
++  const uint32_t HalfwordOffset =
++      ((Hi & HiMask) << 11) | ((Lo & 0x0800) >> 11) | (Lo & 0x07fe);
++  return SignExtend64<Bits>(HalfwordOffset) << 1;
++}
++
++template <unsigned Bits> static HalfWords encodeThumbBranchFuture(int64_t Value) {
++  static_assert(Bits == 12 || Bits == 16 || Bits == 18);
++  const uint32_t HalfwordOffset = uint64_t(Value) >> 1;
++  constexpr uint16_t HiMask = Bits == 12 ? 0x0001 :
++                              Bits == 16 ? 0x001f : 0x007f;
++  return HalfWords{(HalfwordOffset >> 11) & HiMask,
++                   ((HalfwordOffset & 1) << 11) |
++                       (HalfwordOffset & 0x07fe)};
++}
++
  const FixupInfoBase *FixupInfoBase::getDynFixupInfo(Edge::Kind K) {
    return DynFixupInfos->getEntry(K);
  }
-@@ -376,6 +470,10 @@ Expected<int64_t> readAddendData(LinkGraph &G, Block &B, Edge::OffsetT Offset,
+@@ -376,6 +490,10 @@ Expected<int64_t> readAddendData(LinkGraph &G, Block &B, Edge::OffsetT Offset,
    const char *FixupPtr = BlockWorkingMem + Offset;
  
    switch (Kind) {
@@ -32066,7 +32522,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
    case Data_Delta32:
    case Data_Pointer32:
    case Data_RequestGOTAndTransformToDelta32:
-@@ -415,11 +513,32 @@ Expected<int64_t> readAddendArm(LinkGraph &G, Block &B, Edge::OffsetT Offset,
+@@ -415,11 +533,32 @@ Expected<int64_t> readAddendArm(LinkGraph &G, Block &B, Edge::OffsetT Offset,
  
  Expected<int64_t> readAddendThumb(LinkGraph &G, Block &B, Edge::OffsetT Offset,
                                    Edge::Kind Kind, const ArmConfig &ArmCfg) {
@@ -32099,7 +32555,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
    case Thumb_Call:
    case Thumb_Jump24:
      return LLVM_LIKELY(ArmCfg.J1J2BranchEncoding)
-@@ -436,6 +555,17 @@ Expected<int64_t> readAddendThumb(LinkGraph &G, Block &B, Edge::OffsetT Offset,
+@@ -436,6 +575,24 @@ Expected<int64_t> readAddendThumb(LinkGraph &G, Block &B, Edge::OffsetT Offset,
      // Initial addend is interpreted as a signed value
      return SignExtend64<16>(decodeImmMovtT1MovwT3(R.Hi, R.Lo));
  
@@ -32114,10 +32570,17 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
 +    return (R.Hi & 0x00f0) ? -Imm : Imm;
 +  }
 +
++  case Thumb_Bf16:
++    return decodeThumbBranchFuture<16>(R.Hi, R.Lo);
++  case Thumb_Bf12:
++    return decodeThumbBranchFuture<12>(R.Hi, R.Lo);
++  case Thumb_Bf18:
++    return decodeThumbBranchFuture<18>(R.Hi, R.Lo);
++
    default:
      return make_error<JITLinkError>(
          "In graph " + G.getName() + ", section " + B.getSection().getName() +
-@@ -455,12 +585,36 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
+@@ -455,12 +612,36 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
    int64_t Addend = E.getAddend();
    Symbol &TargetSymbol = E.getTarget();
    uint64_t TargetAddress = TargetSymbol.getAddress().getValue();
@@ -32155,7 +32618,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
      if (!isInt<32>(Value))
        return makeTargetOutOfRangeError(G, B, E);
      if (LLVM_LIKELY(G.getEndianness() == endianness::little))
-@@ -470,7 +624,7 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
+@@ -470,7 +651,7 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
      return Error::success();
    }
    case Data_Pointer32: {
@@ -32164,7 +32627,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
      if (!isUInt<32>(Value))
        return makeTargetOutOfRangeError(G, B, E);
      if (LLVM_LIKELY(G.getEndianness() == endianness::little))
-@@ -578,9 +732,61 @@ Error applyFixupArm(LinkGraph &G, Block &B, const Edge &E) {
+@@ -578,9 +759,61 @@ Error applyFixupArm(LinkGraph &G, Block &B, const Edge &E) {
  
  Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
                        const ArmConfig &ArmCfg) {
@@ -32227,7 +32690,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
    if (Error Err = checkOpcode(G, R, Kind))
      return Err;
  
-@@ -590,6 +796,18 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
+@@ -590,6 +823,18 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
    uint64_t TargetAddress = TargetSymbol.getAddress().getValue();
  
    switch (Kind) {
@@ -32246,7 +32709,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
    case Thumb_Jump24: {
      if (!hasTargetFlags(TargetSymbol, ThumbSymbol))
        return make_error<JITLinkError>("Branch relocation needs interworking "
-@@ -667,6 +885,31 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
+@@ -667,6 +912,54 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
      return Error::success();
    }
  
@@ -32275,10 +32738,33 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
 +    return Error::success();
 +  }
 +
++  case Thumb_Bf16:
++  case Thumb_Bf12:
++  case Thumb_Bf18: {
++    if (!hasTargetFlags(TargetSymbol, ThumbSymbol))
++      return make_error<JITLinkError>(
++          "Armv8.1-M branch-future relocation needs a Thumb-state target: " +
++          StringRef(G.getEdgeKindName(Kind)));
++    const int64_t Value =
++        int64_t(TargetAddress & ~1ULL) - int64_t(FixupAddress) + Addend;
++    if ((Value & 1) ||
++        (Kind == Thumb_Bf16 && !isInt<17>(Value)) ||
++        (Kind == Thumb_Bf12 && !isInt<13>(Value)) ||
++        (Kind == Thumb_Bf18 && !isInt<19>(Value)))
++      return makeTargetOutOfRangeError(G, B, E);
++    if (Kind == Thumb_Bf16)
++      writeImmediate<Thumb_Bf16>(R, encodeThumbBranchFuture<16>(Value));
++    else if (Kind == Thumb_Bf12)
++      writeImmediate<Thumb_Bf12>(R, encodeThumbBranchFuture<12>(Value));
++    else
++      writeImmediate<Thumb_Bf18>(R, encodeThumbBranchFuture<18>(Value));
++    return Error::success();
++  }
++
    default:
      return make_error<JITLinkError>(
          "In graph " + G.getName() + ", section " + B.getSection().getName() +
-@@ -918,6 +1161,8 @@ const char *getEdgeKindName(Edge::Kind K) {
+@@ -918,6 +1211,8 @@ const char *getEdgeKindName(Edge::Kind K) {
  
    switch (K) {
      KIND_NAME_CASE(Data_Delta32)
@@ -32287,7 +32773,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
      KIND_NAME_CASE(Data_Pointer32)
      KIND_NAME_CASE(Data_PRel31)
      KIND_NAME_CASE(Data_RequestGOTAndTransformToDelta32)
-@@ -926,11 +1171,18 @@ const char *getEdgeKindName(Edge::Kind K) {
+@@ -926,11 +1221,21 @@ const char *getEdgeKindName(Edge::Kind K) {
      KIND_NAME_CASE(Arm_MovwAbsNC)
      KIND_NAME_CASE(Arm_MovtAbs)
      KIND_NAME_CASE(Thumb_Call)
@@ -32303,6 +32789,9 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..5e17bb72b575438307c553c3f4882402
 +    KIND_NAME_CASE(Thumb_Pc8)
 +    KIND_NAME_CASE(Thumb_Pc12)
 +    KIND_NAME_CASE(Thumb_AluPrel11_0)
++    KIND_NAME_CASE(Thumb_Bf16)
++    KIND_NAME_CASE(Thumb_Bf12)
++    KIND_NAME_CASE(Thumb_Bf18)
      KIND_NAME_CASE(None)
    default:
      return getGenericEdgeKindName(K);
@@ -32678,6 +33167,91 @@ index 4997fb3cf8ab1d489c47b239218ef10dc41ee92b..316e20ef6eb66d09779c31217849e28a
  # Empty main function for jitlink to be happy
  	.globl	main
  	.type	main,%function
+diff --git a/llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv8_1m.s b/llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv8_1m.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..bd0089535d008531110968047a07e2d59315fb67
+--- /dev/null
++++ b/llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv8_1m.s
+@@ -0,0 +1,79 @@
++# RUN: llvm-mc -triple=thumbv8.1m.main-none-eabi -mcpu=cortex-m55 \
++# RUN:   -arm-add-build-attributes -filetype=obj -o %t.o %s
++# RUN: llvm-objdump -r %t.o | FileCheck %s --check-prefix=RELOCS
++# RUN: llvm-jitlink -noexec -slab-address 0x08000000 \
++# RUN:   -slab-allocate 64Kb -slab-page-size 4096 -check %s %t.o
++
++## Armv8.1-M branch-future instructions contain two labels.  Only the second
++## label receives an ELF relocation.  Check all three split signed immediate
++## forms at a deterministic linked address so that an incorrect operand,
++## scaling, PC bias, or field layout is observable in the final instruction.
++
++# RELOCS: R_ARM_THM_BF16 bf_target
++# RELOCS: R_ARM_THM_BF12 bfc_target
++# RELOCS: R_ARM_THM_BF18 bfl_target
++
++# jitlink-check: *{4}(bf_site) = 0xe00bf140
++# jitlink-check: *{4}(bfc_site) = 0xe807f102
++# jitlink-check: *{4}(bfl_site) = 0xc005f100
++
++  .syntax unified
++  .thumb
++
++  .section .text.sites,"ax",%progbits
++  .p2align 2
++  .globl bf_site
++  .type bf_site,%function
++  .thumb_func
++bf_site:
++  bf #4, bf_target
++  bx lr
++  .size bf_site, .-bf_site
++
++  .p2align 2
++  .globl bfc_site
++  .type bfc_site,%function
++  .thumb_func
++bfc_site:
++  bfcsel #4, bfc_target, #8, eq
++  bx lr
++  .size bfc_site, .-bfc_site
++
++  .p2align 2
++  .globl bfl_site
++  .type bfl_site,%function
++  .thumb_func
++bfl_site:
++  bfl #4, bfl_target
++  bx lr
++  .size bfl_site, .-bfl_site
++
++  .globl main
++  .type main,%function
++  .thumb_func
++main:
++  bx lr
++  .size main, .-main
++
++  .section .text.targets,"ax",%progbits
++  .p2align 2
++  .globl bf_target
++  .type bf_target,%function
++  .thumb_func
++bf_target:
++  bx lr
++  .size bf_target, .-bf_target
++
++  .globl bfc_target
++  .type bfc_target,%function
++  .thumb_func
++bfc_target:
++  bx lr
++  .size bfc_target, .-bfc_target
++
++  .globl bfl_target
++  .type bfl_target,%function
++  .thumb_func
++bfl_target:
++  bx lr
++  .size bfl_target, .-bfl_target
 diff --git a/llvm/test/ExecutionEngine/JITLink/AArch32/ELF_thumb_data_pointers.s b/llvm/test/ExecutionEngine/JITLink/AArch32/ELF_thumb_data_pointers.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..bf4ee26b3a3623e2a40f402c0d064bf6be22e2c7
@@ -32759,7 +33333,7 @@ index adef746c3607a5410216d874759625713f186a9f..8721f81780735126ea708bce3dfa9239
 +@ ADDEND: 49ff ldr
  
 diff --git a/llvm/unittests/ExecutionEngine/JITLink/AArch32ErrorTests.cpp b/llvm/unittests/ExecutionEngine/JITLink/AArch32ErrorTests.cpp
-index 1706e6f3873e9bdebc58572937b00ecad5097c41..956800d0e25e598744a7b3abb8705ede0129558a 100644
+index 1706e6f3873e9bdebc58572937b00ecad5097c41..e7f37384012f40fd208a16697ab7d7a633a0d7cb 100644
 --- a/llvm/unittests/ExecutionEngine/JITLink/AArch32ErrorTests.cpp
 +++ b/llvm/unittests/ExecutionEngine/JITLink/AArch32ErrorTests.cpp
 @@ -99,6 +99,37 @@ TEST_F(AArch32Errors, readAddendDataGeneric) {
@@ -32800,6 +33374,42 @@ index 1706e6f3873e9bdebc58572937b00ecad5097c41..956800d0e25e598744a7b3abb8705ede
  TEST(AArch32_ELF, readAddendArmErrors) {
  
    constexpr orc::ExecutorAddr B1DummyAddr(0x1000);
+@@ -111,7 +142,7 @@ TEST(AArch32_ELF, readAddendArmErrors) {
+   auto &BArm = G->createContentBlock(Sec, ArmContent, B1DummyAddr, ArmAlignment,
+                                      AlignmentOffset);
+ 
+-  for (Edge::Kind K = FirstArmRelocation; K < LastArmRelocation; K += 1) {
++  for (Edge::Kind K = FirstArmRelocation; K <= LastArmRelocation; K += 1) {
+     EXPECT_THAT_EXPECTED(readAddend(*G, BArm, SymbolOffset, K, ArmCfg),
+                          FailedWithMessage(testing::AllOf(
+                              testing::StartsWith("Invalid opcode"),
+@@ -136,7 +167,7 @@ TEST(AArch32_ELF, readAddendThumbErrors) {
+   auto &BThumb = G->createContentBlock(Sec, ThumbContent, B2DummyAddr,
+                                        ThumbAlignment, AlignmentOffset);
+ 
+-  for (Edge::Kind K = FirstThumbRelocation; K < LastThumbRelocation; K += 1) {
++  for (Edge::Kind K = FirstThumbRelocation; K <= LastThumbRelocation; K += 1) {
+     EXPECT_THAT_EXPECTED(readAddend(*G, BThumb, SymbolOffset, K, ArmCfg),
+                          FailedWithMessage(testing::AllOf(
+                              testing::StartsWith("Invalid opcode"),
+@@ -175,7 +206,7 @@ TEST(AArch32_ELF, applyFixupArmErrors) {
+   Symbol &TargetSymbol =
+       G->addAnonymousSymbol(BArm, SymbolOffset, SymbolSize, false, false);
+ 
+-  for (Edge::Kind K = FirstArmRelocation; K < LastArmRelocation; K += 1) {
++  for (Edge::Kind K = FirstArmRelocation; K <= LastArmRelocation; K += 1) {
+     Edge E(K, 0, TargetSymbol, 0);
+     EXPECT_THAT_ERROR(applyFixup(*G, BArm, E, ArmCfg),
+                       FailedWithMessage(testing::AllOf(
+@@ -214,7 +245,7 @@ TEST(AArch32_ELF, applyFixupThumbErrors) {
+   Symbol &TargetSymbol =
+       G->addAnonymousSymbol(BThumb, SymbolOffset, SymbolSize, false, false);
+ 
+-  for (Edge::Kind K = FirstThumbRelocation; K < LastThumbRelocation; K += 1) {
++  for (Edge::Kind K = FirstThumbRelocation; K <= LastThumbRelocation; K += 1) {
+     Edge E(K, 0, TargetSymbol, 0);
+     EXPECT_THAT_ERROR(applyFixup(*G, BThumb, E, ArmCfg),
+                       FailedWithMessage(testing::AllOf(
 @@ -258,6 +289,48 @@ TEST_F(AArch32Errors, applyFixupThumbCall) {
    }
  }
@@ -32945,3 +33555,34 @@ index 1706e6f3873e9bdebc58572937b00ecad5097c41..956800d0e25e598744a7b3abb8705ede
 +                 Edge(Thumb_Jump19, 0, Jump19Target, 0), ArmCfg),
 +      FailedWithMessage(testing::HasSubstr("out of range")));
 +}
+diff --git a/llvm/unittests/ExecutionEngine/JITLink/AArch32Tests.cpp b/llvm/unittests/ExecutionEngine/JITLink/AArch32Tests.cpp
+index dfabb4ab7618085f690c740956c67112edc82b61..0ffe30320b56074ce39348760ab6229ff4c0b8f8 100644
+--- a/llvm/unittests/ExecutionEngine/JITLink/AArch32Tests.cpp
++++ b/llvm/unittests/ExecutionEngine/JITLink/AArch32Tests.cpp
+@@ -57,7 +57,7 @@ TEST(AArch32_ELF, EdgeKinds) {
+   Expected<uint32_t> ErrType = getELFRelocationType(Edge::Invalid);
+   EXPECT_TRUE(errorToBool(ErrType.takeError()));
+ 
+-  for (Edge::Kind K = FirstDataRelocation; K < LastThumbRelocation; K += 1) {
++  for (Edge::Kind K = FirstDataRelocation; K <= LastThumbRelocation; K += 1) {
+     Expected<uint32_t> ELFType = getELFRelocationType(K);
+     EXPECT_FALSE(errorToBool(ELFType.takeError()))
+         << "Failed to translate JITLink kind -> ELF type";
+@@ -72,7 +72,7 @@ TEST(AArch32_ELF, EdgeKinds) {
+ 
+ TEST(AArch32_ELF, DynFixupInfos) {
+   // We can do an opcode check for all Arm edges
+-  for (Edge::Kind K = FirstArmRelocation; K < LastArmRelocation; K += 1) {
++  for (Edge::Kind K = FirstArmRelocation; K <= LastArmRelocation; K += 1) {
+     const auto *Info = FixupInfoBase::getDynFixupInfo(K);
+     EXPECT_NE(Info, nullptr);
+     const auto *InfoArm = static_cast<const FixupInfoArm *>(Info);
+@@ -80,7 +80,7 @@ TEST(AArch32_ELF, DynFixupInfos) {
+     EXPECT_FALSE(InfoArm->checkOpcode(0x00000000));
+   }
+   // We can do an opcode check for all Thumb edges
+-  for (Edge::Kind K = FirstThumbRelocation; K < LastThumbRelocation; K += 1) {
++  for (Edge::Kind K = FirstThumbRelocation; K <= LastThumbRelocation; K += 1) {
+     const auto *Info = FixupInfoBase::getDynFixupInfo(K);
+     EXPECT_NE(Info, nullptr);
+     const auto *InfoThumb = static_cast<const FixupInfoThumb *>(Info);
