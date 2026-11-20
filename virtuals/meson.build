@@ -8,6 +8,10 @@ subdir('object_sanitizer')
 subdir('variable_watch')
 subdir('world')
 
+if get_option('device_models')
+    subdir('mmio_opt')
+endif
+
 if get_option('enable_phy')
     subdir('physics')
 endif

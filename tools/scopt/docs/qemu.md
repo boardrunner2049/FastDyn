@@ -23,6 +23,12 @@ FastDyn QEMU with the supercache backend (`tcg/supercache.c`, `.sc` v5). On top 
 | `a0681a6ac3` | accel/tcg: supercache exact software profile | `QEMU_SC_PROFILE=/abs/run.qprof` (+ `QEMU_SC_PROFILE_PHASES=name@0xVADDR,...`): run a warm cache with chaining disabled at run time only, count every TB entry and the edge into it, write `.qprof` v1 at exit | `scopt profile run` |
 | `934890ed51` | tcg/supercache: .sc v6 loader | load and arm the `.sc` v6 extension table (variants, guarded slots, SPEC links); disarm on TLB flush, breakpoints, single-step and plugin changes; `QEMU_SC_V6_STATS=/abs/file` counters. v5 files take the unchanged path; this binary still writes v5 | B3 artifacts, the v6 dynamic oracles |
 
+The current submodule pin is `957530a637`. It adds restore support in
+`3b29f46b24` and integrates FastDyn `main` revision `c81bbd4`'s ordered QEMU
+patch series in `57e18f0` and `957530a637`. This includes guest instruction
+fragments, MMIO replacements and saved-PC handling, ARM constant-PC chaining,
+and reduced translation overhead. The pinned source is ready to build.
+
 The capture and profile modes run only in preparation runs, are mutually exclusive, and
 refuse a flat supercache. Nothing on the normal vCPU path changes when their variables
 are unset (every hook is behind an `unlikely` flag). scopt sets and clears these
@@ -34,7 +40,7 @@ The maintainer's binaries, for reference (their data ships with scopt):
 | name | tree | sha256 | role |
 |---|---|---|---|
 | WP-QINT | base + first four commits | `8864c72671971cf4…5f41` | B1/B2 evaluation |
-| gate | the whole branch (`934890ed51`; same tree as the maintainer's tag `qint-v6-gate-1`) | `56d8bfb32c91c970…0d90` | B3, B4, B5 evaluation |
+| gate | the original v6 loader (`934890ed51`; same tree as the maintainer's tag `qint-v6-gate-1`) | `56d8bfb32c91c970…0d90` | B3, B4, B5 evaluation |
 
 Your own build has a different sha256 even from the same sources; see "Binding" below.
 

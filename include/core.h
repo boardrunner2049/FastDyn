@@ -2,6 +2,7 @@
 #define CORE_H
 
 #include <qemu/qemu-plugin.h>
+#include <qemu/fastdyn-fragments.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "common.h"
@@ -67,6 +68,12 @@ bool core_register_virtual_rule(uint64_t address, cb_func_t func,
                                 const char *args);
 bool core_register_register_update(uint64_t address, int reg,
                                    uint64_t value);
+bool core_register_instruction_fragment(uint64_t guest_pc,
+                                        const uint8_t *code,
+                                        size_t code_size,
+                                        const FastDynCodeSpec *code_spec,
+                                        uint64_t *out_hook_id);
+void core_set_guest_target(const char *target_name);
 
 /* Register a normal modifier whose generated update runs only while
  * ``enabled`` is non-zero. The gate is read at guest runtime, so it can be

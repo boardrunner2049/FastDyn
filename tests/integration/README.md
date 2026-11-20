@@ -7,6 +7,87 @@ vehicle path. Run them from the FastDyn repository root after setup:
 source ./setup.sh --build-qemu --with-rumoca
 ```
 
+## Guest instruction fragment matrix
+
+Build the five required QEMU targets, then run the architecture matrix:
+
+```bash
+source ./setup.sh --build-qemu \
+  --qemu-targets arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu
+FASTDYN_QEMU_BUILD="$PWD/third_party/common/qemu/build" \
+  tests/integration/run_guest_code_fragments_smoke.sh
+```
+
+The runner assembles self-contained Cortex-A A32 and Thumb, Cortex-M Thumb,
+A64, x86-16/32/64, RV32, and RV64 fixtures. Every mode executes 100 accepted
+arithmetic fragment instructions and verifies that the unchanged original
+instruction consumes the resulting value and fragment-produced flags or integer
+predicates. It also checks Thumb IT-state rejection, RISC-V compressed-extension
+gating, x86 lazy-flag exception restoration and page-boundary decode rollback,
+registration order, TB invalidation/retranslation, original plugin accounting,
+copied ownership, malformed input, both independent limits, the combined-site
+limit, and initialization-only registry sealing.
+
+## MMIO saved-PC benchmark
+
+After building a legacy FastDyn plugin and the patched plugin against the same
+updated QEMU header, run five alternating paired measurements of the ordinary
+device callback path with automatic MMIO substitution disabled:
+
+```bash
+FASTDYN_MMIO_PC_BASELINE_PLUGIN=/path/to/legacy/libfastdyn.so \
+FASTDYN_MMIO_PC_PATCHED_PLUGIN="$PWD/build/libfastdyn.so" \
+  tests/integration/run_fastdyn_mmio_pc.sh
+```
+
+The runner checks identical firmware results and model access counts and reports
+the whole-QEMU execution median, spread, throughput, and speedup. It does not
+enforce a speedup threshold. See `docs/mmio_saved_pc_benchmark.md` for the
+recorded result and PC contract.
+
+## Constant-PC chaining
+
+Run the A32 and Thumb fixed-PC modifier correctness, legacy-equivalence,
+generated-operation, cleanup-marker, and live-link checks with:
+
+```bash
+tests/integration/run_fastdyn_constant_pc.sh
+```
+
+The bounded five-pair benchmark is separate from CI and has no flaky timing
+threshold:
+
+```bash
+fastdyn-env/bin/python tests/integration/constant_pc/benchmark.py
+```
+
+See `tests/integration/constant_pc/README.md` for prerequisites and overrides,
+and `docs/constant_pc_benchmark.md` for the recorded result.
+
+The saved-value and registration probe uses the allocating register read only
+inside the test callback. It compares that value with `saved_pc` for Cortex-M,
+AArch32, AArch64, x86-16/32/64 (including a nonzero real-mode `CS.base`), RV32,
+and RV64. The Cortex-M fixture forces a valid saved PC of zero, and a qtest
+access verifies that a non-vCPU caller still snapshots `first_cpu`. The probe
+also checks v2 descriptor rejection and single-version dispatch:
+
+```bash
+FASTDYN_QEMU_BUILD="$PWD/third_party/common/qemu/build" \
+  tests/integration/run_fastdyn_mmio_pc_equivalence.sh
+```
+
+Exercise the public SDK and native external-plugin initialization path with:
+
+```bash
+FASTDYN_QEMU_ROOT="$PWD/third_party/common/qemu" \
+FASTDYN_QEMU_BIN="$PWD/third_party/common/qemu/build/qemu-system-arm" \
+  tests/integration/run_fastdyn_guest_code_fragment_smoke.sh
+```
+
+That smoke also checks observer-before-fragment ordering, same-site rejection of
+a program-counter modifier and a state-changing callback, unavailable-profile
+rejection, and propagation of required registration failure through setup.
+
 ## Vehicle Launch Smoke
 
 `courbet_fmu_vehicle_smoke.sh` launches one vehicle config and waits for:

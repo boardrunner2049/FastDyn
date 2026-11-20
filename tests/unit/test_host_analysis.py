@@ -1,11 +1,14 @@
 from pathlib import Path
 from types import SimpleNamespace
+import subprocess
 
 import pytest
 
 from fastdyn.host import (AnalysisSession, AnalysisSessionPool, ImageAddressError,
                           AmbiguousSymbolError, UnsupportedTargetError,
+                          ConstantPropagation, KnownMemoryAccess,
                           constant_member_offset,
+                          find_known_memory_accesses,
                           resolve_address)
 from fastdyn.host.symbols import SymbolIndex
 
@@ -47,8 +50,20 @@ def test_run_contexts_share_the_pool_session_without_parsing(tmp_path):
     pool.close()
 
 
-def test_symbols_normalize_only_functions_and_preserve_aliases_and_zero():
-    session = arm_session(FREERTOS_ELF)
+@pytest.fixture
+def symbol_fixture(tmp_path):
+    # The shipped FreeRTOS build has neither an _start alias nor zero-sized
+    # functions. Build an explicit symbol-table fixture for these contracts.
+    obj, elf = tmp_path / "symbols.o", tmp_path / "symbols.elf"
+    subprocess.run(["arm-none-eabi-as", "-mcpu=cortex-m4",
+                    "tests/firmwares/host_symbols.S", "-o", str(obj)], check=True)
+    subprocess.run(["arm-none-eabi-ld", "-Ttext=0x100", "-e", "Reset_Handler",
+                    str(obj), "-o", str(elf)], check=True)
+    return elf
+
+
+def test_symbols_normalize_only_functions_and_preserve_aliases_and_zero(symbol_fixture):
+    session = arm_session(symbol_fixture)
     reset = session.symbols.lookup("Reset_Handler", kind="function")
     assert reset.address & 1
     assert reset.code_address == reset.address & ~1
@@ -58,8 +73,8 @@ def test_symbols_normalize_only_functions_and_preserve_aliases_and_zero():
     assert variable.address == variable.code_address == 0
 
 
-def test_inferred_function_ranges_stay_in_their_section():
-    session = arm_session(FREERTOS_ELF)
+def test_inferred_function_ranges_stay_in_their_section(symbol_fixture):
+    session = arm_session(symbol_fixture)
     inferred = [item for item in session.symbols.function_ranges()
                 if item.range_provenance == "inferred"]
     assert inferred
@@ -101,6 +116,54 @@ def test_decoder_return_forms_and_unsupported_mode():
     unsupported = AnalysisSession.open(VARIABLE_ELF, architecture="arm")
     with pytest.raises(UnsupportedTargetError):
         _ = unsupported.decoder
+
+
+def test_constant_propagation_is_shared_cached_and_address_class_agnostic():
+    # Vector table; literal load of 0x40010000; word load through the recovered
+    # base. The shared service reports the known address without classifying it.
+    blob = bytes.fromhex(
+        "00100020" "09000000" "014c" "2068" "fee7" "00bf" "00000140"
+    )
+    direct = find_known_memory_accesses(
+        blob=blob, base_va=0, arch="arm32", mode="thumb",
+    )
+    assert [(item.address, item.direction, item.transfer_size) for item in direct] == [
+        (0x40010000, "read", 4),
+    ]
+
+    shared = ConstantPropagation(
+        ((0, blob),), architecture="arm", instruction_mode="thumb-mclass",
+    )
+    first = shared.memory_accesses()
+    assert first is shared.memory_accesses()
+    assert first == tuple(direct)
+
+    session = arm_session(VARIABLE_ELF)
+    assert session.constant_propagation is session.constant_propagation
+    with pytest.raises(UnsupportedTargetError):
+        find_known_memory_accesses(blob=blob, base_va=0, arch="mips")
+
+
+def test_mmio_discovery_filters_shared_constant_facts_without_redecoding():
+    from fastdyn.mmio_plan import discover_firmware
+
+    access = KnownMemoryAccess(
+        pc=0x08000100, instruction_size=2, transfer_size=4,
+        direction="read", arch="ARM32-THUMB", instruction="ldr r0, [r1]",
+        base_register="r1", address=0x40010000, note="unit",
+    )
+
+    class SharedConstants:
+        def memory_accesses(self):
+            return (access,)
+
+    analysis = SimpleNamespace(constant_propagation=SharedConstants())
+    assert discover_firmware(
+        VARIABLE_ELF, ((0x40010000, 0x400100ff),), analysis=analysis,
+    ) == [access]
+    assert discover_firmware(
+        VARIABLE_ELF, ((0x50000000, 0x500000ff),), analysis=analysis,
+    ) == []
 
 
 def test_register_list_memory_transfers_remain_candidates():

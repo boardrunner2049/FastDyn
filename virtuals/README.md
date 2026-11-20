@@ -80,6 +80,7 @@ callbacks.
 | `virtual_register_callback(ctx, name, callback)` | Register a callback name consumed by generated or user virtual rules. |
 | `virtual_artifact_path(ctx, relative, out, size)` | Resolve a safe path below `run-artifacts/<plugin-name>/`. Absolute paths and traversal are rejected. |
 | `virtual_register_exit(ctx, callback)` | Write results or release runtime state when QEMU exits. |
+| `virtual_register_post_device_init(ctx, callback)` | Defer binding that requires initialized device instances; runs before guest translation. |
 | `virtual_set_actuator_pwm(ctx, channel, pwm)` | Send a PWM actuator value to the configured physics backend. |
 | `virtual_log(ctx, level, format, ...)` | Emit a flushed, plugin-qualified runtime diagnostic. Levels are `VIRTUAL_LOG_DEBUG`, `VIRTUAL_LOG_INFO`, `VIRTUAL_LOG_WARN`, and `VIRTUAL_LOG_ERROR`. |
 | `virtual_wait_for_trace_drain(ctx)` | Wait until FastDyn's inline trace logger has consumed its current records. Only needed when a result depends on coverage/trace output. |
@@ -139,6 +140,7 @@ architecture ABI header in a runtime source file.
 | `virtual_register_rule(ctx, address, callback, args)` | Install a runtime-created PC callback. `args` is copied by FastDyn. Use this only for rules the runtime itself derives; host-generated rules should be returned from the Python preprocessor. |
 | `virtual_register_update(ctx, address, reg, value)` | Add a runtime-created register update at a guest PC. |
 | `virtual_register_gated_modifier(ctx, address, patch, enabled)` | Add a PC modifier enabled while `*enabled` is nonzero. The gate is checked at guest runtime. |
+| `virtual_register_mmio_replacement(ctx, replacement, hook_id)` | Install a typed guarded load replacement during post-device initialization. |
 
 The runtime module must not call `virtual_register()`,
 `core_get_run_artifact_path()`, `qemu_get_register()`, or `qemu_set_register()`
@@ -166,3 +168,6 @@ than `printf()` or a private log file.
   DWARF-derived entry-argument manifest and structured trace output.
 - [`introspection/`](introspection/) is a larger run-wide module that loads a
   host-generated schema and emits structured activity events.
+- [`mmio_opt/`](mmio_opt/) combines shared host analysis, namespaced artifacts,
+  post-device binding, and guarded generated-code replacement without private
+  frontend or plugin arguments.

@@ -159,8 +159,11 @@ enabled = true''',
 The module owns its enablement predicate. The generic frontend evaluates every
 registered `RunDefinition`; it does not branch on a feature name. Each
 `RunContext` contains that module's TOML `settings`, a namespaced
-`plugin_artifact_path()` allocator, a FastDyn `logger`, and a generic cleanup
-list in `RunPrepareResult` for resources started during preparation.
+`plugin_artifact_path()` allocator, a FastDyn `logger`, configured
+`device_ranges`, the serialized `cpu_count`, and a generic cleanup list in
+`RunPrepareResult` for resources started during preparation. Firmware work
+should use the shared lazy `ctx.analysis` session rather than reopening and
+decoding the image independently.
 
 As with virtuals, a user-configurable run plugin must supply
 `ConfigurationHelp`. This makes its configuration snippet and documentation
@@ -186,10 +189,21 @@ preprocessors may turn those settings into artifacts.
 
 Native modules receive the matching namespaced C runtime context from
 `include/fastdyn_runtime.h`. They resolve a local name such as `schema.txt`
-through `fastdyn_runtime_artifact_path()`, never through a global work path or
+through `virtual_artifact_path()`, never through a global work path or
 plugin argument. The frontend manages the actual work directory, and no
 generated path is passed as a command-line option. This keeps the QEMU launch
 surface owned solely by FastDyn.
+
+Modules that require initialized device instances register a
+`virtual_register_post_device_init()` callback during their ordinary
+`VIRTUAL_PLUGIN` initializer. FastDyn runs these callbacks after `dev_init`
+and before translation. Guarded load replacement is likewise available
+through the typed `virtual_register_mmio_replacement()` SDK operation; modules
+do not call the QEMU extension directly.
+
+MMIO replacements registered through the SDK carry a live observer-disable
+flag. Registration of an MMIO observer after binding or translation immediately
+restores ordinary device dispatch for those sites; existing TBs need no flush.
 
 ## RTOS introspection
 

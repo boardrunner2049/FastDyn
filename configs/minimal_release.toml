@@ -1,0 +1,51 @@
+# From the repository root, build with make RELEASE=true or source ./setup.sh --build-qemu --release.
+# fastdyn run -c configs/minimal_release.toml
+[Memory.main]
+id = "ram0"
+base_address = "0x20000000"
+memory_size = "512K"
+backend = "ram"
+share = false
+
+[Machine]
+platform = "generic-cortexm"
+display = "none"
+serial = "none"
+monitor = "none"
+monitor_port = 0
+log_options = "none"
+coverage = false
+edge_coverage = false
+fuzzing = false
+icount = false
+semihosting = true
+semihosting_config = "enable=on,target=native"
+
+[[CPU.cpu0]]
+arch = "arm"
+machine = "cortexm"
+cpu = "cortex-m3"
+binary = "../tests/sample_binaries/RTOS/RTOSDemo.axf"
+init_nsvtor = "0x08000000"
+twintrace = "off"
+
+[CPU.cpu0.plugins.function_tracer]
+enabled = false
+
+[[CPU.cpu0.virtuals]]
+at = "0x08003972"
+instruction = "benchmark_start"
+
+[[CPU.cpu0.modifiers]]
+at = "0x0800397e"
+patch = "r0 <- 3"
+
+[[CPU.cpu0.virtuals]]
+at = "0x080068b0"
+instruction = "printreg"
+args = ["0"]
+
+[[CPU.cpu0.virtuals]]
+at = "0x08001940"
+instruction = "benchmark_end"
+args = ["minimal_release"]

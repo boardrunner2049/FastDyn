@@ -680,8 +680,11 @@ def swarm(
 @click.option('--no-vio', is_flag=True, help='Build without LibVIO.')
 @click.option('--pkg', 'pkgs', multiple=True, metavar='NAME',
               help='Add a pkg-config package (repeatable); "fastdyn" links the fuzzer hooks.')
+@click.option('--mmio-opt', is_flag=True,
+              help='Analyze host LLVM IR and embed automatic pure-read MMIO operations.')
 @click.option('--json', 'as_json', is_flag=True, help='Print a machine-readable report.')
-def build_model(sources, out_dir, recursive, name, jobs, keep_going, exclude, no_vio, pkgs, as_json):
+def build_model(sources, out_dir, recursive, name, jobs, keep_going, exclude,
+                no_vio, pkgs, mmio_opt, as_json):
     # Imported here so other commands do not pay for it.
     from . import model_build
 
@@ -692,7 +695,7 @@ def build_model(sources, out_dir, recursive, name, jobs, keep_going, exclude, no
             inputs = list(sources)
         report = model_build.build_models(
             inputs, out_dir, jobs=jobs, keep_going=keep_going, vio=not no_vio,
-            pkgs=pkgs, exclude=exclude, recursive=recursive,
+            pkgs=pkgs, exclude=exclude, recursive=recursive, mmio_opt=mmio_opt,
         )
     except model_build.ModelBuildError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -705,6 +708,8 @@ def build_model(sources, out_dir, recursive, name, jobs, keep_going, exclude, no
             line = f"{labels[result.status]:<11} {result.name}"
             if result.status in ("built", "up-to-date"):
                 line += f" -> {result.output}"
+                if result.mmio_operations:
+                    line += f" ({result.mmio_operations} MMIO operations)"
             elif result.status == "failed":
                 line += f": {result.first_error}"
             click.echo(line)

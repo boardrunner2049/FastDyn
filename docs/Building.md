@@ -10,9 +10,10 @@ builds elsewhere, SUNDIALS, Gazebo, Rumoca).
 FastDyn builds against dependencies pinned as submodules:
 
 - `third_party/common/qemu`: the patched QEMU fork that hosts the FastDyn
-  plugin (FastDyn's `patches/qemu-fastdyn-plugin-icount.patch` is applied on
-  top; on this branch the submodule is the QEMU `scopt` branch, which already
-  contains it, see `tools/scopt/docs/qemu.md`)
+  plugin. The pinned `scopt` revision includes the SuperCache capture, profile
+  and loader, together with FastDyn's icount, instruction-fragment, MMIO,
+  constant-PC and translation-overhead patches. See
+  [QEMU for scopt](../tools/scopt/docs/qemu.md).
 - `third_party/common/libhw`: the hardware-probe library (ST-Link / OpenOCD /
   J-Link), needed only to talk to a board (passthrough, twintrace recording)
 - `third_party/common/libvio` (optional): the library device models use for
@@ -32,6 +33,10 @@ sudo apt-get install -y \
 `libstlink-dev` and `libusb-1.0-0-dev` are for libhw only. Rust (`cargo`) is
 needed only for Rumoca, OptiFuzz and the libFuzz fuzzer library.
 
+Automatic MMIO model extraction additionally uses `clang-18` and `llvm-18`
+(including libLLVM's C API for host layout). The regression tests also use
+`binutils-arm-none-eabi`. These packages are installed by CI and the Dockerfile.
+
 ## setup.sh
 
 `source ./setup.sh [OPTIONS]` creates the virtual environment `fastdyn-env/`
@@ -42,6 +47,7 @@ Courbet assets), and creates the QEMU RAM backing files. Build options add:
 | --- | --- |
 | `--clone-qemu` | Download missing QEMU sources without patching or compiling; preserve existing checkouts |
 | `--build-qemu` | The patched QEMU, then FastDyn (`build/libfastdyn.so`) with device models (`DEV`), the physics engine with the FMU and flight-controller backends, and libhw (`LIBHW`) when libhw is built |
+| `--release` | Select the `-O0` FastDyn plugin with MMIO logging compiled out when building the plugin |
 | `--build-libhw` | libhw (`out/libhw.so` in the libhw checkout) |
 | `--build-libvio` | LibVIO into `out/libvio/install`, where `fastdyn build-model` looks first |
 | `--build-gazebo` | The legacy Gazebo/Courbet backend and FastDyn with `LIBGZ`/`LIBHW` (needs Gazebo Harmonic) |
@@ -67,7 +73,7 @@ remote, branch and local changes; builds never fetch or switch refs.
 
 For a new external `--qemu-root`, use `--clone-qemu` to download `--qemu-repo`
 at `--qemu-ref` (default `https://github.com/boardrunner2049/qemu.git`,
-`fastdyn`). `--build-qemu` on its own requires existing external sources:
+the QEMU commit recorded in the FastDyn checkout). `--build-qemu` on its own requires existing external sources:
 
 ```bash
 # Download only; existing checkouts are left in place.
@@ -100,11 +106,7 @@ make -C third_party/common/libhw
 
 # QEMU (fork) → qemu-system-arm + plugin headers
 cd third_party/common/qemu
-# Apply the icount patch only if the checkout does not contain it yet. The
-# pinned `scopt` QEMU branch already has it as a commit, so a plain
-# `git apply` fails there; this is what setup.sh checks as well.
-git apply --reverse --check ../../../patches/qemu-fastdyn-plugin-icount.patch 2>/dev/null ||
-  git apply ../../../patches/qemu-fastdyn-plugin-icount.patch
+# The pinned revision already contains the full FastDyn patch series.
 mkdir build && cd build
 ../configure --target-list=arm-softmmu --enable-plugins
 make qemu-system-arm
@@ -129,6 +131,7 @@ current configuration.
 | `LIBHW` | `false` | Talking to a board via libhw: passthrough and twintrace recording (elder and twintrace replay work without it) |
 | `LIBFUZZ` | `false` | LibAFL fuzzing harness (also builds `virtuals/fuzzer/fastdyn_fuzz_lib` with cargo) |
 | `AFLNET` | `false` | AFLNet harness (`aflnet_path`, default `../aflnet`) |
+| `RELEASE` | `false` | Build the FastDyn plugin at `-O0` and compile out MMIO and IRQ logging |
 | `DEBUG_PRINT` | `false` | Verbose plugin logging |
 | `PHY` | `false` | Physics engine; turned on by `LIBGZ`, `FMU` or `FLIGHT_CONTROLLERS` |
 | `FMU` | `false` | FMI v3 FMU physics |
@@ -140,6 +143,21 @@ current configuration.
 What `setup.sh --build-qemu` builds is
 `make DEV=true PHY=true FLIGHT_CONTROLLERS=true FMU=true`, plus `LIBHW=true`
 when libhw is built.
+
+## Release build
+
+From the repository root:
+
+```bash
+source ./setup.sh --build-qemu --release
+fastdyn run -c configs/minimal_release.toml
+```
+
+With an existing patched QEMU, use `make DEV=true RELEASE=true`. Direct Meson
+builds use `-Drelease=true`. The example uses private anonymous RAM and turns
+off instruction tracing and coverage. Use a regular device-enabled build to
+capture MMIO and IRQ records in `io.log`. The log writer batches records in a
+background thread and drains the queue at normal exit.
 
 ## Finding libfastdyn.so at run time
 

@@ -92,6 +92,8 @@ class RunContext:
     symbols: Mapping[str, int] = field(default_factory=dict)
     irq_map: Mapping[str, int] = field(default_factory=dict)
     capabilities: frozenset[str] = frozenset()
+    device_ranges: tuple[tuple[int, int], ...] = ()
+    cpu_count: int = 1
     plugin_name: str = ""
     settings: Mapping[str, object] = field(default_factory=dict)
     _analysis: AnalysisSession | None = field(default=None, repr=False, compare=False)
@@ -445,6 +447,12 @@ def _run_context_for_cpu(cpu: object, workdir: Path, plugin_name: str,
         symbols=dict(getattr(cpu, "symbol_dict", {}) or {}),
         irq_map=dict(getattr(machine_obj, "irq_map", {}) or {}),
         capabilities=_capabilities_for_cpu(cpu),
+        device_ranges=tuple(sorted({
+            (int(start), int(end))
+            for device in (getattr(machine_obj, "devices", {}) or {}).values()
+            for start, end in (getattr(device, "supported_ranges", []) or [])
+        })),
+        cpu_count=len(getattr(machine_obj, "cpus", ()) or (cpu,)),
         plugin_name=plugin_name,
         settings=dict(
             (getattr(cpu, "plugin_config", {}) or {}).get(plugin_name, {})
@@ -463,8 +471,23 @@ def _capabilities_for_cpu(cpu: object) -> frozenset[str]:
     machine_obj = getattr(cpu, "machine_obj")
     capabilities = set(getattr(machine_obj, "virtual_capabilities", set()) or set())
     capabilities.add("core")
-    if bool(getattr(getattr(machine_obj, "qemu_target_opts", None), "fuzzing", False)):
+    opts = getattr(machine_obj, "qemu_target_opts", None)
+    if bool(getattr(opts, "fuzzing", False)):
         capabilities.add("fuzzing")
+    if bool(getattr(opts, "coverage", False)):
+        capabilities.add("coverage")
+    if bool(getattr(opts, "edge_coverage", False)):
+        capabilities.add("edge_coverage")
+    if bool(getattr(opts, "exact_budget_stop", False)):
+        capabilities.add("exact_budget")
+    finline = getattr(opts, "finline", None)
+    if str(finline).strip().lower() not in ("", "none", "off", "false", "0"):
+        capabilities.add("finline")
+    twintrace = getattr(cpu, "twintrace", None)
+    if str(twintrace).strip().lower() not in ("", "none", "off", "false", "0"):
+        capabilities.add("twintrace")
+    if getattr(cpu, "hardware_trace", None):
+        capabilities.add("hardware_trace")
     if getattr(machine_obj, "fmu_path", None):
         capabilities.add("fmu")
     return frozenset(capabilities)

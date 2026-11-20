@@ -66,7 +66,7 @@ sudo apt-get install -y \
 git clone -b scopt https://github.com/boardrunner2049/FastDyn.git
 cd FastDyn
 git submodule update --init third_party/common/qemu
-git -C third_party/common/qemu log --oneline -1   # 934890ed51 tcg/supercache: .sc v6 loader ...
+git -C third_party/common/qemu log --oneline -1   # 957530a637 on this revision
 ```
 
 If your checkout has no `tools/scopt/docs/getting-started.md`, or `scopt helper-effects
@@ -74,8 +74,8 @@ If your checkout has no `tools/scopt/docs/getting-started.md`, or `scopt helper-
 branch than this page describes; fetch it again.
 
 The submodule is pinned to the `scopt` branch of `boardrunner2049/qemu`: the FastDyn
-SuperCache base plus the FastDyn icount patch and the three scopt QEMU changes (capture,
-profile, v6 loader). `docs/qemu.md` describes each commit.
+SuperCache base with capture, profiling, the v6 loader, restore support and the FastDyn
+runtime optimizations from `main`. `docs/qemu.md` describes the component revisions.
 
 ## 3. Build QEMU and the FastDyn plugin
 

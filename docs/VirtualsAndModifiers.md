@@ -213,6 +213,39 @@ at = "0x08001234"
 patch = "r15 <- 0x08004567"
 ```
 
+### Automatic fixed-PC chaining
+
+On the ARM32 QEMU target, an unconditional immediate assignment to the actual
+PC is automatically lowered to a QEMU-managed direct TB exit when it is safe.
+The TOML syntax is unchanged.  Both ordinary A32 and Thumb execution are
+covered; AArch64 register 15 is still an ordinary register and is not treated
+as the PC.
+
+The source TB and absolute destination must occupy the same guest page, the
+destination must fit ARM32 and satisfy the current mode's alignment, ordinary
+QEMU direct chaining must be enabled, and one of the two outgoing slots must
+be unused by the original frontend exits.  The instruction must not be in
+IT/ECI/ICI or single-step state.  FastDyn also retains the legacy path for a
+second PC redirect in the TB, gated/register/memory-derived destinations,
+runtime detours, the context-save/return region, fragment conflicts, and
+unclassified or state-changing callbacks before the modifier.  Failed
+eligibility is an automatic fallback, not a configuration error; existing
+same-site fragment errors remain errors.
+
+The optimized path keeps the original TB extent, instruction handles, count,
+suffix, and block observation metadata.  At the existing modifier position it
+writes the same absolute PC, restores the plugin and I/O boundary state, and
+uses QEMU's normal `goto_tb`/`exit_tb` linking and invalidation.  PC-relative
+TB reuse includes a runtime source-page guard; an alias mismatch performs the
+same absolute write and general exit as before.  It never converts the value
+to a relative branch or changes ARM execution mode.
+
+Set `FASTDYN_CONST_PC_CHAIN=0` before starting FastDyn to force the exact
+legacy lowering for comparison.  The variable is read during translation and
+is not checked on guest hits.  Developers can additionally set
+`FASTDYN_CONST_PC_CHAIN_TRACE=1` for translation-time promotion and fallback
+diagnostics; it does not add a per-hit counter.
+
 Set x86-64 RIP:
 
 ```toml

@@ -9,6 +9,7 @@ from fastdyn.targets.qemu_target import build_qemu_cmd
 from fastdyn.virtual_preprocessing import (
     RUN_PREPROCESSORS,
     RunDefinition,
+    RunContext,
     RunPrepareResult,
     VIRTUAL_DEFINITIONS,
     VirtualDefinition,
@@ -150,6 +151,51 @@ def test_run_preprocessor_results_remain_declarative(monkeypatch, tmp_path):
 def test_run_preprocessor_cannot_return_plugin_command_line_arguments():
     with pytest.raises(TypeError, match="plugin_args"):
         RunPrepareResult(plugin_args={"untrusted": "value"})
+
+
+def test_mmio_opt_uses_namespaced_artifacts_and_shared_analysis(monkeypatch, tmp_path):
+    captured = {}
+
+    def write_plan(plan, report, firmware, regions, **kwargs):
+        captured.update(plan=plan, report=report, firmware=firmware,
+                        regions=regions, analysis=kwargs.get("analysis"))
+        plan.write_text("# plan\n", encoding="utf-8")
+        report.write_text("{}\n", encoding="utf-8")
+        return []
+
+    monkeypatch.setattr("fastdyn.mmio_plan.write_plan", write_plan)
+    shared_analysis = object()
+    context = RunContext(
+        binary=tmp_path / "firmware.elf", architecture="arm", machine="cortexm",
+        cpu="cortex-m4", workdir=tmp_path, plugin_name="mmio_opt",
+        settings={"enabled": True}, device_ranges=((0x40010000, 0x400100FF),),
+        _analysis=shared_analysis,
+    )
+
+    result = RUN_PREPROCESSORS["mmio_opt"].prepare.prepare(context)
+
+    assert captured["analysis"] is shared_analysis
+    assert captured["regions"] == context.device_ranges
+    assert captured["plan"] == tmp_path / "run-artifacts/mmio_opt/pending-plan.txt"
+    assert captured["report"] == tmp_path / "run-artifacts/mmio_opt/discovery.json"
+    assert tmp_path / "run-artifacts/mmio_opt/installation.json" in result.artifacts
+
+
+def test_mmio_opt_declines_incompatible_runtime_capability(tmp_path):
+    context = RunContext(
+        binary=tmp_path / "firmware.elf", architecture="arm", machine="cortexm",
+        cpu="cortex-m4", workdir=tmp_path, plugin_name="mmio_opt",
+        settings={"enabled": True}, capabilities=frozenset({"coverage"}),
+        device_ranges=((0x40010000, 0x400100FF),),
+    )
+
+    result = RUN_PREPROCESSORS["mmio_opt"].prepare.prepare(context)
+
+    report = (tmp_path / "run-artifacts/mmio_opt/installation.json").read_text()
+    assert '"enabled": false' in report
+    assert "coverage" in report
+    assert not (tmp_path / "run-artifacts/mmio_opt/pending-plan.txt").exists()
+    assert result.virtuals == []
 
 
 def test_function_counter_plugin_generates_one_entry_virtual_per_elf_function(tmp_path):
@@ -341,6 +387,8 @@ def test_native_plugins_use_the_runtime_sdk_not_plugin_arguments_or_core_dispatc
     introspection = Path("virtuals/introspection/runtime/inspct.c").read_text(encoding="utf-8")
     activity = Path("virtuals/introspection/runtime/activity.c").read_text(encoding="utf-8")
     counter = Path("virtuals/function_counter/runtime/function_counter.c").read_text(encoding="utf-8")
+    mmio = Path("virtuals/mmio_opt/runtime/mmio_opt.c").read_text(encoding="utf-8")
+    qemu_target = Path("src/fastdyn/targets/qemu_target.py").read_text(encoding="utf-8")
 
     assert 'utils_get_arg("introspection"' not in source
     assert 'utils_get_arg("introspection_schema"' not in source
@@ -354,6 +402,13 @@ def test_native_plugins_use_the_runtime_sdk_not_plugin_arguments_or_core_dispatc
     assert "virtual_register(" not in counter
     assert "core_read_ram" not in runtime_sdk
     assert "core_write_ram" not in runtime_sdk
+    assert 'VIRTUAL_PLUGIN("mmio_opt"' in mmio
+    assert "virtual_artifact_path" in mmio
+    assert "virtual_register_post_device_init" in mmio
+    assert "virtual_register_mmio_replacement" in mmio
+    assert 'utils_get_arg("mmio_opt"' not in mmio
+    assert "mmio_opt=" not in qemu_target
+    assert "mmio_opt_report=" not in qemu_target
 
 
 def test_runtime_sdk_keeps_guest_state_and_instrumentation_operations_public():
@@ -377,6 +432,8 @@ def test_runtime_sdk_keeps_guest_state_and_instrumentation_operations_public():
         "virtual_register_rule",
         "virtual_register_update",
         "virtual_register_gated_modifier",
+        "virtual_register_post_device_init",
+        "virtual_register_mmio_replacement",
         "virtual_log",
     ):
         assert operation in header

@@ -27,6 +27,7 @@ LIBHW        ?= false
 LIBFUZZ		 ?= false
 AFLNET 		 ?= false
 DEV          ?= false
+RELEASE      ?= false
 DEBUG_PRINT  ?= false
 LIBPY        ?= false
 SUNDIALS     ?= false
@@ -51,6 +52,7 @@ setup: clean fetch
 	-Denable_libfuzz=$(LIBFUZZ) \
 	-Denable_aflnet=$(AFLNET) \
 	-Ddevice_models=$(DEV) \
+	-Drelease=$(RELEASE) \
 	-DDEBUG_PRINT=$(DEBUG_PRINT) \
 	-Denable_libpy=$(LIBPY) \
 	-Denable_sundials=$(SUNDIALS) \

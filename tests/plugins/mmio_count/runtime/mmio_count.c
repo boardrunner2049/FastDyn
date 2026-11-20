@@ -2,6 +2,7 @@
  * runtime/ with `fastdyn build-model --pkg fastdyn`, loaded by libfastdyn.so. */
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <fastdyn_runtime.h>
@@ -9,6 +10,7 @@
 static const VirtualContext *context;
 static char label[64];
 static uint64_t reads_handled, reads_unhandled, writes_handled, writes_unhandled, blocks;
+static bool late_observer;
 
 static void on_mmio(const VirtualMmioAccess *access) {
     if (access->is_write) {
@@ -22,6 +24,14 @@ static void on_translate(qemu_plugin_id_t id, struct qemu_plugin_tb *tb) {
     (void)id;
     (void)tb;
     blocks++;
+    /* Regression: registration after binding and after this TB was emitted.
+     * Generated replacements must inspect the live observer-disable flag. */
+    if (late_observer) {
+        late_observer = false;
+        if (virtual_register_mmio_observer(context, on_mmio) != 0) {
+            abort();
+        }
+    }
 }
 
 static void write_counts(void) {
@@ -53,7 +63,8 @@ static int mmio_count_initialize(const VirtualContext *ctx) {
     }
     fclose(settings);
     label[strcspn(label, "\n")] = '\0';
-    if (virtual_register_mmio_observer(ctx, on_mmio) != 0) {
+    late_observer = !strcmp(label, "late");
+    if (!late_observer && virtual_register_mmio_observer(ctx, on_mmio) != 0) {
         return -1;
     }
     virtual_register_tb_translation_hook(ctx, on_translate);

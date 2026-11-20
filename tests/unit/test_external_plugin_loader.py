@@ -13,8 +13,9 @@ REPO = Path(__file__).resolve().parents[2]
 QEMU_INCLUDE = REPO / "third_party" / "common" / "qemu" / "include"
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("gcc") is None or shutil.which("pkg-config") is None or not QEMU_INCLUDE.is_dir(),
-    reason="needs gcc, pkg-config and the QEMU submodule",
+    shutil.which("gcc") is None or shutil.which("pkg-config") is None
+    or not (QEMU_INCLUDE / "qemu" / "fastdyn-fragments.h").is_file(),
+    reason="needs gcc, pkg-config and the patched QEMU fragment ABI",
 )
 
 # Stand-ins for what runtime_sdk.c uses from FastDyn's core and from QEMU,
@@ -41,7 +42,9 @@ uint64_t core_get_icount(void) { return 0; }
 void core_wait_for_trace_drain(void) {}
 int core_register_virtual_rule(void) { return 0; }
 int core_register_register_update(void) { return 0; }
+int core_register_instruction_fragment(void) { return 1; }
 int core_register_gated_modifier(void) { return 0; }
+int qemu_plugin_register_fastdyn_mmio_replacement(void) { return 1; }
 uint32_t qemu_get_register(int r) { (void)r; return 0; }
 void qemu_set_register(void) {}
 void *qemu_plugin_get_registers(void) { return NULL; }
@@ -62,14 +65,21 @@ HARNESS = r"""
 extern VirtualExitCallback exit_hooks[8];
 extern int exit_hook_count;
 extern const char *artifact_root;
+extern int virtual_run_post_device_init(void);
 
 /* One compiled-in plugin, as in libfastdyn.so. */
-static int builtin_initialize(const VirtualContext *ctx) { (void)ctx; return 0; }
+static int post_device_calls;
+static int post_device(const VirtualContext *ctx) { (void)ctx; post_device_calls++; return 0; }
+static int builtin_initialize(const VirtualContext *ctx) {
+    return virtual_register_post_device_init(ctx, post_device);
+}
 VIRTUAL_PLUGIN("builtin", builtin_initialize);
 
 int main(int argc, char **argv) {
     artifact_root = argv[1];
     virtual_initialize_plugins();
+    if (virtual_run_post_device_init() != 0) return 4;
+    if (post_device_calls != 1) return 5;
     if (virtual_load_external_plugins(argv[2]) != 0) {
         return 3;
     }

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
 
+from .constants import ConstantPropagation
 from .decode import Decoder
 from .dwarf import DwarfQueries
 from .image import ImageAccess
@@ -26,6 +27,7 @@ class AnalysisSession:
         self._symbols = None
         self._dwarf = None
         self._decoder = None
+        self._constant_propagation = None
 
     @staticmethod
     def _default_mode(architecture: str) -> str:
@@ -72,11 +74,24 @@ class AnalysisSession:
             self._decoder = Decoder(self.elf, self.architecture, self.instruction_mode)
         return self._decoder
 
+    @property
+    def constant_propagation(self) -> ConstantPropagation:
+        """Reusable, cached known-register/effective-address analysis."""
+        if self._constant_propagation is None:
+            entry = int(self.elf.header["e_entry"]) & ~1
+            self._constant_propagation = ConstantPropagation(
+                self.decoder.executable_regions(),
+                architecture=self.architecture,
+                instruction_mode=self.instruction_mode,
+                entry_points=(entry,),
+            )
+        return self._constant_propagation
+
     def close(self) -> None:
         if self._stream is not None:
             self._stream.close()
         self._stream = self._elf = self._image = self._symbols = None
-        self._dwarf = self._decoder = None
+        self._dwarf = self._decoder = self._constant_propagation = None
 
     def __enter__(self):
         return self

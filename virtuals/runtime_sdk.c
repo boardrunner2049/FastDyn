@@ -16,7 +16,16 @@ extern const VirtualPlugin __start_virtual_plugins[];
 extern const VirtualPlugin __stop_virtual_plugins[];
 
 #define VIRTUAL_RUNTIME_MAX_PLUGINS 64
+#define VIRTUAL_RUNTIME_MAX_POST_DEVICE_INIT 64
 static VirtualContext runtime_contexts[VIRTUAL_RUNTIME_MAX_PLUGINS];
+static bool fragment_registration_failed;
+typedef struct {
+    const VirtualContext *context;
+    VirtualPostDeviceInitCallback callback;
+} PostDeviceInitEntry;
+static PostDeviceInitEntry post_device_init[VIRTUAL_RUNTIME_MAX_POST_DEVICE_INIT];
+static size_t post_device_init_count;
+static bool post_device_init_ran;
 
 static int valid_relative_path(const char *relative) {
     return relative && relative[0] && relative[0] != '/'
@@ -48,6 +57,37 @@ void virtual_register_exit(const VirtualContext *ctx,
     if (callback) {
         core_register_exit_hook(callback);
     }
+}
+
+int virtual_register_post_device_init(const VirtualContext *ctx,
+                                      VirtualPostDeviceInitCallback callback) {
+    if (!ctx || !callback || post_device_init_ran ||
+        post_device_init_count == VIRTUAL_RUNTIME_MAX_POST_DEVICE_INIT) {
+        return -1;
+    }
+    post_device_init[post_device_init_count++] = (PostDeviceInitEntry) {
+        .context = ctx,
+        .callback = callback,
+    };
+    return 0;
+}
+
+int virtual_run_post_device_init(void) {
+    size_t index;
+    int failures = 0;
+    if (post_device_init_ran) {
+        return 0;
+    }
+    post_device_init_ran = true;
+    for (index = 0; index < post_device_init_count; index++) {
+        PostDeviceInitEntry *entry = &post_device_init[index];
+        if (entry->callback(entry->context) < 0) {
+            virtual_log(entry->context, VIRTUAL_LOG_ERROR,
+                        "post-device initialization failed");
+            failures++;
+        }
+    }
+    return failures ? -1 : 0;
 }
 
 void virtual_log(const VirtualContext *ctx, VirtualLogLevel level,
@@ -188,6 +228,10 @@ void virtual_register_irq_hook(const VirtualContext *ctx,
 static VirtualMmioObserver mmio_observers[VIRTUAL_MAX_MMIO_OBSERVERS];
 int virtual_mmio_observer_count;
 
+bool virtual_mmio_observers_active(void) {
+    return virtual_mmio_observer_count != 0;
+}
+
 int virtual_register_mmio_observer(const VirtualContext *ctx,
                                    VirtualMmioObserver observer) {
     if (!observer) {
@@ -226,6 +270,47 @@ bool virtual_register_update(const VirtualContext *ctx,
                                      uint64_t value) {
     (void)ctx;
     return core_register_register_update(address, reg, value);
+}
+
+bool virtual_insert_before(const VirtualContext *ctx, uint64_t guest_pc,
+                           const uint8_t *code, size_t code_size,
+                           const FastDynCodeSpec *code_spec,
+                           uint64_t *out_hook_id) {
+    bool ok;
+
+    if (out_hook_id) {
+        *out_hook_id = 0;
+    }
+    ok = core_register_instruction_fragment(guest_pc, code, code_size,
+                                            code_spec, out_hook_id);
+    if (!ok) {
+        fragment_registration_failed = true;
+        virtual_log(ctx, VIRTUAL_LOG_ERROR,
+                    "guest instruction fragment registration failed at 0x%llx",
+                    (unsigned long long)guest_pc);
+    }
+    return ok;
+}
+
+bool virtual_register_mmio_replacement(
+    const VirtualContext *ctx, const FastDynMmioReplacement *replacement,
+    uint64_t *out_hook_id) {
+    FastDynMmioReplacement guarded;
+    if (!replacement) return false;
+    guarded = *replacement;
+    guarded.disabled = &virtual_mmio_observer_count;
+    bool ok = qemu_plugin_register_fastdyn_mmio_replacement(&guarded,
+                                                             out_hook_id);
+    if (!ok) {
+        virtual_log(ctx, VIRTUAL_LOG_ERROR,
+                    "guarded MMIO replacement registration failed at 0x%llx",
+                    (unsigned long long)(replacement ? replacement->guest_pc : 0));
+    }
+    return ok;
+}
+
+bool virtual_fragment_registration_failed(void) {
+    return fragment_registration_failed;
 }
 
 bool virtual_register_gated_modifier(const VirtualContext *ctx,

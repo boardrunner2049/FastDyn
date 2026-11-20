@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential pkg-config cmake ninja-build flex bison git ca-certificates \
         curl wget lsb-release gnupg \
         python3 python3-venv python3-pip \
+        clang-18 llvm-18 binutils-arm-none-eabi \
         libglib2.0-dev libcjson-dev libpixman-1-dev libfdt-dev \
         libstlink-dev libusb-1.0-0-dev \
         rapidjson-dev libopencv-dev nlohmann-json3-dev \
@@ -48,11 +49,21 @@ RUN python3 -m venv "$VIRTUAL_ENV" \
     && pip install --no-cache-dir -e src
 
 # The patched QEMU FastDyn runs in (FastDyn's patch applied to the pinned submodule)
-RUN cd third_party/common/qemu && P=../../../patches/qemu-fastdyn-plugin-icount.patch \
-    && { patch -p1 -R -s -f --dry-run < $P >/dev/null || patch -p1 < $P; } \
+RUN cd third_party/common/qemu \
+    && FEATURE=../../../patches/qemu-fastdyn-translation-overhead.patch \
+    && if patch -p1 -R -s -f --dry-run < "$FEATURE" >/dev/null; then :; \
+       else for P in ../../../patches/qemu-fastdyn-plugin-icount.patch \
+                     ../../../patches/qemu-fastdyn-insn-fragments.patch \
+                     ../../../patches/qemu-fastdyn-mmio.patch \
+                     ../../../patches/qemu-fastdyn-mmio-pc.patch \
+                     ../../../patches/qemu-fastdyn-constant-pc.patch \
+                     "$FEATURE"; do \
+           if patch -p1 -R -s -f --dry-run < "$P" >/dev/null; then :; \
+           else patch -p1 --dry-run < "$P" && patch -p1 < "$P" || exit 1; fi; \
+       done; fi \
     && mkdir build && cd build \
-    && ../configure --target-list=arm-softmmu --enable-plugins \
-    && make -j"$(nproc)" qemu-system-arm
+    && ../configure --target-list=arm-softmmu,aarch64-softmmu,x86_64-softmmu,riscv32-softmmu,riscv64-softmmu --enable-plugins \
+    && make -j"$(nproc)" qemu-system-arm qemu-system-aarch64 qemu-system-x86_64 qemu-system-riscv32 qemu-system-riscv64
 
 # libhw, and the Gazebo/Courbet parts the flight-controller backend links
 RUN make -C third_party/common/libhw \
