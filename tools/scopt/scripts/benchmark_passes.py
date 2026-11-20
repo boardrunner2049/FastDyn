@@ -12,10 +12,10 @@ import shutil
 import statistics
 import subprocess
 import sys
-import tomllib
 
 from scopt.formats.sc_v5 import sha256_sparse
 from scopt.formats.sc_v6 import read_sc6
+from scopt.manager import HOST_INLINE_ALIASES, load_pipeline
 from scopt.run.benchmark_memory import benchmark_ram_override
 
 
@@ -101,16 +101,15 @@ def main():
         package_digest.update(str(source.relative_to(frozen)).encode() + b"\0" + source.read_bytes())
     pipeline = out / "pipeline.toml"
     shutil.copyfile(args.pipeline.resolve(), pipeline)
-    names = [p["name"] for p in tomllib.loads(pipeline.read_text())["pass"]]
+    names = [p.name for p in load_pipeline(pipeline).passes]
     if len(names) != len(set(names)):
         parser.error("a prefix benchmark requires distinct pass names")
     sequence = [(f"after-{name}", names[:i + 1]) for i, name in enumerate(names)]
     if not args.prefix_only:
         sequence.extend((f"without-{name}", [p for p in names if p != name]) for name in names)
-    if args.post_splice and "host-inline-splice" in names:
+    native_names = {"host-inline", *HOST_INLINE_ALIASES}
+    if args.post_splice and any(name in native_names for name in names):
         parser.error("--post-splice requires a downstream pipeline without the native prefix")
-    if args.post_splice and not args.prefix_only:
-        sequence.append(("without-host-inline-splice", names))
     qualified, rows = [], {}
     optimization_snapshot = m["snapshot"]
     first_baseline = "identity"
@@ -123,7 +122,17 @@ def main():
             imported, = (upstream / "reimport/snapshots").iterdir()
             optimization_snapshot = str(imported)
             source = load(upstream / "host-inline-splice.json")
-        first_baseline = "host-inline-splice"
+        # New ledgers use the configurable pass name. Keep the name measured
+        # by archived upstream runs when reproducing their ablations.
+        if source.get("passes"):
+            native, = source["passes"]
+            first_baseline = native["pass"]
+            if first_baseline not in native_names:
+                parser.error("the upstream native prefix must contain a host-inline pass")
+        else:
+            first_baseline = "host-inline-splice"
+        if not args.prefix_only:
+            sequence.append((f"without-{first_baseline}", names))
         d = out / first_baseline
         d.mkdir()
         save(d / "result.json", source)
@@ -141,7 +150,8 @@ def main():
         name, enabled = stage
         d = out / name
         d.mkdir()
-        stage_input = m["snapshot"] if name == "without-host-inline-splice" else optimization_snapshot
+        remove_prefix = args.post_splice and name == f"without-{first_baseline}"
+        stage_input = m["snapshot"] if remove_prefix else optimization_snapshot
         cmd = [sys.executable, str(HERE / "measure_command.py"), str(d / "offline.json"),
                "scopt", "optimize", stage_input, "--pipeline", str(pipeline),
                "--profile", m["profile"], "--store", str(d), "--runtime-identity",
@@ -211,12 +221,12 @@ def main():
     cache_hashes.update({name: rows[name]["sc_sha256"] for name in qualified})
     comparisons = {}
     if args.post_splice:
-        comparisons["incremental/host-inline-splice"] = comparison_effect(
+        comparisons[f"incremental/{first_baseline}"] = comparison_effect(
             samples, cache_hashes, "identity", first_baseline)
     full = "after-" + names[-1]
-    if "without-host-inline-splice" in qualified and full in qualified:
-        comparisons["ablation/host-inline-splice"] = comparison_effect(
-            samples, cache_hashes, "without-host-inline-splice", full)
+    if args.post_splice and f"without-{first_baseline}" in qualified and full in qualified:
+        comparisons[f"ablation/{first_baseline}"] = comparison_effect(
+            samples, cache_hashes, f"without-{first_baseline}", full)
     for i, name in enumerate(names):
         after = f"after-{name}"
         prev = first_baseline if i == 0 else "after-" + names[i - 1]
@@ -228,6 +238,7 @@ def main():
                 samples, cache_hashes, baseline, optimized)
     unqualified = [name for name, _ in sequence if name not in qualified]
     save(out / "pass-effects.json", {"pipeline": str(pipeline), "snapshot": m["snapshot"],
+                                     "prefix_pass": first_baseline if args.post_splice else None,
                                      "optimization_snapshot": optimization_snapshot,
                                      "optimizer_source_sha256": package_digest.hexdigest(),
                                      "effects": comparisons, "stages": rows,

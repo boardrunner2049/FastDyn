@@ -23,7 +23,8 @@ the pipeline and `--params` changes parameter values. Both respect the defaults.
 - **Workflow** (prepare → optimize → validate/publish → run → report, timing campaigns):
   `docs/workflow.md`
 - **Native whole-program optimization** combines certified helper splices, guarded cross-TB
-  specialization, state cleanup and LLVM layout. See [the runnable workflow and per-pass benchmarking guide](docs/native-program.md).
+  specialization, state cleanup and LLVM layout. Select inlining options on one pass, for example
+  `--pipeline host-inline=splice,faulting` or `--pipeline host-inline=extreme,2-level`. [Modes and benchmarking guide](docs/native-program.md#choosing-a-host-inline-mode).
 - **Pass-writer guide** with a runnable example: `docs/pass-writer.md`,
   `tests/unit/test_pass_writer_example.py`
 - **Design documents**: `docs/design/README.md` (B1/B2 design `docs/design/B1-design.md`

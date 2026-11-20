@@ -5,8 +5,12 @@ description = "Certified off-page predecessor facts and local scalar and same-va
 allowed_capabilities = ["INLINE_CALL", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE", "ANNOTATE", "PIN", "LAYOUT_ORDER"]
 
 [[pass]]
-name = "host-inline-splice"
+name = "host-inline"
 version = 1
+
+[pass.params]
+mode = "splice"
+allow_faulting = true
 
 [[pass]]
 name = "local-scalar-cleanup"

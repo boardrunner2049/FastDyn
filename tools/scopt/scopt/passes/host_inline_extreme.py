@@ -9,7 +9,7 @@ from ..analysis.native_callees import NativeCallBinding
 from ..decode.x86 import sweep, tiles
 from ..model.native import GUARDED_UDIV_KINDS, InlineCall
 from .base import Outcome, PassResult
-from .host_inline import HostInline, HostInlineSplice
+from .host_inline import _EXTREME_SCHEMA, HostInline, HostInlineSplice
 
 
 EXTREME_PASS = "host-inline-extreme"
@@ -31,8 +31,7 @@ class HostInlineExtreme(HostInlineSplice):
 
     descriptor = replace(
         HostInlineSplice.descriptor, name=EXTREME_PASS,
-        params_schema={**HostInlineSplice.descriptor.params_schema, "allow_partial": bool,
-                       "max_inline_depth": int, "compact_frame": bool},
+        params_schema={**HostInlineSplice.descriptor.params_schema, **_EXTREME_SCHEMA},
     )
     default_params = HostInline.default_params
     consider_cold = True
@@ -69,11 +68,11 @@ class HostInlineExtreme(HostInlineSplice):
             unit, request, code_address, max_depth=params.get("max_inline_depth", _DEFAULT_INLINE_DEPTH),
             **extra)
 
-    def run(self, view, ctx, edits) -> PassResult:
+    def run(self, view, ctx, edits, *, best_effort: bool = False) -> PassResult:
         depth_limit = ctx.params.get("max_inline_depth", _DEFAULT_INLINE_DEPTH)
         if type(depth_limit) is not int or depth_limit not in (1, 2):
             return PassResult(Outcome.FAILED, "invalid_params", "max_inline_depth must be 1 or 2")
-        partial = ctx.params.get("allow_partial", False)
+        partial = best_effort or ctx.params.get("allow_partial", False)
         # A damaged or derived capture cannot establish the original denominator
         # of the full-coverage claim this pipeline makes.
         if not partial and any(unit.meta_status != "ok" or unit.native_fragments
@@ -157,4 +156,4 @@ class HostInlineExtreme(HostInlineSplice):
         return replace(result, reason=reason, detail=json.dumps(detail, sort_keys=True), stats=stats)
 
 
-PASSES = (HostInlineExtreme,)
+PASSES = ()

@@ -110,6 +110,15 @@ DEFAULT_DISABLED_PASSES = frozenset({
     "specialize-returns", "chain-returns", "specialize-edges", "chain-static",
 })
 LEDGER_STAGE = "optimized"
+HOST_INLINE_ALIASES = {"host-inline-splice": "splice", "host-inline-extreme": "extreme"}
+
+
+def _inline_alias_matches(alias: str, params: Mapping[str, Any]) -> bool:
+    from .passes.host_inline import host_inline_mode
+
+    mode = host_inline_mode(params)
+    return HOST_INLINE_ALIASES.get(alias) == ("splice" if mode == "faulting" else mode)
+
 
 _GUARD_COSTS = ("c_lookup", "c_guard", "c_fail")
 _B3_PASS_COSTS = {
@@ -169,10 +178,24 @@ class PassRegistry:
         return cls
 
     def get(self, name: str, version: int) -> type:
+        if (name, version) not in self._by and name in HOST_INLINE_ALIASES and version == 1:
+            # Archived custom TOMLs can still address their original entry
+            # labels independently. Discovery only advertises host-inline.
+            from .passes.host_inline import HostInline, HostInlineSplice
+            from .passes.host_inline_extreme import HostInlineExtreme
+
+            if self._by.get(("host-inline", version)) is HostInline:
+                return HostInlineSplice if name == "host-inline-splice" else HostInlineExtreme
         return self._by[(name, version)]
 
     def versions(self, name: str) -> tuple[int, ...]:
-        return tuple(sorted(v for n, v in self._by if n == name))
+        versions = {v for n, v in self._by if n == name}
+        if name in HOST_INLINE_ALIASES and ("host-inline", 1) in self._by:
+            from .passes.host_inline import HostInline
+
+            if self._by[("host-inline", 1)] is HostInline:
+                versions.add(1)
+        return tuple(sorted(versions))
 
     def names(self) -> tuple[str, ...]:
         return tuple(sorted({n for n, _ in self._by}))
@@ -237,6 +260,34 @@ class Pipeline:
     def pipeline_id(self) -> str:
         return sha256_id(canonical_json(self.to_json()))
 
+    def resolve_pass_options(self, enable, disable, only, params):
+        """Translate old option keys when a pipeline uses the canonical pass entry."""
+        names = {e.name for e in self.passes}
+
+        def resolve(name):
+            if name in names or name not in HOST_INLINE_ALIASES:
+                return name
+            if any(e.name == "host-inline" and _inline_alias_matches(name, e.params)
+                   for e in self.passes):
+                return "host-inline"
+            return name
+
+        if params is not None and not isinstance(params, Mapping):
+            raise PipelineError("pass parameters must be an object keyed by pass name")
+        overrides = {}
+        for name, values in (params or {}).items():
+            if not isinstance(values, Mapping):
+                raise PipelineError(f"parameters for {name} must be an object")
+            merged = overrides.setdefault(resolve(name), {})
+            for key, value in values.items():
+                if key in merged and canonical_json(merged[key]) != canonical_json(value):
+                    raise PipelineError(f"conflicting overrides for {resolve(name)} parameter {key}")
+                merged[key] = value
+        native = overrides.get("host-inline", {})
+        if native.get("mode") == "faulting":
+            native.setdefault("allow_faulting", True)
+        return tuple(map(resolve, enable)), tuple(map(resolve, disable)), resolve(only), overrides
+
     def validate_pass_options(self, enable: Iterable[str], disable: Iterable[str], only: str | None) -> None:
         names = {entry.name for entry in self.passes}
         for option, values in (("--enable", enable), ("--disable", disable)):
@@ -300,22 +351,61 @@ def pipeline_from_mapping(doc: Mapping[str, Any], source: str | None = None) -> 
                     version=1, description=str(doc.get("description", "")), source=source)
 
 
-def load_pipeline(spec: "str | os.PathLike | Mapping[str, Any] | Pipeline") -> Pipeline:
-    """A Pipeline from a name, a TOML path or a mapping.
+def split_host_inline_selector(name: str | None, options: set[str]) -> str | None:
+    """Collect comma-separated options from a pipeline name or CLI pass selector."""
+    if name is None or not name.startswith("host-inline="):
+        return name
+    options.update(part.strip() for part in name.removeprefix("host-inline=").split(","))
+    return "host-inline"
 
-    A bare name (no suffix, no directory part, e.g. ``"identity"``) is always a
-    named pipeline: ``$SCOPT_PIPELINES_DIR/<name>.toml`` if that variable is set,
-    else :data:`PIPELINES_DIR` (``<repo>/pipelines``; the directory sits outside
-    the package, so a non-editable install must set ``SCOPT_PIPELINES_DIR``). A
-    file of the same name in the cwd is never picked up. Anything else is a path.
+
+def _with_inline_options(pl: Pipeline, options: set[str]) -> Pipeline:
+    from dataclasses import replace
+
+    if not options:
+        return pl
+    supported = {"island", "splice", "faulting", "extreme", "1-level", "2-level"}
+    unknown = options - supported
+    if unknown:
+        raise PipelineError(
+            f"unknown host-inline option {sorted(unknown)[0]!r}; choose from {', '.join(sorted(supported))}")
+    if not any(entry.name == "host-inline" for entry in pl.passes):
+        raise PipelineError(f"host-inline is not in pipeline {pl.name}")
+    if "island" in options and options - {"island", "1-level"}:
+        raise PipelineError("host-inline island cannot be combined with splice, faulting, extreme or 2-level")
+    depth = options & {"1-level", "2-level"}
+    if len(depth) > 1:
+        raise PipelineError("host-inline accepts one inline depth")
+    mode = "island" if "island" in options else "splice"
+    if "extreme" in options:
+        mode = "extreme"
+    args = {"mode": mode, "allow_faulting": "faulting" in options}
+    if depth:
+        args["max_inline_depth"] = 2 if "2-level" in depth else 1
+    entries = tuple(replace(entry, params=MappingProxyType({**entry.params, **args}))
+                    if entry.name == "host-inline" else entry for entry in pl.passes)
+    return replace(pl, passes=entries)
+
+
+def load_pipeline(spec: "str | os.PathLike | Mapping[str, Any] | Pipeline", *,
+                  inline_options: Iterable[str] = ()) -> Pipeline:
+    """A pipeline from a name, a TOML path, a mapping, or a host-inline selector.
+
+    A bare name (no suffix or directory) resolves inside the configured pipeline directory.
+    For example, ``host-inline=faulting,2-level`` selects fault-capable splicing with
+    a maximum depth of two. Only the ``extreme`` option requests full site coverage.
+    File paths containing an equals sign retain their literal meaning.
     """
+    options = set(inline_options)
     if isinstance(spec, Pipeline):
-        return spec
+        return _with_inline_options(spec, options)
     if isinstance(spec, Mapping):
-        return pipeline_from_mapping(spec)
+        return _with_inline_options(pipeline_from_mapping(spec), options)
     p = Path(spec)
-    if not p.suffix and len(p.parts) == 1:
-        p = pipelines_dir() / f"{p.name}.toml"
+    explicit_selector_path = p.name.startswith("host-inline=") and spec != p.name
+    if not p.suffix and len(p.parts) == 1 and not explicit_selector_path:
+        name = split_host_inline_selector(p.name, options)
+        p = pipelines_dir() / f"{name}.toml"
     try:
         with open(p, "rb") as f:
             doc = tomllib.load(f)
@@ -323,7 +413,7 @@ def load_pipeline(spec: "str | os.PathLike | Mapping[str, Any] | Pipeline") -> P
         raise PipelineError(f"pipeline {spec!s} not found (looked at {p})") from None
     except tomllib.TOMLDecodeError as exc:
         raise PipelineError(f"{p}: {exc}") from None
-    return pipeline_from_mapping(doc, source=str(p))
+    return _with_inline_options(pipeline_from_mapping(doc, source=str(p)), options)
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +589,9 @@ class Candidate:
         for p in self.passes:
             if p.name == name:
                 return p
+        if name in HOST_INLINE_ALIASES:
+            return next((p for p in self.passes if p.name == "host-inline"
+                         and _inline_alias_matches(name, p.params)), None)
         return None
 
 
@@ -567,7 +660,7 @@ class PassManager:
         self.initial = WorkingSet.initial(snapshot)
         self.pipeline = load_pipeline(pipeline)
         self.profiles = tuple(profiles)
-        self.params = {k: dict(v) for k, v in (params or {}).items()}
+        enable, disable, only, self.params = self.pipeline.resolve_pass_options(enable, disable, only, params)
         self.enabled = frozenset(enabled_capabilities) - B3_EDIT_KINDS
         self.b3env = b3
         if b3 is not None:

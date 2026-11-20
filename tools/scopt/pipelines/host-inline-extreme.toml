@@ -5,10 +5,12 @@ description = "Attempt fall-through inlining at every captured callsite and requ
 allowed_capabilities = ["INLINE_CALL"]
 
 [[pass]]
-name = "host-inline-extreme"
+name = "host-inline"
 version = 1
 
 [pass.params]
+mode = "extreme"
+allow_faulting = true
 max_callee_bytes = 1024
 static_max_callee_bytes = 1024
 max_sites = 4096

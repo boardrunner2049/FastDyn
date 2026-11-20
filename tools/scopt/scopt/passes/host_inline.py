@@ -7,8 +7,10 @@ import os
 import subprocess
 import time
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 from ..analysis.api import ScopeRef
 from ..analysis.native_callees import NATIVE_IMAGES, NativeCallBinding, prepare_native_images
@@ -46,7 +48,22 @@ _LIMITS = {
     "static_max_callee_bytes": 1024,
     "min_tb_entries": 1 << 64,
 }
+_COMMON_SCHEMA = {k: type(v) for k, v in _DEFAULTS.items()}
+_EXTREME_SCHEMA = {"allow_partial": bool, "max_inline_depth": int, "compact_frame": bool}
+_MODES = ("island", "splice", "faulting", "extreme")
 _BRIDGE_ENV = {"LC_ALL": "C", "PATH": "/usr/bin:/bin"}
+
+
+def host_inline_mode(params: Mapping[str, Any]) -> str:
+    """Resolve the native strategy from the same parameters used by the pass manager."""
+    mode = params.get("mode")
+    if "mode" in params and mode not in _MODES:
+        return "invalid"
+    if mode in (None, "splice") and params.get("allow_faulting"):
+        return "faulting"
+    if mode is None and params.get("max_inline_depth") == 2:
+        return "splice"
+    return mode or "island"
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +141,8 @@ class HostInline:
         capabilities=frozenset({EditKind.INLINE_CALL}),
         budgets=Budgets(max_wall_s=60, max_code_growth_bytes=65536),
         invalidates=frozenset({"code", "meta", "layout"}),
-        params_schema={k: type(v) for k, v in _DEFAULTS.items()},
+        params_schema={**_COMMON_SCHEMA, **_EXTREME_SCHEMA, "mode": str, "allow_faulting": bool,
+                       "udiv_mode": str},
     )
 
     def _accept_abi(self, typemask: int) -> bool:
@@ -153,6 +171,43 @@ class HostInline:
         return request
 
     def run(self, view, ctx, edits) -> PassResult:
+        params = ctx.params
+        mode = host_inline_mode(params)
+        if mode == "invalid":
+            return PassResult(Outcome.FAILED, "invalid_params", f"mode must be one of {', '.join(_MODES)}")
+        depth = params.get("max_inline_depth", 1)
+        if type(depth) is not int or depth not in (1, 2):
+            return PassResult(Outcome.FAILED, "invalid_params", "max_inline_depth must be 1 or 2")
+        faulting = params.get("allow_faulting", params.get("mode") == "faulting")
+        if params.get("mode") == "faulting" and not faulting:
+            return PassResult(Outcome.FAILED, "invalid_params", "faulting mode requires allow_faulting=true")
+        if mode == "island" and (faulting or depth != 1):
+            return PassResult(Outcome.FAILED, "invalid_params", "island mode requires nonfaulting, one-level inlining")
+        if mode != "extreme" and "allow_partial" in params:
+            return PassResult(Outcome.FAILED, "invalid_params", "allow_partial requires extreme mode")
+        if mode != "extreme" and depth != 2 and "compact_frame" in params:
+            return PassResult(Outcome.FAILED, "invalid_params", "compact_frame requires extreme mode or two-level splicing")
+        if "udiv_mode" in params and not faulting:
+            return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode requires faulting inlining")
+        if mode == "extreme" or depth == 2:
+            from .host_inline_extreme import HostInlineExtreme
+
+            engine = HostInlineExtreme(allow_faulting=faulting)
+            if mode != "extreme":
+                engine.consider_cold = HostInlineSplice.consider_cold
+                engine.default_params = HostInlineSplice.default_params
+                engine.max_sites_per_unit = HostInlineSplice.max_sites_per_unit
+                return engine.run(view, ctx, edits, best_effort=True)
+            # Extreme mode attempts all sites within the standalone extreme pipeline's limits.
+            engine.default_params = {**engine.default_params, **{
+                k: _LIMITS[k] for k in ("max_callee_bytes", "static_max_callee_bytes",
+                                        "max_sites", "max_growth_per_unit")}}
+            return engine.run(view, ctx, edits)
+        if mode != "island":
+            return HostInlineSplice(allow_faulting=faulting).run(view, ctx, edits)
+        return self._run_candidates(view, ctx, edits)
+
+    def _run_candidates(self, view, ctx, edits) -> PassResult:
         params = {**self.default_params, "max_sites_per_unit": self.default_sites_per_unit, **ctx.params}
         for key, limit in _LIMITS.items():
             minimum = 1 if key in ("max_cfg_insns", "max_wall_s") else 0
@@ -299,12 +354,7 @@ class HostInlineSplice(HostInline):
     """Replace a call with a verified fallthrough splice."""
 
     descriptor = replace(HostInline.descriptor, name="host-inline-splice",
-                         params_schema={**HostInline.descriptor.params_schema, "udiv_mode": str})
-
-    def run(self, view, ctx, edits) -> PassResult:
-        if ctx.params.get("udiv_mode", "auto") not in ("auto", "full", "cleanup", "guarded"):
-            return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode must be auto, full, cleanup or guarded")
-        return super().run(view, ctx, edits)
+                         params_schema={**_COMMON_SCHEMA, "udiv_mode": str})
     default_params = {**HostInline.default_params, "max_callee_bytes": 256,
                       "static_max_callee_bytes": 160}
     max_sites_per_unit = MAX_INTEGER_SPLICES
@@ -312,10 +362,20 @@ class HostInlineSplice(HostInline):
     success_reason = "native_calls_spliced"
     abi_contract = "requires an integer result and at most six integer register arguments"
 
+    def __init__(self, *, allow_faulting: bool = True) -> None:
+        self.allow_faulting = allow_faulting
+
+    def run(self, view, ctx, edits) -> PassResult:
+        if ctx.params.get("udiv_mode", "auto") not in ("auto", "full", "cleanup", "guarded"):
+            return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode must be auto, full, cleanup or guarded")
+        return self._run_candidates(view, ctx, edits)
+
     def _binding_refusal(self, binding: NativeCallBinding) -> tuple[str, str] | None:
         from ..validate_sym.native_udiv import is_udiv_binding
 
         if is_udiv_binding(binding):
+            if not self.allow_faulting:
+                return "faulting_disabled", "enable faulting inlining for exception-capable helpers"
             if not binding.call.guest_pcs:
                 return "unsupported_recovery", "UDIV has no captured guest origin"
             return None
@@ -377,4 +437,4 @@ class HostInlineSplice(HostInline):
         return place({**params, "udiv_mode": "cleanup"})
 
 
-PASSES = (HostInline, HostInlineSplice)
+PASSES = (HostInline,)

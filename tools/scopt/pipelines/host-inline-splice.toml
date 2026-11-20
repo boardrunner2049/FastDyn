@@ -5,5 +5,9 @@ description = "Inline verified native integer helpers, including exception-capab
 allowed_capabilities = ["INLINE_CALL"]
 
 [[pass]]
-name = "host-inline-splice"
+name = "host-inline"
 version = 1
+
+[pass.params]
+mode = "splice"
+allow_faulting = true

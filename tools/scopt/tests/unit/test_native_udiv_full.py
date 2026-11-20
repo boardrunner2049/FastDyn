@@ -216,7 +216,7 @@ def run_udiv_pass(tmp_path, monkeypatch):
     identity = sha256_id(b"size-limited UDIV")
     monkeypatch.setattr(host_inline, "prepare_native_images", lambda *a, **kw: AnalysisInput(identity, ()))
 
-    def run(unit, req, *, count=1, **params):
+    def run(unit, req, *, count=1, pipeline="host-inline-splice", **params):
         base = fake_snapshot(count)
         units = [replace(unit, uid=u.uid, slot=u.slot) for u in base.units()]
         snap = FakeSnapshot(units, base.snapshot_id, base.header, runtime={"supercache_flat": False})
@@ -238,8 +238,7 @@ def run_udiv_pass(tmp_path, monkeypatch):
             AnalysisSpec("envlayout", 1, "snapshot", (), frozenset(), lambda *_: {"bound": True}, dict),
             AnalysisSpec("native-callees", 1, "unit", (), frozenset({"external:native-images"}), resolve, tuple),
         ])
-        return PassManager(snap, "host-inline-splice", analyses=analyses,
-                           params={"host-inline-splice": params}).execute()
+        return PassManager(snap, pipeline, analyses=analyses, params={pipeline: params}).execute()
 
     return run
 
@@ -284,3 +283,25 @@ def test_auto_retries_smaller_udiv_when_a_short_branch_cannot_reach(run_udiv_pas
     # Missing original return-PC provenance must still refuse every form.
     bad = run_udiv_pass(replace(unit, recovery=()), req)
     assert not bad.edits and bad.passes[0].stats["sites:splice_origin"] == 1
+
+
+@pytest.mark.parametrize(("params", "eligible"), [
+    ({"mode": "splice"}, False),
+    ({"mode": "faulting"}, True),
+    ({"mode": "splice", "allow_faulting": True}, True),
+    ({"allow_faulting": True}, True),
+    ({"mode": "extreme", "allow_partial": True}, False),
+    ({"mode": "extreme", "allow_faulting": True}, True),
+    ({"mode": "faulting", "max_inline_depth": 2}, True),
+])
+def test_canonical_faulting_is_opt_in_for_ordinary_and_extreme_modes(run_udiv_pass, params, eligible):
+    unit, req, _ = _case()
+    result = run_udiv_pass(unit, req, pipeline="host-inline", **params)
+    record, = result.passes
+    assert record.name == "host-inline"
+    if eligible:
+        edit, = result.edits
+        assert edit.payload.splice.kind == FULL_UDIV_KIND
+    else:
+        assert not result.edits
+        assert record.stats["sites:faulting_disabled"] == 1

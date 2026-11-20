@@ -202,3 +202,44 @@ def test_guarded_udiv_never_satisfies_strict_retirement_and_applies_in_partial_m
     else:
         assert record.outcome is Outcome.FAILED and record.reason == "incomplete_inline_coverage"
         assert not candidate.edits and record.stats["emitted_growth_bytes"] == 0
+
+
+@pytest.mark.parametrize("params", [{"mode": "extreme"}, {"mode": "extreme", "max_inline_depth": 2}])
+def test_canonical_extreme_rejects_incomplete_or_disabled_publication(world, tmp_path, params):
+    snap, registry = world
+    for disable, reason in (((), "incomplete_inline_coverage"), (("host-inline",), "ablation_disabled")):
+        candidate = PassManager(snap, "host-inline", analyses=registry, disable=disable,
+                                params={"host-inline": params}).execute()
+        assert not candidate.edits
+        result = ValidateAndPackage(candidate, tmp_path).run()
+        assert not result.published and result.reason == reason
+
+
+@pytest.mark.parametrize("params", [
+    {"mode": "extreme", "max_inline_depth": 2, "allow_partial": True},
+    {"max_inline_depth": 2}, {"mode": "splice", "max_inline_depth": 2},
+    {"mode": "faulting", "max_inline_depth": 2},
+])
+def test_canonical_two_level_publishes_eligible_sites_despite_incomplete_coverage(world, params):
+    snap, registry = world
+    result = PassManager(snap, "host-inline", analyses=registry,
+                         params={"host-inline": params}).execute()
+    row, = result.passes
+    assert row.name == "host-inline" and row.reason == "native_inline_partial_coverage"
+    coverage = json.loads(row.detail)["coverage"]
+    assert coverage["frame_expansion_depth_limit"] == 2
+    assert coverage["mode"] == "partial" and not coverage["complete"]
+    assert all(edit.payload.splice is not None for edit in result.edits) and len(result.edits) == 2
+
+
+@pytest.mark.parametrize("params", [
+    {"mode": "wrong"}, {"mode": "island", "allow_faulting": True},
+    {"mode": "island", "max_inline_depth": 2}, {"mode": "faulting", "allow_faulting": False},
+    {"mode": "splice", "udiv_mode": "auto"}, {"allow_partial": True}, {"max_inline_depth": 3},
+])
+def test_invalid_canonical_combinations_do_not_publish_identity(world, tmp_path, params):
+    snap, registry = world
+    candidate = PassManager(snap, "host-inline", analyses=registry, params={"host-inline": params}).execute()
+    assert candidate.passes[0].reason == "invalid_params" and not candidate.edits
+    result = ValidateAndPackage(candidate, tmp_path).run()
+    assert not result.published and result.reason == "invalid_params"

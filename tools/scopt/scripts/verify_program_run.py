@@ -40,8 +40,8 @@ def main():
 
     programs = state / "pass-timings"
     passes = [p["name"] for p in tomllib.loads((programs / "pipeline.toml").read_text())["pass"]]
-    passes.insert(0, "host-inline-splice")
     effects = read(programs / "pass-effects.json")
+    passes.insert(0, effects.get("prefix_pass", "host-inline-splice"))
     expected_effects = {f"{kind}/{name}" for kind in ("incremental", "ablation") for name in passes}
     if (set(effects["effects"]) != expected_effects
             or any(s.get("v10_status") != 0 for s in effects["stages"].values())):

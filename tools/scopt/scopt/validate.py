@@ -1069,11 +1069,16 @@ class ValidateAndPackage:
         snap = c.working_set.base
         self._inspected(snap)
         from .passes.base import Outcome
+        from .passes.host_inline import host_inline_mode
         from .passes.host_inline_extreme import EXTREME_PASS
 
-        extreme = c.outcome(EXTREME_PASS)
-        if extreme is not None and extreme.outcome not in (Outcome.CANDIDATE, Outcome.NO_CHANGE):
-            return self._reject(extreme.reason)
+        for record in c.passes:
+            canonical = record.name == "host-inline"
+            if canonical and record.reason == "invalid_params":
+                return self._reject(record.reason)
+            extreme = record.name == EXTREME_PASS or canonical and host_inline_mode(record.params) == "extreme"
+            if extreme and record.outcome not in (Outcome.CANDIDATE, Outcome.NO_CHANGE):
+                return self._reject(record.reason)
         from .ordinary_exit import PASS as ORDINARY_EXIT
         from .manager import R
 

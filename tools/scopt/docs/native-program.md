@@ -2,7 +2,7 @@
 
 FastDyn's cache image remains the executable program. Captured instruction spans, recovery rows, patch provenance, helper bindings, translation keys, link slots and per-image environment layouts accompany that image. The initial target is Cortex-M3 Thumb firmware running under an x86-64 QEMU host binary. Profiles rank candidates. Variant admission uses a checked predecessor fact or a value guard on the physical incoming path.
 
-The native program runs `host-inline-splice` by default. Its `local-scalar-cleanup` and
+The native program runs the `host-inline` pass in faulting splice mode by default. Its `local-scalar-cleanup` and
 `specialize-edges` stages now require an explicit `--enable` for each pass. Archived
 benchmarks used the defaults of their recorded revisions. To reproduce their original
 pass sets, use those revisions or explicitly enable the stages they exercised.
@@ -45,7 +45,28 @@ scopt optimize "$snapshot" --pipeline native-program --store /tmp/scopt-native-s
   --profile "$w/profile/merged.profile.json" --params /tmp/state-composed/params.json --json
 ```
 
-For a single pass use `--only host-inline-splice`. For a full-pipeline ablation use, for example, `--disable region-state-forward`. The splice pass can admit two independent integer callsites in one TB with `max_sites_per_unit=2`. Translated helper frames and guest control-flow entry contracts have separate admission and validation rules.
+For the configured inliner alone use `--only host-inline`. For a full-pipeline ablation use, for example, `--disable region-state-forward`. The splice pass can admit two independent integer callsites in one TB with `max_sites_per_unit=2`. Translated helper frames and guest control-flow entry contracts have separate admission and validation rules.
+
+### Choosing a host-inline mode
+
+`host-inline` is one registered pass. A bare `--pipeline host-inline` keeps the original island behavior. Use a comma-separated list to select the code shape, fault handling, or depth:
+
+| Selector | Behavior |
+| --- | --- |
+| `host-inline=splice` | Copy supported nonfaulting integer helper bodies into the caller. |
+| `host-inline=faulting` or `host-inline=splice,faulting` | Also admit supported exception-capable helpers. On the audited ARM UDIV build this includes its precise exception path. |
+| `host-inline=extreme` | Attempt every captured call site at depth one and require full coverage. |
+| `host-inline=2-level` or `host-inline=splice,2-level` | Splice supported nested calls up to depth two and keep eligible edits. |
+| `host-inline=extreme,faulting,2-level` | Combine the depth-two coverage policy with exception-capable inlining. |
+
+For example, run these on an imported snapshot and its training profile:
+
+```sh
+scopt optimize "$snapshot" --pipeline host-inline=splice,faulting --profile "$profile" --store "$store"
+scopt optimize "$snapshot" --pipeline native-program --only host-inline=splice --store "$store"
+```
+
+TOML pipeline entries and `--params` files accept the same settings on the canonical pass. For example, a parameter file containing `{"host-inline":{"mode":"extreme","allow_faulting":true,"max_inline_depth":2,"allow_partial":true}}` requests two levels and publishes the verified subset. Depth controls how far a supported nested call expands. Add `extreme` to request full coverage of the captured call sites. Existing invocations of `host-inline-splice` and `host-inline-extreme` retain their historical settings, including exception-capable inlining. New built-in pipeline receipts use the pass name `host-inline` and record the selected parameters.
 
 ### Native helper splice coverage
 
@@ -62,9 +83,9 @@ After splicing, the optimizer follows the caller's native control flow to test w
 | `cleanup` | Original helper call for zero | Applied when the caller proof succeeds |
 | `guarded` | Original helper call for zero | Disabled |
 
-Pass parameters can be supplied through `--params`. For example, use `{"host-inline-splice": {"udiv_mode": "full"}}` to measure the complete body with its register clears. In `auto`, the optimizer can try the smaller guarded form if the full form exceeds the remaining growth budget or cannot fit the caller’s encoding. The native pass produces its eligible candidates before any warm-cache timing selector is run. The selector compares an already published candidate against ordinary warm.
+Pass parameters can be supplied through `--params`. For example, use `{"host-inline": {"mode": "faulting", "udiv_mode": "full"}}` to measure the complete body with its register clears. In `auto`, the optimizer can try the smaller guarded form if the full form exceeds the remaining growth budget or cannot fit the caller’s encoding. The native pass produces its eligible candidates before any warm-cache timing selector is run. The selector compares an already published candidate against ordinary warm.
 
-`scopt host-calls SNAPSHOT --coverage --artifact ARTIFACT` reports guarded sites in `guarded_inline_sites`. A full splice counts as a verified retirement of the outer helper and lists the nested exception call under `certified_exception_calls`. The `host-inline-extreme` pipeline separately checks complete coverage of its original site set. Use `allow_partial=true` to keep successful edits when other sites cannot yet be inlined. The dispatch helper `helper_lookup_tb_ptr` performs CPU-state updates and nested calls that require their own lowering and validation.
+`scopt host-calls SNAPSHOT --coverage --artifact ARTIFACT` reports guarded sites in `guarded_inline_sites`. A full splice counts as a verified retirement of the outer helper and lists the nested exception call under `certified_exception_calls`. The `host-inline=extreme` mode separately checks complete coverage of its original site set. Use `allow_partial=true` to keep successful edits when other sites cannot yet be inlined. The dispatch helper `helper_lookup_tb_ptr` performs CPU-state updates and nested calls that require their own lowering and validation.
 
 For the x86 TCG differential checker add `--selftest /path/to/current-hostsym-qemu.json` to both commands after generating the witness with `python tools/scopt/scripts/hostsym_qemu_oracle.py --out /path/to/current-hostsym-qemu.json`. Changing the proof kernel invalidates the witness. With `--fixture global-transitive`, the modified writer A, preserving B, and consumer C occupy different TBs. A guarded B-to-C private entry checks the assumed value before the optimized successor uses it. Its evaluation parameters set `min_pass_share` to 0.45 and `max_code_growth_bytes` to 65536 under `specialize-edges`.
 

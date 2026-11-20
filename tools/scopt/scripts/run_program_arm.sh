@@ -34,10 +34,10 @@ extra=()
 pipeline=$arm
 case $arm in
   compact-frame|frame)
-    pipeline=host-inline-extreme
+    pipeline=host-inline
     clean=false
     if [[ $arm == compact-frame ]]; then clean=true; fi
-    printf '{"host-inline-extreme":{"allow_partial":true,"max_inline_depth":2,"compact_frame":%s}}\n' "$clean" >"$D/params.json"
+    printf '{"host-inline":{"mode":"extreme","allow_partial":true,"max_inline_depth":2,"compact_frame":%s}}\n' "$clean" >"$D/params.json"
     extra+=(--params "$D/params.json");;
   b3|b4) extra+=(--b3 --runtime-identity "$W/runtime-identity.v2.json" --elf "$W/guest.elf" --prep "$W/prep");;
 esac

@@ -27,15 +27,12 @@ def _open_snapshot(spec: str, store: str | None):
     return open_snapshot(p)
 
 
-def _splice_generation(snap, entry, store, views, params):
+def _splice_generation(snap, stage, store, views, params):
     """Produce and fully reimport the certified native generation consumed by B3."""
-    from dataclasses import replace
-
     from ..importer.import_cache import ImportRejected, import_snapshot, open_snapshot
-    from ..manager import PipelineError, load_pipeline
+    from ..manager import PipelineError
     from ..validate import optimize
 
-    stage = replace(load_pipeline("host-inline-splice"), passes=(entry,))
     intermediate = Path(store) / "native-generations"
     res = optimize(snap, stage, intermediate, profiles=views, params=params)
     doc = res.to_json()
@@ -69,6 +66,15 @@ def _profiles(paths, snap):
     return views, notes
 
 
+def _inline_pipeline(pipeline, enable, only):
+    from ..manager import load_pipeline, split_host_inline_selector
+
+    options = set()
+    enable = tuple(split_host_inline_selector(name, options) for name in enable)
+    only = split_host_inline_selector(only, options)
+    return load_pipeline(pipeline, inline_options=options), enable, only
+
+
 def _select_output(doc, original_snapshot, cases_path, out, timing=None):
     if cases_path is None:
         if original_snapshot is not None:
@@ -90,14 +96,17 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @click.command("optimize")
 @click.argument("snapshot")
 @click.option("--pipeline", "pipeline", required=True,
-              help="Pipeline name (identity, b2-layout) or a pipeline TOML file.")
+              help="Pipeline name or TOML file. Combine host-inline options, e.g. host-inline=faulting,2-level. "
+                   "2-level sets recursion depth. Add extreme to require full site coverage.")
 @click.option("--store", required=True, type=click.Path(file_okay=False),
               help="Store: artifacts/ and rejections/ are written here.")
 @click.option("--profile", "profiles", multiple=True, type=click.Path(exists=True),
               help="Profile v1 file (profile.json); repeatable.")
 @click.option("--disable", multiple=True, help="Ablation: skip this pass (repeatable).")
-@click.option("--enable", multiple=True, help="Opt a named pipeline pass back in (repeatable).")
-@click.option("--only", default=None, help="Restrict execution to one pass. Disabled passes still need --enable.")
+@click.option("--enable", multiple=True,
+              help="Opt a pipeline pass back in (repeatable). Accepts host-inline=<options>.")
+@click.option("--only", default=None,
+              help="Restrict execution to one pass. Accepts host-inline=<options>. Disabled passes still need --enable.")
 @click.option("--params", "params_file", type=click.Path(exists=True, dir_okay=False),
               help='JSON file {"<pass>": {<param>: <value>}} overlaid on the pipeline params.')
 @click.option("--b3", "b3_mode", is_flag=True,
@@ -139,38 +148,47 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
     original_snapshot = Path(getattr(snap, "path", snapshot)).resolve()
     views, notes = _profiles(profiles, snap)
     params = json.loads(Path(params_file).read_text()) if params_file else None
-    from ..manager import load_pipeline
     from ..passes.base import B3_EDIT_KINDS, NATIVE_EDIT_KINDS, EditKind
 
     try:
-        pl = load_pipeline(pipeline)
+        pl, enable, only = _inline_pipeline(pipeline, enable, only)
+        enable, disable, only, params = pl.resolve_pass_options(enable, disable, only, params)
         pl.validate_pass_options(enable, disable, only)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
     native_stage = None
-    if (pl.passes and pl.passes[0].name == "host-inline-splice"
+    from ..manager import HOST_INLINE_ALIASES
+    native_names = {"host-inline", *HOST_INLINE_ALIASES}
+    if (pl.passes and pl.passes[0].name in native_names
             and pl.allowed_capabilities & B3_EDIT_KINDS):
         from dataclasses import replace
+        from ..passes.host_inline import host_inline_mode
 
         splice, *rest = pl.passes
-        if not rest or any(p.name == splice.name for p in rest):
+        if not rest or any(p.name in native_names for p in rest):
             raise click.UsageError("one native prefix followed by B3 passes is required")
         stage_params = {splice.name: params[splice.name]} if params and splice.name in params else {}
+        standalone = replace(pl, name=splice.name, passes=(splice,),
+                             allowed_capabilities=pl.allowed_capabilities & {EditKind.INLINE_CALL})
         if only == splice.name:
-            pl = replace(load_pipeline("host-inline-splice"), passes=(splice,))
+            pl = standalone
             params, b3_mode = stage_params, False
             disable = tuple(name for name in disable if name == splice.name)
             enable = tuple(name for name in enable if name == splice.name)
         else:
             if only is None and splice.name not in disable:
+                if (splice.name == "host-inline" and
+                        host_inline_mode({**splice.params, **stage_params.get(splice.name, {})}) == "island"):
+                    raise click.UsageError("native_combination_unsupported: host-inline island mode "
+                                           "requires a standalone pipeline; choose a splice mode for B3")
                 try:
-                    snap, native_stage = _splice_generation(snap, splice, store, views, stage_params)
+                    snap, native_stage = _splice_generation(snap, standalone, store, views, stage_params)
                 except PipelineError as exc:
                     raise click.UsageError(str(exc)) from exc
                 views, stage_notes = _profiles(profiles, snap)
                 notes.extend(stage_notes)
             pl = replace(pl, passes=tuple(rest),
-                         allowed_capabilities=pl.allowed_capabilities - NATIVE_EDIT_KINDS)
+                         allowed_capabilities=pl.allowed_capabilities - {EditKind.INLINE_CALL})
             disable = tuple(name for name in disable if name != splice.name)
             enable = tuple(name for name in enable if name != splice.name)
             params = {k: v for k, v in (params or {}).items() if k != splice.name}
