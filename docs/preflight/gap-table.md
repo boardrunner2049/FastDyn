@@ -4,7 +4,7 @@ Updated 20 November 2026. `unsupported` means a capability is outside the
 selected implementation/model; it is not a failed proof or semantic
 counterexample.
 
-The latest aggregate gate is v177: 68/68 production and architectural profiles
+The latest aggregate gate is v178: 68/68 production and architectural profiles
 pass. It accepts all twelve Cortex-M CPUs implemented by the pinned LLVM target,
 binds execution features to the selected CPU, treats ELF attributes as evidence
 rather than authorization, and either retains an incompatible region or rejects
@@ -49,9 +49,13 @@ header, unifies canonical identities, removes only replaced legacy sections
 and their ARM relocation tables, and rejects duplicate physical
 representations. All 14 producer cases resolve their required units and retain
 nonempty payloads.
-The full BOLT suite remains a diagnostic with 23 recorded failures in the
-mixed-version test environment, so v177 is not a global parity
-claim.
+The v178 build adds pinned Clang/Clang++ and removes stale external compiler
+overrides. Twenty-two of the former 23 global failures were mixed-toolchain
+artifacts. The remaining failure identified an ARM-only call-graph filter that
+had leaked into X86 shrink wrapping; target-scoping it restores the mature X86
+contract. The complete 1,132-test BOLT gate now has zero unexpected failures.
+This is a clean global regression oracle, not a claim that every Cortex-M
+feature or optimization below has reached X86 parity.
 The long
 backend row retains older v58/v107 checkpoint details for
 auditability; the dedicated function-ordering and function-splitting rows
@@ -169,6 +173,14 @@ below carry the newer mechanisms and claim boundaries.
 | GABI zlib debug rewriting | Implemented with a required build dependency | The Clang Cortex-M3 DWARF5 reference and candidate each resolve one CU and verify cleanly. The candidate's 131-byte `.debug_info` remains `SHF_COMPRESSED`; all emitted payload sections are nonempty. `LLVM_ENABLE_ZLIB=FORCE_ON` is now part of the reproducible build. | Qualify additional producers, zlib versions and corrupted-stream classes. zstd remains explicitly unsupported by this build. |
 | Legacy GNU `.zdebug_*` rewriting | Implemented through canonicalized publication for rebuilt sections | The pre-fix run returned success and `No errors` while resolving zero CUs, retaining stale `.zdebug_*` data and emitting zero-sized canonical replacements. The fixed candidate resolves one CU, emits a nonempty 172-byte canonical `.debug_info`, removes every replaced legacy payload and detached ARM `SHT_REL` table, and verifies cleanly. Invalid magic and standard+legacy duplicate identities reject before output. | Compressed DWO/DWP contributions, arbitrary producer extensions and alternate compression formats remain unqualified. An immutable `.zdebug_str` may remain when BOLT does not rebuild its contents; that is preserved payload, not a stale replaced section. |
 | Verifier acceptance oracle | Strengthened against vacuous success | The matrix now counts resolved `DW_TAG_compile_unit` records, inventories exact section sizes/forms, and requires nonempty output in addition to verifier return codes and error classes. | Add comparable non-vacuity oracles for type units, macro sections and accelerator tables before qualifying those forms. |
+
+## v178 toolchain and cross-target-isolation gaps
+
+| Area | Classification | Evidence | Remaining boundary |
+| --- | --- | --- | --- |
+| Pinned regression toolchain | Implemented and required | Enabling the pinned Clang/Clang++ project and clearing cached external compiler/linker overrides reduces the full-suite failure count from 23 to one before any behavior repair. The removed failures name concrete unsupported system-Clang syntax, missing `clang-18++` and producer-version differences. | Keep compiler, linker, BOLT and tests at one revision. The 150 skipped and 34 unsupported cases remain explicit rather than being counted as passes. |
+| Cross-target FOP isolation | Repaired and globally verified | The ARM opaque-region `buildCallGraph` predicate changed X86 conditional-tail-call shrink wrapping. Applying it only on ARM restores the expected load/store spill placement. The focused regression passes and the full 1,132-test suite reports 947 passed, one expected failure and zero failed. | Require this clean suite for future milestones; target-specific policy must not enter shared pass behavior without an explicit target guard. |
+| Cortex-M production non-regression | Accepted | The independent 68/68 gate retains 130,186 exact origins and the real M4 candidate completes 10,000 fixed work units with exact repeated RAM state. | Continue the declared layout, state-model and optimization backlog; global non-regression is necessary but not Cortex-M feature parity. |
 
 ## Enforced stop conditions
 

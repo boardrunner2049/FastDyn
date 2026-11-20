@@ -11243,7 +11243,7 @@ index b5a50417285ba5d7116e7cb218ed625477bbfbad..f18048183179810db782c4f493ad9b42
  }
  
 diff --git a/bolt/lib/Passes/FrameOptimizer.cpp b/bolt/lib/Passes/FrameOptimizer.cpp
-index 344c6a234e0c406ff211c4cf612a47438f032f62..034bac6fadab2f590b574b1531110e126a96c27b 100644
+index 344c6a234e0c406ff211c4cf612a47438f032f62..09c54daa0cbeea4c6afb01c66915874da3263f09 100644
 --- a/bolt/lib/Passes/FrameOptimizer.cpp
 +++ b/bolt/lib/Passes/FrameOptimizer.cpp
 @@ -11,6 +11,7 @@
@@ -11468,22 +11468,28 @@ index 344c6a234e0c406ff211c4cf612a47438f032f62..034bac6fadab2f590b574b1531110e12
  
    std::unique_ptr<BinaryFunctionCallGraph> CG;
    std::unique_ptr<FrameAnalysis> FA;
-@@ -235,7 +363,13 @@ Error FrameOptimizerPass::runOnFunctions(BinaryContext &BC) {
+@@ -235,7 +363,19 @@ Error FrameOptimizerPass::runOnFunctions(BinaryContext &BC) {
    {
      NamedRegionTimer T1("callgraph", "create call graph", "FOP",
                          "FOP breakdown", opts::TimeOpts);
 -    CG = std::make_unique<BinaryFunctionCallGraph>(buildCallGraph(BC));
-+    CG = std::make_unique<BinaryFunctionCallGraph>(buildCallGraph(
-+        BC, [](const BinaryFunction &BF) {
-+          // Opaque target regions are retained in place and cannot be safely
-+          // re-encoded merely to estimate a call-graph node size. Calls into
-+          // them remain conservative unknown-clobber boundaries.
-+          return !BF.isSimple() || !BF.hasCFG();
-+        }));
++    if (BC.isARM()) {
++      CG = std::make_unique<BinaryFunctionCallGraph>(buildCallGraph(
++          BC, [](const BinaryFunction &BF) {
++            // Opaque target regions are retained in place and cannot be
++            // safely re-encoded merely to estimate a call-graph node size.
++            // Calls into them remain conservative unknown-clobber boundaries.
++            return !BF.isSimple() || !BF.hasCFG();
++          }));
++    } else {
++      // Preserve the mature X86 call-graph contract exactly. In particular,
++      // shrink wrapping uses non-CFG tail-call exits while placing restores.
++      CG = std::make_unique<BinaryFunctionCallGraph>(buildCallGraph(BC));
++    }
    }
  
    {
-@@ -285,7 +419,7 @@ Error FrameOptimizerPass::runOnFunctions(BinaryContext &BC) {
+@@ -285,7 +425,7 @@ Error FrameOptimizerPass::runOnFunctions(BinaryContext &BC) {
        continue;
    }
  
@@ -11492,7 +11498,7 @@ index 344c6a234e0c406ff211c4cf612a47438f032f62..034bac6fadab2f590b574b1531110e12
      NamedRegionTimer T1("shrinkwrapping", "shrink wrapping", "FOP",
                          "FOP breakdown", opts::TimeOpts);
      if (Error E = performShrinkWrapping(*RA, *FA, BC))
-@@ -305,6 +439,19 @@ Error FrameOptimizerPass::runOnFunctions(BinaryContext &BC) {
+@@ -305,6 +445,19 @@ Error FrameOptimizerPass::runOnFunctions(BinaryContext &BC) {
    BC.outs() << "BOLT-INFO: FOP deleted " << NumLoadsDeleted
              << " load(s) (dyn count: " << FreqLoadsDeleted << ") and "
              << NumRedundantStores << " store(s)\n";

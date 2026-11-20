@@ -2290,6 +2290,35 @@ and [producer matrix](../../build/preflight/firmbolt-cortex-m-v177-dwarf-produce
 This qualifies linked zlib-compressed DWARF for the named fixture, not zstd,
 compressed DWO/DWP contributions, every compressor, or complete x86 parity.
 
+v178 removes the mixed-toolchain ambiguity from the global regression gate and
+repairs the one genuine cross-target regression it exposed. The reproducible
+build now includes the pinned Clang/Clang++ from the same
+`7864c0736a8a09670dfbfc513f1e9649799f2486` source tree as BOLT and LLD, and
+explicitly clears stale `BOLT_CLANG_EXE`/`BOLT_LLD_EXE` cache overrides. Under
+that toolchain, 22 of v177's 23 failures disappear. They were caused by system
+Clang 18 lacking the pinned tests' newer AArch64 compare-and-branch, CREL and
+pointer-authentication syntax, an absent `clang-18++`, and other producer/tool
+version mismatches; they were not FirmBOLT backend failures.
+
+The remaining failure was real. FirmBOLT's Cortex-M FOP integration passed its
+opaque-region exclusion predicate to `buildCallGraph()` on every target. That
+changed the mature X86 shrink-wrapping graph and made
+`X86/shrinkwrapping-ctc.s` use a push/pop restore instead of the required
+load/store restore before a conditional tail-call exit. The predicate is now
+strictly ARM/Thumb-only; X86 calls the original graph builder. The focused test
+and the complete suite then pass: 1,132 tests discovered, 947 passed, one
+expected failure, 150 skipped, 34 unsupported and zero failed.
+
+The independent Cortex-M production gate remains 68/68, with 1,963 functions,
+130,186 exact instruction origins, 98,761 origins in 1,142 modified functions
+and 57,618 potentially faulting origins. The real M4 image completes 10,000
+FastDyn units and matches both reference RAM states. Evidence is in the
+[v178 validation manifest](evidence/firmbolt-cortex-m-v178-validation.json),
+[production report](../../build/preflight/firm-bolt-cortex-m-v178-pinned-toolchain-r1/production/report.json)
+and [global regression XML](../../build/preflight/firm-bolt-cortex-m-v178-pinned-toolchain-r1/regressions/full-bolt-lit-final.xml).
+This makes the pinned global suite a clean regression oracle; it does not erase
+the declared Cortex-M layout, architectural-state or optimization gaps below.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

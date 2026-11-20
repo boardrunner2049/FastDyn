@@ -1863,9 +1863,30 @@ failures. This qualifies the named linked zlib cases, not zstd, compressed
 DWO/DWP, arbitrary producer extensions, speedup, or complete x86-backend
 parity.
 
+v178 resolves that 23-failure diagnostic rather than carrying it forward as an
+unexplained baseline. The build now supplies pinned Clang and Clang++ from the
+same source revision as BOLT and LLD and clears cached external tool paths.
+Twenty-two failures disappear without a backend behavior change: the system
+Clang 18 setup lacked newer AArch64 compare-and-branch, CREL and pointer-auth
+syntax, lacked `clang-18++`, and produced several version-dependent assembly
+and split-DWARF differences. Those were environment findings, not evidence of
+FirmBOLT regressions.
+
+The single surviving test exposed a real isolation defect. The opaque-function
+filter introduced for Cortex-M frame optimization had been passed to BOLT's
+call-graph builder for X86 too. It changed conditional-tail-call shrink
+wrapping from the upstream load/store restore path to push/pop. Applying the
+filter only for ARM/Thumb restores the exact X86 graph contract. The focused
+test passes and the complete 1,132-test suite reports 947 passes, one expected
+failure, 150 skips, 34 unsupported and zero failures. The separate Cortex-M
+gate still passes 68/68 and the M4 candidate completes 10,000 fixed work units
+with exact RAM state. This is strong cross-target non-regression evidence; it
+does not mean the remaining Cortex-M-specific layout, exception-state and
+advanced-instruction optimization gaps are complete.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `ef72a4477cbd9fbbfb4257b83c943b9802a45bea93b9a9b2814127a0987de971`; it reverse-applies exactly to the pinned revision across all 183 overlay files. The exact tested BOLT, producer, compression and DWARF-tool hashes are bound by the v177 manifest. Regression runs complete 98/98 ARM BOLT lit tests, 13/13 AArch32 JITLink lit tests, six passed plus one unsupported shared-DWARF controls, all 76 JITLink unit tests, and 132 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 88/150, Passes 5/0 and Profile 39/0). The [v177 validation manifest](evidence/firmbolt-cortex-m-v177-validation.json) binds the 14-case producer matrix, compressed-DWARF preservation, 68-profile production run, real M4 execution, full-suite diagnostic and clean-apply result. Historical [v176](evidence/firmbolt-cortex-m-v176-validation.json), [v175](evidence/firmbolt-cortex-m-v175-validation.json), [v174](evidence/firmbolt-cortex-m-v174-validation.json), [v173](evidence/firmbolt-cortex-m-v173-validation.json), [v172](evidence/firmbolt-cortex-m-v172-validation.json), [v171](evidence/firmbolt-cortex-m-v171-validation.json), and [v170](evidence/firmbolt-cortex-m-v170-validation.json) manifests remain unchanged as prior packaged/standalone split-DWARF, debug-width, TARGET2 GOT-relative, fixed-GOT-family, GOT_PREL and TARGET2 policy evidence.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `ea4fca331d64cfc60300ae5bffcf18ff6efcfe5ac4a1078155d83a4471d2bdb8`; it reverse-applies exactly to the pinned revision across all 183 overlay files. The exact tested BOLT, Clang, LLD and regression hashes are bound by the [v178 validation manifest](evidence/firmbolt-cortex-m-v178-validation.json). Its global run discovers 1,132 tests with zero unexpected failures, and the separate 68-profile Cortex-M/FastDyn gate remains accepted. Historical [v177](evidence/firmbolt-cortex-m-v177-validation.json), [v176](evidence/firmbolt-cortex-m-v176-validation.json), [v175](evidence/firmbolt-cortex-m-v175-validation.json), [v174](evidence/firmbolt-cortex-m-v174-validation.json), [v173](evidence/firmbolt-cortex-m-v173-validation.json), [v172](evidence/firmbolt-cortex-m-v172-validation.json), [v171](evidence/firmbolt-cortex-m-v171-validation.json), and [v170](evidence/firmbolt-cortex-m-v170-validation.json) manifests remain unchanged as prior compressed, packaged/standalone split-DWARF, debug-width, TARGET2 GOT-relative, fixed-GOT-family, GOT_PREL and TARGET2 policy evidence.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 
