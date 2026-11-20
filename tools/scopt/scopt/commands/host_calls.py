@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict
 from pathlib import Path
 
@@ -19,6 +19,8 @@ from ..formats.enums import OpMarkKind, SiteKind
 from ..formats.profile_v1 import ProfileView, read_profile
 from ..importer.import_cache import open_snapshot
 from ..importer.join import ImportRejected
+from ..splice_layout import SpliceGroupOffsets, splice_offsets
+from ..validate_sym.native_inline import NativeInlineError
 
 _CALL_SITES = (SiteKind.HELPER_CALL, SiteKind.LDST_HELPER_CALL)
 
@@ -185,11 +187,14 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
     after, new_retired, current_uninspected = current
     details, blockers, counts = [], Counter(), Counter()
     matched_live, matched_retired = set(), set()
-    # Splice certificates retain original coordinates. The linked capture uses
-    # shifted coordinates after the continuation, with at most one splice per TB.
-    shifts = {key[0]: (row["fragment"].continuation_off, row["fragment"].growth)
-              for key, row in new_retired.items()
-              if key not in old_retired and row["fragment"].splice is not None}
+    # Apply the linker's original-to-physical map once per TB. Sites already
+    # present in the baseline have already shifted its live call coordinates.
+    spans = defaultdict(list)
+    for key, row in new_retired.items():
+        fragment = row["fragment"]
+        if key not in old_retired and fragment.splice is not None:
+            spans[key[0]].append(splice_offsets(fragment))
+    offsets = {uid: SpliceGroupOffsets(tuple(items)) for uid, items in spans.items()}
     known_weight, retired_weight, unknown_weight, nonexact_weight = 0, 0, 0, 0
     for key, row in sorted((before | old_retired).items()):
         if row["annotation"] == "verified_nested_call":
@@ -211,11 +216,16 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
                 matched_retired.add(key)
                 current_row, status = proof, "retired_verified"
         if status is None:
-            off = row["host_off"]
-            shift = shifts.get(key[0])
-            if shift is not None and off >= shift[0]:
-                off += shift[1]
-            current_key = key[0], off
+            uid, off = key
+            current_key = key
+            remap = offsets.get(uid)
+            if remap is not None:
+                try:
+                    current_key = None if remap.contains(off) else (uid, remap(off))
+                except NativeInlineError:
+                    # An opmark inside a widened instruction has no live call
+                    # coordinate. Leave its disappearance unverified.
+                    current_key = None
             current_row = after.get(current_key)
             if current_row is not None:
                 matched_live.add(current_key)

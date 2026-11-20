@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from scopt.commands.host_calls import _coverage
+from scopt.model.native import NativeBranchRelaxation, NativeSplice
 
 
 def call(off, *, symbol="helper_test", encoding="pool_indirect", bound=True, weight=25,
@@ -20,10 +21,12 @@ def call(off, *, symbol="helper_test", encoding="pool_indirect", bound=True, wei
     }
 
 
-def retired(off, *, growth=72, certificate="cert"):
+def retired(off, *, growth=72, certificate="cert", branches=()):
     row = call(off, annotation="native_fragment")
+    splice = NativeSplice(start_off=off - 3, prefix=b"\x8b\x7d\x00",
+                          code=b"\x90" * (9 + growth), branches=branches)
     row.update(certificate=certificate, decoded_call_bytes=None, block="native_splice",
-               fragment=SimpleNamespace(splice=True, growth=growth, continuation_off=off + 6,
+               fragment=SimpleNamespace(splice=splice, continuation_off=off + 6,
                                         call_bytes=bytes.fromhex("ff15a0000000"),
                                         helper_id=7, target_abs=0x1000, guest_pcs=(8,),
                                         symbol="helper_test"))
@@ -40,6 +43,33 @@ def test_coverage_verifies_archived_replacement_and_remaps_surviving_offsets():
     assert report["sites"][1]["current"]["host_off"] == 132
     assert report["tb_entry_weighted_proxy"]["retired_fraction_of_known_weight"] == 0.8
     assert not report["strict_coverage_complete"]
+
+
+def test_coverage_accounts_for_both_splices_in_original_coordinates():
+    uid = "tb:test"
+    original = {(uid, off): call(off) for off in (0, 10, 25, 40, 70)}
+    # A surviving call between the replacements moves once, even when its new
+    # offset is past the second splice's original coordinate.
+    live = {(uid, off): call(off) for off in (0, 97, 166)}
+    splices = {(uid, 40): retired(40, growth=24), (uid, 10): retired(10)}
+    report = _coverage((original, {}, []), (live, splices, []),
+                       artifact_checked=True, native_checked=True)
+    assert report["retired_verified_sites"] == 2
+    assert report["unmatched_current_calls"] == []
+    survivors = [r["current"]["host_off"] for r in report["sites"] if r["status"] == "surviving_call"]
+    assert survivors == [0, 97, 166]
+
+
+def test_coverage_accounts_for_widening_at_the_original_branch():
+    uid = "tb:test"
+    original = {(uid, off): call(off) for off in (10, 25, 60)}
+    live = {(uid, off): call(off) for off in (97, 140)}
+    widened = NativeBranchRelaxation(source_off=40, source_bytes=b"\xeb\xec")
+    splices = {(uid, 10): retired(10, branches=(widened,))}
+    report = _coverage((original, {}, []), (live, splices, []),
+                       artifact_checked=True, native_checked=True)
+    assert [r["status"] for r in report["sites"]] == ["retired_verified", "surviving_call", "surviving_call"]
+    assert report["unmatched_current_calls"] == []
 
 
 def test_coverage_never_counts_devirtualized_calls():
