@@ -1676,9 +1676,40 @@ including invocations that do not request a report, and rejects the mismatch.
 This is fixed-static firmware integration evidence, not dynamic GOT support or
 a runtime-performance result.
 
+v172 extends the same explicit firmware graph to the remaining static GOT
+family: `R_ARM_BASE_PREL`, `R_ARM_GOT_BREL`, and `R_ARM_GOTOFF32`. This is not
+implemented as three unrelated integer relocations. The AArch32 graph carries
+distinct request edges for `GOT_ORG+A-P`, `G(S)+A-GOT_ORG`, and
+`S+A-GOT_ORG`; the FirmBOLT binder accepts them only after proving one exact,
+file-backed, non-executable `.got` origin, an exact symbol identity, no
+interpreter or dynamic owner, and a fixed non-executable target. Hosted GOT
+allocation and executable `GOTOFF32` targets remain unsupported rather than
+being approximated.
+
+The frozen Cortex-M3 fixture moves `got_family_worker`
+`0x08000128→0x08000100` and its owned literal pool
+`0x08000140→0x08000118`. The output rebuilds all three live `SHT_REL` records
+at `0x08000118/1c/20`; the encoded fields are `0x17ffffe8`, `0`, and `0x100`
+and resolve against `.got=0x20000100` and `value=0x20000200`. Exact `$d/$t`
+transitions and twelve instruction identities follow the move. Both images
+execute in FastDyn and write `[84]`. Default policy and a changed-observable-
+pool-address arm both reject atomically with no output.
+
+The complete production gate is 66/66 profiles: 1,957 functions, 1,141
+modified functions, 130,162 final instruction origins, 98,755 origins in
+modified functions, and 57,610 potentially faulting origins. Regression gates
+pass 95 ARM BOLT lit, 13 AArch32 JITLink lit, all 76 JITLink units, 88 Core
+units with 150 explicit target skips, 5 Pass and 39 Profile units. The
+mechanical patch is
+`5b16b1ffb1b404ec8478e5ba246c0d5337e1b063fc5c364e2d31e37098966d21`
+across 170 pinned-overlay files. The
+[v172 manifest](evidence/firmbolt-cortex-m-v172-validation.json) binds the
+commands, artifacts, negative controls, FastDyn result and test XML. This is a
+relocation/reference-model result, not a performance or x86-parity claim.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `3297667d3ab29dd125436d493012d76acf4bb93b0f04e3612ed04d57c284f86b`; it reverse-applies exactly to the pinned revision across all 169 overlay files. The exact tested BOLT and pinned LLD hashes are bound by the v171 manifest. Regression runs complete 94/94 ARM BOLT lit tests, 13/13 AArch32 JITLink lit tests, all 76 JITLink unit tests including the 19 focused AArch32 cases, and 132 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 88/150, Passes 5/0 and Profile 39/0). The [v171 validation manifest](evidence/firmbolt-cortex-m-v171-validation.json) binds the fixed-static GOT graph, both atomic negative controls, architectural execution, the 65-profile production run, regression XML and clean-apply result. Historical [v170](evidence/firmbolt-cortex-m-v170-validation.json) and [v169](evidence/firmbolt-cortex-m-v169-validation.json) manifests remain unchanged as TARGET2 and full-width static-base evidence.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `5b16b1ffb1b404ec8478e5ba246c0d5337e1b063fc5c364e2d31e37098966d21`; it reverse-applies exactly to the pinned revision across all 170 overlay files. The exact tested BOLT and pinned LLD hashes are bound by the v172 manifest. Regression runs complete 95/95 ARM BOLT lit tests, 13/13 AArch32 JITLink lit tests, all 76 JITLink unit tests including the 19 focused AArch32 cases, and 132 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 88/150, Passes 5/0 and Profile 39/0). The [v172 validation manifest](evidence/firmbolt-cortex-m-v172-validation.json) binds the complete fixed-static GOT family, atomic negative controls, architectural execution, the 66-profile production run, regression XML and clean-apply result. Historical [v171](evidence/firmbolt-cortex-m-v171-validation.json), [v170](evidence/firmbolt-cortex-m-v170-validation.json), and [v169](evidence/firmbolt-cortex-m-v169-validation.json) manifests remain unchanged as GOT_PREL, TARGET2 and full-width static-base evidence.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

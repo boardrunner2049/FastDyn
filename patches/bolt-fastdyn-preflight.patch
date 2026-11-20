@@ -85,7 +85,7 @@ index 0000000000000000000000000000000000000000..d22f9f60e8e38d09bd653fab5ea93a2f
 +
 +#endif
 diff --git a/bolt/include/bolt/Core/BinaryContext.h b/bolt/include/bolt/Core/BinaryContext.h
-index e35d6caad3a280e53dc457f3620a86f27a32f1f1..08d8d1fe14c71e492ea40befd81a5ed1794a1e49 100644
+index e35d6caad3a280e53dc457f3620a86f27a32f1f1..7f4e4cf68eaf0bd0ac002869014146bd8135d39f 100644
 --- a/bolt/include/bolt/Core/BinaryContext.h
 +++ b/bolt/include/bolt/Core/BinaryContext.h
 @@ -98,10 +98,13 @@ inline raw_ostream &operator<<(raw_ostream &OS, const SegmentInfo &SegInfo) {
@@ -103,7 +103,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..08d8d1fe14c71e492ea40befd81a5ed1
    DATA,
  };
  
-@@ -189,6 +192,18 @@ struct JournalingStreams {
+@@ -189,6 +192,19 @@ struct JournalingStreams {
  Error createNonFatalBOLTError(const Twine &S);
  Error createFatalBOLTError(const Twine &S);
  
@@ -117,12 +117,13 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..08d8d1fe14c71e492ea40befd81a5ed1
 +struct ARMFixedGOTEntry {
 +  uint64_t SlotAddress{0};
 +  uint64_t TargetAddress{0};
++  uint64_t BaseAddress{0};
 +};
 +
  class BinaryContext {
    BinaryContext() = delete;
  
-@@ -248,6 +263,18 @@ class BinaryContext {
+@@ -248,6 +264,25 @@ class BinaryContext {
    /// Locations of PC-relative relocations in data objects.
    std::unordered_set<uint64_t> DataPCRelocations;
  
@@ -138,10 +139,17 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..08d8d1fe14c71e492ea40befd81a5ed1
 +  /// scratch-object relocations back to an existing firmware slot.
 +  StringMap<ARMFixedGOTEntry> ARMFixedGOTEntries;
 +
++  /// One exact retained GOT origin plus every target admitted by the same
++  /// fixed-static firmware graph.  GOTOFF and BASE_PREL do not necessarily
++  /// name a GOT slot, but their scratch-link expressions still depend on this
++  /// origin and the immutable target identity.
++  std::optional<uint64_t> ARMFixedGOTBaseAddress;
++  StringMap<uint64_t> ARMFixedGOTTargetAddresses;
++
    /// Used in duplicateJumpTable() to uniquely identify a JT clone
    /// Start our IDs with a high number so getJumpTableContainingAddress checks
    /// with size won't overflow
-@@ -295,10 +322,46 @@ class BinaryContext {
+@@ -295,10 +330,79 @@ class BinaryContext {
    std::mutex DWPUnitsMutex;
  
  public:
@@ -163,13 +171,46 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..08d8d1fe14c71e492ea40befd81a5ed1
 +    return It->second;
 +  }
 +
++  bool recordARMFixedGOTBase(uint64_t BaseAddress) {
++    if (ARMFixedGOTBaseAddress &&
++        *ARMFixedGOTBaseAddress != BaseAddress)
++      return false;
++    ARMFixedGOTBaseAddress = BaseAddress;
++    return true;
++  }
++
++  std::optional<uint64_t> getARMFixedGOTBase() const {
++    return ARMFixedGOTBaseAddress;
++  }
++
++  bool recordARMFixedGOTTarget(StringRef TargetName,
++                               uint64_t TargetAddress) {
++    auto [It, Inserted] =
++        ARMFixedGOTTargetAddresses.try_emplace(TargetName, TargetAddress);
++    return Inserted || It->second == TargetAddress;
++  }
++
++  std::optional<uint64_t>
++  getARMFixedGOTTarget(StringRef TargetName) const {
++    const auto It = ARMFixedGOTTargetAddresses.find(TargetName);
++    if (It == ARMFixedGOTTargetAddresses.end())
++      return std::nullopt;
++    return It->second;
++  }
++
 +  bool recordARMFixedGOTEntry(StringRef TargetName, uint64_t SlotAddress,
-+                              uint64_t TargetAddress) {
++                              uint64_t TargetAddress,
++                              uint64_t BaseAddress) {
++    if (!recordARMFixedGOTBase(BaseAddress) ||
++        !recordARMFixedGOTTarget(TargetName, TargetAddress))
++      return false;
 +    auto [It, Inserted] = ARMFixedGOTEntries.try_emplace(
-+        TargetName, ARMFixedGOTEntry{SlotAddress, TargetAddress});
++        TargetName,
++        ARMFixedGOTEntry{SlotAddress, TargetAddress, BaseAddress});
 +    return Inserted ||
 +           (It->second.SlotAddress == SlotAddress &&
-+            It->second.TargetAddress == TargetAddress);
++            It->second.TargetAddress == TargetAddress &&
++            It->second.BaseAddress == BaseAddress);
 +  }
 +
 +  std::optional<ARMFixedGOTEntry>
@@ -189,7 +230,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..08d8d1fe14c71e492ea40befd81a5ed1
  
    /// Returns the mutex guarding concurrent access to DWP units.
    std::mutex &getUnitsMutex() { return DWPUnitsMutex; }
-@@ -517,6 +580,12 @@ public:
+@@ -517,6 +621,12 @@ public:
  
    /// Return size of an entry for the given jump table \p Type.
    uint64_t getJumpTableEntrySize(JumpTable::JumpTableType Type) const {
@@ -202,7 +243,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..08d8d1fe14c71e492ea40befd81a5ed1
      return Type == JumpTable::JTT_PIC ? 4 : AsmInfo->getCodePointerSize();
    }
  
-@@ -781,6 +850,18 @@ public:
+@@ -781,6 +891,18 @@ public:
    /// Indicates if relocations are available for usage.
    bool HasRelocations{false};
  
@@ -221,7 +262,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..08d8d1fe14c71e492ea40befd81a5ed1
    /// Indicates if the binary is stripped
    bool IsStripped{false};
  
-@@ -1006,6 +1087,11 @@ public:
+@@ -1006,6 +1128,11 @@ public:
      return TheTriple->getArch() == llvm::Triple::aarch64;
    }
  
@@ -13498,7 +13539,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..e4b527098e0bd5284cab5548443f5c9e
        std::make_unique<RetpolineInsertion>(PrintRetpolineInsertion));
  
 diff --git a/bolt/lib/Rewrite/JITLinkLinker.cpp b/bolt/lib/Rewrite/JITLinkLinker.cpp
-index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..ea45147d973c93899e638a2e93d81d7bd6b3e69e 100644
+index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..f8d280aacd29606d21066fa7769d08a75efd3a5a 100644
 --- a/bolt/lib/Rewrite/JITLinkLinker.cpp
 +++ b/bolt/lib/Rewrite/JITLinkLinker.cpp
 @@ -12,6 +12,7 @@
@@ -13509,44 +13550,81 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..ea45147d973c93899e638a2e93d81d7b
  #include "llvm/ExecutionEngine/Orc/Shared/ExecutorAddress.h"
  #include "llvm/ExecutionEngine/Orc/Shared/ExecutorSymbolDef.h"
  #include "llvm/Support/Debug.h"
-@@ -54,6 +55,46 @@ Error markSectionsLive(jitlink::LinkGraph &G) {
+@@ -54,6 +55,83 @@ Error markSectionsLive(jitlink::LinkGraph &G) {
    return jitlink::markAllSymbolsLive(G);
  }
  
-+/// Bind AArch32 GOT requests back to exact slots in a fixed firmware image.
++/// Bind AArch32 GOT requests back to the exact graph in a fixed firmware image.
 +/// BOLT disables JITLink's ordinary target passes because they allocate new
 +/// sections and stubs outside BOLT's layout model. Running the generic
 +/// AArch32 GOTBuilder here would therefore synthesize a fresh $__GOT section,
 +/// which is invalid for a fixed Cortex-M memory map. Every admitted edge must
-+/// instead have an exact slot recorded while the input relocation graph was
-+/// analyzed.
++/// instead have an exact origin, slot and/or target recorded while the input
++/// relocation graph was analyzed.
 +Error bindFixedARMGOTEdges(jitlink::LinkGraph &G, const BinaryContext &BC) {
++  const std::optional<uint64_t> BaseAddress = BC.getARMFixedGOTBase();
 +  uint64_t EdgeIndex = 0;
 +  for (jitlink::Block *Block : G.blocks()) {
 +    for (jitlink::Edge &Edge : Block->edges()) {
-+      if (Edge.getKind() !=
-+          jitlink::aarch32::Data_RequestGOTAndTransformToDelta32)
++      const jitlink::Edge::Kind Kind = Edge.getKind();
++      const bool IsGOTPrel =
++          Kind == jitlink::aarch32::Data_RequestGOTAndTransformToDelta32;
++      const bool IsGOTBrel =
++          Kind == jitlink::aarch32::
++                      Data_RequestGOTAndTransformToDelta32FromGOT;
++      const bool IsGOTOFF =
++          Kind == jitlink::aarch32::
++                      Data_RequestGOTOFFAndTransformToDelta32FromGOT;
++      const bool IsBasePrel =
++          Kind == jitlink::aarch32::Data_RequestGOTBaseAndTransformToDelta32;
++      if (!IsGOTPrel && !IsGOTBrel && !IsGOTOFF && !IsBasePrel)
 +        continue;
++      if (!BaseAddress)
++        return make_error<jitlink::JITLinkError>(
++            "fixed AArch32 GOT edge has no retained GOT origin");
 +      jitlink::Symbol &Target = Edge.getTarget();
 +      if (!Target.hasName())
 +        return make_error<jitlink::JITLinkError>(
 +            "fixed AArch32 GOT edge has no retained target identity");
 +      const StringRef TargetName = *Target.getName();
-+      const std::optional<ARMFixedGOTEntry> Entry =
-+          BC.getARMFixedGOTEntry(TargetName);
-+      if (!Entry)
-+        return make_error<jitlink::JITLinkError>(
-+            "no exact retained firmware GOT slot for " + TargetName.str());
++
++      uint64_t BoundValue = 0;
++      jitlink::Edge::Kind BoundKind = jitlink::aarch32::Data_Pointer32;
++      if (IsGOTPrel || IsGOTBrel) {
++        const std::optional<ARMFixedGOTEntry> Entry =
++            BC.getARMFixedGOTEntry(TargetName);
++        if (!Entry || Entry->BaseAddress != *BaseAddress)
++          return make_error<jitlink::JITLinkError>(
++              "no exact retained firmware GOT slot for " + TargetName.str());
++        BoundValue = IsGOTPrel
++                         ? Entry->SlotAddress
++                         : uint32_t(Entry->SlotAddress - *BaseAddress);
++        BoundKind = IsGOTPrel ? jitlink::aarch32::Data_Delta32
++                              : jitlink::aarch32::Data_Pointer32;
++      } else if (IsGOTOFF) {
++        const std::optional<uint64_t> TargetAddress =
++            BC.getARMFixedGOTTarget(TargetName);
++        if (!TargetAddress)
++          return make_error<jitlink::JITLinkError>(
++              "no exact fixed firmware target for " + TargetName.str());
++        BoundValue = uint32_t(*TargetAddress - *BaseAddress);
++      } else {
++        if (TargetName != "_GLOBAL_OFFSET_TABLE_")
++          return make_error<jitlink::JITLinkError>(
++              "R_ARM_BASE_PREL does not name _GLOBAL_OFFSET_TABLE_");
++        BoundValue = *BaseAddress;
++        BoundKind = jitlink::aarch32::Data_Delta32;
++      }
 +
 +      const std::string SlotName =
 +          formatv("$__firmbolt_fixed_got.{0}.{1:x}.{2}", TargetName,
-+                  Entry->SlotAddress, EdgeIndex++)
++                  BoundValue, EdgeIndex++)
 +              .str();
 +      jitlink::Symbol &Slot = G.addAbsoluteSymbol(
-+          SlotName, orc::ExecutorAddr(Entry->SlotAddress),
++          SlotName, orc::ExecutorAddr(BoundValue),
 +          sizeof(uint32_t), jitlink::Linkage::Strong, jitlink::Scope::Local,
 +          /*IsLive=*/true);
-+      Edge.setKind(jitlink::aarch32::Data_Delta32);
++      Edge.setKind(BoundKind);
 +      Edge.setTarget(Slot);
 +    }
 +  }
@@ -13556,7 +13634,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..ea45147d973c93899e638a2e93d81d7b
  void reassignSectionAddress(jitlink::LinkGraph &LG,
                              const BinarySection &BinSection, uint64_t Address) {
    auto *JLSection = LG.findSectionByName(BinSection.getSectionID());
-@@ -95,7 +136,26 @@ struct JITLinkLinker::Context : jitlink::JITLinkContext {
+@@ -95,7 +173,26 @@ struct JITLinkLinker::Context : jitlink::JITLinkContext {
  
    Error modifyPassConfig(jitlink::LinkGraph &G,
                           jitlink::PassConfiguration &Config) override {
@@ -13583,7 +13661,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..ea45147d973c93899e638a2e93d81d7b
      Config.PostAllocationPasses.push_back([this](auto &G) {
        MapSections([&G](const BinarySection &Section, uint64_t Address) {
          reassignSectionAddress(G, Section, Address);
-@@ -137,6 +197,7 @@ struct JITLinkLinker::Context : jitlink::JITLinkContext {
+@@ -137,6 +234,7 @@ struct JITLinkLinker::Context : jitlink::JITLinkContext {
          uint64_t Address = I->isMoved() && !I->isJumpTable()
                                 ? I->getOutputAddress()
                                 : I->getAddress();
@@ -13591,7 +13669,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..ea45147d973c93899e638a2e93d81d7b
          LLVM_DEBUG(dbgs() << "Resolved to address 0x"
                            << Twine::utohexstr(Address) << "\n");
          AllResults[Symbol.first] = orc::ExecutorSymbolDef(
-@@ -197,9 +258,13 @@ void JITLinkLinker::loadObject(MemoryBufferRef Obj,
+@@ -197,9 +295,13 @@ void JITLinkLinker::loadObject(MemoryBufferRef Obj,
      exit(1);
    }
  
@@ -13608,7 +13686,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..ea45147d973c93899e638a2e93d81d7b
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b110a75b5 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..d3f50c668f970cb65c36877455340d1151318618 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -8,6 +8,7 @@
@@ -14005,7 +14083,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  
    if (BC->IsLinuxKernel && BC->HasRelocations) {
      BC->outs() << "BOLT-INFO: disabling relocation mode for Linux kernel\n";
-@@ -2644,11 +2801,138 @@ Error RewriteInstance::readSpecialSections() {
+@@ -2644,11 +2801,144 @@ Error RewriteInstance::readSpecialSections() {
    return readELFDynamic();
  }
  
@@ -14034,13 +14112,19 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
 +        continue;
 +      SmallString<32> TypeName;
 +      Rel.getTypeName(TypeName);
-+      if (Type == ELF::R_ARM_GOT_PREL && !RH.isSupported(Type))
++      const bool IsARMGOTFamily =
++          Type == ELF::R_ARM_BASE_PREL ||
++          Type == ELF::R_ARM_GOT_BREL ||
++          Type == ELF::R_ARM_GOT_PREL ||
++          Type == ELF::R_ARM_GOTOFF32;
++      if (IsARMGOTFamily && !RH.isSupported(Type))
 +        return createStringError(
 +            errc::not_supported,
-+            "R_ARM_GOT_PREL at 0x%" PRIx64 " in %s (from %s) requires an "
++            "%s at 0x%" PRIx64 " in %s (from %s) requires an "
 +            "exact retained firmware GOT graph; qualify it with "
 +            "--firmbolt-arm-got=fixed-static",
-+            Rel.getOffset(), RelocatedSectionName.str().c_str(),
++            TypeName.c_str(), Rel.getOffset(),
++            RelocatedSectionName.str().c_str(),
 +            RelocationSectionName.str().c_str());
 +      if (Type == ELF::R_ARM_TARGET2 && !RH.isSupported(Type))
 +        return createStringError(
@@ -14144,7 +14228,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    // RV32 support is currently limited to statically linked, non-PIE
    // programs. Reject anything that requires features still out of scope
    // (PLT, GOT, dynamic relocations, TLS, instrumentation runtime).
-@@ -2680,7 +2964,7 @@ void RewriteInstance::adjustCommandLineOptions() {
+@@ -2680,7 +2970,7 @@ void RewriteInstance::adjustCommandLineOptions() {
      opts::SplitEH = false;
    }
  
@@ -14153,7 +14237,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
        opts::SplitStrategy == opts::SplitFunctionsStrategy::CDSplit) {
      BC->errs() << "BOLT-ERROR: CDSplit is not supported with LongJmp. Try with "
                    "'--compact-code-model'\n";
-@@ -2864,6 +3148,23 @@ int64_t getRelocationAddend(const ELFObjectFileBase *Obj,
+@@ -2864,6 +3154,23 @@ int64_t getRelocationAddend(const ELFObjectFileBase *Obj,
    return getRelocationAddend(cast<ELF64LEObjectFile>(Obj), Rel);
  }
  
@@ -14177,7 +14261,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  template <typename ELFT>
  uint32_t getRelocationSymbol(const ELFObjectFile<ELFT> *Obj,
                               const RelocationRef &RelRef) {
-@@ -2892,6 +3193,254 @@ uint32_t getRelocationSymbol(const ELFObjectFileBase *Obj,
+@@ -2892,6 +3199,298 @@ uint32_t getRelocationSymbol(const ELFObjectFileBase *Obj,
      return getRelocationSymbol(ELF32LE, Rel);
    return getRelocationSymbol(cast<ELF64LEObjectFile>(Obj), Rel);
  }
@@ -14212,32 +14296,44 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
 +  return Segment.Address;
 +}
 +
-+/// Resolve one existing firmware GOT entry for R_ARM_GOT_PREL. This is not a
-+/// heuristic GOT reconstruction: the admitted model is a static, fixed-load
-+/// image with one file-backed .got word whose linked value is the exact ELF
-+/// target identity. Dynamic-loader slots and duplicate matches remain
-+/// unsupported because they do not provide one stable dependency to rebind.
-+static Expected<ARMFixedGOTEntry>
-+resolveARMFixedGOTEntry(const ELFObjectFileBase &Obj, BinaryContext &BC,
-+                        StringRef TargetName, uint64_t TargetAddress) {
++struct ARMFixedGOTGraph {
++  uint64_t BaseAddress{0};
++  StringRef Contents;
++  endianness Endian{endianness::little};
++};
++
++/// Resolve the one complete GOT range admitted by the fixed-static firmware
++/// policy.  This is deliberately stricter than recognizing a section name:
++/// the image must have fixed load addresses, the complete table must be
++/// file-backed in a non-executable segment, and no slot may be owned by the
++/// dynamic loader.
++static Expected<ARMFixedGOTGraph>
++resolveARMFixedGOTGraph(const ELFObjectFileBase &Obj, BinaryContext &BC,
++                        StringRef RelocationName) {
 +  if (!BC.IsStaticExecutable || !BC.HasFixedLoadAddress || BC.HasInterpHeader)
 +    return createStringError(
 +        errc::not_supported,
-+        "R_ARM_GOT_PREL target %s requires a static fixed-load image without "
++        "%s requires a static fixed-load image without "
 +        "an interpreter",
-+        TargetName.str().c_str());
++        RelocationName.str().c_str());
 +
-+  std::optional<uint64_t> Match;
++  std::optional<ARMFixedGOTGraph> Graph;
 +  for (const SectionRef &Section : Obj.sections()) {
 +    if (cantFail(Section.getName()) != ".got")
 +      continue;
++    if (Graph)
++      return createStringError(
++          errc::not_supported,
++          "%s has multiple .got sections without one declared firmware "
++          "origin",
++          RelocationName.str().c_str());
 +    BinarySection BSection(BC, Section);
 +    if (!BSection.isAllocatable() || BSection.isText())
 +      return createStringError(
 +          errc::not_supported,
-+          "R_ARM_GOT_PREL target %s has a .got section without fixed "
++          "%s has a .got section without fixed "
 +          "allocatable non-executable storage",
-+          TargetName.str().c_str());
++          RelocationName.str().c_str());
 +    Expected<StringRef> ContentsOrErr = Section.getContents();
 +    if (!ContentsOrErr)
 +      return ContentsOrErr.takeError();
@@ -14245,48 +14341,80 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
 +        ContentsOrErr->size() % sizeof(uint32_t))
 +      return createStringError(
 +          errc::executable_format_error,
-+          "R_ARM_GOT_PREL target %s has a non-file-backed or malformed .got",
-+          TargetName.str().c_str());
++          "%s has a non-file-backed or malformed .got",
++          RelocationName.str().c_str());
 +
-+    const endianness Endian =
-+        Obj.isLittleEndian() ? endianness::little : endianness::big;
++    const uint64_t BaseAddress = Section.getAddress();
++    auto SegmentIt = BC.SegmentMapInfo.upper_bound(BaseAddress);
++    if (SegmentIt == BC.SegmentMapInfo.begin())
++      return createStringError(errc::not_supported,
++                               "%s .got has no fixed input PT_LOAD",
++                               RelocationName.str().c_str());
++    --SegmentIt;
++    const SegmentInfo &Segment = SegmentIt->second;
++    if (Segment.IsExecutable || BaseAddress < Segment.Address ||
++        Section.getSize() > Segment.FileSize ||
++        BaseAddress - Segment.Address >
++            Segment.FileSize - Section.getSize())
++      return createStringError(
++          errc::not_supported,
++          "%s .got is not completely file-backed by one non-executable "
++          "input PT_LOAD",
++          RelocationName.str().c_str());
 +    for (uint64_t Offset = 0; Offset < ContentsOrErr->size();
-+         Offset += sizeof(uint32_t)) {
-+      if (support::endian::read32(ContentsOrErr->data() + Offset, Endian) !=
-+          uint32_t(TargetAddress))
-+        continue;
-+      const uint64_t SlotAddress = Section.getAddress() + Offset;
-+
-+      auto SegmentIt = BC.SegmentMapInfo.upper_bound(SlotAddress);
-+      if (SegmentIt == BC.SegmentMapInfo.begin())
-+        continue;
-+      --SegmentIt;
-+      const SegmentInfo &Segment = SegmentIt->second;
-+      if (Segment.IsExecutable || SlotAddress < Segment.Address ||
-+          SlotAddress + sizeof(uint32_t) >
-+              Segment.Address + Segment.FileSize)
-+        continue;
-+      if (BC.getDynamicRelocationAt(SlotAddress))
++         Offset += sizeof(uint32_t))
++      if (BC.getDynamicRelocationAt(BaseAddress + Offset))
 +        return createStringError(
 +            errc::not_supported,
-+            "R_ARM_GOT_PREL target %s uses a dynamic-loader GOT slot at "
-+            "0x%" PRIx64,
-+            TargetName.str().c_str(), SlotAddress);
++            "%s uses a dynamic-loader GOT slot at 0x%" PRIx64,
++            RelocationName.str().c_str(), BaseAddress + Offset);
++
++    Graph = ARMFixedGOTGraph{
++        BaseAddress, *ContentsOrErr,
++        Obj.isLittleEndian() ? endianness::little : endianness::big};
++  }
++
++  if (!Graph)
++    return createStringError(errc::not_supported,
++                             "%s has no exact retained .got section",
++                             RelocationName.str().c_str());
++  return *Graph;
++}
++
++/// Resolve one existing firmware GOT entry. This is not a heuristic GOT
++/// reconstruction: the linked word must be the exact ELF target identity and
++/// the match must be unique across the already-qualified complete table.
++static Expected<ARMFixedGOTEntry>
++resolveARMFixedGOTEntry(const ELFObjectFileBase &Obj, BinaryContext &BC,
++                        StringRef RelocationName, StringRef TargetName,
++                        uint64_t TargetAddress) {
++  Expected<ARMFixedGOTGraph> Graph =
++      resolveARMFixedGOTGraph(Obj, BC, RelocationName);
++  if (!Graph)
++    return Graph.takeError();
++
++  std::optional<uint64_t> Match;
++  for (uint64_t Offset = 0; Offset < Graph->Contents.size();
++         Offset += sizeof(uint32_t)) {
++      if (support::endian::read32(Graph->Contents.data() + Offset,
++                                  Graph->Endian) !=
++          uint32_t(TargetAddress))
++        continue;
++      const uint64_t SlotAddress = Graph->BaseAddress + Offset;
 +      if (Match && *Match != SlotAddress)
 +        return createStringError(
 +            errc::not_supported,
-+            "R_ARM_GOT_PREL target %s has multiple exact retained GOT slots",
-+            TargetName.str().c_str());
++            "%s target %s has multiple exact retained GOT slots",
++            RelocationName.str().c_str(), TargetName.str().c_str());
 +      Match = SlotAddress;
-+    }
 +  }
 +
 +  if (!Match)
 +    return createStringError(
 +        errc::not_supported,
-+        "R_ARM_GOT_PREL target %s has no unique exact retained .got slot",
-+        TargetName.str().c_str());
-+  return ARMFixedGOTEntry{*Match, TargetAddress};
++        "%s target %s has no unique exact retained .got slot",
++        RelocationName.str().c_str(), TargetName.str().c_str());
++  return ARMFixedGOTEntry{*Match, TargetAddress, Graph->BaseAddress};
 +}
 +
 +/// Reconstruct an AArch32 SHT_REL addend from a matching Thumb MOVW/MOVT
@@ -14432,7 +14560,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  } // anonymous namespace
  
  bool RewriteInstance::analyzeRelocation(
-@@ -2911,6 +3460,7 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2911,6 +3510,7 @@ bool RewriteInstance::analyzeRelocation(
    };
  
    const bool IsAArch64 = BC->isAArch64();
@@ -14440,7 +14568,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    const bool IsRISCV = BC->isRISCV();
  
    const size_t RelSize = RH.getSizeForType(RType);
-@@ -2923,8 +3473,10 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2923,8 +3523,10 @@ bool RewriteInstance::analyzeRelocation(
    Addend = getRelocationAddend(InputFile, Rel);
  
    const bool IsPCRelative = RH.isPCRelative(RType);
@@ -14452,7 +14580,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    auto SymbolIter = Rel.getSymbol();
    if (SymbolIter == InputFile->symbol_end()) {
      SymbolAddress = ExtractedValue - Addend + PCRelOffset;
-@@ -2936,9 +3488,22 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2936,9 +3538,22 @@ bool RewriteInstance::analyzeRelocation(
      const SymbolRef &Symbol = *SymbolIter;
      SymbolName = std::string(cantFail(Symbol.getName()));
      SymbolAddress = cantFail(Symbol.getAddress());
@@ -14477,7 +14605,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      // Check for PLT entry registered with symbol name
      // LLD may give a defined RISC-V IFUNC symbol the .iplt entry address.
      // R_RISCV_CALL_PLT must still resolve it through the registered @PLT
-@@ -2952,6 +3517,135 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2952,6 +3567,206 @@ bool RewriteInstance::analyzeRelocation(
        SymbolAddress = BD ? BD->getAddress() : 0;
      }
    }
@@ -14504,20 +14632,72 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
 +      return false;
 +    const uint32_t StaticBaseRelativeSymbol =
 +        AbsoluteSymbol - uint32_t(StaticBase.value_or(0));
++    const bool IsFixedGOTFamily =
++        RType == ELF::R_ARM_BASE_PREL ||
++        RType == ELF::R_ARM_GOT_BREL ||
++        RType == ELF::R_ARM_GOT_PREL ||
++        RType == ELF::R_ARM_GOTOFF32;
++    std::optional<ARMFixedGOTGraph> FixedGOTGraph;
 +    std::optional<ARMFixedGOTEntry> FixedGOTEntry;
-+    if (RType == ELF::R_ARM_GOT_PREL) {
-+      Expected<ARMFixedGOTEntry> Entry = resolveARMFixedGOTEntry(
-+          *InputFile, *BC, SymbolName, AbsoluteSymbol);
-+      if (!Entry) {
-+        BC->errs() << "BOLT-ERROR: " << toString(Entry.takeError()) << '\n';
++    if (IsFixedGOTFamily) {
++      const StringRef RelocationName =
++          object::getELFRelocationTypeName(ELF::EM_ARM, RType);
++      Expected<ARMFixedGOTGraph> Graph =
++          resolveARMFixedGOTGraph(*InputFile, *BC, RelocationName);
++      if (!Graph) {
++        BC->errs() << "BOLT-ERROR: " << toString(Graph.takeError()) << '\n';
 +        return false;
 +      }
-+      FixedGOTEntry = *Entry;
-+      if (!BC->recordARMFixedGOTEntry(SymbolName, Entry->SlotAddress,
-+                                      Entry->TargetAddress)) {
-+        BC->errs() << "BOLT-ERROR: R_ARM_GOT_PREL target " << SymbolName
-+                   << " resolves to inconsistent fixed GOT entries\n";
++      FixedGOTGraph = *Graph;
++
++      if (RType != ELF::R_ARM_BASE_PREL) {
++        auto SegmentIt = BC->SegmentMapInfo.upper_bound(SymbolAddress);
++        if (SegmentIt == BC->SegmentMapInfo.begin()) {
++          BC->errs() << "BOLT-ERROR: " << RelocationName << " target "
++                     << SymbolName << " has no fixed input PT_LOAD\n";
++          return false;
++        }
++        --SegmentIt;
++        const SegmentInfo &TargetSegment = SegmentIt->second;
++        if (TargetSegment.IsExecutable ||
++            SymbolAddress < TargetSegment.Address ||
++            SymbolAddress >= TargetSegment.Address + TargetSegment.Size) {
++          BC->errs() << "BOLT-ERROR: " << RelocationName << " target "
++                     << SymbolName
++                     << " is not fixed non-executable firmware data\n";
++          return false;
++        }
++      } else if (SymbolName != "_GLOBAL_OFFSET_TABLE_" ||
++                 SymbolAddress != Graph->BaseAddress) {
++        BC->errs() << "BOLT-ERROR: R_ARM_BASE_PREL does not name the exact "
++                      "retained firmware GOT origin\n";
 +        return false;
++      }
++
++      if (!BC->recordARMFixedGOTBase(Graph->BaseAddress) ||
++          !BC->recordARMFixedGOTTarget(SymbolName, AbsoluteSymbol)) {
++        BC->errs() << "BOLT-ERROR: " << RelocationName
++                   << " resolves to an inconsistent fixed GOT graph\n";
++        return false;
++      }
++
++      if (RType == ELF::R_ARM_GOT_BREL ||
++          RType == ELF::R_ARM_GOT_PREL) {
++        Expected<ARMFixedGOTEntry> Entry = resolveARMFixedGOTEntry(
++            *InputFile, *BC, RelocationName, SymbolName, AbsoluteSymbol);
++        if (!Entry) {
++          BC->errs() << "BOLT-ERROR: " << toString(Entry.takeError()) << '\n';
++          return false;
++        }
++        FixedGOTEntry = *Entry;
++        if (!BC->recordARMFixedGOTEntry(
++                SymbolName, Entry->SlotAddress, Entry->TargetAddress,
++                Entry->BaseAddress)) {
++          BC->errs() << "BOLT-ERROR: " << RelocationName << " target "
++                     << SymbolName
++                     << " resolves to inconsistent fixed GOT entries\n";
++          return false;
++        }
 +      }
 +    }
 +    uint32_t ExpectedSplitValue = 0;
@@ -14560,12 +14740,31 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
 +      IsSplitField = false;
 +      break;
 +    }
-+    if (FixedGOTEntry) {
-+      // extractValue() returns P + sign32(field), i.e. G(S) + A. Recover A
-+      // modulo 32 bits against the exact retained slot. The scratch-object
-+      // linker later binds the GOT request to this same slot.
-+      Addend = int32_t(uint32_t(ExtractedValue) -
-+                       uint32_t(FixedGOTEntry->SlotAddress));
++    if (IsFixedGOTFamily) {
++      uint32_t ResolvedBase = 0;
++      switch (RType) {
++      case ELF::R_ARM_BASE_PREL:
++        // extractValue() returns P + field = GOT_ORG + A.
++        ResolvedBase = uint32_t(FixedGOTGraph->BaseAddress);
++        break;
++      case ELF::R_ARM_GOT_BREL:
++        // The linked word is G(S) + A - GOT_ORG.
++        ResolvedBase = uint32_t(FixedGOTEntry->SlotAddress -
++                                FixedGOTGraph->BaseAddress);
++        break;
++      case ELF::R_ARM_GOT_PREL:
++        // extractValue() returns P + field = G(S) + A.
++        ResolvedBase = uint32_t(FixedGOTEntry->SlotAddress);
++        break;
++      case ELF::R_ARM_GOTOFF32:
++        // The linked word is S + A - GOT_ORG.
++        ResolvedBase = uint32_t(AbsoluteSymbol -
++                                FixedGOTGraph->BaseAddress);
++        break;
++      default:
++        llvm_unreachable("non-GOT relocation in fixed GOT family");
++      }
++      Addend = int32_t(uint32_t(ExtractedValue) - ResolvedBase);
 +    } else if (IsSplitField) {
 +      const ARMSplitAddendResult Pair = reconstructARMSplitAddend(
 +          InputFile, *BC, RH, Rel, RType, SymbolAddress, ExtractedValue,
@@ -14613,7 +14812,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    // For PIE or dynamic libs, the linker may choose not to put the relocation
    // result at the address if it is a X86_64_64 one because it will emit a
    // dynamic relocation (X86_RELATIVE) for the dynamic linker and loader to
-@@ -3007,7 +3701,7 @@ bool RewriteInstance::analyzeRelocation(
+@@ -3007,7 +3822,7 @@ bool RewriteInstance::analyzeRelocation(
      if (SkipVerification)
        return true;
  
@@ -14622,7 +14821,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
        return true;
  
      if (SymbolName == "__hot_start" || SymbolName == "__hot_end")
-@@ -3087,7 +3781,7 @@ void RewriteInstance::processDynamicRelocations() {
+@@ -3087,7 +3902,7 @@ void RewriteInstance::processDynamicRelocations() {
  }
  
  void RewriteInstance::processRelocations() {
@@ -14631,7 +14830,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      return;
  
    for (const SectionRef &Section : InputFile->sections()) {
-@@ -3292,6 +3986,19 @@ void RewriteInstance::readRelocations(const SectionRef &Section) {
+@@ -3292,6 +4107,19 @@ void RewriteInstance::readRelocations(const SectionRef &Section) {
                        << "non-allocatable section\n");
      return;
    }
@@ -14651,7 +14850,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    const bool SkipRelocs = StringSwitch<bool>(RelocatedSectionName)
                                .Cases({".plt", ".rela.plt", ".got.plt",
                                        ".eh_frame", ".gcc_except_table"},
-@@ -3312,7 +4019,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3312,7 +4140,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    const RelocationHandler &RH = BC->getRelocationHandler();
    const bool IsAArch64 = BC->isAArch64();
    const bool IsX86 = BC->isX86();
@@ -14664,7 +14863,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    const bool IsWritable = BinarySection(*BC, RelocatedSection).isWritable();
  
    SmallString<16> TypeName;
-@@ -3354,13 +4065,54 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3354,13 +4186,54 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    bool IsSectionRelocation;
    if (!analyzeRelocation(Rel, RType, SymbolName, IsSectionRelocation,
                           SymbolAddress, Addend, ExtractedValue)) {
@@ -14719,13 +14918,17 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  
    if (!IsFromCode && !IsWritable && (IsX86 || IsAArch64) &&
        RH.isPCRelative(RType)) {
-@@ -3383,7 +4135,13 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3383,7 +4256,17 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
      }
    }
  
 -  const uint64_t Address = SymbolAddress + Addend;
 +  const bool IsARMFixedGOTReference =
-+      BC->isARM() && RType == ELF::R_ARM_GOT_PREL;
++      BC->isARM() &&
++      (RType == ELF::R_ARM_BASE_PREL ||
++       RType == ELF::R_ARM_GOT_BREL ||
++       RType == ELF::R_ARM_GOT_PREL ||
++       RType == ELF::R_ARM_GOTOFF32);
 +  const uint64_t Address =
 +      IsARMFixedGOTReference ? SymbolAddress : SymbolAddress + Addend;
 +  const bool IsARMThumbFunctionReference = BC->isARM() && (Address & 1);
@@ -14734,7 +14937,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  
    LLVM_DEBUG({
      dbgs() << "BOLT-DEBUG: ";
-@@ -3396,7 +4154,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3396,7 +4279,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          BC->getBinaryFunctionContainingAddress(Rel.getOffset(),
                                                 /*CheckPastEnd*/ false,
                                                 /*UseMaxSize*/ true);
@@ -14766,7 +14969,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      if (!IsAArch64 && !ContainingBF->containsAddress(Rel.getOffset())) {
        if (opts::Verbosity >= 1)
          BC->outs() << formatv(
-@@ -3421,8 +4202,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3421,8 +4327,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
  
    ErrorOr<BinarySection &> ReferencedSection{std::errc::bad_address};
    symbol_iterator SymbolIter = Rel.getSymbol();
@@ -14777,7 +14980,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      section_iterator Section =
          cantFail(Symbol.getSection(), "cannot get symbol section");
      if (Section != InputFile->section_end()) {
-@@ -3479,7 +4262,8 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3479,7 +4387,8 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    }
  
    bool ForceRelocation = BC->forceSymbolRelocations(SymbolName);
@@ -14787,7 +14990,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      ForceRelocation = true;
  
    if (!ReferencedSection && !ForceRelocation) {
-@@ -3493,11 +4277,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3493,11 +4402,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    // Only look for a referenced function when the symbol itself denotes code
    // or it is a section relocation.
    BinaryFunction *ReferencedBF = nullptr;
@@ -14802,7 +15005,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      if (BinaryFunction *BF =
              BC->getBinaryFunctionContainingAddress(SymbolAddress)) {
        if (BF != ReferencedBF) {
-@@ -3562,8 +4346,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3562,8 +4471,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
      uint64_t RefFunctionOffset = 0;
  
      // Adjust the point of reference to a code location inside a function.
@@ -14814,7 +15017,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
        if (RH.isInstructionReference(RType)) {
          // Instruction labels are created while disassembling so we just leave
          // the symbol empty for now. Since the extracted value is typically
-@@ -3573,21 +4358,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3573,21 +4483,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          // address in order to be able to correctly reconstruct the reference
          // later.
          ReferencedSymbol = nullptr;
@@ -14843,7 +15046,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
              ReferencedBF->registerInternalRefDataRelocation(RefFunctionOffset,
                                                              Rel.getOffset());
            }
-@@ -3599,12 +4386,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3599,12 +4511,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
                << formatv("function {0} detected at address {1:x}\n",
                           *ReferencedBF, Rel.getOffset());
        }
@@ -14861,7 +15064,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
          dbgs() << formatv(" at offset {0:x}", RefFunctionOffset);
        dbgs() << '\n';
      });
-@@ -3645,9 +4434,16 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3645,9 +4559,16 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          BC->markAmbiguousRelocations(*BD, Address);
  
        ReferencedSymbol = BD->getSymbol();
@@ -14881,7 +15084,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      } else {
        // These are mostly local data symbols but undefined symbols
        // in relocation sections can get through here too, from .plt.
-@@ -3709,6 +4505,38 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3709,6 +4630,38 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    if (IsFromCode)
      ContainingBF->addRelocation(Rel.getOffset(), ReferencedSymbol, RType,
                                  Addend, ExtractedValue);
@@ -14920,7 +15123,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    else if (IsToCode || ForceRelocation)
      BC->addRelocation(Rel.getOffset(), ReferencedSymbol, RType, Addend,
                        ExtractedValue);
-@@ -4379,6 +5207,18 @@ void RewriteInstance::emitAndLink() {
+@@ -4379,6 +5332,18 @@ void RewriteInstance::emitAndLink() {
    // two instances.
    std::unique_ptr<MCStreamer> Streamer = BC->createStreamer(OS);
  
@@ -14939,7 +15142,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    if (EHFrameSection) {
      if (opts::UseOldText || opts::StrictMode) {
        // The section is going to be regenerated from scratch.
-@@ -4773,7 +5613,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
+@@ -4773,7 +5738,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
      MapSection(*FuncSection, Function.getAddress());
      Function.setImageAddress(FuncSection->getAllocAddress());
      Function.setImageSize(FuncSection->getOutputSize());
@@ -14953,7 +15156,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
             "Unexpected large function");
  
      if (!Function.isSplit())
-@@ -4945,8 +5790,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4945,8 +5915,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
    if (std::optional<AddressMap> Map = AddressMap::parse(*BC))
      BC->setIOAddressMap(std::move(*Map));
  
@@ -15008,7 +15211,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  }
  
  void RewriteInstance::updateSegmentInfo() {
-@@ -4959,6 +5849,15 @@ void RewriteInstance::updateSegmentInfo() {
+@@ -4959,6 +5974,15 @@ void RewriteInstance::updateSegmentInfo() {
      NewWritableSegmentSize = NextAvailableAddress - NewWritableSegmentAddress;
    }
  
@@ -15024,7 +15227,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    if (NewTextSegmentSize) {
      SegmentInfo TextSegment = {NewTextSegmentAddress,
                                 NewTextSegmentSize,
-@@ -5026,7 +5925,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5026,7 +6050,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
  
    Phnum = Obj.getHeader().e_phnum;
  
@@ -15043,7 +15246,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      BC->outs() << "BOLT-INFO: not adding new segments\n";
      return;
    }
-@@ -5103,6 +6012,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5103,6 +6137,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
        }
        break;
      }
@@ -15082,7 +15285,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      case ELF::PT_GNU_STACK:
        if (opts::UseGnuStack) {
          assert(BC->NewSegments.size() == 1 &&
-@@ -5217,6 +6158,7 @@ writeCompressedDebugSection(StringRef SectionName,
+@@ -5217,6 +6283,7 @@ writeCompressedDebugSection(StringRef SectionName,
  template <typename ELFT>
  void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
    using ShdrTy = typename ELFT::Shdr;
@@ -15090,7 +15293,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  
    const ELFFile<ELFT> &Obj = File->getELFFile();
    raw_fd_ostream &OS = Out->os();
-@@ -5254,15 +6196,172 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
+@@ -5254,15 +6321,172 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
        Size = Section.sh_size;
        StringRef Dataref = InputFile->getData().substr(Section.sh_offset, Size);
        std::string Data;
@@ -15267,7 +15470,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
          Size = 0;
        } else {
          OS << Dataref;
-@@ -5459,7 +6558,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
+@@ -5459,7 +6683,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
      if (BinSec->isAnonymous())
        continue;
  
@@ -15285,7 +15488,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    }
  
    for (BinarySection &Section : BC->allocatableSections()) {
-@@ -5658,9 +6766,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
+@@ -5658,9 +6891,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
  
    // Write all section header entries while patching section references.
    for (ELFShdrTy &Section : OutputSections) {
@@ -15332,7 +15535,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      OS.write(reinterpret_cast<const char *>(&Section), sizeof(Section));
    }
  
-@@ -5715,6 +6857,25 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5715,6 +6982,25 @@ void RewriteInstance::updateELFSymbolTable(
  
    // Symbols for the new symbol table.
    std::vector<ELFSymTy> Symbols;
@@ -15358,7 +15561,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  
    bool EmittedColdFileSymbol = false;
  
-@@ -5804,7 +6965,9 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5804,7 +7090,9 @@ void RewriteInstance::updateELFSymbolTable(
          }
        }
      }
@@ -15369,16 +15572,17 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
        uint64_t DataMark = Function.getOutputDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5815,12 +6978,110 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5815,12 +7103,110 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
 -      CodeMarkSym.st_name = AddToStrTab("$x");
 +      CodeMarkSym.st_name = AddToStrTab(BC->isARM() ? "$t" : "$x");
-+      CodeMarkSym.st_value = CodeMark;
-+      Symbols.emplace_back(DataMarkSym);
-+      Symbols.emplace_back(CodeMarkSym);
-+    }
+       CodeMarkSym.st_value = CodeMark;
+       Symbols.emplace_back(DataMarkSym);
+       Symbols.emplace_back(CodeMarkSym);
+     }
+-    if (Function.hasConstantIsland() && Function.isSplit()) {
 +    if (BC->isARM() && Function.isEmitted() &&
 +        (BC->HasRelocations || Function.isFirmwareModified()) &&
 +        Function.hasConstantIsland() &&
@@ -15394,11 +15598,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
 +      DataMarkSym.setBinding(ELF::STB_LOCAL);
 +      ELFSymTy CodeMarkSym = DataMarkSym;
 +      CodeMarkSym.st_name = AddToStrTab("$t");
-       CodeMarkSym.st_value = CodeMark;
-       Symbols.emplace_back(DataMarkSym);
-       Symbols.emplace_back(CodeMarkSym);
-     }
--    if (Function.hasConstantIsland() && Function.isSplit()) {
++      CodeMarkSym.st_value = CodeMark;
++      Symbols.emplace_back(DataMarkSym);
++      Symbols.emplace_back(CodeMarkSym);
++    }
 +    if (BC->isARM() && Function.isEmitted() && Function.hasCFG() &&
 +        (BC->HasRelocations || Function.isFirmwareModified())) {
 +      // Instruction-owned Thumb literal pools move with their guarded basic
@@ -15482,7 +15685,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
        uint64_t DataMark = Function.getOutputColdDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5831,11 +7092,78 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5831,11 +7217,78 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -15562,7 +15765,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    };
  
    // For regular (non-dynamic) symbol table, exclude symbols referring
-@@ -5866,13 +7194,23 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5866,13 +7319,23 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    };
  
@@ -15588,7 +15791,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      // In relocation mode, if this is a folded function, use the parent function
      // instead so that the symbol gets updated to the parent's output address.
      // In non-relocation mode, folded functions are emitted at their original
-@@ -5943,9 +7281,17 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5943,9 +7406,17 @@ void RewriteInstance::updateELFSymbolTable(
        // If the symbol matched a function that was not emitted, update the
        // corresponding section index but otherwise leave it unchanged.
        if (Function->isEmitted()) {
@@ -15608,7 +15811,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
          NewSymbol.st_shndx = Function->getCodeSection()->getIndex();
        } else if (Symbol.st_shndx < ELF::SHN_LORESERVE) {
          NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
-@@ -5965,22 +7311,48 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5965,22 +7436,48 @@ void RewriteInstance::updateELFSymbolTable(
          return BC->getMarkerType(Symbol.getType(), Symbol.st_size,
                                   *SymbolName) != MarkerSymType::NONE;
        };
@@ -15666,7 +15869,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  
          // Remove symbols that cannot be mapped to the output, e.g.
          // data-in-code labels (jump tables) whose addresses BOLT
-@@ -5988,7 +7360,8 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5988,7 +7485,8 @@ void RewriteInstance::updateELFSymbolTable(
          if (!OutputAddress)
            continue;
  
@@ -15676,7 +15879,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
          // Force secondary entry points to have zero size.
          NewSymbol.st_size = 0;
  
-@@ -6001,6 +7374,28 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6001,6 +7499,28 @@ void RewriteInstance::updateELFSymbolTable(
              });
  
          if (FF == Function->getLayout().fragment_end()) {
@@ -15705,7 +15908,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
            assert(
                OutputAddress >= Function->getCodeSection()->getOutputAddress() &&
                OutputAddress < (Function->getCodeSection()->getOutputAddress() +
-@@ -6036,12 +7431,15 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6036,12 +7556,15 @@ void RewriteInstance::updateELFSymbolTable(
              NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
          }
  
@@ -15726,7 +15929,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
            assert(!IsDynSym && "cannot delete symbol");
            continue;
          }
-@@ -6050,11 +7448,13 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6050,11 +7573,13 @@ void RewriteInstance::updateELFSymbolTable(
  
    registerSymbol:
      if (IsDynSym)
@@ -15743,7 +15946,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    }
  
    if (IsDynSym) {
-@@ -6165,6 +7565,20 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6165,6 +7690,20 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    });
  
@@ -15764,7 +15967,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    for (const ELFSymTy &Symbol : Symbols)
      Write(0, Symbol);
  }
-@@ -6736,7 +8150,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
+@@ -6736,7 +8275,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
  }
  
  uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
@@ -15780,7 +15983,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    if (!Function)
      return 0;
  
-@@ -6745,7 +8166,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
+@@ -6745,7 +8291,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
    if (Function->isFolded())
      Function = Function->getFoldedIntoFunction();
  
@@ -15793,7 +15996,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  }
  
  uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
-@@ -6758,6 +8183,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
+@@ -6758,6 +8308,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
  
    if (const BinaryFunction *BF =
            BC->getBinaryFunctionContainingAddress(OldAddress)) {
@@ -15803,7 +16006,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      if (BF->isEmitted()) {
        // If OldAddress is another entry point of the function or the target of
        // an indirect goto, then BOLT could get the new address.
-@@ -6796,7 +8224,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6796,7 +8349,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      if (Function->getImageAddress() == 0 || Function->getImageSize() == 0)
        continue;
  
@@ -15823,7 +16026,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
             "Unexpected large function");
  
      const auto HasAddress = [](const FunctionFragment &FF) {
-@@ -6816,6 +8255,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6816,6 +8380,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
        continue;
      }
  
@@ -15846,7 +16049,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      OverwrittenScore += Function->getFunctionScore();
      ++CountOverwrittenFunctions;
  
-@@ -6826,12 +8281,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6826,12 +8406,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      safePWrite(OS, reinterpret_cast<char *>(Function->getImageAddress()),
                 Function->getImageSize(), Function->getFileOffset());
  
@@ -15865,7 +16068,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  
        OS.seek(Pos);
      }
-@@ -6947,6 +8405,862 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +8530,862 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -16728,7 +16931,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6958,7 +9272,23 @@ void RewriteInstance::rewriteFile() {
+@@ -6958,7 +9397,23 @@ void RewriteInstance::rewriteFile() {
    // Copy allocatable part of the input.
    OS << InputFile->getData().substr(0, FirstNonAllocatableOffset);
  
@@ -16753,7 +16956,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
  
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
-@@ -7002,6 +9332,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +9457,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -16763,7 +16966,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
    }
  
    for (BinarySection &Section : BC->allocatableSections())
-@@ -7009,6 +9342,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7009,6 +9467,9 @@ void RewriteInstance::rewriteFile() {
        return getNewValueForSymbol(S->getName());
      });
  
@@ -16775,10 +16978,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..de018f21921de054ea6eec28d495dd1b
      writeEHFrameHeader();
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..2d82387ae5bbc2929f8aa5b958c4a809cc0cc521
+index 0000000000000000000000000000000000000000..23b7dd0f1c684fa66a83de1b9f114581f37aa421
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3483 @@
+@@ -0,0 +1,3486 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -19832,7 +20035,10 @@ index 0000000000000000000000000000000000000000..2d82387ae5bbc2929f8aa5b958c4a809
 +    case ELF::R_ARM_SBREL32:
 +    case ELF::R_ARM_TARGET1:
 +    case ELF::R_ARM_TARGET2:
++    case ELF::R_ARM_BASE_PREL:
++    case ELF::R_ARM_GOT_BREL:
 +    case ELF::R_ARM_GOT_PREL:
++    case ELF::R_ARM_GOTOFF32:
 +    case ELF::R_ARM_REL32:
 +    case ELF::R_ARM_PREL31:
 +    case ELF::R_ARM_THM_CALL:
@@ -20380,10 +20586,10 @@ index 0000000000000000000000000000000000000000..6398b51612c5f54f1fd0d4292081284e
 +#endif
 diff --git a/bolt/lib/Target/ARM/ARMRelocationHandler.cpp b/bolt/lib/Target/ARM/ARMRelocationHandler.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18930642e9
+index 0000000000000000000000000000000000000000..929aad80ea263d135e829ff7276e3280ff47dc31
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMRelocationHandler.cpp
-@@ -0,0 +1,544 @@
+@@ -0,0 +1,566 @@
 +//===- ARMRelocationHandler.cpp - ARM/Thumb relocation handling ----------===//
 +
 +#include "bolt/Core/Relocation.h"
@@ -20500,7 +20706,10 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +    case ELF::R_ARM_THM_BF12:
 +    case ELF::R_ARM_THM_BF18:
 +      return true;
++    case ELF::R_ARM_BASE_PREL:
++    case ELF::R_ARM_GOT_BREL:
 +    case ELF::R_ARM_GOT_PREL:
++    case ELF::R_ARM_GOTOFF32:
 +      return FirmBOLTARMGOT == ARMGOTPolicy::FixedStatic;
 +    case ELF::R_ARM_TARGET1:
 +      // TARGET1 is deliberately not guessed from the CPU or object contents:
@@ -20558,6 +20767,8 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +      return isUInt<16>(Value) || isInt<16>(Value);
 +    case ELF::R_ARM_ABS32:
 +    case ELF::R_ARM_SBREL32:
++    case ELF::R_ARM_GOT_BREL:
++    case ELF::R_ARM_GOTOFF32:
 +    case ELF::R_ARM_TARGET1:
 +    case ELF::R_ARM_RELATIVE:
 +    case ELF::R_ARM_IRELATIVE:
@@ -20579,6 +20790,7 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +      // offset to fit in the unsigned MOVW field.
 +      return isUInt<16>(Value);
 +    case ELF::R_ARM_REL32:
++    case ELF::R_ARM_BASE_PREL:
 +    case ELF::R_ARM_GOT_PREL:
 +    case ELF::R_ARM_THM_MOVW_PREL_NC:
 +    case ELF::R_ARM_THM_MOVT_PREL:
@@ -20628,6 +20840,8 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +    case ELF::R_ARM_ABS16:
 +    case ELF::R_ARM_ABS32:
 +    case ELF::R_ARM_SBREL32:
++    case ELF::R_ARM_GOT_BREL:
++    case ELF::R_ARM_GOTOFF32:
 +    case ELF::R_ARM_TARGET1:
 +    case ELF::R_ARM_RELATIVE:
 +    case ELF::R_ARM_IRELATIVE:
@@ -20637,6 +20851,7 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +                 ? uint32_t(Delta)
 +                 : Value;
 +    case ELF::R_ARM_REL32:
++    case ELF::R_ARM_BASE_PREL:
 +    case ELF::R_ARM_GOT_PREL:
 +      return uint32_t(Delta);
 +    case ELF::R_ARM_PREL31:
@@ -20743,6 +20958,8 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +      return uint64_t(SignExtend64<16>(Contents & 0xffff));
 +    case ELF::R_ARM_ABS32:
 +    case ELF::R_ARM_SBREL32:
++    case ELF::R_ARM_GOT_BREL:
++    case ELF::R_ARM_GOTOFF32:
 +    case ELF::R_ARM_TARGET1:
 +    case ELF::R_ARM_RELATIVE:
 +    case ELF::R_ARM_IRELATIVE:
@@ -20752,6 +20969,7 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +                 ? uint64_t(int64_t(PC) + int32_t(Word))
 +                 : Word;
 +    case ELF::R_ARM_REL32:
++    case ELF::R_ARM_BASE_PREL:
 +    case ELF::R_ARM_GOT_PREL:
 +      return uint64_t(int64_t(PC) + int32_t(Word));
 +    case ELF::R_ARM_PREL31:
@@ -20826,7 +21044,10 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +  }
 +
 +  bool isGOT(uint32_t Type) const override {
-+    return Type == ELF::R_ARM_GOT_BREL || Type == ELF::R_ARM_GOT_PREL;
++    return Type == ELF::R_ARM_BASE_PREL ||
++           Type == ELF::R_ARM_GOT_BREL ||
++           Type == ELF::R_ARM_GOT_PREL ||
++           Type == ELF::R_ARM_GOTOFF32;
 +  }
 +  bool isRelative(uint32_t Type) const override {
 +    return Type == ELF::R_ARM_RELATIVE;
@@ -20869,6 +21090,7 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +    if (Type == ELF::R_ARM_TARGET2)
 +      return FirmBOLTARMTarget2 == ARMTarget2Policy::Rel32;
 +    switch (Type) {
++    case ELF::R_ARM_BASE_PREL:
 +    case ELF::R_ARM_REL32:
 +    case ELF::R_ARM_GOT_PREL:
 +    case ELF::R_ARM_PREL31:
@@ -20903,6 +21125,9 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +  const MCExpr *getRelocationExprFor(uint32_t Type, const MCExpr *Expr,
 +                                     MCContext &Ctx) const override {
 +    switch (Type) {
++    case ELF::R_ARM_GOT_BREL:
++      return MCSymbolRefExpr::create(
++          &cast<MCSymbolRefExpr>(Expr)->getSymbol(), ARM::S_GOT, Ctx);
 +    case ELF::R_ARM_GOT_PREL: {
 +      const auto *Symbol = dyn_cast<MCSymbolRefExpr>(Expr);
 +      if (!Symbol)
@@ -20910,6 +21135,9 @@ index 0000000000000000000000000000000000000000..912d27e5786a8b4bdd7b5952132b5c18
 +      return MCSymbolRefExpr::create(&Symbol->getSymbol(), ARM::S_GOT_PREL,
 +                                     Ctx);
 +    }
++    case ELF::R_ARM_GOTOFF32:
++      return MCSymbolRefExpr::create(
++          &cast<MCSymbolRefExpr>(Expr)->getSymbol(), ARM::S_GOTOFF, Ctx);
 +    default:
 +      return Expr;
 +    }
@@ -23432,6 +23660,167 @@ index 0000000000000000000000000000000000000000..9e2534b1e091aa6e8c2936f6c3c5b19b
 +  .word Reset_Handler
 +  .globl _vector_end
 +_vector_end:
+diff --git a/bolt/test/ARM/thumb-fixed-static-got-family.s b/bolt/test/ARM/thumb-fixed-static-got-family.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..fa54de787d168ec61846408fe37b8dc4af879757
+--- /dev/null
++++ b/bolt/test/ARM/thumb-fixed-static-got-family.s
+@@ -0,0 +1,155 @@
++## Fixed-address bare-metal firmware uses more than GOT_PREL. Qualify one
++## exact retained GOT graph for BASE_PREL, GOT_BREL and GOTOFF32, preserve
++## every target identity, and recompute each distinct expression when the
++## owning Thumb function and its literal pool move.
++
++# RUN: split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple thumbv7m-none-eabi -mcpu=cortex-m3 \
++# RUN:   %t/fixture.s -o %t/fixture.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture.o -o %t/reference.elf
++# RUN: llvm-readelf -rW %t/reference.elf | FileCheck %s --check-prefix=INPUT
++# RUN: rm -f %t/unqualified.elf %t/address-rejected.elf
++# RUN: not llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --eliminate-unreachable=false \
++# RUN:   --frame-opt=all --relocs --use-old-text --reorder-functions=user \
++# RUN:   --align-functions=1 --function-order=%t/order.txt \
++# RUN:   -o %t/unqualified.elf 2>&1 | FileCheck %s --check-prefix=UNQUALIFIED
++# RUN: not test -e %t/unqualified.elf
++# RUN: not llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --eliminate-unreachable=false \
++# RUN:   --frame-opt=all --firmbolt-arm-got=fixed-static \
++# RUN:   --relocs --use-old-text --reorder-functions=user \
++# RUN:   --align-functions=1 --function-order=%t/order.txt \
++# RUN:   -o %t/address-rejected.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=ADDRESS-REJECT
++# RUN: not test -e %t/address-rejected.elf
++# RUN: llvm-bolt %t/reference.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --firmbolt-arm-full-pipeline --eliminate-unreachable=false \
++# RUN:   --frame-opt=all --firmbolt-arm-got=fixed-static \
++# RUN:   --firmbolt-allow-literal-address-changes \
++# RUN:   --relocs --use-old-text --reorder-functions=user \
++# RUN:   --align-functions=1 --function-order=%t/order.txt \
++# RUN:   --fastdyn-firmware-report=%t/report.json -o %t/candidate.elf
++# RUN: llvm-nm --numeric-sort %t/candidate.elf | FileCheck %s --check-prefix=SYMBOLS
++# RUN: llvm-readelf -rW %t/candidate.elf | FileCheck %s --check-prefix=OUTPUT
++# RUN: llvm-readelf -sW %t/candidate.elf | FileCheck %s --check-prefix=MAPPING
++# RUN: llvm-objdump -s -j .got -j .data %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=DATA
++# RUN: llvm-objdump -d --mcpu=cortex-m3 %t/candidate.elf \
++# RUN:   | FileCheck %s --check-prefix=CODE
++# RUN: %python -c "import json; d=json.load(open('%t/report.json.layout.json')); f=next(x for x in d['functions'] if x['name']=='got_family_worker'); p=f['owned_literal_pools'][0]; print(hex(f['original_address']),hex(f['output_address']),hex(p['original_address']),hex(p['output_address']),p['preserve_original_address'],p['relocation_count'])" \
++# RUN:   | FileCheck %s --check-prefix=LAYOUT
++
++# INPUT-DAG: 08000140 {{.*}} R_ARM_BASE_PREL 20000100 _GLOBAL_OFFSET_TABLE_
++# INPUT-DAG: 08000144 {{.*}} R_ARM_GOT_BREL 20000200 value
++# INPUT-DAG: 08000148 {{.*}} R_ARM_GOTOFF32 20000200 value
++# UNQUALIFIED: requires an exact retained firmware GOT graph
++# UNQUALIFIED-SAME: --firmbolt-arm-got=fixed-static
++# ADDRESS-REJECT: changed the observable address from 0x8000140 to 0x8000118
++# SYMBOLS: 08000100 T got_family_worker
++# SYMBOLS: 08000124 T Reset_Handler
++# OUTPUT-DAG: 08000118 {{.*}} R_ARM_BASE_PREL 20000100 _GLOBAL_OFFSET_TABLE_
++# OUTPUT-DAG: 0800011c {{.*}} R_ARM_GOT_BREL 20000200 value
++# OUTPUT-DAG: 08000120 {{.*}} R_ARM_GOTOFF32 20000200 value
++# MAPPING-DAG: 08000118 {{.*}} $d
++# MAPPING-DAG: 08000124 {{.*}} $t
++# DATA: Contents of section .got:
++# DATA-NEXT: 20000100 00020020
++# DATA: Contents of section .data:
++# DATA-NEXT: 20000200 2a000000
++# CODE: 08000100 <got_family_worker>:
++# CODE-NEXT: 8000100: 4a05          ldr r2, [pc, #0x14]
++# CODE: 8000118: e8 ff ff 17
++# CODE-NEXT: 800011c: 00 00 00 00
++# CODE-NEXT: 8000120: 00 01 00 00
++# LAYOUT: 0x8000128 0x8000100 0x8000140 0x8000118 False 3
++
++//--- fixture.s
++  .syntax unified
++  .cpu cortex-m3
++  .thumb
++  .eabi_attribute Tag_CPU_arch, 10
++  .eabi_attribute Tag_CPU_arch_profile, 'M'
++
++  .section .isr_vector,"a",%progbits
++  .p2align 2
++  .globl g_pfnVectors
++  .type g_pfnVectors,%object
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++  .size g_pfnVectors, .-g_pfnVectors
++
++  .section .text,"ax",%progbits
++  .p2align 2
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  movw r1, #0x100
++  movt r1, #0x2000
++  movw r2, #0x200
++  movt r2, #0x2000
++  str r2, [r1]
++  movs r3, #42
++  str r3, [r2]
++  bl got_family_worker
++  movw r1, #0
++  movt r1, #0x2000
++  str r0, [r1]
++.globl fixture_halt
++fixture_halt:
++  b fixture_halt
++  .size Reset_Handler, .-Reset_Handler
++
++  .p2align 2
++  .globl got_family_worker
++  .type got_family_worker,%function
++  .thumb_func
++got_family_worker:
++  ldr r2, .Lgot_base_delta
++.Lgot_base_pc:
++  add r2, pc
++  adds r2, #18
++  ldr r0, .Lgot_slot_offset
++  add r0, r2
++  ldr r0, [r0]
++  ldr r0, [r0]
++  ldr r1, .Lvalue_offset
++  add r1, r2
++  ldr r1, [r1]
++  adds r0, r1
++  bx lr
++  .p2align 2
++.Lgot_base_delta:
++  .long _GLOBAL_OFFSET_TABLE_-.
++.Lgot_slot_offset:
++  .long value(GOT)
++.Lvalue_offset:
++  .long value(GOTOFF)
++  .size got_family_worker, .-got_family_worker
++
++  .section .data,"aw",%progbits
++  .p2align 2
++  .globl value
++  .type value,%object
++value:
++  .long 42
++  .size value, .-value
++
++//--- link.ld
++ENTRY(Reset_Handler)
++MEMORY {
++  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
++  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
++}
++SECTIONS {
++  .isr_vector ORIGIN(FLASH) : { KEEP(*(.isr_vector)) } > FLASH
++  .text ORIGIN(FLASH) + 0x100 : { *(.text*) } > FLASH
++  .got ORIGIN(RAM) + 0x100 : { *(.got*) } > RAM AT > FLASH
++  .data ORIGIN(RAM) + 0x200 : { *(.data*) } > RAM AT > FLASH
++}
++
++//--- order.txt
++got_family_worker
++Reset_Handler
 diff --git a/bolt/test/ARM/thumb-fixed-static-got-prel.s b/bolt/test/ARM/thumb-fixed-static-got-prel.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..e038b664fdcc65e1aa48f80289219dc3d10fedde
@@ -33208,10 +33597,10 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..9cc2f7e7605221f9affaaf515833c8a8
  
  INSTANTIATE_TEST_SUITE_P(AArch64, MCPlusBuilderTester,
 diff --git a/bolt/unittests/Core/Relocation.cpp b/bolt/unittests/Core/Relocation.cpp
-index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..cd1312b2487ab9074d18d2843ad18027718e4a41 100644
+index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..0ad43dc4d42afb79107391d1778aa3c14718fa6d 100644
 --- a/bolt/unittests/Core/Relocation.cpp
 +++ b/bolt/unittests/Core/Relocation.cpp
-@@ -10,12 +10,238 @@
+@@ -10,12 +10,256 @@
  #include "bolt/Core/Relocation.h"
  #include "llvm/BinaryFormat/ELF.h"
  #include "gtest/gtest.h"
@@ -33356,6 +33745,24 @@ index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..cd1312b2487ab9074d18d2843ad18027
 +  EXPECT_EQ(GOTEncoded, 0x17fffffaU);
 +  EXPECT_EQ(Handler->extractValue(ELF::R_ARM_GOT_PREL, GOTEncoded, GOTPlace),
 +            GOTTargetWithAddend);
++
++  // The other fixed-static GOT family members use the same complete 32-bit
++  // fields: BASE_PREL is PC-relative, while GOT_BREL and GOTOFF32 already
++  // contain offsets from the qualified GOT origin.
++  constexpr uint64_t GOTBaseWithAddend = 0x20000112;
++  EXPECT_TRUE(Handler->isPCRelative(ELF::R_ARM_BASE_PREL));
++  const uint64_t BaseEncoded = Handler->encodeValue(
++      ELF::R_ARM_BASE_PREL, GOTBaseWithAddend, GOTPlace, 0);
++  EXPECT_EQ(Handler->extractValue(ELF::R_ARM_BASE_PREL, BaseEncoded, GOTPlace),
++            GOTBaseWithAddend);
++  for (const auto [Type, Value] : {
++           std::pair<uint32_t, uint64_t>{ELF::R_ARM_GOT_BREL, 0},
++           {ELF::R_ARM_GOTOFF32, 0x100},
++       }) {
++    EXPECT_TRUE(Handler->canEncodeValue(Type, Value, GOTPlace));
++    const uint64_t Encoded = Handler->encodeValue(Type, Value, GOTPlace, 0);
++    EXPECT_EQ(Handler->extractValue(Type, Encoded, GOTPlace), Value);
++  }
 +}
 +
 +TEST(ARMRelocationHandlerTest, ThumbAluAbsoluteByteGroups) {
@@ -33608,7 +34015,7 @@ index 0000000000000000000000000000000000000000..f98253ade73d844f52aaa9b96727d68c
 +  bx lr
 +  .size bfl_target, .-bfl_target
 diff --git a/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h b/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h
-index 9479c107447d5dc9972a920bdf176cd56071a1eb..0f4640a744266522447f385ebae8e32edf64cf9c 100644
+index 9479c107447d5dc9972a920bdf176cd56071a1eb..2ea093c30e1899d333614ea59121161664a60a61 100644
 --- a/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h
 +++ b/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h
 @@ -39,6 +39,14 @@ enum EdgeKind_aarch32 : Edge::Kind {
@@ -33626,7 +34033,29 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..0f4640a744266522447f385ebae8e32e
    /// Absolute 32-bit value relocation
    Data_Pointer32,
  
-@@ -85,6 +93,19 @@ enum EdgeKind_aarch32 : Edge::Kind {
+@@ -48,7 +56,20 @@ enum EdgeKind_aarch32 : Edge::Kind {
+   /// Create GOT entry and store offset
+   Data_RequestGOTAndTransformToDelta32,
+ 
+-  LastDataRelocation = Data_RequestGOTAndTransformToDelta32,
++  /// Create a GOT entry and store its offset from the GOT origin.  AArch32
++  /// R_ARM_GOT_BREL uses this form.  A table-building or firmware-binding pass
++  /// must replace it before fixups are applied.
++  Data_RequestGOTAndTransformToDelta32FromGOT,
++
++  /// Store the target's offset from the GOT origin (R_ARM_GOTOFF32).  Unlike
++  /// GOT_BREL this does not request a GOT entry for the target.
++  Data_RequestGOTOFFAndTransformToDelta32FromGOT,
++
++  /// Store the GOT-origin delta from the relocation place
++  /// (R_ARM_BASE_PREL).
++  Data_RequestGOTBaseAndTransformToDelta32,
++
++  LastDataRelocation = Data_RequestGOTBaseAndTransformToDelta32,
+ 
+   ///
+   /// Relocations of class Arm (covers fixed-width 4-byte instruction subset)
+@@ -85,6 +106,19 @@ enum EdgeKind_aarch32 : Edge::Kind {
    /// to switch to ARM.
    Thumb_Call = FirstThumbRelocation,
  
@@ -33646,7 +34075,7 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..0f4640a744266522447f385ebae8e32e
    /// Write immediate value for PC-relative branch without link. The instruction
    /// can be made conditional by an IT block. If the branch target is not ARM,
    /// we are forced to generate an explicit interworking stub.
-@@ -104,7 +125,37 @@ enum EdgeKind_aarch32 : Edge::Kind {
+@@ -104,7 +138,37 @@ enum EdgeKind_aarch32 : Edge::Kind {
    /// register
    Thumb_MovtPrel,
  
@@ -33685,7 +34114,7 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..0f4640a744266522447f385ebae8e32e
  
    /// No-op relocation
    None,
-@@ -172,6 +223,14 @@ struct HalfWords {
+@@ -172,6 +236,14 @@ struct HalfWords {
    const uint16_t Lo; // Second halfword
  };
  
@@ -33700,7 +34129,7 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..0f4640a744266522447f385ebae8e32e
  /// FixupInfo base class is required for dynamic lookups.
  struct FixupInfoBase {
    LLVM_ABI static const FixupInfoBase *getDynFixupInfo(Edge::Kind K);
-@@ -240,6 +299,32 @@ template <> struct FixupInfo<Thumb_Jump24> : public FixupInfoThumb {
+@@ -240,6 +312,32 @@ template <> struct FixupInfo<Thumb_Jump24> : public FixupInfoThumb {
    static constexpr HalfWords ImmMask{0x07ff, 0x2fff};
  };
  
@@ -33733,7 +34162,7 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..0f4640a744266522447f385ebae8e32e
  template <> struct FixupInfo<Thumb_Call> : public FixupInfoThumb {
    static constexpr HalfWords Opcode{0xf000, 0xc000};
    static constexpr HalfWords OpcodeMask{0xf800, 0xc000};
-@@ -270,6 +355,62 @@ template <> struct FixupInfo<Thumb_MovwPrelNC> : public FixupInfoThumbMov {
+@@ -270,6 +368,62 @@ template <> struct FixupInfo<Thumb_MovwPrelNC> : public FixupInfoThumbMov {
    static constexpr HalfWords Opcode{0xf240, 0x0000};
  };
  
@@ -33809,10 +34238,10 @@ index 6d72741c3bde056a73724f2eb1ca4fed1e7f4ce9..2554318258b275ad60aecba6d50fd0a6
  
  protected:
 diff --git a/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp b/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp
-index f5ca72796df530c65877d4f8f32460ef79de3abc..2c99e3a03c19cd83a28a2fc1f19bacba4a4de9a3 100644
+index f5ca72796df530c65877d4f8f32460ef79de3abc..3b4413d0fe39bfa51f9b6235b8e7fb671695e554 100644
 --- a/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp
 +++ b/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp
-@@ -35,6 +35,10 @@ namespace jitlink {
+@@ -35,10 +35,20 @@ namespace jitlink {
  LLVM_ABI Expected<aarch32::EdgeKind_aarch32>
  getJITLinkEdgeKind(uint32_t ELFType, const aarch32::ArmConfig &ArmCfg) {
    switch (ELFType) {
@@ -33822,8 +34251,18 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..2c99e3a03c19cd83a28a2fc1f19bacba
 +    return aarch32::Data_Pointer16;
    case ELF::R_ARM_ABS32:
      return aarch32::Data_Pointer32;
++  case ELF::R_ARM_BASE_PREL:
++    return aarch32::Data_RequestGOTBaseAndTransformToDelta32;
++  case ELF::R_ARM_GOT_BREL:
++    return aarch32::Data_RequestGOTAndTransformToDelta32FromGOT;
    case ELF::R_ARM_GOT_PREL:
-@@ -58,6 +62,14 @@ getJITLinkEdgeKind(uint32_t ELFType, const aarch32::ArmConfig &ArmCfg) {
+     return aarch32::Data_RequestGOTAndTransformToDelta32;
++  case ELF::R_ARM_GOTOFF32:
++    return aarch32::Data_RequestGOTOFFAndTransformToDelta32FromGOT;
+   case ELF::R_ARM_REL32:
+     return aarch32::Data_Delta32;
+   case ELF::R_ARM_CALL:
+@@ -58,6 +68,14 @@ getJITLinkEdgeKind(uint32_t ELFType, const aarch32::ArmConfig &ArmCfg) {
                                 : aarch32::Data_Pointer32;
    case ELF::R_ARM_THM_CALL:
      return aarch32::Thumb_Call;
@@ -33838,7 +34277,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..2c99e3a03c19cd83a28a2fc1f19bacba
    case ELF::R_ARM_THM_JUMP24:
      return aarch32::Thumb_Jump24;
    case ELF::R_ARM_THM_MOVW_ABS_NC:
-@@ -68,6 +80,26 @@ getJITLinkEdgeKind(uint32_t ELFType, const aarch32::ArmConfig &ArmCfg) {
+@@ -68,6 +86,26 @@ getJITLinkEdgeKind(uint32_t ELFType, const aarch32::ArmConfig &ArmCfg) {
      return aarch32::Thumb_MovwPrelNC;
    case ELF::R_ARM_THM_MOVT_PREL:
      return aarch32::Thumb_MovtPrel;
@@ -33865,7 +34304,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..2c99e3a03c19cd83a28a2fc1f19bacba
    }
  
    return make_error<JITLinkError>(
-@@ -80,6 +112,10 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
+@@ -80,12 +118,22 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
    switch (static_cast<aarch32::EdgeKind_aarch32>(Kind)) {
    case aarch32::Data_Delta32:
      return ELF::R_ARM_REL32;
@@ -33876,7 +34315,19 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..2c99e3a03c19cd83a28a2fc1f19bacba
    case aarch32::Data_Pointer32:
      return ELF::R_ARM_ABS32;
    case aarch32::Data_PRel31:
-@@ -96,6 +132,14 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
+     return ELF::R_ARM_PREL31;
+   case aarch32::Data_RequestGOTAndTransformToDelta32:
+     return ELF::R_ARM_GOT_PREL;
++  case aarch32::Data_RequestGOTAndTransformToDelta32FromGOT:
++    return ELF::R_ARM_GOT_BREL;
++  case aarch32::Data_RequestGOTOFFAndTransformToDelta32FromGOT:
++    return ELF::R_ARM_GOTOFF32;
++  case aarch32::Data_RequestGOTBaseAndTransformToDelta32:
++    return ELF::R_ARM_BASE_PREL;
+   case aarch32::Arm_Call:
+     return ELF::R_ARM_CALL;
+   case aarch32::Arm_Jump24:
+@@ -96,6 +144,14 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
      return ELF::R_ARM_MOVT_ABS;
    case aarch32::Thumb_Call:
      return ELF::R_ARM_THM_CALL;
@@ -33891,7 +34342,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..2c99e3a03c19cd83a28a2fc1f19bacba
    case aarch32::Thumb_Jump24:
      return ELF::R_ARM_THM_JUMP24;
    case aarch32::Thumb_MovwAbsNC:
-@@ -106,6 +150,26 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
+@@ -106,6 +162,26 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
      return ELF::R_ARM_THM_MOVW_PREL_NC;
    case aarch32::Thumb_MovtPrel:
      return ELF::R_ARM_THM_MOVT_PREL;
@@ -33919,7 +34370,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..2c99e3a03c19cd83a28a2fc1f19bacba
      return ELF::R_ARM_NONE;
    }
 diff --git a/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp b/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
-index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a683b67d5 100644
+index cc606b8278d267fd03e013e697afc38b1ed153c2..11f8ca1a00aaba11d1977393224faf13c484b540 100644
 --- a/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
 +++ b/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
 @@ -219,6 +219,21 @@ struct ThumbRelocation {
@@ -34068,7 +34519,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
  const FixupInfoBase *FixupInfoBase::getDynFixupInfo(Edge::Kind K) {
    return DynFixupInfos->getEntry(K);
  }
-@@ -376,6 +494,10 @@ Expected<int64_t> readAddendData(LinkGraph &G, Block &B, Edge::OffsetT Offset,
+@@ -376,9 +494,16 @@ Expected<int64_t> readAddendData(LinkGraph &G, Block &B, Edge::OffsetT Offset,
    const char *FixupPtr = BlockWorkingMem + Offset;
  
    switch (Kind) {
@@ -34079,7 +34530,13 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
    case Data_Delta32:
    case Data_Pointer32:
    case Data_RequestGOTAndTransformToDelta32:
-@@ -415,11 +537,37 @@ Expected<int64_t> readAddendArm(LinkGraph &G, Block &B, Edge::OffsetT Offset,
++  case Data_RequestGOTAndTransformToDelta32FromGOT:
++  case Data_RequestGOTOFFAndTransformToDelta32FromGOT:
++  case Data_RequestGOTBaseAndTransformToDelta32:
+     return SignExtend64<32>(support::endian::read32(FixupPtr, Endian));
+   case Data_PRel31:
+     return SignExtend64<31>(support::endian::read32(FixupPtr, Endian));
+@@ -415,11 +540,37 @@ Expected<int64_t> readAddendArm(LinkGraph &G, Block &B, Edge::OffsetT Offset,
  
  Expected<int64_t> readAddendThumb(LinkGraph &G, Block &B, Edge::OffsetT Offset,
                                    Edge::Kind Kind, const ArmConfig &ArmCfg) {
@@ -34117,7 +34574,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
    case Thumb_Call:
    case Thumb_Jump24:
      return LLVM_LIKELY(ArmCfg.J1J2BranchEncoding)
-@@ -436,6 +584,24 @@ Expected<int64_t> readAddendThumb(LinkGraph &G, Block &B, Edge::OffsetT Offset,
+@@ -436,6 +587,24 @@ Expected<int64_t> readAddendThumb(LinkGraph &G, Block &B, Edge::OffsetT Offset,
      // Initial addend is interpreted as a signed value
      return SignExtend64<16>(decodeImmMovtT1MovwT3(R.Hi, R.Lo));
  
@@ -34142,7 +34599,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
    default:
      return make_error<JITLinkError>(
          "In graph " + G.getName() + ", section " + B.getSection().getName() +
-@@ -455,12 +621,36 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
+@@ -455,12 +624,36 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
    int64_t Addend = E.getAddend();
    Symbol &TargetSymbol = E.getTarget();
    uint64_t TargetAddress = TargetSymbol.getAddress().getValue();
@@ -34180,7 +34637,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
      if (!isInt<32>(Value))
        return makeTargetOutOfRangeError(G, B, E);
      if (LLVM_LIKELY(G.getEndianness() == endianness::little))
-@@ -470,7 +660,7 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
+@@ -470,7 +663,7 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
      return Error::success();
    }
    case Data_Pointer32: {
@@ -34189,7 +34646,17 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
      if (!isUInt<32>(Value))
        return makeTargetOutOfRangeError(G, B, E);
      if (LLVM_LIKELY(G.getEndianness() == endianness::little))
-@@ -578,9 +768,80 @@ Error applyFixupArm(LinkGraph &G, Block &B, const Edge &E) {
+@@ -493,6 +686,9 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
+     return Error::success();
+   }
+   case Data_RequestGOTAndTransformToDelta32:
++  case Data_RequestGOTAndTransformToDelta32FromGOT:
++  case Data_RequestGOTOFFAndTransformToDelta32FromGOT:
++  case Data_RequestGOTBaseAndTransformToDelta32:
+     llvm_unreachable("Should be transformed");
+   default:
+     return make_error<JITLinkError>(
+@@ -578,9 +774,80 @@ Error applyFixupArm(LinkGraph &G, Block &B, const Edge &E) {
  
  Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
                        const ArmConfig &ArmCfg) {
@@ -34271,7 +34738,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
    if (Error Err = checkOpcode(G, R, Kind))
      return Err;
  
-@@ -590,6 +851,18 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
+@@ -590,6 +857,18 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
    uint64_t TargetAddress = TargetSymbol.getAddress().getValue();
  
    switch (Kind) {
@@ -34290,7 +34757,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
    case Thumb_Jump24: {
      if (!hasTargetFlags(TargetSymbol, ThumbSymbol))
        return make_error<JITLinkError>("Branch relocation needs interworking "
-@@ -667,6 +940,54 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
+@@ -667,6 +946,54 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
      return Error::success();
    }
  
@@ -34345,7 +34812,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
    default:
      return make_error<JITLinkError>(
          "In graph " + G.getName() + ", section " + B.getSection().getName() +
-@@ -918,6 +1239,8 @@ const char *getEdgeKindName(Edge::Kind K) {
+@@ -918,19 +1245,38 @@ const char *getEdgeKindName(Edge::Kind K) {
  
    switch (K) {
      KIND_NAME_CASE(Data_Delta32)
@@ -34354,7 +34821,11 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a
      KIND_NAME_CASE(Data_Pointer32)
      KIND_NAME_CASE(Data_PRel31)
      KIND_NAME_CASE(Data_RequestGOTAndTransformToDelta32)
-@@ -926,11 +1249,25 @@ const char *getEdgeKindName(Edge::Kind K) {
++    KIND_NAME_CASE(Data_RequestGOTAndTransformToDelta32FromGOT)
++    KIND_NAME_CASE(Data_RequestGOTOFFAndTransformToDelta32FromGOT)
++    KIND_NAME_CASE(Data_RequestGOTBaseAndTransformToDelta32)
+     KIND_NAME_CASE(Arm_Call)
+     KIND_NAME_CASE(Arm_Jump24)
      KIND_NAME_CASE(Arm_MovwAbsNC)
      KIND_NAME_CASE(Arm_MovtAbs)
      KIND_NAME_CASE(Thumb_Call)

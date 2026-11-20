@@ -1,0 +1,167 @@
+{
+  "clean_apply": {
+    "byte_exact_files": 170,
+    "method": "the generated patch reverse-applies cleanly to the current overlay on the pinned base, proving the overlay bytes are exactly the patch result",
+    "pinned_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "reconstructed_patch_byte_exact": true,
+    "status": "accepted"
+  },
+  "corpus_qualification": "this milestone closes the remaining fixed-static firmware GOT relocation family with a generated relocation-complete execution fixture; it makes no claim that these relocations are frequent in the retained firmware corpus",
+  "fixed_static_got_family_contract": {
+    "architectural_execution": {
+      "candidate_ram_words": [84],
+      "reference_ram_words": [84],
+      "status": "accepted"
+    },
+    "default_policy": "reject atomically with no candidate and require --firmbolt-arm-got=fixed-static",
+    "fixed_graph": {
+      "got_address": "0x20000100",
+      "got_slot_value": "0x20000200",
+      "target_address": "0x20000200",
+      "target_value": 42
+    },
+    "handler": "BOLT recognizes, sizes, extracts, range-checks and encodes all three relocation types, retains the logical GOT-origin and target identities, and binds scratch-link edges to the exact retained firmware graph instead of synthesizing a hosted GOT",
+    "negative_controls": {
+      "absolute_literal_address": {
+        "diagnostic": "changed the observable address from 0x8000140 to 0x8000118",
+        "published_candidate": false,
+        "report_required_for_rejection": false,
+        "returncode": 1,
+        "status": "accepted"
+      },
+      "unqualified": {
+        "diagnostic": "qualify it with --firmbolt-arm-got=fixed-static",
+        "published_candidate": false,
+        "returncode": 1,
+        "status": "accepted"
+      }
+    },
+    "policy": "one exact retained file-backed non-executable .got origin, no interpreter, no dynamic slot relocation, exact symbol identities, and fixed non-executable targets",
+    "relocations": [
+      {
+        "candidate_field": "0x17ffffe8",
+        "candidate_offset": "0x08000118",
+        "expression": "GOT_ORG+A-P",
+        "reference_field": "0x17ffffc0",
+        "reference_offset": "0x08000140",
+        "symbol": "_GLOBAL_OFFSET_TABLE_",
+        "symbol_address": "0x20000100",
+        "type": 25,
+        "type_name": "R_ARM_BASE_PREL"
+      },
+      {
+        "candidate_field": "0x00000000",
+        "candidate_offset": "0x0800011c",
+        "expression": "G(S)+A-GOT_ORG",
+        "reference_field": "0x00000000",
+        "reference_offset": "0x08000144",
+        "symbol": "value",
+        "symbol_address": "0x20000200",
+        "type": 26,
+        "type_name": "R_ARM_GOT_BREL"
+      },
+      {
+        "candidate_field": "0x00000100",
+        "candidate_offset": "0x08000120",
+        "expression": "S+A-GOT_ORG",
+        "reference_field": "0x00000100",
+        "reference_offset": "0x08000148",
+        "symbol": "value",
+        "symbol_address": "0x20000200",
+        "type": 24,
+        "type_name": "R_ARM_GOTOFF32"
+      }
+    ],
+    "transformation": "whole-image ordering moves got_family_worker from 0x08000128 to 0x08000100 and its three owned relocation words from 0x08000140-0x08000148 to 0x08000118-0x08000120 while retaining the fixed RAM graph, mapping transitions, twelve instruction origins and execution result"
+  },
+  "generated_at_utc": "2026-11-20T06:07:28Z",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "milestone": "v172-cortex-m-fixed-static-got-family",
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--lld",
+    "third_party/preflight/llvm-build/bin/ld.lld",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-production-parity-v172-got-family-2026-11-20",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all"
+  ],
+  "production_profiles": {
+    "accepted": 66,
+    "functions": 1957,
+    "instruction_origins": 130162,
+    "linked_byte_validation_applicable": 65,
+    "linked_byte_validation_not_applicable": 1,
+    "modified_function_instruction_origins": 98755,
+    "modified_functions": 1141,
+    "potentially_faulting_load_store_origins": 57610,
+    "total": 66
+  },
+  "production_status": "accepted",
+  "regressions": {
+    "aarch32_jitlink_lit": {
+      "failed": 0,
+      "passed": 13
+    },
+    "aarch32_jitlink_units": {
+      "failed": 0,
+      "focused_aarch32_passed": 19,
+      "whole_executable_passed": 76
+    },
+    "arm_bolt_lit": {
+      "failed": 0,
+      "passed": 95
+    },
+    "core_units": {
+      "failed": 0,
+      "passed": 88,
+      "skipped_target_inapplicable": 150
+    },
+    "pass_units": {
+      "failed": 0,
+      "passed": 5
+    },
+    "profile_units": {
+      "failed": 0,
+      "passed": 39
+    }
+  },
+  "repository_base_commit": "d3af4eeaede851df1eb366911e410b92e7474ae0",
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "scope_limits": [
+    "the qualified policy covers one exact section named .got; additional firmware schemas require explicit typed metadata",
+    "dynamic GOT and PLT construction, runtime relocation, symbol interposition and hosted loader behavior remain unsupported",
+    "GOTOFF32 targets are limited to fixed non-executable segments because moved executable targets would require a different rebinding contract",
+    "the generic AArch32 JITLink layer represents these request edges, while FirmBOLT's firmware binder supplies the qualified GOT origin and graph",
+    "the literal-address negative proves atomic rejection of one changed observable placement; it is not whole-firmware semantic equivalence",
+    "the production matrix demonstrates no regression across the existing firmware corpus, not complete x86-backend parity",
+    "the milestone establishes reference-graph, relocation, publication and architectural-execution correctness, not a performance result"
+  ],
+  "sha256": {
+    "aarch32-jitlink-lit.xml": "8f38f6b6a8c943b8471eb0d7b7372b7af530739a6786452e0b1eb773b9729732",
+    "arm-bolt-lit.xml": "65c792408f5f15c48fcbe4af83b10122c06762d4d9e439de849983c5ecad1be6",
+    "core-tests.xml": "d2e63adc9d952c31629f38d2310ace0852b717005cdc93770edc5ad0442c5b97",
+    "firm_bolt_cortex_m3_got_family.ld": "65b5a15a980c546e7921921847a60fca9333b61ffc98bc71a906e3ee95491097",
+    "firm_bolt_cortex_m3_got_family.order": "cf7f0de7715c9ad472925407735976227dfc1a5081b17112fd331848bfdfce55",
+    "firm_bolt_cortex_m3_got_family.s": "621dc620640d9331743784d63aa8c655017ef5bc4cf7fcedeafe5c62f58d645c",
+    "jitlink-aarch32-tests.xml": "a401364d65494b788579b6fc020f6d983db71f3eee42fb5a95e330930b4d55cc",
+    "pass-tests.xml": "33367b0f1222be54824167629e9db04191b0431264f715383266b9bcf36b6bbd",
+    "patches/bolt-fastdyn-preflight.patch": "5b16b1ffb1b404ec8478e5ba246c0d5337e1b063fc5c364e2d31e37098966d21",
+    "profile-tests.xml": "38a235ec4b80bfad51c6cd036b394fa172946baff7b90f0f387aef375efb867e",
+    "report.json": "6c60bf030bf51a2988c2c6855a82ae03e4f56585ce4bcbf52a82c4e2ceddd973",
+    "scripts/preflight/build-bolt.sh": "43fff57136daa9a852f4a7f629ccfad4d1d6427e4439d3256a609bc7ea47237e",
+    "scripts/preflight/regenerate-bolt-extension-patch.sh": "0637dad43b760be93b75040668f8753399d60adbee9238bd803a9aefa6898d73",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py": "daf16f7b1c12a2fe15ec6d30334cdbeaa78ff154226e80722c7b35f343323c0f",
+    "third_party/preflight/llvm-build/bin/ld.lld": "6fabe15bbc3f41c5346f6c019440feec3ac606087efa889b89bc29ce943d275e",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "7dac65f4db2ee8b2c752f73f1a297d92d21d1c169ae01ef52d4d3848389c7f27"
+  },
+  "source": {
+    "aaelf32": "R_ARM_BASE_PREL computes B(S)+A-P, R_ARM_GOT_BREL computes G(S)+A-GOT_ORG, and R_ARM_GOTOFF32 computes S+A-GOT_ORG",
+    "pinned_bolt_gap": "the ARM relocation handler and AArch32 JITLink layer did not recognize types 24-26, and hosted GOT construction cannot supply a fixed bare-metal firmware origin and graph",
+    "policy_boundary": "FirmBOLT implements only an explicit fixed-static firmware graph and rejects unqualified, dynamic or executable-target interpretations"
+  }
+}

@@ -2112,6 +2112,40 @@ and [validation manifest](evidence/firmbolt-cortex-m-v171-validation.json).
 This is a fixed-static firmware-GOT and atomic-publication result, not support
 for Linux dynamic GOTs, GOT-relative `R_ARM_TARGET2`, or a performance claim.
 
+v172 completes the adjacent fixed-static firmware GOT relocation family:
+`R_ARM_BASE_PREL` (25), `R_ARM_GOT_BREL` (26), and `R_ARM_GOTOFF32` (24).
+Upstream AArch32 JITLink and BOLT did not represent these dependencies. The
+new JITLink request edges retain their different expressions; FirmBOLT's
+firmware binder then supplies one qualified existing GOT origin and exact
+target graph rather than running a hosted GOT builder. `BASE_PREL` must name
+the exact `_GLOBAL_OFFSET_TABLE_`; `GOT_BREL` resolves a unique retained slot;
+and `GOTOFF32` resolves the fixed target itself. Executable targets remain
+unsupported because moving one would require a different rebinding contract.
+
+The executed Cortex-M3 fixture fixes `.got=0x20000100`, its slot and mutable
+`value` at `0x20000200`, then combines a load through `GOT_BREL` with a direct
+`GOTOFF32` load. Whole-image ordering moves `got_family_worker`
+`0x08000128→0x08000100` and its three-word pool
+`0x08000140→0x08000118`. The rebuilt live records retain types 25/26/24 and
+their exact target identities. The emitted fields are respectively
+`0x17ffffe8`, `0`, and `0x100`; reference and candidate both execute to RAM
+word `[84]`. Unqualified and absolute-literal-address arms reject atomically
+without publishing an ELF.
+
+The production matrix passes 66/66 profiles and binds 130,162 final
+instruction origins in 1,957 functions, including 98,755 origins in 1,141
+modified functions and 57,610 potentially faulting accesses. Regression gates
+pass 95/95 ARM BOLT lit, 13/13 AArch32 JITLink lit, all 76 JITLink units, 88
+Core plus 150 target-inapplicable skips, 5 Pass and 39 Profile units. The
+mechanical patch SHA-256 is
+`5b16b1ffb1b404ec8478e5ba246c0d5337e1b063fc5c364e2d31e37098966d21`;
+it reverse-applies exactly across all 170 overlay files on pinned LLVM.
+Evidence is in the
+[`v172 report`](../../build/preflight/firm-bolt-cortex-m-production-parity-v172-got-family-2026-11-20/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v172-validation.json).
+This is fixed firmware reference-graph, relocation, publication and execution
+coverage—not dynamic-loader support, whole-firmware equivalence or speedup.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
