@@ -24,13 +24,14 @@ from tests.synth.fake_snapshot import FakeSnapshot, fake_snapshot
 
 
 @pytest.fixture
-def world(tmp_path, monkeypatch):
+def world(tmp_path, monkeypatch, request):
     from scopt import splice_layout
 
     fake = fake_snapshot(2)
     units, analyses = [], {}
     input_id = sha256_id(b"splice native source manifest")
-    callee_code = bytes.fromhex("f30f1efa 89f8 01c0 31ff c3")
+    typemask, code_hex = getattr(request, "param", (0x12, "f30f1efa 89f8 01c0 31ff c3"))
+    callee_code = bytes.fromhex(code_hex)
     callee_hash = sha256_id(callee_code)
     for u in fake.units():
         base = fake.header.code_address + u.tc_offset
@@ -55,7 +56,7 @@ def world(tmp_path, monkeypatch):
                 path="/exact/to/qemu", elf_address=0x5000, image_offset=0x5000,
                 image_id=sha256_id(b"qemu image"), code_hash=callee_hash, symbol="helper_test",
                 size=len(callee_code), code=callee_code, role="qemu", abi="sysv-amd64",
-                runtime_address=target, tcg_typemask=0x12)
+                runtime_address=target, tcg_typemask=typemask)
             calls.append(NativeCallBinding(call, callee, None, input_id))
         helper = HelperBinding(7, "test", "qemu", "helper_test", 5, target)
         units.append(replace(u, code=caller, tc_size=len(caller), ldst_end=len(caller),
@@ -83,11 +84,9 @@ def world(tmp_path, monkeypatch):
         if argv[1:] == ["--version"]:
             return b"scopt-native bridge 1 (LLVM/BOLT 20.1.2)"
         assert json.loads(request)["code_sha256"] == callee_hash
-        origins, off = [], 0
-        for size in (4, 2, 2, 2, 1):
-            origins.append({"source_off": off, "source_size": size, "output_off": off,
-                            "output_size": 5 if size == 1 else size})
-            off += size
+        from scopt.decode.x86 import sweep
+        origins = [{"source_off": ins.address, "source_size": ins.size, "output_off": ins.address,
+                    "output_size": 5 if ins.is_ret else ins.size} for ins in sweep(callee_code, 0)]
         return json.dumps({
             "version": 1, "status": "ok", "code": callee_code[:-1].hex() + "e900000000",
             "origins": origins,
@@ -146,7 +145,52 @@ def test_splice_pass_skips_physically_transformed_units(world):
 
 @pytest.mark.parametrize(("typemask", "accepted"), [
     (0x12, True), (0x1A, True), (0x1B, True), (0x10, False),
-    (0x22, False), (0x14, False), (0x92, False), (0x02, False),
+    (0x22, True), (0x14, True), (0x92, True), (0x02, True), (0x32, False),
 ])
 def test_splice_limits_the_callee_abi(typemask, accepted):
     assert host_inline.HostInlineSplice()._accept_abi(typemask) is accepted
+
+
+@pytest.mark.parametrize("world", [(0x124, "4889f8 4885f6 7403 4801f0 c3")], indirect=True)
+def test_pass_emits_two_argument_i64_conditional_leaf(world):
+    snap, registry = world
+    result = PassManager(snap, "host-inline-splice", analyses=registry).execute()
+    rec = result.passes[0]
+    assert rec.outcome is Outcome.CANDIDATE, (rec.reason, rec.detail)
+    assert len(result.edits) == 2
+    for edit in result.edits:
+        req = edit.payload
+        assert req.splice.start_off == req.call_off
+        assert req.splice.prefix == b""
+        assert req.splice.code.startswith(req.callee_code[:-1])
+
+
+# The complete helper_usad8 from the 2da1d94f benchmark QEMU, at ELF 0x396b10.
+# Exercise the default static scheduling path even on hosts without that ELF.
+_USAD8 = (
+    "f30f1efa 89f2 89f9 89f8 29f1 4189d0 29fe 4038fa 0f42f1 41c1e808 c1ef08 4489c1 "
+    "4189f9 29f9 400fb6f6 4529c1 4138f8 4189d0 89c7 410f42c9 41c1e810 c1ef10 0fb6c9 "
+    "4189f9 01f1 4489c6 4529c1 29fe 4138f8 410f42f1 c1e818 c1ea18 89c7 400fb6f6 "
+    "29d7 01ce 89d1 29c1 38c2 89f8 0f43c1 0fb6c0 01f0 31d2 31c9 31f6 31ff 4531c0 4531c9 c3"
+)
+
+
+@pytest.mark.parametrize("world", [(0x92, _USAD8)], indirect=True)
+def test_usad8_fits_default_splice_size_and_honors_tighter_overrides(world):
+    snap, registry = world
+    result = PassManager(snap, "host-inline-splice", analyses=registry).execute()
+    assert len(result.edits) == 2
+    for edit in result.edits:
+        req = edit.payload
+        assert len(req.callee_code) == 134
+        assert req.splice.code.startswith(req.callee_code[4:-1])
+    for key, reason in (("max_callee_bytes", "callee_size_budget"),
+                        ("static_max_callee_bytes", "static_callee_size_budget")):
+        capped = PassManager(snap, "host-inline-splice", analyses=registry,
+                             params={"host-inline-splice": {key: 128}}).execute()
+        assert not capped.edits
+        assert capped.passes[0].stats[f"sites:{reason}"] == 4
+    from scopt.passes.host_inline_extreme import HostInlineExtreme
+    assert HostInlineExtreme.default_params == host_inline.HostInline.default_params
+    assert host_inline.HostInline.default_params["max_callee_bytes"] == 128
+    assert host_inline.HostInline.default_params["static_max_callee_bytes"] == 64

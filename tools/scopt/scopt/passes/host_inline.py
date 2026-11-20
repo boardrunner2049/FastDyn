@@ -111,6 +111,7 @@ def _fragment(bridge: Path, callee, deadline: float) -> NativeFragment:
 
 
 class HostInline:
+    default_params = _DEFAULTS
     consider_cold = False
     max_sites_per_unit = _LIMITS["max_sites_per_unit"]
     default_sites_per_unit = _DEFAULTS["max_sites_per_unit"]
@@ -152,7 +153,7 @@ class HostInline:
         return request
 
     def run(self, view, ctx, edits) -> PassResult:
-        params = {**_DEFAULTS, "max_sites_per_unit": self.default_sites_per_unit, **ctx.params}
+        params = {**self.default_params, "max_sites_per_unit": self.default_sites_per_unit, **ctx.params}
         for key, limit in _LIMITS.items():
             minimum = 1 if key in ("max_cfg_insns", "max_wall_s") else 0
             if not minimum <= params[key] <= limit:
@@ -294,22 +295,38 @@ class HostInline:
 
 
 class HostInlineSplice(HostInline):
-    """Replace a call with a verified, straight-line fallthrough splice."""
+    """Replace a call with a verified fallthrough splice."""
 
     descriptor = replace(HostInline.descriptor, name="host-inline-splice")
+    default_params = {**HostInline.default_params, "max_callee_bytes": 256,
+                      "static_max_callee_bytes": 160}
     max_sites_per_unit = MAX_INTEGER_SPLICES
     default_sites_per_unit = 1
     success_reason = "native_calls_spliced"
-    abi_contract = "requires one 32-bit integer argument and a 32-bit integer result"
+    abi_contract = "requires an integer result and at most six integer register arguments"
 
-    def _accept_abi(self, typemask: int) -> bool:
-        # QEMU typecodes 2 and 3 denote unsigned and signed 32-bit integers.
-        return (typemask & 7) in (2, 3) and (typemask >> 3) in (2, 3)
+    def _binding_refusal(self, binding: NativeCallBinding) -> tuple[str, str] | None:
+        from ..validate_sym.native_udiv import is_udiv_binding
+
+        if is_udiv_binding(binding):
+            if not binding.call.guest_pcs:
+                return "unsupported_recovery", "UDIV has no captured guest origin"
+            return None
+        return super()._binding_refusal(binding)
+
+    def _uses_leaf_fragment(self, binding: NativeCallBinding) -> bool:
+        from ..validate_sym.native_udiv import is_udiv_binding
+
+        return not is_udiv_binding(binding)
 
     def _prepare_splice(self, unit, request: InlineCall, code_address: int,
                         binding: NativeCallBinding, params):
         from ..validate_sym.native_splice import prepare_splice
 
+        from ..validate_sym.native_udiv import is_udiv_binding, prepare_udiv_splice
+
+        if is_udiv_binding(binding):
+            return prepare_udiv_splice(unit, request, code_address)
         return prepare_splice(unit, request, code_address)
 
     def _prepare_request(self, unit, request: InlineCall, code_address: int,

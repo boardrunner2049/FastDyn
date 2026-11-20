@@ -10,7 +10,7 @@ import pytest
 
 from scopt.canon import sha256_id
 from scopt.manager import PassManager
-from scopt.model.native import NativeSplice
+from scopt.model.native import UDIV_KIND, NativeSplice
 from scopt.passes.base import Outcome
 from scopt.validate import ValidateAndPackage
 from scopt.validate_sym import native_virtual
@@ -159,3 +159,46 @@ def test_extreme_refuses_invalid_depth(world, depth):
     record, = candidate.passes
     assert record.outcome is Outcome.FAILED and record.reason == "invalid_params"
     assert not candidate.edits
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_guarded_udiv_never_satisfies_strict_retirement_and_applies_in_partial_mode(world, partial):
+    from tests.unit.test_native_udiv import _fixture
+
+    base, registry = world
+    unit, req, code_address = _fixture()
+    assert base.header.code_address == code_address
+    snapshot = FakeSnapshot((unit,), base.snapshot_id, base.header, runtime=base.runtime)
+    spec = registry.exact("native-callees", 1)
+
+    def guarded_callee(ctx, scope):
+        template = spec.compute(ctx, scope)[0]
+        call = replace(template.call, host_off=req.call_off, continuation_off=req.continuation_off,
+                       original_bytes=req.call_bytes, pool_slot_off=req.pool_slot_off,
+                       helper_flags=1, helper_name="udiv", helper_id=req.helper_id, symbol=req.symbol,
+                       target_abs=req.target_abs, guest_pcs=req.guest_pcs, encoding="pool_indirect",
+                       call_class="throwing", recovery_return_off=req.continuation_off)
+        callee = SimpleNamespace(**{**vars(template.callee), "symbol": req.symbol,
+                                    "tcg_typemask": req.tcg_typemask, "code": req.callee_code,
+                                    "code_hash": req.callee_hash, "size": len(req.callee_code),
+                                    "runtime_address": req.target_abs})
+        return (replace(template, call=call, callee=callee),)
+
+    registry.register(replace(spec, compute=guarded_callee), replace=True)
+    candidate = PassManager(snapshot, "host-inline-extreme", analyses=registry,
+                            params={"host-inline-extreme": {"allow_partial": partial}}).execute()
+    record, = candidate.passes
+    detail = json.loads(record.detail)
+    coverage = detail["coverage"]
+    assert coverage["sites_seen"] == coverage["sites_approved"] == coverage["guarded_sites_approved"] == 1
+    assert not coverage["complete"]
+    assert coverage["fully_inlined_sites_approved"] == coverage["fully_inlined_sites_applied"] == 0
+    assert coverage["guarded_sites_applied"] == coverage["sites_applied"] == int(partial)
+    assert record.stats["sites_uncovered"] == 1 and detail["sites"][0]["retains_fallback_call"]
+    if partial:
+        assert record.outcome is Outcome.CANDIDATE and record.reason == "native_inline_partial_coverage"
+        edit, = candidate.edits
+        assert edit.payload.splice.kind == UDIV_KIND
+        assert edit.payload.splice.code.endswith(req.call_bytes)
+    else:
+        assert record.outcome is Outcome.FAILED and record.reason == "incomplete_inline_coverage"
+        assert not candidate.edits and record.stats["emitted_growth_bytes"] == 0

@@ -148,8 +148,11 @@ bool isAllowedInstruction(StringRef Name) {
   static const Regex Integer(
       "^(ADD|SUB|AND|OR|XOR|CMP|TEST|ADC|SBB|MOV|SHL|SHR|SAR|ROL|ROR)"
       "(8|16|32|64)(rr|ri|ri8|ri16|ri32|ri64|i8|i16|i32|i64|r1|rCL)$");
+  static const Regex Unary("^(NEG|NOT|INC|DEC)(8|16|32|64)r$");
+  static const Regex Extend("^MOV(SX|ZX)(16|32|64)rr(8|16|32)$");
   static const Regex Cond("^(CMOV(16|32|64)rr|SETCCr)$");
-  return Integer.match(Name) || Cond.match(Name) || Name == "ENDBR64" ||
+  return Integer.match(Name) || Unary.match(Name) || Extend.match(Name) ||
+         Cond.match(Name) || Name == "ENDBR64" ||
          Name == "BSWAP32r" || Name == "BSWAP64r" || Name == "LEA32r" ||
          Name == "LEA64r" || Name == "LEA64_32r" || Name == "NOOP";
 }

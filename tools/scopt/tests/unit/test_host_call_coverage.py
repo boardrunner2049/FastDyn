@@ -120,3 +120,27 @@ def test_coverage_lists_nested_calls_without_credit_or_unexplained_disappearance
     assert not report["current_call_free"]
     assert report["certified_nested_frame_calls"] == [nested_row]
     assert report["unmatched_current_calls"] == []
+
+
+@pytest.mark.parametrize("existing", [True, False])
+def test_guarded_inline_reports_live_fallback_and_keeps_denominator(existing):
+    from scopt.model.native import UDIV_KIND
+
+    uid = "tb:test"
+    key, fallback_key = (uid, 10), (uid, 42)
+    proof = retired(10)
+    req = proof["fragment"]
+    req.splice = NativeSplice(10, b"", b"\x90" * 32 + req.call_bytes, kind=UDIV_KIND)
+    proof["fallback_off"] = fallback_key[1]
+    fallback = dict(call(42, annotation="guarded_fallback_call"), parent_certificate="cert")
+    artifact = ({fallback_key: fallback}, {key: proof}, [])
+    before = artifact if existing else ({key: call(10)}, {}, [])
+    report = _coverage(before, artifact, artifact_checked=True, native_checked=True)
+    assert report["required_annotated_sites"] == report["guarded_inline_sites"] == 1
+    assert report["sites"][0]["status"] == "guarded_inline_with_fallback"
+    assert report["retired_verified_sites"] == report["tb_entry_weighted_proxy"]["known_retired_weight"] == 0
+    assert report["unmatched_current_calls"] == []
+    assert not report["current_call_free"] and not report["strict_coverage_complete"]
+
+    missing = _coverage(before, ({}, {key: proof}, []), artifact_checked=True, native_checked=True)
+    assert missing["guarded_inline_sites"] == 0 and not missing["strict_coverage_complete"]

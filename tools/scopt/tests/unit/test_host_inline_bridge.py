@@ -57,6 +57,18 @@ entry choose
   ret
 end choose
 
+entry integer_regs
+  movzbl %dil,%eax
+  movsbw %dil,%dx
+  movsbl %sil,%ecx
+  negl %ecx
+  incl %eax
+  decl %ecx
+  notl %ecx
+  xorl %ecx,%eax
+  ret
+end integer_regs
+
 entry loop
   movl %edi,%eax
 .Lagain:
@@ -118,7 +130,8 @@ def invoke(bridge, req):
     return json.loads(proc.stdout)
 
 
-@pytest.mark.parametrize(("name", "returns"), [("leaf", 1), ("choose", 2), ("loop", 1)])
+@pytest.mark.parametrize(("name", "returns"), [("leaf", 1), ("choose", 2), ("loop", 1),
+                                               ("integer_regs", 1)])
 def test_fragment_origins_and_relocations(bridge, image, name, returns):
     req, source = request(image, name)
     result = invoke(bridge, req)
@@ -170,11 +183,12 @@ def test_refuses_changed_digest(bridge, image, field):
     assert (result["status"], result["reason"]) == ("refused", "native_image_mismatch")
 
 
-def test_qemu_rbit_preserves_nonreturn_bytes(bridge):
+@pytest.mark.parametrize("name", ["helper_rbit", "helper_sel_flags", "helper_usad8", "helper_sxtb16"])
+def test_qemu_helpers_preserve_nonreturn_bytes(bridge, name):
     target = os.environ.get("SCOPT_NATIVE_QEMU")
     if not target:
         pytest.skip("SCOPT_NATIVE_QEMU must point to the source-locked QEMU executable")
-    req, source = request(Path(target), "helper_rbit")
+    req, source = request(Path(target), name)
     result = invoke(bridge, req)
     assert result["status"] == "ok", result
     assert source[-1:] == b"\xc3"

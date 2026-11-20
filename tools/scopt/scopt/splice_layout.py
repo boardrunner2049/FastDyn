@@ -143,13 +143,15 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
     """Move every surviving TCG offset and preserve the original search words."""
     from .validate_sym.native_splice import verify_splice
     from .validate_sym.native_virtual import verify_virtual_splice
+    from .validate_sym.native_udiv import UDIV_KIND, verify_udiv_splice
 
     if (unit.splice_applied or unit.inline_start is not None or unit.stub_start is not None
             or unit.meta_status != "ok" or not unit.reloc.relocatable):
         raise NativeInlineError("splice_layout_unsupported", "needs an original relocatable TB and aligned growth")
     mu = splice_group_offsets(requests)
     for request in requests:
-        verify = verify_virtual_splice if request.splice.kind == "frame" else verify_splice
+        verify = {"frame": verify_virtual_splice, UDIV_KIND: verify_udiv_splice}.get(
+            request.splice.kind, verify_splice)
         verify(unit, request, code_address)
     tc = code_address + unit.tc_offset
     pool_start = unit.pool_start
@@ -207,6 +209,7 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
         code[new_field:new_field + width] = _signed(address(target) - (tc + mu(off) + size), width)
 
     drop_sites, drop_fields, drop_marks = set(), set(), set()
+    fallback_sites, fallback_fields, fallback_marks = {}, {}, {}
     for request in requests:
         chosen = [s for s in unit.sites if s.kind is SiteKind.HELPER_CALL and s.insn_off == request.call_off]
         if len(chosen) != 1:
@@ -217,6 +220,12 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
         if (mark is None or mark.helper_id != request.helper_id or mark.insn_idx != call.insn_idx
                 or mark in drop_marks or call.field_off in drop_fields):
             raise NativeInlineError("splice_call_binding", "helper provenance has no distinct CALL opmark")
+        if request.splice.kind == UDIV_KIND:
+            fallback = mu(request.continuation_off) - len(request.call_bytes)
+            fallback_sites[call] = fallback
+            fallback_fields[call.field_off] = fallback + call.field_off - call.insn_off
+            fallback_marks[mark] = fallback
+            continue
         drop_sites.add(call)
         drop_fields.add(call.field_off)
         drop_marks.add(mark)
@@ -256,16 +265,20 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
             if p.nlong != 1 or int.from_bytes(code[slot:slot + 8], "little") not in (p.data0, new_value):
                 raise NativeInlineError("splice_pool_value", "ambiguous position-dependent pool pointer")
             code[slot:slot + 8] = new_value.to_bytes(8, "little")
-        pool.append(replace(p, user_field_off=mu(p.user_field_off), slot_off=slot, data0=new_value))
+        user = fallback_fields.get(p.user_field_off)
+        pool.append(replace(p, user_field_off=mu(p.user_field_off) if user is None else user,
+                            slot_off=slot, data0=new_value))
 
     sites, site_index = [], {}
     for i, site in enumerate(unit.sites):
         if site in drop_sites or (site.kind is SiteKind.POOL_REF and site.field_off in drop_fields):
             continue
-        if mu.contains(site.insn_off) or mu.contains(site.field_off):
+        fallback = fallback_sites.get(site)
+        if fallback is None and (mu.contains(site.insn_off) or mu.contains(site.field_off)):
             raise NativeInlineError("splice_unexpected_site", f"another captured site at {site.insn_off:#x}")
         branch = widened.get(site.insn_off)
-        new_field = mu.field(site.field_off) if branch else mu(site.field_off)
+        new_off = mu(site.insn_off) if fallback is None else fallback
+        new_field = mu.field(site.field_off) if fallback is None else fallback_fields[site.field_off]
         width = 4 if branch else site.width
         enc = Encoding.REL32 if branch else site.enc
         new_value = address(site.value)
@@ -281,19 +294,20 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
                 raise NativeInlineError("splice_pool_user", "surviving site depends on removed pool user")
             aux = pool_index[aux]
         site_index[i] = len(sites)
-        sites.append(replace(site, field_off=new_field, insn_off=mu(site.insn_off), aux=aux,
+        sites.append(replace(site, field_off=new_field, insn_off=new_off, aux=aux,
                              width=width, enc=enc,
                              value=new_value, final_field=int.from_bytes(
                                  code[new_field:new_field + min(width, 4)], "little")))
 
     remapped_insns = tuple(replace(x, host_start=mu(x.host_start), host_end=mu(x.host_end))
                            for x in unit.insns)
-    marks = tuple(replace(m, host_off=mu(m.host_off)) for m in unit.opmarks if m not in drop_marks)
+    marks = tuple(replace(m, host_off=fallback_marks[m] if m in fallback_marks else mu(m.host_off))
+                  for m in unit.opmarks if m not in drop_marks)
     ldst = tuple(replace(row,
                          jcc_fields=tuple(None if f is None else mu(f) for f in row.jcc_fields),
                          slow_start=mu(row.slow_start), slow_end=mu(row.slow_end),
                          raddr_off=mu(row.raddr_off)) for row in unit.ldst)
-    returns = {req.continuation_off for req in requests}
+    returns = {req.continuation_off for req in requests if req.splice.kind != UDIV_KIND}
     keep_recovery = [p for p in unit.recovery
                      if p.source != "helper_call" or p.host_return_offset not in returns]
     recovery = tuple(replace(p, id=f"r{i}", host_return_offset=mu(p.host_return_offset))

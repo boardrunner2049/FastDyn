@@ -58,7 +58,8 @@ from ..decode.search import SearchDecodeError, SearchRows, decode_search, is_pcr
 from ..decode.thumb import check_lengths, lengths_from_words
 from ..decode.x86 import (Arena, DecodedRef, Insn as X86Insn, RefKind, decode_one,
                           extract_refs, sweep, tiles)
-from ..formats.enums import NONE_U32, Encoding, SiteKind, TbFlag
+from ..formats.enums import NONE_U32, Encoding, OpMarkKind, SiteKind, TbFlag
+from ..model.native import UDIV_KIND, UDIV_TYPEMASK
 from ..formats.sc_v5 import ScHeader, ScUnit
 from ..formats.scm_v1 import TbChunk
 from ..model.unit import (AnchoredPointer, Fixup, HelperBinding, Insn, Ldst, OpMark,
@@ -317,7 +318,7 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
         try:
             offsets = splice_group_offsets(chunk.native_fragments) if splice_start is not None else None
             for req in chunk.native_fragments:
-                if req.pool_slot_off is not None:
+                if req.pool_slot_off is not None and (req.splice is None or req.splice.kind != UDIV_KIND):
                     slot = req.pool_slot_off if offsets is None else offsets(req.pool_slot_off)
                     retired.append((slot, req.target_abs))
         except ValueError as error:
@@ -393,9 +394,12 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
 
             offsets = splice_group_offsets(chunk.native_fragments)
             spans = [(offsets(req.splice.start_off), req.splice) for req in chunk.native_fragments]
+            # The guarded fallback remains an ordinary captured helper CALL. Its
+            # reference, pool user and recovery entry still need the TCG checks.
+            native_ranges = [(start, start + len(splice.code) -
+                              (6 if splice.kind == UDIV_KIND else 0)) for start, splice in spans]
             tcg_instructions = [i for i in tcg_instructions
-                                if not any(start <= i.address - tc_abs < start + len(splice.code)
-                                           for start, splice in spans)]
+                                if not any(lo <= i.address - tc_abs < hi for lo, hi in native_ranges)]
             uc.native_fixups = tuple(
                 Fixup(start + rel.field_off, 4, "rel_minus_delta",
                       int(SiteKind.MOVI_CONST), "ext.native", rel.target_abs)
@@ -581,9 +585,26 @@ def _native_single_splice_error(code, chunk, ctx, tc_abs, physical, page_bits, r
     if (len(indices) != 1 or indices[0] >= len(guest_pcs)
             or req.guest_pcs != (guest_pcs[indices[0]],)):
         return "native splice guest origin or containing instruction disagrees"
-    if (any(start <= row.insn_off < end or start <= row.field_off < end for row in chunk.sites)
-            or any(start <= mark.host_off < end for mark in chunk.opmarks)
-            or any(start <= row.user_field_off < end for row in chunk.pool)):
+    sites = [s for s in chunk.sites if start <= s.insn_off < end or start <= s.field_off < end]
+    marks = [m for m in chunk.opmarks if start <= m.host_off < end]
+    users = [p for p in chunk.pool if start <= p.user_field_off < end]
+    if splice.kind == UDIV_KIND:
+        fallback = end - len(req.call_bytes)
+        if (len(sites) != 1 or len(marks) != 1 or len(users) != 1 or req.pool_slot_off is None
+                or helper.name_str != "udiv" or helper.tcg_flags != 1 or helper.typemask != UDIV_TYPEMASK
+                or end != offsets(req.continuation_off)):
+            return "guarded UDIV fallback metadata or return PC disagrees"
+        site, mark, pool_user = sites[0], marks[0], users[0]
+        if (site.kind != SiteKind.HELPER_CALL or site.enc != Encoding.POOL_INDIRECT
+                or site.aux != req.helper_id or site.value != req.target_abs or site.width != 4
+                or site.insn_off != fallback or site.field_off != fallback + 2
+                or site.insn_idx != indices[0] or site.final_field != int.from_bytes(req.call_bytes[2:], "little")
+                or mark.kind != OpMarkKind.CALL or mark.host_off != fallback
+                or mark.helper_id != req.helper_id or mark.insn_idx != indices[0]
+                or pool_user.user_field_off != site.field_off or pool_user.slot_off != offsets(req.pool_slot_off)
+                or pool_user.data0 != req.target_abs or pool_user.nlong != 1):
+            return "guarded UDIV fallback does not identify the captured call"
+    elif sites or marks or users:
         return "obsolete TCG metadata inside native splice"
     start_abs, end_abs = tc_abs + start, tc_abs + end
     for off, insn in by_off.items():
@@ -611,6 +632,10 @@ def _native_single_splice_error(code, chunk, ctx, tc_abs, physical, page_bits, r
             from ..validate_sym.native_virtual import verify_virtual_splice_body
 
             verify_virtual_splice_body(req)
+        elif splice.kind == UDIV_KIND:
+            from ..validate_sym.native_udiv import verify_udiv_body
+
+            verify_udiv_body(req)
         else:
             verify_splice_body(req)
     except (ValueError, OSError) as error:

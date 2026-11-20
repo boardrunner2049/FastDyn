@@ -19,6 +19,7 @@ from ..formats.enums import OpMarkKind, SiteKind
 from ..formats.profile_v1 import ProfileView, read_profile
 from ..importer.import_cache import open_snapshot
 from ..importer.join import ImportRejected
+from ..model.native import UDIV_KIND
 from ..splice_layout import SpliceGroupOffsets, splice_offsets
 from ..validate_sym.native_inline import NativeInlineError
 
@@ -153,6 +154,16 @@ def _inventory(snapshot, rows, profile, phase):
         for req in unit.native_fragments:
             key = unit.uid, req.call_off
             imported = unit.meta_status == "ok" and (unit.splice_applied or unit.inline_start is not None)
+            guarded = req.splice is not None and req.splice.kind == UDIV_KIND
+            fallback_off = None
+            if guarded and imported:
+                # Guarded splices have one source site per TB. The original CALL
+                # ends at the remapped continuation on the zero-divisor path.
+                fallback_off = req.splice.physical_start + len(req.splice.code) - len(req.call_bytes)
+                fallback = live.get((unit.uid, fallback_off))
+                if (fallback and fallback["capture_resolved"] and _bound_call_matches(fallback, req)
+                        and fallback["call"]["recovery_return_off"] == fallback_off + len(req.call_bytes)):
+                    fallback.update(annotation="guarded_fallback_call", parent_certificate=req.certificate_id)
             retired[key] = {
                 "unit": unit.uid, "host_off": req.call_off,
                 "block": "native_splice" if req.splice is not None else "native_island",
@@ -160,9 +171,9 @@ def _inventory(snapshot, rows, profile, phase):
                 "call": {"original_bytes": req.call_bytes.hex(), "symbol": req.symbol,
                          "helper_id": req.helper_id, "target_abs": req.target_abs,
                          "guest_pcs": req.guest_pcs},
-                "call_class": "pure", "capture_resolved": imported, "image_bound": imported,
+                "call_class": "guarded_udiv" if guarded else "pure", "capture_resolved": imported, "image_bound": imported,
                 "reason": None if imported else "unverified_native_fragment",
-                "certificate": req.certificate_id,
+                "certificate": req.certificate_id, "fallback_off": fallback_off,
                 "tb_entries_proxy": hotness, "fragment": req,
             }
     return live, retired, uninspected
@@ -172,9 +183,9 @@ def _public_row(row):
     return {key: value for key, value in row.items() if key != "fragment"}
 
 
-def _matches(row, fragment):
+def _bound_call_matches(row, fragment):
     call = row["call"]
-    return (call is not None and row["image_bound"]
+    return (call is not None
             and row["decoded_call_bytes"] == fragment.call_bytes.hex()
             and call["target_abs"] == fragment.target_abs
             and call["helper_id"] == fragment.helper_id and call["symbol"] == fragment.symbol
@@ -197,7 +208,7 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
     offsets = {uid: SpliceGroupOffsets(tuple(items)) for uid, items in spans.items()}
     known_weight, retired_weight, unknown_weight, nonexact_weight = 0, 0, 0, 0
     for key, row in sorted((before | old_retired).items()):
-        if row["annotation"] == "verified_nested_call":
+        if row["annotation"] in ("guarded_fallback_call", "verified_nested_call"):
             continue
         annotated = row["annotation"] != "decoded_only"
         if annotated:
@@ -211,10 +222,21 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
         if proof is not None:
             matches_old = key in old_retired and proof["certificate"] == row["certificate"]
             verify_new = (key not in old_retired and annotated and native_checked
-                          and _matches(row, proof["fragment"]))
+                          and row["image_bound"] and _bound_call_matches(row, proof["fragment"]))
             if artifact_checked and proof["image_bound"] and (matches_old or verify_new):
-                matched_retired.add(key)
-                current_row, status = proof, "retired_verified"
+                fragment = proof["fragment"]
+                if fragment.splice is not None and fragment.splice.kind == UDIV_KIND:
+                    fallback_key = (key[0], proof.get("fallback_off"))
+                    fallback = after.get(fallback_key)
+                    if (fallback and fallback.get("annotation") == "guarded_fallback_call"
+                            and fallback.get("parent_certificate") == proof["certificate"]):
+                        matched_retired.add(key)
+                        matched_live.add(fallback_key)
+                        current_row, status = fallback, "guarded_inline_with_fallback"
+                        counts["guarded_inline"] += 1
+                else:
+                    matched_retired.add(key)
+                    current_row, status = proof, "retired_verified"
         if status is None:
             uid, off = key
             current_key = key
@@ -273,7 +295,7 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
         "schema": "scopt.host_call_coverage/1",
         "required_annotated_sites": counts["required"],
         "resolved_sites": counts["resolved"], "unresolved_sites": counts["unresolved"],
-        "retired_verified_sites": counts["retired_verified"],
+        "retired_verified_sites": counts["retired_verified"], "guarded_inline_sites": counts["guarded_inline"],
         "strict_coverage_complete": not blockers, "blockers": dict(blockers),
         "current_call_free": not after and not current_uninspected,
         "certified_nested_frame_calls": certified_nested,

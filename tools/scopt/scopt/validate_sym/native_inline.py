@@ -45,6 +45,18 @@ def _stack_reg(name: str) -> bool:
     return fam is not None and fam[0] == "rsp"
 
 
+def _movsx_word_from_byte(insn: capstone.CsInsn) -> bool:
+    # 66 [REX] 0F BE /r, mod=3 (MOVSX r16,r8). In 64-bit mode REX can
+    # select extended GPRs or SIL/DIL/BPL/SPL; the stack-register check
+    # separately rejects SPL and SP. No segment, REP or address override.
+    raw = insn.bytes
+    return (insn.mnemonic == "movsx" and raw[0] == 0x66 and
+            (len(raw) == 4 or len(raw) == 5 and raw[1] in (0x40, 0x41, 0x44, 0x45)) and
+            raw[-3:-1] == b"\x0f\xbe" and raw[-1] & 0xc0 == 0xc0 and
+            len(insn.operands) == 2 and all(op.type == X.X86_OP_REG for op in insn.operands) and
+            (insn.operands[0].size, insn.operands[1].size) == (2, 1))
+
+
 def _function(code: bytes, max_cfg: int) -> dict[int, Any]:
     _require(bool(code), "ambiguous_bounds", "empty function")
     insns = {i.address: i for i in decoder().disasm(code, 0)}
@@ -79,7 +91,8 @@ def _function(code: bytes, max_cfg: int) -> dict[int, Any]:
         _require(not any(_stack_reg(i.reg_name(reg)) for reg in (*reads, *writes)),
                  "unsupported_stack", f"{i.mnemonic} uses the stack at {off:#x}")
         if bytes(i.bytes) not in (b"\xf3\x0f\x1e\xfa", b"\x90"):
-            _require(i.mnemonic in _ALU and not any(i.prefix), "unsupported_instruction",
+            _require(i.mnemonic in _ALU and (not any(i.prefix) or _movsx_word_from_byte(i)),
+                     "unsupported_instruction",
                      f"unsupported {i.mnemonic} at {off:#x}")
             for op in i.operands:
                 if op.type == X.X86_OP_MEM:
@@ -146,6 +159,12 @@ def verify_fragment(request: InlineCall, island: bytes | None = None, *,
 
 
 def verify_site(unit: TBUnit, request: InlineCall, code_address: int) -> None:
+    """Check an ordinary NO_RWG | NO_SIDE_EFFECTS helper before removing its call."""
+    _verify_bound_site(unit, request, code_address, required_flags=5)
+
+
+def _verify_bound_site(unit: TBUnit, request: InlineCall, code_address: int, *,
+                       required_flags: int) -> None:
     """Verify the original TCG call and the private return-slot obligations.
 
     Assumes the admitted x86-64 SysV QEMU TCG frame and no observation of dead
@@ -161,11 +180,10 @@ def verify_site(unit: TBUnit, request: InlineCall, code_address: int) -> None:
              "stale_inline_call", "original unit hash or call bytes differ")
     binding = next((h for h in unit.bindings.helpers if h.id == request.helper_id), None)
     site = [s for s in unit.sites if s.kind is SiteKind.HELPER_CALL and s.insn_off == start]
-    # NO_RWG (bit 0) and NO_SIDE_EFFECTS (bit 2) are both required.
-    _require(binding is not None and binding.name is not None and binding.flags & 0xf == 5 and
+    _require(binding is not None and binding.name is not None and binding.flags & 0xf == required_flags and
              binding.func == request.target_abs and binding.symbol == request.symbol and
              len(site) == 1 and site[0].aux == binding.id and site[0].value == binding.func,
-             "unsupported_recovery", "call is not a bound pure TCG helper")
+             "unsupported_recovery", "call lacks the expected TCG helper binding or flags")
     base = code_address + unit.tc_offset
     code_end = unit.pool_start if unit.pool_start is not None else unit.ldst_end
     callers = sweep(unit.code[:code_end], base)

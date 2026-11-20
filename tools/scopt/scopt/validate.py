@@ -381,7 +381,7 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
     from .analysis.store import AnalysisStore
     from .importer.join import ImportRejected
     from .link import LinkError, relocate_unit
-    from .model.native import supports_tcg_integer_abi
+    from .model.native import UDIV_KIND, supports_tcg_integer_abi
     from .splice_layout import materialize_splices, verify_relaxed_branches
     from .validate_sym.native_inline import NativeInlineError, verify_fragment, verify_site
     from .validate_sym.program import certified_native_calls, program_of, world_of
@@ -406,7 +406,12 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                     raise ValueError("inline requests overlap or are out of order")
                 last = call.continuation_off
                 framed = call.splice is not None and call.splice.kind == "frame"
-                if not framed:
+                guarded = call.splice is not None and call.splice.kind == UDIV_KIND
+                if guarded:
+                    from .validate_sym.native_udiv import verify_udiv_splice
+
+                    verify_udiv_splice(original, call, code_address)
+                elif not framed:
                     verify_site(original, call, code_address)
                 if not call.bridge_sha256:
                     raise ValueError("native bridge digest is missing")
@@ -438,6 +443,11 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                             certified.call.call_class != "plugin" or certified.call.helper_flags != 0 or
                             certified.callee.tcg_typemask != 400):
                         raise ValueError("framed splice does not match the captured plugin ABI")
+                elif guarded:
+                    from .validate_sym.native_udiv import is_udiv_binding
+
+                    if not is_udiv_binding(certified):
+                        raise ValueError("guarded UDIV does not match the bound helper ABI")
                 elif (certified.callee.role != "qemu" or
                       not supports_tcg_integer_abi(certified.callee.tcg_typemask)):
                     raise ValueError("linked callee does not match the captured integer helper ABI")
@@ -801,9 +811,17 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
                 if _fixup_rows(u2) != expected_fixups:
                     bad3b.append(f"{u2.uid}: remapped fixups differ")
                 ci, co = _classes(details.get(u.uid)), _classes(res.checks.get(u2.slot))
-                if ci is not None and sorted((mu.field(off), cls) for off, cls in ci
-                                             if not mu.contains(off)) != (co or []):
-                    bad3b.append(f"{u2.uid}: remapped site classes differ")
+                if ci is not None:
+                    from .model.native import UDIV_KIND
+
+                    # A guarded original CALL retains its pointer-pool field at
+                    # the end of the new body. Every other replaced field retires.
+                    fallback_fields = {call.call_off + 2: mu(call.continuation_off) - 4
+                                       for call in expected_inline if call.splice.kind == UDIV_KIND}
+                    mapped = [(mu.field(off), cls) for off, cls in ci if not mu.contains(off)]
+                    mapped.extend((fallback_fields[off], cls) for off, cls in ci if off in fallback_fields)
+                    if sorted(mapped) != (co or []):
+                        bad3b.append(f"{u2.uid}: remapped site classes differ")
                 continue
 
             added_inline = expected_inline if u.inline_start is None and not u.splice_applied else ()

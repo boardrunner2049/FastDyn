@@ -153,6 +153,35 @@ def test_cascading_branch_widens_map_the_splice_and_capture():
         materialize_splice(unit, request, ca)
 
 
+def test_integer_conditional_leaf_materializes_and_roundtrips_through_scm():
+    chunk, unit, template, ca = _short_branch_fixture(())
+    helper = bytes.fromhex("f30f1efa 4889f8 4885f6 7403 4801f0 c3")
+    fragment = NativeFragment(helper[:-1] + b"\xe9\0\0\0\0",
+                              tuple(NativeOrigin(i.address, i.size, i.address,
+                                                 5 if i.is_ret else i.size)
+                                    for i in sweep(helper, 0)), (len(helper),))
+    req = replace(template, callee_code=helper, fragment=fragment, tcg_typemask=0x124, splice=None)
+    req = replace(req, splice=prepare_splice(unit, req, ca))
+    req = prepare_splice_layout(unit, req, ca)
+    assert req.splice.start_off == req.call_off and req.splice.prefix == b""
+    physical = materialize_splice(unit, req, ca)
+    assert physical.code[:req.call_off] == unit.code[:req.call_off]
+    assert not physical.opmarks and not physical.sites
+    code = physical.code
+    chunk = replace(chunk, record=physical.record, reserved=req.splice.start_off,
+                    native_fragments=(req,), code_size=len(code), pool_start=len(code),
+                    body_end=len(code), ldst_end=len(code),
+                    insns=(ScmInsn(chunk.insns[0].words, 0, len(code)),))
+    parsed, padding = TbChunk.decode(chunk.encode())
+    assert not padding and parsed == chunk
+    ctx = SimpleNamespace(helper=lambda _: SimpleNamespace(func=req.target_abs))
+    assert _check(parsed, code, ctx) is None
+    branch_at = req.splice.start_off + 6
+    assert code[branch_at] == 0x74
+    mutated = code[:branch_at] + b"\x75" + code[branch_at + 1:]
+    assert "splice bytes" in _check(parsed, mutated, ctx)
+
+
 def test_backward_short_conditional_widen_preserves_taken_and_fallthrough():
     _, unit, request, ca = _short_branch_fixture(((130, 0x74, 4),))
     planned = prepare_splice_layout(unit, request, ca)

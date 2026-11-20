@@ -1,11 +1,10 @@
-"""Certify an x86-64 register-only helper stitched into its caller.
+"""Certify register-only x86-64 helpers stitched into their TCG callers.
 
-The incoming TCG instruction reads one i32 argument from [RBP+disp] into
-EDI. The native helper starts by copying EDI into EAX and reaches a full
-RDI overwrite before any further read. Retargeting the same load to EAX
-therefore preserves its memory and fault behavior, and the identical native
-body restores agreement on every register and on the architectural flag
-relation at the continuation.
+Copying a position-independent leaf through its single final RET preserves
+its register and flags effects. Internal branches keep their displacements
+and a branch to the original RET now reaches the fallthrough padding. An
+optional unary argument fusion also removes the callee's initial register
+copy when the original argument register becomes dead before its next use.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from capstone import x86 as X
 from ..analysis.hostops import reg_family
 from ..decode.x86 import Insn, decoder, sweep
 from ..formats.enums import OpMarkKind, SiteKind
-from ..model.native import InlineCall, NativeSplice
+from ..model.native import InlineCall, NativeSplice, supports_tcg_integer_abi
 from ..model.unit import TBUnit
 from .native_inline import NativeInlineError, _require, verify_fragment, verify_site
 
@@ -34,15 +33,6 @@ _ZERO_RDI = frozenset(bytes.fromhex(code) for code in ("31ff", "33ff", "4831ff",
 _PADDING = tuple(bytes.fromhex(code) for code in (
     "", "90", "6690", "0f1f00", "0f1f4000", "0f1f440000", "660f1f440000", "0f1f8000000000",
 ))
-
-
-def _retarget_load(prefix: bytes) -> bytes:
-    # MOV r32,[RBP+disp8/disp32] with no address-size, segment or REX
-    # prefix. Only the ModR/M register field changes, from EDI to EAX.
-    _require((len(prefix) == 3 and prefix[:2] == b"\x8b\x7d") or
-             (len(prefix) == 6 and prefix[:2] == b"\x8b\xbd"),
-             "splice_argument_load", "expected an adjacent MOV EDI,[RBP+disp]")
-    return prefix[:1] + bytes((prefix[1] & 0xc7,)) + prefix[2:]
 
 
 def _is_rdi(insn: capstone.CsInsn, reg: int) -> bool:
@@ -61,47 +51,64 @@ def _kills_argument(insn: capstone.CsInsn, reads_rdi: bool) -> bool:
     return dst.type == X.X86_OP_REG and dst.reg in (X.X86_REG_EDI, X.X86_REG_RDI)
 
 
-def _prepare_body(request: InlineCall, start_off: int, prefix: bytes) -> NativeSplice:
-    typemask = request.tcg_typemask
-    _require(type(typemask) is int and typemask in _I32_ABIS,
-             "splice_abi", "expected (i32) -> i32")
-    cont = request.continuation_off
-    direct = len(request.call_bytes) == 5 and request.call_bytes[:1] == b"\xe8"
-    indirect = len(request.call_bytes) == 6 and request.call_bytes[:2] == b"\xff\x15"
-    _require(0 <= start_off < request.call_off and start_off + len(prefix) == request.call_off and
-             cont == request.call_off + len(request.call_bytes) and
-             ((direct and request.pool_slot_off is None) or
-              (indirect and request.pool_slot_off is not None)),
-             "splice_origin", "argument load and CALL do not form the captured span")
-    load = _retarget_load(prefix)
-    verify_fragment(request)
-
-    source = request.callee_code
-    instructions = list(decoder().disasm(source, 0))
-    if instructions and bytes(instructions[0].bytes) == _ENDBR64:
-        instructions.pop(0)
-    _require(len(instructions) >= 2 and bytes(instructions[0].bytes) in _COPY_ARG and
-             bytes(instructions[-1].bytes) == b"\xc3",
-             "splice_callee_shape", "expected a MOV EAX,EDI prologue and one final near RET")
+def _fused_body(source: bytes, instructions: list[capstone.CsInsn], prefix: bytes) -> bytes | None:
+    # MOV EDI,[RBP+disp8/disp32] -> MOV EAX,[RBP+disp8/disp32].
+    if not ((len(prefix) == 3 and prefix[:2] == b"\x8b\x7d") or
+            (len(prefix) == 6 and prefix[:2] == b"\x8b\xbd")):
+        return None
+    if bytes(instructions[0].bytes) == _ENDBR64:
+        instructions = instructions[1:]
+    if len(instructions) < 2 or bytes(instructions[0].bytes) not in _COPY_ARG:
+        return None
     body = instructions[1:-1]
-    _require(not any(ins.group(group) for ins in body for group in (
-        capstone.CS_GRP_JUMP, capstone.CS_GRP_CALL, capstone.CS_GRP_RET,
-    )), "splice_callee_control", "splice requires a straight-line native body")
-
-    argument_dead = False
+    if any(ins.group(capstone.CS_GRP_JUMP) for ins in body):
+        return None
     for insn in body:
         reads, writes = insn.regs_access()
         reads_rdi = any(_is_rdi(insn, reg) for reg in reads)
         if _kills_argument(insn, reads_rdi):
-            argument_dead = True
-            break
-        _require(not reads_rdi and not any(_is_rdi(insn, reg) for reg in writes),
-                 "splice_argument_live", f"RDI observed before a complete overwrite at {insn.address:#x}")
-    _require(argument_dead, "splice_argument_live", "RDI is still different at the continuation")
+            load = prefix[:1] + bytes((prefix[1] & 0xc7,)) + prefix[2:]
+            return load + source[instructions[0].address + instructions[0].size:-1]
+        if reads_rdi or any(_is_rdi(insn, reg) for reg in writes):
+            return None
+    return None
 
-    code = load + source[instructions[0].address + instructions[0].size:instructions[-1].address]
-    padding = (cont - start_off - len(code)) % 8
-    return NativeSplice(start_off=start_off, prefix=prefix, code=code + _PADDING[padding])
+
+def _prepare_body(request: InlineCall, prefix: bytes) -> NativeSplice:
+    _require(supports_tcg_integer_abi(request.tcg_typemask),
+             "splice_abi", "expected an integer result and up to six register arguments")
+    start, cont = request.call_off, request.continuation_off
+    direct = len(request.call_bytes) == 5 and request.call_bytes[:1] == b"\xe8"
+    indirect = len(request.call_bytes) == 6 and request.call_bytes[:2] == b"\xff\x15"
+    _require(0 <= start and cont == start + len(request.call_bytes) and
+             ((direct and request.pool_slot_off is None) or
+              (indirect and request.pool_slot_off is not None)),
+             "splice_origin", "CALL does not match the captured span")
+    verify_fragment(request)
+    source = request.callee_code
+    instructions = list(decoder().disasm(source, 0))
+    _require(bytes(instructions[-1].bytes) == b"\xc3" and not any(
+        ins.group(capstone.CS_GRP_RET) for ins in instructions[:-1]
+    ), "splice_callee_control", "fallthrough splice requires a single final near RET")
+
+    code = None
+    if request.tcg_typemask in _I32_ABIS and start >= len(prefix):
+        code = _fused_body(source, instructions, prefix)
+    if code is None:
+        # The TCG emitter already set up the SysV registers. Keeping the setup
+        # allows all integer ABIs and preserves even caller-saved registers
+        # that the original callee happened to leave unchanged.
+        prefix = b""
+        code = source[:-1]
+        # ENDBR64 has no effect on a fallthrough. Keep it if the original
+        # helper has a direct back edge to its entry so the displacement holds.
+        if source.startswith(_ENDBR64) and not any(
+            ins.group(capstone.CS_GRP_JUMP) and ins.operands[0].imm == 0 for ins in instructions
+        ):
+            code = code[len(_ENDBR64):]
+    start -= len(prefix)
+    padding = (cont - start - len(code)) % 8
+    return NativeSplice(start_off=start, prefix=prefix, code=code + _PADDING[padding])
 
 
 def _references_splice(insn: Insn, first: int, end: int) -> bool:
@@ -117,17 +124,10 @@ def _references_splice(insn: Insn, first: int, end: int) -> bool:
     return target < end and target + size > first
 
 
-def prepare_splice(unit: TBUnit, request: InlineCall, code_address: int) -> NativeSplice:
-    """Find and certify the captured argument load and candidate body."""
-    verify_site(unit, request, code_address)
-    base = code_address + unit.tc_offset
+def _verify_span(unit: TBUnit, request: InlineCall, splice: NativeSplice,
+                 base: int, callers: list[Insn]) -> None:
     start, end = request.call_off, request.continuation_off
-    code_end = unit.pool_start if unit.pool_start is not None else unit.ldst_end
-    callers = sweep(unit.code[:code_end], base)
-    arg = next((ins for ins in callers if ins.address + ins.size == base + start), None)
-    _require(arg is not None, "splice_argument_load", "CALL has no adjacent argument instruction")
-    assert arg is not None
-    first = arg.address - base
+    first = splice.start_off
     site, = (s for s in unit.sites if s.kind is SiteKind.HELPER_CALL and s.insn_off == start)
     _require(site.insn_idx is not None and any(
         insn.index == site.insn_idx and insn.host_start <= first and end <= insn.host_end
@@ -163,7 +163,26 @@ def prepare_splice(unit: TBUnit, request: InlineCall, code_address: int) -> Nati
         for mark in unit.opmarks
     ), "splice_origin", "the stitched span contains an unrelated guest or recovery boundary")
 
-    return _prepare_body(request, first, arg.raw)
+
+def prepare_splice(unit: TBUnit, request: InlineCall, code_address: int) -> NativeSplice:
+    """Prefer argument fusion when every entry and observer permits it."""
+    verify_site(unit, request, code_address)
+    base = code_address + unit.tc_offset
+    code_end = unit.pool_start if unit.pool_start is not None else unit.ldst_end
+    callers = sweep(unit.code[:code_end], base)
+    arg = next((ins for ins in callers if ins.end == base + request.call_off), None)
+    splice = _prepare_body(request, arg.raw if arg is not None else b"")
+    try:
+        _verify_span(unit, request, splice, base, callers)
+    except NativeInlineError:
+        if not splice.prefix:
+            raise
+        # A branch directly to the old CALL or a separate guest origin can
+        # forbid removing the load while allowing the call itself to be spliced.
+        # Recheck the smaller footprint, including all accesses to its bytes.
+        splice = _prepare_body(request, b"")
+        _verify_span(unit, request, splice, base, callers)
+    return splice
 
 
 def verify_splice_body(request: InlineCall) -> None:
@@ -171,7 +190,7 @@ def verify_splice_body(request: InlineCall) -> None:
     splice = request.splice
     if splice is None:
         raise NativeInlineError("splice_missing", "native splice record required")
-    expected = _prepare_body(request, splice.start_off, splice.prefix)
+    expected = _prepare_body(request, splice.prefix)
     _require(expected == replace(splice, branches=()), "splice_correspondence",
              "stitched code or padding differs")
 

@@ -9,6 +9,11 @@ from typing import Any
 from ..canon import canonical_json, sha256_id
 
 
+UDIV_KIND = "guarded-udiv"
+# QEMU TCG u32 (env, u32, u32) on the admitted x86-64 SysV host.
+UDIV_TYPEMASK = 2 | (6 << 3) | (2 << 6) | (2 << 9)
+
+
 def supports_tcg_integer_abi(typemask: int) -> bool:
     """An integer return and at most six integer SysV GPR arguments."""
     integer_codes = (2, 3, 4, 5)

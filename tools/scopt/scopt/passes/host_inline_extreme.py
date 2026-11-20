@@ -7,9 +7,9 @@ from dataclasses import dataclass, field, replace
 
 from ..analysis.native_callees import NativeCallBinding
 from ..decode.x86 import sweep, tiles
-from ..model.native import InlineCall
+from ..model.native import UDIV_KIND, InlineCall
 from .base import Outcome, PassResult
-from .host_inline import HostInlineSplice
+from .host_inline import HostInline, HostInlineSplice
 
 
 EXTREME_PASS = "host-inline-extreme"
@@ -34,6 +34,7 @@ class HostInlineExtreme(HostInlineSplice):
         params_schema={**HostInlineSplice.descriptor.params_schema, "allow_partial": bool,
                        "max_inline_depth": int, "compact_frame": bool},
     )
+    default_params = HostInline.default_params
     consider_cold = True
     max_sites_per_unit = 1
 
@@ -55,7 +56,7 @@ class HostInlineExtreme(HostInlineSplice):
         return 0 if binding.callee.role == "plugin" else 1
 
     def _uses_leaf_fragment(self, binding: NativeCallBinding) -> bool:
-        return binding.callee.role != "plugin"
+        return binding.callee.role != "plugin" and super()._uses_leaf_fragment(binding)
 
     def _prepare_splice(self, unit, request: InlineCall, code_address: int,
                         binding: NativeCallBinding, params):
@@ -110,9 +111,19 @@ class HostInlineExtreme(HostInlineSplice):
                          if r.splice is not None and r.splice.kind == "frame"]
         framed_approved = len(framed_depths)
         approved_depths = sorted(set(framed_depths))
-        complete = seen == approved and undecodable == 0
+        guarded = {(r.target, r.call_off) for r in staged.requests
+                   if r.splice is not None and r.splice.kind == UDIV_KIND}
+        fully_inlined = approved - len(guarded)
+        complete = seen == fully_inlined and undecodable == 0
         applied = approved if complete or partial else 0
-        detail["coverage"] = {"mode": "partial" if partial else "strict",
+        for site in detail["sites"]:
+            if (site["unit"], site["call_off"]) in guarded:
+                site["retains_fallback_call"] = True
+        retirement = {"fully_inlined_sites_approved": fully_inlined,
+                      "fully_inlined_sites_applied": fully_inlined if applied else 0,
+                      "guarded_sites_approved": len(guarded),
+                      "guarded_sites_applied": len(guarded) if applied else 0}
+        detail["coverage"] = {**retirement, "mode": "partial" if partial else "strict",
                               "sites_seen": seen, "sites_approved": approved,
                               "sites_applied": applied, "complete": complete,
                               "framed_virtuals_approved": framed_approved,
@@ -121,8 +132,8 @@ class HostInlineExtreme(HostInlineSplice):
                               "frame_expansion_depths_approved": approved_depths,
                               "frame_expansion_depths_applied": approved_depths if applied else [],
                               "undecodable_units": undecodable}
-        stats = {**result.stats, "sites_seen": seen, "sites_approved": approved,
-                 "sites_uncovered": seen - approved, "sites_applied": applied,
+        stats = {**result.stats, **retirement, "sites_seen": seen, "sites_approved": approved,
+                 "sites_uncovered": seen - fully_inlined, "sites_applied": applied,
                  "framed_virtuals_approved": framed_approved,
                  "framed_virtuals_applied": framed_approved if applied else 0,
                  "units_undecodable": undecodable}
