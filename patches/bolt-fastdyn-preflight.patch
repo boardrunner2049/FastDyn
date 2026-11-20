@@ -85,7 +85,7 @@ index 0000000000000000000000000000000000000000..d22f9f60e8e38d09bd653fab5ea93a2f
 +
 +#endif
 diff --git a/bolt/include/bolt/Core/BinaryContext.h b/bolt/include/bolt/Core/BinaryContext.h
-index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f7024bfcf5b 100644
+index e35d6caad3a280e53dc457f3620a86f27a32f1f1..ac1a5ad71084d7735ed3a322d6b281855143c67f 100644
 --- a/bolt/include/bolt/Core/BinaryContext.h
 +++ b/bolt/include/bolt/Core/BinaryContext.h
 @@ -26,6 +26,7 @@
@@ -96,7 +96,17 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f70
  #include "llvm/ADT/StringMap.h"
  #include "llvm/ADT/StringRef.h"
  #include "llvm/ADT/iterator.h"
-@@ -98,10 +99,13 @@ inline raw_ostream &operator<<(raw_ostream &OS, const SegmentInfo &SegInfo) {
+@@ -42,7 +43,9 @@
+ #include "llvm/MC/MCSectionMachO.h"
+ #include "llvm/MC/MCStreamer.h"
+ #include "llvm/MC/MCSymbol.h"
++#include "llvm/MC/MCTargetOptions.h"
+ #include "llvm/MC/TargetRegistry.h"
++#include "llvm/Support/Compression.h"
+ #include "llvm/Support/ErrorOr.h"
+ #include "llvm/Support/RWMutex.h"
+ #include "llvm/Support/raw_ostream.h"
+@@ -98,10 +101,13 @@ inline raw_ostream &operator<<(raw_ostream &OS, const SegmentInfo &SegInfo) {
    return OS;
  }
  
@@ -111,7 +121,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f70
    DATA,
  };
  
-@@ -189,6 +193,19 @@ struct JournalingStreams {
+@@ -189,6 +195,19 @@ struct JournalingStreams {
  Error createNonFatalBOLTError(const Twine &S);
  Error createFatalBOLTError(const Twine &S);
  
@@ -131,7 +141,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f70
  class BinaryContext {
    BinaryContext() = delete;
  
-@@ -248,6 +265,25 @@ class BinaryContext {
+@@ -248,6 +267,25 @@ class BinaryContext {
    /// Locations of PC-relative relocations in data objects.
    std::unordered_set<uint64_t> DataPCRelocations;
  
@@ -157,7 +167,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f70
    /// Used in duplicateJumpTable() to uniquely identify a JT clone
    /// Start our IDs with a high number so getJumpTableContainingAddress checks
    /// with size won't overflow
-@@ -295,10 +331,79 @@ class BinaryContext {
+@@ -295,10 +333,80 @@ class BinaryContext {
    std::mutex DWPUnitsMutex;
  
  public:
@@ -234,11 +244,12 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f70
        StringRef InputFileName, SubtargetFeatures *Features, bool IsPIC,
 -      std::unique_ptr<DWARFContext> DwCtx, JournalingStreams Logger);
 +      std::unique_ptr<DWARFContext> DwCtx, JournalingStreams Logger,
-+      StringRef InputCPUName = {});
++      StringRef InputCPUName = {},
++      DebugCompressionType DebugCompression = DebugCompressionType::None);
  
    /// Returns the mutex guarding concurrent access to DWP units.
    std::mutex &getUnitsMutex() { return DWPUnitsMutex; }
-@@ -517,6 +622,12 @@ public:
+@@ -517,6 +625,12 @@ public:
  
    /// Return size of an entry for the given jump table \p Type.
    uint64_t getJumpTableEntrySize(JumpTable::JumpTableType Type) const {
@@ -251,7 +262,18 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f70
      return Type == JumpTable::JTT_PIC ? 4 : AsmInfo->getCodePointerSize();
    }
  
-@@ -781,6 +892,18 @@ public:
+@@ -727,6 +841,10 @@ public:
+   /// jump table names.
+   std::map<uint64_t, size_t> JumpTableIds;
+ 
++  // MCAsmInfo retains a reference to these options. Keep them owned by and
++  // declared before every MC object that may transitively reference them.
++  std::unique_ptr<MCTargetOptions> TargetOptions;
++
+   std::unique_ptr<MCContext> Ctx;
+ 
+   /// A mutex that is used to control parallel accesses to Ctx
+@@ -781,6 +899,18 @@ public:
    /// Indicates if relocations are available for usage.
    bool HasRelocations{false};
  
@@ -270,7 +292,17 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f70
    /// Indicates if the binary is stripped
    bool IsStripped{false};
  
-@@ -997,6 +1120,8 @@ public:
+@@ -972,7 +1102,8 @@ public:
+   /// large code model and position-independent executables.
+   void updateLSDAEncoding();
+ 
+-  BinaryContext(std::unique_ptr<MCContext> Ctx,
++  BinaryContext(std::unique_ptr<MCTargetOptions> TargetOptions,
++                std::unique_ptr<MCContext> Ctx,
+                 std::unique_ptr<DWARFContext> DwCtx,
+                 std::unique_ptr<Triple> TheTriple,
+                 std::shared_ptr<orc::SymbolStringPool> SSP,
+@@ -997,6 +1128,8 @@ public:
  
    bool isMachO() const { return TheTriple->isOSBinFormatMachO(); }
  
@@ -279,7 +311,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f70
    const RelocationHandler &getRelocationHandler() const {
      assert(RelocHandler && "relocation handler is not initialized");
      return *RelocHandler;
-@@ -1006,6 +1131,11 @@ public:
+@@ -1006,6 +1139,11 @@ public:
      return TheTriple->getArch() == llvm::Triple::aarch64;
    }
  
@@ -291,7 +323,7 @@ index e35d6caad3a280e53dc457f3620a86f27a32f1f1..9d7fe4c81163aa090bdb8e94cb083f70
    bool isX86() const {
      return TheTriple->getArch() == llvm::Triple::x86 ||
             TheTriple->getArch() == llvm::Triple::x86_64;
-@@ -1457,6 +1587,21 @@ public:
+@@ -1457,6 +1595,21 @@ public:
      return std::make_error_code(std::errc::bad_address);
    }
  
@@ -2298,7 +2330,7 @@ index a6d0ca94811540361916aefd3b59633d3b0296bc..31df428351f12f26190801e8de267190
  
  BinaryBasicBlock::BinaryBranchInfo &
 diff --git a/bolt/lib/Core/BinaryContext.cpp b/bolt/lib/Core/BinaryContext.cpp
-index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4357d5bb5 100644
+index d65fd4d720714c249fc49a4b3a317b01aed761cd..9f8488c43ef92ce400b40db246abc28a87b4f044 100644
 --- a/bolt/lib/Core/BinaryContext.cpp
 +++ b/bolt/lib/Core/BinaryContext.cpp
 @@ -103,6 +103,14 @@ static cl::opt<bool> DropDWOPageCache(
@@ -2316,7 +2348,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
  } // namespace opts
  
  namespace llvm {
-@@ -140,12 +148,24 @@ Error createFatalBOLTError(const Twine &S) {
+@@ -140,15 +148,28 @@ Error createFatalBOLTError(const Twine &S) {
  }
  
  void BinaryContext::logBOLTErrorsAndQuitOnFatal(Error E) {
@@ -2345,8 +2377,22 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
 +    exit(1);
  }
  
- BinaryContext::BinaryContext(std::unique_ptr<MCContext> Ctx,
-@@ -171,8 +191,17 @@ BinaryContext::BinaryContext(std::unique_ptr<MCContext> Ctx,
+-BinaryContext::BinaryContext(std::unique_ptr<MCContext> Ctx,
++BinaryContext::BinaryContext(std::unique_ptr<MCTargetOptions> TargetOptions,
++                             std::unique_ptr<MCContext> Ctx,
+                              std::unique_ptr<DWARFContext> DwCtx,
+                              std::unique_ptr<Triple> TheTriple,
+                              std::shared_ptr<orc::SymbolStringPool> SSP,
+@@ -164,15 +185,25 @@ BinaryContext::BinaryContext(std::unique_ptr<MCContext> Ctx,
+                              std::unique_ptr<const MCRegisterInfo> MRI,
+                              std::unique_ptr<MCDisassembler> DisAsm,
+                              JournalingStreams Logger)
+-    : Ctx(std::move(Ctx)), DwCtx(std::move(DwCtx)),
++    : TargetOptions(std::move(TargetOptions)), Ctx(std::move(Ctx)),
++      DwCtx(std::move(DwCtx)),
+       TheTriple(std::move(TheTriple)), SSP(std::move(SSP)),
+       TheTarget(TheTarget), TripleName(TripleName), MCE(std::move(MCE)),
+       MOFI(std::move(MOFI)), AsmInfo(std::move(AsmInfo)), MII(std::move(MII)),
        STI(std::move(STI)), InstPrinter(std::move(InstPrinter)),
        MIA(std::move(MIA)), MIB(std::move(MIB)), MRI(std::move(MRI)),
        DisAsm(std::move(DisAsm)), Logger(Logger), InitialDynoStats(isAArch64()) {
@@ -2366,19 +2412,19 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
  }
  
  BinaryContext::~BinaryContext() {
-@@ -190,8 +219,10 @@ BinaryContext::~BinaryContext() {
+@@ -190,8 +221,10 @@ BinaryContext::~BinaryContext() {
  Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
      Triple TheTriple, std::shared_ptr<orc::SymbolStringPool> SSP,
      StringRef InputFileName, SubtargetFeatures *Features, bool IsPIC,
 -    std::unique_ptr<DWARFContext> DwCtx, JournalingStreams Logger) {
 +    std::unique_ptr<DWARFContext> DwCtx, JournalingStreams Logger,
-+    StringRef InputCPUName) {
++    StringRef InputCPUName, DebugCompressionType DebugCompression) {
    StringRef ArchName = "";
 +  StringRef CPUName = "";
    std::string FeaturesStr = "";
    switch (TheTriple.getArch()) {
    case llvm::Triple::x86_64:
-@@ -208,6 +239,87 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
+@@ -208,6 +241,87 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
      ArchName = "aarch64";
      FeaturesStr = "+all";
      break;
@@ -2466,7 +2512,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
    case llvm::Triple::riscv64:
    case llvm::Triple::riscv32: {
      ArchName = TheTriple.getArchName();
-@@ -228,8 +340,13 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
+@@ -228,8 +342,13 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
    const std::string TripleName = TheTriple.str();
  
    std::string Error;
@@ -2481,7 +2527,25 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
    if (!TheTarget)
      return createStringError(make_error_code(std::errc::not_supported),
                               Twine("BOLT-ERROR: ", Error));
-@@ -257,7 +374,7 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
+@@ -241,11 +360,13 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
+         make_error_code(std::errc::not_supported),
+         Twine("BOLT-ERROR: no register info for target ", TripleName));
+ 
+-  // Set up disassembler. The MCAsmInfo holds a reference to MCTargetOptions, so
+-  // make it static to outlive the AsmInfo.
+-  static const MCTargetOptions MCOptions;
++  // MCAsmInfo retains a reference to MCTargetOptions. BinaryContext owns the
++  // options so auxiliary debug streamers can preserve an input DWO/DWP
++  // compression algorithm without process-global mutable state.
++  auto MCOptions = std::make_unique<MCTargetOptions>();
++  MCOptions->CompressDebugSections = DebugCompression;
+   std::unique_ptr<MCAsmInfo> AsmInfo(
+-      TheTarget->createMCAsmInfo(*MRI, TheTriple, MCOptions));
++      TheTarget->createMCAsmInfo(*MRI, TheTriple, *MCOptions));
+   if (!AsmInfo)
+     return createStringError(
+         make_error_code(std::errc::not_supported),
+@@ -257,7 +378,7 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
    AsmInfo->setAllowAtInName(true);
  
    std::unique_ptr<const MCSubtargetInfo> STI(
@@ -2490,7 +2554,25 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
    if (!STI)
      return createStringError(
          make_error_code(std::errc::not_supported),
-@@ -566,6 +683,23 @@ BinaryContext::getSubBinaryData(BinaryData *BD) {
+@@ -305,11 +426,12 @@ Expected<std::unique_ptr<BinaryContext>> BinaryContext::createBinaryContext(
+       TheTarget->createMCCodeEmitter(*MII, *Ctx));
+ 
+   auto BC = std::make_unique<BinaryContext>(
+-      std::move(Ctx), std::move(DwCtx), std::make_unique<Triple>(TheTriple),
+-      std::move(SSP), TheTarget, std::string(TripleName), std::move(MCE),
+-      std::move(MOFI), std::move(AsmInfo), std::move(MII), std::move(STI),
+-      std::move(InstructionPrinter), std::move(MIA), nullptr, std::move(MRI),
+-      std::move(DisAsm), Logger);
++      std::move(MCOptions), std::move(Ctx), std::move(DwCtx),
++      std::make_unique<Triple>(TheTriple), std::move(SSP), TheTarget,
++      std::string(TripleName), std::move(MCE), std::move(MOFI),
++      std::move(AsmInfo), std::move(MII), std::move(STI),
++      std::move(InstructionPrinter), std::move(MIA), nullptr,
++      std::move(MRI), std::move(DisAsm), Logger);
+ 
+   // Use large code model encoding for AArch64 (always). For X86, this is
+   // updated after detecting .ltext if unset.
+@@ -566,6 +688,23 @@ BinaryContext::getSubBinaryData(BinaryData *BD) {
  std::pair<const MCSymbol *, uint64_t>
  BinaryContext::handleAddressRef(uint64_t Address, BinaryFunction &BF,
                                  bool IsPCRel) {
@@ -2514,7 +2596,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
    if (isAArch64()) {
      // Check if this is an access to a constant island and create bookkeeping
      // to keep track of it and emit it later as part of this function.
-@@ -613,7 +747,8 @@ BinaryContext::handleAddressRef(uint64_t Address, BinaryFunction &BF,
+@@ -613,7 +752,8 @@ BinaryContext::handleAddressRef(uint64_t Address, BinaryFunction &BF,
    // a section, it could be an absolute address too.
    ErrorOr<BinarySection &> Section = getSectionForAddress(Address);
    if (Section && Section->isText()) {
@@ -2524,7 +2606,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
        if (Address != BF.getAddress()) {
          // The address could potentially escape. Mark it as another entry
          // point into the function.
-@@ -888,9 +1023,30 @@ void BinaryContext::populateJumpTables() {
+@@ -888,9 +1028,30 @@ void BinaryContext::populateJumpTables() {
      if (NextJTI != JTE)
        NextJTAddress = NextJTI->second->getAddress();
  
@@ -2558,7 +2640,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
      if (!Success) {
        // Re-analysis here is stricter than during disassembly (the referenced
        // function is now disassembled), so it may fail on a table we accepted
-@@ -1104,6 +1260,10 @@ BinaryContext::duplicateJumpTable(BinaryFunction &Function, JumpTable *JT,
+@@ -1104,6 +1265,10 @@ BinaryContext::duplicateJumpTable(BinaryFunction &Function, JumpTable *JT,
                      *getSectionForAddress(JT->getAddress()));
    NewJT->Parents = JT->Parents;
    NewJT->Entries = JT->Entries;
@@ -2569,7 +2651,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
    NewJT->Counts = JT->Counts;
    uint64_t JumpTableID = ++DuplicatedJumpTables;
    // Invert it to differentiate from regular jump tables whose IDs are their
-@@ -1616,7 +1776,23 @@ void BinaryContext::processInterproceduralReferences() {
+@@ -1616,7 +1781,23 @@ void BinaryContext::processInterproceduralReferences() {
      }
  
      ErrorOr<BinarySection &> Section = getSectionForAddress(Address);
@@ -2594,7 +2676,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
  
      if (!Section->isText())
        continue;
-@@ -2399,9 +2575,9 @@ void BinaryContext::printCFI(raw_ostream &OS, const MCCFIInstruction &Inst) {
+@@ -2399,9 +2580,9 @@ void BinaryContext::printCFI(raw_ostream &OS, const MCCFIInstruction &Inst) {
  MarkerSymType BinaryContext::getMarkerType(unsigned SymbolType,
                                             uint64_t SymbolSize,
                                             StringRef SymbolName) const {
@@ -2607,7 +2689,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
    if (isX86() || SymbolSize)
      return MarkerSymType::NONE;
  
-@@ -2411,6 +2587,14 @@ MarkerSymType BinaryContext::getMarkerType(unsigned SymbolType,
+@@ -2411,6 +2592,14 @@ MarkerSymType BinaryContext::getMarkerType(unsigned SymbolType,
    if (SymbolName == "$x" || SymbolName.starts_with("$x."))
      return MarkerSymType::CODE;
  
@@ -2622,7 +2704,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
    // $x<ISA>
    if (isRISCV() && SymbolName.starts_with("$x"))
      return MarkerSymType::CODE;
-@@ -2640,7 +2824,11 @@ BinarySection &BinaryContext::registerSection(BinarySection *Section) {
+@@ -2640,7 +2829,11 @@ BinarySection &BinaryContext::registerSection(BinarySection *Section) {
    assert(Res.second && "can't register the same section twice.");
  
    // Only register allocatable sections in the AddressToSection map.
@@ -2635,7 +2717,7 @@ index d65fd4d720714c249fc49a4b3a317b01aed761cd..be12fcadbc99c508aa67306400ecf6d4
      AddressToSection.insert(std::make_pair(Section->getAddress(), Section));
    NameToSection.insert(
        std::make_pair(std::string(Section->getName()), Section));
-@@ -2974,7 +3162,7 @@ BinaryContext::calculateEmittedSize(BinaryFunction &BF, bool FixBranches) {
+@@ -2974,7 +3167,7 @@ BinaryContext::calculateEmittedSize(BinaryFunction &BF, bool FixBranches) {
      return std::make_pair(BF.getSize(), 0);
  
    // Adjust branch instruction to match the current layout.
@@ -14161,10 +14243,50 @@ index 18c84468b04ce23388d824e28c0029be48789a45..e4b527098e0bd5284cab5548443f5c9e
        std::make_unique<RetpolineInsertion>(PrintRetpolineInsertion));
  
 diff --git a/bolt/lib/Rewrite/DWARFRewriter.cpp b/bolt/lib/Rewrite/DWARFRewriter.cpp
-index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405b5fe0916 100644
+index e1161943cbdd758c2994382178c8cd5a79b4b46d..a7c95a6b162bd5e84ba3c59d99f21567a24a2bc2 100644
 --- a/bolt/lib/Rewrite/DWARFRewriter.cpp
 +++ b/bolt/lib/Rewrite/DWARFRewriter.cpp
-@@ -555,10 +555,6 @@ static void emitDWOBuilder(const std::string &DWOName,
+@@ -17,9 +17,11 @@
+ #include "llvm/ADT/DenseSet.h"
+ #include "llvm/ADT/EquivalenceClasses.h"
+ #include "llvm/ADT/STLExtras.h"
++#include "llvm/ADT/SmallString.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/ADT/StringRef.h"
+ #include "llvm/BinaryFormat/Dwarf.h"
++#include "llvm/BinaryFormat/ELF.h"
+ #include "llvm/CodeGen/AsmPrinter.h"
+ #include "llvm/CodeGen/DIE.h"
+ #include "llvm/DWARFLinker/Classic/DWARFStreamer.h"
+@@ -33,6 +35,7 @@
+ #include "llvm/MC/MCAssembler.h"
+ #include "llvm/MC/MCObjectWriter.h"
+ #include "llvm/MC/MCStreamer.h"
++#include "llvm/Object/Decompressor.h"
+ #include "llvm/Object/ObjectFile.h"
+ #include "llvm/Support/Casting.h"
+ #include "llvm/Support/CommandLine.h"
+@@ -48,6 +51,7 @@
+ #include <condition_variable>
+ #include <cstddef>
+ #include <cstdint>
++#include <deque>
+ #include <functional>
+ #include <iterator>
+ #include <limits>
+@@ -95,6 +99,11 @@ static void printDie(DWARFUnit &DU, uint64_t DIEOffset) {
+ 
+ using namespace bolt;
+ 
++namespace {
++static Expected<DebugCompressionType>
++getSplitDebugCompression(const object::ObjectFile &File);
++}
++
+ llvm::ThreadPoolInterface &
+ DWARFRewriter::getOrCreateDebugInfoThreadPool(unsigned ThreadsCount) {
+   if (opts::NoThreads || ThreadsCount == 0)
+@@ -555,10 +564,6 @@ static void emitDWOBuilder(const std::string &DWOName,
                             DebugStrOffsetsWriter &StrOffstsWriter,
                             DebugStrWriter &StrWriter, GDBIndex &GDBIndexSection,
                             DebugRangesSectionWriter &TempRangesSectionWriter) {
@@ -14175,7 +14297,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
    SmallVector<char, 20> OutBuffer;
    std::shared_ptr<raw_svector_ostream> ObjOS =
        std::make_shared<raw_svector_ostream>(OutBuffer);
-@@ -770,14 +766,13 @@ void DWARFRewriter::mergePerBucketLocs(DIEBuilder &PartDIEBlder,
+@@ -770,14 +775,13 @@ void DWARFRewriter::mergePerBucketLocs(DIEBuilder &PartDIEBlder,
          Accum.LoclistsOffset += BufferSize;
        } else if (!LocListWriter) {
          LegacyLocBase = Accum.LegacyLocOffset;
@@ -14196,7 +14318,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
        }
      }
  
-@@ -828,13 +823,18 @@ void DWARFRewriter::mergePerBucketRanges(DIEBuilder &PartDIEBlder,
+@@ -828,13 +832,18 @@ void DWARFRewriter::mergePerBucketRanges(DIEBuilder &PartDIEBlder,
    if (!LocalWriters.LegacyRangesWriter || !LegacyRangesSectionWriter)
      return;
  
@@ -14216,7 +14338,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
    const uint64_t GlobalOffset =
        LegacyRangesSectionWriter->getSectionOffset() - LocalTerminatorSize;
    for (DWARFUnit *CU : SortedCUs)
-@@ -888,12 +888,14 @@ void DWARFRewriter::createRangeLocListAndAddressWriters() {
+@@ -888,12 +897,14 @@ void DWARFRewriter::createRangeLocListAndAddressWriters() {
        auto AddrW =
            std::make_unique<DebugAddrWriter>(&BC, CU.getAddressByteSize());
        AddressWritersByCU[CU.getOffset()] = std::move(AddrW);
@@ -14233,7 +14355,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
          LegacyRangesSectionWriterByCU->initSection(CU);
          LegacyRangesWritersByCU[*DWOId] =
              std::move(LegacyRangesSectionWriterByCU);
-@@ -925,7 +927,8 @@ void DWARFRewriter::processMainBinaryCU(DWARFUnit &Unit, DIEBuilder &DIEBlder,
+@@ -925,7 +936,8 @@ void DWARFRewriter::processMainBinaryCU(DWARFUnit &Unit, DIEBuilder &DIEBlder,
    } else {
      if (!LocalWriter.LegacyRangesWriter) {
        LocalWriter.LegacyRangesWriter =
@@ -14243,7 +14365,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
        LocalWriter.LegacyRangesWriter->initSection();
      }
    }
-@@ -939,7 +942,10 @@ void DWARFRewriter::processMainBinaryCU(DWARFUnit &Unit, DIEBuilder &DIEBlder,
+@@ -939,7 +951,10 @@ void DWARFRewriter::processMainBinaryCU(DWARFUnit &Unit, DIEBuilder &DIEBlder,
      RangesBase = RangesSectionWriter.getSectionOffset() +
                   getDWARF5RngListLocListHeaderSize(Unit.getFormParams().Format);
      RangesSectionWriter.initSection(Unit);
@@ -14255,7 +14377,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
      // DWARF4: only split-dwarf CUs need a ranges base
      RangesBase = LocalWriter.LegacyRangesWriter->getSectionOffset();
    }
-@@ -974,7 +980,12 @@ void DWARFRewriter::processBucket(
+@@ -974,7 +989,12 @@ void DWARFRewriter::processBucket(
      DWODIEBuilder.updateDWONameCompDirForTypes(DWOStrOffstsWriter, DWOStrWriter,
                                                 SplitCU, opts::DwarfOutputPath,
                                                 DWOName);
@@ -14269,7 +14391,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
                                           AddressWriter);
      updateUnitDebugInfo(SplitCU, DWODIEBuilder, DebugLocDWoWriter,
                          TempRangesSectionWriter, AddressWriter);
-@@ -982,13 +993,16 @@ void DWARFRewriter::processBucket(
+@@ -982,13 +1002,16 @@ void DWARFRewriter::processBucket(
                                 *DWODIEBuilder.getUnitDIEbyUnit(SplitCU));
      if (Unit.getVersion() >= 5)
        TempRangesSectionWriter.finalizeSection();
@@ -14289,7 +14411,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
    };
  
    for (DWARFUnit *CU : PartDIEBlder.getProcessedCUs()) {
-@@ -1020,7 +1034,8 @@ void DWARFRewriter::processBucket(
+@@ -1020,7 +1043,8 @@ void DWARFRewriter::processBucket(
  }
  
  void DWARFRewriter::updateDebugInfo() {
@@ -14299,7 +14421,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
    if (!DebugInfo)
      return;
    ARangesSectionWriter = std::make_unique<DebugARangesSectionWriter>();
-@@ -1036,7 +1051,8 @@ void DWARFRewriter::updateDebugInfo() {
+@@ -1036,12 +1060,37 @@ void DWARFRewriter::updateDebugInfo() {
      FinalAddrWriter = std::make_unique<DebugAddrWriter>(&BC);
    }
    if (BC.isDWARFLegacyUsed()) {
@@ -14309,7 +14431,50 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
      LegacyRangesSectionWriter->initSection();
    }
  
-@@ -1773,9 +1789,9 @@ void DWARFRewriter::updateDWARFObjectAddressRanges(
+   uint32_t CUSize = std::distance(BC.DwCtx->compile_units().begin(),
+                                   BC.DwCtx->compile_units().end());
++  // Validate every split-object compression policy before creating output
++  // files or starting worker threads. A DWP can contain multiple CUs sharing
++  // one object; validate it once. This makes mixed/unknown algorithms an
++  // atomic input rejection instead of leaving partial zero-byte DWO files.
++  BC.openSharedDWOContext();
++  DenseSet<const object::ObjectFile *> ValidatedSplitFiles;
++  for (const auto &CU : BC.DwCtx->compile_units()) {
++    std::optional<uint64_t> DWOId = CU->getDWOId();
++    if (!DWOId)
++      continue;
++    std::optional<DWARFUnit *> SplitCU = BC.getDWOCU(*DWOId);
++    if (!SplitCU || !*SplitCU)
++      continue;
++    const object::ObjectFile *SplitFile =
++        (*SplitCU)->getContext().getDWARFObj().getFile();
++    if (!SplitFile || !ValidatedSplitFiles.insert(SplitFile).second)
++      continue;
++    Expected<DebugCompressionType> CompressionOrErr =
++        getSplitDebugCompression(*SplitFile);
++    if (!CompressionOrErr) {
++      BC.logBOLTErrorsAndQuitOnFatal(CompressionOrErr.takeError());
++      llvm_unreachable("invalid split-DWARF compression was not rejected");
++    }
++  }
+   // Pre-create per-CU writers in a single thread.
+   // Worker threads should only read from these maps.
+   createRangeLocListAndAddressWriters();
+@@ -1070,10 +1119,9 @@ void DWARFRewriter::updateDebugInfo() {
+   SmallVector<SmallVector<DWARFUnit *>> PartVec =
+       partitionCUs(*BC.DwCtx, CUSize);
+   // Buckets below run in parallel, and with a .dwp package they all read the
+-  // same split DWARF context. Create that context now to avoid a race
+-  // (note this is a DWP-only issue, DWOs are safe since each thread operate
+-  // on its own DWARF context).
+-  BC.openSharedDWOContext();
++  // same split DWARF context. It was created above, before compression
++  // validation, to avoid a race (this is DWP-specific; independent DWOs use
++  // one DWARF context per worker).
+   const unsigned int ThreadCount =
+       std::min(opts::DebugThreadCount, opts::ThreadCount);
+   llvm::ThreadPoolInterface &ThreadPool =
+@@ -1773,9 +1821,9 @@ void DWARFRewriter::updateDWARFObjectAddressRanges(
  
  void DWARFRewriter::updateLineTableOffsets(const MCAssembler &Asm) {
    ErrorOr<BinarySection &> DbgInfoSection =
@@ -14321,7 +14486,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
    assert(((BC.DwCtx->getNumTypeUnits() > 0 && TypeInfoSection) ||
            BC.DwCtx->getNumTypeUnits() == 0) &&
           "Was not able to retrieve Debug Types section.");
-@@ -1893,7 +1909,7 @@ CUOffsetMap DWARFRewriter::finalizeTypeSections(DIEBuilder &DIEBlder,
+@@ -1893,7 +1941,7 @@ CUOffsetMap DWARFRewriter::finalizeTypeSections(DIEBuilder &DIEBlder,
      CUMap[CU->getOffset()] = {StartOffset,
                                CUOffset - StartOffset -
                                    dwarf::getUnitLengthFieldByteSize(Format),
@@ -14330,7 +14495,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
    }
  
    // Emit Type Unit of DWARF 4 to .debug_type section
-@@ -2085,6 +2101,11 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+@@ -2085,6 +2133,11 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
      std::lock_guard<std::mutex> Lock(DebugNamesUpdateMutex);
      DIEBlder.updateDebugNamesTable();
    }
@@ -14342,7 +14507,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
    // generate debug_info and CUMap
    for (DWARFUnit *CU : CUs) {
      emitUnit(DIEBlder, Streamer, *CU);
-@@ -2096,7 +2117,7 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+@@ -2096,7 +2149,7 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
      CUMap[CU->getOffset()] = {StartOffset,
                                CUOffset - StartOffset -
                                    dwarf::getUnitLengthFieldByteSize(Format),
@@ -14351,13 +14516,86 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
    }
  }
  
-@@ -2107,9 +2128,17 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+@@ -2106,15 +2159,101 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+ // handleDebugDataPatching.
  namespace {
  
++static Expected<DebugCompressionType>
++getSplitDebugCompression(const object::ObjectFile &File) {
++  std::optional<DebugCompressionType> Compression;
++  for (const SectionRef &Section : File.sections()) {
++    Expected<StringRef> NameOrErr = Section.getName();
++    if (!NameOrErr)
++      return NameOrErr.takeError();
++    if (!NameOrErr->starts_with(".debug_") || !Section.isCompressed())
++      continue;
++
++    Expected<StringRef> ContentsOrErr = Section.getContents();
++    if (!ContentsOrErr)
++      return ContentsOrErr.takeError();
++    if (ContentsOrErr->size() < sizeof(uint32_t))
++      return createStringError(errc::invalid_argument,
++                               "compressed split-DWARF section '" +
++                                   *NameOrErr + "' has no compression header");
++
++    const uint32_t Type = File.isLittleEndian()
++                              ? support::endian::read32le(ContentsOrErr->data())
++                              : support::endian::read32be(ContentsOrErr->data());
++    DebugCompressionType Current;
++    switch (Type) {
++    case ELF::ELFCOMPRESS_ZLIB:
++      Current = DebugCompressionType::Zlib;
++      break;
++    case ELF::ELFCOMPRESS_ZSTD:
++      Current = DebugCompressionType::Zstd;
++      break;
++    default:
++      return createStringError(errc::not_supported,
++                               "unsupported compression algorithm in split-"
++                               "DWARF section '" +
++                                   *NameOrErr + "'");
++    }
++    if (Compression && *Compression != Current)
++      return createStringError(errc::not_supported,
++                               "mixed compression algorithms in split-DWARF "
++                               "input");
++    Compression = Current;
++  }
++  return Compression.value_or(DebugCompressionType::None);
++}
++
++static Expected<StringRef> getUncompressedSectionContents(
++    const SectionRef &Section,
++    std::deque<SmallString<0>> &DecompressedSections) {
++  Expected<StringRef> ContentsOrErr = Section.getContents();
++  if (!ContentsOrErr)
++    return ContentsOrErr.takeError();
++  if (!Section.isCompressed())
++    return *ContentsOrErr;
++
++  Expected<StringRef> NameOrErr = Section.getName();
++  if (!NameOrErr)
++    return NameOrErr.takeError();
++  const object::ObjectFile *File = Section.getObject();
++  Expected<Decompressor> DecompressorOrErr = Decompressor::create(
++      *NameOrErr, *ContentsOrErr, File->isLittleEndian(), File->is64Bit());
++  if (!DecompressorOrErr)
++    return DecompressorOrErr.takeError();
++
++  DecompressedSections.emplace_back();
++  if (Error E = DecompressorOrErr->resizeAndDecompress(
++          DecompressedSections.back())) {
++    DecompressedSections.pop_back();
++    return std::move(E);
++  }
++  return StringRef(DecompressedSections.back().data(),
++                   DecompressedSections.back().size());
++}
++
  std::unique_ptr<BinaryContext>
 -createDwarfOnlyBC(const object::ObjectFile &File) {
 +createDwarfOnlyBC(const object::ObjectFile &File,
-+                  const BinaryContext &ParentBC) {
++                  BinaryContext &ParentBC) {
 +  Triple TheTriple = File.makeTriple();
 +  // A split-DWARF object does not carry the linked image's ARM build
 +  // attributes.  Preserve the already-qualified Cortex-M subarchitecture
@@ -14365,13 +14603,25 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
 +  // otherwise an arm-- DWO triple cannot be checked against the selected CPU.
 +  if (ParentBC.isARM())
 +    TheTriple = ParentBC.getTriple();
++  Expected<DebugCompressionType> CompressionOrErr =
++      getSplitDebugCompression(File);
++  if (!CompressionOrErr) {
++    ParentBC.logBOLTErrorsAndQuitOnFatal(CompressionOrErr.takeError());
++    llvm_unreachable("invalid split-DWARF compression was not rejected");
++  }
    return cantFail(BinaryContext::createBinaryContext(
 -      File.makeTriple(), std::make_shared<orc::SymbolStringPool>(),
 +      TheTriple, std::make_shared<orc::SymbolStringPool>(),
        File.getFileName(), nullptr, false,
        DWARFContext::create(File, DWARFContext::ProcessDebugRelocations::Ignore,
                             nullptr, "", WithColor::defaultErrorHandler,
-@@ -2362,7 +2391,7 @@ void DWARFRewriter::writeDWOFiles(
+                            WithColor::defaultWarningHandler),
+-      {llvm::outs(), llvm::errs()}));
++      {llvm::outs(), llvm::errs()}, {}, *CompressionOrErr));
+ }
+ 
+ StringMap<DWARFRewriter::KnownSectionsEntry>
+@@ -2362,7 +2501,7 @@ void DWARFRewriter::writeDWOFiles(
  
    const object::ObjectFile *File =
        (*DWOCU)->getContext().getDWARFObj().getFile();
@@ -14380,7 +14630,30 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
    std::unique_ptr<MCStreamer> Streamer = TmpBC->createStreamer(TempOut->os());
    const MCObjectFileInfo &MCOFI = *Streamer->getContext().getObjectFileInfo();
    StringMap<KnownSectionsEntry> KnownSections = createKnownSectionsMap(MCOFI);
-@@ -2453,9 +2482,11 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
+@@ -2389,13 +2528,20 @@ void DWARFRewriter::writeDWOFiles(
+   StringRef StrOffsetsContent;
+   llvm::SmallVector<StringRef, 3> StrDWOOutData;
+   std::string StrOffsetsOutData;
++  // DWP contribution offsets address the logical uncompressed section. Keep
++  // decompressed buffers alive through all slicing and string-table repair.
++  std::deque<SmallString<0>> DecompressedSections;
+   for (const SectionRef &Section : File->sections()) {
+     std::unique_ptr<DebugBufferVector> OutputData;
+     StringRef SectionName = getSectionName(Section);
+     if (SectionName == "debug_rnglists.dwo")
+       continue;
+-    Expected<StringRef> ContentsExp = Section.getContents();
+-    assert(ContentsExp && "Invalid contents.");
++    Expected<StringRef> ContentsExp =
++        getUncompressedSectionContents(Section, DecompressedSections);
++    if (!ContentsExp) {
++      BC.logBOLTErrorsAndQuitOnFatal(ContentsExp.takeError());
++      llvm_unreachable("invalid split-DWARF section was not rejected");
++    }
+     if (BC.usesDWP() && SectionName == "debug_str.dwo") {
+       if (StrWriter.isInitialized())
+         StrDWOContent = StrWriter.getBufferStr();
+@@ -2453,9 +2599,11 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
    auto Writer =
        std::unique_ptr<MCObjectWriter>(BC.createObjectWriter(*LocStream));
  
@@ -14394,7 +14667,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..96fe70cd793b997cf8ef16c16368b405
  
    for (uint64_t CUOffset : CUOrder) {
      auto It = LocListWritersByCU.find(CUOffset);
-@@ -2481,13 +2512,18 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
+@@ -2481,13 +2629,18 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
  
      std::unique_ptr<DebugBufferVector> CurrCULocationLists =
          LocWriter->getBuffer();
@@ -24125,6 +24398,122 @@ index 0000000000000000000000000000000000000000..0b43f52bd10192053a30f8377bcc0886
 +  .isr_vector 0x08000000 : { *(.isr_vector) }
 +  .text 0x08000100 : { *(.text) }
 +  .target 0x08001234 : { *(.target) }
++}
+diff --git a/bolt/test/ARM/thumb-compressed-split-dwarf.s b/bolt/test/ARM/thumb-compressed-split-dwarf.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..27d0d39983e390d1478e090bca4c45d3eabd9823
+--- /dev/null
++++ b/bolt/test/ARM/thumb-compressed-split-dwarf.s
+@@ -0,0 +1,110 @@
++## Preserve the exact standardized compression algorithm when BOLT rewrites a
++## standalone Cortex-M DWO or extracts units from a DWP.  DWP contribution
++## offsets describe decompressed section contents, so slicing the raw
++## SHF_COMPRESSED payload corrupts every contribution after the compression
++## header.  A mixed-algorithm package is deliberately unsupported and must be
++## rejected before either the linked candidate or any DWO is published.
++
++# REQUIRES: system-linux, zstd
++# RUN: split-file %s %t
++# RUN: %clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb \
++# RUN:   -O2 -g -gdwarf-5 -gsplit-dwarf -ffreestanding -fno-unwind-tables \
++# RUN:   -fno-asynchronous-unwind-tables -c %t/fixture.c \
++# RUN:   -o %t/standalone.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/standalone.o \
++# RUN:   -o %t/standalone.elf
++# RUN: llvm-objcopy --compress-debug-sections=zstd %t/standalone.dwo \
++# RUN:   %t/standalone.compressed.dwo
++# RUN: mv %t/standalone.compressed.dwo %t/standalone.dwo
++# RUN: llvm-bolt %t/standalone.elf --firmbolt-cortex-m-cpu=cortex-m3 \
++# RUN:   --relocs --use-old-text --update-debug-sections \
++# RUN:   --dwarf-output-path=%t/standalone-output --align-functions=1 \
++# RUN:   -o %t/standalone.bolt
++# RUN: llvm-dwarfdump --verify --dwo %t/standalone.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=VERIFY
++# RUN: llvm-dwarfdump --debug-info --dwo %t/standalone.bolt \
++# RUN:   | FileCheck %s --check-prefix=STANDALONE
++# RUN: llvm-readelf -t %t/standalone-output/*.dwo \
++# RUN:   | FileCheck %s --check-prefix=STANDALONE-ZSTD \
++# RUN:       --implicit-check-not=ZLIB
++
++# RUN: %clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb \
++# RUN:   -O2 -g -gdwarf-5 -gsplit-dwarf -ffreestanding -fno-unwind-tables \
++# RUN:   -fno-asynchronous-unwind-tables -c %t/fixture.c -o %t/main.o
++# RUN: %clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb \
++# RUN:   -O2 -g -gdwarf-5 -gsplit-dwarf -ffreestanding -fno-unwind-tables \
++# RUN:   -fno-asynchronous-unwind-tables -Dworker=worker_aux \
++# RUN:   -DReset_Handler=Aux_Handler -Dg_pfnVectors=g_aux_vectors \
++# RUN:   -c %t/fixture.c -o %t/aux.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/main.o %t/aux.o \
++# RUN:   -o %t/dwp.elf
++# RUN: llvm-dwp %t/main.dwo %t/aux.dwo -o %t/uncompressed.dwp
++# RUN: llvm-objcopy --compress-debug-sections=zstd %t/uncompressed.dwp \
++# RUN:   %t/zstd.dwp
++# RUN: llvm-bolt %t/dwp.elf --dwp=%t/zstd.dwp \
++# RUN:   --firmbolt-cortex-m-cpu=cortex-m3 --relocs --use-old-text \
++# RUN:   --update-debug-sections --dwarf-output-path=%t/dwp-output \
++# RUN:   --align-functions=1 -o %t/dwp.bolt
++# RUN: llvm-dwarfdump --verify --dwo %t/dwp.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=VERIFY
++# RUN: llvm-dwarfdump --debug-info --dwo %t/dwp.bolt \
++# RUN:   | FileCheck %s --check-prefix=DWP
++# RUN: llvm-readelf -t %t/dwp-output/*.dwo \
++# RUN:   | FileCheck %s --check-prefix=DWP-ZSTD --implicit-check-not=ZLIB
++
++# RUN: llvm-objcopy --compress-sections=.debug_info.dwo=zlib \
++# RUN:   --compress-sections=.debug_abbrev.dwo=zstd %t/uncompressed.dwp \
++# RUN:   %t/mixed.dwp
++# RUN: not llvm-bolt %t/dwp.elf --dwp=%t/mixed.dwp \
++# RUN:   --firmbolt-cortex-m-cpu=cortex-m3 --relocs --use-old-text \
++# RUN:   --update-debug-sections --dwarf-output-path=%t/mixed-output \
++# RUN:   --align-functions=1 -o %t/mixed.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=MIXED
++# RUN: test ! -e %t/mixed.bolt
++# RUN: test ! -d %t/mixed-output
++
++# VERIFY: No errors.
++# STANDALONE: DW_AT_name{{.*}}("Reset_Handler")
++# STANDALONE-ZSTD-COUNT-3: ZSTD,
++# DWP-DAG: DW_AT_name{{.*}}("Reset_Handler")
++# DWP-DAG: DW_AT_name{{.*}}("Aux_Handler")
++# DWP-ZSTD-COUNT-6: ZSTD,
++# MIXED: BOLT-ERROR: mixed compression algorithms in split-DWARF input
++
++//--- fixture.c
++typedef unsigned int uintptr_t;
++
++int Reset_Handler(int x, int *out);
++
++__attribute__((section(".isr_vector"), used))
++const uintptr_t g_pfnVectors[] = {
++  0x20001000u,
++  (uintptr_t)Reset_Handler,
++};
++
++__attribute__((noinline)) int worker(int x, int *out) {
++  int value = x + 1;
++  if (x & 1)
++    value += x;
++  *out = value;
++  return value;
++}
++
++int Reset_Handler(int x, int *out) {
++  return worker(x, out);
++}
++
++//--- link.ld
++ENTRY(Reset_Handler)
++MEMORY {
++  FLASH (rx)  : ORIGIN = 0x08000100, LENGTH = 64K
++  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 16K
++}
++SECTIONS {
++  .isr_vector : { KEEP(*(.isr_vector)) } > FLASH
++  .text : { *(.text .text.*) } > FLASH
++  .rodata : { *(.rodata .rodata.*) } > FLASH
++  .data : { *(.data .data.*) } > RAM AT > FLASH
++  .bss (NOLOAD) : { *(.bss .bss.* COMMON) } > RAM
++  /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
 +}
 diff --git a/bolt/test/ARM/thumb-constant-island-mapping.s b/bolt/test/ARM/thumb-constant-island-mapping.s
 new file mode 100644

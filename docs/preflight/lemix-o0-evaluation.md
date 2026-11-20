@@ -1900,6 +1900,47 @@ scope limits are in the [v179 validation manifest](evidence/firmbolt-cortex-m-v1
 This is compressed-debug integration evidence, not a performance result or a
 claim that compressed DWO/DWP and every producer are qualified.
 
+v180 extends exact-algorithm preservation to split debugging information and
+retains the failed probes because they distinguish three mechanisms. First, a
+standalone ZSTD DWO resolved one CU and passed verification, but the rewritten
+DWO was uncompressed: the temporary MC context did not inherit the input
+compression policy. Second, a ZSTD-compressed two-CU DWP also passed
+`llvm-dwarfdump --verify`, but a complete `--debug-info --dwo` traversal
+resolved only one CU and crashed. DWP contribution offsets address the
+decompressed logical section; the old path sliced raw `SHF_COMPRESSED` bytes.
+Third, rejecting a deliberately mixed zlib/ZSTD package left two partial DWO
+files even though no linked candidate was published. The initial frozen
+matrix therefore accepted 15/18 cases, not 18/18. Its raw report remains
+unchanged.
+
+The repair gives every temporary binary context owned target options and the
+qualified compression algorithm, decompresses DWP sections into stable buffers
+before contribution slicing, and validates every unique split input before
+creating output directories or starting workers. The inventory oracle was
+also corrected to recognize combined `CE`/`MSCE` ELF flag spellings. The final
+matrix accepts 18/18: the standalone case resolves one CU, the DWP case emits
+two per-unit DWOs and resolves two CUs, all output sections that remain
+compressed use ZSTD, and the mixed control exits `unsupported` with no linked
+candidate and no DWO. Small rebuilt sections are permitted to remain
+uncompressed when the MC compressor cannot reduce them; exact algorithm
+preservation is not a requirement to inflate such sections.
+
+An independent ARM lit regression now exercises all three mechanisms. The
+complete pinned BOLT suite discovers 1,133 tests and reports 950 passes, one
+expected failure, 150 skips, 32 unsupported and zero failures. BOLT units
+report 132 passes and 150 target skips. The production gate remains 68/68 with
+1,963 functions, 130,186 exact instruction origins and 57,618 potentially
+faulting origins. The real M4 candidate again completes 10,000 fixed units and
+matches both repeated reference RAM states. The
+[v180 validation manifest](evidence/firmbolt-cortex-m-v180-validation.json)
+binds the pre-fix and corrected reports, in-tree regression, hashes and
+184-file reversible patch (SHA-256
+`2121ff9eed1c6414e526d9656a256a644687b73ee16653edde453925cf79a629`).
+This is a concrete debug-representation and atomic
+publication improvement. It does not establish compressed GCC split input,
+arbitrary DWP/type-unit support, replacement-DWP output, runtime speedup or
+complete x86-backend parity.
+
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 
 ### Pinned references

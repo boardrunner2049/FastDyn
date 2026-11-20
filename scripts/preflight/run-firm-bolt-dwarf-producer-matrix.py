@@ -88,13 +88,14 @@ def debug_section_inventory(
     inventory: dict[str, dict[str, Any]] = {}
     pattern = re.compile(
         r"\[\s*[0-9]+\]\s+(\.[^ ]+)\s+(\S+)\s+"
-        r"[0-9a-fA-F]+\s+[0-9a-fA-F]+\s+([0-9a-fA-F]+)"
+        r"[0-9a-fA-F]+\s+[0-9a-fA-F]+\s+([0-9a-fA-F]+)\s+"
+        r"[0-9a-fA-F]+\s+([A-Za-z]*)\s+[0-9]+\s+[0-9]+\s+[0-9]+\s*$"
     )
     for line in process.stdout.splitlines():
         match = pattern.search(line)
         if not match:
             continue
-        name, section_type, size = match.groups()
+        name, section_type, size, flags = match.groups()
         if not (
             name.startswith(".debug_")
             or name.startswith(".zdebug_")
@@ -105,7 +106,7 @@ def debug_section_inventory(
         inventory[name] = {
             "type": section_type,
             "size_bytes": int(size, 16),
-            "compressed_flag": " C " in f" {line} ",
+            "compressed_flag": "C" in flags,
         }
     return inventory
 
@@ -460,6 +461,270 @@ def main() -> int:
             "candidate_dwo_debug_sections": candidate_dwo_sections,
             "candidate_resolved_dwo_compile_units": resolved_dwo_compile_units,
         }
+
+    # Split objects use a separate MC streamer from the linked image. Preserve
+    # the input GABI algorithm in each emitted DWO instead of silently changing
+    # a zstd input into an uncompressed output. Exercise both a standalone DWO
+    # and a two-CU DWP, then require mixed algorithms to reject atomically.
+    name = "clang-dwarf5-split-gabi-zstd"
+    obj = output / f"{name}.o"
+    reference = output / f"{name}.reference.elf"
+    candidate = output / f"{name}.firmbolt.elf"
+    reference_dwo = obj.with_suffix(".dwo")
+    compressed_dwo = output / f"{name}.compressed.dwo"
+    dwo_output = output / f"{name}.dwo-output"
+    dwo_output.mkdir(exist_ok=True)
+    run(
+        [str(tools["clang"]), "--target=thumbv7m-none-eabi",
+         "-mcpu=cortex-m3", "-mthumb", "-O2", "-g", "-gdwarf-5",
+         "-gsplit-dwarf", "-ffreestanding", "-fno-unwind-tables",
+         "-fno-asynchronous-unwind-tables", "-c", str(FIXTURE),
+         "-o", str(obj)],
+        logs / f"compile-{name}.log",
+    )
+    run(
+        [str(tools["lld"]), "--emit-relocs", "-T", str(LINKER),
+         str(obj), str(aranges), "-o", str(reference)],
+        logs / f"link-{name}.log",
+    )
+    run(
+        [str(tools["objcopy"]), "--compress-debug-sections=zstd",
+         str(reference_dwo), str(compressed_dwo)],
+        logs / f"compress-{name}.log",
+    )
+    os.replace(compressed_dwo, reference_dwo)
+    run(
+        [str(tools["bolt"]), str(reference),
+         "--firmbolt-cortex-m-cpu=cortex-m3", "--relocs",
+         "--use-old-text", "--update-debug-sections",
+         f"--dwarf-output-path={dwo_output}", "--keep-aranges",
+         "--always-convert-to-ranges", "--align-functions=1",
+         "-o", str(candidate)],
+        logs / f"firmbolt-{name}.log",
+    )
+    reference_verify = run(
+        [str(tools["dwarfdump"]), "--verify", "--dwo", str(reference)],
+        logs / f"verify-reference-{name}.log", check=False,
+    )
+    candidate_verify = run(
+        [str(tools["dwarfdump"]), "--verify", "--dwo", str(candidate)],
+        logs / f"verify-candidate-{name}.log", check=False,
+    )
+    candidate_dump = run(
+        [str(tools["dwarfdump"]), "--debug-info", "--dwo", str(candidate)],
+        logs / f"dump-candidate-{name}.log", check=False,
+    )
+    candidate_dwos = sorted(dwo_output.glob("*.dwo"))
+    reference_inventory = debug_section_inventory(
+        tools["readelf"], reference_dwo,
+        logs / f"inventory-reference-dwo-{name}.log",
+    )
+    reference_compression = debug_compression_types(
+        tools["readelf"], reference_dwo,
+        logs / f"compression-reference-dwo-{name}.log",
+    )
+    candidate_inventory = (
+        debug_section_inventory(
+            tools["readelf"], candidate_dwos[0],
+            logs / f"inventory-candidate-dwo-{name}.log",
+        ) if len(candidate_dwos) == 1 else {}
+    )
+    candidate_compression = (
+        debug_compression_types(
+            tools["readelf"], candidate_dwos[0],
+            logs / f"compression-candidate-dwo-{name}.log",
+        ) if len(candidate_dwos) == 1 else {}
+    )
+    resolved_dwo_compile_units = (
+        candidate_dump.stdout + candidate_dump.stderr
+    ).count("DW_TAG_compile_unit")
+    accepted = (
+        reference_verify.returncode == 0
+        and candidate_verify.returncode == 0
+        and candidate_dump.returncode == 0
+        and not verifier_counts(reference_verify.stdout + reference_verify.stderr)
+        and not verifier_counts(candidate_verify.stdout + candidate_verify.stderr)
+        and len(candidate_dwos) == 1
+        and set(reference_inventory).issubset(candidate_inventory)
+        and exact_debug_compression(
+            reference_inventory, reference_compression, "ZSTD"
+        )
+        and exact_debug_compression(
+            candidate_inventory, candidate_compression, "ZSTD"
+        )
+        and resolved_dwo_compile_units == 1
+    )
+    cases[name] = {
+        "accepted": accepted,
+        "producer": "clang",
+        "dwarf_version": 5,
+        "split_dwarf": True,
+        "compression_style": "gabi-zstd",
+        "packaged_dwp_input": False,
+        "reference_sha256": sha256(reference),
+        "reference_dwo_sha256": sha256(reference_dwo),
+        "candidate_sha256": sha256(candidate),
+        "candidate_dwo_sha256": (
+            sha256(candidate_dwos[0]) if len(candidate_dwos) == 1 else None
+        ),
+        "reference_verifier_returncode": reference_verify.returncode,
+        "candidate_verifier_returncode": candidate_verify.returncode,
+        "reference_debug_section_inventory": reference_inventory,
+        "candidate_debug_section_inventory": candidate_inventory,
+        "reference_debug_compression": reference_compression,
+        "candidate_debug_compression": candidate_compression,
+        "candidate_resolved_dwo_compile_units": resolved_dwo_compile_units,
+    }
+
+    name = "clang-dwarf5-dwp-gabi-zstd"
+    reference = output / "clang-dwarf5-dwp.reference.elf"
+    source_dwp = output / "clang-dwarf5-dwp.reference.dwp"
+    reference_dwp = output / f"{name}.reference.dwp"
+    candidate = output / f"{name}.firmbolt.elf"
+    dwo_output = output / f"{name}.dwo-output"
+    dwo_output.mkdir(exist_ok=True)
+    run(
+        [str(tools["objcopy"]), "--compress-debug-sections=zstd",
+         str(source_dwp), str(reference_dwp)],
+        logs / f"compress-{name}.log",
+    )
+    run(
+        [str(tools["bolt"]), str(reference), f"--dwp={reference_dwp}",
+         "--firmbolt-cortex-m-cpu=cortex-m3", "--relocs",
+         "--use-old-text", "--update-debug-sections",
+         f"--dwarf-output-path={dwo_output}", "--keep-aranges",
+         "--always-convert-to-ranges", "--align-functions=1",
+         "-o", str(candidate)],
+        logs / f"firmbolt-{name}.log",
+    )
+    reference_verify = run(
+        [str(tools["dwarfdump"]), "--verify", str(reference_dwp)],
+        logs / f"verify-reference-{name}.log", check=False,
+    )
+    candidate_verify = run(
+        [str(tools["dwarfdump"]), "--verify", "--dwo", str(candidate)],
+        logs / f"verify-candidate-{name}.log", check=False,
+    )
+    candidate_dump = run(
+        [str(tools["dwarfdump"]), "--debug-info", "--dwo", str(candidate)],
+        logs / f"dump-candidate-{name}.log", check=False,
+    )
+    reference_inventory = debug_section_inventory(
+        tools["readelf"], reference_dwp,
+        logs / f"inventory-reference-dwp-{name}.log",
+    )
+    reference_compression = debug_compression_types(
+        tools["readelf"], reference_dwp,
+        logs / f"compression-reference-dwp-{name}.log",
+    )
+    candidate_dwos = sorted(dwo_output.glob("*.dwo"))
+    candidate_inventories = {
+        dwo.name: debug_section_inventory(
+            tools["readelf"], dwo,
+            logs / f"inventory-candidate-{name}-{dwo.name}.log",
+        ) for dwo in candidate_dwos
+    }
+    candidate_compressions = {
+        dwo.name: debug_compression_types(
+            tools["readelf"], dwo,
+            logs / f"compression-candidate-{name}-{dwo.name}.log",
+        ) for dwo in candidate_dwos
+    }
+    candidate_section_union = {
+        section
+        for inventory in candidate_inventories.values()
+        for section in inventory
+    }
+    reference_payload_sections = set(reference_inventory) - {".debug_cu_index"}
+    resolved_dwo_compile_units = (
+        candidate_dump.stdout + candidate_dump.stderr
+    ).count("DW_TAG_compile_unit")
+    accepted = (
+        reference_verify.returncode == 0
+        and candidate_verify.returncode == 0
+        and candidate_dump.returncode == 0
+        and not verifier_counts(reference_verify.stdout + reference_verify.stderr)
+        and not verifier_counts(candidate_verify.stdout + candidate_verify.stderr)
+        and len(candidate_dwos) == 2
+        and reference_payload_sections.issubset(candidate_section_union)
+        and exact_debug_compression(
+            reference_inventory, reference_compression, "ZSTD"
+        )
+        and all(
+            exact_debug_compression(
+                inventory, candidate_compressions[dwo_name], "ZSTD"
+            )
+            for dwo_name, inventory in candidate_inventories.items()
+        )
+        and resolved_dwo_compile_units == 2
+    )
+    cases[name] = {
+        "accepted": accepted,
+        "producer": "clang",
+        "dwarf_version": 5,
+        "split_dwarf": True,
+        "compression_style": "gabi-zstd",
+        "packaged_dwp_input": True,
+        "compilation_units": 2,
+        "reference_sha256": sha256(reference),
+        "reference_dwp_sha256": sha256(reference_dwp),
+        "candidate_sha256": sha256(candidate),
+        "candidate_dwo_sha256": {
+            dwo.name: sha256(dwo) for dwo in candidate_dwos
+        },
+        "reference_verifier_returncode": reference_verify.returncode,
+        "candidate_verifier_returncode": candidate_verify.returncode,
+        "reference_debug_section_inventory": reference_inventory,
+        "candidate_debug_section_inventory": candidate_inventories,
+        "reference_debug_compression": reference_compression,
+        "candidate_debug_compression": candidate_compressions,
+        "candidate_resolved_dwo_compile_units": resolved_dwo_compile_units,
+    }
+
+    name = "clang-dwarf5-dwp-mixed-compression-reject"
+    mixed_dwp = output / f"{name}.reference.dwp"
+    candidate = output / f"{name}.firmbolt.elf"
+    dwo_output = output / f"{name}.dwo-output"
+    dwo_output.mkdir(exist_ok=True)
+    run(
+        [str(tools["objcopy"]),
+         "--compress-sections=.debug_info.dwo=zlib",
+         "--compress-sections=.debug_abbrev.dwo=zstd",
+         str(source_dwp), str(mixed_dwp)],
+        logs / f"compress-{name}.log",
+    )
+    process = run(
+        [str(tools["bolt"]), str(reference), f"--dwp={mixed_dwp}",
+         "--firmbolt-cortex-m-cpu=cortex-m3", "--relocs",
+         "--use-old-text", "--update-debug-sections",
+         f"--dwarf-output-path={dwo_output}", "--keep-aranges",
+         "--always-convert-to-ranges", "--align-functions=1",
+         "-o", str(candidate)],
+        logs / f"firmbolt-{name}.log", check=False,
+    )
+    diagnostic = process.stdout + process.stderr
+    cases[name] = {
+        "accepted": (
+            process.returncode != 0
+            and "mixed compression algorithms in split-DWARF input"
+                in diagnostic
+            and not candidate.exists()
+            and not list(dwo_output.glob("*.dwo"))
+        ),
+        "expected_result": "unsupported",
+        "producer": "clang",
+        "dwarf_version": 5,
+        "split_dwarf": True,
+        "packaged_dwp_input": True,
+        "mixed_compression": True,
+        "returncode": process.returncode,
+        "diagnostic_matched": (
+            "mixed compression algorithms in split-DWARF input" in diagnostic
+        ),
+        "candidate_published": candidate.exists(),
+        "candidate_dwo_count": len(list(dwo_output.glob("*.dwo"))),
+        "reference_dwp_sha256": sha256(mixed_dwp),
+    }
 
     # Exercise both standardized ELF SHF_COMPRESSED and the legacy GNU
     # .zdebug_* representation on the exact same linked Cortex-M/DWARF5

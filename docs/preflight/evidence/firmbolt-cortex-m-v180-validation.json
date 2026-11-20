@@ -1,0 +1,153 @@
+{
+  "generated_at_utc": "2026-11-20T10:10:28Z",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "milestone": "v180-zstd-compressed-split-dwarf",
+  "repository_base_commit": "bbcd61f568b02270fedbd75ff972fe334ec04d88",
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "source_changes": {
+    "compression_lifetime": "BinaryContext now owns the MCTargetOptions referenced by every MC context and carries the qualified split-input DebugCompressionType into temporary DWO streamers",
+    "dwp_logical_contents": "DWP contribution offsets are applied to stable decompressed section buffers instead of the raw SHF_COMPRESSED byte stream",
+    "atomic_rejection": "all unique split objects are checked for one supported compression algorithm before output-directory creation or worker emission; mixed algorithms publish neither the linked candidate nor a DWO",
+    "regression": "a new ARM lit case covers standalone zstd DWO, two-unit zstd DWP extraction and atomic mixed-algorithm rejection"
+  },
+  "pre_fix_failure_evidence": {
+    "producer_report": "build/preflight/firmbolt-cortex-m-v180-zstd-split-producers-r1/report.json",
+    "accepted": 15,
+    "failed": 3,
+    "mechanisms": [
+      "the standalone compressed DWO resolved one CU but its rewritten sections were emitted uncompressed because the temporary MC streamer did not inherit the input algorithm",
+      "the compressed DWP candidate returned success from llvm-dwarfdump --verify, but a full --debug-info --dwo traversal resolved only one of two CUs and crashed on corrupt string/range contribution data",
+      "mixed zlib/zstd input rejected the linked candidate but left two partial DWO files, violating atomic publication",
+      "the first inventory parser missed combined CE/MSCE flag spellings; the corrected oracle distinguishes the compressed flag from the decoded compression algorithm"
+    ]
+  },
+  "dwarf_producer_matrix": {
+    "command": [
+      "python3",
+      "scripts/preflight/run-firm-bolt-dwarf-producer-matrix.py",
+      "--bolt",
+      "third_party/preflight/llvm-build/bin/llvm-bolt",
+      "--clang",
+      "third_party/preflight/llvm-build/bin/clang",
+      "--lld",
+      "third_party/preflight/llvm-build/bin/ld.lld",
+      "--output",
+      "build/preflight/firmbolt-cortex-m-v180-zstd-split-producers-r2"
+    ],
+    "accepted": 18,
+    "failed": 0,
+    "status": "accepted",
+    "total": 18,
+    "standalone_zstd_dwo": {
+      "candidate_compile_units": 1,
+      "candidate_verifier_returncode": 0,
+      "compressed_output_algorithms": [
+        "ZSTD"
+      ],
+      "status": "accepted"
+    },
+    "two_unit_zstd_dwp": {
+      "candidate_compile_units": 2,
+      "candidate_dwo_files": 2,
+      "candidate_verifier_returncode": 0,
+      "compressed_output_algorithms": [
+        "ZSTD"
+      ],
+      "status": "accepted"
+    },
+    "mixed_algorithm_control": {
+      "candidate_dwo_files": 0,
+      "candidate_published": false,
+      "diagnostic": "mixed compression algorithms in split-DWARF input",
+      "returncode": 1,
+      "status": "unsupported"
+    }
+  },
+  "full_bolt_regression": {
+    "command": [
+      "third_party/preflight/llvm-build/bin/llvm-lit",
+      "-sv",
+      "-j",
+      "8",
+      "--xunit-xml-output=build/preflight/firm-bolt-cortex-m-v180-zstd-split-r1/regressions/full-bolt-lit.xml",
+      "third_party/preflight/llvm-build/tools/bolt/test"
+    ],
+    "discovered": 1133,
+    "expectedly_failed": 1,
+    "failed": 0,
+    "passed": 950,
+    "skipped": 150,
+    "status": "accepted",
+    "unsupported": 32
+  },
+  "unit_regression": {
+    "command": [
+      "ninja",
+      "-C",
+      "third_party/preflight/llvm-build",
+      "check-bolt-unit"
+    ],
+    "discovered": 282,
+    "failed": 0,
+    "passed": 132,
+    "skipped": 150,
+    "status": "accepted"
+  },
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-v180-zstd-split-r1/production"
+  ],
+  "production_profiles": {
+    "accepted": 68,
+    "functions_with_emitted_instructions": 1963,
+    "instruction_origins": 130186,
+    "modified_function_instruction_origins": 98761,
+    "modified_functions": 1142,
+    "potentially_faulting_load_store_origins": 57618,
+    "total": 68
+  },
+  "production_status": "accepted",
+  "real_firmware_execution": {
+    "candidate_ram_prefix_exact": true,
+    "completed_work_units": 10000,
+    "cpu_model": "cortex-m4",
+    "reference_repeat_exact": true,
+    "status": "accepted"
+  },
+  "scope_limits": [
+    "the accepted compressed split cases use Clang DWARF5 with one standalone CU and one two-CU DWP; GCC-compressed split objects, DWARF4 DWP, type units, arbitrary package sizes and alternate compressor versions remain unqualified",
+    "FirmBOLT emits per-unit DWO files from DWP input; this milestone does not emit a replacement DWP package",
+    "MC compression is retained by algorithm for sections whose compressed representation is smaller; small rebuilt sections may lawfully remain uncompressed",
+    "llvm-dwarfdump --verify alone did not detect the pre-fix DWP corruption, so acceptance additionally requires full split-unit traversal and the exact expected CU count",
+    "the full suite establishes global non-regression for applicable tests on this host; 150 target-inapplicable tests remain skipped and 32 dependency or feature cases remain unsupported",
+    "the production and fixed-work gates are preservation and installation evidence, not complete x86-backend parity or a statistically powered speedup claim",
+    "patch-aware transformation semantics remain a later phase; this production gate uses the explicit empty patch contract"
+  ],
+  "sha256": {
+    "RTOSDemo.firm-bolt-m4.axf": "bc5860f4b1cfba3072396dfe8aa59f7a1a2c75fa1a8d33c55447221f26ea7fe3",
+    "check-bolt-unit.log": "3466fa69bb4a599aae882bd5a432daa9ae0bbe9dce9a59a89ac7c4fb04a5357b",
+    "dwarf-producer-pre-fix-report.json": "8c1bac761ca0963b19507ecfc507473c444645533087c0593534b9b8e11aa901",
+    "dwarf-producer-report.json": "35627d848d8a02a7ee6b3eee062c2f83de868306c2954552524f03a508fa6f13",
+    "full-bolt-lit.log": "ed463d932739cc59fb825f81149f52df8c608c7de33dbc9d3faa03d2147e62f9",
+    "full-bolt-lit.xml": "382b066b0e65722281ffe83eefe8f6a3dddc44c79e4ab628a81b8ad23c9fc30c",
+    "patches/bolt-fastdyn-preflight.patch": "2121ff9eed1c6414e526d9656a256a644687b73ee16653edde453925cf79a629",
+    "production-report.json": "f4c3a4ded6cdefcc7ec0d710d03678ad1fec19e6a2bf40d1d0104d2e6a926dc9",
+    "scripts/preflight/build-bolt.sh": "c381282a5291174a97c48326ad11223f41352db8e242601b007f495324fa072b",
+    "scripts/preflight/run-firm-bolt-dwarf-producer-matrix.py": "16caa6290e3ea9b3f96b8185ce96dc7e6b6197641776b6bc8f1e14ffc8e53133",
+    "third_party/preflight/llvm-build/bin/clang": "a9a74f7bb1d7540abeba5e5d5654ce4bcda4f49c517f1432c481b30c9b8aa200",
+    "third_party/preflight/llvm-build/bin/ld.lld": "7b1d83c19bdab1226456be493438fcc9cdd5bba0efc9e37097366ed7ed024ae7",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "d28e5d1e6611b6744307ce48d099e07900cf3acb8916b6a16443bab2b12b6730",
+    "third_party/preflight/llvm-build/bin/llvm-dwarfdump": "5bfeb86fd859e972cee5e4e9fcbd5c8cd2a0b6a9163f66e0c6db1ed7f1892971",
+    "third_party/preflight/llvm-build/bin/llvm-dwp": "f26432c14e75bd5df44076ebd5c7480fc39b4fece99f3cfbd55ff433282cabe9",
+    "third_party/preflight/llvm-build/bin/llvm-lit": "db2f33f5cdc5c33db0f5ada2d7b6ddc52a1ad4b750c8b250df2445e17a045670",
+    "third_party/preflight/llvm-build/bin/llvm-objcopy": "5b09396f24addcb2efbdb1c79a4fc791a3dc1ed41f72ef01724a979ac6aa4dbd",
+    "third_party/preflight/llvm-build/bin/llvm-readelf": "94e3453a827082f7e94b1314217f6e8f5bb54437e0701a264c793e414958fc39"
+  }
+}

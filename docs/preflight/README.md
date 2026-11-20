@@ -2339,6 +2339,46 @@ tools, commands and raw reports. This qualifies one linked Clang DWARF5 zstd
 fixture; compressed DWO/DWP contributions, corrupted-stream classes,
 arbitrary producers and complete x86-backend parity remain open.
 
+v180 qualifies standardized zstd compression across the split-DWARF boundary
+and records why the stronger oracle is necessary. The first standalone probe
+resolved its CU and verified cleanly but silently emitted uncompressed DWO
+sections because the temporary MC streamer did not inherit the input
+compression algorithm. The first compressed two-CU DWP also returned success
+from `llvm-dwarfdump --verify`, yet a full `--debug-info --dwo` traversal
+resolved only one CU and crashed on invalid string/range contributions. DWP
+index offsets name logical decompressed section contents; FirmBOLT had sliced
+the raw `SHF_COMPRESSED` bytes instead. A mixed zlib/zstd package exposed a
+third publication defect by leaving two partial DWO files after rejecting the
+linked candidate. The first matrix therefore rejected 3/18 cases.
+
+Each `BinaryContext` now owns the `MCTargetOptions` referenced by its MC
+objects and carries the exact qualified split-input algorithm into a temporary
+DWO context. DWP sections are decompressed into stable owned buffers before
+contribution slicing. All unique split inputs are checked for one supported
+algorithm before output-directory creation or worker execution, so a mixed
+package now exits `unsupported` with no candidate and no DWO. The corrected
+oracle also recognizes combined ELF flag spellings rather than confusing the
+decoded algorithm with the compressed flag. MC emission retains ZSTD for
+every output section whose compressed form is beneficial; small rebuilt
+sections may remain uncompressed.
+
+The final producer matrix passes 18/18. The standalone case resolves one CU;
+the packaged case emits two DWOs and resolves both CUs; all remaining
+compressed output sections use ZSTD. The new in-tree ARM regression protects
+those two positives plus atomic mixed-algorithm rejection. The complete BOLT
+suite discovers 1,133 tests and reports 950 passed, one expected failure, 150
+skipped, 32 unsupported and zero failed. The unit gate reports 132 passed plus
+150 target skips. The independent production gate remains 68/68 with 1,963
+functions and 130,186 exact origins; the real M4 candidate again completes
+10,000 fixed work units with byte-exact repeated RAM state. The
+[`v180 manifest`](evidence/firmbolt-cortex-m-v180-validation.json) binds the
+pre-fix reproducer, final matrix, regressions, production artifacts and the
+184-file reversible patch (SHA-256
+`2121ff9eed1c6414e526d9656a256a644687b73ee16653edde453925cf79a629`).
+This qualifies the named Clang DWARF5 cases, not
+GCC-compressed split input, arbitrary package sizes/type units, DWARF4 DWP,
+replacement-DWP emission or complete x86-backend parity.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

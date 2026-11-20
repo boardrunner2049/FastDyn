@@ -190,6 +190,15 @@ below carry the newer mechanisms and claim boundaries.
 | Global regression after zstd enablement | Accepted | The pinned 1,132-test BOLT suite reports 949 passed, one expected failure, 150 skipped, 32 unsupported and zero failed. Two zstd-dependent cases move from unsupported to passed relative to v178. | Keep all 32 unsupported and 150 target-inapplicable cases explicit; dependency availability is not target feature parity. |
 | Cortex-M production non-regression | Accepted | The independent 68/68 gate remains accepted with 130,186 exact origins. The real M4 candidate completes 10,000 fixed work units and matches both reference RAM states exactly. | Continue the declared state, effect and optimization backlog; this milestone changes debug-input compatibility, not optimization breadth. |
 
+## v180 compressed split-DWARF gap
+
+| Area | Classification | Evidence | Remaining boundary |
+| --- | --- | --- | --- |
+| Standalone compressed DWO emission | Implemented for the named Clang DWARF5/ZSTD case | The pre-fix candidate resolved one CU and verified but silently emitted uncompressed sections. Per-context target options now preserve ZSTD in every rebuilt section whose compressed form is beneficial. The final case resolves one CU and verifies cleanly. | Qualify GCC-compressed DWO, other DWARF versions, type units, alternate compressors and corrupted streams. Small sections may remain uncompressed when compression does not reduce size. |
+| Compressed DWP contribution extraction | Implemented for a two-CU Clang DWARF5/ZSTD package with per-unit DWO output | The pre-fix verifier returned success, but full traversal resolved one of two CUs and crashed because raw compressed bytes were sliced at logical contribution offsets. Stable decompressed buffers restore both CUs; two emitted DWOs verify and retain ZSTD. | Generalize unit counts and package forms, and separately implement replacement-DWP publication if required. A clean verifier alone is explicitly insufficient evidence. |
+| Mixed split-debug compression | Explicitly unsupported with atomic rejection | The pre-fix run rejected the linked candidate but left two DWO files. FirmBOLT now validates all unique split objects before directory creation/workers; the control exits 1 with the expected diagnostic, no candidate and zero DWO files. | Support a mixed input only by defining and testing a deterministic output-algorithm policy; never allow worker-local partial publication. |
+| Regression and production gates | Accepted | The producer matrix passes 18/18; BOLT lit reports 1,133 discovered, 950 passed, one expected failure, 150 skipped, 32 unsupported and zero failed; units report 132 passed plus 150 skips. The production matrix remains 68/68 and the real M4 fixed-work/RAM oracle remains exact. | This closes a debug-integration gap, not the remaining layout, exception-state, advanced-instruction optimization or x86-parity backlog. |
+
 ## Enforced stop conditions
 
 - Unknown/ambiguous ISA or mode: reject publication.
