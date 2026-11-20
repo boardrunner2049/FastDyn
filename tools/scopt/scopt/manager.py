@@ -90,7 +90,8 @@ from .proposal import (
 __all__ = [
     "PassManager", "Candidate", "PassRecord", "Pipeline", "PipelineEntry", "PipelineError",
     "PassRegistry", "ManagedPassContext", "load_pipeline", "discover_passes",
-    "default_pass_registry", "PIPELINES_DIR", "pipelines_dir", "DEFAULT_MIN_PROFILE_MATCH", "R",
+    "default_pass_registry", "PIPELINES_DIR", "pipelines_dir", "DEFAULT_MIN_PROFILE_MATCH",
+    "DEFAULT_DISABLED_PASSES", "R",
 ]
 
 log = logging.getLogger("scopt.manager")
@@ -104,6 +105,10 @@ def pipelines_dir() -> Path:
     return Path(env) if env else PIPELINES_DIR
 
 DEFAULT_MIN_PROFILE_MATCH = 0.95
+DEFAULT_DISABLED_PASSES = frozenset({
+    "local-scalar-cleanup", "retire-ordinary-exits", "eliminate-state-sync",
+    "specialize-returns", "chain-returns", "specialize-edges", "chain-static",
+})
 LEDGER_STAGE = "optimized"
 
 _GUARD_COSTS = ("c_lookup", "c_guard", "c_fail")
@@ -122,6 +127,7 @@ class R:
     PASS_VERSION_UNAVAILABLE = "pass_version_unavailable"
     INVALID_PARAMS = "invalid_params"
     ABLATION_DISABLED = "ablation_disabled"
+    DISABLED_BY_DEFAULT = "disabled_by_default"
     DOMAIN = "domain_not_supported"
     REGION_SCOPE = "region_scope_not_enabled"
     PHASE_NOT_REACHED = "profile_phase_not_reached"
@@ -230,6 +236,18 @@ class Pipeline:
     @property
     def pipeline_id(self) -> str:
         return sha256_id(canonical_json(self.to_json()))
+
+    def validate_pass_options(self, enable: Iterable[str], disable: Iterable[str], only: str | None) -> None:
+        names = {entry.name for entry in self.passes}
+        for option, values in (("--enable", enable), ("--disable", disable)):
+            unknown = sorted(set(values) - names)
+            if unknown:
+                raise PipelineError(f"{option} names passes not in pipeline {self.name}: {unknown}")
+        conflicts = sorted(set(enable) & set(disable))
+        if conflicts:
+            raise PipelineError(f"passes cannot be both enabled and disabled: {conflicts}")
+        if only is not None and only not in names:
+            raise PipelineError(f"--only {only!r} is not in pipeline {self.name}")
 
 
 _PIPELINE_KEYS = {"schema", "version", "name", "description", "allowed_capabilities", "pass"}
@@ -540,6 +558,7 @@ class PassManager:
     def __init__(self, snapshot: Any, pipeline: Any, profiles: Iterable[Any] = (),
                  params: Mapping[str, Mapping[str, Any]] | None = None,
                  store: AnalysisStore | None = None, *, disable: Iterable[str] = (),
+                 enable: Iterable[str] = (),
                  only: str | None = None, enabled_capabilities: Iterable[EditKind] = B2_EDIT_KINDS | NATIVE_EDIT_KINDS,
                  passes: PassRegistry | None = None,
                  analyses: AnalysisRegistry | None = None, ledger: Ledger | None = None,
@@ -559,12 +578,9 @@ class PassManager:
         self.passes = passes if passes is not None else default_pass_registry()
         names = {p.name for p in self.pipeline.passes}
         self.disable = frozenset(disable)
-        unknown = sorted(self.disable - names)
-        if unknown:
-            raise PipelineError(f"--disable names passes not in pipeline "
-                                f"{self.pipeline.name}: {unknown}")
-        if only is not None and only not in names:
-            raise PipelineError(f"--only {only!r} is not in pipeline {self.pipeline.name}")
+        enabled_by_request = frozenset(enable)
+        self.pipeline.validate_pass_options(enabled_by_request, self.disable, only)
+        self.disabled_by_default = (names & DEFAULT_DISABLED_PASSES) - enabled_by_request - self.disable
         self.only = only
         unknown_params = sorted(set(self.params) - names)
         if unknown_params:
@@ -583,7 +599,8 @@ class PassManager:
             from .manager_b3 import B3Ctx, B3State
 
             active = {(entry.name, entry.version) for entry in self.pipeline.passes
-                      if entry.name not in self.disable and (only is None or only == entry.name)}
+                      if entry.name not in self.disable and entry.name not in self.disabled_by_default
+                      and (only is None or only == entry.name)}
             calibrated = active & _B3_PASS_COSTS.keys()
             if calibrated:
                 costs = calibration_params(b3.calibration)
@@ -622,7 +639,7 @@ class PassManager:
                              rec.outcome.value, rec.reason, evidence, counts=counts or None)
             log.info("pass %s@%d: %s (%s)%s", rec.name, rec.version, rec.outcome.value,
                      rec.reason, f" {rec.detail}" if rec.detail else "")
-        ablation = {"disable": sorted(self.disable), "only": self.only}
+        ablation = {"disable": sorted(self.disable | self.disabled_by_default), "only": self.only}
         pids = tuple(dict.fromkeys(p for p in (profile_id_of(v) for v in self.profiles) if p))
         verdicts = {p: ("used" if p in profiles_used else "unused") for p in pids}
         cid = _candidate_id(self.initial.snapshot_id, self.pipeline, records, ablation, pids)
@@ -655,6 +672,9 @@ class PassManager:
             return record(Outcome.SKIPPED_UNSUPPORTED, R.ABLATION_DISABLED,
                           "disabled" if entry.name in self.disable else f"only={self.only}"), \
                 [], ws
+        if entry.name in self.disabled_by_default:
+            return record(Outcome.SKIPPED_UNSUPPORTED, R.DISABLED_BY_DEFAULT,
+                          f"requires --enable {entry.name}"), [], ws
         try:
             cls = self.passes.get(entry.name, entry.version)
         except KeyError:

@@ -42,6 +42,7 @@ FX1_PROFILE = FX1 / "prof/merged.profile.json"
 SELFTEST = ROOT / "runs/wp19-int/rerun-3d5250f/selftest.json"
 R_VADDR, C_VADDR = 0x10000, 0x2F4
 SIX = set(Outcome)
+B3_LINK_PASSES = ("specialize-returns", "chain-returns", "chain-static")
 _CACHE: dict = {}
 
 
@@ -78,7 +79,7 @@ def run_b3(s, pv, *, disable=(), only=None, params=None, profiles=None, pipeline
     from scopt.manager import PassManager
 
     pm = PassManager(s, pipeline, [pv] if profiles is None else profiles, params,
-                     b3=B3Env(), disable=disable, only=only)
+                     b3=B3Env(), enable=B3_LINK_PASSES, disable=disable, only=only)
     return pm, pm.execute()
 
 
@@ -300,7 +301,7 @@ def test_fb3_1_package_static_acceptance(tmp_path, monkeypatch):
     if st.get("kernel_id") != kernel_id():
         pytest.skip("stale self-test document")
     r = optimize_b3(s, "b3", tmp_path, env=B3Env(runtime=ri6, v6_exes=(H.QINT_V6_SHA,),
-                                                 selftest=st), profiles=[pv])
+                                                 selftest=st), profiles=[pv], enable=B3_LINK_PASSES)
     pk = r["package"]
     assert r["path"] == "b3" and pk.status == "published", (pk.reason, pk.rejection_path)
     codes = pk.validation.codes()
@@ -333,7 +334,7 @@ def test_t_b3_7_identity(tmp_path, how):
               "specialize-returns", "constant-propagation", "branch-folding", "dead-host-ops",
               "chain-returns", "chain-static")),
           "only_region_pass": dict(pipeline="b3", only="constant-propagation"),
-          "no_profile": dict(pipeline="b3", profiles=[])}[how]
+          "no_profile": dict(pipeline="b3", profiles=[], enable=B3_LINK_PASSES)}[how]
     pipeline = kw.pop("pipeline")
     profiles = kw.pop("profiles", [pv])
     r = optimize_b3(s, pipeline, tmp_path, env=B3Env(), profiles=profiles, **kw)
@@ -593,7 +594,7 @@ def test_b2_manager_still_refuses_b3_kinds():
     from scopt.manager import PassManager
 
     s, pv = fx1()
-    c = PassManager(s, "b3", [pv]).execute()
+    c = PassManager(s, "b3", [pv], enable=B3_LINK_PASSES).execute()
     for p in c.passes:
         assert p.outcome is Outcome.SKIPPED_UNSUPPORTED, (p.name, p.reason)
         assert p.reason in ("capability_not_enabled", "region_scope_not_enabled")

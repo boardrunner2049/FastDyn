@@ -96,7 +96,8 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @click.option("--profile", "profiles", multiple=True, type=click.Path(exists=True),
               help="Profile v1 file (profile.json); repeatable.")
 @click.option("--disable", multiple=True, help="Ablation: skip this pass (repeatable).")
-@click.option("--only", default=None, help="Ablation: run only this pass.")
+@click.option("--enable", multiple=True, help="Opt a named pipeline pass back in (repeatable).")
+@click.option("--only", default=None, help="Restrict execution to one pass. Disabled passes still need --enable.")
 @click.option("--params", "params_file", type=click.Path(exists=True, dir_okay=False),
               help='JSON file {"<pass>": {<param>: <value>}} overlaid on the pipeline params.')
 @click.option("--b3", "b3_mode", is_flag=True,
@@ -119,7 +120,7 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
               help="Fresh evidence directory for --select-with.")
 @selection_timing_options
 @click.option("--json", "as_json", is_flag=True)
-def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file, b3_mode,
+def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, params_file, b3_mode,
                  ri_file, v6_exes, selftest_file, prep, elf, as_json, select_with=None, selection_out=None,
                  qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05):
     """Run PIPELINE on SNAPSHOT, link, validate (V1-V9) and publish the artifact.
@@ -143,6 +144,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
 
     try:
         pl = load_pipeline(pipeline)
+        pl.validate_pass_options(enable, disable, only)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
     native_stage = None
@@ -155,11 +157,10 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
             raise click.UsageError("one native prefix followed by B3 passes is required")
         stage_params = {splice.name: params[splice.name]} if params and splice.name in params else {}
         if only == splice.name:
-            if set(disable) - {p.name for p in pl.passes}:
-                raise click.UsageError("unknown disabled pass")
             pl = replace(load_pipeline("host-inline-splice"), passes=(splice,))
             params, b3_mode = stage_params, False
             disable = tuple(name for name in disable if name == splice.name)
+            enable = tuple(name for name in enable if name == splice.name)
         else:
             if only is None and splice.name not in disable:
                 try:
@@ -171,6 +172,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
             pl = replace(pl, passes=tuple(rest),
                          allowed_capabilities=pl.allowed_capabilities - NATIVE_EDIT_KINDS)
             disable = tuple(name for name in disable if name != splice.name)
+            enable = tuple(name for name in enable if name != splice.name)
             params = {k: v for k, v in (params or {}).items() if k != splice.name}
     native = bool(pl.allowed_capabilities & NATIVE_EDIT_KINDS) or any(
         unit.inline_start is not None for unit in snap.units())
@@ -180,11 +182,11 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
     if b3_mode or (pl.allowed_capabilities & B3_EDIT_KINDS):
         _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, v6_exes,
                      selftest_file, prep, elf, as_json, native_stage=native_stage,
-                     selection=(original_snapshot, select_with, selection_out, timing))
+                     selection=(original_snapshot, select_with, selection_out, timing), enable=enable)
         return
     try:
         res = optimize(snap, pl, store, profiles=views, params=params,
-                       disable=disable, only=only)
+                       disable=disable, only=only, enable=enable)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
     doc = res.to_json()
@@ -221,7 +223,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, only, params_file
 
 
 def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, v6_exes,
-                 selftest_file, prep, elf, as_json, native_stage=None, selection=None):
+                 selftest_file, prep, elf, as_json, native_stage=None, selection=None, enable=()):
     from ..analysis.b3_inputs import resolve_for_snapshot
     from ..manager import PipelineError
     from ..manager_b3 import B3Env, optimize_b3
@@ -238,7 +240,7 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file, 
     env = B3Env(runtime=ri, v6_exes=tuple(v6_exes), selftest=load_or_run(selftest_file))
     try:
         r = optimize_b3(snap, pl, store, env=env, profiles=views, params=params,
-                        disable=disable, only=only)
+                        disable=disable, only=only, enable=enable)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
     c, pk, m = r["candidate"], r["package"], r["materialized"]

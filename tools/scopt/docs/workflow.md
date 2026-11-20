@@ -55,8 +55,8 @@ their README are in the maintainer's workspace, not in the repository.)
 |---|---|---|---|
 | identity (no-change pass) | `scopt optimize $W/store/snapshots/<id> --pipeline identity --store $W/out/identity` | `.sc` v5, byte-equal to the input (V9) | `docs/link-validate.md` |
 | B2 layout | `scopt optimize ... --pipeline b2-layout --profile $W/prof/merged.profile.json --store $W/out/layout [--disable cluster-hot\|order-cold]` | `.sc` v5 for the unmodified loader | `docs/b2-layout.md` |
-| B3 cross-TB | `scopt optimize ... --pipeline b3 --b3 --runtime-identity $W/runtime_identity.v2.json --prep $W/prep --profile ... --selftest hostsym_selftest.json --store $W/out/b3 [--disable PASS\|--only PASS]` | `.sc` v6 (a QEMU with the v6 loader: `SCOPT_V6_EXES`, `--v6-exe`; the evaluation used the gate binary), hostsym-certified (V12/V14/V18) | `docs/b3-passes.md`, `docs/b3-link-v6.md`, `docs/hostsym.md` |
-| B4 state sync | `scopt b4 package SNAP --store $W/out/b4 --runtime $W/runtime_identity.v2.json [--classes D1\|D2\|D3]` | `.sc` v5, V12 under the strict call contract | `docs/b4.md` |
+| B3 cross-TB (explicit full recipe) | `scopt optimize ... --pipeline b3 --enable specialize-returns --enable chain-returns --enable chain-static --b3 --runtime-identity $W/runtime_identity.v2.json --prep $W/prep --profile ... --selftest hostsym_selftest.json --store $W/out/b3 [--disable PASS\|--only PASS]` | `.sc` v6 (a QEMU with the v6 loader: `SCOPT_V6_EXES`, `--v6-exe`; the evaluation used the gate binary), hostsym-certified (V12/V14/V18) | `docs/b3-passes.md`, `docs/b3-link-v6.md`, `docs/hostsym.md` |
+| B4 state sync | `scopt b4 package SNAP --enable eliminate-state-sync --store $W/out/b4 --runtime $W/runtime_identity.v2.json [--classes D1\|D2\|D3]` | `.sc` v5, V12 under the strict call contract | `docs/b4.md` |
 | baseline-TCG fix (not an optimizer result) | `scopt sfb package SNAP --store $W/out/sfb` | `.sc` v5 (+16 B per unit) | `docs/b4.md` |
 
 `optimize` exits 0 when the artifact is published and 2 when the candidate is rejected.

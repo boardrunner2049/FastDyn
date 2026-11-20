@@ -2,6 +2,11 @@
 
 FastDyn's cache image remains the executable program. Captured instruction spans, recovery rows, patch provenance, helper bindings, translation keys, link slots and per-image environment layouts accompany that image. The initial target is Cortex-M3 Thumb firmware running under an x86-64 QEMU host binary. Profiles rank candidates. Variant admission uses a checked predecessor fact or a value guard on the physical incoming path.
 
+The native program runs `host-inline-splice` by default. Its `local-scalar-cleanup` and
+`specialize-edges` stages now require an explicit `--enable` for each pass. Archived
+benchmarks used the defaults of their recorded revisions. To reproduce their original
+pass sets, use those revisions or explicitly enable the stages they exercised.
+
 ## Reproduce the measured fixtures
 
 Use an x86-64 Ubuntu build environment with Python 3.12, the dependencies from the host-inline source lock and the editable scopt installation. Run at the FastDyn repository root. The driver builds the pinned runtime, recreates the RBIT capture, runs existing warm/identity/B3/B4/splice arms, and generates a separate executable specialization fixture. The small specialization fixture uses an explicit 64 KiB global code-growth limit. Every newly published arm receives static validation and a two-input held-out execution check.
@@ -44,7 +49,7 @@ For a single pass use `--only host-inline-splice`. For a full-pipeline ablation 
 
 For the x86 TCG differential checker add `--selftest /path/to/current-hostsym-qemu.json` to both commands after generating the witness with `python tools/scopt/scripts/hostsym_qemu_oracle.py --out /path/to/current-hostsym-qemu.json`. Changing the proof kernel invalidates the witness. With `--fixture global-transitive`, the modified writer A, preserving B, and consumer C occupy different TBs. A guarded B-to-C private entry checks the assumed value before the optimized successor uses it. Its evaluation parameters set `min_pass_share` to 0.45 and `max_code_growth_bytes` to 65536 under `specialize-edges`.
 
-On the bundled FreeRTOS example, `configs/minimal.toml` changes the LED-flash task argument to 3 and prints the value before ending at scheduler startup. `--pipeline local-scalar` checks ordinary entries under that public entry contract. `--pipeline native-program` also runs this cleanup on the generation consumed by whole-program planning. A pass that yields an unchanged cache image is marked explicitly by the prefix benchmark.
+On the bundled FreeRTOS example, `configs/minimal.toml` changes the LED-flash task argument to 3 and prints the value before ending at scheduler startup. `--pipeline local-scalar --enable local-scalar-cleanup` checks ordinary entries under that public entry contract. `--pipeline native-program --enable local-scalar-cleanup` also runs this cleanup on the generation consumed by whole-program planning. A pass that yields an unchanged cache image is marked explicitly by the prefix benchmark.
 
 ## Pass ledger
 

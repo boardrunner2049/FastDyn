@@ -298,7 +298,8 @@ def test_b2_manager_refuses_the_b4_pipeline():
     from scopt.manager import PassManager
 
     s = snap("fault")
-    cand = PassManager(s, Path(__file__).parents[2] / "pipelines/b4.toml").execute()
+    cand = PassManager(s, Path(__file__).parents[2] / "pipelines/b4.toml",
+                       enable=("eliminate-state-sync",)).execute()
     rec = cand.passes[0]
     assert rec.outcome is Outcome.SKIPPED_UNSUPPORTED and rec.reason == "capability_not_enabled"
     assert not cand.edits

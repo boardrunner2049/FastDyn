@@ -119,7 +119,8 @@ def _open(snapdir: Path, prep: Path, profile: Path):
 def _run(s, pv, params):
     from scopt.manager import PassManager
 
-    pm = PassManager(s, "b3", [pv], params, b3=B3Env(), only="specialize-returns")
+    pm = PassManager(s, "b3", [pv], params, b3=B3Env(), only="specialize-returns",
+                     enable=("specialize-returns",))
     return pm, pm.execute()
 
 

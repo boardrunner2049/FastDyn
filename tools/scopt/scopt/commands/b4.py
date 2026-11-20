@@ -8,6 +8,8 @@ from pathlib import Path
 
 import click
 
+_B4_PASS = "eliminate-state-sync"
+
 
 def register(group: click.Group) -> None:
     group.add_command(b4)
@@ -22,13 +24,15 @@ def _out(doc, out: str | None) -> None:
         click.echo(text)
 
 
-def _load(snapshot: str, runtime: str | None):
+def _load(snapshot: str, runtime: str | None, *, require_layout: bool = True):
     from ..formats.envlayout_v1 import find_envlayout
     from ..importer.import_cache import open_snapshot
 
     s = open_snapshot(snapshot)
     ri = json.loads(Path(runtime).read_text()) if runtime else \
         (dict(s.runtime) if s.runtime is not None else None)
+    if not require_layout:
+        return s, None, ri
     lay = find_envlayout((ri or {}).get("qemu_sha256"))
     if lay is None:
         click.echo("guard_layout_unbound: no EnvLayout for the RuntimeIdentity's QEMU", err=True)
@@ -80,6 +84,8 @@ def census_cmd(snapshot, runtime, mode, all_units, d3_all_calls, tb_start_cb, ou
 @click.argument("snapshot", type=click.Path(exists=True, file_okay=False))
 @click.option("--store", required=True, type=click.Path(file_okay=False))
 @_RT
+@click.option("--enable", type=click.Choice([_B4_PASS]),
+              help="Explicitly enable the B4 pass for this package.")
 @click.option("--classes", default="D1|D2|D3", show_default=True)
 @click.option("--coalesce-nops", is_flag=True,
               help="Encode adjacent certified dead stores as one NOP where possible.")
@@ -89,12 +95,25 @@ def census_cmd(snapshot, runtime, mode, all_units, d3_all_calls, tb_start_cb, ou
 @click.option("--selftest", "selftest_path", type=click.Path(dir_okay=False),
               help="V18 document cache (scopt hostsym selftest --cache).")
 @click.option("--out", type=click.Path(dir_okay=False))
-def package_cmd(snapshot, store, runtime, classes, coalesce_nops, absorb_nops, candidate_id, selftest_path, out):
+def package_cmd(snapshot, store, runtime, enable, classes, coalesce_nops, absorb_nops, candidate_id, selftest_path, out):
     """Propose (eliminate-state-sync@1), link (v5), validate and publish a B4 artifact."""
-    from ..passes.eliminate_state_sync import class_ledger_rows, package_b4, propose_b4
+    from ..ledger import Ledger
+    from ..manager import DEFAULT_DISABLED_PASSES, R
+    from ..passes.base import Outcome
+    from ..passes.eliminate_state_sync import ALL_CLASSES, class_ledger_rows, package_b4, propose_b4
     from ..validate_sym.selftest import load_or_run
 
-    s, lay, ri = _load(snapshot, runtime)
+    enabled = _B4_PASS not in DEFAULT_DISABLED_PASSES or enable == _B4_PASS
+    s, lay, ri = _load(snapshot, runtime, require_layout=enabled)
+    if not enabled:
+        reason = R.DISABLED_BY_DEFAULT
+        outcome = Outcome.SKIPPED_UNSUPPORTED.value
+        row = Ledger().emit("pass", f"{_B4_PASS}@1", "optimized", outcome, reason, counts={"edits": 0})
+        _out({"status": "no_change", "reason": reason,
+              "proposal": {"outcome": outcome, "reason": reason, "detail": f"Use --enable {_B4_PASS} to opt in.",
+                           "by_class": dict.fromkeys(ALL_CLASSES, 0), "units": 0, "stats": {"edits": 0}},
+              "ledger": [row.to_json()]}, out)
+        return
     prop = propose_b4(s, layout=lay, runtime=ri, classes=classes,
                       coalesce_nops=coalesce_nops, absorb_nops=absorb_nops)
     Path(store).mkdir(parents=True, exist_ok=True)

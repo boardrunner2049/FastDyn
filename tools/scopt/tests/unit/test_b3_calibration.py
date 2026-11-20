@@ -12,7 +12,8 @@ from scopt.manager_b3 import B3Env
 from scopt.passes.base import Outcome, PassResult
 from tests.synth.fake_snapshot import fake_snapshot
 
-NAMES = ("chain-returns", "chain-static", "specialize-returns", "specialize-edges", "identity")
+CALIBRATED_PASSES = ("chain-returns", "chain-static", "specialize-returns", "specialize-edges")
+NAMES = (*CALIBRATED_PASSES, "identity")
 
 
 def _file(path, **costs):
@@ -36,7 +37,7 @@ def _manager(snap, *, env=None, pipeline_params=None, caller=None, only=None):
         classes.append(type("ObservedPass", (), {"descriptor": descriptor, "run": run}))
     pipeline = {"name": "calibration-test", "pass": [
         {"name": n, "version": 1, "params": (pipeline_params or {}).get(n, {})} for n in NAMES]}
-    return PassManager(snap, pipeline, params=caller, only=only, b3=env,
+    return PassManager(snap, pipeline, params=caller, enable=CALIBRATED_PASSES, only=only, b3=env,
                        passes=PassRegistry(classes)), seen
 
 

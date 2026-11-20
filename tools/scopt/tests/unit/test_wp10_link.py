@@ -419,6 +419,14 @@ def test_pinned_units_are_obstacles(tmp_path):
         [u.tb_offset for u in snap2.units() if u.uid != mid.uid]
 
 
+def test_disabled_ordinary_exit_publishes_the_unchanged_cache(tmp_path):
+    snapshot = make_snapshot(tmp_path, RT.rich_units(2))
+    result = optimize(snapshot, "ordinary-exit", tmp_path / "store")
+    assert result.published
+    assert result.candidate.outcome("retire-ordinary-exits").reason == "disabled_by_default"
+    assert (Path(result.artifact_dir) / "cache.sc").read_bytes() == (Path(snapshot.path) / "cache.sc").read_bytes()
+
+
 def test_optimize_function_and_cli(tmp_path):
     from click.testing import CliRunner
 

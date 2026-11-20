@@ -6,6 +6,15 @@ host code (profile-guided layout, cross-TB return specialization, state-sync
 elimination), validates the result, and writes an artifact that FastDyn loads as an
 ordinary warm cache.
 
+## Pass defaults
+
+Seven registered passes require explicit opt-in for new optimizations, including custom pipelines:
+`local-scalar-cleanup`, `retire-ordinary-exits`, `eliminate-state-sync`, `specialize-returns`,
+`chain-returns`, `specialize-edges` and `chain-static`. A skipped stage records
+`disabled_by_default` in its pass receipt. For a controlled replay, supply
+`--enable PASS` for each of these stages you want to exercise. `--only` narrows
+the pipeline and `--params` changes parameter values. Both respect the defaults.
+
 ## Start here
 
 - **Getting started** (fresh machine → first optimized artifact): `docs/getting-started.md`

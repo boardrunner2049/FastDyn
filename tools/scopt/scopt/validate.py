@@ -1057,10 +1057,11 @@ class ValidateAndPackage:
         if extreme is not None and extreme.outcome not in (Outcome.CANDIDATE, Outcome.NO_CHANGE):
             return self._reject(extreme.reason)
         from .ordinary_exit import PASS as ORDINARY_EXIT
+        from .manager import R
 
         ordinary = c.outcome(ORDINARY_EXIT)
         if ordinary is not None and ordinary.outcome not in (Outcome.CANDIDATE, Outcome.NO_CHANGE):
-            if ordinary.reason not in {"ablation_disabled", "ablation_only"}:
+            if ordinary.reason not in {R.ABLATION_DISABLED, "ablation_only", R.DISABLED_BY_DEFAULT}:
                 return self._reject(ordinary.reason)
         link = NativeLinker(c, join_result=self.join_result).link()
         if not link.ok:
