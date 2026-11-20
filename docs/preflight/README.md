@@ -2258,6 +2258,38 @@ This qualifies two producers with a two-CU DWARF5 input package; FirmBOLT emits
 per-unit DWO files, not a replacement DWP, and arbitrary unit counts, type
 units, DWARF4 DWP and compressed split-debug inputs remain unqualified.
 
+v177 closes the linked-firmware compressed-debug gap for both standardized ELF
+`SHF_COMPRESSED` zlib sections and the legacy GNU `.zdebug_*` convention. The
+legacy path had been a silent-loss bug: FirmBOLT returned success and
+`llvm-dwarfdump --verify` printed `No errors`, but no compile unit was present;
+stale compressed payloads remained beside zero-sized canonical replacements.
+The shared decompressor now validates the GNU `ZLIB` header and big-endian
+uncompressed size, DWARF maps the physical legacy name to its canonical
+identity, and BOLT removes a legacy payload and its ARM `SHT_REL` table only
+after the corresponding canonical section has been finalized. An input that
+contains both representations of the same canonical section rejects before
+publication.
+
+The producer gate now passes 14/14 cases. Both new compressed DWARF5 cases
+resolve exactly one real compile unit; every candidate payload is nonempty.
+GABI output retains `SHF_COMPRESSED`, while rewritten GNU input is
+canonicalized and has no stale replaced `.zdebug_*` section or relocation
+table. The build now requires zlib and produces the exact DWARF inspection
+tools used by this gate. The complete Cortex-M matrix remains 68/68, covering
+1,963 functions and 130,186 instruction origins, and the real M4 image again
+completes 10,000 units with exact reference/candidate RAM state. Regression
+gates pass 98/98 ARM lit, 13/13 AArch32 JITLink lit, six shared-DWARF controls
+with one explicit zstd unsupported result, and all applicable units. The full
+1,132-test diagnostic retains the same 23 failures. The mechanical patch
+SHA-256 is
+`ef72a4477cbd9fbbfb4257b83c943b9802a45bea93b9a9b2814127a0987de971`
+and reverse-applies across 183 pinned-overlay files. Evidence is in the
+[v177 validation manifest](evidence/firmbolt-cortex-m-v177-validation.json),
+[production report](../../build/preflight/firm-bolt-cortex-m-v177-compressed-debug-r2/report.json),
+and [producer matrix](../../build/preflight/firmbolt-cortex-m-v177-dwarf-producers-r2/report.json).
+This qualifies linked zlib-compressed DWARF for the named fixture, not zstd,
+compressed DWO/DWP contributions, every compressor, or complete x86 parity.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

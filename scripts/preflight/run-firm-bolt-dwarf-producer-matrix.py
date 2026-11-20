@@ -25,6 +25,7 @@ DEFAULT_GCC = Path(
     "/data/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi/bin/"
     "arm-none-eabi-gcc"
 )
+DEFAULT_ARM_OBJCOPY = DEFAULT_GCC.with_name("arm-none-eabi-objcopy")
 
 
 def sha256(path: Path) -> str:
@@ -80,6 +81,46 @@ def section_names(readelf: Path, image: Path, log: Path) -> list[str]:
     return sorted(set(re.findall(r"\] (\.debug_[^ ]+)", process.stdout)))
 
 
+def debug_section_inventory(
+    readelf: Path, image: Path, log: Path
+) -> dict[str, dict[str, Any]]:
+    process = run([str(readelf), "--sections", "--wide", str(image)], log)
+    inventory: dict[str, dict[str, Any]] = {}
+    pattern = re.compile(
+        r"\[\s*[0-9]+\]\s+(\.[^ ]+)\s+(\S+)\s+"
+        r"[0-9a-fA-F]+\s+[0-9a-fA-F]+\s+([0-9a-fA-F]+)"
+    )
+    for line in process.stdout.splitlines():
+        match = pattern.search(line)
+        if not match:
+            continue
+        name, section_type, size = match.groups()
+        if not (
+            name.startswith(".debug_")
+            or name.startswith(".zdebug_")
+            or name.startswith(".rel.zdebug_")
+            or name.startswith(".rela.zdebug_")
+        ):
+            continue
+        inventory[name] = {
+            "type": section_type,
+            "size_bytes": int(size, 16),
+            "compressed_flag": " C " in f" {line} ",
+        }
+    return inventory
+
+
+def compilation_unit_count(
+    dwarfdump: Path, image: Path, log: Path
+) -> tuple[int, int]:
+    process = run(
+        [str(dwarfdump), "--debug-info", str(image)], log, check=False
+    )
+    return process.returncode, (
+        process.stdout + process.stderr
+    ).count("DW_TAG_compile_unit")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bolt")
@@ -89,7 +130,9 @@ def main() -> int:
     parser.add_argument("--llvm-mc")
     parser.add_argument("--llvm-dwp")
     parser.add_argument("--llvm-dwarfdump")
+    parser.add_argument("--llvm-objcopy")
     parser.add_argument("--llvm-readelf")
+    parser.add_argument("--arm-objcopy")
     parser.add_argument(
         "--output",
         default=str(ROOT / "build/preflight/firmbolt-dwarf-producer-matrix"),
@@ -106,8 +149,14 @@ def main() -> int:
         "dwarfdump": resolve_tool(
             args.llvm_dwarfdump, LLVM_BUILD / "llvm-dwarfdump", "llvm-dwarfdump"
         ),
+        "objcopy": resolve_tool(
+            args.llvm_objcopy, LLVM_BUILD / "llvm-objcopy", "llvm-objcopy"
+        ),
         "readelf": resolve_tool(
             args.llvm_readelf, LLVM_BUILD / "llvm-readelf", "llvm-readelf"
+        ),
+        "arm_objcopy": resolve_tool(
+            args.arm_objcopy, DEFAULT_ARM_OBJCOPY, "arm-none-eabi-objcopy"
         ),
     }
     output = Path(args.output).resolve()
@@ -375,6 +424,111 @@ def main() -> int:
             "reference_dwp_debug_sections": reference_dwp_sections,
             "candidate_dwo_debug_sections": candidate_dwo_sections,
             "candidate_resolved_dwo_compile_units": resolved_dwo_compile_units,
+        }
+
+    # Exercise both standardized ELF SHF_COMPRESSED and the legacy GNU
+    # .zdebug_* representation on the exact same linked Cortex-M/DWARF5
+    # input.  Verification must resolve a real compile unit; "No errors" on
+    # an empty section set is not acceptance evidence.
+    compression_source = output / "clang-dwarf5.reference.elf"
+    for style, objcopy, option in (
+        ("gabi-zlib", tools["objcopy"], "zlib"),
+        ("gnu-zlib", tools["arm_objcopy"], "zlib-gnu"),
+    ):
+        name = f"clang-dwarf5-{style}"
+        reference = output / f"{name}.reference.elf"
+        candidate = output / f"{name}.firmbolt.elf"
+        run(
+            [str(objcopy), f"--compress-debug-sections={option}",
+             str(compression_source), str(reference)],
+            logs / f"compress-{name}.log",
+        )
+        run(
+            [str(tools["bolt"]), str(reference),
+             "--firmbolt-cortex-m-cpu=cortex-m3", "--relocs",
+             "--use-old-text", "--update-debug-sections", "--keep-aranges",
+             "--always-convert-to-ranges", "--align-functions=1",
+             "-o", str(candidate)],
+            logs / f"firmbolt-{name}.log",
+        )
+        reference_verify = run(
+            [str(tools["dwarfdump"]), "--verify", str(reference)],
+            logs / f"verify-reference-{name}.log", check=False,
+        )
+        candidate_verify = run(
+            [str(tools["dwarfdump"]), "--verify", str(candidate)],
+            logs / f"verify-candidate-{name}.log", check=False,
+        )
+        reference_cu_rc, reference_cus = compilation_unit_count(
+            tools["dwarfdump"], reference,
+            logs / f"dump-reference-{name}.log",
+        )
+        candidate_cu_rc, candidate_cus = compilation_unit_count(
+            tools["dwarfdump"], candidate,
+            logs / f"dump-candidate-{name}.log",
+        )
+        reference_inventory = debug_section_inventory(
+            tools["readelf"], reference,
+            logs / f"inventory-reference-{name}.log",
+        )
+        candidate_inventory = debug_section_inventory(
+            tools["readelf"], candidate,
+            logs / f"inventory-candidate-{name}.log",
+        )
+        reference_output = reference_verify.stdout + reference_verify.stderr
+        candidate_output = candidate_verify.stdout + candidate_verify.stderr
+        nonzero_candidate_payloads = {
+            section: entry["size_bytes"]
+            for section, entry in candidate_inventory.items()
+            if section.startswith((".debug_", ".zdebug_"))
+        }
+        retired_legacy_sections = {
+            ".zdebug_info", ".zdebug_abbrev", ".zdebug_str_offsets",
+            ".zdebug_line_str", ".rel.zdebug_info",
+            ".rel.zdebug_abbrev", ".rel.zdebug_str_offsets",
+            ".rel.zdebug_line_str",
+        }
+        stale_legacy_sections = sorted(
+            retired_legacy_sections.intersection(candidate_inventory)
+        )
+        reference_form_ok = (
+            (style == "gabi-zlib"
+             and reference_inventory.get(".debug_info", {}).get(
+                 "compressed_flag", False
+             ))
+            or (style == "gnu-zlib" and ".zdebug_info" in reference_inventory)
+        )
+        accepted = (
+            reference_verify.returncode == 0
+            and candidate_verify.returncode == 0
+            and not verifier_counts(reference_output)
+            and not verifier_counts(candidate_output)
+            and reference_cu_rc == 0
+            and candidate_cu_rc == 0
+            and reference_cus == 1
+            and candidate_cus == 1
+            and reference_form_ok
+            and nonzero_candidate_payloads
+            and all(size > 0 for size in nonzero_candidate_payloads.values())
+            and not stale_legacy_sections
+        )
+        cases[name] = {
+            "accepted": accepted,
+            "producer": "clang",
+            "dwarf_version": 5,
+            "split_dwarf": False,
+            "compression_style": style,
+            "reference_sha256": sha256(reference),
+            "candidate_sha256": sha256(candidate),
+            "reference_verifier_returncode": reference_verify.returncode,
+            "candidate_verifier_returncode": candidate_verify.returncode,
+            "reference_verifier_counts": verifier_counts(reference_output),
+            "candidate_verifier_counts": verifier_counts(candidate_output),
+            "reference_compile_units": reference_cus,
+            "candidate_compile_units": candidate_cus,
+            "reference_debug_section_inventory": reference_inventory,
+            "candidate_debug_section_inventory": candidate_inventory,
+            "stale_legacy_sections": stale_legacy_sections,
         }
 
     report = {

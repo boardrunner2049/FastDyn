@@ -4,7 +4,7 @@ Updated 20 November 2026. `unsupported` means a capability is outside the
 selected implementation/model; it is not a failed proof or semantic
 counterexample.
 
-The latest aggregate gate is v176: 68/68 production and architectural profiles
+The latest aggregate gate is v177: 68/68 production and architectural profiles
 pass. It accepts all twelve Cortex-M CPUs implemented by the pinned LLVM target,
 binds execution features to the selected CPU, treats ELF attributes as evidence
 rather than authorization, and either retains an incompatible region or rejects
@@ -42,8 +42,15 @@ The v176 gate additionally consumes two-CU Clang and GCC DWARF5 DWP packages.
 It exposed and fixed a skeleton-versus-split-unit identity bug that standalone
 DWO offset-zero layouts had masked; both packages now emit two verifier-clean
 DWO files and resolve two compile units through the candidate skeleton.
+The v177 gate adds standardized GABI zlib and legacy GNU `.zdebug_*` input.
+The pre-fix GNU route returned success while resolving no compile unit and
+retaining stale payloads. The corrected route validates/decompresses the GNU
+header, unifies canonical identities, removes only replaced legacy sections
+and their ARM relocation tables, and rejects duplicate physical
+representations. All 14 producer cases resolve their required units and retain
+nonempty payloads.
 The full BOLT suite remains a diagnostic with 23 recorded failures in the
-mixed-version test environment, so v176 is not a global parity
+mixed-version test environment, so v177 is not a global parity
 claim.
 The long
 backend row retains older v58/v107 checkpoint details for
@@ -154,6 +161,14 @@ below carry the newer mechanisms and claim boundaries.
 | --- | --- | --- | --- |
 | Multi-unit split identity | Implemented for the named two-CU DWARF5 packages | The equivalent Clang DWP initially passed, but GCC aborted after emitting one DWO. The second GCC split unit begins at `0xe0`; using the skeleton unit in `DebugLoclistWriter` selected the wrong DIE-offset map. Constructing it from `SplitCU` produces both DWO files and clean verification. | Exercise more than two units, type units and mixed producer extensions; a two-unit fixture is mechanism evidence rather than a scale claim. |
 | DWP input/output boundary | DWP input qualified; replacement-DWP emission not implemented | The gate hashes `llvm-dwp`, both input DWO files, the package, candidate ELF and both emitted DWO files. It checks exact output names, section coverage and two resolved compile units. | Add a checked repackaging phase only if consumers require one monolithic DWP. Do not describe per-unit output as DWP publication. |
+
+## v177 compressed-DWARF gaps
+
+| Area | Classification | Evidence | Remaining boundary |
+| --- | --- | --- | --- |
+| GABI zlib debug rewriting | Implemented with a required build dependency | The Clang Cortex-M3 DWARF5 reference and candidate each resolve one CU and verify cleanly. The candidate's 131-byte `.debug_info` remains `SHF_COMPRESSED`; all emitted payload sections are nonempty. `LLVM_ENABLE_ZLIB=FORCE_ON` is now part of the reproducible build. | Qualify additional producers, zlib versions and corrupted-stream classes. zstd remains explicitly unsupported by this build. |
+| Legacy GNU `.zdebug_*` rewriting | Implemented through canonicalized publication for rebuilt sections | The pre-fix run returned success and `No errors` while resolving zero CUs, retaining stale `.zdebug_*` data and emitting zero-sized canonical replacements. The fixed candidate resolves one CU, emits a nonempty 172-byte canonical `.debug_info`, removes every replaced legacy payload and detached ARM `SHT_REL` table, and verifies cleanly. Invalid magic and standard+legacy duplicate identities reject before output. | Compressed DWO/DWP contributions, arbitrary producer extensions and alternate compression formats remain unqualified. An immutable `.zdebug_str` may remain when BOLT does not rebuild its contents; that is preserved payload, not a stale replaced section. |
+| Verifier acceptance oracle | Strengthened against vacuous success | The matrix now counts resolved `DW_TAG_compile_unit` records, inventories exact section sizes/forms, and requires nonempty output in addition to verifier return codes and error classes. | Add comparable non-vacuity oracles for type units, macro sections and accelerator tables before qualifying those forms. |
 
 ## Enforced stop conditions
 
