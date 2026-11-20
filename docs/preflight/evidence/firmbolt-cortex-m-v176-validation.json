@@ -1,0 +1,146 @@
+{
+  "clean_apply": {
+    "byte_exact_files": 178,
+    "method": "the generated patch reverse-applies cleanly to the current overlay on the pinned base, proving the overlay bytes are exactly the patch result",
+    "pinned_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "reconstructed_patch_byte_exact": true,
+    "status": "accepted"
+  },
+  "dwarf_producer_contract": {
+    "accepted_cases": 12,
+    "case_count": 12,
+    "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)",
+    "gcc": "arm-none-eabi-gcc 13.3.1 20240614",
+    "matrix": {
+      "clang_dwarf2_to_5": "four clean references and four clean candidates",
+      "clang_dwarf5_split": "clean reference and candidate, with one rewritten DWO",
+      "clang_dwarf5_two_cu_dwp": "clean reference package and candidate, with two rewritten DWO files and two resolved compile units",
+      "gcc_dwarf2_to_4": "each candidate preserves the reference's one Invalid DWARF expressions finding without adding a class or count",
+      "gcc_dwarf5": "clean reference and candidate",
+      "gcc_dwarf5_split": "clean reference and candidate, with one rewritten DWO",
+      "gcc_dwarf5_two_cu_dwp": "clean reference package and candidate, with two rewritten DWO files and two resolved compile units"
+    },
+    "policy": "candidate verifier return code and error classes/counts must match the reference; DWARF5 must be clean; all reference skeleton debug sections must remain; split cases require emitted DWO sections covering the source payload; DWP cases require the exact two output DWO names and two resolved compile units",
+    "status": "accepted"
+  },
+  "generated_at_utc": "2026-11-20T08:35:42Z",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "milestone": "v176-cortex-m-multi-unit-dwp-preservation",
+  "multi_unit_dwp_failure_and_fix": {
+    "clang_initial_result": "accepted",
+    "gcc_initial_result": "abort after writing only the first DWO",
+    "initial_failure_evidence": "build/preflight/firmbolt-cortex-m-v176-dwp-gcc-probe/firmbolt.log",
+    "masked_single_unit_behavior": "a standalone DWO commonly places both skeleton and split unit at section offset zero, hiding the incorrect unit identity",
+    "mechanism": "ProcessSplitCU constructed DebugLoclistWriter with the skeleton Unit, so a later packaged split unit looked up base-type DIE references in the wrong unit-offset map",
+    "observed_offsets": {
+      "later_gcc_split_unit": "0xe0",
+      "relationship": "different from its skeleton unit offset"
+    },
+    "repair": "construct the split location writer from SplitCU and keep expression-reference patching after final split-DIE layout",
+    "status": "accepted"
+  },
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-v176-dwp-r1"
+  ],
+  "production_profiles": {
+    "accepted": 68,
+    "functions_with_emitted_instructions": 1963,
+    "instruction_origins": 130188,
+    "modified_function_instruction_origins": 98786,
+    "modified_functions": 1144,
+    "potentially_faulting_load_store_origins": 57610,
+    "total": 68
+  },
+  "production_status": "accepted",
+  "real_firmware_execution": {
+    "candidate_ram_prefix_exact": true,
+    "completed_work_units": 10000,
+    "cpu_model": "cortex-m4",
+    "reference_repeat_exact": true,
+    "status": "accepted"
+  },
+  "regressions": {
+    "aarch32_jitlink_lit": {
+      "failed": 0,
+      "passed": 13
+    },
+    "arm_bolt_lit": {
+      "failed": 0,
+      "passed": 97
+    },
+    "core_units": {
+      "failed": 0,
+      "passed": 88,
+      "skipped_target_inapplicable": 150
+    },
+    "full_bolt_lit_diagnostic": {
+      "expectedly_failed": 1,
+      "failed": 23,
+      "passed": 922,
+      "skipped": 150,
+      "status": "diagnostic_not_clean",
+      "unsupported": 35
+    },
+    "jitlink_units": {
+      "failed": 0,
+      "passed": 76
+    },
+    "pass_units": {
+      "failed": 0,
+      "passed": 5
+    },
+    "profile_units": {
+      "failed": 0,
+      "passed": 39
+    },
+    "shared_dwarf_lit": {
+      "failed": 0,
+      "passed": 5,
+      "unsupported": 1
+    }
+  },
+  "repository_base_commit": "b4c2d026300319d9221c9c8d760b8c954c7803db",
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "scope_limits": [
+    "this milestone qualifies two concrete producers over DWARF2 through DWARF5, standalone DWARF5 split mode and two-CU packaged DWARF5 input; it does not qualify every compiler or extension",
+    "FirmBOLT consumes a DWP and emits one rewritten DWO per split unit; it does not emit a replacement packaged DWP",
+    "arbitrary unit counts, DWARF4 DWP, type units, compressed split-debug sections and alternate comp-dir arrangements remain unqualified",
+    "GCC DWARF2 through DWARF4 retain one reference verifier finding because the selected LLVM verifier does not understand the producer extension; matching findings are preservation evidence, not a clean semantic proof",
+    "the 68-profile matrix and real M4 run are preservation and installation evidence, not complete x86-backend feature parity",
+    "the full BOLT lit diagnostic remains at the documented 23 failures in the mixed-version test environment",
+    "the FastDyn run checks fixed completed work and exact RAM state, not a statistically powered speedup claim",
+    "patch-aware transformation semantics remain a later phase; this production gate uses the current explicit empty patch contract"
+  ],
+  "sha256": {
+    "RTOSDemo.firm-bolt-m4.axf": "a76c09a5a98ac701248747d26540487e73c871c4f1636cb0e31f45ffab8af7bf",
+    "aarch32-jitlink-lit.xml": "56d7d011bab88036c3ad6e2cc009f5436c02c7cb725597b4f91c520ccc78f2ca",
+    "arm-bolt-lit.xml": "83da62ee40e2e02446146c310767ae4a4eab91a8e0e6fa62b0a32a5be6dde69a",
+    "core-tests.xml": "1cfefa755f829ebb0e3d237eadd35c9d48bae14f1256342b2736351b8b0c223b",
+    "dwarf-producer-matrix-report.json": "35f425bbf3b8fee26b44a36c734a7e52d621c7bc2bbc39ba18080c2937196b05",
+    "full-bolt-lit.xml": "0e502b83a41f8a6d2890fabfa6039abe8cee1258762f5ebbfef15b9db20cf936",
+    "gcc-initial-abort.log": "b6efad3408842248b82e6a158329002ce19df6eeb9b48ef6fe7812f0c09f9b97",
+    "jitlink-tests.xml": "ce683af9b58c8180af7e3e6dac4c3606f32bdd94ccffdda9172b5b72510a3ba6",
+    "pass-tests.xml": "3bc2d1fcc1f922082e49b6d1237a94865e1a1d561a1913da71e5b48f24e4a0bd",
+    "patches/bolt-fastdyn-preflight.patch": "543a76ef6ebbd8da8f19bbd5d904dfcb647d344f1bff24f560755cc3b6e1f70f",
+    "profile-tests.xml": "63e6c06c998b2e644477a9ffbe81f518945acd8b3f002e035a7c62efa7658334",
+    "report.json": "dfa7f9c0dd54302bcba5adb455e454aed1ac020f3b9b5c10511bbb490b43128b",
+    "scripts/preflight/run-firm-bolt-dwarf-producer-matrix.py": "a1f16f42eab325e2ca475adef739c8a4234e20e5f601cc033818bfdc7818786d",
+    "shared-dwarf-lit.xml": "77976217cb632d5a37494fcaa55539d20e49a902efe1532af8b99953645a0b48",
+    "standalone-dwarf-producer-report.json": "f995b8810c7e3fca2657fd716fbfe68daea9fae062b7d0fda7b9bd827f51ce5d",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "1c5f17efe23369d4ab870392cbeb4eea8ceeee8bc3443c210436444fc8376105",
+    "third_party/preflight/llvm-build/bin/llvm-dwarfdump": "a4ea38d01e09dc8c3001255241c824d13d07ae0609024cfa49812881eaf9e73d"
+  },
+  "source_changes": {
+    "multi_unit_split_identity": "DWP location expressions and base-type references now resolve through the owning split unit rather than its skeleton unit",
+    "test_contract": "the producer matrix now accepts an explicit llvm-dwp tool and adds two-CU packaged Clang and GCC cases with exact output-DWO, section-coverage, verifier and resolved-unit checks",
+    "upstream_regression": "the ARM debug-width lit test now packages two split units, rewrites the DWP-backed image and checks that both named compile units resolve from the candidate"
+  }
+}

@@ -2229,6 +2229,35 @@ and the [production report](../../build/preflight/firm-bolt-cortex-m-v175-dwarf-
 This qualifies the named producers and split mode, not arbitrary compiler
 extensions, DWP packages, compressed debug sections or complete x86 parity.
 
+v176 extends the same preservation gate to packaged, multi-unit split DWARF.
+The first two-CU Clang DWP passed, while the equivalent GCC DWP aborted after
+writing only its first output DWO. The defect was unit identity rather than a
+GCC opcode: `ProcessSplitCU` constructed its location writer from the skeleton
+unit. Standalone DWO inputs commonly place both skeleton and split unit at
+offset zero, masking the mistake; the second packaged GCC split unit starts at
+`0xe0`, so its base-type references were looked up in the wrong DIE map. The
+writer now owns the actual `SplitCU`, and expression references are patched
+after that split unit's final DIE layout.
+
+The frozen producer matrix now passes 12/12 cases: the prior ten Clang/GCC
+DWARF2--5 and standalone split cases plus two-CU Clang and GCC DWARF5 DWP
+inputs. Each packaged case emits exactly two rewritten DWO files, covers the
+input package's debug payload sections, resolves two compile units through the
+candidate skeleton and verifies cleanly. The complete Cortex-M gate passes
+68/68 profiles and the real M4 candidate completes 10,000 FastDyn units with
+the same RAM state as both reference runs. Regression gates remain 97/97 ARM
+lit, 13/13 AArch32 JITLink lit, 5 passed plus 1 unsupported shared-DWARF,
+88 Core plus 150 target skips, 5 Pass, 39 Profile and 76 JITLink units. The
+full 1,131-test diagnostic remains at the exact 23-failure baseline. The
+mechanical patch SHA-256 is
+`543a76ef6ebbd8da8f19bbd5d904dfcb647d344f1bff24f560755cc3b6e1f70f`
+and reverse-applies across the same 178 pinned-overlay files. Evidence is in
+the [v176 validation manifest](evidence/firmbolt-cortex-m-v176-validation.json)
+and [production report](../../build/preflight/firm-bolt-cortex-m-v176-dwp-r1/report.json).
+This qualifies two producers with a two-CU DWARF5 input package; FirmBOLT emits
+per-unit DWO files, not a replacement DWP, and arbitrary unit counts, type
+units, DWARF4 DWP and compressed split-debug inputs remain unqualified.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

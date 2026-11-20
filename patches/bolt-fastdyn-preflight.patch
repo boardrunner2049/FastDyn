@@ -14116,7 +14116,7 @@ index 18c84468b04ce23388d824e28c0029be48789a45..e4b527098e0bd5284cab5548443f5c9e
        std::make_unique<RetpolineInsertion>(PrintRetpolineInsertion));
  
 diff --git a/bolt/lib/Rewrite/DWARFRewriter.cpp b/bolt/lib/Rewrite/DWARFRewriter.cpp
-index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76c6ee2691 100644
+index e1161943cbdd758c2994382178c8cd5a79b4b46d..0ce0987b9f20d22a3088c9f868a27e1335c3b4fe 100644
 --- a/bolt/lib/Rewrite/DWARFRewriter.cpp
 +++ b/bolt/lib/Rewrite/DWARFRewriter.cpp
 @@ -555,10 +555,6 @@ static void emitDWOBuilder(const std::string &DWOName,
@@ -14210,7 +14210,21 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76
      // DWARF4: only split-dwarf CUs need a ranges base
      RangesBase = LocalWriter.LegacyRangesWriter->getSectionOffset();
    }
-@@ -982,13 +988,16 @@ void DWARFRewriter::processBucket(
+@@ -974,7 +980,12 @@ void DWARFRewriter::processBucket(
+     DWODIEBuilder.updateDWONameCompDirForTypes(DWOStrOffstsWriter, DWOStrWriter,
+                                                SplitCU, opts::DwarfOutputPath,
+                                                DWOName);
+-    DebugLoclistWriter DebugLocDWoWriter(Unit, Unit.getVersion(), true,
++    // Location expressions and list identities belong to the split unit.  A
++    // standalone DWO often has the same section offset as its skeleton, which
++    // previously masked this distinction; in a multi-CU DWP, later split
++    // units have different offsets and base-type references must be resolved
++    // against the split-unit DIE map.
++    DebugLoclistWriter DebugLocDWoWriter(SplitCU, Unit.getVersion(), true,
+                                          AddressWriter);
+     updateUnitDebugInfo(SplitCU, DWODIEBuilder, DebugLocDWoWriter,
+                         TempRangesSectionWriter, AddressWriter);
+@@ -982,13 +993,16 @@ void DWARFRewriter::processBucket(
                                 *DWODIEBuilder.getUnitDIEbyUnit(SplitCU));
      if (Unit.getVersion() >= 5)
        TempRangesSectionWriter.finalizeSection();
@@ -14230,7 +14244,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76
    };
  
    for (DWARFUnit *CU : PartDIEBlder.getProcessedCUs()) {
-@@ -1036,7 +1045,8 @@ void DWARFRewriter::updateDebugInfo() {
+@@ -1036,7 +1050,8 @@ void DWARFRewriter::updateDebugInfo() {
      FinalAddrWriter = std::make_unique<DebugAddrWriter>(&BC);
    }
    if (BC.isDWARFLegacyUsed()) {
@@ -14240,7 +14254,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76
      LegacyRangesSectionWriter->initSection();
    }
  
-@@ -1893,7 +1903,7 @@ CUOffsetMap DWARFRewriter::finalizeTypeSections(DIEBuilder &DIEBlder,
+@@ -1893,7 +1908,7 @@ CUOffsetMap DWARFRewriter::finalizeTypeSections(DIEBuilder &DIEBlder,
      CUMap[CU->getOffset()] = {StartOffset,
                                CUOffset - StartOffset -
                                    dwarf::getUnitLengthFieldByteSize(Format),
@@ -14249,7 +14263,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76
    }
  
    // Emit Type Unit of DWARF 4 to .debug_type section
-@@ -2085,6 +2095,11 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+@@ -2085,6 +2100,11 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
      std::lock_guard<std::mutex> Lock(DebugNamesUpdateMutex);
      DIEBlder.updateDebugNamesTable();
    }
@@ -14261,7 +14275,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76
    // generate debug_info and CUMap
    for (DWARFUnit *CU : CUs) {
      emitUnit(DIEBlder, Streamer, *CU);
-@@ -2096,7 +2111,7 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+@@ -2096,7 +2116,7 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
      CUMap[CU->getOffset()] = {StartOffset,
                                CUOffset - StartOffset -
                                    dwarf::getUnitLengthFieldByteSize(Format),
@@ -14270,7 +14284,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76
    }
  }
  
-@@ -2107,9 +2122,17 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
+@@ -2107,9 +2127,17 @@ void DWARFRewriter::finalizeCompileUnits(DIEBuilder &DIEBlder,
  namespace {
  
  std::unique_ptr<BinaryContext>
@@ -14290,7 +14304,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76
        File.getFileName(), nullptr, false,
        DWARFContext::create(File, DWARFContext::ProcessDebugRelocations::Ignore,
                             nullptr, "", WithColor::defaultErrorHandler,
-@@ -2362,7 +2385,7 @@ void DWARFRewriter::writeDWOFiles(
+@@ -2362,7 +2390,7 @@ void DWARFRewriter::writeDWOFiles(
  
    const object::ObjectFile *File =
        (*DWOCU)->getContext().getDWARFObj().getFile();
@@ -14299,7 +14313,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76
    std::unique_ptr<MCStreamer> Streamer = TmpBC->createStreamer(TempOut->os());
    const MCObjectFileInfo &MCOFI = *Streamer->getContext().getObjectFileInfo();
    StringMap<KnownSectionsEntry> KnownSections = createKnownSectionsMap(MCOFI);
-@@ -2453,9 +2476,11 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
+@@ -2453,9 +2481,11 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
    auto Writer =
        std::unique_ptr<MCObjectWriter>(BC.createObjectWriter(*LocStream));
  
@@ -14313,7 +14327,7 @@ index e1161943cbdd758c2994382178c8cd5a79b4b46d..a1127815716c36a78564b8e5f5455d76
  
    for (uint64_t CUOffset : CUOrder) {
      auto It = LocListWritersByCU.find(CUOffset);
-@@ -2481,13 +2506,18 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
+@@ -2481,13 +2511,18 @@ DWARFRewriter::makeFinalLocListsSection(DWARFVersion Version,
  
      std::unique_ptr<DebugBufferVector> CurrCULocationLists =
          LocWriter->getBuffer();
@@ -23984,10 +23998,10 @@ index 0000000000000000000000000000000000000000..6ae6e4fb9ea8eb0437e668e8334ec7c0
 +  .word Reset_Handler
 diff --git a/bolt/test/ARM/thumb-dwarf32-address-width.s b/bolt/test/ARM/thumb-dwarf32-address-width.s
 new file mode 100644
-index 0000000000000000000000000000000000000000..a7c2831c7af3ee1953a4d904406aa4c71648418d
+index 0000000000000000000000000000000000000000..05aafd3e2c5c59b4c9e02a5529bcd073830aec2f
 --- /dev/null
 +++ b/bolt/test/ARM/thumb-dwarf32-address-width.s
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,170 @@
 +## BOLT's legacy DWARF writers must use the compile unit's address size.
 +## Cortex-M is ELF32, so range/location tuples and .debug_aranges entries are
 +## pairs of four-byte addresses rather than the eight-byte pairs used by x86-64.
@@ -24045,6 +24059,25 @@ index 0000000000000000000000000000000000000000..a7c2831c7af3ee1953a4d904406aa4c7
 +# RUN: llvm-dwarfdump --verify --dwo %t/candidate-v5-split.elf 2>&1 \
 +# RUN:   | FileCheck %s --check-prefix=VERIFY
 +# RUN: %clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb \
++# RUN:   -O2 -g -gdwarf-5 -gsplit-dwarf -ffreestanding -fno-unwind-tables \
++# RUN:   -fno-asynchronous-unwind-tables -Dworker=worker_aux \
++# RUN:   -DReset_Handler=Aux_Handler -Dg_pfnVectors=g_aux_vectors \
++# RUN:   -c %t/fixture.c -o %t/fixture-v5-dwp-aux.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture-v5-split.o \
++# RUN:   %t/fixture-v5-dwp-aux.o %t/aranges.o -o %t/reference-v5-dwp.elf
++# RUN: llvm-dwp %t/fixture-v5-split.dwo %t/fixture-v5-dwp-aux.dwo \
++# RUN:   -o %t/reference-v5.dwp
++# RUN: mkdir -p %t/dwp-output
++# RUN: llvm-bolt %t/reference-v5-dwp.elf --dwp=%t/reference-v5.dwp \
++# RUN:   --firmbolt-cortex-m-cpu=cortex-m3 --relocs --use-old-text \
++# RUN:   --update-debug-sections --dwarf-output-path=%t/dwp-output \
++# RUN:   --keep-aranges --always-convert-to-ranges --align-functions=1 \
++# RUN:   -o %t/candidate-v5-dwp.elf
++# RUN: llvm-dwarfdump --verify --dwo %t/candidate-v5-dwp.elf 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=VERIFY
++# RUN: llvm-dwarfdump --debug-info --dwo %t/candidate-v5-dwp.elf \
++# RUN:   | FileCheck %s --check-prefix=DWP
++# RUN: %clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -mthumb \
 +# RUN:   -O2 -g -gdwarf-2 -ffreestanding -fno-unwind-tables \
 +# RUN:   -fno-asynchronous-unwind-tables -c %t/fixture.c -o %t/fixture-v2.o
 +# RUN: ld.lld --emit-relocs -T %t/link.ld %t/fixture-v2.o %t/aranges.o \
@@ -24076,6 +24109,8 @@ index 0000000000000000000000000000000000000000..a7c2831c7af3ee1953a4d904406aa4c7
 +# LOC: (0x080001{{[0-9a-f]+}}, 0x080001{{[0-9a-f]+}}):
 +# DWARF5: locations list header:{{.*}}addr_size = 0x04
 +# DWARF5: range list header:{{.*}}addr_size = 0x04
++# DWP: DW_AT_name{{.*}}("Reset_Handler")
++# DWP: DW_AT_name{{.*}}("Aux_Handler")
 +
 +//--- fixture.c
 +typedef unsigned int uintptr_t;
