@@ -1,0 +1,153 @@
+{
+  "clean_apply": {
+    "byte_exact_files": 190,
+    "method": "the generated patch reverse-applies cleanly to the current overlay on the pinned base, proving the overlay bytes are exactly the patch result",
+    "pinned_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "reconstructed_patch_byte_exact": true,
+    "status": "accepted"
+  },
+  "focused_regressions": {
+    "aarch32_jitlink": {
+      "command": [
+        "third_party/preflight/llvm-build/bin/llvm-lit",
+        "-sv",
+        "third_party/preflight/llvm-project/llvm/test/ExecutionEngine/JITLink/AArch32"
+      ],
+      "failed": 0,
+      "passed": 13,
+      "status": "accepted",
+      "total": 13
+    },
+    "arm_bolt": {
+      "command": [
+        "third_party/preflight/llvm-build/bin/llvm-lit",
+        "-sv",
+        "third_party/preflight/llvm-project/bolt/test/ARM"
+      ],
+      "failed": 0,
+      "passed": 100,
+      "status": "accepted",
+      "total": 100
+    },
+    "arm_lld": {
+      "command": [
+        "third_party/preflight/llvm-build/bin/llvm-lit",
+        "-sv",
+        "third_party/preflight/llvm-project/lld/test/ELF/arm-no-interworking-relocs.s",
+        "third_party/preflight/llvm-project/lld/test/ELF/arm-*.s"
+      ],
+      "failed": 0,
+      "passed": 152,
+      "status": "accepted",
+      "total": 152
+    }
+  },
+  "full_bolt_regression": {
+    "command": [
+      "third_party/preflight/llvm-build/bin/llvm-lit",
+      "-sv",
+      "-j",
+      "8",
+      "--xunit-xml-output=build/preflight/firm-bolt-cortex-m-v181-no-interworking-r1/regressions/full-bolt-lit.xml",
+      "third_party/preflight/llvm-build/tools/bolt/test"
+    ],
+    "discovered": 1135,
+    "expectedly_failed": 1,
+    "failed": 0,
+    "passed": 952,
+    "skipped": 150,
+    "status": "accepted",
+    "unsupported": 32
+  },
+  "generated_at_utc": "2026-11-20T10:34:29Z",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "mechanism": {
+    "abi_contract": "R_ARM_ABS32_NOI computes S+A and R_ARM_REL32_NOI computes S+A-P without inserting the Thumb-state bit T; ordinary ABS32/REL32 controls retain T",
+    "candidate_target_address": "0x08000100",
+    "final_candidate_words": [
+      "0x08000101",
+      "0x08000102",
+      "0xfffffef9",
+      "0xfffffef6"
+    ],
+    "input_target_address": "0x08000108",
+    "pre_fix_candidate_words": [
+      "0x08000101",
+      "0x08000102",
+      "0xfffffefa",
+      "0xfffffef6"
+    ],
+    "pre_fix_failure": "ordinary R_ARM_REL32 recovered T as addend +1 and JITLink inserted T again, producing a result one byte too large; the two NOI controls remained distinct and correct",
+    "status": "accepted"
+  },
+  "milestone": "v181-arm-no-interworking-static-relocations",
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-v181-no-interworking-r1/production"
+  ],
+  "production_profiles": {
+    "accepted": 68,
+    "functions_with_emitted_instructions": 1963,
+    "instruction_origins": 130186,
+    "modified_function_instruction_origins": 98761,
+    "modified_functions": 1142,
+    "potentially_faulting_load_store_origins": 57618,
+    "total": 68
+  },
+  "production_status": "accepted",
+  "real_firmware_execution": {
+    "candidate_ram_prefix_exact": true,
+    "completed_work_units": 10000,
+    "cpu_model": "cortex-m4",
+    "reference_repeat_exact": true,
+    "status": "accepted"
+  },
+  "repository_base_commit": "36c75eec60a58758aa9ce6ff558348b106133b62",
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "scope_limits": [
+    "the milestone closes two source-confirmed static relocation classes and their complete MC/LLD/JITLink/BOLT path; it does not claim those relocation types are frequent in the retained firmware corpus",
+    "the generated fixture proves final linked words while moving one Thumb function from 0x08000108 to 0x08000100; broader section-symbol, weak/undefined-symbol and dynamic-loader combinations remain governed by their separate relocation contracts",
+    "the production and fixed-work gates are preservation and installation evidence, not complete x86-backend parity or a statistically powered speedup claim",
+    "patch-aware transformation semantics remain a later phase; this production gate uses the explicit empty patch contract"
+  ],
+  "sha256": {
+    "aarch32-jitlink.log": "20eaffd814e25556a3891c1cb2e34b794c0fac075bd76e0a65694cf402581a84",
+    "arm-bolt.log": "d34e0c5b872eb5db69f701dd93816818ca724270b883873e860799b95bf05d43",
+    "arm-lld.log": "65262636218969616f44b1ff3e47ef2524310e3ee6d2e012b0320cec9aa27a0a",
+    "check-bolt-unit.log": "c91e3e784ffd8041249c047cfed5aa93088f64a780277b24e4d14dda0a426fd5",
+    "final-candidate.rodata.txt": "15f80ea8df6c7c78817751d83723df1be6b130694ca01e27c8f1e7c25e693d83",
+    "full-bolt-lit.log": "dd6dee0b87c25d6e090b3fa9f1d6cbe34880f881fbd25dae8cfb484ef244a78b",
+    "full-bolt-lit.xml": "4a595917090ebe9eeb1dda4c2b678a978697cf565136a5a93a5d97cf1c48941a",
+    "patches/bolt-fastdyn-preflight.patch": "a034deaab8715179db4c83e746787d852f41d1b4170333b8ad6e40bd75135f90",
+    "pre-fix-candidate.rodata.txt": "2aea5fc6a5e040718bc2891487eac331da1a63106e5d32ecf86065ebe3e3f994",
+    "production-report.json": "69e00f2b302d3009a3989dfb02fbd474003007cac9285205e500b6f542abc151",
+    "third_party/preflight/llvm-build/bin/ld.lld": "70a0523dd836b6c889cc3969b534d0fbb74795f4ba32f9b2ac7fe4d8b7dd64c8",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "dd9473dee3ce8c5d1451290e9df25dcc339fa956f38ddcfc60e44b8486195e97"
+  },
+  "source_changes": {
+    "bolt": "the ARM relocation handler imports, classifies, extracts and emits ABS32_NOI/REL32_NOI; linked REL32 addend recovery now removes the Thumb-state contribution before JITLink restores it",
+    "jitlink": "AArch32 has distinct absolute and relative no-interworking edge kinds whose fixups never insert ThumbSymbol state",
+    "lld": "ARM relocation expressions preserve S+A and S+A-P semantics for NOI forms in allocatable and non-allocatable sections without clearing a legitimate low addend bit",
+    "tests": "unit, JITLink, LLD and complete BOLT fixtures use nonzero addends and a moved Thumb target so retained input bytes, low-bit clearing and double insertion all fail observably"
+  },
+  "unit_regression": {
+    "command": [
+      "ninja",
+      "-C",
+      "third_party/preflight/llvm-build",
+      "check-bolt-unit"
+    ],
+    "discovered": 283,
+    "failed": 0,
+    "passed": 133,
+    "skipped": 150,
+    "status": "accepted"
+  }
+}

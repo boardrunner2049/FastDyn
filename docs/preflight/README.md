@@ -2379,12 +2379,53 @@ This qualifies the named Clang DWARF5 cases, not
 GCC-compressed split input, arbitrary package sizes/type units, DWARF4 DWP,
 replacement-DWP emission or complete x86-backend parity.
 
+v181 closes the source-confirmed static no-interworking relocation gap across
+the complete producer-to-rewriter path.  AAELF32 distinguishes ordinary
+function-address relocations, which can insert Thumb state `T`, from
+`R_ARM_ABS32_NOI = S + A` and `R_ARM_REL32_NOI = S + A - P`, which must not.
+Treating the NOI forms as ordinary 32-bit pointer/delta edges would therefore
+change a firmware data word even though decoding, instruction rewriting and
+layout all succeeded.  The implementation adds distinct LLD expressions and
+AArch32 JITLink edges rather than clearing bit zero of the final value; a
+legitimate odd addend must remain odd.  BOLT now recognizes, extracts,
+classifies and re-emits both types.  The applicable ABI definition is the
+[Arm ELF specification](https://github.com/ARM-software/abi-aa/blob/main/aaelf32/aaelf32.rst).
+
+The end-to-end Cortex-M3 fixture makes byte retention insufficient by moving
+`target` from `0x08000108` to `0x08000100`.  Its final four data words are,
+respectively, ordinary ABS32, ABS32_NOI with `A=2`, ordinary REL32, and
+REL32_NOI with `A=2`: `0x08000101`, `0x08000102`, `0xfffffef9`, and
+`0xfffffef6`.  The preserved pre-fix executable produced `0xfffffefa` for the
+ordinary relative control.  BOLT had decoded the existing Thumb bit as an
+arithmetic `+1` addend and JITLink then inserted Thumb state a second time.
+Normalizing that addend only for interworking data relocations fixes the
+control while keeping both NOI words distinct and unchanged by that
+normalization.
+
+The focused gates pass 100/100 ARM BOLT tests, 13/13 AArch32 JITLink tests and
+152/152 ARM LLD tests.  The complete BOLT gate discovers 1,135 tests: 952 pass,
+one expected failure remains expected, 150 target-inapplicable tests skip, 32
+dependency/feature cases are unsupported and none fail.  The unit gate reports
+133 passed, 150 skipped and zero failed.  The independent production matrix
+remains 68/68, covering 1,963 functions and 130,186 exact instruction origins;
+1,142 modified functions contain 98,761 origins, including 57,618 potentially
+faulting load/store origins.  The real Cortex-M4 candidate again completes
+10,000 fixed work units with exact repeated reference/candidate RAM state.
+
+The [v181 validation manifest](evidence/firmbolt-cortex-m-v181-validation.json)
+binds the pre-fix and corrected words, test commands, raw report hashes and the
+190-file reversible overlay (SHA-256
+`a034deaab8715179db4c83e746787d852f41d1b4170333b8ad6e40bd75135f90`).
+This is a mechanism-complete qualification of two static relocation classes,
+not evidence that they are common in the retained corpus, support for every
+dynamic/weak/section-symbol combination, or complete x86-backend parity.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
 non-fallthrough contract, ARM relocation classes
-beyond the now-qualified JUMP6/ABS8/ABS16, absolute-byte-group and paired split
-MOVW/MOVT sets,
+beyond the now-qualified JUMP6/ABS8/ABS16/ABS32_NOI/REL32_NOI,
+absolute-byte-group and paired split MOVW/MOVT sets,
 producer forms whose relocation graph does not identify a unique split pair,
 veneer placement without explicit typed slots or under arbitrary
 whole-image layout, clustering and splitting of

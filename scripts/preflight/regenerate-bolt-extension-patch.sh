@@ -35,6 +35,8 @@ cleanup() {
         bolt/lib/Passes/FastDynPatchContracts.cpp \
         bolt/lib/Target/ARM \
         bolt/test/ARM \
+        lld/test/ELF/Inputs/arm-no-interworking-relocs.ld \
+        lld/test/ELF/arm-no-interworking-relocs.s \
         lld/test/ELF/arm-thumbv8_1m-branch-future.s \
         llvm/test/ExecutionEngine/JITLink/AArch32/ELF_thumb_data_pointers.s \
         llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv8_1m.s \
@@ -52,6 +54,8 @@ git -C "${bolt_source}" add -N -- \
     bolt/lib/Passes/FastDynPatchContracts.cpp \
     bolt/lib/Target/ARM \
     bolt/test/ARM \
+    lld/test/ELF/Inputs/arm-no-interworking-relocs.ld \
+    lld/test/ELF/arm-no-interworking-relocs.s \
     lld/test/ELF/arm-thumbv8_1m-branch-future.s \
     llvm/test/ExecutionEngine/JITLink/AArch32/ELF_thumb_data_pointers.s \
     llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv8_1m.s
