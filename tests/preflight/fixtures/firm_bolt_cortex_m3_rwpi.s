@@ -24,6 +24,9 @@ Reset_Handler:
   movs r2, #1
   bl checked_rwpi_worker
   str r0, [r9, #4]
+  movs r2, #1
+  bl sbrel32_worker
+  str r0, [r9, #8]
   .globl fixture_halt
 fixture_halt:
   b fixture_halt
@@ -73,6 +76,30 @@ checked_rwpi_worker:
   pop {r7, pc}
   .size checked_rwpi_worker, .-checked_rwpi_worker
 
+  // R_ARM_SBREL32 is the full-width data companion to the split instruction
+  // relocations above. The literal holds S+A-B(S), not an absolute pointer;
+  // the worker adds the qualified r9 static base before dereferencing it.
+  .p2align 2
+  .globl sbrel32_worker
+  .type sbrel32_worker,%function
+  .thumb_func
+sbrel32_worker:
+  push {r7, lr}
+  sub sp, #4
+  add r7, sp, #0
+  str r2, [r7]
+  ldr.w r2, [r7]
+  movw r0, :lower16:rw_offset
+  movt r0, :upper16:rw_offset
+  ldr r0, [r0]
+  add r0, r9
+  ldr r0, [r0]
+  adds r0, r2
+  mov sp, r7
+  add sp, #4
+  pop {r7, pc}
+  .size sbrel32_worker, .-sbrel32_worker
+
   // The explicit segment-start policy still rejects BREL references whose
   // target can move with executable layout. This cold control must remain
   // byte-for-byte unchanged.
@@ -105,4 +132,9 @@ rw_data:
 rw_data_checked:
   .word 41
   .size rw_data_checked, .-rw_data_checked
+  .globl rw_offset
+  .type rw_offset,%object
+rw_offset:
+  .word rw_data_checked(sbrel)
+  .size rw_offset, .-rw_offset
   .size rw_data, .-rw_data

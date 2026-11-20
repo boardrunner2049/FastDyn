@@ -1973,6 +1973,10 @@ def validate_rwpi_static_base(
     if rw_data_checked != 0x20000024 or rw_data_checked != symbol_address(
             candidate, "rw_data_checked"):
         raise RuntimeError("checked RWPI data target or static offset changed")
+    rw_offset = symbol_address(reference, "rw_offset")
+    if rw_offset != 0x20000028 or rw_offset != symbol_address(
+            candidate, "rw_offset"):
+        raise RuntimeError("R_ARM_SBREL32 storage address changed")
 
     reference_pair = [
         relocation for relocation in static_relocation_records(
@@ -2022,6 +2026,29 @@ def validate_rwpi_static_base(
             "checked RWPI relocation was not range-preserved and remapped: "
             f"reference={reference_checked}, candidate={candidate_checked}"
         )
+    reference_sbrel32 = [
+        relocation for relocation in static_relocation_records(
+            reference, ".rel.data"
+        ) if relocation["type"] == 9
+        and relocation["symbol"] == "rw_data_checked"
+    ]
+    candidate_sbrel32 = [
+        relocation for relocation in static_relocation_records(
+            candidate, ".rel.data"
+        ) if relocation["type"] == 9
+        and relocation["symbol"] == "rw_data_checked"
+    ]
+    if (
+        len(reference_sbrel32) != 1
+        or len(candidate_sbrel32) != 1
+        or reference_sbrel32[0]["offset"] != rw_offset
+        or candidate_sbrel32[0]["offset"] != rw_offset
+        or candidate_sbrel32[0]["symbol_value"] != rw_data_checked
+    ):
+        raise RuntimeError(
+            "R_ARM_SBREL32 dependency was not preserved at fixed RAM data: "
+            f"reference={reference_sbrel32}, candidate={candidate_sbrel32}"
+        )
 
     def decoded_mov_immediate(image: Path, address: int) -> int:
         text = elf_inventory(image)["sections"][".text"]
@@ -2054,6 +2081,18 @@ def validate_rwpi_static_base(
         raise RuntimeError(
             "checked RWPI output does not encode its complete unsigned "
             f"static-base offset: 0x{checked_encoded_field:x}"
+        )
+    reference_sbrel32_field = int.from_bytes(
+        symbol_bytes(reference, "rw_offset"), "little"
+    )
+    candidate_sbrel32_field = int.from_bytes(
+        symbol_bytes(candidate, "rw_offset"), "little"
+    )
+    if reference_sbrel32_field != 0x24 or candidate_sbrel32_field != 0x24:
+        raise RuntimeError(
+            "R_ARM_SBREL32 output does not encode S+A-segment-start: "
+            f"reference=0x{reference_sbrel32_field:x}, "
+            f"candidate=0x{candidate_sbrel32_field:x}"
         )
     if symbol_bytes(reference, "unsupported_exec_brel") != symbol_bytes(
             candidate, "unsupported_exec_brel"):
@@ -2101,6 +2140,24 @@ def validate_rwpi_static_base(
             raise RuntimeError(
                 "checked RWPI compact publication or origins changed"
             )
+        sbrel32_worker = functions["sbrel32_worker"]
+        sbrel32_origins = sbrel32_worker["instruction_origins"]
+        if (
+            not sbrel32_worker["firmware_modified"]
+            or sbrel32_worker["firmware_modification_reasons"]
+                != ["frame_load_forwarding"]
+            or sbrel32_worker["firmware_publication_rejections"]
+            or sbrel32_worker["original_size"] != 34
+            or sbrel32_worker["output_size"] != 32
+            or len(sbrel32_origins) != 14
+            or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in sbrel32_origins
+            )
+        ):
+            raise RuntimeError(
+                "R_ARM_SBREL32 worker compact publication or origins changed"
+            )
         origin_summary = {
             "instruction_origin_count": len(origins),
             "original_size": 32,
@@ -2108,6 +2165,9 @@ def validate_rwpi_static_base(
             "checked_instruction_origin_count": len(checked_origins),
             "checked_original_size": 28,
             "checked_output_size": 26,
+            "sbrel32_instruction_origin_count": len(sbrel32_origins),
+            "sbrel32_original_size": 34,
+            "sbrel32_output_size": 32,
             "unsupported_executable_target_retained": True,
         }
 
@@ -2128,6 +2188,11 @@ def validate_rwpi_static_base(
         "candidate_relocations": candidate_pair,
         "reference_checked_relocation": reference_checked[0],
         "candidate_checked_relocation": candidate_checked[0],
+        "sbrel32_storage_symbol": "rw_offset",
+        "sbrel32_storage_address": rw_offset,
+        "sbrel32_encoded_field": candidate_sbrel32_field,
+        "reference_sbrel32_relocation": reference_sbrel32[0],
+        "candidate_sbrel32_relocation": candidate_sbrel32[0],
         "origin_summary": origin_summary,
     }
 
@@ -11247,7 +11312,7 @@ def main() -> int:
         validate_m3_words_execution(
             m3_rwpi_image, candidates["m3_rwpi_static_base"],
             output, args.fastdyn.resolve(), "rwpi-static-base",
-            expected_words=(42, 42),
+            expected_words=(42, 42, 42),
         )
     )
     m3_function_split_execution = (

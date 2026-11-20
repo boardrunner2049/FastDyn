@@ -2013,6 +2013,39 @@ and [validation manifest](evidence/firmbolt-cortex-m-v168-validation.json).
 This completes a relocation family, not runtime-speed or full x86-parity
 evaluation.
 
+v169 adds the full-width RWPI data companion `R_ARM_SBREL32` (type 9). LLVM MC
+and pinned LLD already emit and resolve this relocation as `S+A-B(S)`, but
+BOLT's ARM relocation handler did not recognize, size, encode or extract it,
+and its retained `SHT_REL` analysis could not reconstruct the implicit addend
+against the firmware-declared static base. FirmBOLT now carries the complete
+32-bit field through the same explicit `segment-start` contract as the Thumb
+MOVW/MOVT forms. The default still does not authorize rebasing: unknown
+platform meanings preserve the linked data and placement.
+
+The Cortex-M3 fixture stores a typed `R_ARM_SBREL32` word at `0x20000028`
+against symbol `0x20000024`; reference and candidate both contain encoded
+offset `0x24`. A third worker loads that word, adds `r9`, dereferences the
+result, and then performs the same observable arithmetic as the instruction
+relocation cases. Ordinary FOP shrinks that worker from 34 to 32 bytes while
+preserving 14 exact instruction origins and the fixed data relocation.
+Reference and candidate execute under FastDyn to RAM words `[42, 42, 42]`.
+
+The production matrix remains 64/64 and now binds 130,121 final origins in
+1,953 functions, including 98,738 origins in 1,139 modified functions and
+57,595 potentially faulting accesses. Regression gates remain 93/93 ARM BOLT
+lit, 13/13 AArch32 JITLink lit, 19/19 focused JITLink units, and 132 BOLT unit
+passes plus 150 explicit target skips. A bounded inventory of 92 retained
+linked artifacts and 1,530 object candidates found no existing ARM record that
+the current handler could not recognize; `R_ARM_SBREL32` is therefore supported
+by a source-confirmed mechanism and executed generated fixture, not claimed as
+frequent in this limited corpus. The mechanical patch SHA-256 is
+`49a6e71c93f89009959fc6355a8616a7a2484e2292ecf9da8ac4d26966d21cc3`;
+it clean-applies to pinned LLVM and reproduces all 167 overlay files
+byte-for-byte. Evidence is in the
+[`v169 report`](../../build/preflight/firm-bolt-cortex-m-production-parity-v169-sbrel32-2026-11-20/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v169-validation.json).
+This is relocation and architectural-execution coverage, not a speedup claim.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
