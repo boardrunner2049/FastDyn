@@ -2046,6 +2046,34 @@ byte-for-byte. Evidence is in the
 and [validation manifest](evidence/firmbolt-cortex-m-v169-validation.json).
 This is relocation and architectural-execution coverage, not a speedup claim.
 
+v170 qualifies `R_ARM_TARGET2` (type 41), the platform-defined dependency used
+inside generic `.ARM.extab` records. Pinned LLD permits ABS32, REL32 and
+GOT-relative interpretations. FirmBOLT now requires the exact bare-metal link
+policy with `--firmbolt-arm-target2=abs` or `=rel`; the default rejects before
+publication, and GOT-relative remains unsupported until the firmware model
+contains a complete GOT graph. This is deliberately not inferred from the
+linked word: an arbitrary `SHT_REL` addend can make the wrong policy
+indistinguishable when place and symbol are fixed.
+
+The expanded generic-EHABI fixture retains a type-info record at `0x08000134`
+to symbol `0x08000158`; the qualified REL32 value is `0x24` in reference and
+candidate. Function ordering moves the personality routine
+`0x08000125→0x08000101`, compact emission shrinks `.text` 38→36 bytes, and the
+16-byte extab, 32-byte exidx, type-info bytes, relocation identities, program
+headers and origins remain exact. Reference/candidate FastDyn execution writes
+`[17, 42]`. A separate ABS32 lit arm emits `0x08000138`, while the unqualified
+arm produces no output. The production matrix remains 64/64 with the v169
+aggregate counts. Regression gates pass 93/93 ARM BOLT lit, 13/13 AArch32
+JITLink lit, all 76 JITLink units, 88 Core plus 150 target-inapplicable skips,
+5 Pass and 39 Profile units. The mechanical patch SHA-256 is
+`c08946c51b3159e0984f04b2f7e69f18e6f40d6bde16173a525f6c53099873c4`;
+it reverse-applies exactly across all 167 overlay files on pinned LLVM.
+Evidence is in the
+[`v170 report`](../../build/preflight/firm-bolt-cortex-m-production-parity-v170-target2-2026-11-20/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v170-validation.json).
+This is policy, relocation and architectural-execution coverage, not a
+performance or full-parity result.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

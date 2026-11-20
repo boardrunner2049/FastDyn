@@ -1628,9 +1628,33 @@ artifact candidates and 1,530 object candidates; the new case is therefore a
 source-confirmed mechanism and generated acceptance fixture, not evidence of
 observed corpus frequency or performance.
 
+v170 closes a separate platform-policy hole in generic ARM EHABI records:
+`R_ARM_TARGET2` (type 41). Pinned LLD documents this relocation as an
+`.ARM.extab` dependency whose platform-selected meaning can be ABS32, REL32 or
+GOT-relative. FirmBOLT no longer treats that numeric record as an ordinary
+known relocation. It rejects the unqualified form and requires the exact
+bare-metal link policy through `--firmbolt-arm-target2=abs` or
+`--firmbolt-arm-target2=rel`; GOT-relative remains unsupported until a complete
+GOT graph is represented. The policy is part of input identity because a
+linked `SHT_REL` word with an arbitrary addend cannot always reveal which
+policy produced it.
+
+The production fixture uses REL32 in a real generic EHABI payload. Its retained
+record at `0x08000134` names `__firmbolt_typeinfo` at `0x08000158`, so both
+reference and candidate encode `0x24`. Whole-image ordering moves the
+personality routine from `0x08000125` to `0x08000101` and shrinks live `.text`
+from 38 to 36 bytes while the 16-byte extab, 32-byte exidx, opaque handler
+bytes, type-info word, program headers and exact instruction identities remain
+valid. Reference and candidate execute to RAM words `[17, 42]`. A second lit
+arm checks the ABS32 policy and emitted absolute word, while an unqualified run
+rejects atomically without a candidate. The 64-profile aggregate counts remain
+unchanged because this extends an existing fixture rather than adding a
+function. This is policy, relocation and execution evidence—not a performance
+result or a claim that TARGET2 was frequent in the retained corpus.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `49a6e71c93f89009959fc6355a8616a7a2484e2292ecf9da8ac4d26966d21cc3`; it clean-applies to the pinned revision and reconstructs all 167 overlay files byte-for-byte. The exact tested BOLT and pinned LLD hashes are bound by the v169 manifest. Regression runs complete 93/93 ARM BOLT lit tests, 13/13 AArch32 JITLink lit tests, 19/19 focused AArch32 JITLink units, and 132 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 88/150, Passes 5/0 and Profile 39/0). The [v169 validation manifest](evidence/firmbolt-cortex-m-v169-validation.json) binds the full-width data relocation, explicit RWPI/static-base qualification, fixed dependency/value checks, three-worker architectural execution, the 64-profile production run, exact linked-byte audit, regression XML and clean-apply result. The historical v168 manifest remains unchanged as evidence for the checked Thumb relocation and its linker range control.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `c08946c51b3159e0984f04b2f7e69f18e6f40d6bde16173a525f6c53099873c4`; it reverse-applies exactly to the pinned revision across all 167 overlay files. The exact tested BOLT and pinned LLD hashes are bound by the v170 manifest. Regression runs complete 93/93 ARM BOLT lit tests, 13/13 AArch32 JITLink lit tests, all 76 JITLink unit tests including the 19 focused AArch32 cases, and 132 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 88/150, Passes 5/0 and Profile 39/0). The [v170 validation manifest](evidence/firmbolt-cortex-m-v170-validation.json) binds both TARGET2 policies, default rejection, the exact EHABI dependency/value, architectural execution, the 64-profile production run, regression XML and clean-apply result. The historical [v169 manifest](evidence/firmbolt-cortex-m-v169-validation.json) remains unchanged as evidence for the full-width static-base data relocation.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

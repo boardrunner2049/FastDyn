@@ -31,8 +31,10 @@ fixture_halt:
   b fixture_halt
   .personality __firmbolt_personality_v0
   .handlerdata
-  // Opaque language-specific bytes: the gate requires exact preservation.
+  // Opaque language-specific bytes and the bare-metal TARGET2 type-info
+  // reference: the gate requires exact preservation and symbolic rebinding.
   .long 0x46424f4c
+  .long __firmbolt_typeinfo(TARGET2)
   .section .text
   .fnend
 .size Reset_Handler, . - Reset_Handler
@@ -69,3 +71,11 @@ worker_b:
 __firmbolt_personality_v0:
   bx lr
 .size __firmbolt_personality_v0, . - __firmbolt_personality_v0
+
+.section .rodata, "a", %progbits
+.align 2
+.global __firmbolt_typeinfo
+.type __firmbolt_typeinfo, %object
+__firmbolt_typeinfo:
+  .long 0x54415247
+.size __firmbolt_typeinfo, . - __firmbolt_typeinfo

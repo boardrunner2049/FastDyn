@@ -28,6 +28,11 @@ SECTIONS
     *(.ARM.exidx* .gnu.linkonce.armexidx.*)
   } > FLASH
 
+  .rodata :
+  {
+    *(.rodata*)
+  } > FLASH
+
   .data :
   {
     *(.data*)

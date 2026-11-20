@@ -3111,22 +3111,34 @@ def validate_relocated_generic_exidx_function_order(
     if (
         int(reference_extab["address"]) != 0x08000128
         or int(reference_extab["offset"]) != 0x10128
-        or int(reference_extab["size"]) != 12
+        or int(reference_extab["size"]) != 16
     ):
         raise RuntimeError("generic EHABI extab input is not frozen")
     reference_extab_bytes = section_bytes(reference, ".ARM.extab")
     candidate_extab_bytes = section_bytes(candidate, ".ARM.extab")
     if (
-        reference_extab_bytes[4:] != b"\xb0\xb0\xb0\x00LOBF"
+        reference_extab_bytes[4:12] != b"\xb0\xb0\xb0\x00LOBF"
         or candidate_extab_bytes[4:] != reference_extab_bytes[4:]
     ):
         raise RuntimeError("generic EHABI opaque handler bytes changed")
+    typeinfo_site = 0x08000134
+    typeinfo_address = symbol_address(candidate, "__firmbolt_typeinfo")
+    reference_target2 = struct.unpack_from("<i", reference_extab_bytes, 12)[0]
+    candidate_target2 = struct.unpack_from("<i", candidate_extab_bytes, 12)[0]
+    if (
+        typeinfo_address != 0x08000158
+        or typeinfo_site + reference_target2 != typeinfo_address
+        or typeinfo_site + candidate_target2 != typeinfo_address
+        or section_bytes(candidate, ".rodata")
+        != section_bytes(reference, ".rodata")
+    ):
+        raise RuntimeError("generic EHABI TARGET2 identity was not preserved")
 
     reference_exidx = arm_exidx_records(reference)
     candidate_exidx = arm_exidx_records(candidate)
     for field, expected in (
-        ("section_address", 0x08000134),
-        ("section_offset", 0x10134),
+        ("section_address", 0x08000138),
+        ("section_offset", 0x10138),
         ("section_size", 32),
     ):
         if reference_exidx[field] != expected:
@@ -3173,7 +3185,7 @@ def validate_relocated_generic_exidx_function_order(
     ):
         raise RuntimeError("generic EHABI personality identity was not rebound")
 
-    personality_relocations = static_relocation_records(
+    extab_relocations = static_relocation_records(
         candidate, ".rel.ARM.extab"
     )
     if [
@@ -3181,11 +3193,18 @@ def validate_relocated_generic_exidx_function_order(
             record["offset"], record["type"], record["symbol"],
             record["symbol_value"],
         )
-        for record in personality_relocations
+        for record in extab_relocations
     ] != [
-        (0x08000128, 42, "__firmbolt_personality_v0", 0x08000101)
+        (0x08000128, 42, "__firmbolt_personality_v0", 0x08000101),
+        (0x08000134, 41, "__firmbolt_typeinfo", 0x08000158),
     ]:
-        raise RuntimeError("generic EHABI personality relocation is not exact")
+        raise RuntimeError("generic EHABI relocation identities are not exact")
+    personality_relocations = [
+        record for record in extab_relocations if record["type"] == 42
+    ]
+    target2_relocations = [
+        record for record in extab_relocations if record["type"] == 41
+    ]
 
     origin_summary = None
     if final_layout is not None:
@@ -3239,9 +3258,13 @@ def validate_relocated_generic_exidx_function_order(
         "reference_extab_hex": reference_extab_bytes.hex(),
         "candidate_extab_hex": candidate_extab_bytes.hex(),
         "opaque_extab_suffix_exact": True,
+        "target2_policy": "rel32",
+        "target2_site": typeinfo_site,
+        "target2_symbol_address": typeinfo_address,
         "reference_exidx": reference_exidx,
         "candidate_exidx": candidate_exidx,
         "personality_relocations": personality_relocations,
+        "target2_relocations": target2_relocations,
         "origin_summary": origin_summary,
     }
 
@@ -4033,6 +4056,7 @@ def build_m3_generic_exidx_fixture(output: Path, logs: Path) -> Path:
         "M3 generic EHABI object build")
     require_success(run([
         str(LD_LLD), "--emit-relocs", "--no-merge-exidx-entries",
+        "--target2=rel",
         "-T", str(M3_EXIDX_LINKER), str(object_path), "-o", str(image),
     ], logs / "build-m3-exidx-generic-image.log"),
         "M3 generic EHABI image build")
@@ -5785,7 +5809,11 @@ def main() -> int:
         help="run BOLT frame optimization using qualified Thumb target hooks",
     )
     args = parser.parse_args()
-    LD_LLD = args.lld.resolve()
+    # LLD selects its driver flavor from argv[0].  CMake commonly publishes
+    # ld.lld as a symlink to the generic `lld` executable, so resolving the
+    # symlink here silently turns a GNU-linker invocation into the generic
+    # dispatcher.  Make the path absolute while preserving its basename.
+    LD_LLD = args.lld.absolute()
     if not LD_LLD.is_file() or not os.access(LD_LLD, os.X_OK):
         raise RuntimeError(
             f"pinned LLD executable is unavailable: {LD_LLD}; "
@@ -6172,6 +6200,7 @@ def main() -> int:
          ]),
         ("m3_exidx_generic_function_reorder", "cortex-m3",
          m3_exidx_generic_image, {}, [
+             "--firmbolt-arm-target2=rel",
              "--relocs", "--use-old-text", "--reorder-functions=user",
              "--align-functions=1",
              f"--function-order={M3_EXIDX_GENERIC_ORDER}",
