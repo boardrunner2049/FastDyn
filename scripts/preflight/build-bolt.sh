@@ -12,6 +12,7 @@ cmake -S "${source_dir}/llvm" -B "${build_dir}" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DLLVM_ENABLE_ASSERTIONS=ON \
     -DLLVM_ENABLE_ZLIB=FORCE_ON \
+    -DLLVM_ENABLE_ZSTD=FORCE_ON \
     -DLLVM_ENABLE_PROJECTS='bolt;clang;lld' \
     -DLLVM_TARGETS_TO_BUILD='X86;AArch64;RISCV;ARM'
 ninja -C "${build_dir}" llvm-bolt llvm-bat-dump llvm-dwarfdump llvm-objcopy \

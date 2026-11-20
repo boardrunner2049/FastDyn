@@ -182,6 +182,14 @@ below carry the newer mechanisms and claim boundaries.
 | Cross-target FOP isolation | Repaired and globally verified | The ARM opaque-region `buildCallGraph` predicate changed X86 conditional-tail-call shrink wrapping. Applying it only on ARM restores the expected load/store spill placement. The focused regression passes and the full 1,132-test suite reports 947 passed, one expected failure and zero failed. | Require this clean suite for future milestones; target-specific policy must not enter shared pass behavior without an explicit target guard. |
 | Cortex-M production non-regression | Accepted | The independent 68/68 gate retains 130,186 exact origins and the real M4 candidate completes 10,000 fixed work units with exact repeated RAM state. | Continue the declared layout, state-model and optimization backlog; global non-regression is necessary but not Cortex-M feature parity. |
 
+## v179 zstd-compressed-DWARF gap
+
+| Area | Classification | Evidence | Remaining boundary |
+| --- | --- | --- | --- |
+| GABI zstd debug rewriting | Implemented with a required pinned build dependency and exact-algorithm oracle | `LLVM_ENABLE_ZSTD=FORCE_ON` finds zstd 1.5.5. The new Clang Cortex-M3 DWARF5 case preserves `SHF_COMPRESSED` and `ZSTD` for `.debug_info` and every rebuilt compressed section in both reference and candidate, resolves one CU and verifies cleanly. The producer matrix passes 15/15. | Qualify compressed DWO/DWP contributions, corrupted zstd streams, additional producers and compressor versions. One linked fixture is mechanism evidence, not universal compressed-DWARF support. |
+| Global regression after zstd enablement | Accepted | The pinned 1,132-test BOLT suite reports 949 passed, one expected failure, 150 skipped, 32 unsupported and zero failed. Two zstd-dependent cases move from unsupported to passed relative to v178. | Keep all 32 unsupported and 150 target-inapplicable cases explicit; dependency availability is not target feature parity. |
+| Cortex-M production non-regression | Accepted | The independent 68/68 gate remains accepted with 130,186 exact origins. The real M4 candidate completes 10,000 fixed work units and matches both reference RAM states exactly. | Continue the declared state, effect and optimization backlog; this milestone changes debug-input compatibility, not optimization breadth. |
+
 ## Enforced stop conditions
 
 - Unknown/ambiguous ISA or mode: reject publication.

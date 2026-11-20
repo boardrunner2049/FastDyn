@@ -1888,6 +1888,18 @@ The confirmed mechanism is narrower than saying “ARM constant propagation was 
 
 The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `ea4fca331d64cfc60300ae5bffcf18ff6efcfe5ac4a1078155d83a4471d2bdb8`; it reverse-applies exactly to the pinned revision across all 183 overlay files. The exact tested BOLT, Clang, LLD and regression hashes are bound by the [v178 validation manifest](evidence/firmbolt-cortex-m-v178-validation.json). Its global run discovers 1,132 tests with zero unexpected failures, and the separate 68-profile Cortex-M/FastDyn gate remains accepted. Historical [v177](evidence/firmbolt-cortex-m-v177-validation.json), [v176](evidence/firmbolt-cortex-m-v176-validation.json), [v175](evidence/firmbolt-cortex-m-v175-validation.json), [v174](evidence/firmbolt-cortex-m-v174-validation.json), [v173](evidence/firmbolt-cortex-m-v173-validation.json), [v172](evidence/firmbolt-cortex-m-v172-validation.json), [v171](evidence/firmbolt-cortex-m-v171-validation.json), and [v170](evidence/firmbolt-cortex-m-v170-validation.json) manifests remain unchanged as prior compressed, packaged/standalone split-DWARF, debug-width, TARGET2 GOT-relative, fixed-GOT-family, GOT_PREL and TARGET2 policy evidence.
 
+v179 adds an exact zstd qualification rather than treating compression as a
+boolean property. The pinned build requires zstd 1.5.5, and the new producer
+case proves that linked Clang DWARF5 Cortex-M3 input remains GABI `ZSTD` after
+rewriting, resolves one compile unit and verifies cleanly. The resulting
+matrix passes 15/15. The full BOLT suite reports 949 passes, one expected
+failure, 150 skips, 32 unsupported and zero failures; the two newly available
+zstd-dependent tests account for the change from v178. The independent 68/68
+Cortex-M/FastDyn gate is unchanged and accepted. Exact commands, hashes and
+scope limits are in the [v179 validation manifest](evidence/firmbolt-cortex-m-v179-validation.json).
+This is compressed-debug integration evidence, not a performance result or a
+claim that compressed DWO/DWP and every producer are qualified.
+
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 
 ### Pinned references

@@ -2319,6 +2319,26 @@ and [global regression XML](../../build/preflight/firm-bolt-cortex-m-v178-pinned
 This makes the pinned global suite a clean regression oracle; it does not erase
 the declared Cortex-M layout, architectural-state or optimization gaps below.
 
+v179 closes the next linked-debug dependency gap without broadening that
+claim. The reproducible build now requires zstd as well as zlib, and the
+producer oracle reads the GABI compression header rather than accepting any
+`SHF_COMPRESSED` result. A new Clang Cortex-M3 DWARF5 case therefore requires
+both the reference and candidate `.debug_info` sections—and every rebuilt
+compressed payload—to retain the exact `ZSTD` algorithm. Both images resolve
+one compile unit, contain nonempty payloads and pass `llvm-dwarfdump --verify`.
+The producer matrix is now 15/15.
+
+The complete pinned BOLT suite remains clean: 1,132 tests discovered, 949
+passed, one expected failure, 150 skipped, 32 unsupported and zero failed.
+Two zstd-dependent tests that were unsupported in v178 now pass. The separate
+Cortex-M gate remains 68/68 with 130,186 exact instruction origins, and the
+real M4 candidate again completes 10,000 fixed work units with exact repeated
+reference/candidate RAM state. The
+[`v179 manifest`](evidence/firmbolt-cortex-m-v179-validation.json) binds the
+tools, commands and raw reports. This qualifies one linked Clang DWARF5 zstd
+fixture; compressed DWO/DWP contributions, corrupted-stream classes,
+arbitrary producers and complete x86-backend parity remain open.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

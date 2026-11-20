@@ -1,0 +1,117 @@
+{
+  "generated_at_utc": "2026-11-20T09:44:54Z",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "milestone": "v179-zstd-compressed-dwarf",
+  "repository_base_commit": "e3843ae64b58aeb9dc6d651413d20226fe9e415a",
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "source_changes": {
+    "build_contract": "the pinned LLVM/BOLT build now requires zstd as well as zlib and builds BOLT, Clang and LLD at one revision",
+    "producer_oracle": "the producer matrix identifies the GABI compression algorithm with llvm-readelf and requires the reference and candidate to retain the requested algorithm rather than accepting any SHF_COMPRESSED payload"
+  },
+  "toolchain": {
+    "clang": "24.0.0git at 7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "lld": "24.0.0git at 7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "llvm_enable_projects": "bolt;clang;lld",
+    "llvm_enable_zlib": "FORCE_ON",
+    "llvm_enable_zstd": "FORCE_ON",
+    "zstd": "1.5.5"
+  },
+  "dwarf_producer_matrix": {
+    "command": [
+      "python3",
+      "scripts/preflight/run-firm-bolt-dwarf-producer-matrix.py",
+      "--bolt",
+      "third_party/preflight/llvm-build/bin/llvm-bolt",
+      "--clang",
+      "third_party/preflight/llvm-build/bin/clang",
+      "--lld",
+      "third_party/preflight/llvm-build/bin/ld.lld",
+      "--output",
+      "build/preflight/firmbolt-cortex-m-v179-zstd-producers-r2"
+    ],
+    "accepted": 15,
+    "failed": 0,
+    "status": "accepted",
+    "total": 15,
+    "zstd_case": {
+      "candidate_compile_units": 1,
+      "candidate_debug_info_algorithm": "ZSTD",
+      "candidate_debug_info_compressed": true,
+      "candidate_verifier_returncode": 0,
+      "name": "clang-dwarf5-gabi-zstd",
+      "reference_compile_units": 1,
+      "reference_debug_info_algorithm": "ZSTD",
+      "reference_debug_info_compressed": true,
+      "reference_verifier_returncode": 0,
+      "status": "accepted"
+    }
+  },
+  "full_bolt_regression": {
+    "command": [
+      "third_party/preflight/llvm-build/bin/llvm-lit",
+      "-sv",
+      "-j",
+      "8",
+      "--xunit-xml-output=build/preflight/firm-bolt-cortex-m-v179-zstd-r1/regressions/full-bolt-lit.xml",
+      "third_party/preflight/llvm-build/tools/bolt/test"
+    ],
+    "discovered": 1132,
+    "expectedly_failed": 1,
+    "failed": 0,
+    "passed": 949,
+    "skipped": 150,
+    "status": "accepted",
+    "unsupported": 32
+  },
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-v179-zstd-r1/production"
+  ],
+  "production_profiles": {
+    "accepted": 68,
+    "functions_with_emitted_instructions": 1963,
+    "instruction_origins": 130186,
+    "modified_function_instruction_origins": 98761,
+    "modified_functions": 1142,
+    "potentially_faulting_load_store_origins": 57618,
+    "total": 68
+  },
+  "production_status": "accepted",
+  "real_firmware_execution": {
+    "candidate_ram_prefix_exact": true,
+    "completed_work_units": 10000,
+    "cpu_model": "cortex-m4",
+    "reference_repeat_exact": true,
+    "status": "accepted"
+  },
+  "scope_limits": [
+    "the zstd case is one linked Clang DWARF5 Cortex-M3 fixture; compressed DWO/DWP contributions, corrupted zstd streams, arbitrary producers and alternate compression versions remain unqualified",
+    "preserving the exact GABI algorithm, one resolved compile unit, nonempty compressed payloads and a clean verifier result establishes this named rewrite contract, not universal DWARF compatibility",
+    "the full suite establishes global non-regression for applicable tests on this host; 150 target-inapplicable tests remain skipped and 32 dependency or feature cases remain unsupported",
+    "the 68-profile production matrix and real M4 fixed-work run are preservation and installation evidence, not complete x86-backend feature parity or a statistically powered speedup claim",
+    "patch-aware transformation semantics remain a later phase; this production gate uses the explicit empty patch contract"
+  ],
+  "sha256": {
+    "RTOSDemo.firm-bolt-m4.axf": "08e6416cadc25c0d27bd25cb3ca7b1a2df1c6c01661be7595fb7338c86a477fd",
+    "dwarf-producer-report.json": "71e2fc9376fda7a6d21097f34a442d2c4ba6cfa186538a0bcb5b0c2bdccb544d",
+    "full-bolt-lit.log": "cb539cde17e43cdb9f3fa2818e397a5dc37bf4efa53eb441ede275f57f4453eb",
+    "full-bolt-lit.xml": "a2caf1bd5f0f8fd12b7a0530e0f9dae95b15e7f1774092bda7d534dbe081857a",
+    "patches/bolt-fastdyn-preflight.patch": "ea4fca331d64cfc60300ae5bffcf18ff6efcfe5ac4a1078155d83a4471d2bdb8",
+    "production-report.json": "2bca688ebfe00b96e549b00ef76bdd70fc9493fcb4989811bf16de7b8dd621e3",
+    "scripts/preflight/build-bolt.sh": "c381282a5291174a97c48326ad11223f41352db8e242601b007f495324fa072b",
+    "scripts/preflight/run-firm-bolt-dwarf-producer-matrix.py": "1e6048a0060d3c6957157e6372b30aac4da71810d78774723259ba0eb98de8c8",
+    "third_party/preflight/llvm-build/bin/clang": "a9a74f7bb1d7540abeba5e5d5654ce4bcda4f49c517f1432c481b30c9b8aa200",
+    "third_party/preflight/llvm-build/bin/ld.lld": "7b1d83c19bdab1226456be493438fcc9cdd5bba0efc9e37097366ed7ed024ae7",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "1d4bdf405fde22e66c82effac97d1d17ac411ef3198691332c2d23934e80b0ce",
+    "third_party/preflight/llvm-build/bin/llvm-lit": "db2f33f5cdc5c33db0f5ada2d7b6ddc52a1ad4b750c8b250df2445e17a045670",
+    "third_party/preflight/llvm-build/bin/llvm-objcopy": "5b09396f24addcb2efbdb1c79a4fc791a3dc1ed41f72ef01724a979ac6aa4dbd",
+    "third_party/preflight/llvm-build/bin/llvm-readelf": "94e3453a827082f7e94b1314217f6e8f5bb54437e0701a264c793e414958fc39"
+  }
+}

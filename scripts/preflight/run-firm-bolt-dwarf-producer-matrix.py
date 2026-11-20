@@ -110,6 +110,41 @@ def debug_section_inventory(
     return inventory
 
 
+def debug_compression_types(
+    readelf: Path, image: Path, log: Path
+) -> dict[str, str]:
+    """Return the GABI compression algorithm for each compressed section."""
+    process = run([str(readelf), "--section-details", str(image)], log)
+    current_section: str | None = None
+    compression: dict[str, str] = {}
+    for line in process.stdout.splitlines():
+        section = re.match(r"\s*\[\s*[0-9]+\]\s+(\.[^ ]+)", line)
+        if section:
+            current_section = section.group(1)
+            continue
+        algorithm = re.match(r"\s*(ZLIB|ZSTD),", line)
+        if current_section and algorithm:
+            compression[current_section] = algorithm.group(1)
+    return compression
+
+
+def exact_debug_compression(
+    inventory: dict[str, dict[str, Any]],
+    compression: dict[str, str],
+    expected_algorithm: str,
+) -> bool:
+    """Require every compressed debug section to use the named algorithm."""
+    compressed_sections = {
+        name
+        for name, properties in inventory.items()
+        if name.startswith(".debug_") and properties.get("compressed_flag", False)
+    }
+    return bool(compressed_sections) and all(
+        compression.get(name) == expected_algorithm
+        for name in compressed_sections
+    )
+
+
 def compilation_unit_count(
     dwarfdump: Path, image: Path, log: Path
 ) -> tuple[int, int]:
@@ -433,6 +468,7 @@ def main() -> int:
     compression_source = output / "clang-dwarf5.reference.elf"
     for style, objcopy, option in (
         ("gabi-zlib", tools["objcopy"], "zlib"),
+        ("gabi-zstd", tools["objcopy"], "zstd"),
         ("gnu-zlib", tools["arm_objcopy"], "zlib-gnu"),
     ):
         name = f"clang-dwarf5-{style}"
@@ -475,6 +511,14 @@ def main() -> int:
             tools["readelf"], candidate,
             logs / f"inventory-candidate-{name}.log",
         )
+        reference_compression = debug_compression_types(
+            tools["readelf"], reference,
+            logs / f"compression-reference-{name}.log",
+        )
+        candidate_compression = debug_compression_types(
+            tools["readelf"], candidate,
+            logs / f"compression-candidate-{name}.log",
+        )
         reference_output = reference_verify.stdout + reference_verify.stderr
         candidate_output = candidate_verify.stdout + candidate_verify.stderr
         nonzero_candidate_payloads = {
@@ -491,12 +535,34 @@ def main() -> int:
         stale_legacy_sections = sorted(
             retired_legacy_sections.intersection(candidate_inventory)
         )
+        expected_gabi_algorithm = (
+            style.removeprefix("gabi-").upper()
+            if style.startswith("gabi-") else None
+        )
         reference_form_ok = (
-            (style == "gabi-zlib"
+            (expected_gabi_algorithm is not None
              and reference_inventory.get(".debug_info", {}).get(
                  "compressed_flag", False
+             )
+             and exact_debug_compression(
+                 reference_inventory,
+                 reference_compression,
+                 expected_gabi_algorithm,
              ))
             or (style == "gnu-zlib" and ".zdebug_info" in reference_inventory)
+        )
+        candidate_form_ok = (
+            expected_gabi_algorithm is None
+            or (
+                candidate_inventory.get(".debug_info", {}).get(
+                    "compressed_flag", False
+                )
+                and exact_debug_compression(
+                    candidate_inventory,
+                    candidate_compression,
+                    expected_gabi_algorithm,
+                )
+            )
         )
         accepted = (
             reference_verify.returncode == 0
@@ -508,6 +574,7 @@ def main() -> int:
             and reference_cus == 1
             and candidate_cus == 1
             and reference_form_ok
+            and candidate_form_ok
             and nonzero_candidate_payloads
             and all(size > 0 for size in nonzero_candidate_payloads.values())
             and not stale_legacy_sections
@@ -528,6 +595,8 @@ def main() -> int:
             "candidate_compile_units": candidate_cus,
             "reference_debug_section_inventory": reference_inventory,
             "candidate_debug_section_inventory": candidate_inventory,
+            "reference_debug_compression": reference_compression,
+            "candidate_debug_compression": candidate_compression,
             "stale_legacy_sections": stale_legacy_sections,
         }
 
