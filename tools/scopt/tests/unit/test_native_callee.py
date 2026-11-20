@@ -148,6 +148,33 @@ def test_prepare_input_changes_when_policy_or_backend_changes():
     assert len({a.input_id, b.input_id, c.input_id}) == 3
 
 
+def test_pre_chain_input_preserves_capture_and_bridge_identity(native_so):
+    from dataclasses import fields
+
+    from scopt.analysis.native_callees import MANIFEST_VERSION, NATIVE_IMAGES, NativeImageManifest, _ImageBinding
+    from scopt.analysis.store import value_digest
+    from scopt.importer.native_callee import NativeCallee, _FramedNativeCallee
+    from scopt.model.native import NativeFrameBody
+
+    helper, context, run, runtime = _fixture(native_so, role="plugin")
+    capture = sha256_id(b"capture")
+    callee = NativeCalleeResolver(context, run, runtime, capture).resolve(helper)
+    old_binding = _ImageBinding(helper, callee)
+    key = ("unit", helper.id)
+    old = NativeImageManifest("snapshot", runtime["runtime_identity_id"], (capture,), "revision",
+                              1, 1, sha256_id(b"bridge"), {key: old_binding})
+    old_id = value_digest([NATIVE_IMAGES, MANIFEST_VERSION, old])
+    framed = _FramedNativeCallee(**{f.name: getattr(callee, f.name) for f in fields(NativeCallee)},
+                                frame_chain=(NativeFrameBody(4096, b"\xc3"),))
+    new = replace(old, bindings={key: replace(old_binding, callee=framed)})
+    assert value_digest([NATIVE_IMAGES, MANIFEST_VERSION, new]) != old_id
+    assert new.pre_chain_input_id() == old.pre_chain_input_id() == old_id
+    assert replace(new, capture_ids=(sha256_id(b"other"),)).pre_chain_input_id() != old_id
+    assert replace(new, bridge_sha256=sha256_id(b"other")).pre_chain_input_id() != old_id
+    changed = replace(framed, code=b"another function")
+    assert replace(new, bindings={key: replace(old_binding, callee=changed)}).pre_chain_input_id() != old_id
+
+
 def test_import_binds_even_unexpanded_frame_bodies_to_the_executable():
     from scopt.importer.import_cache import _native_binding_problem
     from scopt.model.native import NativeFrameBody, NativeSplice

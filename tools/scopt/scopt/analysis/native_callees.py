@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -54,6 +54,18 @@ class NativeImageManifest:
     bindings: Mapping[tuple[str, int], _ImageBinding]
     reason: str | None = None
     detail: str = ""
+
+    def pre_chain_input_id(self) -> str:
+        """Reproduce the native input digest used before nested frame witnesses."""
+        bindings = dict(self.bindings)
+        for key, binding in self.bindings.items():
+            callee = binding.callee
+            if callee is not None and callee.frame_chain:
+                # The digest includes the dataclass type and every declared field.
+                old_callee = NativeCallee(**{f.name: getattr(callee, f.name)
+                                            for f in fields(NativeCallee)})
+                bindings[key] = replace(binding, callee=old_callee)
+        return value_digest([NATIVE_IMAGES, MANIFEST_VERSION, replace(self, bindings=bindings)])
 
 
 def _verified_captures(snapshot: Any):

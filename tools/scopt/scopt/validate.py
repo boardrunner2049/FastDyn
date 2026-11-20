@@ -79,6 +79,7 @@ import time
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -391,6 +392,11 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
     errors = []
     stores = {}
     code_address = snapshot.header.code_address
+
+    @cache
+    def pre_chain_input_id(bridge_sha256):
+        return stores[bridge_sha256][1].pre_chain_input_id()
+
     for lu in extended:
         original = snapshot.unit(lu.uid)
         try:
@@ -423,12 +429,11 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                     layout = analysis.get("envlayout", ScopeRef("snapshot", snapshot.snapshot_id)).value
                     if not layout["bound"]:
                         raise ValueError("native validation needs the exact QEMU EnvLayout")
-                    stores[call.bridge_sha256] = analysis
-                analysis = stores[call.bridge_sha256]
+                    stores[call.bridge_sha256] = (analysis, native.value)
+                analysis, _ = stores[call.bridge_sha256]
                 rows = analysis.get("native-callees", ScopeRef("unit", lu.uid)).value
                 certified = next((row for row in rows if row.call.host_off == call.call_off), None)
                 if (certified is None or certified.callee is None or
-                        certified.input_id != call.native_input_id or
                         certified.call.guest_pcs != call.guest_pcs or
                         certified.call.pool_slot_off != call.pool_slot_off or
                         certified.callee.image_id != call.image_id or
@@ -438,6 +443,12 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                         certified.callee.runtime_address != call.target_abs or
                         certified.callee.symbol != call.symbol):
                     raise ValueError("linked callee does not match its capture-bound native image")
+                if certified.input_id != call.native_input_id:
+                    # An older integer certificate may share its manifest with a
+                    # plugin binding for which a frame chain is now discoverable.
+                    if ((framed and call.splice.frame_chain)
+                            or call.native_input_id != pre_chain_input_id(call.bridge_sha256)):
+                        raise ValueError("native input digest does not match the bound images")
                 if framed:
                     if call.splice.frame_chain != certified.callee.frame_chain:
                         raise ValueError("nested frame bodies differ from the bound executable")
