@@ -1,0 +1,169 @@
+{
+  "clean_apply": {
+    "byte_exact_files": 191,
+    "method": "the generated patch reverse-applies cleanly to the current overlay on the pinned base, proving the overlay bytes are exactly the patch result",
+    "pinned_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "reconstructed_patch_byte_exact": true,
+    "status": "accepted"
+  },
+  "completion_target": {
+    "name": "production-ready for the defined Cortex-M firmware corpus",
+    "policy": "every observed corpus feature must either be rewritten through the checked pipeline or retained unchanged with an explicit diagnostic",
+    "status": "in_progress",
+    "supersedes": "open-ended parity with every x86 BOLT backend capability"
+  },
+  "focused_regressions": {
+    "aarch32_jitlink": {
+      "command": [
+        "third_party/preflight/llvm-build/bin/llvm-lit",
+        "-sv",
+        "-j8",
+        "third_party/preflight/llvm-project/llvm/test/ExecutionEngine/JITLink/AArch32"
+      ],
+      "failed": 0,
+      "passed": 13,
+      "status": "accepted",
+      "total": 13
+    },
+    "arm_bolt": {
+      "command": [
+        "third_party/preflight/llvm-build/bin/llvm-lit",
+        "-sv",
+        "-j8",
+        "third_party/preflight/llvm-project/bolt/test/ARM"
+      ],
+      "failed": 0,
+      "passed": 101,
+      "status": "accepted",
+      "total": 101
+    },
+    "arm_lld": {
+      "command": [
+        "third_party/preflight/llvm-build/bin/llvm-lit",
+        "-sv",
+        "-j8",
+        "third_party/preflight/llvm-project/lld/test/ELF/arm-no-interworking-relocs.s",
+        "third_party/preflight/llvm-project/lld/test/ELF/arm-*.s"
+      ],
+      "failed": 0,
+      "passed": 152,
+      "status": "accepted",
+      "total": 152
+    }
+  },
+  "full_bolt_regression": {
+    "command": [
+      "third_party/preflight/llvm-build/bin/llvm-lit",
+      "-sv",
+      "-j8",
+      "--xunit-xml-output=build/preflight/firmbolt-cortex-m-v182-validation/regressions/full-bolt-lit.xml",
+      "third_party/preflight/llvm-build/tools/bolt/test"
+    ],
+    "discovered": 1136,
+    "expectedly_failed": 1,
+    "failed": 0,
+    "passed": 953,
+    "skipped": 150,
+    "status": "accepted",
+    "unsupported": 32
+  },
+  "generated_at_utc": "2026-11-20T11:03:51Z",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "mechanism": {
+    "abi_contract": "R_ARM_TLS_GD32 computes TLSGD(S)+A-P, where TLSGD(S) is the address of the retained two-word {module index, DTP offset} descriptor rather than the STT_TLS symbol address",
+    "candidate_descriptor_literal_address": "0x0800012c",
+    "candidate_field": "0x17ffffdc",
+    "descriptor_address": "0x20000100",
+    "descriptor_words": [
+      "0x00000001",
+      "0x00000000"
+    ],
+    "input_descriptor_literal_address": "0x08000140",
+    "input_field": "0x17ffffc8",
+    "recovered_addend": 8,
+    "status": "accepted",
+    "tls_symbol": "tls_data",
+    "tls_symbol_offset": 0
+  },
+  "negative_controls": {
+    "ambiguous_duplicate_descriptor": {
+      "diagnostic": "R_ARM_TLS_GD32 target tls_data has multiple exact retained TLS GD descriptors",
+      "published_candidate": false,
+      "status": "accepted"
+    },
+    "missing_fixed_got_contract": {
+      "diagnostic": "qualify it with --firmbolt-arm-got=fixed-static",
+      "published_candidate": false,
+      "status": "accepted"
+    }
+  },
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all",
+    "--output",
+    "build/preflight/firmbolt-cortex-m-v182-validation"
+  ],
+  "production_profiles": {
+    "accepted": 69,
+    "functions_with_emitted_instructions": 1967,
+    "instruction_origins": 130219,
+    "modified_function_instruction_origins": 98911,
+    "modified_functions": 1149,
+    "potentially_faulting_instruction_origins": 57628,
+    "status": "accepted"
+  },
+  "real_cortex_m4_fixed_work": {
+    "completed_work_units": 10000,
+    "cpu_model": "cortex-m4",
+    "reference_repeat_exact": true,
+    "status": "accepted"
+  },
+  "repository_base_commit": "55cbc26e7e010aa18d1db6c4c898f415ea319f36",
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "scope_limits": [
+    "the milestone qualifies static local-executable TLS general-dynamic descriptors in one exact retained file-backed GOT graph; dynamic-loader TLS, weak or undefined TLS symbols and other TLS models remain governed by separate contracts",
+    "the fixture proves linked relocation arithmetic, exact origin mapping and architectural execution under the admitted static runtime; it is not a general-purpose thread runtime or device model",
+    "production readiness is evaluated against the frozen defined Cortex-M corpus, not by claiming parity with every x86 BOLT feature or every ARM ecosystem binary",
+    "patch-aware transformation semantics remain a later phase; this production gate uses the explicit empty patch contract"
+  ],
+  "sha256": {
+    "aarch32-jitlink.log": "77cc99c60e04cf49355905f5a03e412e783bb888912ac9709df74e7f2e22f83a",
+    "arm-bolt.log": "cc2d6fcf1daa745e333b137b57ba9e7c51feede784dbb2cd32e4c3764c59f8f7",
+    "arm-lld.log": "abaabe106bdac9d1fde34b3c35d832d2806a71668c80413c2a216bf1467803b4",
+    "check-bolt-unit.log": "31ee86e99d3308b423ef05603e79b830af87ac2a19af90df31b374bd1fd910ae",
+    "full-bolt-lit.log": "bd5a9ec9f945c4e00d21300731d7c900035aacdc828e140ea5e1d34be1f40925",
+    "full-bolt-lit.xml": "018698650fdbb0063bae1b8468995b908c4236cd4d786630297fcce32dc93353",
+    "patches/bolt-fastdyn-preflight.patch": "4c39f5f140501726ab0dc2f8cec739606f72e61a8ee07ba9e91cc1c3024e0192",
+    "production-report.json": "6d1e54bf3f449c7479d94ea7ead0c889ea5d762b76306ad9ea26279df54db18c",
+    "third_party/preflight/llvm-build/bin/ld.lld": "0f62fb96de2545147520b9a6eaccde800121f30d1acde7807a5af5606b17b97b",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "378ca356d31f716aba2acee53d107022b2d99dc29268f322500125d3dec4876b"
+  },
+  "source_changes": {
+    "bolt": "the ARM relocation handler imports, classifies, extracts and emits TLS_GD32 under the fixed-static policy; analysis resolves one exact retained TLS descriptor and keeps it distinct from ordinary pointer GOT slots",
+    "jitlink": "AArch32 carries a distinct TLS-GD descriptor request edge that FirmBOLT binds to the recorded absolute descriptor before applying a Data_Delta32 fixup",
+    "llvm_mc": "the ARM ELF writer now preserves S_TLSGD for an explicitly PC-relative four-byte data expression emitted by BOLT",
+    "tests": "the moved-literal positive fixture, architectural execution and missing-policy/duplicate-descriptor controls make target-address guessing and retained-byte no-ops fail observably"
+  },
+  "tls_gd_architectural_execution": {
+    "candidate_ram_word": 7,
+    "cpu_model": "cortex-m3",
+    "reference_ram_word": 7,
+    "status": "accepted"
+  },
+  "unit_regression": {
+    "command": [
+      "ninja",
+      "-C",
+      "third_party/preflight/llvm-build",
+      "check-bolt-unit"
+    ],
+    "discovered": 283,
+    "failed": 0,
+    "passed": 133,
+    "skipped": 150,
+    "status": "accepted"
+  }
+}

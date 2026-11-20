@@ -2420,6 +2420,44 @@ This is a mechanism-complete qualification of two static relocation classes,
 not evidence that they are common in the retained corpus, support for every
 dynamic/weak/section-symbol combination, or complete x86-backend parity.
 
+v182 qualifies the compiler-emitted Cortex-M static TLS general-dynamic path.
+Clang's PIC sequence names an `STT_TLS` symbol with `R_ARM_TLS_GD32`, but the
+relocation computes the address of a retained two-word `{module index, DTP
+offset}` descriptor, not the symbol's ordinary virtual address.  FirmBOLT now
+models that descriptor as a distinct typed graph, requires one exact match in
+the complete file-backed fixed-static GOT, reconstructs the SHT_REL addend,
+and carries a dedicated request edge through AArch32 JITLink before applying
+the final PC-relative fixup.  LLVM MC also accepts the explicitly PC-relative
+`S_TLSGD` expression emitted by BOLT.
+
+The fixture moves the descriptor literal from `0x08000140` to `0x0800012c`.
+The linked field changes from `0x17ffffc8` to `0x17ffffdc`; both resolve to
+descriptor `0x20000100` with recovered addend `+8`.  Its retained words are
+`{1, 0}`, denoting static module one and TLS offset zero.  Reference and
+candidate execute under the Cortex-M3 runner and both publish the expected
+TLS value `7`.  An unqualified image and an image with two matching
+descriptors are rejected atomically, so neither policy omission nor value
+guessing can publish a candidate.
+
+The production matrix is now 69/69 and covers 1,967 functions with 130,219
+exact instruction origins.  The focused gates pass 101/101 ARM BOLT tests,
+13/13 AArch32 JITLink tests and 152/152 ARM LLD tests.  The complete BOLT gate
+discovers 1,136 tests: 953 pass, one expected failure remains expected, 150
+target-inapplicable tests skip, 32 dependency/feature cases are unsupported
+and none fail.  The unit gate remains 133 passed and 150 skipped.  The
+[v182 validation manifest](evidence/firmbolt-cortex-m-v182-validation.json)
+binds the final arithmetic, architectural run, rejection evidence, raw hashes
+and the 191-file reversible overlay (SHA-256
+`4c39f5f140501726ab0dc2f8cec739606f72e61a8ee07ba9e91cc1c3024e0192`).
+
+The completion target is now explicitly **production-ready for the frozen
+defined Cortex-M firmware corpus**, not open-ended parity with every x86 BOLT
+feature.  Every observed corpus feature must either pass the checked rewrite,
+emission and architectural validation path or retain its original bytes with
+an explicit unsupported reason.  Dynamic-loader TLS, other TLS models and
+weak/undefined TLS identities remain outside the v182 static descriptor
+contract.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven

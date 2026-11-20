@@ -210,6 +210,15 @@ M3_GOT_FAMILY_LINKER = (
 M3_GOT_FAMILY_ORDER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_got_family.order"
 )
+M3_TLS_GD_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_tls_gd.s"
+)
+M3_TLS_GD_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_tls_gd.ld"
+)
+M3_TLS_GD_ORDER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_tls_gd.order"
+)
 M3_TARGET2_GOT_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_target2_got.s"
 )
@@ -2635,6 +2644,138 @@ def validate_relocated_fixed_static_got_family(
     }
 
 
+def validate_relocated_fixed_static_tls_gd(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate one exact retained static AArch32 TLS GD descriptor."""
+    ref = elf_inventory(reference)
+    out = elf_inventory(candidate)
+    if ref["segments"] != out["segments"]:
+        raise RuntimeError("fixed-static TLS GD changed PT_LOAD ranges")
+
+    for name, address, expected in (
+        (".got", 0x20000100, struct.pack("<II", 1, 0)),
+        (".tdata", 0x20000200, struct.pack("<I", 7)),
+    ):
+        reference_section = ref["sections"][name]
+        candidate_section = out["sections"][name]
+        for field in ("address", "offset", "size", "flags", "alignment"):
+            if candidate_section[field] != reference_section[field]:
+                raise RuntimeError(
+                    f"fixed-static TLS GD changed {name} {field}"
+                )
+        if int(reference_section["address"]) != address:
+            raise RuntimeError(f"fixed-static TLS GD {name} drifted")
+        if section_bytes(reference, name) != expected:
+            raise RuntimeError(f"reference {name} contents changed")
+        if section_bytes(candidate, name) != expected:
+            raise RuntimeError(f"candidate {name} contents changed")
+
+    reference_reader = symbol_address(reference, "read_tls")
+    candidate_reader = symbol_address(candidate, "read_tls")
+    if reference_reader != 0x08000130 or candidate_reader != 0x0800011C:
+        raise RuntimeError("TLS GD reader did not take the frozen layout")
+
+    reference_records = [
+        record for record in static_relocation_records(reference, ".rel.text")
+        if record["type"] == 104
+    ]
+    candidate_records = [
+        record for record in static_relocation_records(candidate, ".rel.text")
+        if record["type"] == 104
+    ]
+    if (
+        len(reference_records) != 1 or len(candidate_records) != 1
+        or reference_records[0]["offset"] != 0x08000140
+        or candidate_records[0]["offset"] != 0x0800012C
+        or reference_records[0]["symbol"] != "tls_data"
+        or candidate_records[0]["symbol"] != "tls_data"
+    ):
+        raise RuntimeError(
+            "R_ARM_TLS_GD32 identity did not follow the live literal: "
+            f"reference={reference_records}, candidate={candidate_records}"
+        )
+    reference_field = int.from_bytes(
+        virtual_bytes(reference, 0x08000140, 4), "little"
+    )
+    candidate_field = int.from_bytes(
+        virtual_bytes(candidate, 0x0800012C, 4), "little"
+    )
+    expected_fields = (
+        (0x20000108 - 0x08000140) & 0xFFFFFFFF,
+        (0x20000108 - 0x0800012C) & 0xFFFFFFFF,
+    )
+    if (reference_field, candidate_field) != expected_fields:
+        raise RuntimeError(
+            "R_ARM_TLS_GD32 output lost descriptor/addend arithmetic: "
+            f"expected={expected_fields}, observed="
+            f"{(reference_field, candidate_field)}"
+        )
+
+    mapping = validate_arm_mapping_symbols(candidate)
+    text_transitions = {
+        (record["kind"], record["address"])
+        for record in mapping["records"] if record["section"] == ".text"
+    }
+    if ("$d", 0x0800012C) not in text_transitions or (
+            "$t", 0x08000130) not in text_transitions:
+        raise RuntimeError("moved TLS GD literal lost ARM mapping symbols")
+
+    origin_summary = None
+    if final_layout is not None:
+        reader = next(
+            function for function in final_layout["functions"]
+            if function["name"] == "read_tls"
+        )
+        pools = reader["owned_literal_pools"]
+        origins = reader["instruction_origins"]
+        if (
+            reader["original_address"] != 0x08000130
+            or reader["output_address"] != 0x0800011C
+            or reader["original_size"] != 20
+            or reader["output_size"] != 20
+            or reader["firmware_modification_reasons"]
+                != ["literal_pool_placement"]
+            or reader["firmware_publication_rejections"]
+            or len(origins) != 6
+            or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in origins
+            )
+            or len(pools) != 1
+            or pools[0]["original_address"] != 0x08000140
+            or pools[0]["output_address"] != 0x0800012C
+            or pools[0]["preserve_original_address"]
+            or pools[0]["relocation_count"] != 1
+        ):
+            raise RuntimeError(
+                "fixed-static TLS GD publication ledger changed"
+            )
+        origin_summary = {
+            "instruction_origin_count": len(origins),
+            "pool_original_address": pools[0]["original_address"],
+            "pool_output_address": pools[0]["output_address"],
+            "pool_relocation_count": pools[0]["relocation_count"],
+        }
+
+    return {
+        "status": "accepted",
+        "policy": "exact_retained_static_tls_gd_descriptor",
+        "program_headers_exact": True,
+        "got_address": 0x20000100,
+        "module_index": 1,
+        "tls_offset": 0,
+        "tls_initial_value": 7,
+        "reference_relocation": reference_records[0],
+        "candidate_relocation": candidate_records[0],
+        "reference_field": reference_field,
+        "candidate_field": candidate_field,
+        "mapping_symbols": sorted(text_transitions),
+        "origin_summary": origin_summary,
+    }
+
+
 def validate_relocated_target2_got_code(
     reference: Path, candidate: Path,
     final_layout: dict[str, Any] | None = None,
@@ -4671,6 +4812,31 @@ def build_m3_got_family_fixture(output: Path, logs: Path) -> Path:
     return image
 
 
+def build_m3_tls_gd_fixture(
+    output: Path, logs: Path, *, duplicate_descriptor: bool = False,
+) -> Path:
+    """Build a compiler-shaped fixed-static TLS general-dynamic access."""
+    suffix = "-duplicate" if duplicate_descriptor else ""
+    object_path = output / f"firm-bolt-cortex-m3-tls-gd{suffix}.o"
+    image = output / f"firm-bolt-cortex-m3-tls-gd{suffix}-reference.elf"
+    define_args = (
+        ["-defsym", "DUPLICATE_TLS_GD_DESCRIPTOR=1"]
+        if duplicate_descriptor else []
+    )
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", *define_args, str(M3_TLS_GD_SOURCE),
+        "-o", str(object_path),
+    ], logs / f"build-m3-tls-gd{suffix}-object.log"),
+        "M3 fixed-static TLS GD object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "-T", str(M3_TLS_GD_LINKER),
+        str(object_path), "-o", str(image),
+    ], logs / f"build-m3-tls-gd{suffix}-image.log"),
+        "M3 fixed-static TLS GD image build")
+    return image
+
+
 def build_m3_target2_got_fixture(output: Path, logs: Path) -> Path:
     """Build a moved code-owned TARGET2/GOT_PREL firmware reference."""
     object_path = output / "firm-bolt-cortex-m3-target2-got.o"
@@ -6573,6 +6739,10 @@ def main() -> int:
     m3_rwpi_image = build_m3_rwpi_fixture(output, logs)
     m3_got_image = build_m3_got_fixture(output, logs)
     m3_got_family_image = build_m3_got_family_fixture(output, logs)
+    m3_tls_gd_image = build_m3_tls_gd_fixture(output, logs)
+    m3_tls_gd_duplicate_image = build_m3_tls_gd_fixture(
+        output, logs, duplicate_descriptor=True,
+    )
     m3_target2_got_image = build_m3_target2_got_fixture(output, logs)
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
@@ -6908,6 +7078,14 @@ def main() -> int:
              "--relocs", "--use-old-text", "--reorder-functions=user",
              "--align-functions=1",
              f"--function-order={M3_GOT_FAMILY_ORDER}",
+         ]),
+        ("m3_fixed_static_tls_gd", "cortex-m3",
+         m3_tls_gd_image, {}, [
+             "--firmbolt-arm-got=fixed-static",
+             "--firmbolt-allow-literal-address-changes",
+             "--relocs", "--use-old-text", "--reorder-functions=user",
+             "--align-functions=1",
+             f"--function-order={M3_TLS_GD_ORDER}",
          ]),
         ("m3_target2_got_code", "cortex-m3",
          m3_target2_got_image, {}, [
@@ -8151,6 +8329,7 @@ def main() -> int:
         fixed_static_got_family_layout = (
             label == "m3_fixed_static_got_family"
         )
+        fixed_static_tls_gd_layout = label == "m3_fixed_static_tls_gd"
         target2_got_code_layout = label == "m3_target2_got_code"
         split_validation = {
             "m3_function_split": validate_relocated_function_split,
@@ -8253,6 +8432,10 @@ def main() -> int:
                     image, candidate
                 )
                 if fixed_static_got_family_layout
+                else validate_relocated_fixed_static_tls_gd(
+                    image, candidate
+                )
+                if fixed_static_tls_gd_layout
                 else validate_relocated_target2_got_code(image, candidate)
                 if target2_got_code_layout
                 else split_validation(image, candidate)
@@ -8276,6 +8459,7 @@ def main() -> int:
                     and not pcrel_mov_pair_layout
                     and not fixed_static_got_layout
                     and not fixed_static_got_family_layout
+                    and not fixed_static_tls_gd_layout
                     and not target2_got_code_layout
                     and not alignment_validation
                     and not safe_icf_layout
@@ -8508,6 +8692,12 @@ def main() -> int:
                         image, candidate, final_layout,
                     )
                 )
+            elif fixed_static_tls_gd_layout:
+                results[label]["validation"] = (
+                    validate_relocated_fixed_static_tls_gd(
+                        image, candidate, final_layout,
+                    )
+                )
             elif target2_got_code_layout:
                 results[label]["validation"] = (
                     validate_relocated_target2_got_code(
@@ -8523,6 +8713,7 @@ def main() -> int:
             if (
                 exidx_layout or safe_icf_layout or pcrel_mov_pair_layout
                 or fixed_static_got_layout or fixed_static_got_family_layout
+                or fixed_static_tls_gd_layout
                 or target2_got_code_layout
             ):
                 # The dedicated validator follows every relocated origin and
@@ -8547,6 +8738,7 @@ def main() -> int:
                             safe_icf_layout or pcrel_mov_pair_layout
                             or fixed_static_got_layout
                             or fixed_static_got_family_layout
+                            or fixed_static_tls_gd_layout
                             or target2_got_code_layout
                         ) else
                         13
@@ -8562,6 +8754,7 @@ def main() -> int:
                         3 if fixed_static_got_family_layout else
                         1 if (
                             fixed_static_got_layout
+                            or fixed_static_tls_gd_layout
                             or target2_got_code_layout
                         ) else 0
                     ),
@@ -8572,6 +8765,8 @@ def main() -> int:
                         if fixed_static_got_layout else
                         "dedicated_fixed_static_got_family_validation"
                         if fixed_static_got_family_layout else
+                        "dedicated_fixed_static_tls_gd_validation"
+                        if fixed_static_tls_gd_layout else
                         "dedicated_target2_fixed_static_got_validation"
                         if target2_got_code_layout else
                         "dedicated_relocation_and_safe_icf_validation"
@@ -8588,6 +8783,8 @@ def main() -> int:
                             results[label]["validation"]["relocations"]
                         ]
                         if fixed_static_got_family_layout else
+                        [results[label]["validation"]["candidate_relocation"]]
+                        if fixed_static_tls_gd_layout else
                         [results[label]["validation"]["candidate_relocation"]]
                         if target2_got_code_layout else []
                     ),
@@ -10860,6 +11057,49 @@ def main() -> int:
             "published_candidate": False,
         }
 
+    tls_gd_negative_controls = {}
+    for control, image, policy_args, diagnostic in (
+        (
+            "unqualified", m3_tls_gd_image, [],
+            "qualify it with --firmbolt-arm-got=fixed-static",
+        ),
+        (
+            "duplicate_descriptor", m3_tls_gd_duplicate_image,
+            ["--firmbolt-arm-got=fixed-static",
+             "--firmbolt-allow-literal-address-changes"],
+            "R_ARM_TLS_GD32 target tls_data has multiple exact retained "
+            "TLS GD descriptors",
+        ),
+    ):
+        rejected_output = output / f"tls-gd-{control}-rejected.elf"
+        rejected_output.unlink(missing_ok=True)
+        rejected = run([
+            str(args.bolt.resolve()), str(image),
+            "--firmbolt-cortex-m-cpu=cortex-m3",
+            "--firmbolt-arm-full-pipeline",
+            "--eliminate-unreachable=false", "--frame-opt=all",
+            *policy_args,
+            "--relocs", "--use-old-text", "--reorder-functions=user",
+            "--align-functions=1", f"--function-order={M3_TLS_GD_ORDER}",
+            "-o", str(rejected_output),
+        ], logs / f"tls-gd-{control}-rejected.log")
+        rejected_text = rejected.stdout + rejected.stderr
+        if (
+            rejected.returncode == 0
+            or diagnostic not in rejected_text
+            or rejected_output.exists()
+        ):
+            raise RuntimeError(
+                f"fixed-static TLS GD {control} control did not reject "
+                "atomically"
+            )
+        tls_gd_negative_controls[control] = {
+            "status": "accepted",
+            "returncode": rejected.returncode,
+            "diagnostic": diagnostic,
+            "published_candidate": False,
+        }
+
     clustering_orders = {
         label: results[label]["validation"]["ordered_workers"]
         for label in (
@@ -12269,6 +12509,15 @@ def main() -> int:
             expected_words=(84,),
         )
     )
+    m3_fixed_static_tls_gd_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_words_execution(
+            m3_tls_gd_image,
+            candidates["m3_fixed_static_tls_gd"],
+            output, args.fastdyn.resolve(), "fixed-static-tls-gd",
+            expected_words=(7,),
+        )
+    )
     m3_target2_got_code_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -12856,6 +13105,7 @@ def main() -> int:
             "fixed_static_got_policy": got_negative_controls,
             "fixed_static_got_family_policy":
                 got_family_negative_controls,
+            "fixed_static_tls_gd_policy": tls_gd_negative_controls,
             "m4_as_m3_rejected": True,
             "m4_as_m7_exact_cpu_rejected": {
                 "status": "accepted",
@@ -13005,6 +13255,8 @@ def main() -> int:
             m3_fixed_static_got_execution,
         "m3_fixed_static_got_family_architectural_execution":
             m3_fixed_static_got_family_execution,
+        "m3_fixed_static_tls_gd_architectural_execution":
+            m3_fixed_static_tls_gd_execution,
         "m3_target2_got_code_architectural_execution":
             m3_target2_got_code_execution,
         "m3_native_function_split_architectural_execution":
@@ -13264,6 +13516,8 @@ def main() -> int:
             str(candidates["m3_fixed_static_got"]),
         "m3_fixed_static_got_family_candidate":
             str(candidates["m3_fixed_static_got_family"]),
+        "m3_fixed_static_tls_gd_candidate":
+            str(candidates["m3_fixed_static_tls_gd"]),
         "m3_target2_got_code_candidate":
             str(candidates["m3_target2_got_code"]),
         "m3_function_split_candidate":
