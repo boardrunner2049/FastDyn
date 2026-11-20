@@ -1,0 +1,114 @@
+{
+  "clean_apply": {
+    "byte_exact_files": 166,
+    "pinned_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "reconstructed_patch_byte_exact": true,
+    "status": "accepted"
+  },
+  "generated_at_utc": "2026-11-20T03:19:01Z",
+  "integration_defect_found_and_fixed": {
+    "fix": "when an ARM code relocation cannot be analyzed, mark its containing function non-simple before transformation passes run",
+    "mechanism": "the reader diagnosed an unresolved retained code relocation but left the containing function transformable",
+    "negative_control": "an isolated retained R_ARM_THM_ALU_ABS_G0_NC relocation with target_data+1 remains byte-identical and reports simple=false, firmware_modified=false",
+    "risk": "ordinary FOP could otherwise overwrite a function whose unresolved split-field dependency could not be rebound"
+  },
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "milestone": "v166-cortex-m-thumb-absolute-byte-relocations",
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-v166-alu-abs"
+  ],
+  "production_profiles": {
+    "accepted": 63,
+    "functions": 1950,
+    "instruction_origins": 130082,
+    "linked_byte_validation_applicable": 62,
+    "linked_byte_validation_not_applicable": 1,
+    "modified_function_instruction_origins": 98699,
+    "modified_functions": 1136,
+    "potentially_faulting_load_store_origins": 57582,
+    "total": 63
+  },
+  "production_status": "accepted",
+  "regressions": {
+    "aarch32_jitlink_lit": {
+      "failed": 0,
+      "passed": 13
+    },
+    "aarch32_jitlink_units": {
+      "failed": 0,
+      "passed": 19
+    },
+    "arm_bolt_lit": {
+      "failed": 0,
+      "passed": 92
+    },
+    "core_units": {
+      "failed": 0,
+      "passed": 88,
+      "skipped_target_inapplicable": 150
+    },
+    "pass_units": {
+      "failed": 0,
+      "passed": 5
+    },
+    "profile_units": {
+      "failed": 0,
+      "passed": 39
+    }
+  },
+  "relocation_contract": {
+    "encoding": "one selected byte of S+A in the imm8 field of a Thumb-1 MOVS or ADDS immediate, preserving opcode and destination register",
+    "families": [
+      {
+        "name": "R_ARM_THM_ALU_ABS_G0_NC",
+        "shift": 0
+      },
+      {
+        "name": "R_ARM_THM_ALU_ABS_G1_NC",
+        "shift": 8
+      },
+      {
+        "name": "R_ARM_THM_ALU_ABS_G2_NC",
+        "shift": 16
+      },
+      {
+        "name": "R_ARM_THM_ALU_ABS_G3",
+        "shift": 24
+      }
+    ],
+    "final_link_bolt_policy": "transform exact zero-addend forms; retain an isolated nonzero retained SHT_REL form because one encoded byte cannot uniquely recover the full addend",
+    "jitlink_policy": "read and apply arbitrary source-object addends, including carry into the selected byte",
+    "positive_fixture": "the four zero-addend records move through an FOP-modified Cortex-M0 function and emit bytes 0x34, 0x12, 0x00 and 0x08 for target 0x08001234",
+    "thumb_symbol_state": "restore bit zero for Thumb function symbols before byte selection"
+  },
+  "repository_base_commit": "746a256061df085f5f22c33b568e4609034f57c2",
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "scope_limits": [
+    "a single retained SHT_REL byte field cannot distinguish all possible nonzero addends after final link",
+    "complete or otherwise authoritative producer metadata may permit more addend reconstruction in a future milestone",
+    "the production matrix demonstrates no regression across the existing firmware corpus, not complete x86-backend parity",
+    "the milestone does not establish a runtime speedup"
+  ],
+  "sha256": {
+    "aarch32-jitlink-lit.xml": "be83f247044448629d366572604fffe1bc69b8c44e684e97d76aa9bf6c086a6a",
+    "arm-bolt-lit.xml": "80711902926befcaf1573727237d24f78e2e4ef5353742d4e00cc88d1ea2192c",
+    "core-tests.xml": "30f5e94d6537d4ceaa2de4544759144328a7b286b6c8b68ee48bb391756e467c",
+    "jitlink-aarch32-tests.xml": "e02c460a943129c587462a252d1929e0f84f654414b7eac18c352a09b7ed4152",
+    "pass-tests.xml": "711d2ea143c43e4a3dffddcb2c16d1384dc2ca390702c1523b039b6457fe5f5d",
+    "patches/bolt-fastdyn-preflight.patch": "d24ad071b322133dcd4f10c83771b9a9d886f2274ca56d70d3345280eda40ce3",
+    "profile-tests.xml": "52e26f9f54c90af47aa420079150f892e82a9fa5b7d7aa639e158a8171c9784e",
+    "report.json": "b85dcb585dfaa3e66ce8e1cc026b015dc4a84673ec179a4f7ec51e6db87bd2ad",
+    "scripts/preflight/regenerate-bolt-extension-patch.sh": "0637dad43b760be93b75040668f8753399d60adbee9238bd803a9aefa6898d73",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py": "0bb959c42b7a89002a9ff56a85ebdf80a786c6f0b2d832dcb22d216190064cdb",
+    "third_party/preflight/lld-build/bin/ld.lld": "0560b99d534650e97900d6c4675e528e1639ac98d39faa550a86c2d61fa619c8",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "a9b9abc75168564368894d019308f18bc73890a303e5e1d64fc33eb174ba7cbb"
+  }
+}

@@ -1920,11 +1920,45 @@ and [validation manifest](evidence/firmbolt-cortex-m-v165-validation.json).
 This is a safety-model and diagnostic improvement; it does not yet authorize
 layout or optimization inside low-overhead-loop functions.
 
+v166 closes the four Thumb absolute-byte group relocation families used by
+assembler expressions such as `:lower0_7:` and `:upper8_15:`:
+`R_ARM_THM_ALU_ABS_G0_NC`, `G1_NC`, `G2_NC` and `G3`. AArch32 JITLink now
+reads arbitrary object addends, validates the Thumb-1 `MOVS`/`ADDS` immediate
+opcode, selects the requested byte of `S+A`, preserves the destination register
+and restores the Thumb symbol-state bit before selection. BOLT's relocation
+handler, target expression mapping, MC fixup import and retained-relocation
+policy implement the same four encodings. A Cortex-M0 fixture moves a genuinely
+FOP-modified function and emits `34 12 00 08` for target `0x08001234` while
+retaining every relocation record.
+
+The first negative control found an independent fail-open path: BOLT diagnosed
+an unresolved ARM code relocation but left its containing function eligible for
+FOP and final overwrite. FirmBOLT now marks that function non-simple before any
+transformation. An isolated retained `SHT_REL` G0 field for `target_data+1`
+therefore reports `simple=false`, `firmware_modified=false` and remains exact.
+This is not an arbitrary restriction: after final link the instruction carries
+only one byte of `S+A`, so an isolated byte field does not uniquely identify the
+full nonzero addend. Zero-addend final forms and arbitrary-addend source objects
+remain supported; incomplete final-link evidence fails closed.
+
+The unchanged production matrix passes 63/63 and binds 130,082 final origins in
+1,950 functions, including 98,699 origins in 1,136 modified functions and
+57,582 potentially faulting accesses. Regression gates pass 92/92 ARM BOLT lit,
+13/13 AArch32 JITLink lit, 19/19 focused JITLink units, and 132 BOLT unit tests
+plus 150 explicit target skips (Core 88, Passes 5, Profile 39). The mechanical
+patch clean-applies to pinned LLVM and reconstructs all 166 touched files
+byte-for-byte. Evidence is in the
+[`v166 report`](../../build/preflight/firm-bolt-cortex-m-v166-alu-abs/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v166-validation.json).
+This milestone is relocation and fail-closed publication coverage, not a
+runtime speedup or full x86-backend parity claim.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
 non-fallthrough contract, ARM relocation classes
-beyond the now-qualified JUMP6/ABS8/ABS16 and paired split MOVW/MOVT set,
+beyond the now-qualified JUMP6/ABS8/ABS16, absolute-byte-group and paired split
+MOVW/MOVT sets,
 producer forms whose relocation graph does not identify a unique split pair,
 veneer placement without explicit typed slots or under arbitrary
 whole-image layout, clustering and splitting of

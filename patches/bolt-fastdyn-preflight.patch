@@ -13431,7 +13431,7 @@ index d5ba74cd736de9e44a0ea2bb938d4f91762598d5..0698a8a8a7ddac50f135bd0aad246518
      exit(1);
    }
 diff --git a/bolt/lib/Rewrite/RewriteInstance.cpp b/bolt/lib/Rewrite/RewriteInstance.cpp
-index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc16184683275bb7f79 100644
+index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..22ff4759c91e5c01025af603c0471815dcc59646 100644
 --- a/bolt/lib/Rewrite/RewriteInstance.cpp
 +++ b/bolt/lib/Rewrite/RewriteInstance.cpp
 @@ -8,6 +8,7 @@
@@ -14141,7 +14141,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      // Check for PLT entry registered with symbol name
      // LLD may give a defined RISC-V IFUNC symbol the .iplt entry address.
      // R_RISCV_CALL_PLT must still resolve it through the registered @PLT
-@@ -2952,6 +3365,71 @@ bool RewriteInstance::analyzeRelocation(
+@@ -2952,6 +3365,83 @@ bool RewriteInstance::analyzeRelocation(
        SymbolAddress = BD ? BD->getAddress() : 0;
      }
    }
@@ -14172,6 +14172,18 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
 +    case ELF::R_ARM_THM_MOVT_PREL:
 +      ExpectedSplitValue =
 +          uint32_t(AbsoluteSymbol - uint32_t(Rel.getOffset())) >> 16;
++      break;
++    case ELF::R_ARM_THM_ALU_ABS_G0_NC:
++      ExpectedSplitValue = AbsoluteSymbol & 0xff;
++      break;
++    case ELF::R_ARM_THM_ALU_ABS_G1_NC:
++      ExpectedSplitValue = (AbsoluteSymbol >> 8) & 0xff;
++      break;
++    case ELF::R_ARM_THM_ALU_ABS_G2_NC:
++      ExpectedSplitValue = (AbsoluteSymbol >> 16) & 0xff;
++      break;
++    case ELF::R_ARM_THM_ALU_ABS_G3:
++      ExpectedSplitValue = (AbsoluteSymbol >> 24) & 0xff;
 +      break;
 +    default:
 +      IsSplitField = false;
@@ -14213,7 +14225,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    // For PIE or dynamic libs, the linker may choose not to put the relocation
    // result at the address if it is a X86_64_64 one because it will emit a
    // dynamic relocation (X86_RELATIVE) for the dynamic linker and loader to
-@@ -3007,7 +3485,7 @@ bool RewriteInstance::analyzeRelocation(
+@@ -3007,7 +3497,7 @@ bool RewriteInstance::analyzeRelocation(
      if (SkipVerification)
        return true;
  
@@ -14222,7 +14234,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
        return true;
  
      if (SymbolName == "__hot_start" || SymbolName == "__hot_end")
-@@ -3087,7 +3565,7 @@ void RewriteInstance::processDynamicRelocations() {
+@@ -3087,7 +3577,7 @@ void RewriteInstance::processDynamicRelocations() {
  }
  
  void RewriteInstance::processRelocations() {
@@ -14231,7 +14243,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      return;
  
    for (const SectionRef &Section : InputFile->sections()) {
-@@ -3292,6 +3770,19 @@ void RewriteInstance::readRelocations(const SectionRef &Section) {
+@@ -3292,6 +3782,19 @@ void RewriteInstance::readRelocations(const SectionRef &Section) {
                        << "non-allocatable section\n");
      return;
    }
@@ -14251,7 +14263,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    const bool SkipRelocs = StringSwitch<bool>(RelocatedSectionName)
                                .Cases({".plt", ".rela.plt", ".got.plt",
                                        ".eh_frame", ".gcc_except_table"},
-@@ -3312,7 +3803,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3312,7 +3815,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    const RelocationHandler &RH = BC->getRelocationHandler();
    const bool IsAArch64 = BC->isAArch64();
    const bool IsX86 = BC->isX86();
@@ -14264,7 +14276,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    const bool IsWritable = BinarySection(*BC, RelocatedSection).isWritable();
  
    SmallString<16> TypeName;
-@@ -3354,6 +3849,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3354,13 +3861,32 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    bool IsSectionRelocation;
    if (!analyzeRelocation(Rel, RType, SymbolName, IsSectionRelocation,
                           SymbolAddress, Addend, ExtractedValue)) {
@@ -14275,7 +14287,19 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      LLVM_DEBUG({
        dbgs() << "BOLT-WARNING: failed to analyze relocation @ offset = "
               << formatv("{0:x}; type name = {1}\n", Rel.getOffset(), TypeName);
-@@ -3361,6 +3860,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+     });
++    if (BC->isARM() && IsFromCode) {
++      // A retained SHT_REL record can carry less information than the fully
++      // linked instruction field (for example one byte of S+A in an
++      // R_ARM_THM_ALU_ABS_Gn relocation). If that lost addend cannot be
++      // reconstructed, the containing function must not proceed through CFG
++      // or native passes: reporting the relocation failure while overwriting
++      // the function would sever an admitted reference dependency.
++      if (BinaryFunction *BF = BC->getBinaryFunctionContainingAddress(
++              Rel.getOffset(), /*CheckPastEnd=*/false,
++              /*UseMaxSize=*/true))
++        BF->setSimple(false);
++    }
      ++NumFailedRelocations;
      return;
    }
@@ -14285,7 +14309,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  
    if (!IsFromCode && !IsWritable && (IsX86 || IsAArch64) &&
        RH.isPCRelative(RType)) {
-@@ -3384,6 +3886,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3384,6 +3910,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    }
  
    const uint64_t Address = SymbolAddress + Addend;
@@ -14295,7 +14319,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  
    LLVM_DEBUG({
      dbgs() << "BOLT-DEBUG: ";
-@@ -3396,7 +3901,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3396,7 +3925,30 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          BC->getBinaryFunctionContainingAddress(Rel.getOffset(),
                                                 /*CheckPastEnd*/ false,
                                                 /*UseMaxSize*/ true);
@@ -14327,7 +14351,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      if (!IsAArch64 && !ContainingBF->containsAddress(Rel.getOffset())) {
        if (opts::Verbosity >= 1)
          BC->outs() << formatv(
-@@ -3421,8 +3949,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3421,8 +3973,10 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
  
    ErrorOr<BinarySection &> ReferencedSection{std::errc::bad_address};
    symbol_iterator SymbolIter = Rel.getSymbol();
@@ -14338,7 +14362,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      section_iterator Section =
          cantFail(Symbol.getSection(), "cannot get symbol section");
      if (Section != InputFile->section_end()) {
-@@ -3493,11 +4023,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3493,11 +4047,11 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    // Only look for a referenced function when the symbol itself denotes code
    // or it is a section relocation.
    BinaryFunction *ReferencedBF = nullptr;
@@ -14353,7 +14377,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      if (BinaryFunction *BF =
              BC->getBinaryFunctionContainingAddress(SymbolAddress)) {
        if (BF != ReferencedBF) {
-@@ -3562,8 +4092,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3562,8 +4116,9 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
      uint64_t RefFunctionOffset = 0;
  
      // Adjust the point of reference to a code location inside a function.
@@ -14365,7 +14389,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
        if (RH.isInstructionReference(RType)) {
          // Instruction labels are created while disassembling so we just leave
          // the symbol empty for now. Since the extracted value is typically
-@@ -3573,21 +4104,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3573,21 +4128,23 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
          // address in order to be able to correctly reconstruct the reference
          // later.
          ReferencedSymbol = nullptr;
@@ -14394,7 +14418,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
              ReferencedBF->registerInternalRefDataRelocation(RefFunctionOffset,
                                                              Rel.getOffset());
            }
-@@ -3599,12 +4132,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3599,12 +4156,14 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
                << formatv("function {0} detected at address {1:x}\n",
                           *ReferencedBF, Rel.getOffset());
        }
@@ -14412,7 +14436,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
          dbgs() << formatv(" at offset {0:x}", RefFunctionOffset);
        dbgs() << '\n';
      });
-@@ -3709,6 +4244,38 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
+@@ -3709,6 +4268,38 @@ void RewriteInstance::handleRelocation(const SectionRef &RelocatedSection,
    if (IsFromCode)
      ContainingBF->addRelocation(Rel.getOffset(), ReferencedSymbol, RType,
                                  Addend, ExtractedValue);
@@ -14451,7 +14475,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    else if (IsToCode || ForceRelocation)
      BC->addRelocation(Rel.getOffset(), ReferencedSymbol, RType, Addend,
                        ExtractedValue);
-@@ -4379,6 +4946,18 @@ void RewriteInstance::emitAndLink() {
+@@ -4379,6 +4970,18 @@ void RewriteInstance::emitAndLink() {
    // two instances.
    std::unique_ptr<MCStreamer> Streamer = BC->createStreamer(OS);
  
@@ -14470,7 +14494,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    if (EHFrameSection) {
      if (opts::UseOldText || opts::StrictMode) {
        // The section is going to be regenerated from scratch.
-@@ -4773,7 +5352,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
+@@ -4773,7 +5376,12 @@ void RewriteInstance::mapCodeSectionsInPlace(
      MapSection(*FuncSection, Function.getAddress());
      Function.setImageAddress(FuncSection->getAllocAddress());
      Function.setImageSize(FuncSection->getOutputSize());
@@ -14484,7 +14508,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
             "Unexpected large function");
  
      if (!Function.isSplit())
-@@ -4945,8 +5529,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
+@@ -4945,8 +5553,53 @@ void RewriteInstance::updateOutputValues(const BOLTLinker &Linker) {
    if (std::optional<AddressMap> Map = AddressMap::parse(*BC))
      BC->setIOAddressMap(std::move(*Map));
  
@@ -14539,7 +14563,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  }
  
  void RewriteInstance::updateSegmentInfo() {
-@@ -4959,6 +5588,15 @@ void RewriteInstance::updateSegmentInfo() {
+@@ -4959,6 +5612,15 @@ void RewriteInstance::updateSegmentInfo() {
      NewWritableSegmentSize = NextAvailableAddress - NewWritableSegmentAddress;
    }
  
@@ -14555,7 +14579,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    if (NewTextSegmentSize) {
      SegmentInfo TextSegment = {NewTextSegmentAddress,
                                 NewTextSegmentSize,
-@@ -5026,7 +5664,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5026,7 +5688,17 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
  
    Phnum = Obj.getHeader().e_phnum;
  
@@ -14574,7 +14598,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      BC->outs() << "BOLT-INFO: not adding new segments\n";
      return;
    }
-@@ -5103,6 +5751,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
+@@ -5103,6 +5775,38 @@ void RewriteInstance::patchELFPHDRTable(ELFObjectFile<ELFT> *File) {
        }
        break;
      }
@@ -14613,7 +14637,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      case ELF::PT_GNU_STACK:
        if (opts::UseGnuStack) {
          assert(BC->NewSegments.size() == 1 &&
-@@ -5217,6 +5897,7 @@ writeCompressedDebugSection(StringRef SectionName,
+@@ -5217,6 +5921,7 @@ writeCompressedDebugSection(StringRef SectionName,
  template <typename ELFT>
  void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
    using ShdrTy = typename ELFT::Shdr;
@@ -14621,7 +14645,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  
    const ELFFile<ELFT> &Obj = File->getELFFile();
    raw_fd_ostream &OS = Out->os();
-@@ -5254,15 +5935,172 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
+@@ -5254,15 +5959,172 @@ void RewriteInstance::rewriteNoteSections(ELFObjectFile<ELFT> *File) {
        Size = Section.sh_size;
        StringRef Dataref = InputFile->getData().substr(Section.sh_offset, Size);
        std::string Data;
@@ -14798,7 +14822,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
          Size = 0;
        } else {
          OS << Dataref;
-@@ -5459,7 +6297,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
+@@ -5459,7 +6321,16 @@ RewriteInstance::getOutputSections(ELFObjectFile<ELFT> *File,
      if (BinSec->isAnonymous())
        continue;
  
@@ -14816,7 +14840,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    }
  
    for (BinarySection &Section : BC->allocatableSections()) {
-@@ -5658,9 +6505,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
+@@ -5658,9 +6529,43 @@ void RewriteInstance::patchELFSectionHeaderTable(ELFObjectFile<ELFT> *File) {
  
    // Write all section header entries while patching section references.
    for (ELFShdrTy &Section : OutputSections) {
@@ -14863,7 +14887,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      OS.write(reinterpret_cast<const char *>(&Section), sizeof(Section));
    }
  
-@@ -5715,6 +6596,25 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5715,6 +6620,25 @@ void RewriteInstance::updateELFSymbolTable(
  
    // Symbols for the new symbol table.
    std::vector<ELFSymTy> Symbols;
@@ -14889,7 +14913,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  
    bool EmittedColdFileSymbol = false;
  
-@@ -5804,7 +6704,9 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5804,7 +6728,9 @@ void RewriteInstance::updateELFSymbolTable(
          }
        }
      }
@@ -14900,7 +14924,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
        uint64_t DataMark = Function.getOutputDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5815,12 +6717,108 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5815,12 +6741,108 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -15011,7 +15035,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
        uint64_t DataMark = Function.getOutputColdDataAddress();
        uint64_t CISize = getConstantIslandSize(Function);
        uint64_t CodeMark = DataMark + CISize;
-@@ -5831,11 +6829,78 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5831,11 +6853,78 @@ void RewriteInstance::updateELFSymbolTable(
        DataMarkSym.setType(ELF::STT_NOTYPE);
        DataMarkSym.setBinding(ELF::STB_LOCAL);
        ELFSymTy CodeMarkSym = DataMarkSym;
@@ -15091,7 +15115,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    };
  
    // For regular (non-dynamic) symbol table, exclude symbols referring
-@@ -5866,13 +6931,23 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5866,13 +6955,23 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    };
  
@@ -15117,7 +15141,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      // In relocation mode, if this is a folded function, use the parent function
      // instead so that the symbol gets updated to the parent's output address.
      // In non-relocation mode, folded functions are emitted at their original
-@@ -5943,9 +7018,17 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5943,9 +7042,17 @@ void RewriteInstance::updateELFSymbolTable(
        // If the symbol matched a function that was not emitted, update the
        // corresponding section index but otherwise leave it unchanged.
        if (Function->isEmitted()) {
@@ -15137,7 +15161,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
          NewSymbol.st_shndx = Function->getCodeSection()->getIndex();
        } else if (Symbol.st_shndx < ELF::SHN_LORESERVE) {
          NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
-@@ -5965,22 +7048,48 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5965,22 +7072,48 @@ void RewriteInstance::updateELFSymbolTable(
          return BC->getMarkerType(Symbol.getType(), Symbol.st_size,
                                   *SymbolName) != MarkerSymType::NONE;
        };
@@ -15195,7 +15219,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  
          // Remove symbols that cannot be mapped to the output, e.g.
          // data-in-code labels (jump tables) whose addresses BOLT
-@@ -5988,7 +7097,8 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -5988,7 +7121,8 @@ void RewriteInstance::updateELFSymbolTable(
          if (!OutputAddress)
            continue;
  
@@ -15205,7 +15229,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
          // Force secondary entry points to have zero size.
          NewSymbol.st_size = 0;
  
-@@ -6001,6 +7111,28 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6001,6 +7135,28 @@ void RewriteInstance::updateELFSymbolTable(
              });
  
          if (FF == Function->getLayout().fragment_end()) {
@@ -15234,7 +15258,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
            assert(
                OutputAddress >= Function->getCodeSection()->getOutputAddress() &&
                OutputAddress < (Function->getCodeSection()->getOutputAddress() +
-@@ -6036,12 +7168,15 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6036,12 +7192,15 @@ void RewriteInstance::updateELFSymbolTable(
              NewSymbol.st_shndx = getNewSectionIndex(Symbol.st_shndx);
          }
  
@@ -15255,7 +15279,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
            assert(!IsDynSym && "cannot delete symbol");
            continue;
          }
-@@ -6050,11 +7185,13 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6050,11 +7209,13 @@ void RewriteInstance::updateELFSymbolTable(
  
    registerSymbol:
      if (IsDynSym)
@@ -15272,7 +15296,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    }
  
    if (IsDynSym) {
-@@ -6165,6 +7302,20 @@ void RewriteInstance::updateELFSymbolTable(
+@@ -6165,6 +7326,20 @@ void RewriteInstance::updateELFSymbolTable(
      return false;
    });
  
@@ -15293,7 +15317,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    for (const ELFSymTy &Symbol : Symbols)
      Write(0, Symbol);
  }
-@@ -6736,7 +7887,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
+@@ -6736,7 +7911,14 @@ Error RewriteInstance::readELFDynamic(ELFObjectFile<ELFT> *File) {
  }
  
  uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
@@ -15309,7 +15333,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    if (!Function)
      return 0;
  
-@@ -6745,7 +7903,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
+@@ -6745,7 +7927,11 @@ uint64_t RewriteInstance::getNewFunctionAddress(uint64_t OldAddress) {
    if (Function->isFolded())
      Function = Function->getFoldedIntoFunction();
  
@@ -15322,7 +15346,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  }
  
  uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
-@@ -6758,6 +7920,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
+@@ -6758,6 +7944,9 @@ uint64_t RewriteInstance::getNewFunctionOrDataAddress(uint64_t OldAddress) {
  
    if (const BinaryFunction *BF =
            BC->getBinaryFunctionContainingAddress(OldAddress)) {
@@ -15332,7 +15356,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      if (BF->isEmitted()) {
        // If OldAddress is another entry point of the function or the target of
        // an indirect goto, then BOLT could get the new address.
-@@ -6796,7 +7961,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6796,7 +7985,18 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      if (Function->getImageAddress() == 0 || Function->getImageSize() == 0)
        continue;
  
@@ -15352,7 +15376,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
             "Unexpected large function");
  
      const auto HasAddress = [](const FunctionFragment &FF) {
-@@ -6816,6 +7992,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6816,6 +8016,22 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
        continue;
      }
  
@@ -15375,7 +15399,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      OverwrittenScore += Function->getFunctionScore();
      ++CountOverwrittenFunctions;
  
-@@ -6826,12 +8018,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
+@@ -6826,12 +8042,15 @@ void RewriteInstance::rewriteFunctionsInPlace(raw_fd_ostream &OS) {
      safePWrite(OS, reinterpret_cast<char *>(Function->getImageAddress()),
                 Function->getImageSize(), Function->getFileOffset());
  
@@ -15394,7 +15418,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  
        OS.seek(Pos);
      }
-@@ -6947,6 +8142,862 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
+@@ -6947,6 +8166,862 @@ void RewriteInstance::zeroStaleBytesInReusedRegion(raw_fd_ostream &OS) {
                 << Twine::utohexstr(RegionEnd) << ")\n";
  }
  
@@ -16257,7 +16281,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  void RewriteInstance::rewriteFile() {
    std::error_code EC;
    Out = std::make_unique<ToolOutputFile>(opts::OutputFilename, EC,
-@@ -6958,7 +9009,23 @@ void RewriteInstance::rewriteFile() {
+@@ -6958,7 +9033,23 @@ void RewriteInstance::rewriteFile() {
    // Copy allocatable part of the input.
    OS << InputFile->getData().substr(0, FirstNonAllocatableOffset);
  
@@ -16282,7 +16306,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
  
    if (BC->HasRelocations && opts::TrapOldCode) {
      uint64_t SavedPos = OS.tell();
-@@ -7002,6 +9069,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7002,6 +9093,9 @@ void RewriteInstance::rewriteFile() {
                   << Section.getOutputContents().size() << '\n';
      OS.seek(Section.getOutputFileOffset());
      Section.write(OS);
@@ -16292,7 +16316,7 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
    }
  
    for (BinarySection &Section : BC->allocatableSections())
-@@ -7009,6 +9079,9 @@ void RewriteInstance::rewriteFile() {
+@@ -7009,6 +9103,9 @@ void RewriteInstance::rewriteFile() {
        return getNewValueForSymbol(S->getName());
      });
  
@@ -16304,10 +16328,10 @@ index b2455dc3f29e134bd9dbbf128cbfa8be538f6fcd..885fd0df33263b42d1928cc161846832
      writeEHFrameHeader();
 diff --git a/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..4138bed61f313d0adb50b4f026f23dd78d39cbcc
+index 0000000000000000000000000000000000000000..bfd886423e6209f925339273f06040f8fea1c946
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMMCPlusBuilder.cpp
-@@ -0,0 +1,3453 @@
+@@ -0,0 +1,3477 @@
 +//===- ARMMCPlusBuilder.cpp - Firm-BOLT ARM/Thumb support ----------------===//
 +
 +#include "ARMMCSymbolizer.h"
@@ -19216,6 +19240,14 @@ index 0000000000000000000000000000000000000000..4138bed61f313d0adb50b4f026f23dd7
 +                                                 : ARM::S_HI16,
 +          Ctx);
 +    }
++    case ELF::R_ARM_THM_ALU_ABS_G0_NC:
++      return MCSpecifierExpr::create(Expr, ARM::S_LO_0_7, Ctx);
++    case ELF::R_ARM_THM_ALU_ABS_G1_NC:
++      return MCSpecifierExpr::create(Expr, ARM::S_LO_8_15, Ctx);
++    case ELF::R_ARM_THM_ALU_ABS_G2_NC:
++      return MCSpecifierExpr::create(Expr, ARM::S_HI_0_7, Ctx);
++    case ELF::R_ARM_THM_ALU_ABS_G3:
++      return MCSpecifierExpr::create(Expr, ARM::S_HI_8_15, Ctx);
 +    default:
 +      return Expr;
 +    }
@@ -19293,6 +19325,18 @@ index 0000000000000000000000000000000000000000..4138bed61f313d0adb50b4f026f23dd7
 +      Type = IsPCRelativeMove ? ELF::R_ARM_THM_MOVT_PREL
 +                              : ELF::R_ARM_THM_MOVT_ABS;
 +      break;
++    case MCFixupKind(ARM::fixup_arm_thumb_lower_0_7):
++      Type = ELF::R_ARM_THM_ALU_ABS_G0_NC;
++      break;
++    case MCFixupKind(ARM::fixup_arm_thumb_lower_8_15):
++      Type = ELF::R_ARM_THM_ALU_ABS_G1_NC;
++      break;
++    case MCFixupKind(ARM::fixup_arm_thumb_upper_0_7):
++      Type = ELF::R_ARM_THM_ALU_ABS_G2_NC;
++      break;
++    case MCFixupKind(ARM::fixup_arm_thumb_upper_8_15):
++      Type = ELF::R_ARM_THM_ALU_ABS_G3;
++      break;
 +    case MCFixupKind(ARM::fixup_bf_target):
 +      Type = ELF::R_ARM_THM_BF16;
 +      break;
@@ -19354,6 +19398,10 @@ index 0000000000000000000000000000000000000000..4138bed61f313d0adb50b4f026f23dd7
 +    case ELF::R_ARM_THM_MOVT_ABS:
 +    case ELF::R_ARM_THM_MOVW_PREL_NC:
 +    case ELF::R_ARM_THM_MOVT_PREL:
++    case ELF::R_ARM_THM_ALU_ABS_G0_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G1_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G2_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G3:
 +    case ELF::R_ARM_THM_BF16:
 +    case ELF::R_ARM_THM_BF12:
 +    case ELF::R_ARM_THM_BF18:
@@ -19864,10 +19912,10 @@ index 0000000000000000000000000000000000000000..6398b51612c5f54f1fd0d4292081284e
 +#endif
 diff --git a/bolt/lib/Target/ARM/ARMRelocationHandler.cpp b/bolt/lib/Target/ARM/ARMRelocationHandler.cpp
 new file mode 100644
-index 0000000000000000000000000000000000000000..a2c94e297d1393293dff919b6bd5c0c29c2c5bb7
+index 0000000000000000000000000000000000000000..093254344cd23ed211e35d8f6b20c8eb23e2095e
 --- /dev/null
 +++ b/bolt/lib/Target/ARM/ARMRelocationHandler.cpp
-@@ -0,0 +1,433 @@
+@@ -0,0 +1,460 @@
 +//===- ARMRelocationHandler.cpp - ARM/Thumb relocation handling ----------===//
 +
 +#include "bolt/Core/Relocation.h"
@@ -19947,6 +19995,10 @@ index 0000000000000000000000000000000000000000..a2c94e297d1393293dff919b6bd5c0c2
 +    case ELF::R_ARM_THM_MOVT_ABS:
 +    case ELF::R_ARM_THM_MOVW_PREL_NC:
 +    case ELF::R_ARM_THM_MOVT_PREL:
++    case ELF::R_ARM_THM_ALU_ABS_G0_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G1_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G2_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G3:
 +    case ELF::R_ARM_THM_BF16:
 +    case ELF::R_ARM_THM_BF12:
 +    case ELF::R_ARM_THM_BF18:
@@ -19974,6 +20026,10 @@ index 0000000000000000000000000000000000000000..a2c94e297d1393293dff919b6bd5c0c2
 +    case ELF::R_ARM_THM_JUMP8:
 +    case ELF::R_ARM_THM_JUMP6:
 +    case ELF::R_ARM_THM_PC8:
++    case ELF::R_ARM_THM_ALU_ABS_G0_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G1_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G2_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G3:
 +      return 2;
 +    default:
 +      if (isSupported(Type))
@@ -20002,6 +20058,10 @@ index 0000000000000000000000000000000000000000..a2c94e297d1393293dff919b6bd5c0c2
 +    case ELF::R_ARM_IRELATIVE:
 +    case ELF::R_ARM_THM_MOVW_ABS_NC:
 +    case ELF::R_ARM_THM_MOVT_ABS:
++    case ELF::R_ARM_THM_ALU_ABS_G0_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G1_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G2_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G3:
 +      return isUInt<32>(Value) || isInt<32>(Value);
 +    case ELF::R_ARM_REL32:
 +    case ELF::R_ARM_THM_MOVW_PREL_NC:
@@ -20116,6 +20176,16 @@ index 0000000000000000000000000000000000000000..a2c94e297d1393293dff919b6bd5c0c2
 +      return thumbWords((thumbHi(Original) & 0xfbf0) | Imm.Hi,
 +                        (thumbLo(Original) & 0x8f00) | Imm.Lo);
 +    }
++    case ELF::R_ARM_THM_ALU_ABS_G0_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G1_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G2_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G3: {
++      const unsigned Shift = Type == ELF::R_ARM_THM_ALU_ABS_G0_NC ? 0
++                             : Type == ELF::R_ARM_THM_ALU_ABS_G1_NC ? 8
++                             : Type == ELF::R_ARM_THM_ALU_ABS_G2_NC ? 16
++                                                                    : 24;
++      return (Original & 0xff00U) | ((Value >> Shift) & 0xff);
++    }
 +    case ELF::R_ARM_THM_BF16:
 +    case ELF::R_ARM_THM_BF12:
 +    case ELF::R_ARM_THM_BF18: {
@@ -20190,6 +20260,11 @@ index 0000000000000000000000000000000000000000..a2c94e297d1393293dff919b6bd5c0c2
 +    case ELF::R_ARM_THM_MOVT_PREL:
 +      return jitlink::aarch32::decodeImmMovtT1MovwT3(
 +          thumbHi(Word), thumbLo(Word));
++    case ELF::R_ARM_THM_ALU_ABS_G0_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G1_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G2_NC:
++    case ELF::R_ARM_THM_ALU_ABS_G3:
++      return Word & 0xff;
 +    case ELF::R_ARM_THM_BF16:
 +    case ELF::R_ARM_THM_BF12:
 +    case ELF::R_ARM_THM_BF18: {
@@ -22119,6 +22194,129 @@ index 0000000000000000000000000000000000000000..6aca69891a37432d667b344d885c70dd
 +g_pfnVectors:
 +  .word 0x20001000
 +  .word Reset_Handler
+diff --git a/bolt/test/ARM/thumb-alu-absolute-byte-relocations.s b/bolt/test/ARM/thumb-alu-absolute-byte-relocations.s
+new file mode 100644
+index 0000000000000000000000000000000000000000..0b43f52bd10192053a30f8377bcc08862951a1cf
+--- /dev/null
++++ b/bolt/test/ARM/thumb-alu-absolute-byte-relocations.s
+@@ -0,0 +1,117 @@
++# REQUIRES: system-linux
++
++# RUN: split-file %s %t
++# RUN: llvm-mc -filetype=obj -triple=thumbv6m-none-eabi -mcpu=cortex-m0 \
++# RUN:   -arm-add-build-attributes %t/fixture.s -o %t.o
++# RUN: ld.lld --emit-relocs -T %t/link.ld %t.o -o %t.exe
++# RUN: llvm-bolt %t.exe --firmbolt-cortex-m-cpu=cortex-m0 \
++# RUN:   --frame-opt=all --fastdyn-firmware-report=%t.json -o %t.bolt 2>&1 \
++# RUN:   | FileCheck %s --check-prefix=BOLT
++# RUN: llvm-readelf -r %t.bolt | FileCheck %s --check-prefix=RELOCS
++# RUN: llvm-objdump -d --mcpu=cortex-m0 --no-show-raw-insn %t.bolt \
++# RUN:   | FileCheck %s --check-prefix=DISASM
++# RUN: %python -c "import json; d=json.load(open('%t.json')); f=next(x for x in d['functions'] if x['name']=='ambiguous_addend_worker'); print(f['simple'],f['firmware_modified'])" \
++# RUN:   | FileCheck %s --check-prefix=AMBIGUOUS
++
++# RELOCS-DAG: R_ARM_THM_ALU_ABS_G0_NC{{.*}}target_data
++# RELOCS-DAG: R_ARM_THM_ALU_ABS_G1_NC{{.*}}target_data
++# RELOCS-DAG: R_ARM_THM_ALU_ABS_G2_NC{{.*}}target_data
++# RELOCS-DAG: R_ARM_THM_ALU_ABS_G3{{.*}}target_data
++
++# BOLT: BOLT-WARNING: Failed to analyze 1 relocations
++# BOLT: BOLT-INFO: FOP optimized 1 redundant load(s)
++# BOLT: BOLT: 1 out of 3 functions were overwritten.
++
++# AMBIGUOUS: False False
++
++# DISASM-LABEL: <byte_worker>:
++# DISASM: movs r0, #0x34
++# DISASM: strb r0, [r1]
++# DISASM: movs r0, #0x12
++# DISASM: strb r0, [r1, #0x1]
++# DISASM: movs r0, #0x0
++# DISASM: strb r0, [r1, #0x2]
++# DISASM: movs r0, #0x8
++# DISASM: strb r0, [r1, #0x3]
++# DISASM-LABEL: <ambiguous_addend_worker>:
++# DISASM: movs r0, #0x35
++
++#--- fixture.s
++  .syntax unified
++  .thumb
++
++  .section .isr_vector,"a",%progbits
++  .p2align 2
++  .globl g_pfnVectors
++g_pfnVectors:
++  .word 0x20001000
++  .word Reset_Handler
++  .word 0
++  .word 0
++
++  .section .text,"ax",%progbits
++  .p2align 2
++  .globl Reset_Handler
++  .type Reset_Handler,%function
++  .thumb_func
++Reset_Handler:
++  bl byte_worker
++  b ambiguous_addend_worker
++  .size Reset_Handler, .-Reset_Handler
++
++  .p2align 2
++  .globl byte_worker
++  .type byte_worker,%function
++  .thumb_func
++byte_worker:
++  push {r7, lr}
++  sub sp, #4
++  add r7, sp, #0
++  str r2, [r7]
++  ldr r2, [r7]
++  ldr r1, =0x20000000
++  movs r0, :lower0_7:target_data
++  strb r0, [r1, #0]
++  movs r0, :lower8_15:target_data
++  strb r0, [r1, #1]
++  movs r0, :upper0_7:target_data
++  strb r0, [r1, #2]
++  movs r0, :upper8_15:target_data
++  strb r0, [r1, #3]
++  mov sp, r7
++  add sp, #4
++  pop {r7, pc}
++  .ltorg
++  .size byte_worker, .-byte_worker
++
++  .p2align 2
++  .globl ambiguous_addend_worker
++  .type ambiguous_addend_worker,%function
++  .thumb_func
++ambiguous_addend_worker:
++  push {r7, lr}
++  sub sp, #4
++  add r7, sp, #0
++  str r2, [r7]
++  ldr r2, [r7]
++  ldr r1, =0x20000000
++  movs r0, :lower0_7:target_data+1
++  strb r0, [r1, #4]
++  mov sp, r7
++  add sp, #4
++  pop {r7, pc}
++  .ltorg
++  .size ambiguous_addend_worker, .-ambiguous_addend_worker
++
++  .section .target,"a",%progbits
++  .globl target_data
++target_data:
++  .byte 0
++
++#--- link.ld
++ENTRY(Reset_Handler)
++SECTIONS {
++  .isr_vector 0x08000000 : { *(.isr_vector) }
++  .text 0x08000100 : { *(.text) }
++  .target 0x08001234 : { *(.target) }
++}
 diff --git a/bolt/test/ARM/thumb-constant-island-mapping.s b/bolt/test/ARM/thumb-constant-island-mapping.s
 new file mode 100644
 index 0000000000000000000000000000000000000000..6ae6e4fb9ea8eb0437e668e8334ec7c0938bc3a5
@@ -32031,10 +32229,10 @@ index 606de9fde80f4f24196700c5a2f5b3eb99b39517..9cc2f7e7605221f9affaaf515833c8a8
  
  INSTANTIATE_TEST_SUITE_P(AArch64, MCPlusBuilderTester,
 diff --git a/bolt/unittests/Core/Relocation.cpp b/bolt/unittests/Core/Relocation.cpp
-index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..76b7cd20c106693a5ebbc0b1c69fd18f5eb8325f 100644
+index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..d6e0aee6dace4a53e3cbfa9589a8c6a7fa429eaa 100644
 --- a/bolt/unittests/Core/Relocation.cpp
 +++ b/bolt/unittests/Core/Relocation.cpp
-@@ -10,12 +10,157 @@
+@@ -10,12 +10,180 @@
  #include "bolt/Core/Relocation.h"
  #include "llvm/BinaryFormat/ELF.h"
  #include "gtest/gtest.h"
@@ -32121,6 +32319,29 @@ index f5930d0baa079d3c9fd7842619c9039ff9ba59e9..76b7cd20c106693a5ebbc0b1c69fd18f
 +      ELF::R_ARM_THM_MOVW_ABS_NC, Value, PC, Movw);
 +  EXPECT_EQ(Handler->extractValue(ELF::R_ARM_THM_MOVW_ABS_NC, Encoded, PC),
 +            Value);
++}
++
++TEST(ARMRelocationHandlerTest, ThumbAluAbsoluteByteGroups) {
++  std::unique_ptr<RelocationHandler> Handler = createARMRelocationHandler();
++  constexpr uint64_t PC = 0x08001000;
++  constexpr uint64_t Value = 0x89abcdef;
++  constexpr uint32_t MovsR3 = 0x2300;
++  const std::pair<uint32_t, uint8_t> Cases[] = {
++      {ELF::R_ARM_THM_ALU_ABS_G0_NC, 0xef},
++      {ELF::R_ARM_THM_ALU_ABS_G1_NC, 0xcd},
++      {ELF::R_ARM_THM_ALU_ABS_G2_NC, 0xab},
++      {ELF::R_ARM_THM_ALU_ABS_G3, 0x89},
++  };
++
++  for (const auto &[Type, Byte] : Cases) {
++    EXPECT_TRUE(Handler->isSupported(Type));
++    EXPECT_EQ(Handler->getSizeForType(Type), 2U);
++    EXPECT_TRUE(Handler->canEncodeValue(Type, Value, PC));
++    const uint64_t Encoded =
++        Handler->encodeValue(Type, Value, PC, MovsR3);
++    EXPECT_EQ(Encoded, MovsR3 | Byte);
++    EXPECT_EQ(Handler->extractValue(Type, Encoded, PC), Byte);
++  }
 +}
 +
 +TEST(ARMRelocationHandlerTest, ThumbBranchFutureRoundTripsAndRanges) {
@@ -32331,7 +32552,7 @@ index 0000000000000000000000000000000000000000..f98253ade73d844f52aaa9b96727d68c
 +  bx lr
 +  .size bfl_target, .-bfl_target
 diff --git a/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h b/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h
-index 9479c107447d5dc9972a920bdf176cd56071a1eb..0a0053349c0b2688c7bf346ba1fa5c2646ee4c14 100644
+index 9479c107447d5dc9972a920bdf176cd56071a1eb..0f4640a744266522447f385ebae8e32edf64cf9c 100644
 --- a/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h
 +++ b/llvm/include/llvm/ExecutionEngine/JITLink/aarch32.h
 @@ -39,6 +39,14 @@ enum EdgeKind_aarch32 : Edge::Kind {
@@ -32369,11 +32590,23 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..0a0053349c0b2688c7bf346ba1fa5c26
    /// Write immediate value for PC-relative branch without link. The instruction
    /// can be made conditional by an IT block. If the branch target is not ARM,
    /// we are forced to generate an explicit interworking stub.
-@@ -104,7 +125,25 @@ enum EdgeKind_aarch32 : Edge::Kind {
+@@ -104,7 +125,37 @@ enum EdgeKind_aarch32 : Edge::Kind {
    /// register
    Thumb_MovtPrel,
  
 -  LastThumbRelocation = Thumb_MovtPrel,
++  /// Write bits 7:0 of an absolute value to a Thumb-1 imm8 ALU instruction.
++  Thumb_AluAbsG0NC,
++
++  /// Write bits 15:8 of an absolute value to a Thumb-1 imm8 ALU instruction.
++  Thumb_AluAbsG1NC,
++
++  /// Write bits 23:16 of an absolute value to a Thumb-1 imm8 ALU instruction.
++  Thumb_AluAbsG2NC,
++
++  /// Write bits 31:24 of an absolute value to a Thumb-1 imm8 ALU instruction.
++  Thumb_AluAbsG3,
++
 +  /// Thumb-1 ADR/LDR literal unsigned imm8 scaled by four.
 +  Thumb_Pc8,
 +
@@ -32396,7 +32629,7 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..0a0053349c0b2688c7bf346ba1fa5c26
  
    /// No-op relocation
    None,
-@@ -172,6 +211,14 @@ struct HalfWords {
+@@ -172,6 +223,14 @@ struct HalfWords {
    const uint16_t Lo; // Second halfword
  };
  
@@ -32411,7 +32644,7 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..0a0053349c0b2688c7bf346ba1fa5c26
  /// FixupInfo base class is required for dynamic lookups.
  struct FixupInfoBase {
    LLVM_ABI static const FixupInfoBase *getDynFixupInfo(Edge::Kind K);
-@@ -240,6 +287,32 @@ template <> struct FixupInfo<Thumb_Jump24> : public FixupInfoThumb {
+@@ -240,6 +299,32 @@ template <> struct FixupInfo<Thumb_Jump24> : public FixupInfoThumb {
    static constexpr HalfWords ImmMask{0x07ff, 0x2fff};
  };
  
@@ -32444,10 +32677,24 @@ index 9479c107447d5dc9972a920bdf176cd56071a1eb..0a0053349c0b2688c7bf346ba1fa5c26
  template <> struct FixupInfo<Thumb_Call> : public FixupInfoThumb {
    static constexpr HalfWords Opcode{0xf000, 0xc000};
    static constexpr HalfWords OpcodeMask{0xf800, 0xc000};
-@@ -270,6 +343,48 @@ template <> struct FixupInfo<Thumb_MovwPrelNC> : public FixupInfoThumbMov {
+@@ -270,6 +355,62 @@ template <> struct FixupInfo<Thumb_MovwPrelNC> : public FixupInfoThumbMov {
    static constexpr HalfWords Opcode{0xf240, 0x0000};
  };
  
++struct FixupInfoThumbAluAbs : public FixupInfoThumb {
++  // R_ARM_THM_ALU_ABS_Gn is valid for MOVS/ADDS immediate T1. Opcode
++  // validation is performed explicitly because the two encodings are not one
++  // contiguous masked value.
++  static constexpr HalfWords Opcode{0, 0};
++  static constexpr HalfWords OpcodeMask{0, 0};
++  static constexpr HalfWords ImmMask{0x00ff, 0};
++};
++
++template <> struct FixupInfo<Thumb_AluAbsG0NC> : FixupInfoThumbAluAbs {};
++template <> struct FixupInfo<Thumb_AluAbsG1NC> : FixupInfoThumbAluAbs {};
++template <> struct FixupInfo<Thumb_AluAbsG2NC> : FixupInfoThumbAluAbs {};
++template <> struct FixupInfo<Thumb_AluAbsG3> : FixupInfoThumbAluAbs {};
++
 +// PC-relative load/ADR relocations cover multiple concrete opcodes.  The
 +// relocation kind and MC fixup provide the encoding contract; opcode
 +// validation is intentionally left to the target assembler.
@@ -32506,7 +32753,7 @@ index 6d72741c3bde056a73724f2eb1ca4fed1e7f4ce9..2554318258b275ad60aecba6d50fd0a6
  
  protected:
 diff --git a/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp b/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp
-index f5ca72796df530c65877d4f8f32460ef79de3abc..4e2098ffc1f5ad2b8b8113c90352e3cbe87e59b0 100644
+index f5ca72796df530c65877d4f8f32460ef79de3abc..2c99e3a03c19cd83a28a2fc1f19bacba4a4de9a3 100644
 --- a/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp
 +++ b/llvm/lib/ExecutionEngine/JITLink/ELF_aarch32.cpp
 @@ -35,6 +35,10 @@ namespace jitlink {
@@ -32535,10 +32782,18 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..4e2098ffc1f5ad2b8b8113c90352e3cb
    case ELF::R_ARM_THM_JUMP24:
      return aarch32::Thumb_Jump24;
    case ELF::R_ARM_THM_MOVW_ABS_NC:
-@@ -68,6 +80,18 @@ getJITLinkEdgeKind(uint32_t ELFType, const aarch32::ArmConfig &ArmCfg) {
+@@ -68,6 +80,26 @@ getJITLinkEdgeKind(uint32_t ELFType, const aarch32::ArmConfig &ArmCfg) {
      return aarch32::Thumb_MovwPrelNC;
    case ELF::R_ARM_THM_MOVT_PREL:
      return aarch32::Thumb_MovtPrel;
++  case ELF::R_ARM_THM_ALU_ABS_G0_NC:
++    return aarch32::Thumb_AluAbsG0NC;
++  case ELF::R_ARM_THM_ALU_ABS_G1_NC:
++    return aarch32::Thumb_AluAbsG1NC;
++  case ELF::R_ARM_THM_ALU_ABS_G2_NC:
++    return aarch32::Thumb_AluAbsG2NC;
++  case ELF::R_ARM_THM_ALU_ABS_G3:
++    return aarch32::Thumb_AluAbsG3;
 +  case ELF::R_ARM_THM_PC8:
 +    return aarch32::Thumb_Pc8;
 +  case ELF::R_ARM_THM_PC12:
@@ -32554,7 +32809,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..4e2098ffc1f5ad2b8b8113c90352e3cb
    }
  
    return make_error<JITLinkError>(
-@@ -80,6 +104,10 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
+@@ -80,6 +112,10 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
    switch (static_cast<aarch32::EdgeKind_aarch32>(Kind)) {
    case aarch32::Data_Delta32:
      return ELF::R_ARM_REL32;
@@ -32565,7 +32820,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..4e2098ffc1f5ad2b8b8113c90352e3cb
    case aarch32::Data_Pointer32:
      return ELF::R_ARM_ABS32;
    case aarch32::Data_PRel31:
-@@ -96,6 +124,14 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
+@@ -96,6 +132,14 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
      return ELF::R_ARM_MOVT_ABS;
    case aarch32::Thumb_Call:
      return ELF::R_ARM_THM_CALL;
@@ -32580,10 +32835,18 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..4e2098ffc1f5ad2b8b8113c90352e3cb
    case aarch32::Thumb_Jump24:
      return ELF::R_ARM_THM_JUMP24;
    case aarch32::Thumb_MovwAbsNC:
-@@ -106,6 +142,18 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
+@@ -106,6 +150,26 @@ LLVM_ABI Expected<uint32_t> getELFRelocationType(Edge::Kind Kind) {
      return ELF::R_ARM_THM_MOVW_PREL_NC;
    case aarch32::Thumb_MovtPrel:
      return ELF::R_ARM_THM_MOVT_PREL;
++  case aarch32::Thumb_AluAbsG0NC:
++    return ELF::R_ARM_THM_ALU_ABS_G0_NC;
++  case aarch32::Thumb_AluAbsG1NC:
++    return ELF::R_ARM_THM_ALU_ABS_G1_NC;
++  case aarch32::Thumb_AluAbsG2NC:
++    return ELF::R_ARM_THM_ALU_ABS_G2_NC;
++  case aarch32::Thumb_AluAbsG3:
++    return ELF::R_ARM_THM_ALU_ABS_G3;
 +  case aarch32::Thumb_Pc8:
 +    return ELF::R_ARM_THM_PC8;
 +  case aarch32::Thumb_Pc12:
@@ -32600,7 +32863,7 @@ index f5ca72796df530c65877d4f8f32460ef79de3abc..4e2098ffc1f5ad2b8b8113c90352e3cb
      return ELF::R_ARM_NONE;
    }
 diff --git a/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp b/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
-index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade970504c2c5870 100644
+index cc606b8278d267fd03e013e697afc38b1ed153c2..49f96a8789b5b766b4ef8826fa9b195a683b67d5 100644
 --- a/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
 +++ b/llvm/lib/ExecutionEngine/JITLink/aarch32.cpp
 @@ -219,6 +219,21 @@ struct ThumbRelocation {
@@ -32640,7 +32903,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
  Error makeUnexpectedOpcodeError(const LinkGraph &G, const ArmRelocation &R,
                                  Edge::Kind Kind) {
    return make_error<JITLinkError>(
-@@ -262,6 +285,51 @@ template <EdgeKind_aarch32 K> static bool checkOpcodeArm(uint32_t Wd) {
+@@ -262,6 +285,55 @@ template <EdgeKind_aarch32 K> static bool checkOpcodeArm(uint32_t Wd) {
  
  template <EdgeKind_aarch32 K>
  static bool checkOpcodeThumb(uint16_t Hi, uint16_t Lo) {
@@ -32689,10 +32952,14 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
 +    return ((Hi >> 7) & 1) == ((Hi >> 5) & 1);
 +  }
 +
++  if constexpr (K == Thumb_AluAbsG0NC || K == Thumb_AluAbsG1NC ||
++                K == Thumb_AluAbsG2NC || K == Thumb_AluAbsG3)
++    return (Hi & 0xf800) == 0x2000 || (Hi & 0xf800) == 0x3000;
++
    return (Hi & FixupInfo<K>::OpcodeMask.Hi) == FixupInfo<K>::Opcode.Hi &&
           (Lo & FixupInfo<K>::OpcodeMask.Lo) == FixupInfo<K>::Opcode.Lo;
  }
-@@ -336,6 +404,52 @@ static Error checkOpcode(LinkGraph &G, const ThumbRelocation &R,
+@@ -336,6 +408,52 @@ static Error checkOpcode(LinkGraph &G, const ThumbRelocation &R,
    return Error::success();
  }
  
@@ -32745,7 +33012,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
  const FixupInfoBase *FixupInfoBase::getDynFixupInfo(Edge::Kind K) {
    return DynFixupInfos->getEntry(K);
  }
-@@ -376,6 +490,10 @@ Expected<int64_t> readAddendData(LinkGraph &G, Block &B, Edge::OffsetT Offset,
+@@ -376,6 +494,10 @@ Expected<int64_t> readAddendData(LinkGraph &G, Block &B, Edge::OffsetT Offset,
    const char *FixupPtr = BlockWorkingMem + Offset;
  
    switch (Kind) {
@@ -32756,12 +33023,14 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
    case Data_Delta32:
    case Data_Pointer32:
    case Data_RequestGOTAndTransformToDelta32:
-@@ -415,11 +533,32 @@ Expected<int64_t> readAddendArm(LinkGraph &G, Block &B, Edge::OffsetT Offset,
+@@ -415,11 +537,37 @@ Expected<int64_t> readAddendArm(LinkGraph &G, Block &B, Edge::OffsetT Offset,
  
  Expected<int64_t> readAddendThumb(LinkGraph &G, Block &B, Edge::OffsetT Offset,
                                    Edge::Kind Kind, const ArmConfig &ArmCfg) {
 +  if (Kind == Thumb_Jump6 || Kind == Thumb_Jump8 ||
-+      Kind == Thumb_Jump11 || Kind == Thumb_Pc8) {
++      Kind == Thumb_Jump11 || Kind == Thumb_Pc8 ||
++      Kind == Thumb_AluAbsG0NC || Kind == Thumb_AluAbsG1NC ||
++      Kind == Thumb_AluAbsG2NC || Kind == Thumb_AluAbsG3) {
 +    Thumb16Relocation R(B.getContent().data() + Offset);
 +    if (Error Err = checkOpcode(G, R, Kind))
 +      return std::move(Err);
@@ -32776,6 +33045,9 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
 +      return SignExtend64<9>((R.Wd & 0x00ff) << 1);
 +    if (Kind == Thumb_Pc8)
 +      return ((((R.Wd & 0xff) << 2) + 4) & 0x3ff) - 4;
++    if (Kind == Thumb_AluAbsG0NC || Kind == Thumb_AluAbsG1NC ||
++        Kind == Thumb_AluAbsG2NC || Kind == Thumb_AluAbsG3)
++      return R.Wd & 0xff;
 +    return SignExtend64<12>((R.Wd & 0x07ff) << 1);
 +  }
 +
@@ -32789,7 +33061,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
    case Thumb_Call:
    case Thumb_Jump24:
      return LLVM_LIKELY(ArmCfg.J1J2BranchEncoding)
-@@ -436,6 +575,24 @@ Expected<int64_t> readAddendThumb(LinkGraph &G, Block &B, Edge::OffsetT Offset,
+@@ -436,6 +584,24 @@ Expected<int64_t> readAddendThumb(LinkGraph &G, Block &B, Edge::OffsetT Offset,
      // Initial addend is interpreted as a signed value
      return SignExtend64<16>(decodeImmMovtT1MovwT3(R.Hi, R.Lo));
  
@@ -32814,7 +33086,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
    default:
      return make_error<JITLinkError>(
          "In graph " + G.getName() + ", section " + B.getSection().getName() +
-@@ -455,12 +612,36 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
+@@ -455,12 +621,36 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
    int64_t Addend = E.getAddend();
    Symbol &TargetSymbol = E.getTarget();
    uint64_t TargetAddress = TargetSymbol.getAddress().getValue();
@@ -32852,7 +33124,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
      if (!isInt<32>(Value))
        return makeTargetOutOfRangeError(G, B, E);
      if (LLVM_LIKELY(G.getEndianness() == endianness::little))
-@@ -470,7 +651,7 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
+@@ -470,7 +660,7 @@ Error applyFixupData(LinkGraph &G, Block &B, const Edge &E) {
      return Error::success();
    }
    case Data_Pointer32: {
@@ -32861,13 +33133,15 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
      if (!isUInt<32>(Value))
        return makeTargetOutOfRangeError(G, B, E);
      if (LLVM_LIKELY(G.getEndianness() == endianness::little))
-@@ -578,9 +759,61 @@ Error applyFixupArm(LinkGraph &G, Block &B, const Edge &E) {
+@@ -578,9 +768,80 @@ Error applyFixupArm(LinkGraph &G, Block &B, const Edge &E) {
  
  Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
                        const ArmConfig &ArmCfg) {
 +  Edge::Kind Kind = E.getKind();
 +  if (Kind == Thumb_Jump6 || Kind == Thumb_Jump8 ||
-+      Kind == Thumb_Jump11 || Kind == Thumb_Pc8) {
++      Kind == Thumb_Jump11 || Kind == Thumb_Pc8 ||
++      Kind == Thumb_AluAbsG0NC || Kind == Thumb_AluAbsG1NC ||
++      Kind == Thumb_AluAbsG2NC || Kind == Thumb_AluAbsG3) {
 +    WritableThumb16Relocation R(B.getAlreadyMutableContent().data() +
 +                                E.getOffset());
 +    if (Error Err = checkOpcode(G, R, Kind))
@@ -32886,6 +33160,23 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
 +      if (!isUInt<10>(Value) || (Value & 3))
 +        return makeTargetOutOfRangeError(G, B, E);
 +      R.Wd = (R.Wd & 0xff00) | ((Value & 0x3fc) >> 2);
++      return Error::success();
++    }
++
++    if (Kind == Thumb_AluAbsG0NC || Kind == Thumb_AluAbsG1NC ||
++        Kind == Thumb_AluAbsG2NC || Kind == Thumb_AluAbsG3) {
++      const uint64_t ThumbPointerBit =
++          hasTargetFlags(TargetSymbol, ThumbSymbol) ? 1 : 0;
++      const uint64_t Value =
++          (TargetSymbol.getAddress().getValue() | ThumbPointerBit) +
++          E.getAddend();
++      if (!isUInt<32>(Value))
++        return makeTargetOutOfRangeError(G, B, E);
++      const unsigned Shift = Kind == Thumb_AluAbsG0NC ? 0
++                             : Kind == Thumb_AluAbsG1NC ? 8
++                             : Kind == Thumb_AluAbsG2NC ? 16
++                                                        : 24;
++      R.Wd = (R.Wd & 0xff00) | ((Value >> Shift) & 0xff);
 +      return Error::success();
 +    }
 +
@@ -32924,7 +33215,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
    if (Error Err = checkOpcode(G, R, Kind))
      return Err;
  
-@@ -590,6 +823,18 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
+@@ -590,6 +851,18 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
    uint64_t TargetAddress = TargetSymbol.getAddress().getValue();
  
    switch (Kind) {
@@ -32943,7 +33234,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
    case Thumb_Jump24: {
      if (!hasTargetFlags(TargetSymbol, ThumbSymbol))
        return make_error<JITLinkError>("Branch relocation needs interworking "
-@@ -667,6 +912,54 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
+@@ -667,6 +940,54 @@ Error applyFixupThumb(LinkGraph &G, Block &B, const Edge &E,
      return Error::success();
    }
  
@@ -32998,7 +33289,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
    default:
      return make_error<JITLinkError>(
          "In graph " + G.getName() + ", section " + B.getSection().getName() +
-@@ -918,6 +1211,8 @@ const char *getEdgeKindName(Edge::Kind K) {
+@@ -918,6 +1239,8 @@ const char *getEdgeKindName(Edge::Kind K) {
  
    switch (K) {
      KIND_NAME_CASE(Data_Delta32)
@@ -33007,7 +33298,7 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
      KIND_NAME_CASE(Data_Pointer32)
      KIND_NAME_CASE(Data_PRel31)
      KIND_NAME_CASE(Data_RequestGOTAndTransformToDelta32)
-@@ -926,11 +1221,21 @@ const char *getEdgeKindName(Edge::Kind K) {
+@@ -926,11 +1249,25 @@ const char *getEdgeKindName(Edge::Kind K) {
      KIND_NAME_CASE(Arm_MovwAbsNC)
      KIND_NAME_CASE(Arm_MovtAbs)
      KIND_NAME_CASE(Thumb_Call)
@@ -33023,6 +33314,10 @@ index cc606b8278d267fd03e013e697afc38b1ed153c2..e08d5a5d208f0a790198e91bade97050
 +    KIND_NAME_CASE(Thumb_Pc8)
 +    KIND_NAME_CASE(Thumb_Pc12)
 +    KIND_NAME_CASE(Thumb_AluPrel11_0)
++    KIND_NAME_CASE(Thumb_AluAbsG0NC)
++    KIND_NAME_CASE(Thumb_AluAbsG1NC)
++    KIND_NAME_CASE(Thumb_AluAbsG2NC)
++    KIND_NAME_CASE(Thumb_AluAbsG3)
 +    KIND_NAME_CASE(Thumb_Bf16)
 +    KIND_NAME_CASE(Thumb_Bf12)
 +    KIND_NAME_CASE(Thumb_Bf18)
@@ -33327,7 +33622,7 @@ index d914f6e830cf9c24f4c05b9ae7ced46bd2b9e5ec..a61b466fa971a666b4c5aaa5c3ab3358
        return ELF::R_ARM_THM_PC8;
      case ARM::fixup_t2_adr_pcrel_12:
 diff --git a/llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv7m.s b/llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv7m.s
-index 4997fb3cf8ab1d489c47b239218ef10dc41ee92b..316e20ef6eb66d09779c31217849e28a3f8c31d1 100644
+index 4997fb3cf8ab1d489c47b239218ef10dc41ee92b..6253eae18278c85ce474c0ee8327a1c4560e17dc 100644
 --- a/llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv7m.s
 +++ b/llvm/test/ExecutionEngine/JITLink/AArch32/ELF_relocations_thumbv7m.s
 @@ -2,21 +2,39 @@
@@ -33370,10 +33665,46 @@ index 4997fb3cf8ab1d489c47b239218ef10dc41ee92b..316e20ef6eb66d09779c31217849e28a
  
  # CHECK-TYPE: {{[0-9a-f]+}} R_ARM_THM_JUMP24 jump24_target
  # CHECK-INSTR: <jump24_site>:
-@@ -96,6 +114,30 @@ movt_prel:
+@@ -96,6 +114,66 @@ movt_prel:
  	movt r0, :upper16:ext_func - .
  	.size	movt_prel, .-movt_prel
  
++# CHECK-TYPE: {{[0-9a-f]+}} R_ARM_THM_ALU_ABS_G0_NC ext_data
++# CHECK-TYPE: {{[0-9a-f]+}} R_ARM_THM_ALU_ABS_G1_NC ext_data
++# CHECK-TYPE: {{[0-9a-f]+}} R_ARM_THM_ALU_ABS_G2_NC ext_data
++# CHECK-TYPE: {{[0-9a-f]+}} R_ARM_THM_ALU_ABS_G3 ext_data
++# jitlink-check: *{2}(alu_g0) = 0x2335
++# jitlink-check: *{2}(alu_g1) = 0x2313
++# jitlink-check: *{2}(alu_g2) = 0x2300
++# jitlink-check: *{2}(alu_g3) = 0x2300
++	.globl alu_g0
++	.type alu_g0,%function
++	.thumb_func
++alu_g0:
++	movs r3, :lower0_7:ext_data+1
++	.size alu_g0, .-alu_g0
++
++	.globl alu_g1
++	.type alu_g1,%function
++	.thumb_func
++alu_g1:
++	movs r3, :lower8_15:ext_data+0xff
++	.size alu_g1, .-alu_g1
++
++	.globl alu_g2
++	.type alu_g2,%function
++	.thumb_func
++alu_g2:
++	movs r3, :upper0_7:ext_data
++	.size alu_g2, .-alu_g2
++
++	.globl alu_g3
++	.type alu_g3,%function
++	.thumb_func
++alu_g3:
++	movs r3, :upper8_15:ext_data
++	.size alu_g3, .-alu_g3
++
 +# LLVM MC deliberately relaxes an unresolved CBZ/CBNZ instead of emitting a
 +# narrow external relocation, so spell the ABI relocation explicitly.  The
 +# encoded imm=124 represents the wrapped REL addend -4; after linking to the
