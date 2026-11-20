@@ -144,3 +144,38 @@ def test_guarded_inline_reports_live_fallback_and_keeps_denominator(existing):
 
     missing = _coverage(before, ({}, {key: proof}, []), artifact_checked=True, native_checked=True)
     assert missing["guarded_inline_sites"] == 0 and not missing["strict_coverage_complete"]
+
+
+def test_retired_udiv_lists_verified_nested_raise_call():
+    from dataclasses import replace
+
+    from scopt.commands.host_calls import _exception_call
+    from scopt.decode.x86 import sweep
+    from scopt.validate_sym.native_udiv_full import prepare_full_udiv_splice
+    from tests.unit.test_native_udiv_full import _case
+
+    u, req, ca = _case()
+    req = replace(req, splice=prepare_full_udiv_splice(u, req, ca))
+    body = sweep(req.splice.code, req.call_off)
+    nested, = [ins for ins in body if ins.is_call]
+    u = replace(u, splice_applied=True, native_fragments=(req,))
+    cert, target = _exception_call(u, nested.address, nested)
+    assert target == req.target_abs - 0x210 and cert == req.certificate_id
+    assert _exception_call(u, nested.address + 1, nested) is None
+    assert _exception_call(replace(u, meta_status="incomplete"), nested.address, nested) is None
+
+    # Coverage must report that the original UDIV call is retired while the
+    # exception routine still has a real, independently decoded CALL.
+    source_key, nested_key = ("tb:test", req.call_off), ("tb:test", nested.address)
+    baseline_row = call(req.call_off, symbol=req.symbol)
+    baseline_row["decoded_call_bytes"] = req.call_bytes.hex()
+    baseline_row["call"].update(helper_id=req.helper_id, target_abs=req.target_abs, guest_pcs=req.guest_pcs)
+    proof = dict(retired(req.call_off), fragment=req, certificate=cert)
+    child = dict(call(nested.address, annotation="verified_exception_call"),
+                 call_class="exception_runtime", parent_certificate=cert)
+    result = _coverage(({source_key: baseline_row}, {}, []),
+                       ({nested_key: child}, {source_key: proof}, []),
+                       artifact_checked=True, native_checked=True)
+    assert result["retired_verified_sites"] == 1 and result["guarded_inline_sites"] == 0
+    assert result["strict_coverage_complete"] and not result["current_call_free"]
+    assert result["certified_exception_calls"] == [child] and not result["unmatched_current_calls"]

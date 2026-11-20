@@ -143,15 +143,19 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
     """Move every surviving TCG offset and preserve the original search words."""
     from .validate_sym.native_splice import verify_splice
     from .validate_sym.native_virtual import verify_virtual_splice
-    from .validate_sym.native_udiv import UDIV_KIND, verify_udiv_splice
+    from .model.native import GUARDED_UDIV_KINDS, UDIV_KINDS
+    from .validate_sym.native_udiv import verify_udiv_variant
 
     if (unit.splice_applied or unit.inline_start is not None or unit.stub_start is not None
             or unit.meta_status != "ok" or not unit.reloc.relocatable):
         raise NativeInlineError("splice_layout_unsupported", "needs an original relocatable TB and aligned growth")
     mu = splice_group_offsets(requests)
     for request in requests:
-        verify = {"frame": verify_virtual_splice, UDIV_KIND: verify_udiv_splice}.get(
-            request.splice.kind, verify_splice)
+        verify = verify_splice
+        if request.splice.kind in UDIV_KINDS:
+            verify = verify_udiv_variant
+        elif request.splice.kind == "frame":
+            verify = verify_virtual_splice
         verify(unit, request, code_address)
     tc = code_address + unit.tc_offset
     pool_start = unit.pool_start
@@ -220,7 +224,7 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
         if (mark is None or mark.helper_id != request.helper_id or mark.insn_idx != call.insn_idx
                 or mark in drop_marks or call.field_off in drop_fields):
             raise NativeInlineError("splice_call_binding", "helper provenance has no distinct CALL opmark")
-        if request.splice.kind == UDIV_KIND:
+        if request.splice.kind in GUARDED_UDIV_KINDS:
             fallback = mu(request.continuation_off) - len(request.call_bytes)
             fallback_sites[call] = fallback
             fallback_fields[call.field_off] = fallback + call.field_off - call.insn_off
@@ -307,7 +311,7 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
                          jcc_fields=tuple(None if f is None else mu(f) for f in row.jcc_fields),
                          slow_start=mu(row.slow_start), slow_end=mu(row.slow_end),
                          raddr_off=mu(row.raddr_off)) for row in unit.ldst)
-    returns = {req.continuation_off for req in requests if req.splice.kind != UDIV_KIND}
+    returns = {req.continuation_off for req in requests if req.splice.kind not in GUARDED_UDIV_KINDS}
     keep_recovery = [p for p in unit.recovery
                      if p.source != "helper_call" or p.host_return_offset not in returns]
     recovery = tuple(replace(p, id=f"r{i}", host_return_offset=mu(p.host_return_offset))

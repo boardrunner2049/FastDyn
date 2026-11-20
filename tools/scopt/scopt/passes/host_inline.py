@@ -147,7 +147,7 @@ class HostInline:
         return True
 
     def _prepare_request(self, unit, request: InlineCall, code_address: int,
-                         binding: NativeCallBinding, params) -> InlineCall:
+                         binding: NativeCallBinding, params, growth_room: int) -> InlineCall:
         verify_site(unit, request, code_address)
         verify_fragment(request)
         return request
@@ -261,7 +261,9 @@ class HostInline:
                     image_offset=callee.image_offset, symbol=callee.symbol,
                     callee_code=callee.code, native_input_id=prepared.input_id, fragment=frag,
                     bridge_sha256=bridge_id)
-                req = self._prepare_request(unit, req, view.header.code_address, binding, params)
+                growth_room = min(params["max_growth_per_unit"] - growth[call.uid],
+                                  params["max_total_growth"] - stats["emitted_growth_bytes"])
+                req = self._prepare_request(unit, req, view.header.code_address, binding, params, growth_room)
                 if req.splice is not None and (earlier := selected.get(call.uid)):
                     from ..splice_layout import materialize_splices
 
@@ -270,8 +272,7 @@ class HostInline:
             except NativeInlineError as e:
                 report(binding, e.reason, str(e), entries)
                 continue
-            if (growth[call.uid] + req.growth > params["max_growth_per_unit"]
-                    or stats["emitted_growth_bytes"] + req.growth > params["max_total_growth"]):
+            if req.growth > growth_room:
                 report(binding, "growth_budget", entries=entries)
                 continue
             if call.uid not in selected:
@@ -297,7 +298,13 @@ class HostInline:
 class HostInlineSplice(HostInline):
     """Replace a call with a verified fallthrough splice."""
 
-    descriptor = replace(HostInline.descriptor, name="host-inline-splice")
+    descriptor = replace(HostInline.descriptor, name="host-inline-splice",
+                         params_schema={**HostInline.descriptor.params_schema, "udiv_mode": str})
+
+    def run(self, view, ctx, edits) -> PassResult:
+        if ctx.params.get("udiv_mode", "auto") not in ("auto", "full", "cleanup", "guarded"):
+            return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode must be auto, full, cleanup or guarded")
+        return super().run(view, ctx, edits)
     default_params = {**HostInline.default_params, "max_callee_bytes": 256,
                       "static_max_callee_bytes": 160}
     max_sites_per_unit = MAX_INTEGER_SPLICES
@@ -322,24 +329,52 @@ class HostInlineSplice(HostInline):
     def _prepare_splice(self, unit, request: InlineCall, code_address: int,
                         binding: NativeCallBinding, params):
         from ..validate_sym.native_splice import prepare_splice
-
         from ..validate_sym.native_udiv import is_udiv_binding, prepare_udiv_splice
 
         if is_udiv_binding(binding):
+            from ..validate_sym.native_udiv_full import is_full_udiv_binding, prepare_full_udiv_splice
+
+            mode = params.get("udiv_mode", "auto")
+            if mode == "full" or (mode == "auto" and is_full_udiv_binding(binding)):
+                return prepare_full_udiv_splice(unit, request, code_address, cleanup=(mode == "auto"))
+            if mode in ("cleanup", "auto"):
+                from ..validate_sym.native_udiv_cleanup import prepare_udiv_cleanup
+
+                return prepare_udiv_cleanup(unit, request, code_address)
             return prepare_udiv_splice(unit, request, code_address)
         return prepare_splice(unit, request, code_address)
 
     def _prepare_request(self, unit, request: InlineCall, code_address: int,
-                         binding: NativeCallBinding, params) -> InlineCall:
+                         binding: NativeCallBinding, params, growth_room: int) -> InlineCall:
         from ..link import LinkError
         from ..splice_layout import prepare_splice_layout
+        from ..validate_sym.native_udiv_full import is_full_udiv_binding
 
         request = replace(request, tcg_typemask=binding.callee.tcg_typemask)
-        request = replace(request, splice=self._prepare_splice(unit, request, code_address, binding, params))
+
+        def place(options):
+            body = self._prepare_splice(unit, request, code_address, binding, options)
+            try:
+                return prepare_splice_layout(unit, replace(request, splice=body), code_address)
+            except LinkError as error:
+                raise NativeInlineError(error.reason, str(error)) from error
+
+        if params.get("udiv_mode", "auto") != "auto" or not is_full_udiv_binding(binding):
+            return place(params)
         try:
-            return prepare_splice_layout(unit, request, code_address)
-        except LinkError as error:
-            raise NativeInlineError(error.reason, str(error)) from error
+            full = place(params)
+        except NativeInlineError as error:
+            # Only a placement or encoding range can be helped by a smaller
+            # body. Propagate failed provenance and semantic proofs unchanged.
+            size_overflow = error.reason == "splice_metadata_range" and isinstance(error.__cause__, OverflowError)
+            if error.reason != "splice_reference_range" and not size_overflow:
+                raise
+        else:
+            if full.growth <= growth_room:
+                return full
+        # On this image both forms are available. Recheck the independently
+        # proven guarded path against the same caller, remaining budget and layout.
+        return place({**params, "udiv_mode": "cleanup"})
 
 
 PASSES = (HostInline, HostInlineSplice)

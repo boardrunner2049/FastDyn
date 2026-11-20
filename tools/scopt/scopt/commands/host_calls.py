@@ -19,7 +19,7 @@ from ..formats.enums import OpMarkKind, SiteKind
 from ..formats.profile_v1 import ProfileView, read_profile
 from ..importer.import_cache import open_snapshot
 from ..importer.join import ImportRejected
-from ..model.native import UDIV_KIND
+from ..model.native import FULL_UDIV_KINDS, GUARDED_UDIV_KINDS
 from ..splice_layout import SpliceGroupOffsets, splice_offsets
 from ..validate_sym.native_inline import NativeInlineError
 
@@ -61,6 +61,20 @@ def _block(unit, off):
     if any(row.host_start <= off < row.host_end for row in unit.insns):
         return "guest_instruction"
     return "remainder"
+
+
+def _exception_call(unit, off, inst):
+    if (not unit.splice_applied or unit.meta_status != "ok" or inst is None
+            or inst.raw != b"\xff\x14\x24"):
+        return None
+    from ..validate_sym.native_udiv_full import full_udiv_exception_call
+
+    for req in unit.native_fragments:
+        if req.splice is not None and req.splice.kind in FULL_UDIV_KINDS:
+            relative, target = full_udiv_exception_call(req)
+            if off == req.splice.physical_start + relative:
+                return req.certificate_id, target
+    return None
 
 
 def _framed_call(unit, off, inst):
@@ -114,6 +128,17 @@ def _inventory(snapshot, rows, profile, phase):
             if call is not None and call["opmark_off"] is not None:
                 seen_marks.add(call["opmark_off"])
             inst = decoded.get(off)
+            exception = _exception_call(unit, off, inst) if off not in sites else None
+            if exception is not None:
+                certificate, target = exception
+                live[key] = {
+                    "unit": unit.uid, "host_off": off, "block": "native_splice",
+                    "annotation": "verified_exception_call", "decoded_call_bytes": inst.raw.hex(),
+                    "call": {"target_abs": target, "symbol": "raise_exception_ra", "encoding": "stack_indirect"},
+                    "call_class": "exception_runtime", "capture_resolved": True, "image_bound": True,
+                    "reason": None, "tb_entries_proxy": hotness, "parent_certificate": certificate,
+                }
+                continue
             frame = _framed_call(unit, off, inst) if off not in sites else None
             if frame is not None:
                 live[key] = {
@@ -154,7 +179,7 @@ def _inventory(snapshot, rows, profile, phase):
         for req in unit.native_fragments:
             key = unit.uid, req.call_off
             imported = unit.meta_status == "ok" and (unit.splice_applied or unit.inline_start is not None)
-            guarded = req.splice is not None and req.splice.kind == UDIV_KIND
+            guarded = req.splice is not None and req.splice.kind in GUARDED_UDIV_KINDS
             fallback_off = None
             if guarded and imported:
                 # Guarded splices have one source site per TB. The original CALL
@@ -171,7 +196,9 @@ def _inventory(snapshot, rows, profile, phase):
                 "call": {"original_bytes": req.call_bytes.hex(), "symbol": req.symbol,
                          "helper_id": req.helper_id, "target_abs": req.target_abs,
                          "guest_pcs": req.guest_pcs},
-                "call_class": "guarded_udiv" if guarded else "pure", "capture_resolved": imported, "image_bound": imported,
+                "call_class": ("guarded_udiv" if guarded else "full_udiv"
+                               if req.splice and req.splice.kind in FULL_UDIV_KINDS else "pure"),
+                "capture_resolved": imported, "image_bound": imported,
                 "reason": None if imported else "unverified_native_fragment",
                 "certificate": req.certificate_id, "fallback_off": fallback_off,
                 "tb_entries_proxy": hotness, "fragment": req,
@@ -208,7 +235,7 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
     offsets = {uid: SpliceGroupOffsets(tuple(items)) for uid, items in spans.items()}
     known_weight, retired_weight, unknown_weight, nonexact_weight = 0, 0, 0, 0
     for key, row in sorted((before | old_retired).items()):
-        if row["annotation"] in ("guarded_fallback_call", "verified_nested_call"):
+        if row["annotation"] in ("guarded_fallback_call", "verified_nested_call", "verified_exception_call"):
             continue
         annotated = row["annotation"] != "decoded_only"
         if annotated:
@@ -225,7 +252,7 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
                           and row["image_bound"] and _bound_call_matches(row, proof["fragment"]))
             if artifact_checked and proof["image_bound"] and (matches_old or verify_new):
                 fragment = proof["fragment"]
-                if fragment.splice is not None and fragment.splice.kind == UDIV_KIND:
+                if fragment.splice is not None and fragment.splice.kind in GUARDED_UDIV_KINDS:
                     fallback_key = (key[0], proof.get("fallback_off"))
                     fallback = after.get(fallback_key)
                     if (fallback and fallback.get("annotation") == "guarded_fallback_call"
@@ -278,7 +305,8 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
     nested_keys = {key for key, row in after.items()
                    if row["annotation"] == "verified_nested_call"}
     certified_nested = [_public_row(after[key]) for key in sorted(nested_keys)]
-    explained = matched_live | (nested_keys if artifact_checked else set())
+    exception_keys = {key for key, row in after.items() if row["annotation"] == "verified_exception_call"}
+    explained = matched_live | (nested_keys | exception_keys if artifact_checked else set())
     extra_live = [_public_row(after[key]) for key in sorted(after.keys() - explained)]
     extra_retired = [_public_row(new_retired[key]) for key in sorted(new_retired.keys() - matched_retired)]
     if extra_live:
@@ -299,6 +327,7 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
         "strict_coverage_complete": not blockers, "blockers": dict(blockers),
         "current_call_free": not after and not current_uninspected,
         "certified_nested_frame_calls": certified_nested,
+        "certified_exception_calls": [_public_row(after[key]) for key in sorted(exception_keys)],
         "classified_current_calls": dict(Counter(row["call_class"] for row in after.values())),
         "current_call_blocks": dict(Counter(row["block"] for row in after.values())),
         "tb_entry_weighted_proxy": {

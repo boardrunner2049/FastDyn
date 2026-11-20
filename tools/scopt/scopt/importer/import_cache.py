@@ -344,7 +344,7 @@ def _meta_doc(b, uc: UnitCheck | None, reloc: RelocInfo, origin: str, vaddrs: tu
 def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping[str, Any] | None,
                             uid: str, resolvers: dict, images: dict) -> str | None:
     """Check v3/v4 provenance against the captured runtime's exact ELF bytes."""
-    from ..model.native import UDIV_KIND, UDIV_TYPEMASK, supports_tcg_integer_abi
+    from ..model.native import UDIV_KINDS, UDIV_TYPEMASK, supports_tcg_integer_abi
     from .native_callee import CalleeResolutionError, NativeCalleeResolver
 
     if runtime is None:
@@ -362,11 +362,11 @@ def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping
         if req.target != uid or helper is None or helper.func != req.target_abs:
             return "native fragment does not identify this unit and captured helper"
         framed = req.splice is not None and req.splice.kind == "frame"
-        guarded = req.splice is not None and req.splice.kind == UDIV_KIND
-        if guarded:
+        is_udiv = req.splice is not None and req.splice.kind in UDIV_KINDS
+        if is_udiv:
             if (helper.name_str != "udiv" or helper.tcg_flags != 1
                     or helper.typemask != UDIV_TYPEMASK or req.symbol != "helper_udiv"):
-                return "guarded native fragment is not the captured ARM UDIV helper"
+                return "native fragment is not the captured ARM UDIV helper"
         elif framed:
             if helper.name_str is not None or helper.tcg_flags != 0 or helper.typemask != 400:
                 return "framed native fragment is not a captured FastDyn callback"
@@ -383,8 +383,8 @@ def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping
             return f"{e.reason}: {e}"
         expected_role = "plugin" if framed else "qemu"
         if (function.role != expected_role
-                or (guarded and (function.symbol != req.symbol or function.abi != "sysv-amd64"))
-                or (not framed and not guarded and not supports_tcg_integer_abi(function.tcg_typemask))
+                or (is_udiv and (function.symbol != req.symbol or function.abi != "sysv-amd64"))
+                or (not framed and not is_udiv and not supports_tcg_integer_abi(function.tcg_typemask))
                 or (req.splice is not None and req.tcg_typemask != function.tcg_typemask)
                 or function.code != req.callee_code or function.image_id != req.image_id
                 or function.elf_address != req.elf_address or function.image_offset != req.image_offset):

@@ -30,14 +30,14 @@ _NATIVE = bytes.fromhex(
 )
 
 
-def _fixture():
+def _fixture(*, slot=32):
     snapshot = fake_snapshot(1)
     unit, = snapshot.units()
     record = ScRecord.from_bytes(unit.record)
     # Caller source and register convention from the AES capture. One extra
     # guest follows the CALL to distinguish unwind to the wrong instruction.
     setup = bytes.fromhex("8b5504 8b7500 488bfd")
-    slot, target = 32, 0x11223344
+    target = 0x11223344
     call_off, cont = len(setup), len(setup) + 6
     call = b"\xff\x15" + (slot-cont).to_bytes(4, "little")
     code = (setup+call).ljust(slot, b"\x90") + target.to_bytes(8, "little")

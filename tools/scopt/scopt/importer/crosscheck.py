@@ -59,7 +59,8 @@ from ..decode.thumb import check_lengths, lengths_from_words
 from ..decode.x86 import (Arena, DecodedRef, Insn as X86Insn, RefKind, decode_one,
                           extract_refs, sweep, tiles)
 from ..formats.enums import NONE_U32, Encoding, OpMarkKind, SiteKind, TbFlag
-from ..model.native import UDIV_KIND, UDIV_TYPEMASK
+from ..model.native import (FULL_UDIV_CLEANUP_KIND, FULL_UDIV_KINDS, GUARDED_UDIV_KINDS,
+                            UDIV_CLEANUP_KIND, UDIV_KIND, UDIV_TYPEMASK)
 from ..formats.sc_v5 import ScHeader, ScUnit
 from ..formats.scm_v1 import TbChunk
 from ..model.unit import (AnchoredPointer, Fixup, HelperBinding, Insn, Ldst, OpMark,
@@ -318,7 +319,7 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
         try:
             offsets = splice_group_offsets(chunk.native_fragments) if splice_start is not None else None
             for req in chunk.native_fragments:
-                if req.pool_slot_off is not None and (req.splice is None or req.splice.kind != UDIV_KIND):
+                if req.pool_slot_off is not None and (req.splice is None or req.splice.kind not in GUARDED_UDIV_KINDS):
                     slot = req.pool_slot_off if offsets is None else offsets(req.pool_slot_off)
                     retired.append((slot, req.target_abs))
         except ValueError as error:
@@ -397,7 +398,7 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
             # The guarded fallback remains an ordinary captured helper CALL. Its
             # reference, pool user and recovery entry still need the TCG checks.
             native_ranges = [(start, start + len(splice.code) -
-                              (6 if splice.kind == UDIV_KIND else 0)) for start, splice in spans]
+                              (6 if splice.kind in GUARDED_UDIV_KINDS else 0)) for start, splice in spans]
             tcg_instructions = [i for i in tcg_instructions
                                 if not any(lo <= i.address - tc_abs < hi for lo, hi in native_ranges)]
             uc.native_fixups = tuple(
@@ -588,7 +589,7 @@ def _native_single_splice_error(code, chunk, ctx, tc_abs, physical, page_bits, r
     sites = [s for s in chunk.sites if start <= s.insn_off < end or start <= s.field_off < end]
     marks = [m for m in chunk.opmarks if start <= m.host_off < end]
     users = [p for p in chunk.pool if start <= p.user_field_off < end]
-    if splice.kind == UDIV_KIND:
+    if splice.kind in GUARDED_UDIV_KINDS:
         fallback = end - len(req.call_bytes)
         if (len(sites) != 1 or len(marks) != 1 or len(users) != 1 or req.pool_slot_off is None
                 or helper.name_str != "udiv" or helper.tcg_flags != 1 or helper.typemask != UDIV_TYPEMASK
@@ -632,6 +633,22 @@ def _native_single_splice_error(code, chunk, ctx, tc_abs, physical, page_bits, r
             from ..validate_sym.native_virtual import verify_virtual_splice_body
 
             verify_virtual_splice_body(req)
+        elif splice.kind in FULL_UDIV_KINDS:
+            from ..validate_sym.native_udiv_full import verify_full_udiv_body
+
+            if (helper.name_str != "udiv" or helper.tcg_flags != 1 or helper.typemask != UDIV_TYPEMASK
+                    or end != offsets(req.continuation_off)):
+                return "full UDIV recovery continuation or helper identity disagrees"
+            if splice.kind == FULL_UDIV_CLEANUP_KIND:
+                verify_full_udiv_body(req, code[:chunk.pool_start_or_none], end, chunk.sites, tc_abs,
+                                      tb_ret=ctx.tb_ret_addr, epilogue=ctx.epilogue_addr)
+            else:
+                verify_full_udiv_body(req)
+        elif splice.kind == UDIV_CLEANUP_KIND:
+            from ..validate_sym.native_udiv_cleanup import verify_udiv_cleanup_body
+
+            verify_udiv_cleanup_body(req, code[:chunk.pool_start_or_none], end, chunk.sites, tc_abs,
+                                     tb_ret=ctx.tb_ret_addr, epilogue=ctx.epilogue_addr)
         elif splice.kind == UDIV_KIND:
             from ..validate_sym.native_udiv import verify_udiv_body
 

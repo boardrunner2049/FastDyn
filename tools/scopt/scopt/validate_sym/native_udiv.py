@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from ..decode.x86 import sweep
 from ..formats.enums import SiteKind
-from ..model.native import UDIV_KIND, UDIV_TYPEMASK, InlineCall, NativeFragment, NativeSplice
+from ..model.native import (FULL_UDIV_KINDS, UDIV_CLEANUP_KIND, UDIV_KIND, UDIV_TYPEMASK,
+                            InlineCall, NativeFragment, NativeSplice)
 from ..model.unit import TBUnit
 from .native_inline import _require, _verify_bound_site
 from .native_splice import _references_splice
@@ -55,13 +56,18 @@ def _body(request: InlineCall) -> NativeSplice:
     # is nonzero at DIV. Zero can unwind with GETPC through the original helper.
     # Its CALL ends exactly at the remapped guest continuation. The local pool
     # moves by the same amount, so its original RIP displacement remains exact.
-    hot = source[arm:ret]
+    return _emit_guarded(request, source[arm:ret])
+
+
+def _emit_guarded(request: InlineCall, hot: bytes) -> NativeSplice:
+    """Lay out a verified nonzero arm and the original recovery CALL."""
+    call = request.call_bytes
     padding = (-(4 + len(hot) + 2)) % 8
     to_call = len(hot) + 2 + padding
     over_call = padding + len(call)
     code = (_TEST_EDX + bytes((0x74, to_call)) + hot + bytes((0xeb, over_call))
             + b"\x90" * padding + call)
-    return NativeSplice(start, b"", code, kind=UDIV_KIND)
+    return NativeSplice(request.call_off, b"", code, kind=UDIV_KIND)
 
 
 def verify_udiv_body(request: InlineCall) -> None:
@@ -104,3 +110,17 @@ def prepare_udiv_splice(unit: TBUnit, request: InlineCall, code_address: int) ->
 def verify_udiv_splice(unit: TBUnit, request: InlineCall, code_address: int) -> None:
     _require(prepare_udiv_splice(unit, request, code_address) == request.splice,
              "splice_correspondence", "guarded UDIV splice differs from the original site")
+
+
+def verify_udiv_variant(unit: TBUnit, request: InlineCall, code_address: int) -> None:
+    kind = request.splice.kind
+    if kind in FULL_UDIV_KINDS:
+        from .native_udiv_full import verify_full_udiv_splice
+
+        verify_full_udiv_splice(unit, request, code_address)
+    elif kind == UDIV_CLEANUP_KIND:
+        from .native_udiv_cleanup import verify_udiv_cleanup_splice
+
+        verify_udiv_cleanup_splice(unit, request, code_address)
+    else:
+        verify_udiv_splice(unit, request, code_address)

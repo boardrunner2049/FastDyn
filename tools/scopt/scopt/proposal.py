@@ -38,7 +38,7 @@ from .analysis.api import AnalysisResult
 from .canon import canonical_json, sha256_id
 from .canon import _check as _check_json  # canonical-JSON value check
 from .ids import is_unit_id
-from .model.native import UDIV_KIND, InlineCall
+from .model.native import UDIV_KINDS, InlineCall
 from .model.snapshot import ANNOT_HASH_PREFIX, LAYOUT_HASH_PREFIX, LAYOUT_SECTIONS, deep_freeze
 from .passes.base import B2_EDIT_KINDS, B3_EDIT_KINDS, EditCapabilityError, EditKind, PassDescriptor
 
@@ -382,7 +382,7 @@ class ProposalBuilder:
             raise EditPreconditionError("INLINE_CALL requires an InlineCall payload")
         unit = self._unit(payload.target)
         splice = payload.splice
-        custom_body = splice is not None and splice.kind in ("frame", UDIV_KIND)
+        custom_body = splice is not None and (splice.kind == "frame" or splice.kind in UDIV_KINDS)
         if (payload.unit_hash != unit.content_hash or (not custom_body and not payload.fragment.code)
                 or payload.call_off < 0 or payload.continuation_off > unit.ldst_end
                 or payload.continuation_off != payload.call_off + len(payload.call_bytes)

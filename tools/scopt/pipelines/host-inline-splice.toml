@@ -1,7 +1,7 @@
 schema = "scopt.pipeline"
 version = 1
 name = "host-inline-splice"
-description = "Splice verified native integer helpers and the nonzero arm of ARM unsigned division."
+description = "Inline verified native integer helpers, including exception-capable ARM UDIV on the audited QEMU build."
 allowed_capabilities = ["INLINE_CALL"]
 
 [[pass]]

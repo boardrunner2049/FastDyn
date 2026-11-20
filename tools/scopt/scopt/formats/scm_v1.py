@@ -443,13 +443,14 @@ def _splice_metadata_matches(req: InlineCall, start: int, size: int,
         return False
     if type(splice.compact_frame) is not bool or (splice.compact_frame and splice.kind != "frame"):
         return False
-    from ..model.native import UDIV_KIND, UDIV_TYPEMASK
+    from ..model.native import FULL_UDIV_KINDS, UDIV_KINDS, UDIV_TYPEMASK
 
-    if splice.kind == UDIV_KIND:
+    if splice.kind in UDIV_KINDS:
         return (splice.depth == 1 and not splice.relocations and not splice.branches
                 and not splice.prefix and req.symbol == "helper_udiv" and req.tcg_typemask == UDIV_TYPEMASK
                 and req.pool_slot_off is not None and len(req.call_bytes) == 6
-                and req.call_bytes[:2] == b"\xff\x15" and splice.code.endswith(req.call_bytes))
+                and req.call_bytes[:2] == b"\xff\x15"
+                and (splice.kind in FULL_UDIV_KINDS or splice.code.endswith(req.call_bytes)))
     if splice.kind != "frame":
         return splice.kind == "integer" and splice.depth == 1 and not splice.relocations
     if (splice.depth not in (1, 2) or splice.prefix or start != req.call_off

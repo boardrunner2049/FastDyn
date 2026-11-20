@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 
 from ..analysis.native_callees import NativeCallBinding
 from ..decode.x86 import sweep, tiles
-from ..model.native import UDIV_KIND, InlineCall
+from ..model.native import GUARDED_UDIV_KINDS, InlineCall
 from .base import Outcome, PassResult
 from .host_inline import HostInline, HostInlineSplice
 
@@ -112,7 +112,7 @@ class HostInlineExtreme(HostInlineSplice):
         framed_approved = len(framed_depths)
         approved_depths = sorted(set(framed_depths))
         guarded = {(r.target, r.call_off) for r in staged.requests
-                   if r.splice is not None and r.splice.kind == UDIV_KIND}
+                   if r.splice is not None and r.splice.kind in GUARDED_UDIV_KINDS}
         fully_inlined = approved - len(guarded)
         complete = seen == fully_inlined and undecodable == 0
         applied = approved if complete or partial else 0
