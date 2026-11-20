@@ -1560,9 +1560,33 @@ patch clean-applies to pinned LLVM and reconstructs all 166 touched files
 byte-for-byte. These measurements establish integration and publication
 coverage; they do not establish runtime speedup or x86-backend parity.
 
+v167 closes the Thumb RWPI/static-base pair
+`R_ARM_THM_MOVW_BREL_NC`/`R_ARM_THM_MOVT_BREL` under an explicit firmware
+contract. The relocation computes `S+A-B(S)`, while AAELF32 leaves `B(S)`
+platform-defined. FirmBOLT therefore retains the containing function by
+default. The qualified `segment-start` policy admits only symbols in a fixed,
+non-executable input `PT_LOAD` and takes that segment start as `B(S)`; an
+executable-target control remains retained. This separates a source-confirmed
+representation requirement from an unsupported inference about a firmware's
+static-base convention.
+
+The executed Cortex-M3 fixture reconstructs the source addend `+4`, resolves
+the encoded value to `0x24`, and applies ordinary FOP to shrink the containing
+body from 32 to 30 bytes. The publisher remaps both relocation offsets by `-2`
+while retaining their exact symbol dependencies and origins. FastDyn execution
+writes RAM word `42` for both the reference and candidate. The production gate
+is now 64/64 profiles, 1,951 functions, 1,137 modified functions, 130,095 final
+instruction origins, 98,712 origins in modified functions and 57,586
+potentially faulting load/store origins. Regression gates pass 93/93 ARM BOLT
+lit, 13/13 AArch32 JITLink lit, 19/19 focused JITLink units and 132 BOLT unit
+tests plus 150 explicit target-inapplicable skips. Generic AArch32 JITLink is
+not claimed for BREL because its current edge representation cannot carry the
+platform-selected `B(S)` dependency. This is relocation and publication
+coverage, not a performance or full-parity result.
+
 The confirmed mechanism is narrower than saying “ARM constant propagation was absent.” The generic BOLT pass existed, but ARM lacked its PC-relative displacement and constant-materialization hooks. v107 adds qualified word/byte/halfword and signed-narrow decoding plus flag-preserving `MOVW`/`MOVT` materialization for `r0`–`r12`. Loaded data must be allocatable, non-writable and relocation-free across a conservative four-byte range. Section immutability alone does not authorize removal of the flash-read/fault event. Rejected functions are now reconstructed in the final origin manifest from the immutable pre-transform instruction ledger rather than the mutated candidate CFG.
 
-The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `d24ad071b322133dcd4f10c83771b9a9d886f2274ca56d70d3345280eda40ce3`; it clean-applies to the pinned revision and reconstructs the tested checkout byte-for-byte. The exact tested tool hashes are bound by the v166 manifest. Regression runs complete 92/92 ARM BOLT lit tests, 13/13 AArch32 JITLink lit tests, 19/19 focused AArch32 JITLink units, and 132 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 88/150, Passes 5/0 and Profile 39/0). The [v166 validation manifest](evidence/firmbolt-cortex-m-v166-validation.json) binds the four absolute-byte relocation families, zero-addend movement, ambiguous-addend retention, the unresolved-code-relocation safety repair, the 63-profile production run, exact linked-byte audit, regression XML and clean-apply result. Earlier manifests remain unchanged as historical evidence.
+The mechanical pinned-source patch is [bolt-fastdyn-preflight.patch](../../patches/bolt-fastdyn-preflight.patch), SHA-256 `f92740e880226723b715e1140c6011d934021b980d865b0189df04e2cfa4edeb`; it clean-applies to the pinned revision and reconstructs the tested checkout byte-for-byte. The exact tested tool hashes are bound by the v167 manifest. Regression runs complete 93/93 ARM BOLT lit tests, 13/13 AArch32 JITLink lit tests, 19/19 focused AArch32 JITLink units, and 132 passed plus 150 explicitly skipped BOLT unit parameterizations (Core 88/150, Passes 5/0 and Profile 39/0). The [v167 validation manifest](evidence/firmbolt-cortex-m-v167-validation.json) binds explicit RWPI/static-base qualification, paired `+4` addend reconstruction, relocation-offset movement, reference/candidate architectural execution, the 64-profile production run, exact linked-byte audit, regression XML and clean-apply result. The historical v166 manifest remains unchanged as evidence for the four absolute-byte relocation families and their fail-closed controls.
 
 The [v123 validation manifest](../../build/preflight/firm-bolt-cortex-m-production-parity-v123-jt-footprint-r5-2026-11-18/validation-manifest.json), SHA-256 `3e574846c0dd3252c071d90435074a73f2b24341f2bd534b73d663c3cc7e85f0`, records the exact regression commands, outcomes and evidence hashes. Earlier reports remain unchanged as historical evidence.
 

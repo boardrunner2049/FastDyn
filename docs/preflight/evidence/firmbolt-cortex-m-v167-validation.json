@@ -1,0 +1,107 @@
+{
+  "clean_apply": {
+    "byte_exact_files": 167,
+    "pinned_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+    "reconstructed_patch_byte_exact": true,
+    "status": "accepted"
+  },
+  "generated_at_utc": "2026-11-20T03:47:58Z",
+  "llvm_bolt_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "milestone": "v167-cortex-m-thumb-rwpi-static-base-relocations",
+  "production_command": [
+    "python3",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py",
+    "--bolt",
+    "third_party/preflight/llvm-build/bin/llvm-bolt",
+    "--fastdyn",
+    "fastdyn-env/bin/fastdyn",
+    "--output",
+    "build/preflight/firm-bolt-cortex-m-production-parity-v167-rwpi-2026-11-19",
+    "--skip-build",
+    "--full-pipeline",
+    "--frame-opt=all"
+  ],
+  "production_profiles": {
+    "accepted": 64,
+    "functions": 1951,
+    "instruction_origins": 130095,
+    "linked_byte_validation_applicable": 63,
+    "linked_byte_validation_not_applicable": 1,
+    "modified_function_instruction_origins": 98712,
+    "modified_functions": 1137,
+    "potentially_faulting_load_store_origins": 57586,
+    "total": 64
+  },
+  "production_status": "accepted",
+  "regressions": {
+    "aarch32_jitlink_lit": {
+      "failed": 0,
+      "passed": 13
+    },
+    "aarch32_jitlink_units": {
+      "failed": 0,
+      "passed": 19
+    },
+    "arm_bolt_lit": {
+      "failed": 0,
+      "passed": 93
+    },
+    "core_units": {
+      "failed": 0,
+      "passed": 88,
+      "skipped_target_inapplicable": 150
+    },
+    "pass_units": {
+      "failed": 0,
+      "passed": 5
+    },
+    "profile_units": {
+      "failed": 0,
+      "passed": 39
+    }
+  },
+  "repository_base_commit": "03e267b3b3d214f66f2ba4810fcb3418e02836f0",
+  "rwpi_contract": {
+    "abi_formula": {
+      "R_ARM_THM_MOVT_BREL": "S+A-B(S)",
+      "R_ARM_THM_MOVW_BREL_NC": "((S+A)|T)-B(S)"
+    },
+    "default_policy": "unsupported and whole-function retention because AAELF32 leaves B(S) platform-defined",
+    "explicit_policy": "--firmbolt-arm-static-base=segment-start declares B(S) to be the referenced symbol's input PT_LOAD start",
+    "negative_control": "a BREL target in executable PT_LOAD memory remains simple=false and byte-identical even under the explicit segment-start policy",
+    "qualified_target": "fixed non-executable input PT_LOAD only",
+    "source_addend": 4,
+    "static_base": "0x20000000",
+    "symbol_address": "0x20000020",
+    "resolved_static_offset": "0x24",
+    "transformation": "ordinary FOP shrinks rwpi_worker from 32 to 30 bytes and remaps both retained SHT_REL offsets by -2",
+    "verification": "reference and candidate both write RAM word 42 under the Cortex-M3 FastDyn fixture"
+  },
+  "schema_version": "firmbolt-cortex-m-validation-v1",
+  "scope_limits": [
+    "AAELF32 does not require B(S) to be a PT_LOAD start; this interpretation is opt-in firmware metadata rather than an inferred universal rule",
+    "generic AArch32 JITLink source-object BREL remains unsupported until its graph API carries the static-base origin explicitly",
+    "executable-target and otherwise movable BREL dependencies retain their original implementation",
+    "the production matrix demonstrates no regression across the existing firmware corpus, not complete x86-backend parity",
+    "the milestone establishes relocation and execution correctness, not a performance result"
+  ],
+  "sha256": {
+    "aarch32-jitlink-lit.xml": "03d7126be06794f0cf074b25f0f9a10c234c7ef55835b4c598c77e408d15584e",
+    "arm-bolt-lit.xml": "8ff0d01c4be08a81c475c58a28a1a62114c59b6f8dc946f500ec5eb37ea4dcd0",
+    "core-tests.xml": "6e78b78a9f4ac53a331a1a02d974cc00e5c1e2f49f008ab5480806c5e2ed5d21",
+    "firm_bolt_cortex_m3_rwpi.ld": "ef8cc3691f5a1575b9d5c5a77abaf5bf512509d0a2316ad5620611fd4c460259",
+    "firm_bolt_cortex_m3_rwpi.s": "173e0c4623cf4a6c724477d115ba7f16eb9d8aa4b17ef84ff1457378f1a4238a",
+    "jitlink-aarch32-tests.xml": "12e2ad32255682b9094971b708da3828f95f8737a02eb42d908efdd4debd9526",
+    "pass-tests.xml": "99da2652bfba557241737484388b57cc9f326e571725cecf10dd6984d57e1b0e",
+    "patches/bolt-fastdyn-preflight.patch": "f92740e880226723b715e1140c6011d934021b980d865b0189df04e2cfa4edeb",
+    "profile-tests.xml": "d953386171d06c6a8244d2bdcc46ddbcfe0a3fa869de2c1d403320cf21c6b055",
+    "report.json": "264a8ef13f853c5b80f99ef0d2cf717beb94dd3b0b5e79a7bc7e86e806ee0b77",
+    "scripts/preflight/regenerate-bolt-extension-patch.sh": "0637dad43b760be93b75040668f8753399d60adbee9238bd803a9aefa6898d73",
+    "scripts/preflight/run-firm-bolt-cortex-m-port.py": "da879fd38aaa031d033282873497050dce9f849f095e81d93eb6b9d01b9f76f6",
+    "third_party/preflight/llvm-build/bin/llvm-bolt": "2b1f1717d8f22a5ed6909c820695b1b143232e4ac24d2fc5d3c3c75b6a46722d"
+  },
+  "source": {
+    "aaelf32": "https://github.com/ARM-software/abi-aa/blob/main/aaelf32/aaelf32.rst",
+    "note": "B(S) is an implementation-defined addressing origin and need not be the segment base; the segment-start interpretation is therefore explicit"
+  }
+}

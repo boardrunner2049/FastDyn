@@ -181,6 +181,12 @@ M3_PCREL_MOV_PAIR_LINKER = (
 M3_PCREL_MOV_PAIR_ORDER = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_pcrel_mov_pair.order"
 )
+M3_RWPI_SOURCE = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_rwpi.s"
+)
+M3_RWPI_LINKER = (
+    ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_rwpi.ld"
+)
 M3_FUNCTION_SPLIT_SOURCE = (
     ROOT / "tests/preflight/fixtures/firm_bolt_cortex_m3_function_split.s"
 )
@@ -1933,6 +1939,133 @@ def validate_relocated_pcrel_mov_pair(
         "reconstructed_addend": expected_addend,
         "encoded_fields": observed_fields,
         "relocations": pair,
+        "origin_summary": origin_summary,
+    }
+
+
+def validate_rwpi_static_base(
+    reference: Path, candidate: Path,
+    final_layout: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate a compact Thumb RWPI S+A-B(S) reference and dependency."""
+    ref = elf_inventory(reference)
+    out = elf_inventory(candidate)
+    if ref["segments"] != out["segments"]:
+        raise RuntimeError("RWPI candidate changed the loadable segment map")
+    data_segments = [
+        segment for segment in out["segments"]
+        if segment["type"] == "PT_LOAD"
+        and segment["vaddr"] == 0x20000000
+    ]
+    if len(data_segments) != 1 or data_segments[0]["flags"] != 6:
+        raise RuntimeError("RWPI fixture lost its qualified RW PT_LOAD base")
+
+    reference_worker = symbol_address(reference, "rwpi_worker")
+    candidate_worker = symbol_address(candidate, "rwpi_worker")
+    if reference_worker != candidate_worker:
+        raise RuntimeError("compact RWPI worker moved unexpectedly")
+    rw_data = symbol_address(reference, "rw_data")
+    if rw_data != 0x20000020 or rw_data != symbol_address(
+            candidate, "rw_data"):
+        raise RuntimeError("RWPI data target or static offset changed")
+
+    reference_pair = [
+        relocation for relocation in static_relocation_records(
+            reference, ".rel.text"
+        ) if relocation["type"] in {87, 88}
+        and relocation["symbol"] == "rw_data"
+    ]
+    candidate_pair = [
+        relocation for relocation in static_relocation_records(
+            candidate, ".rel.text"
+        ) if relocation["type"] in {87, 88}
+        and relocation["symbol"] == "rw_data"
+    ]
+    if (
+        len(reference_pair) != 2
+        or len(candidate_pair) != 2
+        or [item["type"] for item in reference_pair] != [87, 88]
+        or [item["type"] for item in candidate_pair] != [87, 88]
+        or any(item["symbol_value"] != rw_data for item in candidate_pair)
+        or [item["offset"] for item in candidate_pair]
+            != [item["offset"] - 2 for item in reference_pair]
+    ):
+        raise RuntimeError(
+            "RWPI relocation identities were not remapped with compact FOP: "
+            f"reference={reference_pair}, candidate={candidate_pair}"
+        )
+
+    def decoded_mov_immediate(image: Path, address: int) -> int:
+        text = elf_inventory(image)["sections"][".text"]
+        offset = address - int(text["address"])
+        encoded = section_bytes(image, ".text")[offset:offset + 4]
+        if len(encoded) != 4:
+            raise RuntimeError("truncated RWPI MOVW/MOVT instruction")
+        high = int.from_bytes(encoded[:2], "little")
+        low = int.from_bytes(encoded[2:], "little")
+        return (
+            ((high & 0xF) << 12)
+            | (((high >> 10) & 1) << 11)
+            | (((low >> 12) & 7) << 8)
+            | (low & 0xFF)
+        )
+
+    encoded_fields = [
+        decoded_mov_immediate(candidate, relocation["offset"])
+        for relocation in candidate_pair
+    ]
+    if encoded_fields != [0x24, 0]:
+        raise RuntimeError(
+            "RWPI output does not encode S+A-segment-start: "
+            f"{encoded_fields}"
+        )
+    if symbol_bytes(reference, "unsupported_exec_brel") != symbol_bytes(
+            candidate, "unsupported_exec_brel"):
+        raise RuntimeError("executable-target BREL control was modified")
+
+    origin_summary = None
+    if final_layout is not None:
+        functions = {
+            function["name"]: function
+            for function in final_layout["functions"]
+        }
+        worker = functions["rwpi_worker"]
+        origins = worker["instruction_origins"]
+        if (
+            not worker["firmware_modified"]
+            or worker["firmware_modification_reasons"]
+                != ["frame_load_forwarding"]
+            or worker["firmware_publication_rejections"]
+            or worker["original_size"] != 32
+            or worker["output_size"] != 30
+            or len(origins) != 13
+            or any(
+                origin["origin_kind"] != "original_instruction"
+                for origin in origins
+            )
+        ):
+            raise RuntimeError(
+                "RWPI compact publication or fail-closed control changed"
+            )
+        origin_summary = {
+            "instruction_origin_count": len(origins),
+            "original_size": 32,
+            "output_size": 30,
+            "unsupported_executable_target_retained": True,
+        }
+
+    return {
+        "status": "accepted",
+        "policy": "explicit_nonexec_pt_load_segment_start",
+        "program_headers_exact": True,
+        "static_base": 0x20000000,
+        "referenced_symbol": "rw_data",
+        "symbol_address": rw_data,
+        "source_addend": 4,
+        "resolved_static_offset": 0x24,
+        "encoded_fields": encoded_fields,
+        "reference_relocations": reference_pair,
+        "candidate_relocations": candidate_pair,
         "origin_summary": origin_summary,
     }
 
@@ -3740,6 +3873,24 @@ def build_m3_pcrel_mov_pair_fixture(
         str(M3_PCREL_MOV_PAIR_LINKER), str(object_path), "-o", str(image),
     ], logs / f"build-m3-pcrel-mov-pair{suffix}-image.log"),
         "M3 PC-relative MOV pair image build")
+    return image
+
+
+def build_m3_rwpi_fixture(output: Path, logs: Path) -> Path:
+    """Build a Thumb RWPI fixture with a distinct writable PT_LOAD."""
+    object_path = output / "firm-bolt-cortex-m3-rwpi.o"
+    image = output / "firm-bolt-cortex-m3-rwpi-reference.elf"
+    require_success(run([
+        str(LLVM_MC), "-filetype=obj", "-triple=thumbv7m-none-eabi",
+        "-mcpu=cortex-m3", "-arm-add-build-attributes",
+        str(M3_RWPI_SOURCE), "-o", str(object_path),
+    ], logs / "build-m3-rwpi-object.log"),
+        "M3 RWPI object build")
+    require_success(run([
+        str(LD_LLD), "--emit-relocs", "-T", str(M3_RWPI_LINKER),
+        str(object_path), "-o", str(image),
+    ], logs / "build-m3-rwpi-image.log"),
+        "M3 RWPI image build")
     return image
 
 
@@ -5597,6 +5748,7 @@ def main() -> int:
         output, logs, source=M3_PCREL_MOV_PAIR_ADDEND_SOURCE,
         suffix="-addend",
     )
+    m3_rwpi_image = build_m3_rwpi_fixture(output, logs)
     m3_function_split_image = build_m3_function_split_fixture(output, logs)
     m3_cdsplit_image = build_m3_cdsplit_fixture(output, logs)
     m3_cdsplit_no_exidx_capacity_image = build_m3_cdsplit_fixture(
@@ -5903,6 +6055,10 @@ def main() -> int:
              "--relocs", "--use-old-text", "--reorder-functions=user",
              "--align-functions=1",
              f"--function-order={M3_PCREL_MOV_PAIR_ORDER}",
+         ]),
+        ("m3_rwpi_static_base", "cortex-m3", m3_rwpi_image,
+         {".isr_vector": None}, [
+             "--firmbolt-arm-static-base=segment-start",
          ]),
         ("m3_function_split", "cortex-m3", m3_function_split_image, {}, [
              f"--data={M3_FUNCTION_SPLIT_PROFILE}",
@@ -7125,6 +7281,7 @@ def main() -> int:
             "m3_pcrel_mov_pair_addend_function_reorder": 4,
         }.get(label)
         pcrel_mov_pair_layout = pcrel_mov_pair_addend is not None
+        rwpi_static_base_layout = label == "m3_rwpi_static_base"
         split_validation = {
             "m3_function_split": validate_relocated_function_split,
             "m3_cdsplit": validate_relocated_cdsplit,
@@ -7213,6 +7370,8 @@ def main() -> int:
                     expected_addend=pcrel_mov_pair_addend,
                 )
                 if pcrel_mov_pair_layout
+                else validate_rwpi_static_base(image, candidate)
+                if rwpi_static_base_layout
                 else split_validation(image, candidate)
                 if split_validation is not None
                 else validate_in_place(image, candidate, protected)
@@ -7438,6 +7597,10 @@ def main() -> int:
                         image, candidate, final_layout,
                         expected_addend=pcrel_mov_pair_addend,
                     )
+                )
+            elif rwpi_static_base_layout:
+                results[label]["validation"] = validate_rwpi_static_base(
+                    image, candidate, final_layout,
                 )
             elif split_validation is not None:
                 results[label]["validation"] = (
@@ -11006,6 +11169,14 @@ def main() -> int:
             "pcrel-mov-pair-addend-function-reorder", expected_word=42,
         )
     )
+    m3_rwpi_execution = (
+        {"status": "skipped_by_request"} if args.skip_fastdyn else
+        validate_m3_single_word_execution(
+            m3_rwpi_image, candidates["m3_rwpi_static_base"],
+            output, args.fastdyn.resolve(), "rwpi-static-base",
+            expected_word=42,
+        )
+    )
     m3_function_split_execution = (
         {"status": "skipped_by_request"} if args.skip_fastdyn else
         validate_m3_words_execution(
@@ -11198,6 +11369,7 @@ def main() -> int:
             m3_target1_execution,
             m3_pcrel_mov_pair_execution,
             m3_pcrel_mov_pair_addend_execution,
+            m3_rwpi_execution,
             m3_function_split_execution,
             m3_cdsplit_execution,
             m3_loop_inversion_execution,
@@ -11705,6 +11877,7 @@ def main() -> int:
             m3_pcrel_mov_pair_execution,
         "m3_pcrel_mov_pair_addend_function_reorder_architectural_execution":
             m3_pcrel_mov_pair_addend_execution,
+        "m3_rwpi_static_base_architectural_execution": m3_rwpi_execution,
         "m3_native_function_split_architectural_execution":
             m3_function_split_execution,
         "m3_native_cdsplit_architectural_execution":
@@ -11951,6 +12124,8 @@ def main() -> int:
             str(candidates[
                 "m3_pcrel_mov_pair_addend_function_reorder"
             ]),
+        "m3_rwpi_static_base_candidate":
+            str(candidates["m3_rwpi_static_base"]),
         "m3_function_split_candidate":
             str(candidates["m3_function_split"]),
         "m3_cdsplit_candidate": str(candidates["m3_cdsplit"]),

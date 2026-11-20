@@ -1953,6 +1953,35 @@ and [validation manifest](evidence/firmbolt-cortex-m-v166-validation.json).
 This milestone is relocation and fail-closed publication coverage, not a
 runtime speedup or full x86-backend parity claim.
 
+v167 adds the two Thumb RWPI/static-base split relocations
+`R_ARM_THM_MOVW_BREL_NC` and `R_ARM_THM_MOVT_BREL`. Their architectural
+expression is `S+A-B(S)`, but AAELF32 deliberately leaves the definition of
+`B(S)` to the platform. FirmBOLT therefore keeps them unsupported by default;
+the explicit `--firmbolt-arm-static-base=segment-start` contract admits a
+reference only when its target is in a fixed non-executable input `PT_LOAD`
+whose start supplies `B(S)`. A target in executable memory is a negative
+control and retains its complete function. This is explicit firmware metadata,
+not an address-proximity or hotness inference.
+
+The Cortex-M3 RWPI fixture reconstructs the paired final-link addend `+4`,
+resolves `S+A-B(S)=0x24`, and lets ordinary FOP shrink the containing function
+from 32 to 30 bytes. Final publication moves both relocation offsets by two
+bytes, retains the exact symbol dependencies and instruction origins, and
+executes reference and candidate under FastDyn to the same RAM word `42`.
+Generic AArch32 JITLink is intentionally not claimed for this relocation: its
+current edge representation has no field for the platform-selected `B(S)`.
+
+The expanded production matrix passes 64/64 and binds 130,095 final origins in
+1,951 functions, including 98,712 origins in 1,137 modified functions and
+57,586 potentially faulting accesses. Regression gates pass 93/93 ARM BOLT lit,
+13/13 AArch32 JITLink lit, 19/19 focused JITLink units, and 132 BOLT unit tests
+plus 150 explicit target skips. The mechanical patch clean-applies to pinned
+LLVM and reconstructs all 167 touched files byte-for-byte. Evidence is in the
+[`v167 report`](../../build/preflight/firm-bolt-cortex-m-production-parity-v167-rwpi-2026-11-19/report.json)
+and [validation manifest](evidence/firmbolt-cortex-m-v167-validation.json).
+This milestone closes a typed relocation/publication gap; it is not a runtime
+speedup or full x86-backend parity claim.
+
 This is a production backend slice over real Cortex-M firmware, but it is not
 yet feature-parity with BOLT's mature x86 backend. Remaining target work is
 literal islands after calls or exception transfers without a proven
