@@ -99,8 +99,7 @@ def run(elf, inp, icount=False, qemu=None, timeout=120, expect_ns=None, window=T
         os.rmdir(tmp)
     # The work ended between the last two polls: report the midpoint.
     return {"ns": (t_done + t_prev) // 2 - t_start, "uncertainty_ns": (t_done - t_prev) // 2,
-            "wall_ns": t_end - t0, "polls": polls,
-            "stats": [f"0x{x:08x}" for x in stats]}
+            "wall_ns": t_end - t0, "polls": polls, "stats": stats}
 
 if __name__ == "__main__":
     a = [x for x in sys.argv[1:] if not x.startswith("--")]

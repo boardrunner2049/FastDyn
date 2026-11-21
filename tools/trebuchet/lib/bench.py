@@ -16,6 +16,7 @@ import glob, json, os, random, shutil, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import stock
+from result_schema import expected_values, stats_mismatches
 from scopt.run.deploy import deploy
 from scopt.run.launcher import create_run_dir, launch
 
@@ -49,12 +50,25 @@ def fastdyn(kind, v, artifact, inp, ref):
     if kind == "cache":
         deploy(artifact, rd)
     doc = launch(rd, prove=(kind == "cache"), inputs={"input": inp})
-    ok = doc["exit_code"] == 0 and not doc["timed_out"] and len(doc["bench"]) == 1
-    regs = [l for l in doc["guest_norm"] if l.startswith("Reg ")]
-    ok = ok and regs == [l for l in ref if l.startswith("Reg ")]
+    failures = []
+    if doc["exit_code"] != 0 or doc["timed_out"]:
+        failures.append(f"exit code {doc['exit_code']}, timed out {doc['timed_out']}")
+    if len(doc["bench"]) != 1:
+        failures.append(f"{len(doc['bench'])} benchmark windows")
+    try:
+        got = expected_values(doc["guest_norm"])
+    except ValueError as error:
+        failures.append(str(error))
+    else:
+        want = expected_values(ref)
+        failures += [f"report value {i} = 0x{g:08x}, expected 0x{w:08x}" for i, (g, w) in enumerate(zip(got, want)) if g != w]
     if kind == "cache":
-        ok = ok and doc["verdict"] == "PASS" and doc["appended"] == 0
-    r = {"guest_ns": doc["bench"][0]["elapsed_ns"] if doc["bench"] else None, "process_ns": int(doc["timings"]["wall_s"] * 1e9), "ok": ok}
+        if doc["verdict"] != "PASS":
+            failures.append(f"cache proof verdict {doc['verdict']}")
+        if doc["appended"] != 0:
+            failures.append(f"{doc['appended']} translation blocks appended")
+    r = {"guest_ns": doc["bench"][0]["elapsed_ns"] if doc["bench"] else None,
+         "process_ns": int(doc["timings"]["wall_s"] * 1e9), "ok": not failures, "failures": failures}
     shutil.rmtree(root, ignore_errors=True)
     return r
 
@@ -63,9 +77,11 @@ def stock_arm(v, inp, ref, key):
     a = stock.run(elf, str(inp), icount=True, window=True, expect_ns=expect.get((key, "g")))
     b = stock.run(elf, str(inp), icount=True, window=False, expect_ns=expect.get((key, "w")))
     expect[(key, "g")] = a["ns"]; expect[(key, "w")] = b["ns"]
-    want = [l.split(":")[1] for l in ref if l.startswith("Reg ")][:3]      # digest, frames_ok, processed
-    ok = all(x in a["stats"] and x in b["stats"] for x in want)
-    return {"guest_ns": a["ns"], "process_ns": b["ns"], "ok": ok, "uncertainty_ns": max(a["uncertainty_ns"], b["uncertainty_ns"])}
+    want = expected_values(ref)
+    failures = [f"window run: {m}" for m in stats_mismatches(a["stats"], want)]
+    failures += [f"process run: {m}" for m in stats_mismatches(b["stats"], want)]
+    return {"guest_ns": a["ns"], "process_ns": b["ns"], "ok": not failures, "failures": failures,
+            "uncertainty_ns": max(a["uncertainty_ns"], b["uncertainty_ns"])}
 
 def one(arm, n):
     spec = ARMS[arm]; inp = INP / f"final-{n}.bin"; ref = refs[spec[1]][n]
@@ -77,13 +93,21 @@ assert refs["O0"] == refs[FB], "FirmBOLT image and O0 image disagree on a final 
 rng = random.Random(20261121)
 for n in (1, 2, 3):                       # warm-up block per input (also calibrates the stock polling), not recorded
     for arm in ARMS:
-        r = one(arm, n); assert r["ok"], (arm, n, r)
+        r = one(arm, n)
+        if not r["ok"]:
+            sys.exit(f"warm-up launch failed its checks ({arm}, final-{n}): {r['failures']}")
 for rep in range(REPS):
     for n in (1, 2, 3):
         order = list(ARMS); rng.shuffle(order)
         for pos, arm in enumerate(order):
             r = one(arm, n); r.update(arm=arm, input=f"final-{n}", block=rep * 3 + n - 1, position=pos); samples.append(r)
-        out.write_text(json.dumps({"selection": {"status": sel.get("status"), "reason": sel.get("reason"), "selected": selected}, "samples": samples}, indent=1))
+        out.write_text(json.dumps({"selection": {"status": sel.get("status"), "reason": sel.get("reason"), "selected": selected},
+                                   "valid": all(s["ok"] for s in samples), "samples": samples}, indent=1))
     print("rep", rep, "done", time.strftime("%H:%M:%S"), flush=True)
 bad = [s for s in samples if not s["ok"]]
 print("samples", len(samples), "bad", len(bad))
+if bad:
+    # The samples and the reasons stay in the file; the campaign is not a valid comparison.
+    for s in bad:
+        print("FAILED", s["arm"], s["input"], "block", s["block"], "; ".join(s["failures"]))
+    sys.exit(1)
