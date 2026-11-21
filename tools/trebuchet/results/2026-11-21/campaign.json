@@ -1,0 +1,1572 @@
+{
+ "schema": "trebuchet.campaign/1",
+ "date": "2026-11-21",
+ "units": "nanoseconds",
+ "selection": {
+  "status": "ok",
+  "reason": "speedup_established",
+  "selected": "sfb/43339cde7401c3bb140170e8e9a1bd7a809c27ba2e680c096127a7c460714d7a"
+ },
+ "samples": [
+  {
+   "guest_ns": 1356880245,
+   "process_ns": 1587251582,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-1",
+   "block": 0,
+   "position": 0
+  },
+  {
+   "guest_ns": 1165950366,
+   "process_ns": 1183276064,
+   "ok": true,
+   "uncertainty_ns": 4328923,
+   "arm": "stock-O0",
+   "input": "final-1",
+   "block": 0,
+   "position": 1
+  },
+  {
+   "guest_ns": 1401423206,
+   "process_ns": 1639917499,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-1",
+   "block": 0,
+   "position": 2
+  },
+  {
+   "guest_ns": 1255170570,
+   "process_ns": 1487640839,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-1",
+   "block": 0,
+   "position": 3
+  },
+  {
+   "guest_ns": 1433579994,
+   "process_ns": 1669575205,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-1",
+   "block": 0,
+   "position": 4
+  },
+  {
+   "guest_ns": 1113763655,
+   "process_ns": 1157891038,
+   "ok": true,
+   "uncertainty_ns": 6415320,
+   "arm": "stock-fb",
+   "input": "final-1",
+   "block": 0,
+   "position": 5
+  },
+  {
+   "guest_ns": 1374910676,
+   "process_ns": 1605583334,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-1",
+   "block": 0,
+   "position": 6
+  },
+  {
+   "guest_ns": 1266653590,
+   "process_ns": 1501779938,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-2",
+   "block": 1,
+   "position": 0
+  },
+  {
+   "guest_ns": 1411188546,
+   "process_ns": 1650032253,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-2",
+   "block": 1,
+   "position": 1
+  },
+  {
+   "guest_ns": 1385229533,
+   "process_ns": 1618378849,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-2",
+   "block": 1,
+   "position": 2
+  },
+  {
+   "guest_ns": 1126728467,
+   "process_ns": 1171667532,
+   "ok": true,
+   "uncertainty_ns": 2788105,
+   "arm": "stock-fb",
+   "input": "final-2",
+   "block": 1,
+   "position": 3
+  },
+  {
+   "guest_ns": 1361883159,
+   "process_ns": 1600595879,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-2",
+   "block": 1,
+   "position": 4
+  },
+  {
+   "guest_ns": 1163482840,
+   "process_ns": 1206732736,
+   "ok": true,
+   "uncertainty_ns": 1036620,
+   "arm": "stock-O0",
+   "input": "final-2",
+   "block": 1,
+   "position": 5
+  },
+  {
+   "guest_ns": 1448709512,
+   "process_ns": 1683763401,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-2",
+   "block": 1,
+   "position": 6
+  },
+  {
+   "guest_ns": 1181627618,
+   "process_ns": 1207101774,
+   "ok": true,
+   "uncertainty_ns": 4481485,
+   "arm": "stock-O0",
+   "input": "final-3",
+   "block": 2,
+   "position": 0
+  },
+  {
+   "guest_ns": 1418740254,
+   "process_ns": 1659828970,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-3",
+   "block": 2,
+   "position": 1
+  },
+  {
+   "guest_ns": 1414668423,
+   "process_ns": 1650939034,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-3",
+   "block": 2,
+   "position": 2
+  },
+  {
+   "guest_ns": 1280307536,
+   "process_ns": 1515952726,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-3",
+   "block": 2,
+   "position": 3
+  },
+  {
+   "guest_ns": 1367828794,
+   "process_ns": 1599291295,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-3",
+   "block": 2,
+   "position": 4
+  },
+  {
+   "guest_ns": 1130351241,
+   "process_ns": 1184288733,
+   "ok": true,
+   "uncertainty_ns": 9863824,
+   "arm": "stock-fb",
+   "input": "final-3",
+   "block": 2,
+   "position": 5
+  },
+  {
+   "guest_ns": 1463425479,
+   "process_ns": 1700445410,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-3",
+   "block": 2,
+   "position": 6
+  },
+  {
+   "guest_ns": 1259236309,
+   "process_ns": 1494956692,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-1",
+   "block": 3,
+   "position": 0
+  },
+  {
+   "guest_ns": 1338684415,
+   "process_ns": 1571959768,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-1",
+   "block": 3,
+   "position": 1
+  },
+  {
+   "guest_ns": 1400182296,
+   "process_ns": 1640712823,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-1",
+   "block": 3,
+   "position": 2
+  },
+  {
+   "guest_ns": 1139271855,
+   "process_ns": 1164860517,
+   "ok": true,
+   "uncertainty_ns": 1036050,
+   "arm": "stock-fb",
+   "input": "final-1",
+   "block": 3,
+   "position": 3
+  },
+  {
+   "guest_ns": 1146882740,
+   "process_ns": 1183006089,
+   "ok": true,
+   "uncertainty_ns": 1036307,
+   "arm": "stock-O0",
+   "input": "final-1",
+   "block": 3,
+   "position": 4
+  },
+  {
+   "guest_ns": 1390516507,
+   "process_ns": 1623920876,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-1",
+   "block": 3,
+   "position": 5
+  },
+  {
+   "guest_ns": 1408857681,
+   "process_ns": 1643192225,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-1",
+   "block": 3,
+   "position": 6
+  },
+  {
+   "guest_ns": 1263081407,
+   "process_ns": 1502452012,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-2",
+   "block": 4,
+   "position": 0
+  },
+  {
+   "guest_ns": 1379087210,
+   "process_ns": 1610838593,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-2",
+   "block": 4,
+   "position": 1
+  },
+  {
+   "guest_ns": 1339647821,
+   "process_ns": 1576101742,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-2",
+   "block": 4,
+   "position": 2
+  },
+  {
+   "guest_ns": 1132467003,
+   "process_ns": 1171473749,
+   "ok": true,
+   "uncertainty_ns": 1036247,
+   "arm": "stock-fb",
+   "input": "final-2",
+   "block": 4,
+   "position": 3
+  },
+  {
+   "guest_ns": 1428418765,
+   "process_ns": 1666486377,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-2",
+   "block": 4,
+   "position": 4
+  },
+  {
+   "guest_ns": 1176523821,
+   "process_ns": 1182007127,
+   "ok": true,
+   "uncertainty_ns": 1037097,
+   "arm": "stock-O0",
+   "input": "final-2",
+   "block": 4,
+   "position": 5
+  },
+  {
+   "guest_ns": 1396011281,
+   "process_ns": 1631257280,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-2",
+   "block": 4,
+   "position": 6
+  },
+  {
+   "guest_ns": 1404580842,
+   "process_ns": 1644781303,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-3",
+   "block": 5,
+   "position": 0
+  },
+  {
+   "guest_ns": 1396307456,
+   "process_ns": 1628987764,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-3",
+   "block": 5,
+   "position": 1
+  },
+  {
+   "guest_ns": 1303235371,
+   "process_ns": 1539605825,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-3",
+   "block": 5,
+   "position": 2
+  },
+  {
+   "guest_ns": 1181184012,
+   "process_ns": 1212257388,
+   "ok": true,
+   "uncertainty_ns": 1037475,
+   "arm": "stock-O0",
+   "input": "final-3",
+   "block": 5,
+   "position": 3
+  },
+  {
+   "guest_ns": 1446239325,
+   "process_ns": 1685757288,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-3",
+   "block": 5,
+   "position": 4
+  },
+  {
+   "guest_ns": 1142439939,
+   "process_ns": 1185972330,
+   "ok": true,
+   "uncertainty_ns": 1034614,
+   "arm": "stock-fb",
+   "input": "final-3",
+   "block": 5,
+   "position": 5
+  },
+  {
+   "guest_ns": 1360484965,
+   "process_ns": 1595267292,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-3",
+   "block": 5,
+   "position": 6
+  },
+  {
+   "guest_ns": 1408307184,
+   "process_ns": 1648805723,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-1",
+   "block": 6,
+   "position": 0
+  },
+  {
+   "guest_ns": 1402072508,
+   "process_ns": 1641403182,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-1",
+   "block": 6,
+   "position": 1
+  },
+  {
+   "guest_ns": 1245670129,
+   "process_ns": 1478809621,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-1",
+   "block": 6,
+   "position": 2
+  },
+  {
+   "guest_ns": 1366486458,
+   "process_ns": 1600759534,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-1",
+   "block": 6,
+   "position": 3
+  },
+  {
+   "guest_ns": 1326062335,
+   "process_ns": 1560441341,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-1",
+   "block": 6,
+   "position": 4
+  },
+  {
+   "guest_ns": 1127451857,
+   "process_ns": 1150170107,
+   "ok": true,
+   "uncertainty_ns": 1036550,
+   "arm": "stock-fb",
+   "input": "final-1",
+   "block": 6,
+   "position": 5
+  },
+  {
+   "guest_ns": 1160888838,
+   "process_ns": 1180501119,
+   "ok": true,
+   "uncertainty_ns": 1036286,
+   "arm": "stock-O0",
+   "input": "final-1",
+   "block": 6,
+   "position": 6
+  },
+  {
+   "guest_ns": 1182616520,
+   "process_ns": 1198627362,
+   "ok": true,
+   "uncertainty_ns": 1037567,
+   "arm": "stock-O0",
+   "input": "final-2",
+   "block": 7,
+   "position": 0
+  },
+  {
+   "guest_ns": 1418714693,
+   "process_ns": 1654214289,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-2",
+   "block": 7,
+   "position": 1
+  },
+  {
+   "guest_ns": 1146310603,
+   "process_ns": 1175480641,
+   "ok": true,
+   "uncertainty_ns": 1036627,
+   "arm": "stock-fb",
+   "input": "final-2",
+   "block": 7,
+   "position": 2
+  },
+  {
+   "guest_ns": 1453951647,
+   "process_ns": 1690614828,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-2",
+   "block": 7,
+   "position": 3
+  },
+  {
+   "guest_ns": 1261568431,
+   "process_ns": 1495854748,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-2",
+   "block": 7,
+   "position": 4
+  },
+  {
+   "guest_ns": 1361215352,
+   "process_ns": 1597614699,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-2",
+   "block": 7,
+   "position": 5
+  },
+  {
+   "guest_ns": 1382159624,
+   "process_ns": 1611152145,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-2",
+   "block": 7,
+   "position": 6
+  },
+  {
+   "guest_ns": 1448163028,
+   "process_ns": 1681208759,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-3",
+   "block": 8,
+   "position": 0
+  },
+  {
+   "guest_ns": 1155098437,
+   "process_ns": 1202235041,
+   "ok": true,
+   "uncertainty_ns": 1033986,
+   "arm": "stock-O0",
+   "input": "final-3",
+   "block": 8,
+   "position": 1
+  },
+  {
+   "guest_ns": 1145512682,
+   "process_ns": 1191933391,
+   "ok": true,
+   "uncertainty_ns": 1036977,
+   "arm": "stock-fb",
+   "input": "final-3",
+   "block": 8,
+   "position": 2
+  },
+  {
+   "guest_ns": 1368271718,
+   "process_ns": 1602455788,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-3",
+   "block": 8,
+   "position": 3
+  },
+  {
+   "guest_ns": 1267175179,
+   "process_ns": 1498092783,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-3",
+   "block": 8,
+   "position": 4
+  },
+  {
+   "guest_ns": 1390888802,
+   "process_ns": 1621262329,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-3",
+   "block": 8,
+   "position": 5
+  },
+  {
+   "guest_ns": 1427968189,
+   "process_ns": 1666112214,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-3",
+   "block": 8,
+   "position": 6
+  },
+  {
+   "guest_ns": 1156927735,
+   "process_ns": 1173885335,
+   "ok": true,
+   "uncertainty_ns": 1036367,
+   "arm": "stock-O0",
+   "input": "final-1",
+   "block": 9,
+   "position": 0
+  },
+  {
+   "guest_ns": 1333532285,
+   "process_ns": 1563234862,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-1",
+   "block": 9,
+   "position": 1
+  },
+  {
+   "guest_ns": 1422747308,
+   "process_ns": 1654926283,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-1",
+   "block": 9,
+   "position": 2
+  },
+  {
+   "guest_ns": 1370547400,
+   "process_ns": 1603914782,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-1",
+   "block": 9,
+   "position": 3
+  },
+  {
+   "guest_ns": 1242272654,
+   "process_ns": 1476187216,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-1",
+   "block": 9,
+   "position": 4
+  },
+  {
+   "guest_ns": 1377433931,
+   "process_ns": 1614479151,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-1",
+   "block": 9,
+   "position": 5
+  },
+  {
+   "guest_ns": 1133281249,
+   "process_ns": 1165828052,
+   "ok": true,
+   "uncertainty_ns": 1034608,
+   "arm": "stock-fb",
+   "input": "final-1",
+   "block": 9,
+   "position": 6
+  },
+  {
+   "guest_ns": 1363272911,
+   "process_ns": 1597956332,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-2",
+   "block": 10,
+   "position": 0
+  },
+  {
+   "guest_ns": 1142650017,
+   "process_ns": 1158388944,
+   "ok": true,
+   "uncertainty_ns": 1034216,
+   "arm": "stock-fb",
+   "input": "final-2",
+   "block": 10,
+   "position": 1
+  },
+  {
+   "guest_ns": 1413957098,
+   "process_ns": 1649648116,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-2",
+   "block": 10,
+   "position": 2
+  },
+  {
+   "guest_ns": 1190617238,
+   "process_ns": 1208043713,
+   "ok": true,
+   "uncertainty_ns": 1049357,
+   "arm": "stock-O0",
+   "input": "final-2",
+   "block": 10,
+   "position": 3
+  },
+  {
+   "guest_ns": 1367209539,
+   "process_ns": 1603999511,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-2",
+   "block": 10,
+   "position": 4
+  },
+  {
+   "guest_ns": 1272720600,
+   "process_ns": 1509543597,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-2",
+   "block": 10,
+   "position": 5
+  },
+  {
+   "guest_ns": 1420965693,
+   "process_ns": 1659615300,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-2",
+   "block": 10,
+   "position": 6
+  },
+  {
+   "guest_ns": 1276957510,
+   "process_ns": 1511378273,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-3",
+   "block": 11,
+   "position": 0
+  },
+  {
+   "guest_ns": 1430676372,
+   "process_ns": 1670642445,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-3",
+   "block": 11,
+   "position": 1
+  },
+  {
+   "guest_ns": 1150582213,
+   "process_ns": 1182747419,
+   "ok": true,
+   "uncertainty_ns": 1036976,
+   "arm": "stock-fb",
+   "input": "final-3",
+   "block": 11,
+   "position": 2
+  },
+  {
+   "guest_ns": 1178837856,
+   "process_ns": 1207494452,
+   "ok": true,
+   "uncertainty_ns": 1036138,
+   "arm": "stock-O0",
+   "input": "final-3",
+   "block": 11,
+   "position": 3
+  },
+  {
+   "guest_ns": 1442262280,
+   "process_ns": 1681690251,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-3",
+   "block": 11,
+   "position": 4
+  },
+  {
+   "guest_ns": 1359521159,
+   "process_ns": 1597678496,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-3",
+   "block": 11,
+   "position": 5
+  },
+  {
+   "guest_ns": 1407133881,
+   "process_ns": 1641921039,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-3",
+   "block": 11,
+   "position": 6
+  },
+  {
+   "guest_ns": 1370480485,
+   "process_ns": 1601531817,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-1",
+   "block": 12,
+   "position": 0
+  },
+  {
+   "guest_ns": 1132525651,
+   "process_ns": 1164045341,
+   "ok": true,
+   "uncertainty_ns": 1034004,
+   "arm": "stock-fb",
+   "input": "final-1",
+   "block": 12,
+   "position": 1
+  },
+  {
+   "guest_ns": 1268053490,
+   "process_ns": 1501229807,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-1",
+   "block": 12,
+   "position": 2
+  },
+  {
+   "guest_ns": 1155217635,
+   "process_ns": 1190996206,
+   "ok": true,
+   "uncertainty_ns": 1036193,
+   "arm": "stock-O0",
+   "input": "final-1",
+   "block": 12,
+   "position": 3
+  },
+  {
+   "guest_ns": 1346117336,
+   "process_ns": 1579668581,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-1",
+   "block": 12,
+   "position": 4
+  },
+  {
+   "guest_ns": 1422245068,
+   "process_ns": 1658938619,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-1",
+   "block": 12,
+   "position": 5
+  },
+  {
+   "guest_ns": 1399553161,
+   "process_ns": 1641092435,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-1",
+   "block": 12,
+   "position": 6
+  },
+  {
+   "guest_ns": 1408238495,
+   "process_ns": 1644943501,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-2",
+   "block": 13,
+   "position": 0
+  },
+  {
+   "guest_ns": 1345646376,
+   "process_ns": 1583584229,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-2",
+   "block": 13,
+   "position": 1
+  },
+  {
+   "guest_ns": 1272747583,
+   "process_ns": 1507603714,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-2",
+   "block": 13,
+   "position": 2
+  },
+  {
+   "guest_ns": 1408410910,
+   "process_ns": 1648684874,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-2",
+   "block": 13,
+   "position": 3
+  },
+  {
+   "guest_ns": 1170467491,
+   "process_ns": 1210885070,
+   "ok": true,
+   "uncertainty_ns": 1034477,
+   "arm": "stock-O0",
+   "input": "final-2",
+   "block": 13,
+   "position": 4
+  },
+  {
+   "guest_ns": 1431826613,
+   "process_ns": 1668183645,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-2",
+   "block": 13,
+   "position": 5
+  },
+  {
+   "guest_ns": 1149699732,
+   "process_ns": 1182219767,
+   "ok": true,
+   "uncertainty_ns": 1032661,
+   "arm": "stock-fb",
+   "input": "final-2",
+   "block": 13,
+   "position": 6
+  },
+  {
+   "guest_ns": 1418399831,
+   "process_ns": 1654547530,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-3",
+   "block": 14,
+   "position": 0
+  },
+  {
+   "guest_ns": 1173935200,
+   "process_ns": 1198859190,
+   "ok": true,
+   "uncertainty_ns": 1035223,
+   "arm": "stock-fb",
+   "input": "final-3",
+   "block": 14,
+   "position": 1
+  },
+  {
+   "guest_ns": 1199896513,
+   "process_ns": 1208410542,
+   "ok": true,
+   "uncertainty_ns": 1036418,
+   "arm": "stock-O0",
+   "input": "final-3",
+   "block": 14,
+   "position": 2
+  },
+  {
+   "guest_ns": 1412794586,
+   "process_ns": 1646180288,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-3",
+   "block": 14,
+   "position": 3
+  },
+  {
+   "guest_ns": 1455274459,
+   "process_ns": 1688690495,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-3",
+   "block": 14,
+   "position": 4
+  },
+  {
+   "guest_ns": 1376053454,
+   "process_ns": 1616064444,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-3",
+   "block": 14,
+   "position": 5
+  },
+  {
+   "guest_ns": 1298044680,
+   "process_ns": 1534721849,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-3",
+   "block": 14,
+   "position": 6
+  },
+  {
+   "guest_ns": 1262771209,
+   "process_ns": 1500280748,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-1",
+   "block": 15,
+   "position": 0
+  },
+  {
+   "guest_ns": 1174767800,
+   "process_ns": 1209545058,
+   "ok": true,
+   "uncertainty_ns": 1036794,
+   "arm": "stock-O0",
+   "input": "final-1",
+   "block": 15,
+   "position": 1
+  },
+  {
+   "guest_ns": 1434062759,
+   "process_ns": 1672537539,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-1",
+   "block": 15,
+   "position": 2
+  },
+  {
+   "guest_ns": 1386876552,
+   "process_ns": 1622683093,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-1",
+   "block": 15,
+   "position": 3
+  },
+  {
+   "guest_ns": 1123223819,
+   "process_ns": 1160108347,
+   "ok": true,
+   "uncertainty_ns": 1036820,
+   "arm": "stock-fb",
+   "input": "final-1",
+   "block": 15,
+   "position": 4
+  },
+  {
+   "guest_ns": 1397389911,
+   "process_ns": 1635713125,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-1",
+   "block": 15,
+   "position": 5
+  },
+  {
+   "guest_ns": 1356636902,
+   "process_ns": 1592169712,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-1",
+   "block": 15,
+   "position": 6
+  },
+  {
+   "guest_ns": 1440770842,
+   "process_ns": 1676274214,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-2",
+   "block": 16,
+   "position": 0
+  },
+  {
+   "guest_ns": 1150387071,
+   "process_ns": 1194688783,
+   "ok": true,
+   "uncertainty_ns": 1037907,
+   "arm": "stock-fb",
+   "input": "final-2",
+   "block": 16,
+   "position": 1
+  },
+  {
+   "guest_ns": 1178803616,
+   "process_ns": 1217910832,
+   "ok": true,
+   "uncertainty_ns": 1037756,
+   "arm": "stock-O0",
+   "input": "final-2",
+   "block": 16,
+   "position": 2
+  },
+  {
+   "guest_ns": 1438013131,
+   "process_ns": 1679026683,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-2",
+   "block": 16,
+   "position": 3
+  },
+  {
+   "guest_ns": 1292363687,
+   "process_ns": 1530175404,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-2",
+   "block": 16,
+   "position": 4
+  },
+  {
+   "guest_ns": 1384820061,
+   "process_ns": 1625114407,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-2",
+   "block": 16,
+   "position": 5
+  },
+  {
+   "guest_ns": 1403247733,
+   "process_ns": 1641351920,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-2",
+   "block": 16,
+   "position": 6
+  },
+  {
+   "guest_ns": 1375712084,
+   "process_ns": 1612036528,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-3",
+   "block": 17,
+   "position": 0
+  },
+  {
+   "guest_ns": 1426790567,
+   "process_ns": 1659598772,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-3",
+   "block": 17,
+   "position": 1
+  },
+  {
+   "guest_ns": 1163092848,
+   "process_ns": 1185094809,
+   "ok": true,
+   "uncertainty_ns": 1037823,
+   "arm": "stock-fb",
+   "input": "final-3",
+   "block": 17,
+   "position": 2
+  },
+  {
+   "guest_ns": 1431041703,
+   "process_ns": 1671548157,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-3",
+   "block": 17,
+   "position": 3
+  },
+  {
+   "guest_ns": 1276386802,
+   "process_ns": 1514524824,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-3",
+   "block": 17,
+   "position": 4
+  },
+  {
+   "guest_ns": 1453551587,
+   "process_ns": 1694607882,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-3",
+   "block": 17,
+   "position": 5
+  },
+  {
+   "guest_ns": 1198354573,
+   "process_ns": 1241154814,
+   "ok": true,
+   "uncertainty_ns": 1036991,
+   "arm": "stock-O0",
+   "input": "final-3",
+   "block": 17,
+   "position": 6
+  },
+  {
+   "guest_ns": 1152117642,
+   "process_ns": 1166800827,
+   "ok": true,
+   "uncertainty_ns": 1035654,
+   "arm": "stock-fb",
+   "input": "final-1",
+   "block": 18,
+   "position": 0
+  },
+  {
+   "guest_ns": 1254300232,
+   "process_ns": 1489451247,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-1",
+   "block": 18,
+   "position": 1
+  },
+  {
+   "guest_ns": 1392528834,
+   "process_ns": 1633922084,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-1",
+   "block": 18,
+   "position": 2
+  },
+  {
+   "guest_ns": 1161757069,
+   "process_ns": 1233899529,
+   "ok": true,
+   "uncertainty_ns": 1036002,
+   "arm": "stock-O0",
+   "input": "final-1",
+   "block": 18,
+   "position": 3
+  },
+  {
+   "guest_ns": 1433554940,
+   "process_ns": 1673561163,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-1",
+   "block": 18,
+   "position": 4
+  },
+  {
+   "guest_ns": 1389013210,
+   "process_ns": 1628438643,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-1",
+   "block": 18,
+   "position": 5
+  },
+  {
+   "guest_ns": 1338467377,
+   "process_ns": 1570677059,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-1",
+   "block": 18,
+   "position": 6
+  },
+  {
+   "guest_ns": 1280648546,
+   "process_ns": 1513960008,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-2",
+   "block": 19,
+   "position": 0
+  },
+  {
+   "guest_ns": 1165532456,
+   "process_ns": 1201378941,
+   "ok": true,
+   "uncertainty_ns": 1037122,
+   "arm": "stock-O0",
+   "input": "final-2",
+   "block": 19,
+   "position": 1
+  },
+  {
+   "guest_ns": 1461523743,
+   "process_ns": 1696809230,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-2",
+   "block": 19,
+   "position": 2
+  },
+  {
+   "guest_ns": 1410866126,
+   "process_ns": 1649914892,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-2",
+   "block": 19,
+   "position": 3
+  },
+  {
+   "guest_ns": 1411119405,
+   "process_ns": 1647626644,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-2",
+   "block": 19,
+   "position": 4
+  },
+  {
+   "guest_ns": 1351537494,
+   "process_ns": 1583939339,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-2",
+   "block": 19,
+   "position": 5
+  },
+  {
+   "guest_ns": 1140425932,
+   "process_ns": 1168257341,
+   "ok": true,
+   "uncertainty_ns": 1037223,
+   "arm": "stock-fb",
+   "input": "final-2",
+   "block": 19,
+   "position": 6
+  },
+  {
+   "guest_ns": 1195008747,
+   "process_ns": 1219486808,
+   "ok": true,
+   "uncertainty_ns": 1036587,
+   "arm": "stock-O0",
+   "input": "final-3",
+   "block": 20,
+   "position": 0
+  },
+  {
+   "guest_ns": 1148304876,
+   "process_ns": 1186729268,
+   "ok": true,
+   "uncertainty_ns": 1035930,
+   "arm": "stock-fb",
+   "input": "final-3",
+   "block": 20,
+   "position": 1
+  },
+  {
+   "guest_ns": 1413921471,
+   "process_ns": 1647788694,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-3",
+   "block": 20,
+   "position": 2
+  },
+  {
+   "guest_ns": 1453722248,
+   "process_ns": 1691434968,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-3",
+   "block": 20,
+   "position": 3
+  },
+  {
+   "guest_ns": 1295832424,
+   "process_ns": 1531825458,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-3",
+   "block": 20,
+   "position": 4
+  },
+  {
+   "guest_ns": 1369541366,
+   "process_ns": 1601710162,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-3",
+   "block": 20,
+   "position": 5
+  },
+  {
+   "guest_ns": 1429031432,
+   "process_ns": 1662855763,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-3",
+   "block": 20,
+   "position": 6
+  },
+  {
+   "guest_ns": 1133542170,
+   "process_ns": 1160694622,
+   "ok": true,
+   "uncertainty_ns": 1035311,
+   "arm": "stock-fb",
+   "input": "final-1",
+   "block": 21,
+   "position": 0
+  },
+  {
+   "guest_ns": 1393049988,
+   "process_ns": 1625014662,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-1",
+   "block": 21,
+   "position": 1
+  },
+  {
+   "guest_ns": 1268644131,
+   "process_ns": 1506356906,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-1",
+   "block": 21,
+   "position": 2
+  },
+  {
+   "guest_ns": 1407412603,
+   "process_ns": 1652145316,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-1",
+   "block": 21,
+   "position": 3
+  },
+  {
+   "guest_ns": 1422301417,
+   "process_ns": 1657281743,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-1",
+   "block": 21,
+   "position": 4
+  },
+  {
+   "guest_ns": 1353181414,
+   "process_ns": 1590832407,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-1",
+   "block": 21,
+   "position": 5
+  },
+  {
+   "guest_ns": 1151341846,
+   "process_ns": 1195394098,
+   "ok": true,
+   "uncertainty_ns": 1035801,
+   "arm": "stock-O0",
+   "input": "final-1",
+   "block": 21,
+   "position": 6
+  },
+  {
+   "guest_ns": 1130774718,
+   "process_ns": 1151441340,
+   "ok": true,
+   "uncertainty_ns": 1035310,
+   "arm": "stock-fb",
+   "input": "final-2",
+   "block": 22,
+   "position": 0
+  },
+  {
+   "guest_ns": 1392918083,
+   "process_ns": 1626470902,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-2",
+   "block": 22,
+   "position": 1
+  },
+  {
+   "guest_ns": 1271540093,
+   "process_ns": 1509321819,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-2",
+   "block": 22,
+   "position": 2
+  },
+  {
+   "guest_ns": 1184686004,
+   "process_ns": 1206467254,
+   "ok": true,
+   "uncertainty_ns": 1035888,
+   "arm": "stock-O0",
+   "input": "final-2",
+   "block": 22,
+   "position": 3
+  },
+  {
+   "guest_ns": 1403587590,
+   "process_ns": 1638104444,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-2",
+   "block": 22,
+   "position": 4
+  },
+  {
+   "guest_ns": 1342681422,
+   "process_ns": 1575388141,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-2",
+   "block": 22,
+   "position": 5
+  },
+  {
+   "guest_ns": 1426055570,
+   "process_ns": 1667619245,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-2",
+   "block": 22,
+   "position": 6
+  },
+  {
+   "guest_ns": 1418156287,
+   "process_ns": 1657820328,
+   "ok": true,
+   "arm": "fd-fb",
+   "input": "final-3",
+   "block": 23,
+   "position": 0
+  },
+  {
+   "guest_ns": 1447384041,
+   "process_ns": 1685355475,
+   "ok": true,
+   "arm": "fd-O0",
+   "input": "final-3",
+   "block": 23,
+   "position": 1
+  },
+  {
+   "guest_ns": 1274256444,
+   "process_ns": 1510254489,
+   "ok": true,
+   "arm": "fd-fb-scopt",
+   "input": "final-3",
+   "block": 23,
+   "position": 2
+  },
+  {
+   "guest_ns": 1144534883,
+   "process_ns": 1167033061,
+   "ok": true,
+   "uncertainty_ns": 1036664,
+   "arm": "stock-fb",
+   "input": "final-3",
+   "block": 23,
+   "position": 3
+  },
+  {
+   "guest_ns": 1382736690,
+   "process_ns": 1619268528,
+   "ok": true,
+   "arm": "fd-fb-warm",
+   "input": "final-3",
+   "block": 23,
+   "position": 4
+  },
+  {
+   "guest_ns": 1404206290,
+   "process_ns": 1641364690,
+   "ok": true,
+   "arm": "fd-O0-warm",
+   "input": "final-3",
+   "block": 23,
+   "position": 5
+  },
+  {
+   "guest_ns": 1172712140,
+   "process_ns": 1215740766,
+   "ok": true,
+   "uncertainty_ns": 1035805,
+   "arm": "stock-O0",
+   "input": "final-3",
+   "block": 23,
+   "position": 6
+  }
+ ]
+}

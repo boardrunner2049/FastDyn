@@ -36,6 +36,7 @@ Reference:
 - Schemas: `scopt/formats/schemas/*.json` and `scopt/formats/layouts.py`. Check them with
   `scopt contracts check`
 - [Four-way warm SuperCache benchmark](docs/selected-warm-benchmark/README.md) compares stock QEMU, uncached FastDyn, ordinary warm and production-selected warm across six firmwares.
+- [Trebuchet](../trebuchet/README.md) is the end-to-end pipeline: an `-O0` firmware through FirmBOLT, FastDyn, warm SuperCache and scopt, with each stage timed against stock QEMU.
 - One-command report: `tests/qemu/b5_campaign.py report` (`docs/b5-campaign.md`,
   `docs/timing-and-report.md`)
 - Per-milestone pages: `docs/b1-gate.md`, `docs/b2-*.md`, `docs/b3-*.md`, `docs/b4.md`,
