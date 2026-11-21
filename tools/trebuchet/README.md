@@ -128,7 +128,8 @@ read-only): `chmod -R u+w "$TREBUCHET_WORK" && rm -rf "$TREBUCHET_WORK"`.
 
 `firmware/compute/` is a packet-processing application for the FreeRTOS MPS2 Cortex-M3
 demo (FreeRTOS `48d4714c71da`): `main_compute.c` plus small edits to `main.c`,
-`FreeRTOSConfig.h`, `startup_gcc.c`, the `Makefile` and the linker script. It reads its
+`FreeRTOSConfig.h` and, in `gcc/` (the demo's `build/gcc`), `startup_gcc.c`, the
+`Makefile` and the linker script. It reads its
 input stream from RAM at `0x21000000` and marks its measured window with six small
 marker functions (`vComputeWindowStart`, `vComputeReport1..4`, `vComputeDone`).
 

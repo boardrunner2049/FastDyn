@@ -39,7 +39,7 @@ stage_firmware() {      # pinned FreeRTOS demo + the compute application + the n
         git -C "$W/FreeRTOS" submodule -q update --init --depth 1 FreeRTOS/Source FreeRTOS-Plus/Source/FreeRTOS-Plus-Trace
     fi
     cp "$T"/firmware/compute/{main_compute.c,main.c,FreeRTOSConfig.h} "$DEMO/"
-    cp "$T"/firmware/compute/build/gcc/{Makefile,mps2_m3.ld,startup_gcc.c} "$DEMO/build/gcc/"
+    cp "$T"/firmware/compute/gcc/{Makefile,mps2_m3.ld,startup_gcc.c} "$DEMO/build/gcc/"
     python3 "$T/firmware/compute/gen_inputs.py" --out "$W/inputs" > "$W/inputs.log"
     echo "inputs: $(ls "$W"/inputs/*/freertos-mps2-compute/*.bin | wc -l)"
 }
