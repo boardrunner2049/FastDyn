@@ -76,7 +76,13 @@ def build_host_calls(unit: TBUnit, hostops: UnitHostOps,
     base = code_address + unit.tc_offset
     vaddrs = insn_vaddrs(unit, page_bits) or ()
     effects = effects_for_hostops(hostops)
-    replaced = {call.call_off for call in unit.native_fragments}
+    # A certificate names its call by the offset in the code it was proved against.
+    # Until the splices are materialized that is where the retired call still stands.
+    # Afterwards the retired calls are gone from the code and from the sites, and every
+    # remaining offset is physical: the same number can then name a call that survived
+    # (an untouched call moved there by an earlier expansion), so nothing is subtracted.
+    replaced = (frozenset() if unit.splice_applied
+                else {call.call_off for call in unit.native_fragments})
     rows = []
     for off in sorted((sites.keys() | ops.keys()) - replaced):
         at_off = sites.get(off, ())
