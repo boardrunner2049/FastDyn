@@ -28,37 +28,39 @@ QEMU) and `fd-O0-warm` (the `-O0` image with an ordinary warm cache).
 
 FreeRTOS compute firmware at `-O0`, Cortex-M3. Medians over 24 blocks on the three
 final inputs; every one of the 168 timed launches passed its result check. Raw samples:
-`results/2026-11-21/campaign.json`; candidate ranking: `results/2026-11-21/selection.json`.
+`results/2026-11-21-composed/campaign.json`; candidate ranking:
+`results/2026-11-21-composed/selection.json`.
 
 | # | configuration | guest work | whole process |
 |---|---|---:|---:|
-| 1 | stock QEMU 8.2.2, `-O0` image | 1174 ms | 1207 ms |
-| 2 | FastDyn, `-O0` image, cache off | 1437 ms | 1675 ms |
-| 3 | FastDyn, FirmBOLT image, cache off | 1410 ms | 1650 ms |
-| 4 | FastDyn, FirmBOLT image, warm SuperCache | 1358 ms | 1594 ms |
-| 5 | FastDyn, FirmBOLT image, scopt-selected warm SuperCache | 1270 ms | 1507 ms |
+| 1 | stock QEMU 8.2.2, `-O0` image | 1174 ms | 1208 ms |
+| 2 | FastDyn, `-O0` image, cache off | 1442 ms | 1681 ms |
+| 3 | FastDyn, FirmBOLT image, cache off | 1411 ms | 1656 ms |
+| 4 | FastDyn, FirmBOLT image, warm SuperCache | 1361 ms | 1600 ms |
+| 5 | FastDyn, FirmBOLT image, scopt-selected warm SuperCache | 1177 ms | 1417 ms |
 
 Speedup of each step on guest work (median of within-block ratios, 95 % bootstrap
 interval over blocks):
 
 | step | speedup |
 |---|---:|
-| 1 → 2: stock QEMU to FastDyn | 0.815× [0.812, 0.819] |
-| 2 → 3: FirmBOLT | 1.022× [1.016, 1.026] |
-| 3 → 4: warm SuperCache | 1.040× [1.037, 1.042] |
-| 4 → 5: scopt | 1.067× [1.062, 1.074] |
-| 2 → 5: the whole pipeline on FastDyn | 1.131× [1.122, 1.141] |
-| 1 → 5: against stock QEMU | 0.923× [0.917, 0.930] |
+| 1 → 2: stock QEMU to FastDyn | 0.815× [0.806, 0.822] |
+| 2 → 3: FirmBOLT | 1.019× [1.012, 1.023] |
+| 3 → 4: warm SuperCache | 1.040× [1.033, 1.046] |
+| 4 → 5: scopt | 1.154× [1.149, 1.162] |
+| 2 → 5: the whole pipeline on FastDyn | 1.224× [1.218, 1.229] |
+| 1 → 5: against stock QEMU | 0.994× [0.990, 1.004] |
 
 Reading it:
 
-- The pipeline makes FastDyn 13 % faster on this firmware. FastDyn with nothing enabled
-  starts 18 % behind stock QEMU here, so the result is still 8 % behind stock on guest
-  work (20 % on whole-process time).
-- scopt is the largest step. The cache its selection deployed is `sfb`, the icount-entry
-  store-forwarding fix, which scopt classifies as a fix of baseline TCG code rather than
-  an optimizer pass. Return and static chaining (`b3`) ranked second, at 1.056× on the
-  ranking input. No packager combines the two.
+- The pipeline makes FastDyn 22 % faster on this firmware. FastDyn with nothing enabled
+  starts 18 % behind stock QEMU here; after the pipeline, guest work is level with stock
+  (the interval includes 1). Whole-process time is still 15 % behind stock.
+- scopt is the largest step. The cache its selection deployed is `sfb+b3`: the
+  icount-entry store-forwarding fix and return/static chaining in one cache. On the
+  ranking input it was 1.179× faster than ordinary warm, against 1.080× for `sfb` alone
+  and 1.052× for `b3` alone. `sfb` is what scopt classifies as a fix of baseline TCG
+  code rather than an optimizer pass.
 - FirmBOLT gains 2 % here, far less than on call-heavy firmware. The hottest function
   of this firmware contains a `switch`; GCC lowers an `-O0` switch on Cortex-M3 to
   `adr` + `ldr.w pc, [table, index, lsl #2]` with the address table inline, FirmBOLT does
@@ -67,11 +69,16 @@ Reading it:
 - A warm cache gains 4 % inside the measured window: a 1.4 s steady-state window spends
   little time translating.
 
-`python3 lib/report.py results/2026-11-21/campaign.json` prints these tables.
+`python3 lib/report.py results/2026-11-21-composed/campaign.json` prints these tables.
 
-A second run of `trebuchet.sh all 4` from an empty work directory (fresh FreeRTOS fetch,
-12 blocks) rebuilt byte-identical loadable images, selected the same cache and gave
-1172, 1440, 1410, 1362 and 1273 ms for arms 1 to 5 (pipeline 1.126×).
+The first campaign of the same day (`results/2026-11-21/`) had no combined candidate:
+its selection deployed `sfb` alone, arm 5 was 1270 ms and the pipeline 1.131×. A
+separate four-arm comparison of ordinary warm, `sfb`, `b3` and `sfb+b3` on the final
+inputs is in `tools/scopt/docs/review-2026-11-21/`.
+
+A run of `trebuchet.sh all 4` from an empty work directory (fresh FreeRTOS fetch,
+12 blocks, before the combined candidate existed) rebuilt byte-identical loadable images
+and reproduced the first campaign: 1172, 1440, 1410, 1362 and 1273 ms for arms 1 to 5.
 
 ## Requirements
 
@@ -108,7 +115,8 @@ in this order:
 | `build` | builds the image at `-O0`, linked with `--emit-relocs` | `fw/O0/RTOSDemo.out` |
 | `firmbolt` | profiles the image on the three training inputs inside FastDyn's machine, then runs FirmBOLT's emulator-performance mode | `fbprof/`, `fw/O0-fb/RTOSDemo.out` |
 | `bind` | produces scopt's per-executable data for this QEMU build | `scopt-data/` |
-| `prepare` | for both images: captures the cache, imports it, takes the exact profile, builds five candidate caches, records reference transcripts | `cfg/`, `scopt/O0/`, `scopt/O0-fb/` |
+| `prepare` | for both images: captures the cache, imports it, takes the exact profile, builds six candidate caches, records reference transcripts | `cfg/`, `scopt/O0/`, `scopt/O0-fb/` |
+| `compose` | (part of `prepare`) builds the `sfb+b3` cache from existing `sfb` and profile data | `scopt/*/out/sfb-b3/` |
 | `select` | ranks the candidates of the FirmBOLT image and confirms the winner (`scopt tune-warm`) | `scopt/O0-fb/tune.json` |
 | `bench [REPS]` | the timed campaign, `REPS` blocks per final input (default 8) | `results/campaign.json` |
 | `report [FILE]` | medians and paired speedups | standard output |
@@ -164,9 +172,12 @@ image's symbols (`lib/gen_toml.py`).
 - **RAM is private and on tmpfs** (`share = false`, `SCOPT_RAM_ROOT`), as in the
   four-way benchmark (`tools/scopt/docs/selected-warm-benchmark`).
 
-Five candidate caches are built per image: `b3` (with `specialize-returns`,
+Six candidate caches are built per image: `b3` (with `specialize-returns`,
 `chain-returns` and `chain-static` enabled), `exit-pc-fold`, `b2-arena-slide`, `b4`
-(state-sync elimination) and `sfb`. `select` hands them to `scopt tune-warm`, which
+(state-sync elimination), `sfb`, and `sfb+b3`. The last one carries both the
+store-forwarding fix and chaining in one cache: the `sfb` artifact is re-imported as a
+snapshot and `b3` runs on it, with the ordinary snapshot as its warm baseline
+(`trebuchet.sh compose`). `select` hands them to `scopt tune-warm`, which
 ranks them against the ordinary warm cache on `heldout-1` (12 pairs each) and confirms
 the best one on `heldout-2` and `heldout-3`. Arm 5 deploys what that confirmation
 selected; if it had failed, arm 5 would be the ordinary warm cache.
@@ -190,17 +201,27 @@ random order; one warm-up block per input is not recorded.
 
 - **FastDyn arms** go through scopt's run-directory API (`create_run_dir`, `deploy`,
   `launch`), the same path `tune-warm` uses. Guest work is FastDyn's `[BENCH]` window;
-  the process time is the wall time of the FastDyn frontend process. A launch counts
+  the process time is the wall time of the FastDyn frontend process. A launch passes
   only if the guest's sixteen reported registers equal the reference and, with a cache,
   the run proof passes with no block appended.
+- **A failed launch invalidates the campaign.** `bench` records the sample with its
+  reasons, marks the file `"valid": false` and exits 1. `report` then names the failed
+  launches and exits 2 without a speedup table (`--diagnostic` prints the numbers,
+  labeled). A block missing an arm is treated the same way. Nothing is dropped,
+  substituted or re-run selectively.
 - **The stock arm** has no benchmark hooks. `lib/stock.py` starts stock QEMU stopped
   with a gdbstub, sets one breakpoint at `vComputeWindowStart`, removes it when it is
   hit, and then finds the end by polling the program counter until it is inside
   `vComputeDone`. Polls are sparse until 3 % before the expected end and 2 ms apart
   after that, about 25 per run, each stopping the vCPU for about 0.2 ms. The end is
-  taken as the midpoint of the last two polls (±1 ms). The result check reads the
-  firmware's statistics from guest memory. A second launch without any breakpoint gives
-  the process time.
+  taken as the midpoint of the last two polls (±1 ms). A second launch without any
+  breakpoint gives the process time.
+- **Both arms are checked against the same expected values.** The stock runner reads
+  the firmware's statistics structure from guest memory; `lib/result_schema.py` says
+  which structure field each reported value is, and the check compares field by field
+  (15 of the 16 reported values; the sixteenth mixes in a local that is not in the
+  structure). The three timing-dependent counters are not compared. A test derives the
+  same mapping from `main_compute.c`.
 
   A breakpoint must not stay inserted during the window: QEMU single-steps every block
   on the guest page of an inserted breakpoint, which made this firmware run eight times
@@ -210,14 +231,19 @@ random order; one warm-up block per input is not recorded.
   less exact than the steps between FastDyn arms.
 
 `lib/report.py` prints the median per arm and, for each step, the median of the
-within-block time ratios with a bootstrap interval over blocks.
+within-block time ratios with a bootstrap interval over blocks. `lib/compare.py` runs the
+same kind of campaign over any set of caches for one image (used for the four-arm
+comparison of `sfb`, `b3` and `sfb+b3`). `python3 -m pytest tools/trebuchet/tests` checks
+the result schema, the oracle and the invalid-campaign rule.
 
 ## Limits
 
 - One firmware, one optimization level, one host. FirmBOLT gains much more on firmware
   whose hot path is many small calls (FirmBOLT `docs/emulator-performance.md`).
-- The scopt arm is the best single candidate, not a composition, and has no native
-  host-inline pass.
+- The scopt arm has no native host-inline pass, and `sfb+b3` is the only composition
+  it tries.
+- The warm caches cover every timed input, so the campaign measures fully warm
+  execution. It says nothing about the cost of first discovering new paths.
 - Whole-process time for stock QEMU ends when the work is done; for FastDyn it also
   covers process exit.
 

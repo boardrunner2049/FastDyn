@@ -91,6 +91,22 @@ optimize() {            # optimize VARIANT PIPELINE [scopt optimize arguments]
         > "$D/out/$P.json" 2> "$D/out/$P.err" && echo "$V $P: artifact" || echo "$V $P: rejected"
 }
 
+compose_one() {         # one cache with the store-forwarding fix and chaining: b3 on the re-imported sfb artifact
+    local V=$1 D=$FASTDYN_ROOT/$1 SFB S2
+    SFB=$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1]))['path'])" "$D/out/sfb.json")
+    scopt import "$SFB/cache.sc" $(for f in "$SFB"/cache*.scm; do printf -- '--scm %s ' "$f"; done) \
+        --manifest "$D/prep/cache/fw.sc.fastdyn.json" --bundle "$D/bundle.json" \
+        --runtime-identity "$D/runtime_identity.json" --store "$D/out/sfb-reimport" --no-progress > "$D/out/sfb-reimport.log"
+    S2=$(ls -d "$D"/out/sfb-reimport/snapshots/*)
+    scopt optimize "$S2" --pipeline b3 --b3 --enable specialize-returns --enable chain-returns --enable chain-static \
+        --profile "$D/prof/merged.profile.json" --store "$D/out/sfb-b3" --qemu "$Q" --v6-exe "$QSHA" \
+        --runtime-identity "$D/runtime_identity.v2.json" --prep "$D/prep" --elf "$W/fw/$V/RTOSDemo.out" \
+        --selftest "$D/hostsym_selftest.json" --warm-baseline "$(ls -d "$D"/store/snapshots/*)" --warm-stage "$SFB" \
+        --json > "$D/out/sfb-b3.json" 2> "$D/out/sfb-b3.err" && echo "$V sfb+b3: artifact" || echo "$V sfb+b3: rejected"
+}
+
+stage_compose() { compose_one O0; compose_one O0-fb; }
+
 prepare_one() {         # capture, import, profile and candidate caches for one image
     local V=$1 D=$FASTDYN_ROOT/$1 CFG=$W/cfg/$1/fw.toml SNAP WS
     mkdir -p "$W/cfg/$V" "$D/out"
@@ -114,6 +130,7 @@ prepare_one() {         # capture, import, profile and candidate caches for one 
     optimize "$V" b2-arena-slide
     scopt b4 package "$SNAP" --enable eliminate-state-sync --store "$D/out/b4" --runtime "$D/runtime_identity.v2.json" > "$D/out/b4.json" 2> "$D/out/b4.err"
     scopt sfb package "$SNAP" --store "$D/out/sfb" > "$D/out/sfb.json" 2> "$D/out/sfb.err"
+    compose_one "$V"
     $PIN "$PY" "$T/lib/runs.py" refs "$V" | tail -1
     "$PY" "$T/lib/runs.py" cases "$V"
 }
@@ -126,7 +143,7 @@ stage_prepare() {       # the two images are independent: prepare them side by s
 
 stage_select() {        # rank the candidates on one held-out input, confirm the winner on two others
     local D=$FASTDYN_ROOT/O0-fb C="" n
-    for n in b3 exit-pc-fold b2-arena-slide; do C="$C $(ls -d "$D"/out/$n/artifacts/*)"; done
+    for n in b3 exit-pc-fold b2-arena-slide sfb-b3; do C="$C $(ls -d "$D"/out/$n/artifacts/*)"; done
     for n in b4 sfb; do C="$C $("$PY" -c "import json,sys;print(json.load(open(sys.argv[1]))['path'])" "$D/out/$n.json")"; done
     $PIN scopt tune-warm "$(ls -d "$D"/store/snapshots/*)" $C --training-cases "$D/rank-cases.json" \
         --cases "$D/confirm-cases.json" --training-pairs 12 --pairs 12 --qemu "$Q" --out "$D/tune" --json > "$D/tune.json"
@@ -142,6 +159,6 @@ stage_report() { python3 "$T/lib/report.py" "${1:-$W/results/campaign.json}"; }
 
 stage_all() { stage_firmware; stage_build; stage_firmbolt; stage_bind; stage_prepare; stage_select; stage_bench "$@"; stage_report; }
 
-stage=${1:?usage: trebuchet.sh firmware|build|firmbolt|bind|prepare|select|bench [REPS]|report [FILE]|all [REPS]}
+stage=${1:?usage: trebuchet.sh firmware|build|firmbolt|bind|prepare|compose|select|bench [REPS]|report [FILE]|all [REPS]}
 shift
 "stage_${stage}" "$@"

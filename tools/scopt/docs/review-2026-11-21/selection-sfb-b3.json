@@ -1,0 +1,49 @@
+{
+ "schema": "trebuchet.selection/1",
+ "baseline": "ordinary warm SuperCache of the FirmBOLT image",
+ "ranking": [
+  {
+   "candidate": "sfb",
+   "input": "heldout-1",
+   "median_paired_speedup": 1.087857036704988,
+   "wins": 12,
+   "pairs": 12,
+   "p_value": 0.0010822510822510823
+  },
+  {
+   "candidate": "b3",
+   "input": "heldout-1",
+   "median_paired_speedup": 1.0573781432813063,
+   "wins": 12,
+   "pairs": 12,
+   "p_value": 0.0010822510822510823
+  },
+  {
+   "candidate": "sfb+b3",
+   "input": "heldout-1",
+   "median_paired_speedup": 1.1851344982944982,
+   "wins": 12,
+   "pairs": 12,
+   "p_value": 0.0010822510822510823
+  }
+ ],
+ "confirmation": [
+  {
+   "candidate": "sfb+b3",
+   "input": "heldout-2",
+   "median_paired_speedup": 1.1865072996654353,
+   "wins": 12,
+   "pairs": 12,
+   "p_value": 0.0010822510822510823
+  },
+  {
+   "candidate": "sfb+b3",
+   "input": "heldout-3",
+   "median_paired_speedup": 1.1767258402374252,
+   "wins": 12,
+   "pairs": 12,
+   "p_value": 0.0010822510822510823
+  }
+ ],
+ "selected": "sfb+b3"
+}

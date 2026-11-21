@@ -1,0 +1,72 @@
+{
+ "image": "Trebuchet FirmBOLT image (O0-fb)",
+ "inputs": "train-1..3",
+ "steady_transitions_by_kind_exact": {
+  "chain1": 158890789,
+  "chain0": 174599418,
+  "exit_null": 4083339,
+  "exit_requested": 53194,
+  "lookup_hit": 40186571
+ },
+ "call_sites": 40269,
+ "hotness_metric": "TB-entry proxy",
+ "tb_entries_at_call_sites_by_helper": {
+  "ldst_slow": 1274286167,
+  "lookup_tb_ptr": 42995889,
+  "v7m_msr": 3373707,
+  "rebuild_hflags_m32_newel": 3373707,
+  "exception_internal": 491879,
+  "udiv": 287184,
+  "v7m_mrs": 227220,
+  "shl_cc": 113909,
+  "plugin": 60,
+  "rebuild_hflags_m32": 0,
+  "exception_with_syndrome": 0,
+  "shr_cc": 0
+ },
+ "b3_receipts": [
+  {
+   "pass": "specialize-returns",
+   "outcome": "skipped_unsupported",
+   "reason": "target_not_profiled",
+   "n_edits": 0,
+   "detail": "exit_not_goto_ptr=21, fact_not_constant=84, fact_not_local_to_return_tb=4, fact_unused=29, provenance_unexplained=30, target_not_profiled=116"
+  },
+  {
+   "pass": "constant-propagation",
+   "outcome": "no_change",
+   "reason": "no_variants",
+   "n_edits": 0,
+   "detail": "no variant in the overlay"
+  },
+  {
+   "pass": "branch-folding",
+   "outcome": "no_change",
+   "reason": "no_variants",
+   "n_edits": 0,
+   "detail": "no variant in the overlay"
+  },
+  {
+   "pass": "dead-host-ops",
+   "outcome": "no_change",
+   "reason": "no_variants",
+   "n_edits": 0,
+   "detail": "no variant in the overlay"
+  },
+  {
+   "pass": "chain-returns",
+   "outcome": "candidate",
+   "reason": "",
+   "n_edits": 52,
+   "detail": "52 GENERAL slots"
+  },
+  {
+   "pass": "chain-static",
+   "outcome": "candidate",
+   "reason": "",
+   "n_edits": 233,
+   "detail": "233 GENERAL slots"
+  }
+ ],
+ "profile_phase": "steady"
+}
