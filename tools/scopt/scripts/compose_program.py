@@ -10,6 +10,8 @@ import sys
 
 from scopt.formats.sc_v6 import read_sc6
 from scopt.formats.scm_v1 import read_scm
+from scopt.manager import load_pipeline
+from scopt.run.pass_policy import check_requested, policy_arguments
 
 
 def load(path):
@@ -37,11 +39,15 @@ def main():
            "--store", str(out), "--profile", inputs["profile"], "--runtime-identity",
            str(base / "runtime-identity.v2.json"), "--elf", str(base / "guest.elf"),
            "--prep", str(base / "prep"), "--params", str(params), "--json"]
+    # The whole pipeline is the subject here, including its opt-in passes.
+    stages = [entry.name for entry in load_pipeline("native-program").passes]
+    cmd += policy_arguments(stages, stages)
     if args.selftest:
         cmd += ["--selftest", str(args.selftest.resolve())]
     with (out / "result.json").open("w") as stream:
         subprocess.run(cmd, stdout=stream, check=True)
     doc = load(out / "result.json")
+    (out / "effective.json").write_text(json.dumps(check_requested(doc, stages), indent=1) + "\n")
     result = Path(doc["artifact_dir"])
     image = read_sc6(result / "cache.sc")
     certs = [tb for f in result.glob("cache*.scm") for tb in read_scm(f).tbs.values()

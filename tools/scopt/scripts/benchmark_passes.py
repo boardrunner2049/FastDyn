@@ -17,6 +17,7 @@ from scopt.formats.sc_v5 import sha256_sparse
 from scopt.formats.sc_v6 import read_sc6
 from scopt.manager import HOST_INLINE_ALIASES, load_pipeline
 from scopt.run.benchmark_memory import benchmark_ram_override
+from scopt.run.pass_policy import PolicyMismatch, check_requested, policy_arguments
 
 
 HERE = Path(__file__).resolve().parent
@@ -164,9 +165,8 @@ def main():
             cmd += ["--selftest", str(witness)]
         if args.params:
             cmd += ["--params", str(args.params.resolve())]
-        for disabled in names:
-            if disabled not in enabled:
-                cmd += ["--disable", disabled]
+        # Default-disabled passes run only when requested: ask for exactly this arm.
+        cmd += policy_arguments(names, enabled)
         with (d / "result.json").open("w") as result, (d / "optimize.log").open("w") as log:
             run = subprocess.run(cmd, env=env, stdout=result, stderr=log)
         row = {"enabled": enabled, "optimize_status": run.returncode,
@@ -176,6 +176,13 @@ def main():
             row.update({key: result.get(key) for key in ("artifact_id", "pass_byte_delta",
                                                           "validation", "reason", "path")})
         if run.returncode:
+            return name, row
+        # An arm that claims a stage must have run it (a stage that ran and changed
+        # nothing is fine; one skipped by policy is a misconfigured arm).
+        try:
+            row["effective"] = check_requested(result, enabled)
+        except PolicyMismatch as error:
+            row.update({"optimize_status": 3, "reason": "policy_mismatch", "detail": str(error)})
             return name, row
         artifact = Path(result["artifact_dir"])
         cache = artifact / "cache.sc"

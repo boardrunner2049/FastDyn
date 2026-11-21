@@ -41,6 +41,24 @@ case $arm in
     extra+=(--params "$D/params.json");;
   b3|b4) extra+=(--b3 --runtime-identity "$W/runtime-identity.v2.json" --elf "$W/guest.elf" --prep "$W/prep");;
 esac
+# Every stage of the arm is requested explicitly: opt-in passes do not run by being named
+# in a pipeline, and an arm whose stages were skipped by policy would measure nothing.
+mapfile -t policy < <(python - "$pipeline" <<'PYPOLICY'
+import sys
+from scopt.manager import load_pipeline
+from scopt.run.pass_policy import policy_arguments
+names = [entry.name for entry in load_pipeline(sys.argv[1]).passes]
+print("\n".join(policy_arguments(names, names)))
+PYPOLICY
+)
+extra+=("${policy[@]}")
 python "$(dirname "$0")/measure_command.py" "$D/offline.json" scopt optimize "$snap" --pipeline "$pipeline" --profile "$W/profile/merged.profile.json" --store "$D" "${extra[@]}" --json >"$D/result.json"
+python - "$D/result.json" "$D/effective.json" <<'PYCHECK'
+import json, sys
+from scopt.run.pass_policy import check_requested
+doc = json.load(open(sys.argv[1]))
+rows = check_requested(doc, [r["pass"] for r in doc["passes"]])
+json.dump(rows, open(sys.argv[2], "w"), indent=1)
+PYCHECK
 art=$(read_json "$D/result.json" artifact_dir)
 scopt validate "$art" --dynamic -c "$W/host-inline.toml" --qemu "$SCOPT_RUNTIME_QEMU" --baseline "$snap" --inputs "$W/heldout-0.bin" --inputs "$W/heldout-1.bin" --out "$D/v10" >"$D/v10.log"
