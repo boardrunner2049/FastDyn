@@ -72,6 +72,8 @@ class PassDescriptor:
     domain: Literal["HostCache"] = "HostCache"
     unit_scope: Literal["unit", "snapshot", "region"] = "snapshot"
     requires: tuple[tuple[str, int], ...] = ()
+    # Default required phase. If the pass declares a string ``phase`` parameter,
+    # the manager admits and records the effective parameter value instead.
     requires_profile_phase: str | None = None
     min_profile_match: float | None = None
     requires_capture_level: int = 1

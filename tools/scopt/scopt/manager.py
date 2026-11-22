@@ -641,6 +641,14 @@ def _check_params(d: PassDescriptor, params: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _required_profile_phase(d: PassDescriptor, params: Mapping[str, Any]) -> str | None:
+    """Return the phase admission must validate for this pass invocation."""
+    default = d.requires_profile_phase
+    if default is None or d.params_schema.get("phase") is not str:
+        return default
+    return params.get("phase", default)
+
+
 def _capture_level(view: WorkingSetView) -> int:
     cl = view.capture_level
     if cl is not None:
@@ -802,7 +810,8 @@ class PassManager:
             return record(Outcome.FAILED, R.INVALID_PARAMS, err), [], ws
 
         view = WorkingSetView(ws)
-        adm = self._admission(d, view)
+        profile_phase = _required_profile_phase(d, params)
+        adm = self._admission(d, view, profile_phase)
         if adm is not None:
             return record(adm[0], adm[1], adm[2]), [], ws
         if self.b3env is not None:
@@ -817,8 +826,8 @@ class PassManager:
                                  logger=logger)
         ctx.b3 = self.b3ctx
         ctx.b3_state = self.b3_state
-        if d.requires_profile_phase is not None:
-            pid = profile_id_of(profile_for_phase(self.profiles, d.requires_profile_phase))
+        if profile_phase is not None:
+            pid = profile_id_of(profile_for_phase(self.profiles, profile_phase))
             if pid:
                 ctx.profiles_used.add(pid)
         allowed = self.pipeline.allowed_capabilities & self.enabled
@@ -888,8 +897,8 @@ class PassManager:
                       generation=new_ws.generation, **common), edits, new_ws
 
     # ------------------------------------------------------------------
-    def _admission(self, d: PassDescriptor, view: WorkingSetView
-                   ) -> tuple[Outcome, str, str] | None:
+    def _admission(self, d: PassDescriptor, view: WorkingSetView,
+                   profile_phase: str | None) -> tuple[Outcome, str, str] | None:
         U, K = Outcome.SKIPPED_UNSUPPORTED, Outcome.SKIPPED_UNKNOWN
         if EditKind.RETIRE_DIRECT_EXIT in d.capabilities and (
                 len(self.pipeline.passes) != 1 or
@@ -918,8 +927,8 @@ class PassManager:
             return U, Reason.CAPABILITY_NOT_ENABLED, (
                 "capabilities " + ", ".join(sorted(k.name for k in missing))
                 + f" not enabled (allowed: {sorted(k.name for k in allowed)})")
-        if d.requires_profile_phase is not None:
-            phase = d.requires_profile_phase
+        if profile_phase is not None:
+            phase = profile_phase
             if not self.profiles:
                 return K, Reason.MISSING_PROFILE, f"no profile attached (needs phase {phase!r})"
             prof = profile_for_phase(self.profiles, phase)

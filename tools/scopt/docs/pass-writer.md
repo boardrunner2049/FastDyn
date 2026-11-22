@@ -23,6 +23,10 @@ The manager rules (reason codes, what is discarded, stale facts) are in
 `docs/pass-framework.md`. The B3/B4 additions (typed payloads, slot arbitration,
 templates per pass) are in `docs/b3-passes.md` and `docs/b4.md`.
 
+`requires_profile_phase` is the pass's default admission phase. A pass that declares
+`phase: str` in `params_schema` may select another phase; admission, match checking,
+and the profile receipt all use the effective parameter value.
+
 ## Worked example 1: a minimal pass (runnable)
 
 `tests/unit/test_pass_writer_example.py` holds this pass and runs it through

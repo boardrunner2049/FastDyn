@@ -399,6 +399,30 @@ def test_hotness_and_locality_analyses_through_the_store(six):
 PID_BOOT = "sha256:" + "8" * 64
 
 
+def test_boot_phase_parameter_controls_admission_and_profile_receipts():
+    """A boot-only capture must be usable when both profile consumers request boot."""
+    snap = fake_snapshot(4)
+    uids = [unit.uid for unit in snap.units()]
+    boot_only = profile_view(snap, {}, boot={uid: 3 for uid in uids},
+                             phases=("boot",), pid=PID_BOOT)
+    candidate = run_b2(
+        snap,
+        [boot_only],
+        params={
+            "hotcold-partition": {"phase": "boot", "coverage": 1.0},
+            "cluster-hot": {"phase": "boot"},
+        },
+    )
+
+    hotcold = candidate.outcome("hotcold-partition")
+    cluster = candidate.outcome("cluster-hot")
+    assert hotcold.outcome is Outcome.CANDIDATE, (hotcold.reason, hotcold.detail)
+    assert cluster.outcome is Outcome.CANDIDATE, (cluster.reason, cluster.detail)
+    assert hotcold.profiles_used == (PID_BOOT,)
+    assert cluster.profiles_used == (PID_BOOT,)
+    assert set(candidate.working_set.sections["hot"]) == set(uids)
+
+
 def test_several_profiles_every_b2_consumer_uses_the_phase_profile(real_like):
     """A boot-only profile attached first must not hide the steady one from
     hotcold-partition (profile.counts@1 is computed from the first profile)."""
