@@ -59,7 +59,7 @@ from .sc_v5 import (ScFile, ScFormatError, ScHeader, ScRecord, _pread_exact, rea
 __all__ = [
     "SC6_VERSION", "EXT_OFFSET", "ARRAYS_OFFSET", "EXT_MAGIC", "FEAT_EXT_TABLE",
     "FEAT_VARIANTS", "FEAT_GUARDED_SLOTS", "FEAT_REWRITTEN", "KNOWN_FEATURES",
-    "KIND_GENERAL", "KIND_SPEC", "EXIT_RETURN", "EXIT_STATIC", "VARIANT_FACTS",
+    "KIND_GENERAL", "KIND_SPEC", "EXIT_RETURN", "EXIT_STATIC", "EXIT_DIRECT", "VARIANT_FACTS",
     "VariantEntry", "SlotEntry", "LinkEntry", "ExtTable", "Sc6File", "read_sc6", "write_sc6",
     "ext_problem", "sc6parse_compare", "SC6PARSE", "max_ext_entries", "TB_STRUCT_ROUND",
     "LOADER_V6", "sc6_snapshot_id", "ScExtRefused",
@@ -78,6 +78,7 @@ KIND_GENERAL = 1
 KIND_SPEC = 2
 EXIT_RETURN = 1
 EXIT_STATIC = 2
+EXIT_DIRECT = 3
 VARIANT_FACTS = 1 << 0
 NONE16 = 0xFFFF
 TB_STRUCT_ROUND = 64
@@ -365,8 +366,10 @@ def ext_problem(header: ScHeader, loaded: Sequence[ScRecord], read: Any, *,
                 raise _Die("slot_n", p + f"slot_n {s.slot_n}")
             if s.kind not in (KIND_GENERAL, KIND_SPEC):
                 raise _Die("slot_kind", p + f"bad kind {s.kind}")
-            if s.exit_class not in (EXIT_RETURN, EXIT_STATIC):
+            if s.exit_class not in (EXIT_RETURN, EXIT_STATIC, EXIT_DIRECT):
                 raise _Die("slot_exit_class", p + f"bad exit_class {s.exit_class}")
+            if s.exit_class == EXIT_DIRECT and s.kind != KIND_SPEC:
+                raise _Die("direct_requires_variant", p + "ordinary direct edge requires a private variant")
             if s.reserved:
                 raise _Die("slot_reserved", p + "reserved not zero")
             jmp, rst = r.jmp_insn_offset[s.slot_n], r.jmp_reset_offset[s.slot_n]

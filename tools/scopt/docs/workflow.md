@@ -152,7 +152,7 @@ or the normal admission and profitability checks reject the target.
 Use a complete steady training profile and the matching B3 inputs.
 
 ```sh
-scopt optimize "$SNAPSHOT" --pipeline dominant-return --profile "$TRAIN_PROFILE" \
+scopt optimize "$SNAPSHOT" --pipeline dominant-return --enable chain-returns --profile "$TRAIN_PROFILE" \
     --store "$STORE" --qemu "$QEMU" --v6-exe "$QEMU_SHA256" \
     --runtime-identity "$RUNTIME_IDENTITY" --prep "$PREP" --elf "$ELF" --json
 ```
@@ -162,6 +162,45 @@ To change the training threshold, pass `--params` with a JSON file such as
 0.5 and at most 1. The pass reports the exact denominator and the required
 integer target count. Normal GENERAL validation and held-out performance
 selection also apply to this pipeline.
+
+## Rank GENERAL guards under a shared footprint limit
+
+For a B3 return-only experiment, enable `chain-returns` and disable every other
+stage of the B3 pipeline. Static-only enables `chain-static`; combined chaining
+enables both. These configurations install GENERAL slots. Full B3 additionally
+enables `specialize-returns` and runs constant propagation, branch folding and
+dead-host-ops on its variants. Pass the complete enable/disable list from
+`scopt.run.pass_policy.policy_arguments` and check the requested stages' receipts.
+
+Set `rank_by_net_work` on a chaining stage to compare all eligible exit plans
+of that stage before applying its unit limit. The stage requires a complete
+lookup profile with exact target counts at the exit. It reserves one first
+installation per target per training replay (up to its hit count) and charges
+a fresh common guard once. `c_target_check` prices the additional comparison
+on traffic remaining after the first target. Its initial estimate is the cost
+of a full guard, `c_guard`. The projected saving uses nanoseconds from the
+configured cost model. Hardware guard hit rates and net savings require separate
+measurements on the admitted application. Ranking within each stage preserves
+the pipeline's SPEC, return, then static slot priority.
+
+For example, use this JSON with `--params` when both chaining stages are active.
+The byte limit is an example experiment setting.
+
+```json
+{
+  "chain-returns": {"rank_by_net_work": true, "compact_guard": true, "max_total_growth_bytes": 4096},
+  "chain-static":  {"rank_by_net_work": true, "compact_guard": true, "max_total_growth_bytes": 4096}
+}
+```
+
+During admission the shared cap reserves existing variants and previously planned
+stubs, including GENERAL-only stubs. The guard emitter supplies a conservative
+size bound across alignments, continuation-key widths and possible SPEC downgrades.
+When a two-target plan exceeds the limit, a profitable single-target plan can
+still fit. V21 enforces the tightest cap from active stages against the linked
+guard bytes plus variant body bytes. The bound covers these additions to
+translated code and variant data. Capture metadata and total artifact size
+are separate measurements. Omitting both options retains the original policy.
 
 ## Choose a cache for deployment
 

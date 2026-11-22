@@ -482,22 +482,29 @@ def _shift_chunk(tb: Any, su: SfbUnit, code_address: int) -> Any:
                    opmarks=opmarks, source=None)
 
 
+def _placement_limits(units: Sequence[Any]) -> dict[str, int]:
+    """Largest permitted in-place end for each unit before any are moved."""
+    from ..link import round_up
+
+    ordered = sorted(units, key=lambda unit: unit.tb_offset)
+    if not ordered:
+        return {}
+    ends = [unit.tb_offset for unit in ordered[1:]]
+    ends.append(round_up(max(unit.end_offset for unit in ordered), 64))
+    return {unit.uid: end for unit, end in zip(ordered, ends)}
+
+
 def link_sfb(snapshot: Any, rebuilt: Mapping[str, SfbUnit], *, derive: bool = True) -> SfbLink:
     """Place every rebuilt unit (in place when it still ends before the next unit's
     struct, else at the arena end), relocate it, and derive the captures."""
-    import bisect
-
     from ..formats import scm_v1 as S
     from ..link import (LinkError, _rewrite_tb, arena_limit, capture_join, relocate_unit,
                         round_up)
 
     h = snapshot.header
     units = list(snapshot.units())
-    starts = sorted(u.tb_offset for u in units)
-    # the input arena ends here; moved units go at or after it, so an in-place
-    # unit may grow up to it but never into the moved units (the last unit by
-    # address compares with this, not with the cursor, which moves on)
-    arena_end = round_up(max(u.end_offset for u in units), 64)
+    limits = _placement_limits(units)
+    arena_end = max(limits.values(), default=0)
     cursor = arena_end
     limit = arena_limit(h)
     links = []
@@ -509,9 +516,7 @@ def link_sfb(snapshot: Any, rebuilt: Mapping[str, SfbUnit], *, derive: bool = Tr
             new_tb = u.tb_offset
             if su is not None:
                 ln = e.end_offset - e.tb_offset
-                i = bisect.bisect_right(starts, u.tb_offset)
-                nxt = starts[i] if i < len(starts) else arena_end
-                if u.tb_offset + ln > nxt:
+                if e.end_offset > limits[u.uid]:
                     new_tb = round_up(cursor, 64)
                     cursor = new_tb + ln
                     moved.append(u.uid)
@@ -786,6 +791,9 @@ class IcountEntrySfb:
         preserves=frozenset({"*"}), params_schema={"max_units": int})
 
     def run(self, snap: Any, ctx: Any, edits: Any) -> PassResult:
+        return self._collect(snap, ctx, edits, {})
+
+    def _collect(self, snap: Any, ctx: Any, edits: Any, skips: dict[str, str]) -> PassResult:
         ca = snap.header.code_address
         stats: Counter[str] = Counter()
         affected = []
@@ -795,14 +803,17 @@ class IcountEntrySfb:
             try:
                 su = sfb_rebuild(u, ca)
             except SfbError as e:
+                skips[u.uid] = e.reason
                 stats[f"skip:{e.reason}"] += 1
                 continue
             if max_units is not None and len(affected) >= int(max_units):
+                skips[u.uid] = "units_over_budget"
                 stats["units_over_budget"] += 1
                 continue
             edits.annotate(u.uid, ANNOTATION_KEY, {
                 "reg": su.shape.reg, "n": su.shape.n, "old_len": su.shape.length,
-                "shift": su.shift, "prefix": su.prefix.hex(), "label": LABEL})
+                "shift": su.shift, "prefix": su.prefix.hex(), "label": LABEL,
+                "rebuilt_end": su.unit.end_offset})
             affected.append(u.uid)
             stats["units"] += 1
         st = {k: float(v) for k, v in sorted(stats.items())}
@@ -822,16 +833,35 @@ class SfbProposal:
     result: PassResult
     units: dict[str, dict[str, Any]]  # uid -> annotation value
     skips: dict[str, str]
+    selection: dict[str, Any] = field(default_factory=dict)
+    profiles: tuple[dict[str, Any], ...] = ()
 
 
-def propose_sfb(snapshot: Any, *, max_units: int | None = None) -> SfbProposal:
+def propose_sfb(snapshot: Any, *, max_units: int | None = None, profile: Any = None,
+                phase: str = "steady", entry_coverage: int = 100,
+                max_growth_bytes: int | None = None,
+                max_moved_units: int | None = None) -> SfbProposal:
     """Run :class:`IcountEntrySfb` with an ANNOTATE-only builder."""
     from ..model.snapshot import WorkingSet
     from ..model.view import WorkingSetView
     from ..proposal import ProposalBuilder
 
+    if not 1 <= entry_coverage <= 100 or any(n is not None and n < 0 for n in
+                                              (max_growth_bytes, max_moved_units, max_units)):
+        raise ValueError("entry_coverage must be 1..100 and budgets must be nonnegative")
+    view_profile = None
+    if profile is not None:
+        from ..formats.profile_v1 import ProfileView
+
+        view_profile = ProfileView.open(profile, snapshot, phase=phase)
+        pid = profile.phase_id(phase)
+        if pid is None or not profile.phase_reached(pid):
+            raise ValueError(f"SFB profile phase {phase!r} is missing or unreached")
+    elif entry_coverage != 100 or max_growth_bytes is not None or max_moved_units is not None:
+        raise ValueError("SFB coverage and growth/movement budgets require a training profile")
+
     class _Ctx:
-        params = {} if max_units is None else {"max_units": max_units}
+        params = {} if max_units is None or profile is not None else {"max_units": max_units}
         snapshot_id = snapshot.snapshot_id
 
         def budget(self) -> None:
@@ -846,18 +876,58 @@ def propose_sfb(snapshot: Any, *, max_units: int | None = None) -> SfbProposal:
     view = WorkingSetView(WorkingSet.initial(snapshot))
     p = IcountEntrySfb()
     b = ProposalBuilder(p.descriptor, view, enabled={EditKind.ANNOTATE}, ctx=_Ctx())
-    res = p.run(view, _Ctx(), b)
+    skips: dict[str, str] = {}
+    res = p._collect(view, _Ctx(), b, skips)
     units = {e.units[0]: dict(e.args["value"]) for e in b.edits}
-    skips = {}
-    ca = snapshot.header.code_address
-    for u in snapshot.units():
-        if u.uid not in units:
-            try:
-                sfb_rebuild(u, ca)
-                skips[u.uid] = "units_over_budget"
-            except SfbError as e:
-                skips[u.uid] = e.reason
-    return SfbProposal(res, units, skips)
+    if view_profile is None:
+        return SfbProposal(res, units, skips)
+
+    counts = view_profile.counts(phase)
+    if units and not any(counts[uid].exact for uid in units):
+        raise ValueError(f"SFB requires exact entry counts for eligible units in phase {phase!r}")
+    limits = _placement_limits(list(snapshot.units()))
+    ranked = []
+    for uid in units:
+        count = counts[uid]
+        if not count.exact:
+            skips[uid] = f"count_{count.status}"
+        elif not count.value:
+            skips[uid] = "zero_entries"
+        else:
+            ranked.append((count.value, uid))
+    total = sum(count for count, _ in ranked)
+    selected = {}
+    entries = growth = moves = 0
+    for count, uid in sorted(ranked, key=lambda row: (-row[0], row[1])):
+        ann = units[uid]
+        moved = ann["rebuilt_end"] > limits[uid]
+        if entries * 100 >= total * entry_coverage:
+            skips[uid] = "coverage_reached"
+        elif max_units is not None and len(selected) >= max_units:
+            skips[uid] = "units_over_budget"
+        elif max_growth_bytes is not None and growth + ann["shift"] > max_growth_bytes:
+            skips[uid] = "code_growth_budget"
+        elif max_moved_units is not None and moves + moved > max_moved_units:
+            skips[uid] = "moved_units_budget"
+        else:
+            selected[uid] = count
+            entries += count
+            growth += ann["shift"]
+            moves += moved
+
+    policy = {"phase": phase, "entry_coverage": entry_coverage, "max_units": max_units,
+              "max_growth_bytes": max_growth_bytes, "max_moved_units": max_moved_units}
+    receipt = {"policy": policy, "profile_id": profile.profile_id,
+               "input_snapshot_id": snapshot.snapshot_id, "eligible_exact_entries": total,
+               "selected_entries": entries, "code_growth_bytes": growth, "moved_units": moves,
+               "selected": selected, "excluded": skips}
+    result = PassResult(Outcome.CANDIDATE if selected else Outcome.NO_CHANGE,
+                        "entry_rewrites" if selected else "no_selected_entries",
+                        f"{len(selected)} entries selected by exact {phase} activity",
+                        affected=tuple(selected), stats={"units": len(selected),
+                                                         "code_growth_bytes": growth})
+    return SfbProposal(result, {uid: units[uid] for uid in selected}, skips,
+                       receipt, (view_profile.verdict(),))
 
 
 @dataclass
@@ -934,9 +1004,9 @@ def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
             "bundle_id": None if snapshot.bundle is None else snapshot.bundle.get("bundle_id"),
             "runtime_identity_id": None if snapshot.runtime is None else
             snapshot.runtime.get("runtime_identity_id"),
-            "profile_ids": [], "pipeline": [{
+            "profile_ids": list(prop.profiles), "pipeline": [{
                 "pass": "icount-entry-sfb", "version": 1,
-                "params_sha256": sha256_id(canonical_json({})),
+                "params_sha256": sha256_id(canonical_json(prop.selection.get("policy", {}))),
                 "outcome": prop.result.outcome.value, "reason": prop.result.reason,
                 "affected": sorted(prop.units), "edit_digest": None, "duration_s": 0.0}],
             "move_map": moves, "pinned": [], "validation_sha256": sha256_id(vb),
@@ -944,6 +1014,8 @@ def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
             "x_candidate_id": candidate_id, "x_labels": [LABEL],
             "x_sfb": {"units": len(rebuilt), "moved": len(link.moved),
                       "skips": dict(Counter(prop.skips.values()))}}
+        if prop.selection:
+            sidecar["x_sfb"]["selection"] = prop.selection
         errs = A.sidecar_errors(sidecar)
         if errs:  # `scopt publish` refuses such a sidecar; never write one
             return reject("sidecar_schema", "; ".join(errs[:3]), val, link)
@@ -951,7 +1023,7 @@ def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
         if res is not None:
             (stage / A.REGIONS).write_bytes(b"".join(canonical_json(r) + b"\n"
                                                      for r in res.regions))
-        A.write_json_file(stage / A.PROFILES, {"profiles": []})
+        A.write_json_file(stage / A.PROFILES, {"profiles": list(prop.profiles)})
         led.emit("artifact", candidate_id, "accepted", "pass", "SFB1-SFB9", sidecar[
             "validation_sha256"])
         led.write(stage / A.LEDGER)

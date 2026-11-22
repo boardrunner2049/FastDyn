@@ -119,7 +119,8 @@ class B3Env:
 class B3Ctx:
     """Per-run B3 inputs shared by the manager and the passes (``ctx.b3``)."""
 
-    def __init__(self, env: B3Env, store: Any):
+    def __init__(self, env: B3Env, store: Any, *, max_preserving_hops: int = 1):
+        self.max_preserving_hops = max_preserving_hops
         self.env = env
         self.store = store
         self.snapshot = store.view.working_set.base
@@ -206,7 +207,7 @@ class B3Ctx:
         if self.offsets is not None and self.offsets.r0 is not None:
             self._rows = guarded_static_summaries(
                 self._rows, self.edges(), lambda uid: self.store.get("local-summary", ScopeRef("unit", uid)),
-                offset=self.offsets.r0)
+                offset=self.offsets.r0, max_hops=self.max_preserving_hops)
         return self._rows
 
     @property
@@ -608,6 +609,15 @@ def patch_placement(src: Any, cur: bytes, p: Patch, b3: B3Ctx) -> tuple[str, str
     from .link import lookup_tails
 
     a, b = p.host_off, p.host_off + len(p.old_bytes)
+    if src.native_fragments:
+        from .splice_layout import caller_patch_problem, integer_certificate_ranges
+
+        try:
+            problem = caller_patch_problem(src, p, integer_certificate_ranges(src))
+        except ValueError as exc:
+            problem = str(exc)
+        if problem:
+            return "native_caller_rewrite", problem
     if b > len(cur) or bytes(cur[a:b]) != bytes(p.old_bytes):
         return "edit_precondition", "old bytes do not match the current bytes"
     end = src.pool_start if src.pool_start is not None else len(src.code)
@@ -926,7 +936,7 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
 
     Returns ``{"candidate", "materialized", "package", "outcome", "path"}``; ``outcome``
     is the artifact's outcome (``published`` or the §3.8 class of the rejection)."""
-    from .manager import PassManager
+    from .manager import PassManager, R
     from .validate import ValidateAndPackage, package_b3
 
     profiles = tuple(profiles)
@@ -953,6 +963,15 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
                 "outcome": "published" if res.status == "published" else
                 b3_reject_outcome(res.reason).value}
     m = materialize(st, b3)
+    # Enforce the shared cap on the linked artifact even if a chain stage found
+    # no sites or an upstream specialization alone consumed the budget.
+    limits = [record.params["max_total_growth_bytes"] for record in cand.passes
+              if "max_total_growth_bytes" in record.params
+              and record.reason not in (R.ABLATION_DISABLED, R.DISABLED_BY_DEFAULT)]
+    m.plan.max_total_growth_bytes = min(limits, default=None)
+    m.plan.order_private_by_predecessor = any(
+        record.outcome == Outcome.CANDIDATE and record.params.get("order_private_by_predecessor")
+        for record in cand.passes)
     from .analysis.obs_contract import build_contract
     from .validate_sym.link_check import hostsym_inputs, summary_provenance
 

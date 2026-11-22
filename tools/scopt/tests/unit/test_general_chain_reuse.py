@@ -2,10 +2,11 @@
 from types import SimpleNamespace
 
 import pytest
+from dataclasses import replace
 
 from scopt.analysis.return_edges import Candidate
 from scopt.formats.profile_v1 import Count, METHOD
-from scopt.guard import COMPACT_GUARD
+from scopt.guard import COMPACT_GUARD, stub_size_bound
 from scopt.ids import TBKey
 from scopt.manager import load_pipeline
 from scopt.passes.base import Outcome
@@ -13,7 +14,7 @@ from scopt.passes.chain_returns import _exact_return_hits, general_slots
 
 
 def run_slots(monkeypatch, hits, *, params=None, replays=1, exit_class="return",
-              existing=(), complete=True, source_status="exact"):
+              existing=(), complete=True, source_status="exact", extra_rows=(), variant_size=0):
     monkeypatch.setattr("scopt.guard.guard_key", lambda flags, cs: (flags, cs))
     candidates = tuple(
         Candidate(f"target-{i}", i * 0x200, count, status, 1.0, count, i, ())
@@ -25,11 +26,17 @@ def run_slots(monkeypatch, hits, *, params=None, replays=1, exit_class="return",
     units = {item.dst: SimpleNamespace(uid=item.dst, key=TBKey(item.vaddr, None, 2, 0, 0))
              for item in candidates}
     plan = (SimpleNamespace(slots=existing, key_flags=2, key_cs_base=0) if existing else None)
-    view = SimpleNamespace(b3=SimpleNamespace(variant_sources=lambda: (),
+    units["variant-source"] = SimpleNamespace(end_offset=variant_size, tb_offset=0)
+    variants = {"variant": SimpleNamespace(src_uid="variant-source")} if variant_size else {}
+    view = SimpleNamespace(b3=SimpleNamespace(variant_sources=lambda: (), variants=variants,
+                          exits={("source", 0): plan} if plan else {},
                           claimed_slots=lambda uid: tuple(s.slot_n for s in existing),
                           exit_plan=lambda uid, off: plan))
     b3 = SimpleNamespace(layout_bound=True, offsets=object(), units=lambda: units)
-    rows = SimpleNamespace(exits=(exit_row,))
+    rows = SimpleNamespace(exits=(exit_row, *[
+        SimpleNamespace(**{**vars(exit_row), "uid": uid,
+                         "candidates": (replace(candidates[0], count=count, vaddr=vaddr),)})
+        for uid, count, vaddr in extra_rows]))
     collection = {"runs": [{}] * replays, "repetitions": 1, "method": METHOD, "complete": complete}
     profile = SimpleNamespace(profile=SimpleNamespace(collection=collection),
                               count=lambda *_: Count(sum(n for n, _ in hits), source_status))
@@ -139,3 +146,63 @@ def test_exact_dominance_denominator_includes_refused_and_external_returns():
             source("static", 90, "tail", exit_class="static")]
     assert _exact_return_hits(rows, view) == 100
     assert _exact_return_hits([*rows, source("hot", 80, "second", exit_class="static")], view) is None
+
+
+def test_net_work_ranks_exits_before_applying_global_unit_limit(monkeypatch):
+    extra = [("warmer", 32, 0x800), ("hottest", 80, 0xa00)]
+    for order in (extra, list(reversed(extra))):
+        control, chosen = run_slots(monkeypatch, [(10, "exact")], extra_rows=order,
+                                    params={"max_units": 1})
+        assert chosen == [0x200]
+        ranked, chosen = run_slots(monkeypatch, [(10, "exact")], extra_rows=order,
+                                   params={"rank_by_net_work": True, "max_units": 1})
+        assert chosen == [0xa00]
+        assert ranked.stats["estimated_train_lookups_avoided"] > control.stats["estimated_train_lookups_avoided"]
+        assert ranked.stats["eligible_exit_plans"] == 3
+
+
+def test_second_target_must_pay_compare_cost_on_remaining_traffic(monkeypatch):
+    hits = [(75, "exact"), (3, "exact"), (22, "exact")]
+    result, chosen = run_slots(monkeypatch, hits, params={
+        "rank_by_net_work": True, "c_target_check": 10, "c_guard": 1, "c_lookup": 5})
+    assert chosen == [0x200]
+    assert result.stats["estimated_net_saving_ns"] == 74 * 5 - 100
+    assert result.stats["train_unmatched_guard_attempts"] == 25
+
+
+def test_shared_footprint_counts_prior_variant_and_general_guard_only_once(monkeypatch):
+    existing = (SimpleNamespace(slot_n=0, vaddr=0x200, weight=80, compact=False, r0_zero=False),)
+    limit = 45 + stub_size_bound(2, False)
+    for cap, expected in [(limit, [0x400]), (limit - 1, [])]:
+        result, chosen = run_slots(monkeypatch, [(80, "exact"), (18, "exact")], existing=existing,
+                                   variant_size=45, params={"max_total_growth_bytes": cap})
+        assert chosen == expected
+        assert result.stats["existing_growth_upper_bytes"] == 45 + stub_size_bound(1, False)
+        if chosen:
+            assert result.stats["proposed_growth_upper_bytes"] == limit
+        else:
+            assert result.stats["refused:growth_budget"] == 1
+
+
+def test_compact_guard_fits_tighter_shared_budget(monkeypatch):
+    cap = stub_size_bound(1, True)
+    assert cap < stub_size_bound(1, False)
+    for compact in (False, True):
+        result, chosen = run_slots(monkeypatch, [(30, "exact")], params={
+            "targets_per_exit": 1, "max_total_growth_bytes": cap, "compact_guard": compact})
+        assert bool(chosen) == compact
+
+
+def test_new_net_work_policy_requires_complete_training_evidence(monkeypatch):
+    result, chosen = run_slots(monkeypatch, [(80, "exact")], complete=False,
+                               params={"rank_by_net_work": True})
+    assert not chosen and result.outcome == Outcome.SKIPPED_UNKNOWN
+
+
+def test_ranked_exit_can_admit_the_single_target_that_fits(monkeypatch):
+    result, chosen = run_slots(monkeypatch, [(60, "exact"), (40, "exact")], params={
+        "rank_by_net_work": True, "c_target_check": 1, "compact_guard": True,
+        "max_total_growth_bytes": stub_size_bound(1, True)})
+    assert chosen == [0x200]
+    assert result.stats["proposed_growth_upper_bytes"] == stub_size_bound(1, True)
+    assert result.stats["estimated_train_link_installs"] == 1

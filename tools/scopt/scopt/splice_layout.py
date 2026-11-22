@@ -83,6 +83,51 @@ def splice_group_offsets(requests: tuple[InlineCall, ...]) -> SpliceGroupOffsets
     return SpliceGroupOffsets(tuple(spans))
 
 
+def integer_certificate_ranges(unit: TBUnit) -> tuple[tuple[int, int], ...]:
+    """Rebuild the checked physical spans of an imported integer certificate.
+
+    The surviving helper pool slot and widened branch with its padding are
+    also evidence used by the importer, even though they live in the caller.
+    """
+    from .validate_sym.native_splice import verify_splice_body
+
+    if unit.meta_status != "ok" or not unit.splice_applied or not unit.native_fragments:
+        raise ValueError("imported splice has no checked capture")
+    offsets = splice_group_offsets(unit.native_fragments)
+    protected = []
+    for request in unit.native_fragments:
+        splice = request.splice
+        if splice.kind != "integer":
+            raise ValueError("integer-only HostSym admission for imported splices")
+        verify_splice_body(request)
+        start = offsets(splice.start_off)
+        end = start + len(splice.code)
+        if start < 0 or unit.code[start:end] != splice.code:
+            raise ValueError("imported integer splice differs from its certified bytes")
+        protected.append((start, end))
+        for branch in splice.branches:
+            protected.append((offsets(branch.source_off), offsets(branch.source_off + 2)))
+        if request.pool_slot_off is not None:
+            slot = offsets(request.pool_slot_off)
+            protected.append((slot, slot + 8))
+    return tuple(protected)
+
+
+def caller_patch_problem(unit, patch, protected):
+    """First increment: delete a single caller-side state store via B4's normal proof."""
+    from .analysis.syncdead import nop_bytes
+
+    a = patch.host_off
+    b = a + len(patch.old_bytes)
+    if any(a < end and start < b for start, end in protected):
+        return "patch overlaps native certificate"
+    if not unit.reloc.relocatable or b > unit.body_end:
+        return "caller rewrite needs relocatable ordinary code"
+    if patch.template_id != "b4_nop_store" or patch.new_bytes != nop_bytes(b - a):
+        return "caller rewrite requires a same-width B4 store deletion"
+    return None
+
+
 def _address(mu, tc: int, size: int, value: int) -> int:
     return tc + mu(value - tc) if tc <= value < tc + size else value
 

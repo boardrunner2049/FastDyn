@@ -35,7 +35,8 @@ import subprocess
 import threading
 import time
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -571,7 +572,8 @@ def launch(rd: RunDir, *, timeout_s: float = DEFAULT_TIMEOUT_S,
            extra_env: Mapping[str, str | None] | None = None, prove: bool | None = None,
            run_json: str = "run.json", reference_norm: str | os.PathLike | None = None,
            allow_rerun: bool = False, capture_files_ok: bool = False,
-           inputs: Mapping[str, str | os.PathLike] | None = None) -> dict[str, Any]:
+           inputs: Mapping[str, str | os.PathLike] | None = None,
+           peer: Callable | None = None) -> dict[str, Any]:
     """Run FastDyn once in ``rd`` and write ``run.json``.
 
     Before the run: refuse a used run directory (unless ``allow_rerun``),
@@ -580,11 +582,25 @@ def launch(rd: RunDir, *, timeout_s: float = DEFAULT_TIMEOUT_S,
     check for stray ``.scm``/``.qprof`` files, and -- when ``deploy.json``
     exists (or ``prove=True``) -- run the §4.8 proof. ``inputs`` (bank id ->
     file) is written into those RAM banks after the reset (:func:`load_inputs`).
+    A peer context can start an external application peripheral before QEMU. Its
+    yielded collector checks the application outcome after the normal launch and
+    cache proof. A peer rejection invalidates the run and keeps the raw proof.
     """
     try:
-        return _launch(rd, timeout_s=timeout_s, extra_env=extra_env, prove=prove,
-                       run_json=run_json, reference_norm=reference_norm, allow_rerun=allow_rerun,
-                       capture_files_ok=capture_files_ok, inputs=inputs)
+        context = peer(rd, inputs or {}, run_json, timeout_s) if peer is not None else nullcontext()
+        with context as collect:
+            result = _launch(rd, timeout_s=timeout_s, extra_env=extra_env, prove=prove,
+                             run_json=run_json, reference_norm=reference_norm, allow_rerun=allow_rerun,
+                             capture_files_ok=capture_files_ok, inputs=inputs)
+            if collect is not None:
+                try:
+                    result["application_peer"] = collect(result)
+                except Exception as error:
+                    result.update(verdict="INVALID_application_peer", application_error=str(error))
+                    write_json(rd.root / run_json, result)
+                    raise RunDirError("application_peer_failed", str(error)) from error
+                write_json(rd.root / run_json, result)
+            return result
     finally:
         _cleanup_tmpfs_ram(rd)
 
@@ -604,8 +620,11 @@ def _launch(rd: RunDir, *, timeout_s: float = DEFAULT_TIMEOUT_S,
         raise RunDirError("run_dir_used", f"{rjson} exists; use a fresh run directory")
     if rd.work.exists():
         shutil.rmtree(rd.work)
+    reset_start = time.monotonic_ns()
     ram = reset_ram(rd)
+    reset_end = time.monotonic_ns()
     loaded = load_inputs(rd, inputs) if inputs else {}
+    inputs_ready = time.monotonic_ns()
     env, env_diff = scrub_env(qemu=rd.qemu, extra=extra_env)
     cmd = ["setarch", "x86_64", "-R", "timeout", "--signal=TERM", "--kill-after=10",
            f"{timeout_s:g}", str(FASTDYN_BIN), *fastdyn_args(rd)]
@@ -674,6 +693,8 @@ def _launch(rd: RunDir, *, timeout_s: float = DEFAULT_TIMEOUT_S,
         "timed_out": timed_out,
         "timings": {
             "start_unix": t0,
+            "ram_reset_ns": reset_end - reset_start,
+            "bank_stage_ns": inputs_ready - reset_end,
             "wall_s": wall,
             "children_user_s": rusage.ru_utime if rusage else None,
             "children_sys_s": rusage.ru_stime if rusage else None,

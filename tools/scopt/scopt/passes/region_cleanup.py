@@ -231,26 +231,56 @@ class NativeScalarCleanup:
 
 class OrdinaryScalarCleanup:
     descriptor = replace(NativeScalarCleanup.descriptor, name="local-scalar-cleanup",
-                         unit_scope="snapshot", requires=(("native-region", 1), ("hlive", 1),
-                                                          ("hcfg", 1)),
-                         params_schema={"max_patches": int})
+                         unit_scope="snapshot", requires=(("native-region", 1), ("hostops", 1),
+                                                          ("hlive", 1), ("hcfg", 1),
+                                                          ("envlayout", 1)))
 
     def run(self, snap, ctx, edits):
-        count = 0
+        from collections import Counter
+        from ..analysis.hcfg import build_hcfg
+        from ..analysis.hlive import build_hlive
+        from ..analysis.hostops import build_hostops
+        from ..manager_b3 import analysis_unit
+
+        max_patches = ctx.params.get("max_patches", 64)
+        max_rounds = ctx.params.get("max_rounds", max_patches)
+        if min(max_patches, max_rounds) < 0:
+            return PassResult(Outcome.FAILED, "invalid_params", "scalar budgets must be nonnegative")
+        layout = ctx.analysis("envlayout", ScopeRef("snapshot", ctx.snapshot_id)).value["layout"]
+        state = getattr(snap, "b3", None)
+        stats = Counter(deleted=0, analysis_rounds=0)
         for uid in snap.unit_ids():
             ctx.budget()
             scope = ScopeRef("unit", uid)
             region = ctx.analysis("native-region", scope).value
             if region.status != "ok":
+                stats["unmodelled_units"] += 1
                 continue
-            graph = ctx.analysis("hcfg", scope).value
-            live = ctx.analysis("hlive", scope).value
-            for p in scalar_patches(uid, region.code, region.operations, graph, live, region,
-                                    ctx.params.get("max_patches", 64)):
-                edits.pure_rewrite(p)
-                count += 1
-        return PassResult(Outcome.CANDIDATE if count else Outcome.NO_CHANGE,
-                          "" if count else "no_redundant_operation", stats={"deleted": count})
+            unit = snap.unit(uid)
+            history = state.rewrites.get(uid, ()) if state else ()
+            if history:
+                frozen = {off for _, patch in history
+                          for off in range(patch.host_off, patch.host_off + len(patch.old_bytes))}
+                region = replace(region, frozen_offsets=region.frozen_offsets | frozen)
+            initial = state.unit_code.get(uid, region.code) if state else region.code
+
+            def analyze(code):
+                if code == region.code:
+                    return tuple(ctx.analysis(name, scope).value
+                                 for name in ("hostops", "hcfg", "hlive"))
+                host = build_hostops(analysis_unit(unit, code), layout, snap.header.code_address)
+                graph = build_hcfg(host)
+                return host, graph, build_hlive(host, graph) if host.ok and graph.ok else None
+
+            patches, rounds, stop = scalar_fixed_point(uid, initial, analyze, region,
+                                                       max_patches, max_rounds, ctx.budget)
+            for patch in patches:
+                edits.pure_rewrite(patch)
+            stats["deleted"] += len(patches)
+            stats["analysis_rounds"] += rounds
+            stats[f"stop:{stop}"] += 1
+        return PassResult(Outcome.CANDIDATE if stats["deleted"] else Outcome.NO_CHANGE,
+                          "" if stats["deleted"] else "no_redundant_operation", stats=dict(stats))
 
 
 class RegionStateForward:

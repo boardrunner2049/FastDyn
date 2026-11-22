@@ -43,21 +43,27 @@ case $arm in
 esac
 # Every stage of the arm is requested explicitly: opt-in passes do not run by being named
 # in a pipeline, and an arm whose stages were skipped by policy would measure nothing.
-mapfile -t policy < <(python - "$pipeline" <<'PYPOLICY'
+policy_args=$(python - "$pipeline" <<'PYPOLICY'
 import sys
 from scopt.manager import load_pipeline
 from scopt.run.pass_policy import policy_arguments
 names = [entry.name for entry in load_pipeline(sys.argv[1]).passes]
-print("\n".join(policy_arguments(names, names)))
+for argument in policy_arguments(names, names):
+    print(argument)
 PYPOLICY
 )
-extra+=("${policy[@]}")
+if [[ -n $policy_args ]]; then
+    mapfile -t policy <<< "$policy_args"
+    extra+=("${policy[@]}")
+fi
 python "$(dirname "$0")/measure_command.py" "$D/offline.json" scopt optimize "$snap" --pipeline "$pipeline" --profile "$W/profile/merged.profile.json" --store "$D" "${extra[@]}" --json >"$D/result.json"
-python - "$D/result.json" "$D/effective.json" <<'PYCHECK'
+python - "$D/result.json" "$D/effective.json" "$pipeline" <<'PYCHECK'
 import json, sys
+from scopt.manager import load_pipeline
 from scopt.run.pass_policy import check_requested
 doc = json.load(open(sys.argv[1]))
-rows = check_requested(doc, [r["pass"] for r in doc["passes"]])
+names = [entry.name for entry in load_pipeline(sys.argv[3]).passes]
+rows = check_requested(doc, names, stages=names)
 json.dump(rows, open(sys.argv[2], "w"), indent=1)
 PYCHECK
 art=$(read_json "$D/result.json" artifact_dir)

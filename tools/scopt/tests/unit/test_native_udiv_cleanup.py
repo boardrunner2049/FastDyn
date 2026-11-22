@@ -80,6 +80,39 @@ def test_read_before_full_definition_or_unknown_operations_keep_full_clearing(bo
     assert prepare_udiv_cleanup(unit, req, base).kind == (KIND if admitted else UDIV_KIND)
 
 
+def test_partial_cleanup_preserves_live_outputs_and_rechecks_the_linked_caller():
+    # The caller consumes DX and CX. Removing either zeroing instruction would
+    # expose the division remainder or divisor. RSI and RDI die at the exit.
+    unit, req, base = _from("89d3 01cb")
+    ordinary = prepare_udiv_splice(unit, req, base)
+    assert prepare_udiv_cleanup(unit, req, base) == ordinary
+    part = prepare_udiv_cleanup(unit, req, base, partial=True)
+    assert part.code[4:19] == bytes.fromhex("89d1 89f0 31d2 f7f1 31d2 31c9 4531c0")
+    assert part.code[-6:] == req.call_bytes
+    req = replace(req, splice=part)
+    verify_udiv_cleanup_splice(unit, req, base)
+    end = req.continuation_off + req.growth
+    tc = base + unit.tc_offset
+    ret = unit.reloc.fixups[0].target_abs
+    body = unit.code[:req.call_off] + part.code + unit.code[req.continuation_off:unit.pool_start]
+    site = unit.sites[-1]
+    off = site.field_off + req.growth
+    disp = ret - (tc + off + 4)
+    body = body[:off] + disp.to_bytes(4, "little", signed=True) + body[off + 4:]
+    relocated = replace(site, insn_off=site.insn_off + req.growth, field_off=off, final_field=disp & 0xffffffff)
+    verify_udiv_cleanup_body(req, body, end, (relocated,), tc, tb_ret=ret)
+
+    # Changing a single caller source to EDI observes a removed clear.
+    with pytest.raises(NativeInlineError, match="live"):
+        verify_udiv_cleanup_body(req, body[:end] + bytes.fromhex("89fb") + body[end+2:],
+                                 end, (relocated,), tc, tb_ret=ret)
+    # Removing all clears on this exact caller is an invalid proposal.
+    other, other_req, other_base = _from("89c3")
+    all_clears = prepare_udiv_cleanup(other, other_req, other_base)
+    with pytest.raises(NativeInlineError, match="live"):
+        verify_udiv_cleanup_splice(unit, replace(req, splice=all_clears), base)
+
+
 def test_both_conditional_successors_are_checked_and_branch_interior_is_refused():
     # JE skips MOV EBX,EDX. Even if JE is usually taken, the fallthrough can read it.
     unit, req, base = _from("7402 89d3", conditional=True)

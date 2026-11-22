@@ -368,8 +368,8 @@ class HostInlineSplice(HostInline):
         self.allow_faulting = allow_faulting
 
     def run(self, view, ctx, edits) -> PassResult:
-        if ctx.params.get("udiv_mode", "auto") not in ("auto", "full", "cleanup", "guarded"):
-            return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode must be auto, full, cleanup or guarded")
+        if ctx.params.get("udiv_mode", "auto") not in ("auto", "full", "cleanup", "partial-cleanup", "guarded"):
+            return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode must be auto, full, cleanup, partial-cleanup or guarded")
         return self._run_candidates(view, ctx, edits)
 
     def _binding_refusal(self, binding: NativeCallBinding) -> tuple[str, str] | None:
@@ -399,10 +399,10 @@ class HostInlineSplice(HostInline):
             mode = params.get("udiv_mode", "auto")
             if mode == "full" or (mode == "auto" and is_full_udiv_binding(binding)):
                 return prepare_full_udiv_splice(unit, request, code_address, cleanup=(mode == "auto"))
-            if mode in ("cleanup", "auto"):
+            if mode in ("cleanup", "partial-cleanup", "auto"):
                 from ..validate_sym.native_udiv_cleanup import prepare_udiv_cleanup
 
-                return prepare_udiv_cleanup(unit, request, code_address)
+                return prepare_udiv_cleanup(unit, request, code_address, partial=mode == "partial-cleanup")
             return prepare_udiv_splice(unit, request, code_address)
         return prepare_splice(unit, request, code_address)
 

@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
-# Trebuchet: -O0 firmware -> FirmBOLT -> FastDyn SuperCache -> scopt, measured end to end.
-# See README.md.  usage: trebuchet.sh STAGE [ARGS]   (stages in order below, `all`, or `dataset`)
-# TREBUCHET_WORKLOAD picks the firmware of a single-workload stage (default: compute).
+# Build, select and measure original and optimized deployments for real applications.
+# The historical single-workload commands are available under the fixture subcommand.
 set -euo pipefail
 
 T=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 F=$(cd "$T/../.." && pwd)
+# Real campaigns use pinned registries and explicit operational protocols.
+case ${1:-} in
+    candidates|select|final|dataset|dataset_report)
+        command=$1
+        shift
+        python=${TREBUCHET_PYTHON:-"$F/scopt-env/bin/python"}
+        case $command in
+            candidates) exec "$python" "$T/lib/candidates.py" "$@" ;;
+            select) exec "$python" "$T/lib/joint_selection.py" "$@" ;;
+            final) exec "$python" "$T/lib/final_evaluation.py" final "$@" ;;
+            dataset_report) exec "$python" "$T/lib/final_evaluation.py" report "$@" ;;
+            dataset) exec "$python" "$T/lib/real_dataset.py" "$@" ;;
+        esac ;;
+    fixture) shift ;;
+    *) echo "usage: trebuchet.sh {candidates|select|final|dataset|dataset_report} ... (archived correctness runner: fixture STAGE)" >&2; exit 2 ;;
+esac
 : "${TREBUCHET_WORK:?set TREBUCHET_WORK to a work directory outside the checkout}"
 : "${FIRMBOLT_REPO:?set FIRMBOLT_REPO to a FirmBOLT checkout}"
 : "${FIRMBOLT_BOLT:?set FIRMBOLT_BOLT to the FirmBOLT-enabled llvm-bolt}"
@@ -150,9 +165,12 @@ prepare_one() {         # capture, import, profile and candidate caches for one 
 }
 
 stage_prepare() {       # the two images are independent: prepare them side by side
-    prepare_one O0 & local first=$!
-    prepare_one O0-fb
-    wait $first
+    local first second failed=0
+    prepare_one O0 & first=$!
+    prepare_one O0-fb & second=$!
+    wait "$first" || failed=1
+    wait "$second" || failed=1
+    return "$failed"
 }
 
 stage_select() {        # rank the candidates on one held-out input, confirm the winner on two others
@@ -166,29 +184,35 @@ stage_select() {        # rank the candidates on one held-out input, confirm the
 
 stage_bench() {         # bench [REPS]: the timed campaign on the final inputs
     mkdir -p "$W/results"
-    $PIN "$PY" "$T/lib/bench.py" "$W/results/campaign.json" "${1:-8}"
+    flock -n "$W/results/.campaign.lock" $PIN "$PY" "$T/lib/bench.py" "$W/results/campaign.json" "${1:-8}"
 }
 
 stage_report() { python3 "$T/lib/report.py" "${1:-$W/results/campaign.json}"; }
 
 stage_all() { stage_firmware; stage_build; stage_firmbolt; stage_bind; stage_prepare; stage_select; stage_bench "$@"; stage_report; }
 
-each() { local w; for w in $DATASET; do TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" "$@"; done; }
+each() { local w; for w in $DATASET; do TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" fixture "$@"; done; }
 
 stage_dataset() {       # dataset [REPS]: the five numbers for every category
-    local w pids=()
-    TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" firmware
-    TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" bind
+    local w failed=0 pids=()
+    exec 8>"$ROOT/.trebuchet-dataset.lock"
+    flock -n 8 || { echo "dataset directory is in use" >&2; return 1; }
+    TREBUCHET_DATASET_ID=$(python3 "$T/lib/dataset_report.py" "$ROOT" --begin "${1:-8}" $DATASET)
+    export TREBUCHET_DATASET_ID
+    trap 'if (( $? != 0 )); then python3 "$T/lib/dataset_report.py" "$ROOT" --failed; fi' EXIT
+    TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" fixture firmware
+    TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" fixture bind
     each build
     each firmbolt
     for w in $DATASET; do       # preparation is not timed: all categories side by side
-        TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" prepare > "$ROOT/$w/prepare.log" 2>&1 &
+        TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" fixture prepare > "$ROOT/$w/prepare.log" 2>&1 &
         pids+=($!)
     done
-    for w in "${pids[@]}"; do wait "$w" || echo "a prepare job failed (see the prepare.log files)"; done
-    for w in $DATASET; do       # timed stages: one at a time; a failed category does not stop the others
-        { TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" select &&
-          TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" bench "$@"; } || echo "$w: FAILED (see above)"
+    for w in "${pids[@]}"; do wait "$w" || failed=1; done
+    if (( failed )); then echo "a prepare job failed (see the prepare.log files)" >&2; return 1; fi
+    for w in $DATASET; do       # timed stages run serially
+        TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" fixture select
+        TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" fixture bench "$@"
     done
     stage_dataset_report
 }

@@ -87,3 +87,61 @@ def test_pinned_native_bridge_returns_deterministic_order():
     request["edges"][0]["offset"] = 128
     with pytest.raises(ValueError, match="refused"):
         _bridge_order(Path(bridge), request, 10)
+
+
+def test_transformed_lookup_accounting_conserves_distinct_routes():
+    from scopt.analysis.llvm_layout import GuardedLookup, GuardTransfer, LayoutTraffic
+
+    # Target C shares B's within-page offset at another address. Its identity
+    # alone cannot prove that a virtual-PC guard missed (or hit).
+    units = []
+    for uid, pc in (("A", 0x110), ("B", 0x128), ("C", 0x528), ("D", 0x144), ("E", 0x168)):
+        u = unit(uid)
+        u.key = SimpleNamespace(page_addr0=pc)
+        units.append(u)
+    updates = {"A": GuardedLookup(89, 0x3ff, (
+        GuardTransfer("B", 0x128, 48, "GENERAL", 0), GuardTransfer("E", 0x168, 64, "SPEC", 1)))}
+    heat = {u.uid: 50 for u in units}
+    edges = [edge("A", dst, "lookup_hit", n) for dst, n in (
+        ("A", 1), ("B", 15), ("C", 4), ("D", 6), ("E", 7))]
+    for replays, represented, unresolved in ((None, 6, 26), (2, 19, 11)):
+        ledger = LayoutTraffic()
+        req, missing = build_cache_directed_request(units, heat, edges, ["lookup_hit"],
+                                                   guarded=updates, estimate_replays=replays,
+                                                   traffic=ledger)
+        assert missing == 3
+        assert sum(row["count"] for row in req["edges"]) == represented
+        assert ledger.stats()["llvm_traffic_total"] == 33
+        assert ledger.weights["guard_unresolved"] == unresolved
+        assert ledger.weights["forced_fallback"] == 6
+        assert ledger.weights["self_excluded"] == 1
+        assert ledger.weights["estimated_install"] == (2 if replays else 0)
+        if replays:
+            assert req["edges"] == [{"src": 0, "dst": 1, "offset": 48, "count": 13},
+                                    {"src": 0, "dst": 3, "offset": 89, "count": 6}]
+
+
+def test_private_variant_source_retains_unattributed_outgoing_weight():
+    from scopt.analysis.llvm_layout import LayoutTraffic
+
+    u = unit("A", site(SiteKind.GOTO_TB, 31))
+    ledger = LayoutTraffic()
+    req, missing = build_cache_directed_request([u], {"A": 12}, [edge("A", "A", "chain0", 12)],
+                                               ["chain0"], private_sources={"A"},
+                                               include_self_loops=True, traffic=ledger)
+    assert req["edges"] == [] and missing == 1
+    assert ledger.weights == {"private_source_unlocated": 12}
+
+
+def test_matching_generation_profile_can_locate_the_unique_emitted_lookup():
+    from scopt.analysis.llvm_layout import LayoutTraffic
+
+    grown = unit("A", site(SiteKind.GOTO_PTR, 89), site(SiteKind.GOTO_TB, 48))
+    grown.stub_start = 40
+    edges = [edge("A", "B", "lookup_hit", 5)]
+    for match in (False, True):
+        req, missing = build_cache_directed_request([grown, unit("B")], {"A": 5, "B": 5},
+                                                   edges, ["lookup_hit"], same_generation=match,
+                                                   traffic=LayoutTraffic())
+        assert missing == int(not match)
+        assert [x["offset"] for x in req["edges"]] == ([89] if match else [])

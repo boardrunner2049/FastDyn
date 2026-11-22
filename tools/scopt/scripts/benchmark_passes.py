@@ -180,7 +180,7 @@ def main():
         # An arm that claims a stage must have run it (a stage that ran and changed
         # nothing is fine; one skipped by policy is a misconfigured arm).
         try:
-            row["effective"] = check_requested(result, enabled)
+            row["effective"] = check_requested(result, enabled, stages=names)
         except PolicyMismatch as error:
             row.update({"optimize_status": 3, "reason": "policy_mismatch", "detail": str(error)})
             return name, row

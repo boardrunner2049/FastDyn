@@ -109,7 +109,7 @@ class ClusterHot:
         preserves=frozenset({"refs", "recovery", "cfg.known_edges", "profile.counts",
                              "annotations", "hotness"}),
         invalidates=frozenset({"layout"}),
-        params_schema={"phase": str, "kinds": list})
+        params_schema={"phase": str, "kinds": list, "order_private_by_predecessor": bool})
 
     def _order(self, snap, ctx, movable, heat, edges, kinds):
         weights = edge_weights(edges, set(movable), kinds)

@@ -2,11 +2,12 @@
 """Bind scopt's shipped helper-effect table to this QEMU build.
 
 `scopt helper-effects rebind` refuses when a reviewed source file differs from the tree
-the table was written for.  On the QEMU pinned by this branch exactly one does:
+the table was written for.  The pinned QEMU changes one reviewed header:
 include/tcg/tcg.h gained two TCGContext fields (goto_tb_issue_mask outside
 CONFIG_DEBUG_TCG, fastdyn_const_pc_promoted).  No TCG_CALL_* flag and no helper
-declaration changed, so the rows stay valid.  This script accepts that one difference,
-only when the file has the reviewed content, and refuses anything else.
+declaration changed. The direct-slot overlay also adds one predicate around
+tb_add_jump in cpu_exec_loop. Its emitted-code helpers and helper effects stay the
+same. Accept only the exact reviewed contents of those files.
 
 usage: rebind_helper_effects.py QEMU_EXE QEMU_SRC   (needs SCOPT_HELPER_EFFECTS_PATH)
 """
@@ -16,7 +17,10 @@ from scopt.analysis.helper_effects import (HelperEffectTable, default_table_path
                                            helper_effects_text, recorded_source_hashes, source_file_hashes)
 
 GATE = "sha256:56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90"
-REVIEWED = {"include/tcg/tcg.h": "sha256:eb6ddeff78b98d84c20d9ef66a387feba1d4ce833e266f4d0d185af12b7ef511"}
+REVIEWED = {
+    "include/tcg/tcg.h": "sha256:eb6ddeff78b98d84c20d9ef66a387feba1d4ce833e266f4d0d185af12b7ef511",
+    "accel/tcg/cpu-exec.c": "sha256:5d53edeb1dc897c0ee665e140e6c850348c8f547519770cfa38a61f4bc05c0f1",
+}
 
 exe, src = sys.argv[1:3]
 old = find_helper_effects(GATE)

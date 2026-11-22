@@ -175,3 +175,102 @@ def test_link_sfb_last_unit_grows_after_a_move(tmp_path):
     assert all(a[1] <= b[0] for a, b in zip(spans, spans[1:])), spans
     write_sc(tmp_path / "out.sc", snap.header, [(x.record, x.body) for x in link.units],
              fsync=False)
+
+
+def _profiled_entries(tmp_path, *, clean=True):
+    import json
+    from scopt.canon import sha256_id
+    from scopt.formats.profile_v1 import ingest
+    from scopt.importer.import_cache import import_snapshot
+    from tests.unit.test_wp7_r2_identity import _bundle, _manifest, _ri
+    from tests.synth import builders as B
+    from tests.unit.test_wp10_link import make_snapshot
+
+    units = B.simple_units(4, icount_entry=True)
+    make_snapshot(tmp_path, units)
+    sc = tmp_path / "prep-s" / "s.sc"
+    manifest = _manifest()
+    Path(str(sc) + ".fastdyn.json").write_text(json.dumps(manifest))
+    snap = import_snapshot(sc.parent, bundle=_bundle(manifest, sha256_id(b"firmware")),
+                           runtime_identity=_ri(sc, sc.with_suffix(".scm")),
+                           store=tmp_path / "bound").snapshot
+    raw = tmp_path / "training.qprof"
+    # Hottest is last by capture order. Two eligible entries tie and one is cold.
+    dispatch = [B.Dispatch(units[i].tb_offset) for i in (3, 1, 2, 3, 1, 2, 3, 3)]
+    phases = [{"name": "boot", "marker": 0}, {"name": "steady", "marker": 0x100}]
+    binding = B.qprof_binding(sc)
+    if not clean:
+        binding["flags"] = 0
+    B.simulate_qprof(B.qprof_rows_for(units), dispatch, phases=phases,
+                     phase_starts={1: 0}, header=binding, path=raw)
+    profile = ingest(raw, sc, snap, bundle_id=snap.bundle["bundle_id"],
+                     contract_id=snap.bundle["contract_id"],
+                     runtime_identity=snap.runtime["runtime_identity_id"])
+    return snap, profile
+
+
+def test_package_profiled_subset(tmp_path):
+    import json
+    from scopt.formats import artifact as A
+
+    snap, prof = _profiled_entries(tmp_path)
+    ids = [u.uid for u in snap.units()]
+    all_entries = F.propose_sfb(snap)
+    assert set(all_entries.units) == set(ids)
+    subset = F.propose_sfb(snap, profile=prof, entry_coverage=50)
+    assert subset.selection["selected"] == {ids[-1]: 4}
+    assert subset.selection["eligible_exact_entries"] == 8
+    assert subset.skips[ids[0]] == "zero_entries"
+    assert subset.skips[ids[1]] == subset.skips[ids[2]] == "coverage_reached"
+    result = F.package_sfb(snap, subset, tmp_path / "sfb", candidate_id="selective",
+                           native_lows=(0, 1, 2, 3, 65535))
+    assert result.status == "published", (result.reason, result.validation and result.validation.rows)
+    assert subset.selection["moved_units"] == len(result.link.moved)
+    assert subset.selection["code_growth_bytes"] == 16
+    sidecar = json.loads((Path(result.path) / A.SIDECAR).read_text())
+    assert sidecar["x_sfb"]["selection"] == subset.selection
+    assert sidecar["profile_ids"][0]["profile_id"] == prof.profile_id
+    for linked in result.link.units:
+        if linked.uid != ids[-1]:
+            unit = snap.unit(linked.uid)
+            assert linked.record == unit.record
+            assert linked.body == unit.code + unit.search
+
+
+def test_profiled_growth_budget_and_tie_break(tmp_path):
+    snap, prof = _profiled_entries(tmp_path)
+    ids = [u.uid for u in snap.units()]
+    prop = F.propose_sfb(snap, profile=prof, max_growth_bytes=32)
+    assert list(prop.units) == [ids[3], min(ids[1:3])]
+    assert prop.skips[max(ids[1:3])] == "code_growth_budget"
+    assert not F.propose_sfb(snap, profile=prof, max_growth_bytes=15).units
+    assert not F.propose_sfb(snap, profile=prof, max_units=0).units
+    no_moves = F.propose_sfb(snap, profile=prof, max_moved_units=0)
+    assert not no_moves.units and no_moves.skips[ids[3]] == "moved_units_budget"
+    with pytest.raises(ValueError, match="require a training profile"):
+        F.propose_sfb(snap, entry_coverage=50)
+    with pytest.raises(ValueError, match="missing or unreached"):
+        F.propose_sfb(snap, profile=prof, phase="missing")
+
+
+def test_sfb_package_command_with_profile(tmp_path):
+    import json
+    from click.testing import CliRunner
+    from scopt.commands.b4 import sfb
+
+    snap, profile = _profiled_entries(tmp_path)
+    path = tmp_path / "train.profile.json"
+    path.write_bytes(profile.to_bytes())
+    result = CliRunner().invoke(sfb, ["package", snap.path, "--store", str(tmp_path / "art"),
+                                      "--profile", str(path), "--entry-coverage", "50"])
+    assert result.exit_code == 0, (result.output, result.exception)
+    doc = json.loads(result.output)
+    assert doc["status"] == "published" and doc["proposal"]["units"] == 1
+    assert doc["proposal"]["selection"]["profile_id"] == profile.profile_id
+    assert not any(row["result"] == "fail" for row in doc["validation"])
+
+
+def test_selective_sfb_refuses_lower_bound_only_profile(tmp_path):
+    snap, prof = _profiled_entries(tmp_path, clean=False)
+    with pytest.raises(ValueError, match="requires exact entry counts"):
+        F.propose_sfb(snap, profile=prof, entry_coverage=90)

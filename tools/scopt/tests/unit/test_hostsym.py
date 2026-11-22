@@ -68,6 +68,18 @@ def test_term_folding():
     assert binop("sar", 4, 0x80000000, 4) == 0xF8000000
 
 
+@pytest.mark.parametrize("name,family", [("ah", "rax"), ("bh", "rbx"), ("ch", "rcx"), ("dh", "rdx")])
+def test_high_byte_preserves_surrounding_register_bits(name, family):
+    from scopt.validate_sym.semantics import rd_reg, wr_reg
+    from scopt.validate_sym.state import State
+    state = State.initial()
+    state.regs[family] = 0xFEDCBA9876543210
+    assert rd_reg(state, name) == 0x32
+    wr_reg(state, name, 0x7F)
+    assert state.regs[family] == 0xFEDCBA9876547F10
+    assert rd_reg(state, name) == 0x7F
+
+
 def test_bytemem_partial_overlap_is_exact():
     a, b = ByteMem("env"), ByteMem("env")
     a.write(0, 4, ("x",))

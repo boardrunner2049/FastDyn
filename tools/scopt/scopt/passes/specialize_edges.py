@@ -61,7 +61,7 @@ class SpecializeEdges(SpecializeReturns):
         requires=SpecializeReturns.descriptor.requires + (("program", 1), ("local-summary", 1),
                                                           ("obs-contract", 1)),
         params_schema={**SpecializeReturns.descriptor.params_schema, "partitions": int,
-                       "coverage_mode": str, "coverage_evidence": str},
+                       "max_preserving_hops": int, "coverage_mode": str, "coverage_evidence": str},
     )
 
     def _select_target(self, row, candidate, unit):

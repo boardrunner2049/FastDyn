@@ -233,8 +233,10 @@ def load_ext(doc, data, loaded, code_size, prol_end, feat, tbsz, tpb, host_page)
             raise Die("slot %d: slot_n %d" % (i, n))
         if kind not in (1, 2):
             raise Die("slot %d: bad kind %d" % (i, kind))
-        if xc not in (1, 2):
+        if xc not in (1, 2, 3):
             raise Die("slot %d: bad exit_class %d" % (i, xc))
+        if xc == 3 and kind != 2:
+            raise Die("slot %d: ordinary direct edge requires a private variant" % i)
         if sres:
             raise Die("slot %d: reserved not zero" % i)
         jmp, rst = r["jmp_insn_offset"][n], r["jmp_reset_offset"][n]

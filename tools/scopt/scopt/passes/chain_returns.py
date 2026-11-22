@@ -33,13 +33,16 @@ account for a strict majority of all exactly attributed steady return hits.
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 from fractions import Fraction
 import math
 from typing import Any, ClassVar
 
 from ..analysis.api import ScopeRef
 from ..analysis.profitability import DEFAULTS
+from ..analysis.return_edges import Candidate, ExitRow
 from ..formats.profile_v1 import METHOD
+from ..guard import stub_size_bound
 from .base import Budgets, EditKind, GuardedSlot, Outcome, PassDescriptor, PassResult
 from ._b3util import refusal_result
 
@@ -51,7 +54,8 @@ MAX_UNITS = 256
 def _descriptor(name: str) -> PassDescriptor:
     params = {"targets_per_exit": int, "max_units": int, "min_pass_share": float,
               "c_lookup": float, "c_guard": float, "c_fail": float,
-              "min_target_hits": int, "c_link": float, "compact_guard": bool}
+              "min_target_hits": int, "c_link": float, "compact_guard": bool,
+              "rank_by_net_work": bool, "c_target_check": float, "max_total_growth_bytes": int}
     if name == "chain-returns":
         params["min_return_share"] = float
     return PassDescriptor(
@@ -95,6 +99,29 @@ def _exact_return_hits(exits, profile_view) -> int | None:
     return total
 
 
+@dataclass
+class _GeneralPlan:
+    row: ExitRow
+    picks: list[tuple[Candidate, Any, int, int, int]]
+    total: int
+    fallback: int
+    saving: float
+    compact: bool
+    additional_bytes: int
+
+
+def _existing_growth_bound(state, units):
+    size = sum(units[v.src_uid].end_offset - units[v.src_uid].tb_offset
+               for v in state.variants.values())
+    return size + sum(_exit_bound(exit_plan) for exit_plan in state.exits.values())
+
+
+def _exit_bound(exit_plan):
+    slots = exit_plan.slots
+    return stub_size_bound(len(slots), len(slots) == 1 and slots[0].compact,
+                           any(slot.r0_zero for slot in slots))
+
+
 def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResult:
     from ..guard import COMPACT_GUARD, GUARD_TEMPLATE_ID, GuardError, guard_key
 
@@ -118,6 +145,15 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
     if min_target_hits < 0:
         raise ValueError("min_target_hits must be nonnegative")
     max_units = int(p.get("max_units", MAX_UNITS))
+    ranked = p.get("rank_by_net_work", False)
+    compare_cost = float(p.get("c_target_check", guard if ranked else 0.0))
+    byte_limit = p.get("max_total_growth_bytes")
+    if ranked and not all(math.isfinite(cost) and cost >= 0 for cost in (lookup, guard, fail)):
+        raise ValueError("net-work ranking requires finite, nonnegative costs")
+    if byte_limit is not None and byte_limit < 0:
+        raise ValueError("max_total_growth_bytes must be nonnegative")
+    if not math.isfinite(compare_cost) or compare_cost < 0:
+        raise ValueError("c_target_check must be nonnegative and finite")
     sid = ScopeRef("snapshot", ctx.snapshot_id)
     edges = ctx.analysis("return-edges", sid).value
     ctx.analysis("envlayout", sid)
@@ -137,6 +173,8 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
         dominance_stats = {"train_exact_return_hits": total_hits,
                            "min_return_share": share, "min_exact_target_hits": min_target_hits}
     collection = profile.collection if profile is not None else {}
+    if ranked and (collection.get("method") != METHOD or collection.get("complete") is not True):
+        return PassResult(Outcome.SKIPPED_UNKNOWN, "incomplete_lookup_profile")
     replays = max(1, len(collection.get("runs", ())), collection.get("repetitions") or 0)
     units = b3.units()
     vsrc = st.variant_sources()
@@ -150,6 +188,12 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
     guard_attempts = 0
     targets_below_threshold = 0
     targets_without_reuse = 0
+    plans = []
+    scan_order_units = set()
+    net_saving = 0.0
+    fallbacks = 0
+    base_bytes = _existing_growth_bound(st, units) if byte_limit is not None else 0
+    growth = base_bytes
     for row in edges.exits:
         if row.exit_class != exit_class:
             continue
@@ -161,10 +205,13 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
         if row.uid in vsrc:
             refused["unit_not_relocatable"] += 1
             continue
-        if row.uid not in touched and len(touched) >= max_units:
+        if not ranked and byte_limit is None and len(scan_order_units) >= max_units and row.uid not in scan_order_units:
             refused["slot_budget"] += 1
             continue
         x = st.exit_plan(row.uid, row.tail_off)
+        if (ranked or byte_limit is not None) and x and any(getattr(slot, "r0_zero", False) for slot in x.slots):
+            refused["no_free_slot"] += 1
+            continue
         claimed = st.claimed_slots(row.uid)
         free = [n for n in row.free_slots if n not in claimed]
         if not free:
@@ -174,6 +221,11 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
         eligible = [c for c in row.candidates if c.admitted and c.dst is not None and
                     c.vaddr not in have]
         cands = []
+        if ranked:
+            if any(c.status != "exact" for c in row.candidates):
+                refused["inexact_lookup_traffic"] += 1
+                continue
+            eligible.sort(key=lambda c: (-c.count, c.dst, c.vaddr))
         for c in eligible:
             if c.count <= replays:
                 targets_without_reuse += 1
@@ -197,6 +249,7 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
         # already has a SPEC or GENERAL slot, that fixed cost is already paid.
         marginal = 0.0 if x is not None else -total * (guard + fail)
         picked = []
+        first_saving = 0.0
         for c in cands:
             if not free or len(picked) >= per_exit - len(have):
                 break
@@ -212,24 +265,66 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
             installs = min(int(c.count), replays)
             avoided = int(c.count) - installs
             benefit = avoided * lookup - installs * link + int(c.count) * fail
+            if have or picked:
+                # Attempts that missed prior targets reach the second compare.
+                remaining = total - guarded - sum(int(item[0].count) for item in picked)
+                benefit -= compare_cost * max(0, remaining)
             if benefit <= 0:
                 refused["not_profitable"] += 1
                 continue
             marginal += benefit
             k0 = kc
             picked.append((c, cu, free.pop(0), installs, avoided))
+            if len(picked) == 1:
+                first_saving = marginal
         if not picked:
             continue
         guarded += sum(int(c.count) for c, _, _, _, _ in picked)
         if marginal <= 0 or guarded < min_share * max(guarded, total):
             refused["not_profitable"] += 1
             continue
-        guard_attempts += total
         compact = ctx.params.get("compact_guard", False) and len(picked) == 1 and not have
-        for c, cu, slot, installs, avoided in picked:
+        additional_bytes = 0
+        if byte_limit is not None:
+            additional_bytes = stub_size_bound(len(have) + len(picked), compact) - (_exit_bound(x) if x else 0)
+        plans.append(_GeneralPlan(row, picked, total, total - guarded, marginal, compact, additional_bytes))
+        if not ranked and byte_limit is None:
+            scan_order_units.add(row.uid)
+        if ranked and byte_limit is not None and len(picked) == 2:
+            first_weight = int(picked[0][0].count)
+            if first_saving > 0 and first_weight >= min_share * total:
+                single_compact = p.get("compact_guard", False)
+                plans.append(_GeneralPlan(row, picked[:1], total, total - first_weight,
+                                          first_saving, single_compact, stub_size_bound(1, single_compact)))
+    if ranked:
+        plans.sort(key=lambda plan: (-plan.saving, plan.row.uid, plan.row.tail_off))
+    assigned = set()
+    selected_exits = set()
+    for plan in plans:
+        row = plan.row
+        exit_key = (row.uid, row.tail_off)
+        if exit_key in selected_exits:
+            continue
+        if row.uid not in touched and len(touched) >= max_units:
+            refused["slot_budget"] += 1
+            continue
+        slots = {(row.uid, pick[2]) for pick in plan.picks}
+        if assigned & slots:
+            refused["no_free_slot"] += 1
+            continue
+        if byte_limit is not None and growth + plan.additional_bytes > byte_limit:
+            refused["growth_budget"] += 1
+            continue
+        growth += plan.additional_bytes
+        assigned.update(slots)
+        selected_exits.add(exit_key)
+        net_saving += plan.saving
+        guard_attempts += plan.total
+        fallbacks += plan.fallback
+        for c, cu, slot, installs, avoided in plan.picks:
             edits.redirect_exit(GuardedSlot(row.uid, row.exit_id, slot, "GENERAL", exit_class,
                                             c.vaddr, cu.key, tail_off=row.tail_off,
-                                            guard_template_id=COMPACT_GUARD if compact else GUARD_TEMPLATE_ID),
+                                            guard_template_id=COMPACT_GUARD if plan.compact else GUARD_TEMPLATE_ID),
                                 dependency_additions=(f"edge:{row.uid}->{cu.uid}",))
             n_slots += 1
             guarded_w += int(c.count)
@@ -243,6 +338,12 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
              "train_guard_attempts": guard_attempts,
              "training_replays": replays,
              "targets_without_estimated_reuse": targets_without_reuse, **dominance_stats}
+    if ranked:
+        stats.update(eligible_exit_plans=len(plans), estimated_net_saving_ns=net_saving,
+                     train_unmatched_guard_attempts=fallbacks, c_target_check=compare_cost)
+    if byte_limit is not None:
+        stats.update(max_total_growth_bytes=byte_limit, existing_growth_upper_bytes=base_bytes,
+                     proposed_growth_upper_bytes=growth)
     if min_target_hits:
         stats["targets_below_minimum_exact_hits"] = targets_below_threshold
     if n_slots:

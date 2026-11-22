@@ -115,7 +115,7 @@ Speedup of each step, process (median of within-block ratios)
 | `algobench` | 1.110× | 1.014× | 1.059× | 1.194× | 0.941× |
 | **geometric mean** | **1.177×** | **1.025×** | **1.072×** | **1.295×** | **0.913×** |
 
-`trebuchet.sh dataset_report` prints these tables from a work directory;
+`trebuchet.sh fixture dataset_report` prints these tables from a work directory;
 `python3 lib/dataset_report.py results/2026-11-22-dataset compute fwbench kernbench libbench algobench`
 prints them from the stored samples.
 
@@ -146,8 +146,8 @@ export FIRMBOLT_REPO=/path/to/firmbolt
 export FIRMBOLT_BOLT=/path/to/llvm-bolt         # the FirmBOLT-enabled build
 export TREBUCHET_CPUS=8-11                      # optional: CPUs for the timed runs
 
-tools/trebuchet/trebuchet.sh dataset            # all five categories, then the tables
-TREBUCHET_WORKLOAD=fwbench tools/trebuchet/trebuchet.sh all    # one category
+tools/trebuchet/trebuchet.sh fixture dataset            # all five categories, then the tables
+TREBUCHET_WORKLOAD=fwbench tools/trebuchet/trebuchet.sh fixture all    # one category
 ```
 
 `dataset` takes about two and a half hours on a 32-core host: preparation of the five

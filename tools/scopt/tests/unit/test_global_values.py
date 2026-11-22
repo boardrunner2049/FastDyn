@@ -211,3 +211,84 @@ def test_word_projection_wraps_bytes_and_retains_negative_bounds():
     bits = field_bits(partial, 0, 4)
     assert bits.mask == 0xFFFF and bits.value == 0xFF00
     assert bits.signed_bounds == (-0x7FFF0100, 0x7FFFFF00)
+
+
+def _guarded_chain(*, writer_value=0, killed=None, max_hops=3):
+    from scopt.analysis.callee_summary import guarded_static_summaries
+    from scopt.formats.callee_summary_v1 import seal_row
+    from tests.unit.test_wp20_return_edges import _row
+
+    ids = [f"tb:{i:032x}#0" for i in range(6)]
+    rows, edges = [], []
+    for index, uid in enumerate(ids):
+        row = _row()
+        row["deps"]["unit"]["uid"] = row["return_unit"] = uid
+        if index == 0:
+            row["facts"][0].update(status="certified", value=hex(writer_value),
+                                   cert_hash="sha256:" + "1" * 64)
+        else:
+            row["facts"] = []
+        rows.append(seal_row(row))
+        dest = index + 1 if index + 1 < len(ids) else 1
+        target = SimpleNamespace(dst=ids[dest], admitted=True, vaddr=4 * dest, count=100 - index)
+        edges.append(SimpleNamespace(uid=uid, exit_id="x0", admitted=True, exit_class="static",
+                                     insn=0, tail_off=16, candidates=(target,), static_dest=target.vaddr))
+
+    def summary(uid):
+        preserved = range(3) if uid == killed else range(4)
+        return SimpleNamespace(result_hash="sha256:" + uid[3:35] * 2, value=SimpleNamespace(
+            effect_id="table", preserved_at_tails=((16, frozenset(preserved)),)))
+
+    return guarded_static_summaries(rows, SimpleNamespace(exits=edges), summary, offset=0, max_hops=max_hops)
+
+
+def test_bounded_global_candidate_depends_on_every_preserver():
+    rows = _guarded_chain()
+    assert not _guarded_chain(max_hops=1)[2]["facts"]
+    assert [bool(row["facts"]) for row in rows] == [True, True, True, True, False, False]
+    proof = rows[2]["x_guarded_origin"]
+    assert proof["writer_row"] == rows[1]["row_hash"]
+    assert proof["writer_guarded_origin"]["writer_row"] == rows[0]["row_hash"]
+    assert proof["writer_tb_edge_count"] == 99
+    assert rows[2]["facts"][0]["status"] == "guarded"
+    assert not any(row["facts"] for row in _guarded_chain(writer_value=1)[1:])
+    assert not any(row["facts"] for row in _guarded_chain(killed=rows[1]["return_unit"])[1:])
+
+
+def test_propagated_guarded_fact_changes_only_private_code(tmp_path):
+    from scopt.formats.envlayout_v1 import find_envlayout
+    from scopt.guard import GuardOffsets
+    from scopt.manager_b3 import VariantPlan, VariantView
+    from scopt.passes._b3util import factref_of_row
+    from scopt.passes.constant_propagation import ConstantPropagation
+    from scopt.passes.specialize_returns import emit_specialization
+    from tests.synth.builders import simple_units
+    from tests.unit.test_wp10_link import make_snapshot
+    from tests.unit.test_wp21_b3_passes import run_region
+
+    snap = make_snapshot(tmp_path, simple_units(1, body_prefix=bytes.fromhex("8b4500")))
+    dest, = snap.units()
+    layout = find_envlayout("sha256:56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90")
+    row = _guarded_chain()[2]  # writer -> preserver -> final preserver exit
+    fact = factref_of_row(row, row["facts"][0])
+    choice = PlannedSpecialization(row["return_unit"], row["deps"]["unit"]["content_hash"],
+                                   "x0", "static", 16, 0, dest.uid, dest.content_hash,
+                                   dest.vaddrs[0], dest.key, (fact,), row["row_hash"])
+    entries = []
+    def record_entry(entry, **kw):
+        entries.append(entry)
+    def ignore(*args, **kw):
+        pass
+    edits = SimpleNamespace(attach_fact=ignore, clone=ignore, redirect_exit=ignore,
+                            add_entry=record_entry)
+    emit_specialization(choice, GuardOffsets.from_layout(layout), edits)
+    entry, = entries
+    assert any(atom.atom == "g_r0_zero" for atom in entry.guard_atoms)
+    plan = VariantPlan(entry.variant_id, dest.uid, entry.pred, "x0", entry.facts,
+                       entry.guard_atoms, dest.code, weight=10)
+    private = VariantView(entry.variant_id, plan, dest, layout, snap.header.code_address)
+    _, (patch,) = run_region(ConstantPropagation, private)
+    assert patch.host_off == dest.insn0_start and patch.target == entry.variant_id
+    assert patch.old_bytes == bytes.fromhex("8b4500") and patch.new_bytes == bytes.fromhex("31c090")
+    public = VariantView(entry.variant_id, replace(plan, facts=()), dest, layout, snap.header.code_address)
+    assert run_region(ConstantPropagation, public)[1] == []

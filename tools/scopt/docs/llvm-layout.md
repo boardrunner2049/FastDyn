@@ -60,9 +60,41 @@ snapshot with previously certified integer splices. When reimporting a splice
 artifact, pass every `cache*.scm` capture using a separate `--scm` option.
 Use the same attached training profile and runtime identity for both pipelines.
 
-The order uses emitted guard sizes. A pre-rewrite lookup count on a guarded
-source can represent a guarded transfer or a fallback, so the layout graph
-omits that ambiguous count. The V2 linker checks the composed placement,
-emits fixed-up TBs, then places variants and builds the extension table at the
-final offsets. An invalid combined placement rejects the candidate. Reimport
-checks relocated fixups, recovery coordinates, and any retained splice proof.
+The layout preview links the guarded bodies before constructing the request.
+It reads each generated slot's jump offset and each fallback's `jmp rax`
+offset from the emitted guard and binds the slot number to its continuation
+in the manager's exit plan. With a single original lookup tail, a baseline
+lookup to a destination whose within-page offset differs from every guarded
+PC must reach the relocated fallback. The graph assigns its full source-profile
+count there. Ambiguous tails and possible virtual-address aliases remain
+unlocated. A profile of the same transformed generation can attribute actual
+lookup-helper hits to the unique emitted `goto_ptr` site.
+
+The `llvm_traffic_*` statistics partition the exact, unflagged edge weight in
+the selected kinds of the attached profile view. They include weight outside
+the selected nodes, omitted self-loops, unknown sites, proven fallback routes
+and ambiguous guarded traffic. `llvm_traffic_total` is the denominator for
+this view. An aggregate source profile cannot identify every first installation,
+guard failure, or private-copy entry.
+
+An explicit `llvm-cache-layout.estimate_general_reuse = true` experiment models
+a GENERAL target with a unique matching within-page offset and continuation
+identity. It assumes passing guards and a stable link after first use. It
+reserves up to one installation per recorded training replay and gives the
+remaining hits to the actual slot jump. `llvm_traffic_estimated_general` and
+`llvm_traffic_estimated_install` report these estimates separately. Resets,
+interruptions, failed predicates or link invalidation can change both counts.
+The ordinary layout mode keeps this traffic unresolved. Timing on reserved
+application scenarios and diagnostics on the transformed deployment remain
+necessary to evaluate the model.
+
+For kept SPEC variants, source-profile entries and outgoing edges of the
+cloned body combine ordinary and private executions. LLVM omits nodes whose
+exact count would require splitting these executions. Their weight appears
+under `private_source_unlocated` or `private_destination_unlocated`. The
+optional `order_private_by_predecessor = true` parameter on `cluster-hot`
+or `llvm-cache-layout` places the private suffix in increasing final
+predecessor address and slot order. Variants retain their stable identifiers.
+The V2 linker rebuilds the extension indices and relocations for that physical
+order. All ordinary placement and recovery checks still run. Interleaved
+ordinary/private placement and exact private-entry traces remain open.

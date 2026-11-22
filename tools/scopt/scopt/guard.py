@@ -45,6 +45,7 @@ V13 compares that with the ext slot entries and the continuation key.
 from __future__ import annotations
 
 import struct
+from functools import lru_cache
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -172,6 +173,26 @@ class GuardStub:
     @property
     def guard_len(self) -> int:
         return len(self.code)  # S through F inclusive
+
+
+@lru_cache(maxsize=16)
+def stub_size_bound(n_slots: int, compact: bool, r0_zero: bool = False) -> int:
+    """Upper bound from the registered guard emitter, including all slot alignments.
+
+    Reserve GENERAL reset bytes even for a SPEC that may downgrade. A value
+    guard additionally reserves its bound SPEC encoding. Displacements and
+    target addresses have fixed widths except for the large flags2 immediate.
+    """
+    targets = tuple(GuardTarget(2 * i, i, "GENERAL", compact=compact) for i in range(n_slots))
+    shapes = [targets]
+    if r0_zero:
+        shapes.append((GuardTarget(0, 0, "SPEC", r0_zero=True),))
+    sizes = (len(emit_guard(stub_off=align, tail=bytes.fromhex("4889efff1500000000ffe0"),
+                            pool_slot_off=0, lookup_helper_id=0, lookup_func=0, kf=0, kf2=1 << 32,
+                            targets=shape, tc_abs=0, struct_abs=0, tb_ret_abs=0,
+                            offsets=GuardOffsets(r0=0)).code)
+             for shape in shapes for align in range(4))
+    return max(sizes)
 
 
 def guard_key(key_flags: int, key_cs_base: int) -> tuple[int, int]:
