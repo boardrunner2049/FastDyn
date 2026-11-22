@@ -6,7 +6,11 @@ The diagnostic emits a private-entry replacement `mov ebx,r13d` (44 89 eb) for `
 
 The x86-64 execution harness uses the physically captured suffix and prefix and runs 42 comparisons per image, covering normal and early exits, general-register results, flags, CPU state and independent entry. The recorded SHA-256 values bind the original public unit, the same-address private prototype and its training capture. The output JSON records the two physical instruction encodings and the exact immutable input hashes.
 
-A deployable transformation still requires a private successor installed exclusively after a validated direct chain. On reset, unchain, invalidation, or dispatcher re-entry, execution must reach the ordinary public target. Existing SPEC guards cover lookup tails. An ordinary mutable slot requires its own binding and relocation proof. This experiment ran outside the frozen recipe registry. No elapsed-time comparison or new guest performance arm was recorded.
+The follow-up adds a direct-slot class to the SC6 loader. A private link can arm only at ordinary dispatch, after QEMU resolves the exact live source, ordinary chain slot, general destination TB and guest PC. The general destination owns the incoming link on QEMU’s normal invalidation list. The loader retains the private TB’s recovery registration, TLB and debug revocations, reset code and generic fallback. Dispatch, interrupt and other predecessor entries continue to use the public code.
+
+The deployable packager reopens its input store strictly, checks the guest ELF, eligible host CFG and capture against the exact training edge, relocates the private clone, and checks both SC6 readers, public bytes, extension binding, runtime identity and deployment sidecar. Both images passed using fresh local imports of the archived ordinary caches and physical captures. The relocated endpoints’ complete region identities exactly matched the original hosted imports. Other units remained at their original offsets. These are training-only packages outside the frozen candidate registry. [Original package](original-package.json) · [FirmBOLT package](firmbolt-package.json)
+
+The independent full-body harness executes the actual public and linked private 160-byte instruction streams. It first checks the complete reviewed instruction encoding, all three private return addresses and the reset jump encodings. All 125 comparisons per image agreed on the full CPU-state buffer, modified host registers, flags and normalized TB return index, covering both normal successors and the initial icount bailout. Independent public entry also passed with a stale incoming register. This proof exercises the two compiled TBs independently of the emulator’s dispatch decisions. [Original linked-body checks](original-linked-body.json) · [FirmBOLT linked-body checks](firmbolt-linked-body.json)
 
 Run from the FastDyn root with the exported training campaign:
 
@@ -18,4 +22,11 @@ python tools/trebuchet/lib/continuity_witness.py "$OFFLINE"/campaign/original/st
   --guest-elf "$OFFLINE/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf" \
   --source 'tb:df6512343d9711338d8f856587c3bed1#0' --slot 0 \
   --destination 'tb:20f98f2677e3aad2e4f66e4fe5480c19#0' --out witness.json
+```
+
+Build the deployable candidate in the source capture environment, then run the complete linked-body audit with the same Python environment:
+
+```sh
+python tools/trebuchet/lib/package_continuity.py "$SNAPSHOT" "$PROFILE" --guest-elf "$FIRMWARE" --out "$NEW_DIR"
+python tools/trebuchet/lib/check_pye_private_body.py "$NEW_DIR/cache.sc"
 ```
