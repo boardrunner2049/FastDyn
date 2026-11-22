@@ -5,6 +5,7 @@ is reusable only inside this invocation, for the same image and recipe prefix.
 """
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -33,6 +34,7 @@ PIPELINES = {
 }
 PACKAGES = {"sfb", "sfb-hot", "b4", "b4-coalesce", "b4-absorb"}
 CORE = ["warm", "b3", "sfb", "sfb+b3"]
+STAGES = PACKAGES | PIPELINES.keys()
 
 
 def deployment_identity(artifact, config, firmware, runtime, contract_sha256):
@@ -55,19 +57,83 @@ def deployment_identity(artifact, config, firmware, runtime, contract_sha256):
 
 
 def stage_parameters(stage, params):
+    if not isinstance(params, dict):
+        raise ValueError(f"parameters for {stage} must be an object")
+    try:
+        # Copy nested values and reject non-finite values before using parameters
+        # as part of a generation's identity.
+        params = json.loads(canonical_json(params))
+    except TypeError as exc:
+        raise ValueError(f"invalid parameters for {stage}: {exc}") from exc
     if stage not in ("native-1", "native-2"):
         return params
     fixed = {"mode": "splice", "allow_faulting": False, "max_sites_per_unit": int(stage[-1])}
     requested = params.get("host-inline", {})
-    if any(key in requested and requested[key] != val for key, val in fixed.items()):
+    if not isinstance(requested, dict):
+        raise ValueError(f"host-inline parameters for {stage} must be an object")
+    if any(key in requested and (type(requested[key]) is not type(val) or requested[key] != val)
+           for key, val in fixed.items()):
         raise ValueError(f"parameters conflict with {stage}")
     return {**params, "host-inline": {**requested, **fixed}}
+
+
+def declared_nodes(plan):
+    """Validate optional recipe labels without changing the built-in stages."""
+    nodes = plan.get("nodes", {})
+    if not isinstance(nodes, dict):
+        raise ValueError("recipe nodes must be an object")
+    for name, node in nodes.items():
+        if (not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_-]*", name)
+                or name in STAGES or name == "warm"):
+            raise ValueError(f"invalid or reserved recipe node name: {name}")
+        if (not isinstance(node, dict) or set(node) - {"stage", "params"}
+                or not isinstance(node.get("stage"), str) or node["stage"] not in STAGES
+                or not isinstance(node.get("params", {}), dict)):
+            raise ValueError(f"invalid recipe node: {name}")
+    return nodes
+
+
+def resolved_recipe(plan, recipe, nodes):
+    """Bind each token to a stage and its canonical invocation parameters.
+
+    A node overrides the plan's stage parameters at the pass-parameter level.
+    Package parameters are scalars and replace the corresponding defaults.
+    The label is deliberately absent from the identity: two names for the same
+    invocation share a generation, while different parameter variants cannot.
+    Pipeline defaults remain in the pipeline, so explicit and implicit defaults
+    may conservatively produce separate generations.
+    """
+    defaults = plan.get("params", {})
+    if not isinstance(defaults, dict):
+        raise ValueError("stage parameters must be an object")
+    result = []
+    for name in ([] if recipe == "warm" else recipe.split("+")):
+        declared = nodes.get(name, {"stage": name})
+        stage = declared["stage"]
+        params = defaults.get(stage, {})
+        if not isinstance(params, dict):
+            raise ValueError(f"parameters for {stage} must be an object")
+        params = dict(params)
+        for key, value in declared.get("params", {}).items():
+            params[key] = ({**params[key], **value}
+                           if isinstance(params.get(key), dict) and isinstance(value, dict) else value)
+        params = stage_parameters(stage, params)
+        invocation = {"stage": stage, "params": params}
+        result.append({"name": name, **invocation, "identity": sha256_id(canonical_json(invocation))})
+    return result
+
+
+def recipe_invocations(nodes):
+    return [{"stage": node["stage"], "params": node["params"]} for node in nodes]
 
 
 def optimizer_args(stage, image, parent, root, params, ancestry, pipeline_dir=None):
     """Build one scopt invocation with an explicit policy and warm ancestor."""
     params = stage_parameters(stage, params)
     if stage in PACKAGES:
+        supported = {"entry_coverage", "max_growth_bytes", "max_moved_units"} if stage == "sfb-hot" else set()
+        if params.keys() - supported:
+            raise ValueError(f"unsupported {stage} package parameters: {sorted(params.keys() - supported)}")
         family = stage.split("-")[0]
         args = [family, "package", str(parent), "--store", str(root)]
         if family == "b4":
@@ -159,6 +225,9 @@ def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=N
             or plan["application"] in {"compute", "fwbench", "kernbench", "libbench", "algobench"}):
         raise ValueError("requires a real application's completed admission record")
     recipes = plan.get("recipes", CORE)
+    if not isinstance(recipes, list) or not all(isinstance(r, str) and r for r in recipes):
+        raise ValueError("recipes must be a list of nonempty strings")
+    nodes = declared_nodes(plan)
     images = plan["images"]
     bounded_rebuild = fixed_recipe is not None and fixed_image is not None and (
         recipes == ["warm"] if fixed_recipe == "warm" else recipes == ["warm", fixed_recipe])
@@ -169,7 +238,7 @@ def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=N
             or not set(images) <= {"original", "firmbolt"}):
         raise ValueError("invalid image variants or recipe list")
     for recipe in recipes:
-        if recipe != "warm" and any(s not in PACKAGES | PIPELINES.keys() for s in recipe.split("+")):
+        if recipe != "warm" and any(s not in STAGES and s not in nodes for s in recipe.split("+")):
             raise ValueError(f"unrecognized recipe {recipe}")
     recipes = ["warm", *(r for r in recipes if r != "warm")]
     budget = plan["budget"]
@@ -199,7 +268,8 @@ def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=N
         except (ValueError, RuntimeError, ImportRejected, OSError, KeyError) as exc:
             error = str(exc)
         for recipe in recipes:
-            stages = [] if recipe == "warm" else recipe.split("+")
+            labels = [] if recipe == "warm" else recipe.split("+")
+            stages = [nodes.get(label, {"stage": label})["stage"] for label in labels]
             row = dict(id=f"{variant}/{recipe}", application=plan["application"], image_variant=variant,
                        recipe=stages, contract_sha256=registry["contract_sha256"])
             registry["candidates"].append(row)
@@ -209,8 +279,11 @@ def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=N
                 row.update({k: image[k] for k in ("firmware", "config", "runtime", "profile")})
                 row.update(firmware_sha256=file_sha256(image["firmware"]), config_sha256=file_sha256(image["config"]),
                            profile_id=profile.profile_id, ordinary_snapshot_id=snap.snapshot_id)
+                resolved = resolved_recipe(plan, recipe, nodes)
+                row.update(recipe_nodes=resolved, recipe_identity=sha256_id(canonical_json(recipe_invocations(resolved))))
+                keys = tuple((node["stage"], canonical_json(node["params"])) for node in resolved)
                 for i, stage in enumerate(stages, 1):
-                    prefix = tuple(stages[:i])
+                    prefix = keys[:i]
                     if prefix not in cache:
                         remaining = budget["offline_seconds"] - (time.monotonic() - start)
                         if remaining <= 0:
@@ -219,14 +292,19 @@ def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=N
                         if isinstance(parent, Exception):
                             raise ValueError(f"parent generation failed: {parent}")
                         try:
-                            cache[prefix] = materialize(stage, parent, image, output / (variant + "." + ".".join(prefix)),
-                                                        plan.get("params", {}).get(stage, {}), remaining,
+                            if any(label in nodes for label in labels[:i]):
+                                key = sha256_id(canonical_json(recipe_invocations(resolved[:i]))).removeprefix("sha256:")
+                                directory = output / f"{variant}.nodes.{key}"
+                            else:
+                                directory = output / (variant + "." + ".".join(stages[:i]))
+                            cache[prefix] = materialize(stage, parent, image, directory,
+                                                        resolved[i - 1]["params"], remaining,
                                                         optimizer=optimizer, pipeline_dir=pipeline_dir)
                         except (OSError, ValueError, RuntimeError, ImportRejected, subprocess.SubprocessError, KeyError) as exc:
                             cache[prefix] = exc
                     if isinstance(cache[prefix], Exception):
                         raise cache[prefix]
-                result = cache[tuple(stages)]
+                result = cache[keys]
                 artifact = result["artifact"]
                 deployed = resolve_artifact(artifact)
                 if read_bundle(deployed["bundle"])["image_hash"] != row["firmware_sha256"]:

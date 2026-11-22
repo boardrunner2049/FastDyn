@@ -1,4 +1,5 @@
 """Mocked trial measurements exercise decisions only. No performance workload or result."""
+import copy
 import json
 from pathlib import Path
 import sys
@@ -7,6 +8,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 pytest.importorskip("scopt")
 from joint_selection import InvalidObservation, select, validate_observations
+from scopt.ids import canonical_json, sha256_id
 
 
 def example():
@@ -31,6 +33,104 @@ def example():
                                                deployment_identity=name, application="test-only", recipe=recipe,
                                                generations=[{"stage": s} for s in recipe]))
     return registry, plan
+
+
+def parameterized_example():
+    from candidates import recipe_invocations, resolved_recipe
+
+    registry, plan = example()
+    row = registry["candidates"][1]
+    recipe = "partial+sfb+b3"
+    nodes = resolved_recipe({}, recipe, {"partial": {"stage": "native", "params": {
+        "host-inline": {"mode": "splice", "allow_faulting": True, "udiv_mode": "partial-cleanup"}}}})
+    row.update(id="original/" + recipe, deployment_identity="original/" + recipe,
+               recipe=[node["stage"] for node in nodes], recipe_nodes=nodes,
+               recipe_identity=sha256_id(canonical_json(recipe_invocations(nodes))),
+               generations=[{"stage": node["stage"], "params": copy.deepcopy(node["params"]),
+                             "input": f"snapshot-{i}", "output": f"snapshot-{i + 1}",
+                             "receipt": f"generation-{i}/stdout.json", "effective_passes": []}
+                            for i, node in enumerate(nodes)])
+    # New materializations also attach metadata to ordinary warm, whose sequence
+    # is empty. The other rows deliberately retain the legacy format.
+    registry["candidates"][0].update(recipe_nodes=[], recipe_identity=sha256_id(canonical_json([])))
+    return registry, plan
+
+
+def refresh_node_identities(row):
+    invocations = []
+    for node in row["recipe_nodes"]:
+        invocation = {"stage": node["stage"], "params": node["params"]}
+        node["identity"] = sha256_id(canonical_json(invocation))
+        invocations.append(invocation)
+    row["recipe_identity"] = sha256_id(canonical_json(invocations))
+
+
+def test_named_recipe_and_legacy_rows_share_selection(tmp_path):
+    registry, plan = parameterized_example()
+    candidate = registry["candidates"][1]
+    observed = []
+
+    def trial(row, case, path):
+        observed.append(row["id"])
+        return {"value": 80 if row["id"] == candidate["id"] else 100}
+
+    receipt = select(registry, plan, trial, tmp_path / "result")
+    assert observed and receipt["selected"]["id"] == "original/partial+sfb+b3"
+    assert receipt["selected"]["recipe"] == ["native", "sfb", "b3"]
+
+
+@pytest.mark.parametrize("tamper", [
+    "self-consistent-node-params", "generation-params", "boolean-integer-params", "generation-params-missing",
+    "self-consistent-node-stage", "node-identity", "recipe-identity", "node-count",
+    "nodes-missing", "identity-missing", "nonfinite-params",
+])
+def test_named_recipe_metadata_rejected_before_trials(tmp_path, tamper):
+    registry, plan = parameterized_example()
+    row = registry["candidates"][1]
+    node = row["recipe_nodes"][0]
+    generation = row["generations"][0]
+    if tamper == "self-consistent-node-params":
+        node["params"]["host-inline"]["udiv_mode"] = "guarded"
+        refresh_node_identities(row)
+    elif tamper == "generation-params":
+        generation["params"]["host-inline"]["udiv_mode"] = "guarded"
+    elif tamper == "boolean-integer-params":
+        # Python's dictionary equality treats True and 1 as equal; canonical
+        # parameter identity must preserve their distinct JSON types.
+        generation["params"]["host-inline"]["allow_faulting"] = 1
+    elif tamper == "generation-params-missing":
+        del generation["params"]
+    elif tamper == "self-consistent-node-stage":
+        node["stage"] = "general"
+        refresh_node_identities(row)
+    elif tamper == "node-identity":
+        node["identity"] = "sha256:" + "0" * 64
+    elif tamper == "recipe-identity":
+        row["recipe_identity"] = "sha256:" + "0" * 64
+    elif tamper == "node-count":
+        row["recipe_nodes"].pop()
+    elif tamper == "nodes-missing":
+        del row["recipe_nodes"]
+    elif tamper == "identity-missing":
+        del row["recipe_identity"]
+    else:
+        node["params"]["host-inline"]["max_sites"] = float("nan")
+    with pytest.raises(ValueError, match="recipe|not JSON compliant"):
+        select(registry, plan, lambda *args: pytest.fail("unexpected trial"), tmp_path / "result")
+
+
+def test_external_incumbent_named_metadata_is_checked(tmp_path):
+    registry, plan = parameterized_example()
+    registry["contract_sha256"] = "same-operation"
+    old = copy.deepcopy(registry)
+    incumbent = old["candidates"][1]
+    plan.update(incumbent_id=incumbent["id"], incumbent_identity="historical-deployment",
+                incumbent_image=dict(plan["images"]["original"]))
+    incumbent["deployment_identity"] = plan["incumbent_identity"]
+    incumbent["recipe_nodes"][0]["params"]["host-inline"]["udiv_mode"] = "guarded"
+    refresh_node_identities(incumbent)
+    with pytest.raises(ValueError, match="recipe node parameters differ"):
+        select(registry, plan, lambda *args: pytest.fail("unexpected trial"), tmp_path / "result", old)
 
 
 @pytest.mark.parametrize("ranking,confirmation,expected", [

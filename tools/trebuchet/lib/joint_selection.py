@@ -15,6 +15,7 @@ from application_peer import uart_peer
 from campaign import write_json
 from scopt.formats.bundle_v1 import read_bundle, read_runtime_identity
 from scopt.formats.profile_v1 import read_profile
+from scopt.ids import canonical_json, sha256_id
 from scopt.run.deploy import deploy
 from scopt.run.launcher import RunDirError, create_run_dir, file_sha256, launch
 from scopt.run.warm_selection import DEFAULT_ALPHA, MIN_PAIRS, _fingerprint, _paired_evidence, _paired_orders
@@ -34,6 +35,35 @@ def pinned(spec):
 
 def positive(value):
     return type(value) in (float, int) and math.isfinite(value) and value > 0
+
+
+def validate_recipe_nodes(row):
+    """Bind optional named-node metadata to the stages actually materialized."""
+    if "recipe_nodes" not in row and "recipe_identity" not in row:
+        return
+    name = row["id"]
+    require("recipe_nodes" in row and "recipe_identity" in row, f"incomplete recipe metadata: {name}")
+    nodes, recipe, generations = row["recipe_nodes"], row.get("recipe"), row.get("generations")
+    require(isinstance(nodes, list) and isinstance(recipe, list) and isinstance(generations, list)
+            and len(nodes) == len(recipe) == len(generations), f"incomplete recipe nodes: {name}")
+    invocations = []
+    for node, stage, generation in zip(nodes, recipe, generations):
+        require(isinstance(node, dict) and isinstance(generation, dict), f"invalid recipe node receipt: {name}")
+        require(isinstance(node.get("name"), str) and node["name"]
+                and isinstance(stage, str) and node.get("stage") == generation.get("stage") == stage,
+                f"recipe node stage mismatch: {name}")
+        require(isinstance(node.get("params"), dict) and isinstance(generation.get("params"), dict),
+                f"missing recipe node parameters: {name}")
+        invocation = {"stage": stage, "params": node["params"]}
+        try:
+            encoded = canonical_json(invocation)
+            materialized = canonical_json({"stage": generation["stage"], "params": generation["params"]})
+        except TypeError as exc:
+            raise ValueError(f"invalid recipe node parameters: {name}: {exc}") from exc
+        require(encoded == materialized, f"recipe node parameters differ from generation: {name}")
+        require(node.get("identity") == sha256_id(encoded), f"recipe node identity mismatch: {name}")
+        invocations.append(invocation)
+    require(row["recipe_identity"] == sha256_id(canonical_json(invocations)), f"recipe identity mismatch: {name}")
 
 
 def prepare(registry, plan, incumbent_registry=None):
@@ -58,6 +88,7 @@ def prepare(registry, plan, incumbent_registry=None):
         binding = plan["images"][row["image_variant"]]
         for key in ("firmware_sha256", "profile_id", "config_sha256"):
             require(binding[key] == row[key], f"{key} mismatch for {name}")
+        validate_recipe_nodes(row)
         require([g["stage"] for g in row["generations"]] == row["recipe"], f"incomplete stage receipts: {name}")
         require(row["deployment_identity"], f"missing deployment identity: {name}")
         candidates[name] = row
@@ -84,6 +115,7 @@ def prepare(registry, plan, incumbent_registry=None):
         require(all(incumbent[k] == plan["incumbent_image"][k]
                     for k in ("config_sha256", "firmware_sha256", "profile_id")), "incumbent binding mismatch")
     if incumbent is not None:
+        validate_recipe_nodes(incumbent)
         require(incumbent["deployment_identity"] == plan["incumbent_identity"], "incumbent identity mismatch")
     seen = {base["deployment_identity"]}
     contenders = []

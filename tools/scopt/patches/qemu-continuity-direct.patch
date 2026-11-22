@@ -1,120 +1,8 @@
---- a/tcg/supercache.c
-+++ b/tcg/supercache.c
-@@ -623,6 +623,7 @@
- #define SC6_SLOT_SPEC            2
- #define SC6_EXIT_RETURN          1
- #define SC6_EXIT_STATIC          2
-+#define SC6_EXIT_DIRECT          3
- #define SC6_MAX_DISARMS          64
- #define SC6_NONE                 UINT32_MAX
- 
-@@ -752,6 +753,7 @@
- 
- /* Set once QEMU_SC_V6_STATS was accepted; read by cpu-exec/translate-all. */
- bool tcg_sc6_stats_active;
-+bool tcg_sc6_has_direct;
- 
- static struct {
-     bool loaded;
-@@ -1072,8 +1074,15 @@
-             sc6_die("slot %u: bad kind %u", i, s->e.kind);
-         }
-         if (s->e.exit_class != SC6_EXIT_RETURN &&
--            s->e.exit_class != SC6_EXIT_STATIC) {
-+            s->e.exit_class != SC6_EXIT_STATIC &&
-+            s->e.exit_class != SC6_EXIT_DIRECT) {
-             sc6_die("slot %u: bad exit_class %u", i, s->e.exit_class);
-+        }
-+        if (s->e.exit_class == SC6_EXIT_DIRECT) {
-+            if (s->e.kind != SC6_SLOT_SPEC) {
-+                sc6_die("slot %u: ordinary direct edge requires a private variant", i);
-+            }
-+            tcg_sc6_has_direct = true;
-         }
-         if (s->e.reserved) {
-             sc6_die("slot %u: reserved not zero", i);
-@@ -1352,11 +1361,36 @@
-     for (uint32_t i = 0; i < sc6.n_links; i++) {
-         const Sc6Link *l = &sc6.links[i];
- 
--        if (sc6.slots[l->slot].src == index ||
--            sc6.variants[l->variant].general == index) {
-+        if (sc6.slots[l->slot].e.exit_class != SC6_EXIT_DIRECT &&
-+            (sc6.slots[l->slot].src == index ||
-+             sc6.variants[l->variant].general == index)) {
-             sc6_try_arm(cpu, i);
-         }
-     }
-+}
-+
-+/*
-+ * Only the ordinary dispatcher, after resolving this particular goto_tb,
-+ * may bind a carrier-specific successor. Other callers, even for the same
-+ * general TB, use the unchanged public entry. The ordinary G jump list owns
-+ * this link so QEMU reset/invalidation restores R's original reset path.
-+ */
-+bool tcg_supercache_link_direct(CPUState *cpu, TranslationBlock *src, int n,
-+                                TranslationBlock *dst, vaddr pc)
-+{
-+    for (uint32_t i = 0; i < sc6.n_links; i++) {
-+        Sc6Link *link = &sc6.links[i];
-+        const Sc6Slot *slot = &sc6.slots[link->slot];
-+        const Sc6Variant *v = &sc6.variants[link->variant];
-+
-+        if (slot->e.exit_class == SC6_EXIT_DIRECT && slot->e.slot_n == n &&
-+            slot->e.target_vaddr == pc && sc6.live[slot->src] == src &&
-+            sc6.live[v->general] == dst) {
-+            sc6_try_arm(cpu, i);
-+            return link->armed;
-+        }
-+    }
-+    return false;
- }
- 
- /*
-@@ -2425,7 +2459,14 @@
-     return false;
- }
- 
-+bool tcg_supercache_link_direct(CPUState *cpu, TranslationBlock *src, int n,
-+                                TranslationBlock *dst, vaddr pc)
-+{
-+    return false;
-+}
-+
- bool tcg_sc6_stats_active;
-+bool tcg_sc6_has_direct;
- 
- void tcg_supercache_mapping_changed(CPUState *cpu)
- {
---- a/include/tcg/supercache.h
-+++ b/include/tcg/supercache.h
-@@ -33,6 +33,9 @@
-  * called only while tcg_sc6_stats_active.
-  */
- extern bool tcg_sc6_stats_active;
-+extern bool tcg_sc6_has_direct;
-+bool tcg_supercache_link_direct(CPUState *cpu, TranslationBlock *src, int n,
-+                                TranslationBlock *dst, vaddr pc);
- void tcg_supercache_mapping_changed(CPUState *cpu);
- void tcg_supercache_v6_one_insn_per_tb(void);
- void tcg_supercache_v6_note_exit(TranslationBlock *tb, int tb_exit);
-@@ -101,6 +104,12 @@
- }
- 
- #define tcg_sc6_stats_active false
-+#define tcg_sc6_has_direct false
-+static inline bool tcg_supercache_link_direct(CPUState *cpu, TranslationBlock *src,
-+                                              int n, TranslationBlock *dst, vaddr pc)
-+{
-+    return false;
-+}
- static inline void tcg_supercache_mapping_changed(CPUState *cpu)
- {
- }
+diff --git a/accel/tcg/cpu-exec.c b/accel/tcg/cpu-exec.c
+index 25e5c9a..c443b0d 100644
 --- a/accel/tcg/cpu-exec.c
 +++ b/accel/tcg/cpu-exec.c
-@@ -1007,7 +1007,9 @@
+@@ -1007,7 +1007,9 @@ cpu_exec_loop(CPUState *cpu, SyncClocks *sc)
               * See if we can patch the calling TB.  Profile mode (scp) never
               * chains, so that every TB entry is observed.
               */
@@ -125,3 +13,196 @@
                  tb_add_jump(last_tb, tb_exit, tb);
              }
              if (unlikely(scp_active)) {
+diff --git a/include/tcg/supercache.h b/include/tcg/supercache.h
+index 55b7fd5..09779ce 100644
+--- a/include/tcg/supercache.h
++++ b/include/tcg/supercache.h
+@@ -33,6 +33,9 @@ bool tcg_supercache_flat_invalidate(TranslationBlock *tb);
+  * called only while tcg_sc6_stats_active.
+  */
+ extern bool tcg_sc6_stats_active;
++extern bool tcg_sc6_has_direct;
++bool tcg_supercache_link_direct(CPUState *cpu, TranslationBlock *src, int n,
++                                TranslationBlock *dst, vaddr pc);
+ void tcg_supercache_mapping_changed(CPUState *cpu);
+ void tcg_supercache_v6_one_insn_per_tb(void);
+ void tcg_supercache_v6_note_exit(TranslationBlock *tb, int tb_exit);
+@@ -101,6 +104,12 @@ static inline bool tcg_supercache_flat_invalidate(TranslationBlock *tb)
+ }
+
+ #define tcg_sc6_stats_active false
++#define tcg_sc6_has_direct false
++static inline bool tcg_supercache_link_direct(CPUState *cpu, TranslationBlock *src,
++                                              int n, TranslationBlock *dst, vaddr pc)
++{
++    return false;
++}
+ static inline void tcg_supercache_mapping_changed(CPUState *cpu)
+ {
+ }
+diff --git a/tcg/supercache.c b/tcg/supercache.c
+index 517bbed..8dc8254 100644
+--- a/tcg/supercache.c
++++ b/tcg/supercache.c
+@@ -623,6 +623,7 @@ static bool pwrite_full(int fd, const void *buffer, size_t size, off_t offset)
+ #define SC6_SLOT_SPEC            2
+ #define SC6_EXIT_RETURN          1
+ #define SC6_EXIT_STATIC          2
++#define SC6_EXIT_DIRECT          3
+ #define SC6_MAX_DISARMS          64
+ #define SC6_NONE                 UINT32_MAX
+
+@@ -752,6 +753,7 @@ static const char *const sc6_forbid_names[] = {
+
+ /* Set once QEMU_SC_V6_STATS was accepted; read by cpu-exec/translate-all. */
+ bool tcg_sc6_stats_active;
++bool tcg_sc6_has_direct;
+
+ static struct {
+     bool loaded;
+@@ -763,6 +765,8 @@ static struct {
+     Sc6Variant *variants;
+     Sc6Slot *slots;
+     Sc6Link *links;
++    Sc6Link *direct_single[2];  /* no hash lookup for one direct source/slot */
++    GHashTable *direct_links[2]; /* immutable: multiple sources in one slot */
+     uint32_t n_entries;         /* records loaded from the file */
+     TranslationBlock **live;    /* per loaded entry: activated TB, or NULL */
+     uint8_t *role;              /* per loaded entry: SC6_ROLE_* */
+@@ -871,6 +875,44 @@ static bool sc6_ranges_overlap(uint64_t a0, uint64_t a1,
+     return a0 < b1 && b0 < a1;
+ }
+
++/*
++ * Build only after slot/link validation. Cache TB addresses do not move across
++ * flush epochs; sc6.live and the link state still decide whether they are live.
++ * Separate tables keep both ordinary slots of one source independently keyed.
++ */
++static void sc6_index_direct_links(void)
++{
++    if (!tcg_sc6_has_direct) {
++        return;
++    }
++    for (uint32_t i = 0; i < sc6.n_links; i++) {
++        Sc6Link *link = &sc6.links[i];
++        const Sc6Slot *slot = &sc6.slots[link->slot];
++        GHashTable **table;
++        void *src;
++
++        if (slot->e.exit_class != SC6_EXIT_DIRECT) {
++            continue;
++        }
++        table = &sc6.direct_links[slot->e.slot_n];
++        if (!*table && !sc6.direct_single[slot->e.slot_n]) {
++            sc6.direct_single[slot->e.slot_n] = link;
++            continue;
++        }
++        if (!*table) {
++            Sc6Link *first = sc6.direct_single[slot->e.slot_n];
++            const Sc6Slot *first_slot = &sc6.slots[first->slot];
++
++            *table = g_hash_table_new(g_direct_hash, g_direct_equal);
++            src = (uint8_t *)supercache.buffer + first_slot->e.src_tb_offset;
++            g_hash_table_insert(*table, src, first);
++            sc6.direct_single[slot->e.slot_n] = NULL;
++        }
++        src = (uint8_t *)supercache.buffer + slot->e.src_tb_offset;
++        g_hash_table_insert(*table, src, link);
++    }
++}
++
+ /*
+  * Q2: parse and validate the extension table (design §5.3, §5.4).  Called
+  * in the reuse branch of tcg_supercache_alloc_code_buffer() after
+@@ -1072,9 +1114,16 @@ static void sc6_load_ext(void)
+             sc6_die("slot %u: bad kind %u", i, s->e.kind);
+         }
+         if (s->e.exit_class != SC6_EXIT_RETURN &&
+-            s->e.exit_class != SC6_EXIT_STATIC) {
++            s->e.exit_class != SC6_EXIT_STATIC &&
++            s->e.exit_class != SC6_EXIT_DIRECT) {
+             sc6_die("slot %u: bad exit_class %u", i, s->e.exit_class);
+         }
++        if (s->e.exit_class == SC6_EXIT_DIRECT) {
++            if (s->e.kind != SC6_SLOT_SPEC) {
++                sc6_die("slot %u: ordinary direct edge requires a private variant", i);
++            }
++            tcg_sc6_has_direct = true;
++        }
+         if (s->e.reserved) {
+             sc6_die("slot %u: reserved not zero", i);
+         }
+@@ -1159,6 +1208,7 @@ static void sc6_load_ext(void)
+             sc6_die("variant %u: has no link", i);
+         }
+     }
++    sc6_index_direct_links();
+
+     /* Q4: variant code is loaded and never overwritten by translations. */
+     supercache.max_end = MAX(supercache.max_end, max_end);
+@@ -1352,13 +1402,48 @@ static void sc6_on_activate(CPUState *cpu, uint32_t index,
+     for (uint32_t i = 0; i < sc6.n_links; i++) {
+         const Sc6Link *l = &sc6.links[i];
+
+-        if (sc6.slots[l->slot].src == index ||
+-            sc6.variants[l->variant].general == index) {
++        if (sc6.slots[l->slot].e.exit_class != SC6_EXIT_DIRECT &&
++            (sc6.slots[l->slot].src == index ||
++             sc6.variants[l->variant].general == index)) {
+             sc6_try_arm(cpu, i);
+         }
+     }
+ }
+
++/*
++ * Only the ordinary dispatcher, after resolving this particular goto_tb,
++ * may bind a carrier-specific successor. Other callers, even for the same
++ * general TB, use the unchanged public entry. The ordinary G jump list owns
++ * this link so QEMU reset/invalidation restores R's original reset path.
++ */
++bool tcg_supercache_link_direct(CPUState *cpu, TranslationBlock *src, int n,
++                                TranslationBlock *dst, vaddr pc)
++{
++    Sc6Link *link;
++    const Sc6Slot *slot;
++    const Sc6Variant *v;
++
++    if ((unsigned)n >= 2) {
++        return false;
++    }
++    link = sc6.direct_single[n];
++    if (!link && sc6.direct_links[n]) {
++        link = g_hash_table_lookup(sc6.direct_links[n], src);
++    }
++    if (!link) {
++        return false;
++    }
++    slot = &sc6.slots[link->slot];
++    v = &sc6.variants[link->variant];
++    if (slot->e.exit_class != SC6_EXIT_DIRECT || slot->e.slot_n != n ||
++        slot->e.target_vaddr != pc || sc6.live[slot->src] != src ||
++        sc6.live[v->general] != dst) {
++        return false;
++    }
++    sc6_try_arm(cpu, link - sc6.links);
++    return link->armed;
++}
++
+ /*
+  * Debug invariant (design §5.6): after a disarm, no SPEC slot points at a
+  * variant, no guarded slot and no variant slot is linked.
+@@ -2425,7 +2510,14 @@ bool tcg_supercache_get_info(TCGSupercacheInfo *info)
+     return false;
+ }
+
++bool tcg_supercache_link_direct(CPUState *cpu, TranslationBlock *src, int n,
++                                TranslationBlock *dst, vaddr pc)
++{
++    return false;
++}
++
+ bool tcg_sc6_stats_active;
++bool tcg_sc6_has_direct;
+
+ void tcg_supercache_mapping_changed(CPUState *cpu)
+ {
