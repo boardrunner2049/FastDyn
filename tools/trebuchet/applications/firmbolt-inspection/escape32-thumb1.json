@@ -1,0 +1,77 @@
+{
+  "private_firmbolt_commit": "f6e5340e59b5a03d6c859c8794cecd2e60e9b746",
+  "llvm_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "patch_sha256": "cbc46e975bc700c8a082323e2c8c8f1cc720987e61281c6a994cc0a620ac704d",
+  "native_binary_sha256": "9e94cf3dc72b5ce26b9d005fd873596ca28924f55a6af63b0146d0d8ba5c0824",
+  "qualified_elf": "4dda1a6e6bf63444180f9ee755caed8e02e5894725613b97cf627114fbbb0b94",
+  "final_native_replay_elf": "09370417437257ce235dcede39cafe875fc52e96f99516161e5e8f95fd4c43d2",
+  "all_replay_sections_match_except_unallocated_invocation_note": true,
+  "loads": [
+    {
+      "vaddr": "0x20000000",
+      "paddr": "0x8001000",
+      "size": 336,
+      "mem": 336,
+      "flags": 6,
+      "sha256": "309c17131dffa6348ef82b20d1006f76ab0c63acb7e7cd390609ad539747718c"
+    },
+    {
+      "vaddr": "0x8001800",
+      "paddr": "0x8001800",
+      "size": 35124,
+      "mem": 35124,
+      "flags": 5,
+      "sha256": "1ad59c250a7d643d9bb26b07fea98f95fafd3a4fb45af222ffa043c49d7384c6"
+    },
+    {
+      "vaddr": "0x20000150",
+      "paddr": "0x800a134",
+      "size": 124,
+      "mem": 1512,
+      "flags": 6,
+      "sha256": "0918fd78595c60773567faef32b7c87e1d54948af2ee3c162c651e4eb2648ed1"
+    },
+    {
+      "vaddr": "0x8010000",
+      "paddr": "0x8010000",
+      "size": 48,
+      "mem": 48,
+      "flags": 5,
+      "sha256": "445186bd40db0d7bf591e68b0aeb08eff535f4a09ea4cd8d7e0a1d4f40f3fc24"
+    }
+  ],
+  "retained_relocation_sections": {
+    ".rel.data": {
+      "target": ".data",
+      "count": 6
+    },
+    ".rel.text": {
+      "target": ".bolt.org.text",
+      "count": 1885
+    }
+  },
+  "source_callback_pointer": "0x080087ac",
+  "original_pointer": "0x08007f01",
+  "moved_pointer": "0x08010001",
+  "preserved_entry_first_four_bytes": "0122074b",
+  "prior_pye_indexed_loads_match": true,
+  "fixtures": [
+    "thumb1-absolute-jump-table",
+    "thumb-abs32-jump-table-promotion-detached-rejected",
+    "thumb-abs32-jump-table-promotion-detached-relocs",
+    "thumb-native-jump-table-promotion",
+    "thumb-jump-table-promotion-flags-live",
+    "thumb-mixed-isr-vector",
+    "thumb-fixed-data-boundary",
+    "thumb-out-of-section-linker-constant",
+    "thumb-riot-vector-symbols",
+    "thumb2-indexed-pc-table",
+    "thumb1-forward-pool-block-order",
+    "thumb1-cross-block-single-literal-pool",
+    "thumb1-shared-literal-pool",
+    "thumb1-terminal-literal-address-reject",
+    "thumb1-terminal-literal-pool",
+    "thumb1-moved-literal-pool-relocation"
+  ],
+  "full_recipe_refusal": "BOLT-ERROR: 'cannot finalize FirmBOLT firmware layout': rebound Thumb PC-relative reference in ledctl changed the observable address from 0x8001cc0 to 0x80112cc"
+}

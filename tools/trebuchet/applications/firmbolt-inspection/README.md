@@ -78,3 +78,13 @@ arm-none-eabi-objdump -dr --start-address=0x18fa --stop-address=0x198c "$PYE/fir
 awk '$1 == "E" && ($2 == "e00" || $2 == "1a800" || $2 == "1af12" || $2 == "1af52")' \
     "$TREBUCHET_WORK/pye/firmbolt-training/run/session.tbprof"
 ```
+
+## ESCape32 Thumb-1 publication
+
+The G071 training profile exposed two ARMv6-M defects on the hot `delayf/2` callback. Ext-TSP placed the return block and its shared literal pool before two narrow literal loads. Thumb PC8 can address an aligned word only at or ahead of the architectural PC. The backend now retains the prior order for functions where a proposed permutation puts such a load or ADR after its owned literal target. JITLink and the final publication verifier still enforce range, alignment and address contracts.
+
+The first linked candidate trapped at the original entry because its far redirect used Thumb-2 B.W. The repaired writer uses an in-range Thumb-1 B.n or keeps the input entry. For a distant callback it can rebind an exact, typed ABS32 in a retained caller’s contiguous data island. The selector checks symbol and section identity, the input word, width and alignment, and unique relocation ownership. On this build the single redirected word is at 0x080087ac, and changes from 0x08007f01 to 0x08010001. The original callback instruction bytes and the moved 48-byte function body are preserved. The default build also omits orphan relocation containers when intentionally stripping their nonallocated DWARF targets. Every relocation against a loaded section survives.
+
+The 430-frame board scenario passed all 20 checks in cold and instrumented runs. It reached 14 distinct relocated TB starts for 16,577,657 entries. These observations establish execution and preserved motor behavior. The broad profile recipe still fails the final observable-literal check in `ledctl`. The debug-updating alternative retains stale offsets in some rewritten DWARF relocation sections. The qualified ELF uses the default stripped-debug policy.
+
+The private source and native binary hashes, load-segment hashes, target-section checks and 16 native regression fixtures are recorded below. The earlier indexed Pye backend remains archived at its own revision; all its Pye PT_LOAD bytes matched another replay with the new backend. [ESCape32 native evidence](escape32-thumb1.json) · [Prior indexed Pye result](indexed-switch.json)
