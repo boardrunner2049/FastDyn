@@ -142,3 +142,22 @@ Future PX4 checks may select `--px4-tlog flush-each-packet-v2` so MAVProxy write
 The official 4.6.2 ELF, the normal release rebuild and its retained-relocation sibling each resolve seven symbol-bound time, storage, simulated PWM and FMI hooks. The three produce byte-identical virtual rules with no register modifiers. On the generic Courbet machine each starts the FMI backend and waits in the original ChibiOS clock driver for the internal oscillator to report ready. Four QMP samples per image observed the same instruction. All three MMIO traces show unhandled 32-bit reads of the STM32F427 clock-control register at `0x40023800`. The separate QEMU Pixhawk1 machine uses an RCC device that implements peripheral enable/reset, and marks PWR, I²C, DMA and GPIO devices as unimplemented. Release flight qualification remains blocked before scheduler startup. The frozen PX4 timings and their exclusions are independent of this boot diagnostic. [Three-image boot receipt](evidence/cubeblack-release-boot.json) · [MMIO excerpts, register samples and runtime configuration](evidence/cubeblack-release-boot-samples.tar.gz) · [Pinned clock initialization](https://github.com/ArduPilot/ChibiOS/blob/88b84600b59d2f39c9d9137aacdc9f098b374b4a/os/hal/ports/STM32/STM32F4xx/hal_lld.c#L174)
 
 Reproduce each observation from the prepared FastDyn environment with `fastdyn-env/bin/python tools/trebuchet/applications/flight/release/cubeblack_boot.py "$ELF" "$PLUGIN" "$NEW_DIRECTORY"`. The observer pins the ELF digest, generates the seven device rules, samples the guest through a private QMP socket and preserves the complete compressed MMIO stream. Its helper processes stay disabled for this startup check.
+
+### Release PX4 sealed-cache replay
+
+A separate functional campaign (hosted run `44994207982`, head
+`75e98f6dd0fcce1dbefb5c2c8467964f6b70d7e5`) deployed the relocation-bearing
+PX4 release and the checked FirmBOLT image on independent runners. Both used
+`flush-each-packet-v2`, the same KLAF mission, one population run and one
+uninstrumented replay. The cold, population and replay traces passed the
+independent FMI and MAVLink oracles on both images. The original appended 7,304
+records to its 46,887-record prefix. FirmBOLT appended 7,507 to 47,795. Both
+prefix integrity proofs passed and both strict zero-append gates failed.
+The predeclared cacheless timing campaign retains its two failed trials.
+
+The evidence directory contains both raw observation archives and the verified
+summary in `px4-release-sealed.json`. Complete sparse caches, sidecars, received
+artifact ZIPs and extracted observations are saved under
+`/workspace/trebuchet-work/flight/release-px4-sealed/{original,firmbolt}`.
+To verify cache identities and re-run the six application oracles, use
+`fastdyn-env/bin/python tools/trebuchet/applications/flight/release/verify_sealed.py /workspace/trebuchet-work/flight/release-px4-sealed`.

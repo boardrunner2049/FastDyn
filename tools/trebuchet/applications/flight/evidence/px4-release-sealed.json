@@ -1,0 +1,120 @@
+{
+  "original": {
+    "guest_sha256": "54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347",
+    "observations_sha256": "db4fd56e19564724a4ee727abd69b260f2f7067f03b9858be9bc04a2cecaa99b",
+    "frozen_archive_sha256": "06d20f6e671ea5e9045c506e940177e3d1294f69910df3b3bbec750f3c9ea3f9",
+    "frozen": {
+      "identity": {
+        "cache_sha256": "5ac864a90e57f9c8ddcfd59a2fe845493d97797bb23bc853a4cfc68d0b69ff3e",
+        "logical_bytes": 2152425432,
+        "fastdyn_manifest_sha256": "11d8978ed3c587b5bacf677ac296a7f56e6cdc431b2564fed0e1c67c37a6248f"
+      },
+      "population_scenario": "klaf-takeoff-three-waypoints-land",
+      "evaluation_scenario": "klaf-takeoff-three-waypoints-land",
+      "previously_unseen_input": false,
+      "mission_sha256": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6",
+      "qualified": true,
+      "replay": "replay-1",
+      "initial_records": 46887,
+      "final_records": 54191,
+      "appended_records": 7304,
+      "post_cache_sha256": "03fa7412e36b467218319753449b233595cc03fd8c409364024e5bb42bf86a5c"
+    },
+    "runtime": {
+      "plugin": "05c97cbcab4d3aabdad46a42a6623dc978f3e161443d76c00f33d14815a58746",
+      "qemu": "4f0d2e575fd34eed48cca10bbcf221b46fe3226c85f4dae4fbbfb48fe3c647a0",
+      "plant": "dd55143ca3ff2698a1fe0eeab752c206f2e956ac4d449d3032063e8a63761587",
+      "px4_tlog_contract": "flush-each-packet-v2",
+      "launch_config": "e6b07865f2f24c8284de8f3c5fb92c6edb9ea641a3e290194f0955bb6eaaeffd",
+      "plant_library": "8bccc6dce6d39685498bf5131d380d67b04fa5f75fa6e19a687402e9f2f16cd0",
+      "plant_description": "200a5dde1dda76243fabce9614bebb29f97d0bddbed97a0148ad58dd6372177b",
+      "cache_config": "6b42fe10b36dbd4f421e2b21f92b2d133f44c48178da6660e1b5d2124fe11b6e"
+    },
+    "phases": {
+      "cold": {
+        "plant_samples": 550,
+        "plant_elapsed_s": 68.75,
+        "telemetry_positions": 231,
+        "telemetry_attitudes": 264,
+        "waypoints_checked_per_track": 4,
+        "disarmed_after_arming": true
+      },
+      "capture": {
+        "plant_samples": 593,
+        "plant_elapsed_s": 74.126,
+        "telemetry_positions": 250,
+        "telemetry_attitudes": 280,
+        "waypoints_checked_per_track": 4,
+        "disarmed_after_arming": true
+      },
+      "replay-1": {
+        "plant_samples": 575,
+        "plant_elapsed_s": 71.878,
+        "telemetry_positions": 243,
+        "telemetry_attitudes": 276,
+        "waypoints_checked_per_track": 4,
+        "disarmed_after_arming": true
+      }
+    },
+    "strict_warm_error": "warm mission still appends blocks after 1 checked replays"
+  },
+  "firmbolt": {
+    "guest_sha256": "1bcb49a3337553e58f37d1d84fe4d3596a6ddcec822edb112832492c971a1255",
+    "observations_sha256": "80b7f1ef5fdb8ad42101b189eb30945969503452bf4917db5e288166e52605b8",
+    "frozen_archive_sha256": "0a3a2fb463b59dda37b69e56a9aae9bd18dbaab97f1dc46a06ea369031d413ff",
+    "frozen": {
+      "identity": {
+        "cache_sha256": "5f91fcdce930cc8c4e1e2fc7c68452a3ef33c752377200e936e213950fdfe6b1",
+        "logical_bytes": 2152519864,
+        "fastdyn_manifest_sha256": "ffdbf47c554a1e28e3b1dd3ea5a28467bb2bc6d904e9001ca2a1d866d0cdbb07"
+      },
+      "population_scenario": "klaf-takeoff-three-waypoints-land",
+      "evaluation_scenario": "klaf-takeoff-three-waypoints-land",
+      "previously_unseen_input": false,
+      "mission_sha256": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6",
+      "qualified": true,
+      "replay": "replay-1",
+      "initial_records": 47795,
+      "final_records": 55302,
+      "appended_records": 7507,
+      "post_cache_sha256": "0f8b4f0f28c529b66442fd86d91a6d9cf9c1472e0d307bb9c6607bf4f28488a6"
+    },
+    "runtime": {
+      "plugin": "05c97cbcab4d3aabdad46a42a6623dc978f3e161443d76c00f33d14815a58746",
+      "qemu": "5bbcd773075bca5c28d2cce9df3b84f63b290b3139ae2fc5a4e0c4f02909a783",
+      "plant": "dd55143ca3ff2698a1fe0eeab752c206f2e956ac4d449d3032063e8a63761587",
+      "px4_tlog_contract": "flush-each-packet-v2",
+      "launch_config": "ea7584d1471124f26ad33d50346d7a999928dfbb75df428dd083f879387c8bc3",
+      "plant_library": "8bccc6dce6d39685498bf5131d380d67b04fa5f75fa6e19a687402e9f2f16cd0",
+      "plant_description": "200a5dde1dda76243fabce9614bebb29f97d0bddbed97a0148ad58dd6372177b",
+      "cache_config": "4c22d926b81efbfed880b2675af9e632448f2f84d7cdf9d65e5a3ce32a5c2691"
+    },
+    "phases": {
+      "cold": {
+        "plant_samples": 597,
+        "plant_elapsed_s": 74.504,
+        "telemetry_positions": 253,
+        "telemetry_attitudes": 279,
+        "waypoints_checked_per_track": 4,
+        "disarmed_after_arming": true
+      },
+      "capture": {
+        "plant_samples": 590,
+        "plant_elapsed_s": 73.626,
+        "telemetry_positions": 250,
+        "telemetry_attitudes": 278,
+        "waypoints_checked_per_track": 4,
+        "disarmed_after_arming": true
+      },
+      "replay-1": {
+        "plant_samples": 542,
+        "plant_elapsed_s": 67.62700000000001,
+        "telemetry_positions": 225,
+        "telemetry_attitudes": 259,
+        "waypoints_checked_per_track": 4,
+        "disarmed_after_arming": true
+      }
+    },
+    "strict_warm_error": "warm mission still appends blocks after 1 checked replays"
+  }
+}
