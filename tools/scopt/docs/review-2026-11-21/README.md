@@ -2,8 +2,8 @@
 
 Tested revision: FastDyn `scopt` at `7e8666949f9c` (the reviewed commit; no later commit on
 the branch), QEMU submodule `957530a637cf`, built on x86-64 Linux; QEMU executable sha256
-`b11ba8e4b2be…`. FirmBOLT `aa7db77` for the Trebuchet images. The changes are on branch
-`scopt-repair`.
+`b11ba8e4b2be…`. FirmBOLT `aa7db77` for the Trebuchet images. The changes are on the
+`scopt` branch itself.
 
 Limits of this response: the native host-inline pipelines were not run, because their
 LLVM 20.1.2 bridge is not built here. Items that need them say so. Timing used one host,

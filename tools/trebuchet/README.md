@@ -42,78 +42,81 @@ three training, three held-out and three final inputs each.
 and an iteration count (`firmware/workloads/gen_params.py`). The profile splits differ in
 seed, and `final` runs longer than `train`.
 
-## Result (2026-11-21)
+## Result (2026-11-22)
 
 Medians over 24 blocks per category on the final inputs; all 840 timed launches passed
-their result checks. Raw samples and candidate rankings: `results/2026-11-21-dataset/`.
+their result checks. Raw samples and candidate rankings: `results/2026-11-22-dataset/`.
+FirmBOLT was at `3453c70`.
 
 Guest work (ms, median)
 
 | category | 1 stock QEMU | 2 FastDyn | 3 +FirmBOLT | 4 +warm cache | 5 +scopt cache | cache deployed in 5 |
 |---|---:|---:|---:|---:|---:|---|
-| `compute` | 1175 | 1435 | 1413 | 1372 | 1184 | `sfb+b3` |
-| `fwbench` | 1100 | 1470 | 1120 | 1077 | 1038 | `b3` |
-| `kernbench` | 1141 | 1758 | 1470 | 1426 | 1420 | `ordinary warm` |
-| `libbench` | 1005 | 1076 | 747 | 723 | 585 | `sfb+b3` |
-| `algobench` | 982 | 1064 | 1178 | 1159 | 894 | `sfb+b3` |
+| `compute` | 1182 | 1451 | 1395 | 1354 | 1183 | `sfb+b3` |
+| `fwbench` | 1094 | 1470 | 1121 | 1066 | 1039 | `b3` |
+| `kernbench` | 1131 | 1738 | 1451 | 1402 | 1402 | `ordinary warm` |
+| `libbench` | 992 | 1064 | 742 | 720 | 581 | `sfb+b3` |
+| `algobench` | 972 | 1052 | 926 | 911 | 844 | `sfb+b3` |
 
 Speedup of each step, guest (median of within-block ratios)
 
 | category | 2→3 | 3→4 | 4→5 | 2→5 | 1→5 |
 |---|---:|---:|---:|---:|---:|
-| `compute` | 1.013× | 1.030× | 1.159× | 1.208× | 0.989× |
-| `fwbench` | 1.313× | 1.040× | 1.035× | 1.412× | 1.059× |
-| `kernbench` | 1.194× | 1.032× | 1.007× | 1.231× | 0.801× |
-| `libbench` | 1.437× | 1.031× | 1.237× | 1.848× | 1.716× |
-| `algobench` | 0.900× | 1.016× | 1.298× | 1.188× | 1.102× |
-| **geometric mean** | **1.155×** | **1.030×** | **1.142×** | **1.358×** | **1.097×** |
+| `compute` | 1.043× | 1.025× | 1.142× | 1.223× | 0.992× |
+| `fwbench` | 1.303× | 1.050× | 1.022× | 1.410× | 1.055× |
+| `kernbench` | 1.199× | 1.035× | 1.000× | 1.243× | 0.807× |
+| `libbench` | 1.440× | 1.029× | 1.238× | 1.827× | 1.709× |
+| `algobench` | 1.139× | 1.019× | 1.072× | 1.244× | 1.147× |
+| **geometric mean** | **1.217×** | **1.032×** | **1.092×** | **1.373×** | **1.106×** |
 
 Reading it:
 
-- **The pipeline makes FastDyn 1.36× faster on average** (geometric mean of 2 → 5), from
-  1.19× on `algobench` to 1.85× on `libbench`.
-- **Against stock QEMU the result is 1.10× on average**, but uneven: `libbench` is 1.72×
-  faster than stock, `fwbench` and `algobench` 1.06× and 1.10×, `compute` level, and
-  `kernbench` still 20 % slower. FastDyn with nothing enabled is slower than stock in
-  every category (by 8 % to 35 %).
-- **FirmBOLT helps call-heavy code and hurts one category.** It gains 1.31× on `fwbench`,
-  1.19× on `kernbench` and 1.44× on `libbench`, little on `compute`, and makes
-  `algobench` 10 % slower. In `algobench` (and `compute`) the hottest function contains
-  an `-O0` `switch`, which FirmBOLT cannot relocate; it stays in place while its callees
-  move to the new region, so calls that were inside one guest page now cross pages
-  (cross-page transitions on a training input: 6.2 M before, 23.0 M after).
-- **The scopt step depends on the category**: 1.30× on `algobench`, 1.24× on `libbench`,
-  1.16× on `compute`, 1.04× on `fwbench`, none on `kernbench`. The selection deployed
+- **The pipeline makes FastDyn 1.37× faster on average** (geometric mean of 2 → 5), from
+  1.22× on `compute` to 1.83× on `libbench`.
+- **Against stock QEMU the result is 1.11× on average**, but uneven: `libbench` is 1.71×
+  faster than stock, `algobench` 1.15× and `fwbench` 1.06×, `compute` level, and
+  `kernbench` still 19 % slower. FastDyn with nothing enabled takes longer than stock in
+  every category (7 % to 54 % longer).
+- **FirmBOLT gains in every category**: 1.44× on `libbench`, 1.30× on `fwbench`, 1.20×
+  on `kernbench`, 1.14× on `algobench` and 1.04× on `compute`. The first run of this
+  dataset (`results/2026-11-21-dataset/`, an earlier FirmBOLT) had `algobench` 10 % slower
+  with FirmBOLT than without: inlining had grown its hottest function past one guest
+  page, so its loops crossed a page boundary on every iteration. FirmBOLT now places
+  such functions by page; see its `docs/emulator-performance.md`.
+- **The scopt step depends on the category**: 1.24× on `libbench`, 1.14× on `compute`,
+  1.07× on `algobench`, 1.02× on `fwbench`, none on `kernbench`. The selection deployed
   `sfb+b3` three times and `b3` once. On `kernbench` no candidate passed confirmation
-  (the best, `b3`, won 9 of 12 pairs on one input), so arm 5 is the ordinary warm cache
-  there; its 1.007× is two runs of the same cache and shows the noise level. The
-  store-forwarding fix alone is slower than ordinary warm on `fwbench` (0.985×) and
-  `kernbench` (0.971×).
-- **A warm cache gains 2 % to 4 %** inside the measured window in every category.
+  (the best, `b3`, won 9 of 12 pairs on each confirmation input), so arm 5 is the
+  ordinary warm cache there; its 1.000× is two runs of the same cache. The
+  store-forwarding fix alone is slower than ordinary warm on `fwbench` (0.989×). On
+  `algobench` the step was 1.30× in the first run and is 1.07× now: the better FirmBOLT
+  image leaves less for it, and the two steps together went from 1.19× to 1.24×.
+- **A warm cache gains 2 % to 5 %** inside the measured window in every category.
 
 Whole process (ms, median)
 
+
 | category | 1 stock QEMU | 2 FastDyn | 3 +FirmBOLT | 4 +warm cache | 5 +scopt cache | cache deployed in 5 |
 |---|---:|---:|---:|---:|---:|---|
-| `compute` | 1210 | 1674 | 1652 | 1612 | 1426 | `sfb+b3` |
-| `fwbench` | 1116 | 1694 | 1346 | 1303 | 1269 | `b3` |
-| `kernbench` | 1172 | 1987 | 1700 | 1662 | 1655 | `ordinary warm` |
-| `libbench` | 1042 | 1302 | 973 | 951 | 811 | `sfb+b3` |
-| `algobench` | 1013 | 1291 | 1405 | 1385 | 1121 | `sfb+b3` |
+| `compute` | 1207 | 1690 | 1635 | 1594 | 1419 | `sfb+b3` |
+| `fwbench` | 1112 | 1696 | 1346 | 1296 | 1267 | `b3` |
+| `kernbench` | 1159 | 1963 | 1678 | 1627 | 1631 | `ordinary warm` |
+| `libbench` | 1037 | 1287 | 965 | 946 | 806 | `sfb+b3` |
+| `algobench` | 1004 | 1277 | 1150 | 1134 | 1068 | `sfb+b3` |
 
 Speedup of each step, process (median of within-block ratios)
 
 | category | 2→3 | 3→4 | 4→5 | 2→5 | 1→5 |
 |---|---:|---:|---:|---:|---:|
-| `compute` | 1.012× | 1.025× | 1.132× | 1.170× | 0.846× |
-| `fwbench` | 1.260× | 1.031× | 1.026× | 1.335× | 0.880× |
-| `kernbench` | 1.169× | 1.025× | 1.004× | 1.195× | 0.704× |
-| `libbench` | 1.336× | 1.024× | 1.174× | 1.611× | 1.288× |
-| `algobench` | 0.917× | 1.013× | 1.236× | 1.148× | 0.903× |
-| **geometric mean** | **1.128×** | **1.024×** | **1.111×** | **1.281×** | **0.906×** |
+| `compute` | 1.036× | 1.021× | 1.118× | 1.185× | 0.850× |
+| `fwbench` | 1.254× | 1.041× | 1.024× | 1.334× | 0.878× |
+| `kernbench` | 1.171× | 1.029× | 1.000× | 1.209× | 0.709× |
+| `libbench` | 1.336× | 1.022× | 1.169× | 1.598× | 1.276× |
+| `algobench` | 1.110× | 1.014× | 1.059× | 1.194× | 0.941× |
+| **geometric mean** | **1.177×** | **1.025×** | **1.072×** | **1.295×** | **0.913×** |
 
 `trebuchet.sh dataset_report` prints these tables from a work directory;
-`python3 lib/dataset_report.py results/2026-11-21-dataset compute fwbench kernbench libbench algobench`
+`python3 lib/dataset_report.py results/2026-11-22-dataset compute fwbench kernbench libbench algobench`
 prints them from the stored samples.
 
 Earlier single-firmware campaigns on `compute` are kept in `results/2026-11-21/` (before
@@ -126,8 +129,9 @@ the combined `sfb+b3` candidate existed: pipeline 1.131×) and
   pinned QEMU (`third_party/common/qemu/build/qemu-system-arm`), `build/libfastdyn.so`,
   `fastdyn-env/`, and scopt installed in a Python 3.12 environment whose `scopt` command
   is on `PATH`.
-- [FirmBOLT](https://github.com/boardrunner2049/firmbolt) at `aa7db77` or later (the
-  `-O0` image does not link with an earlier revision), with its `llvm-bolt` built.
+- [FirmBOLT](https://github.com/boardrunner2049/firmbolt) at `3453c70` or later, with its
+  `llvm-bolt` built (revisions before `aa7db77` cannot process the `-O0` image;
+  revisions before `3453c70` give other numbers from arm 3 on).
 - `arm-none-eabi-gcc` (Arm GNU Toolchain 13.3.Rel1 was used).
 - A stock `qemu-system-arm` with the `mps2-an385` board (Ubuntu 24.04 packages 8.2.2).
 - `pkg-config` with glib-2.0 development files, `git`, network access for the FreeRTOS
