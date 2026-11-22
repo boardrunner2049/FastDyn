@@ -57,7 +57,7 @@ def measure(work, original, relocated, qemu, out, labels=("original", "firmbolt"
     report = {}
     for metric in blocks[0][reference]:
         a = [b[reference][metric] for b in blocks]
-        b = [x["firmbolt"][metric] for x in blocks]
+        b = [x[candidate][metric] for x in blocks]
         ratios = [x/y for x,y in zip(a,b)]
         boot = sorted(statistics.median(rng.choices(ratios, k=PAIRS)) for _ in range(2000))
         report[metric] = {reference + "_median": statistics.median(a), candidate + "_median": statistics.median(b),
