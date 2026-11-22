@@ -1,0 +1,32 @@
+{
+  "schema": "scopt.nop-compaction/1",
+  "status": "built",
+  "input_snapshot": "sha256:c37a6dfe251722bd42b54ac2e4c4fae67afcafcd7b5554da24d014bb0c9d5a2f",
+  "output_snapshot": "sha256:23cc486d2246dff7d0a25ed8480095d44f22b575243dd4eba8aece953b747828",
+  "profile_id": "sha256:bedd3bbe80444b054c8b8c48bab8c3e4779d0faab36f7249034c78ae4e759032",
+  "unit": "tb:df6512343d9711338d8f856587c3bed1#0",
+  "slot": 447,
+  "guest_pc": "0xe40",
+  "phase_entries": 279576,
+  "branch_off": 8,
+  "store_off": 93,
+  "removed_nop_off": 96,
+  "old_code": "8b5df883c3fe85db0f8c6600000066895df8c645fc008b5d14448be34183c401451bed41f7dd4489ad100200004489a518020000458bec4489ad1c0200004433e383f301c4c260f2dc899d1402000044896d14c645fc018b5d3c83c3a4895d3c666690e900000000488d05d1feffffe9242efcff488d05c8feffffe9182efcff",
+  "new_code": "8b5df883c3fe85db7c6666895df8c645fc008b5d14448be34183c401451bed41f7dd4489ad100200004489a518020000458bec4489ad1c0200004433e383f301c4c260f2dc899d1402000044896d14c645fc018b5d3c83c3a4899d3c000000e900000000488d05d5feffffe9282efcff488d05ccfeffffe91c2efcff",
+  "old_search": "c0040000d70002000029000000000000",
+  "new_search": "c0040000d3000200002900000000000000000000",
+  "code_bytes_saved": 4,
+  "old_slot_fields": [
+    100,
+    65535
+  ],
+  "new_slot_fields": [
+    96,
+    65535
+  ],
+  "search_rows": 2,
+  "exceptional_recovery_points": 0,
+  "higher_ranked_skips": {
+    "requires ordinary pool-free code without slow paths": 1
+  }
+}
