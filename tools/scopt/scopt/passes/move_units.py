@@ -1,4 +1,4 @@
-"""``move-units@1`` (design §5.10): test-only PLACE pass.
+"""``move-units@1`` (design §5.10): explicit PLACE pass.
 
 Moves chosen units to explicit 64-aligned arena offsets so that WP10's linker
 and validator can be exercised with known displacements (e.g. ±64·k).
@@ -10,8 +10,9 @@ Params (both optional, combined; a unit may appear in only one of them):
   WorkingSet offset plus ``delta`` (int, or a ``"0x…"``/``"-0x…"`` string).
 
 Units are processed in slot order. With no moves the pass returns NO_CHANGE.
-It never runs in the production pipelines (``identity``, ``b2-layout``);
-tests use a pipeline that allows ``PLACE``.
+The pass is primarily test/fixture machinery and is also used by the explicit
+``activation-layout`` experiment. Ordinary profitability pipelines such as
+``identity`` and ``b2-layout`` do not contain it.
 """
 
 from __future__ import annotations

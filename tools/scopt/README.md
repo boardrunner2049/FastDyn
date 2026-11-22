@@ -27,6 +27,8 @@ the pipeline and `--params` changes parameter values. Both respect the defaults.
   `--pipeline host-inline=splice,faulting` or `--pipeline host-inline=extreme,4-level`. [Modes and benchmarking guide](docs/native-program.md#choosing-a-host-inline-mode).
 - **Pass-writer guide** with a runnable example: `docs/pass-writer.md`,
   `tests/unit/test_pass_writer_example.py`
+- **Pass catalog** covering every registered pass, its activation, prerequisites,
+  controls, example, and measured status: `docs/passes.md`
 - **Design documents**: `docs/design/README.md` (B1/B2 design `docs/design/B1-design.md`
   is authoritative for the formats; B3/B4 in `docs/design/B3-B4-design.md`)
 
