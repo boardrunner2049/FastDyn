@@ -1,0 +1,20 @@
+{
+  "runtime": "upstream host simulator, logical GPIO observer",
+  "job_sha256": "b3aa0a1ac047b669fd6788ecd8283dc71fd3f885fb477eaa1a1272706e849ab3",
+  "executable_sha256": "b00a34537cce5913f143e98f20d5206ffc1c31b51ccc7a78b208ac8e43563c1f",
+  "accepted_commands": 101,
+  "planner_blocks": 96,
+  "logical_step_requests": 125104,
+  "axis_steps": [
+    72414,
+    55226,
+    3359
+  ],
+  "final_position_steps": [
+    0,
+    0,
+    953
+  ],
+  "step_request_sequence_sha256": "142b861eb33e74522b85251b8b5fb0d75a99f03e23eadc3567616db2ddba156f",
+  "state": "passed"
+}

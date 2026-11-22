@@ -1,0 +1,41 @@
+{
+  "family": "ESCape32",
+  "upstream": "https://github.com/neoxic/ESCape32",
+  "release": "rel17",
+  "revision": "1d718c143380c3eb7e6581478990e1496632e5b8",
+  "libopencm3": {
+    "upstream": "https://github.com/libopencm3/libopencm3",
+    "revision": "a3977e14519e4cff8d1feb96445655465797908b"
+  },
+  "platform": "ESCAPE1 STM32G071; BOOT2_PA2 bootloader; ARMv6S-M Thumb, Cortex-M0+",
+  "build": "upstream default -Os -g",
+  "toolchain": "arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009",
+  "image_sha256": {
+    "release/ESCAPE1-rev17.3.bin": "ca88d9c173f784717f6c75cebee4ed43ed4abb83756de8e065aa09e410a10604",
+    "release/BOOT2_PA2-rev4.bin": "bc0e49a782a622f966b1387ef117f338ef820489b80fe1c91a7d57bd15fed42a",
+    "build/ESCAPE1-rev17.3.bin": "25293f73e1a5315802e6ac44c2f1040ee73ec6569531385a416731e9ffef4244",
+    "build/ESCAPE1-rev17.3.elf": "194c78776fdbdd9f9232f6014d4f84a09ff316c4d09716d56134ae1fdb1b2138",
+    "build/boot/BOOT2_PA2-rev4.bin": "cc438334a82d569a09aac2d18ca7141e66a4ccb8c52f119933dc8a9d2d0ce2ce",
+    "build/boot/BOOT2_PA2-rev4.elf": "1e7b72865fafdf9a68e8660406796b2380efb66d1cbe6ea0aca92f702f341a2e",
+    "build-metadata/ESCAPE1-rev17.3.elf": "3aa65e553ef86a34767bc6595c94f319fda99421d695deae30844c35cdb1cf4b",
+    "build-metadata/ESCAPE1-rev17.3.bin": "25293f73e1a5315802e6ac44c2f1040ee73ec6569531385a416731e9ffef4244"
+  },
+  "fastdyn_revision": "16790d6e56c25b820748d275cb80577db205bcbd",
+  "qemu_revision": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+  "qemu_sha256": "fa405951545dfeee0c0140a3f89d6a4777752f28d17c215b3d50cbc5da75d51b",
+  "role": "board qualification",
+  "scenario_source": {
+    "url": "https://github.com/neoxic/ESCape32.wiki",
+    "revision": "39582b053cb31f149e916c20dfb451b9d1222a07",
+    "files": [
+      "Targets.md",
+      "TipsAndTricks.md",
+      "Configuration.md"
+    ]
+  },
+  "admitted": false,
+  "reason": "The STM32G071 bootloader remains in the PLL-ready loop on the generic Cortex-M machine. No board-qualified plant or recorded device-event oracle is available.",
+  "operational_baseline": "blocked",
+  "cache_capture": "open",
+  "validated_transformed_deployment": "open"
+}

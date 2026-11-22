@@ -1,0 +1,16 @@
+{
+  "family": "grblHAL",
+  "admitted": false,
+  "role": "hardware qualification and independent application oracle",
+  "driver": {"url": "https://github.com/grblHAL/STM32F1xx", "revision": "e1f83889b6cfb9860d6e5462dbf86d67ef2324da", "environment": "BTT_SKR_MINI_E3_V20"},
+  "core": {"url": "https://github.com/grblHAL/core", "revision": "4b6a348556336bfc8f9a63ae7bd430c4814b8c7d"},
+  "native_driver": {"url": "https://github.com/grblHAL/Simulator", "revision": "bfbb08fea98f0131db5a5e33287330638d3d6c92", "core_revision": "4b6a348556336bfc8f9a63ae7bd430c4814b8c7d", "build": "Release, GCC 14.2.0 Linux x86_64, 16 MHz simulation with logical step observer", "rate": 1},
+  "qemu": {"revision": "957530a637cf5e4ca38df4f7aec3f967031bd0e5", "sha256": "fa405951545dfeee0c0140a3f89d6a4777752f28d17c215b3d50cbc5da75d51b"},
+  "board": "STM32F103RC Cortex-M3, UART grblHAL, BTT SKR Mini E3 V2.0",
+  "image_sha256": {"firmware.bin": "4b011e7416fdc6ef008ae3dc71c5d19b9ce9bc02dd2c7f93ef71d028f27098bb", "firmware.elf": "1f1b8695535f92455f2a52b8282e911ac52a9296755dc7789b7a0c02430139b5", "metadata-build/firmware.elf": "04d1c159ac1e588fc3174c9a0091d9fdec851bc2a6538b1044d4a7cf270d6b9a"},
+  "scenario": {"name": "Draw the Open Source Hardware logo", "url": "https://github.com/bdring/DrawBot_Badge", "revision": "3a02d0541c2c60a1747d8ce8d9c7996ca49383f0", "path": "SourceFiles/GCode/OSHW_Logo.nc", "sha256": "b3aa0a1ac047b669fd6788ecd8283dc71fd3f885fb477eaa1a1272706e849ab3", "initial_state": "Blank simulator EEPROM, default 250 steps/mm XYZ, origin zero; no homing, limit or stop events", "boundary": "Whole job, first G-code command to acknowledged final dwell and drained motion", "role": "qualification"},
+  "reason": "BTT board clock, EEPROM, UART motor drivers and TIM2/GPIO step-event integration have no qualified FastDyn execution here.",
+  "operational_baseline": "blocked on ARM",
+  "native_functional_reference": "passed",
+  "validated_transformed_deployment": "open"
+}
