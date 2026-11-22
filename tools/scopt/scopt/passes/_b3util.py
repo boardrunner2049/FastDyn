@@ -72,6 +72,7 @@ def refusal_result(refused: Counter, *, nothing: str, stats: Mapping[str, float]
     if not refused:
         return PassResult(Outcome.NO_CHANGE, nothing, detail, stats=st)
     code, _n = sorted(refused.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+    st["no_applicable_sites"] = 1
     return PassResult(B3Reason.outcome(code), code,
                       detail or ", ".join(f"{k}={v}" for k, v in sorted(refused.items())),
                       stats=st)

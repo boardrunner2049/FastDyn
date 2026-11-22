@@ -47,7 +47,7 @@ def main():
     with (out / "result.json").open("w") as stream:
         subprocess.run(cmd, stdout=stream, check=True)
     doc = load(out / "result.json")
-    (out / "effective.json").write_text(json.dumps(check_requested(doc, stages), indent=1) + "\n")
+    (out / "effective.json").write_text(json.dumps(check_requested(doc, stages, stages=stages), indent=1) + "\n")
     result = Path(doc["artifact_dir"])
     image = read_sc6(result / "cache.sc")
     certs = [tb for f in result.glob("cache*.scm") for tb in read_scm(f).tbs.values()
