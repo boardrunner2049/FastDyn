@@ -74,7 +74,9 @@ def oracle(trace, wire):
     checks["all_430_command_edges_and_widths"] = list(frames) == list(range(1, 431)) and all(
         int(r["pulse"]) == expected_pulse(i) for i, r in frames.items())
     if not checks["all_430_command_edges_and_widths"]:
-        raise ValueError("incomplete operator sequence")
+        return {"verdict": "FAIL", "checks": checks, "completed_frame_starts": len(frames),
+                "last_frame": rows[-1] if rows else None,
+                "watchdog_reset": "ESCAPE1 WWDG reset" in trace or "ESCAPE1 IWDG expired" in trace}
     checks["regulator_and_conversions"] = "ESCAPE1 ADCAL sysclk=64000000" in trace and (
         "ESCAPE1 ADC sequence=0xfdc654 dma_remaining=0" in trace) and int(frames[430]["adc"]) >= 7900
     checks["no_watchdog_reset"] = "ESCAPE1 WWDG reset" not in trace and "ESCAPE1 IWDG expired" not in trace
@@ -99,6 +101,8 @@ def oracle(trace, wire):
     packets = [wire[i:i + 10] for i in range(0, len(wire), 10)]
     checks["all_kiss_crc"] = len(packets) >= 240 and all(len(p) == 10 and crc8(p) == 0 for p in packets)
     checks["complete_uart_dma"] = len(packets) == int(frames[430]["packets"])
+    if not checks["all_kiss_crc"] or not checks["complete_uart_dma"]:
+        return {"verdict": "FAIL", "checks": checks, "received_bytes": len(wire)}
     checks["supply_and_temperature"] = all(p[0] == 30 and 1198 <= int.from_bytes(p[1:3], "big") <= 1202
                                             for p in packets[5:])
     for name, start, stop, load, sign in (("forward", 225, 245, 0, 1),

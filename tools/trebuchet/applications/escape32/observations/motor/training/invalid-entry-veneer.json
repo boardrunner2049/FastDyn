@@ -1,0 +1,60 @@
+{
+  "stage": "relinked hot callback, prior to ARMv6-M entry repair",
+  "optimizer_elf_sha256": "55c43154f4acee408666f70dc3fbf51548c00dd3d8fbd4232aba2f85a7c4b2d6",
+  "scope": "physical guest cold run with actual watchdog",
+  "deployed": {
+    "reserved_flash": [
+      134283264,
+      134348800
+    ],
+    "new_functions": [
+      [
+        "delayf",
+        134283264,
+        48
+      ]
+    ],
+    "deployed_bank_sha256": "a7e5b7e95b56e7eea5df0be9421634ed69fe59a7aa530810d248a25279f55404",
+    "input_elf_sha256": "3aa65e553ef86a34767bc6595c94f319fda99421d695deae30844c35cdb1cf4b",
+    "candidate_elf_sha256": "55c43154f4acee408666f70dc3fbf51548c00dd3d8fbd4232aba2f85a7c4b2d6",
+    "loaded_bytes": 35632,
+    "original_loaded_bytes": 35584
+  },
+  "application_oracle": {
+    "verdict": "FAIL",
+    "checks": {
+      "all_430_command_edges_and_widths": false
+    },
+    "completed_frame_starts": 71,
+    "last_frame": {
+      "frame": "71",
+      "pulse": "1500",
+      "m1": "5068",
+      "m2": "68",
+      "er": "545",
+      "cc": "30",
+      "period": "13619",
+      "adc": "12",
+      "pair": "32",
+      "duty": "0.00000",
+      "brake": "0.00000",
+      "rpm": "0.00",
+      "current": "0.0000",
+      "hall": "1",
+      "comm": "1",
+      "packets": "0"
+    },
+    "watchdog_reset": true
+  },
+  "execution_excerpt": [
+    "IN: ",
+    "0x08007f00:  ",
+    "OBJD-T: 08f07eb8",
+    "",
+    "Taking exception 1 [Undefined Instruction] on CPU 0",
+    "...taking pending nonsecure exception 3",
+    "...loading from element 3 of non-secure vector table at 0x800180c",
+    "...loaded new PC 0x8003a49",
+    "----------------"
+  ]
+}
