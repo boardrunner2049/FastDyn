@@ -15,6 +15,8 @@ The supplemental promotion-only comparison retained the eligible historical host
 
 The [bounded discovery run](pye-discovery/) documents training results for §§6–9, 11 and 13. In the original image the selective SFB policy moved 96 units versus 770 for all-entry SFB. Static-only and return-only each installed hundreds of chains. An independent paired training comparison found no reliable latency gain from B4 alone or from guarded UDIV alone. [Training controls](pye-stage-controls/) The [historical control](pye-historical-eligible/) selected among six eligible pre-change host-cache recipes on the repaired guest.
 
+The cacheless release-PX4 guest comparison ran its two warmups and all 12 scheduled pairs. Two transformed-image MAVLink logs ended without the disarmed heartbeat required by the independent oracle. The predeclared rule excludes an aggregate speedup or interval. [All 26 missions and their recorded exclusions](../../applications/flight/evidence/px4-cacheless-pairs-verified.json)
+
 ## Implementation and acceptance by section
 
 | § | Disposition | Observation and implementation | Acceptance evidence and remaining work |
