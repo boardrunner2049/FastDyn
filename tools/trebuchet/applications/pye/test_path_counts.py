@@ -4,9 +4,11 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from path_counts import summarize
 
 
