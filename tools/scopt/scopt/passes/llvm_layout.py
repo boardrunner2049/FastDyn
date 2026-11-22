@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import time
 
-from ..analysis.llvm_layout import OPERATION, build_cache_directed_request
+from ..analysis.llvm_layout import OPERATION, LayoutTraffic, build_cache_directed_request, guarded_lookups
 from ..canon import sha256_id
 from .cluster import ClusterHot
 
@@ -37,7 +37,7 @@ def _bridge_order(bridge, request, timeout):
 class LLVMCacheLayout(ClusterHot):
     descriptor = replace(
         ClusterHot.descriptor, name="llvm-cache-layout",
-        params_schema={**ClusterHot.descriptor.params_schema, "bridge": str},
+        params_schema={**ClusterHot.descriptor.params_schema, "bridge": str, "estimate_general_reuse": bool},
     )
 
     def _order(self, snap, ctx, movable, heat, edges, kinds):
@@ -53,8 +53,16 @@ class LLVMCacheLayout(ClusterHot):
         original = snap.layout()
         known = sorted((uid for uid in movable if uid in heat), key=lambda u: (original[u], u))
         units = [snap.unit(uid) for uid in known]
+        guarded = {}
+        private_sources = set()
         state = getattr(ctx, "b3_state", None)
-        if state is not None and state.grown_uids().intersection(known):
+        profile = ctx.profile(ctx.params.get("phase", "steady"))
+        replays = None
+        if ctx.params.get("estimate_general_reuse") and profile is not None and profile.profile is not None:
+            collection = profile.profile.collection
+            if collection.get("complete") is True:
+                replays = max(1, len(collection.get("runs", ())), collection.get("repetitions", 1))
+        if state is not None and state.grown_uids():
             from ..link import LinkError, NativeLinkerV2
             from ..manager_b3 import materialize
 
@@ -64,15 +72,29 @@ class LLVMCacheLayout(ClusterHot):
             preview = NativeLinkerV2(ctx.b3.snapshot, plan, offsets=ctx.b3.offsets,
                                      derive_captures=False)
             try:
-                effective, _ = preview.effective_units(units)
+                effective, grown = preview.effective_units(units)
             except LinkError as exc:
                 return fallback(f"cannot preview B3 node extents: {exc}")
             units = [effective[uid] for uid in known]
-        request, unlocated = build_cache_directed_request(units, heat, edges, kinds)
+            guarded = guarded_lookups(grown, state, ctx.b3.page_bits)
+            private_sources = {variant.src_uid for variant in plan.variants}
+        # A source-profile entry count for a cloned body includes subsequent
+        # executions of its private copies. These cannot be separate exact
+        # LLVM node counts until the transformed artifact has been profiled.
+        split_inputs = private_sources.intersection(known)
+        known = [uid for uid in known if uid not in split_inputs]
+        units = [unit for unit in units if unit.uid not in split_inputs]
+        traffic = LayoutTraffic()
+        request, unlocated = build_cache_directed_request(
+            units, heat, edges, kinds, guarded=guarded, private_sources=private_sources,
+            same_generation=bool(profile and profile.same_snapshot and not (state and state.grown_uids())),
+            estimate_replays=replays, traffic=traffic)
         weight = sum(edge["count"] for edge in request["edges"])
         stats = {"llvm_nodes": len(known), "llvm_edges": len(request["edges"]),
                  "llvm_edge_weight": weight, "llvm_edges_unlocated": unlocated,
-                 "llvm_unknown_counts": len(movable) - len(known)}
+                 "llvm_unknown_counts": len(movable) - len(known) - len(split_inputs),
+                 "llvm_private_source_nodes": len(split_inputs),
+                 **traffic.stats()}
         if not weight:
             return fallback("no positive exact-count transfer with an unambiguous native site",
                             stats)
@@ -86,7 +108,7 @@ class LLVMCacheLayout(ClusterHot):
             return fallback(f"LLVM bridge unavailable: {exc}", stats)
         ctx.budget()
         order = [known[index] for index in indices]
-        order.extend(uid for uid in movable if uid not in heat)
+        order.extend(uid for uid in movable if uid not in heat or uid in split_inputs)
         return order, "cache_directed_layout", f"bridge {bridge_id}", stats
 
 
