@@ -1,0 +1,22 @@
+{
+  "run_id": 44996130654,
+  "source_commit": "080403c9468beebfb4d66e9063c381dad1816ac8",
+  "outcome": "initial capture PASS; first restore process failed before guest execution",
+  "population_records": 3411,
+  "runtime": "0a27bca00501ecf0860d8965ce5d8e9baad052eba185a8ab919ac8d11e0585d1",
+  "sealed_sha256": "21582e5e25c550a765e53b532ffa51d0ff6ea3a64007cd10b8e34506a8e7a59f",
+  "issue": "qemu-system-arm: -accel tcg,supercache=/home/runner/work/_temp/receipts/motor-original/active.sc: open supercache '/home/runner/work/_temp/receipts/motor-original/active.sc': Permission denied",
+  "fix": "chmod only fresh per-trial sparse copy to 0600; sealed archive stays 0444",
+  "checked_archives": [
+    {
+      "name": "checksums",
+      "digest": "sha256:f8ded8067bfaf6d6c2dba18220a91ab861ba3f5728aa14c588a0098214720ca5",
+      "size_in_bytes": 203
+    },
+    {
+      "name": "part-000",
+      "digest": "sha256:cca37023ed18fe864336a0d510aca9cde4721d4072b6f37f0f232894dbe449a7",
+      "size_in_bytes": 488997
+    }
+  ]
+}
