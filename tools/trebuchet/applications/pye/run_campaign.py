@@ -71,13 +71,21 @@ def prepare_image(product, dest, elf, qemu, plugin, policy):
     runner = [sys.executable, HERE / "fastdyn_runner.py"]
     common = ["--work", product, "--run", dest, "--qemu", qemu, "--plugin", plugin, "--elf", elf]
     all_roles = policy["scenarios"] | policy["prechange_scenarios"]
-    inventory = [n for names in all_roles.values() for n in names] * policy["inventory_sweeps"]
+    frozen = policy.get("cache_track") == "training-frozen"
+    inventory_roles = {"training": policy["scenarios"]["training"]} if frozen else all_roles
+    inventory = [n for names in inventory_roles.values() for n in names] * policy["inventory_sweeps"]
+    write_json(dest / "inventory-plan.json", {"track": policy["track"], "roles": list(inventory_roles),
+                                               "cases_in_order": inventory})
     captures = [x for name in inventory for x in ("--case", name)]
     train, = policy["scenarios"]["training"]
     prep = dest / "prep"
     cfg = dest / "pye.toml"
     manifest = prep / "cache/fw.sc.fastdyn.json"
-    command(dest, "capture", [*runner, "capture", *common, *captures, "--out", prep])
+    if policy.get("stable_sweeps"):
+        require(policy["stable_sweeps"] == 2, "this capture supports two unchanged sweeps")
+        captures += ["--stable-sweep-size", str(len(inventory) // policy["inventory_sweeps"])]
+    command(dest, "capture", [*runner, "capture", *common, *captures, "--out", prep],
+            timeout=policy["timeout_seconds"] * len(inventory) + 120)
     command(dest, "bundle", [scopt, "bundle", "identity", "-c", prep / "run.toml", "--manifest", manifest,
                              "--out", dest / "bundle.json"])
     command(dest, "runtime", [scopt, "bundle", "runtime-identity", "--run-dir", prep / "oracle",
@@ -89,7 +97,7 @@ def prepare_image(product, dest, elf, qemu, plugin, policy):
     command(dest, "admission", [scopt, "admission", "identity", "--snapshot", snapshot, "--config", cfg,
                                 "--out", dest / "admission-runtime.json"])
     failures = {}
-    for check in ("warm", "profile"):
+    for check in (("frozen" if frozen else "warm"), "profile"):
         try:
             command(dest, check, [*runner, check, *common, "--case", train, "--snapshot", snapshot,
                                   "--out", dest / check])
@@ -155,9 +163,10 @@ def optimizer_bindings(out, qemu):
 def campaign(args):
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    policy = read(HERE / "campaign-policy.json")
+    policy_name = "frozen-policy.json" if args.training_frozen else "campaign-policy.json"
+    policy = read(HERE / policy_name)
     write_json(out / "policy.json", policy)
-    receipt = {"state": "running", "images": {}, "policy": pin(HERE / "campaign-policy.json"),
+    receipt = {"state": "running", "images": {}, "policy": pin(HERE / policy_name),
                "timing_cpu": args.cpu, "errors": {}}
     write_json(out / "campaign.json", receipt)
     phase = "initialization"
@@ -185,7 +194,7 @@ def campaign(args):
         write_json(contract, {"protocol": policy["transport"], "sources": [
             pin(HERE / p) for p in ("manifest.json", "promotion.json", "prechange.json", "protocol-queued.json",
                                      "qualification/case-identities.json",
-                                     "session.py", "observe.py", "campaign-policy.json")],
+                                     "session.py", "observe.py", policy_name)],
             "cases": cases})
         images = {"original": product / "micropython/ports/qemu/build-MPS2_AN385/firmware.elf"}
         phase = "FirmBOLT image"
@@ -224,7 +233,7 @@ def campaign(args):
         require("original" in specs, "original ordinary-warm preparation failed; see image logs")
         phase = "registry"
         plan = {k: policy[k] for k in ("application", "configuration", "objective", "recipes", "budget")}
-        plan.update(scenario="known-inventory UART editing", admission=str(HERE / "admission.json"),
+        plan.update(scenario=policy["track"], admission=str(HERE / "admission.json"),
                     contract=str(contract), images=specs)
         write_json(out / "materialization-plan.json", plan)
         registry_dir = out / "registry"
@@ -234,7 +243,7 @@ def campaign(args):
         protocol = {k: policy[k] for k in ("application", "configuration", "family", "objective", "seed",
                     "final_seed", "warmup_pairs", "pairs", "alpha", "minimum_gain", "timeout_seconds",
                     "measurement", "secondary_measurement")}
-        protocol.update(scenarios=cases, candidate_limit=policy["budget"]["candidate_limit"],
+        protocol.update(cache_track=policy.get("cache_track", "fully-warm"), scenarios=cases, candidate_limit=policy["budget"]["candidate_limit"],
                         registry_sha256=file_sha256(registry_dir / "registry.json"),
                         fallback_identity=base["deployment_identity"], images={})
         for name in specs:
@@ -372,6 +381,7 @@ if __name__ == "__main__":
     parser.add_argument("--firmbolt-sha256", help="pinned lowercase SHA-256 of the supplied ELF")
     parser.add_argument("--firmbolt-origin-sha256", help="SHA-256 of the source loadable binary",
                         default=read(HERE / "admission.json")["training_qualification"]["payload_sha256"])
+    parser.add_argument("--training-frozen", action="store_true", help="seal a training-only inventory and allow checked late translations on private copies")
     args = parser.parse_args()
     if bool(args.firmbolt_elf) != bool(args.firmbolt_sha256):
         parser.error("--firmbolt-elf and --firmbolt-sha256 must be supplied together")

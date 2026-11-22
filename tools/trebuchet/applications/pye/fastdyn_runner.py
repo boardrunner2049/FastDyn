@@ -59,13 +59,14 @@ def pinned(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("config", "capture", "warm", "profile"))
+    parser.add_argument("action", choices=("config", "capture", "warm", "frozen", "profile"))
     parser.add_argument("--work", type=Path, required=True, help="upstream Pye and MicroPython checkouts")
     parser.add_argument("--run", type=Path, required=True, help="campaign work directory")
     parser.add_argument("--elf", type=Path, required=True)
     parser.add_argument("--qemu", type=Path, required=True)
     parser.add_argument("--plugin", type=Path, required=True)
     parser.add_argument("--case", action="append", required=True, help="repeat for each capture/input")
+    parser.add_argument("--stable-sweep-size", type=int, default=0, help="capture stops after two unchanged full sweeps")
     parser.add_argument("--snapshot", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
@@ -103,10 +104,11 @@ def main():
                          "plugin": pinned(plugin), "cases": list(specs.values()), "scenarios": scenarios,
                          "observer": pinned(HERE / "observe.py"), "secondary_measurement": "qemu_lifetime_ns"})
     elif args.action == "capture":
-        result = prepare(cfg, out, inputs=banks, input_bank="psram", qemu=qemu, timeout_s=120, peer=peer)
+        result = prepare(cfg, out, inputs=banks, input_bank="psram", qemu=qemu, timeout_s=120, peer=peer,
+                         stable_sweep_size=args.stable_sweep_size)
         if result["verdict"] != "PASS":
             sys.exit(f"capture failed: {result['failures']}")
-    elif args.action == "warm":
+    elif args.action in ("warm", "frozen"):
         if len(banks) != 1 or args.snapshot is None:
             parser.error("warm needs exactly one --case and a --snapshot")
         rd = create_run_dir(cfg, out, qemu=qemu, label="Pye native UART ordinary warm")
@@ -114,7 +116,10 @@ def main():
         if not identity["checked"] or not identity["bundle_id"] or not identity["runtime_identity_id"] or identity["reasons"]:
             sys.exit("deployment identity unchecked")
         result = launch(rd, inputs={"psram": banks[0]}, prove=True, timeout_s=120, peer=peer)
-        if (result["verdict"] != "PASS" or result["exit_code"] != 0 or result["timed_out"] or result["appended"] != 0
+        if args.action == "frozen":
+            from scopt.run.proof import frozen_append_counts
+            frozen_append_counts(result)
+        if (result["verdict"] != "PASS" or result["exit_code"] != 0 or result["timed_out"] or (args.action == "warm" and result["appended"] != 0)
                 or result["qemu_sha256"] != file_sha256(qemu)):
             sys.exit(f"replay refused: {result['verdict']}, appended={result['appended']}")
     else:

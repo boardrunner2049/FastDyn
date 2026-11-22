@@ -232,6 +232,26 @@ def prove(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def frozen_append_counts(run):
+    """Verify that the sealed deployment survived and count late translations."""
+    proof = run.get("proof") or {}
+    if run.get("verdict") != "PASS" or proof.get("verdict") != "PASS" or proof.get("failed") != []:
+        raise ValueError("frozen deployment failed the cache identity proof")
+    checks = proof.get("checks") or []
+    names = {c.get("check") for c in checks}
+    required = {"sc_exists", "header", "records", "inode", "manifest"}
+    if proof.get("file_version") == 6:
+        required.update(("v6_header", "ext"))
+    if not required <= names or any(c.get("ok") is not True for c in checks):
+        raise ValueError("frozen deployment has incomplete cache identity checks")
+    initial, after, appended = proof.get("n"), proof.get("record_count_after"), run.get("appended")
+    if (type(initial) is not int or initial <= 0 or type(after) is not int or after < initial
+            or type(appended) is not int or appended != after - initial
+            or type(proof.get("appended")) is not int or proof["appended"] != appended):
+        raise ValueError("frozen deployment has inconsistent late translation counts")
+    return {"initial_records": initial, "record_count_after": after, "appended": appended}
+
+
 def deploy_refusal(rd: Any) -> str | None:
     """Why ``rd`` must not be launched as a deployed run, or ``None``.
 

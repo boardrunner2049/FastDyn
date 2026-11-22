@@ -1,5 +1,5 @@
 {
-  "schema": "trebuchet.pye-policy/1",
+  "schema": "trebuchet.pye-policy/2",
   "application": "pye",
   "family": "Micropython-Editor",
   "configuration": "MicroPython-v1.27.0-release-MPS2-AN385-Cortex-M3-queued-UART",
@@ -30,8 +30,8 @@
       "proofread-editor-manual"
     ]
   },
-  "track": "fully warm, inventory covers every declared case in two fixed sweeps; no unseen-path claim",
-  "inventory_sweeps": 2,
+  "track": "fully warm known paths; at most eight complete seven-case inventory sweeps; stop after two consecutive sweeps with zero new retained records or at the cap; freeze and require zero appends in every qualified ordinary and timed replay",
+  "inventory_sweeps": 8,
   "recipes": [
     "warm",
     "b3",
@@ -76,5 +76,6 @@
     "candidate_limit": 7,
     "offline_seconds": 3600
   },
-  "prechange_seed": 193483
+  "prechange_seed": 193483,
+  "stable_sweeps": 2
 }

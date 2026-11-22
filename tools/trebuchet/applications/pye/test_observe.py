@@ -58,3 +58,20 @@ def test_rejects_incomplete_or_changed_evidence(trial, condition):
     trial.write_text(json.dumps(doc))
     with pytest.raises(ValueError):
         observe(trial, trial)
+
+def test_training_frozen_requires_exact_proven_append_delta(trial):
+    doc = json.loads(trial.read_text())
+    doc.update(appended=3, proof={"verdict": "PASS", "failed": [], "n": 200,
+                                  "record_count_after": 203, "appended": 3,
+                                  "checks": [{"check": name, "ok": True} for name in
+                                             ("sc_exists", "header", "records", "inode", "manifest")]})
+    trial.write_text(json.dumps(doc))
+    assert observe(trial, trial, training_frozen=True)["completed_work"] == 1
+    with pytest.raises(ValueError):
+        observe(trial, trial)
+    for key, value in (("n", 201), ("record_count_after", 199), ("appended", True),
+                       ("verdict", "INVALID"), ("failed", ["prefix"]), ("checks", [])):
+        altered = dict(doc, proof=dict(doc["proof"], **{key: value}))
+        trial.write_text(json.dumps(altered))
+        with pytest.raises(ValueError):
+            observe(trial, trial, training_frozen=True)

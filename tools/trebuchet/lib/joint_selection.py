@@ -139,6 +139,8 @@ class ApplicationTrial:
     def __init__(self, registry, plan):
         self.registry = registry
         self.plan = plan
+        self.cache_track = plan.get("cache_track", "fully-warm")
+        require(self.cache_track in ("fully-warm", "training-frozen"), "unknown cache preparation track")
         self.timeout_s = plan["timeout_seconds"]
         require(positive(self.timeout_s), "invalid timeout")
         self.verified = {}
@@ -204,7 +206,7 @@ class ApplicationTrial:
             binding = self.plan["incumbent_image"]
         adapter = pinned(binding["observer"])
         runtime = Path(row["runtime"])
-        rd = create_run_dir(Path(row["config"]), root, qemu=runtime, label="joint-fully-warm")
+        rd = create_run_dir(Path(row["config"]), root, qemu=runtime, label="joint-" + self.cache_track)
         identity = deploy(row["artifact"], rd, timeout_s=self.timeout_s)["identity"]
         require(identity["checked"] is True and not identity["reasons"] and identity["bundle_id"]
                 and identity["runtime_identity_id"], "deployment identity not verified")
@@ -218,12 +220,22 @@ class ApplicationTrial:
             pinned(case["peer"]["stage"])
             pinned(case["peer"]["program"])
             raise InvalidObservation(f"application peer rejected launch in {root}: {error.detail}") from error
-        if doc["exit_code"] != 0 or doc["timed_out"] or doc["verdict"] != "PASS" or doc["appended"] != 0:
+        cache_counts = {}
+        if self.cache_track == "training-frozen":
+            from scopt.run.proof import frozen_append_counts
+            try:
+                cache_counts = frozen_append_counts(doc)
+            except ValueError as exc:
+                raise InvalidObservation(str(exc)) from exc
+        if (doc["exit_code"] != 0 or doc["timed_out"] or doc["verdict"] != "PASS"
+                or (self.cache_track == "fully-warm" and doc["appended"] != 0)):
             raise InvalidObservation(f"invalid warm launch: {root}")
         require(doc["qemu_sha256"] == file_sha256(runtime), "runtime changed")
         require({k: v["sha256"] for k, v in doc["inputs"].items()} ==
                 {k: v["sha256"] for k, v in case["bank_inputs"].items()}, "scenario replay changed")
         args = [sys.executable, str(adapter), str(root / "run.json"), row["firmware"]]
+        if self.cache_track == "training-frozen":
+            args.append("--training-frozen")
         output = subprocess.run(args, capture_output=True, text=True, timeout=self.timeout_s)
         if output.returncode:
             pinned(binding["observer"])
@@ -268,6 +280,7 @@ class ApplicationTrial:
         pinned(case["expected"])
         pinned(binding["observer"])
         return {"value": value, secondary: windows[0], "wall_s": timings["wall_s"], "work": work, "phase_costs": phase_costs,
+                "cache_track": self.cache_track, **cache_counts,
                 "observations": observation["observations"], "bundle_id": identity["bundle_id"],
                 "runtime_identity_id": identity["runtime_identity_id"], "proof": str(root / "run.json")}
 

@@ -8,6 +8,9 @@ results=$(realpath -m "${2:?supply a fresh results directory}")
 cpu=${3:?supply a dedicated timing CPU number}
 mkdir "$work" "$results"
 policy="$here/campaign-policy.json"
+for option in "${@:4}"; do
+    if [[ $option == --training-frozen ]]; then policy="$here/frozen-policy.json"; fi
+done
 cp "$policy" "$results/predeclared-policy.json"
 git -C "$repo" rev-parse HEAD > "$results/fastdyn.commit"
 historical=16790d6e56c25b820748d275cb80577db205bcbd

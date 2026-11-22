@@ -11,9 +11,12 @@ def sha(path):
         return hashlib.file_digest(data, "sha256").hexdigest()
 
 
-def observe(run_path, elf):
+def observe(run_path, elf, training_frozen=False):
     doc = json.loads(run_path.read_text())
-    if doc["verdict"] != "PASS" or doc["exit_code"] != 0 or doc["timed_out"] or doc["appended"] != 0:
+    if training_frozen:
+        from scopt.run.proof import frozen_append_counts
+        frozen_append_counts(doc)
+    if doc["verdict"] != "PASS" or doc["exit_code"] != 0 or doc["timed_out"] or (not training_frozen and doc["appended"] != 0):
         raise ValueError("Pye observation needs a successful fully warm run")
     if not elf.is_file():
         raise ValueError("guest ELF missing")
@@ -58,5 +61,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("run_json", type=Path)
     p.add_argument("elf", type=Path)
+    p.add_argument("--training-frozen", action="store_true")
     args = p.parse_args()
-    print(json.dumps(observe(args.run_json, args.elf)))
+    print(json.dumps(observe(args.run_json, args.elf, args.training_frozen)))
