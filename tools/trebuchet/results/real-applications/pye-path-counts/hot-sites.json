@@ -1,0 +1,184 @@
+{
+  "native": {
+    "rows": [
+      {
+        "state": "observed",
+        "unit": "tb:f88b3ca11f4df365bbc9d6a19c3abb0e#0",
+        "guest_pc": "0xe8fa",
+        "kind": "udiv",
+        "counts": {
+          "entry": 8525,
+          "fast": 8525,
+          "fallback": 0
+        },
+        "paths": {
+          "nonzero_inline": 8525,
+          "zero_helper_calls": 0
+        },
+        "initial_records": 3512,
+        "record_count_after": 3516,
+        "appended": 4
+      },
+      {
+        "state": "observed",
+        "unit": "tb:20e4a077854aa83155ad0bcfecaf977e#0",
+        "guest_pc": "0xe73c",
+        "kind": "udiv",
+        "counts": {
+          "entry": 4186,
+          "fast": 4186,
+          "fallback": 0
+        },
+        "paths": {
+          "nonzero_inline": 4186,
+          "zero_helper_calls": 0
+        },
+        "initial_records": 3512,
+        "record_count_after": 3514,
+        "appended": 2
+      },
+      {
+        "state": "observed",
+        "unit": "tb:049b317038efb73cec5455dcdbc44c38#0",
+        "guest_pc": "0xe88e",
+        "kind": "udiv",
+        "counts": {
+          "entry": 1725,
+          "fast": 1725,
+          "fallback": 0
+        },
+        "paths": {
+          "nonzero_inline": 1725,
+          "zero_helper_calls": 0
+        },
+        "initial_records": 3512,
+        "record_count_after": 3516,
+        "appended": 4
+      },
+      {
+        "state": "observed",
+        "unit": "tb:5df3ed21ac4774e210caf512bd335320#0",
+        "guest_pc": "0x11f3a",
+        "kind": "udiv",
+        "counts": {
+          "entry": 80,
+          "fast": 80,
+          "fallback": 0
+        },
+        "paths": {
+          "nonzero_inline": 80,
+          "zero_helper_calls": 0
+        },
+        "initial_records": 3512,
+        "record_count_after": 3516,
+        "appended": 4
+      },
+      {
+        "state": "observed",
+        "unit": "tb:b2cc2997fdacf8bcd20f5df118ac65a5#0",
+        "guest_pc": "0x11e44",
+        "kind": "udiv",
+        "counts": {
+          "entry": 80,
+          "fast": 80,
+          "fallback": 0
+        },
+        "paths": {
+          "nonzero_inline": 80,
+          "zero_helper_calls": 0
+        },
+        "initial_records": 3512,
+        "record_count_after": 3514,
+        "appended": 2
+      },
+      {
+        "state": "observed",
+        "unit": "tb:eaf47f6e270dcf0a325538a6a195140f#0",
+        "guest_pc": "0xe890",
+        "kind": "udiv",
+        "counts": {
+          "entry": 55,
+          "fast": 55,
+          "fallback": 0
+        },
+        "paths": {
+          "nonzero_inline": 55,
+          "zero_helper_calls": 0
+        },
+        "initial_records": 3512,
+        "record_count_after": 3515,
+        "appended": 3
+      },
+      {
+        "state": "observed",
+        "unit": "tb:17e7729c9442ab6215848eb81cf66376#0",
+        "guest_pc": "0x11f42",
+        "kind": "udiv",
+        "counts": {
+          "entry": 29,
+          "fast": 29,
+          "fallback": 0
+        },
+        "paths": {
+          "nonzero_inline": 29,
+          "zero_helper_calls": 0
+        },
+        "initial_records": 3512,
+        "record_count_after": 3514,
+        "appended": 2
+      }
+    ],
+    "error": null,
+    "snapshot": "sha256:e09970bdace6dd78641e8b111c6315a9f8a1999e07ea4fa580c92b6a1fff0ef0"
+  },
+  "b3": {
+    "rows": [
+      {
+        "state": "observed",
+        "unit": "tb:c7abf1104742d2c29c6b1752c99f2da5#0",
+        "guest_pc": "0x20ed8",
+        "kind": "GENERAL",
+        "counts": {
+          "entry": 423,
+          "match": 423,
+          "reset": 1,
+          "fallback": 0
+        },
+        "paths": {
+          "predicate_matched": 423,
+          "predicate_missed": 0,
+          "matched_unlinked": 1,
+          "matched_linked": 422,
+          "lookup_fallback": 0
+        },
+        "initial_records": 3512,
+        "record_count_after": 3516,
+        "appended": 4
+      },
+      {
+        "state": "observed",
+        "unit": "tb:6085921f1d51c97964927c331c1b93af#0",
+        "guest_pc": "0x21080",
+        "kind": "SPEC",
+        "counts": {
+          "entry": 1062,
+          "match": 1062,
+          "reset": 1,
+          "fallback": 1
+        },
+        "paths": {
+          "predicate_matched": 1062,
+          "predicate_missed": 0,
+          "matched_unlinked": 1,
+          "matched_linked": 1061,
+          "lookup_fallback": 1
+        },
+        "initial_records": 3512,
+        "record_count_after": 3518,
+        "appended": 6
+      }
+    ],
+    "error": null,
+    "snapshot": "sha256:0e1f4198065d21e0f8ef8997639ffdd7a703d6631836cbf982769698d3f58fe8"
+  }
+}
