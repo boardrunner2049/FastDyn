@@ -12,7 +12,7 @@
   ],
   "deployed_bank_sha256": "b18a7bff9058d9ec891658981a4f61da9b5d8815642b681d8914e5a18cffeb5e",
   "input_elf_sha256": "3aa65e553ef86a34767bc6595c94f319fda99421d695deae30844c35cdb1cf4b",
-  "candidate_elf_sha256": "8de6ed2c004a4fb332c4b17fe0942bdf653753cf35179dd81ddd32923023ab3a",
+  "candidate_elf_sha256": "4dda1a6e6bf63444180f9ee755caed8e02e5894725613b97cf627114fbbb0b94",
   "loaded_bytes": 35632,
   "original_loaded_bytes": 35584,
   "relocated_tb_entries": 16577657,
@@ -233,5 +233,6 @@
   },
   "wire_equal_to_ordinary": true,
   "reloadable_flash_sha256": "d0c802acadf7dd5787969811d1dcd082178551b18fac50b7b6582ba8d765be62",
-  "metadata_scope": "Executable qualification. Native side reports orphan nonallocated debug relocations in the initial stripped ELF; debug-preserving twin changes metadata only."
+  "metadata_scope": "Final native default output retains allocated relocation records and omits orphan debug relocation sections. Its entire 128 KiB bank is byte-identical to the instrumented, cold and hosted input. Input and intermediate ELF identities remain distinct.",
+  "initial_execution_elf_sha256": "8de6ed2c004a4fb332c4b17fe0942bdf653753cf35179dd81ddd32923023ab3a"
 }

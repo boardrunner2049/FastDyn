@@ -1,0 +1,372 @@
+{
+  "run": 44996606690,
+  "commit": "d3aea58a5c8dc7cca3529f2703594445a7ac4fd0",
+  "status": "success",
+  "branch": "trebuchet/hosted-escape1-motor",
+  "artifacts": [
+    {
+      "name": "part-000",
+      "digest": "sha256:d5ef85af172f84af007b3f97f6cd162f3a33dbaee464556673878be7f6f6fa49",
+      "size_in_bytes": 500275
+    },
+    {
+      "name": "checksums",
+      "digest": "sha256:d1aea237ca65243a67c5a0cdffa413a87cecf0477a587376ae763fe4484bc7b0",
+      "size_in_bytes": 201
+    }
+  ],
+  "raw_workspace": "/workspace/trebuchet-work/escape32/runner/44996606690",
+  "tracks": {
+    "motor-original": {
+      "identity": {
+        "platform": "Linux-7.0.0-1014-aws-x86_64-with-glibc2.39",
+        "cpu": 3,
+        "host_cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 173\nmodel name\t: Intel(R) Xeon(R) 6975P-C\nstepping\t: 1\nmicrocode\t: 0x1000434\ncpu MHz\t\t: 3912.186\ncache size\t: 491520 KB\nphysical id\t: 0\nsiblings\t: 4\ncore id\t\t: 0\ncpu cores\t: 2\napicid\t\t: 0\ninitial apicid\t: 0\nfpu\t\t: yes\nfpu_exception\t: yes\ncpuid level\t: 36\nwp\t\t: yes\nflags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon rep_good nopl xtopology nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq monitor vmx ssse3 fma cx16 pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 wbnoinvd ida arat vnmi avx512vbmi umip pku ospke waitpkg avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg tme avx512_vpopcntdq rdpid bus_lock_detect cldemote movdiri movdir64b md_clear serialize amx_bf16 avx512_fp16 amx_tile amx_int8 flush_l1d arch_capabilities\nvmx flags\t: vnmi preemption_timer posted_intr invvpid ept_x_only ept_ad ept_1gb ept_5level flexpriority apicv tsc_offset vtpr mtf vapic ept vpid unrestricted_guest vapic_reg vid shadow_vmcs pml tsc_scaling usr_wait_pause\nbugs\t\t: spectre_v1 spectre_v2 spec_store_bypass swapgs bhi spectre_v2_user\nbogomips\t: 5400.00\nclflush size\t: 64\ncache_alignment\t: 64\naddress sizes\t: 48 bits physical, 48 bits virtual\npower management:",
+        "qemu_sha256": "620a112fce5dca150c8c2cb465a9c15fec3cdb46d7af5e9f745f6000009efd5c",
+        "original_bank_sha256": "275a1b041ea74d536958c1211c3ac99822aca38fd4de1a350b914aa09b72e2eb",
+        "deployed_bank_sha256": "9f044f4d289e25dd4e871d76908c37cbca7f899d68f3ab223c96f1b55c3444b5",
+        "settings": {
+          "damp": {
+            "offset_in_configuration": 21,
+            "from": 1,
+            "to": 0
+          },
+          "throt_mode": {
+            "offset_in_configuration": 36,
+            "from": 0,
+            "to": 2
+          },
+          "telem_mode": {
+            "offset_in_configuration": 55,
+            "from": 0,
+            "to": 1
+          }
+        },
+        "scenario": "known training-only 430-frame RC-car ramp, load, brake and reverse",
+        "sealed_sha256": "397ccb3231e3e995b01e8d236d4b065fd29b34b3661e71c652bd762b722d4791"
+      },
+      "qualification": {
+        "population": {
+          "sc_path": "/home/runner/work/_temp/receipts/motor-original/training-frozen.sc",
+          "header_hex": "51534341434845310500000050000000000000800000000000000070ff7f00002d00000000000000530d000000000000be389688447f66f8001000000a0000009800000000000000bdfd93cd7908023a",
+          "header": {
+            "magic": "QSCACHE1",
+            "version": 5,
+            "header_size": 80,
+            "code_size": "0x80000000",
+            "code_address": "0x7fff70000000",
+            "prologue_end": "0x2d",
+            "record_count": 3411,
+            "runtime_signature": "0xf8667f44889638be",
+            "host_page_size": 4096,
+            "target_page_bits": 10,
+            "tb_size": 152,
+            "reserved": 0,
+            "checksum": "0x3a020879cd93fdbd",
+            "checksum_ok": true
+          },
+          "n": 3411,
+          "records_sha256": "sha256:7f8a7476eec9710d59b698473503b5110173ec84d2e38807181def69f3cd3a85",
+          "file_size": 2147903928,
+          "dev": 64512,
+          "inode": 1069615,
+          "mtime_ns": 1795331342935161755,
+          "manifest": null,
+          "frontend": "none",
+          "file_version": 5
+        },
+        "fresh-replay": {
+          "verdict": "PASS",
+          "appended": 0,
+          "proof": {
+            "verdict": "PASS",
+            "checks": [
+              {
+                "check": "sc_exists",
+                "ok": true,
+                "detail": ""
+              },
+              {
+                "check": "header",
+                "ok": true,
+                "detail": ""
+              },
+              {
+                "check": "records",
+                "ok": true,
+                "detail": ""
+              },
+              {
+                "check": "inode",
+                "ok": true,
+                "detail": ""
+              },
+              {
+                "check": "manifest",
+                "ok": true,
+                "detail": "direct QEMU run (no FastDyn frontend): no manifest to check"
+              }
+            ],
+            "failed": [],
+            "n": 3411,
+            "appended": 0,
+            "record_count_after": 3411,
+            "file_version": 5
+          }
+        }
+      },
+      "population": {
+        "oracle": {
+          "verdict": "PASS",
+          "checks": {
+            "all_430_command_edges_and_widths": true,
+            "regulator_and_conversions": true,
+            "no_watchdog_reset": true,
+            "neutral_before_ramp": true,
+            "forward_six_step_order": true,
+            "loaded_six_step_order": true,
+            "reverse_six_step_order": true,
+            "all_kiss_crc": true,
+            "complete_uart_dma": true,
+            "supply_and_temperature": true,
+            "forward_catalog_equilibrium": true,
+            "forward_independent_telemetry_rpm": true,
+            "loaded_catalog_equilibrium": true,
+            "loaded_independent_telemetry_rpm": true,
+            "reverse_catalog_equilibrium": true,
+            "reverse_independent_telemetry_rpm": true,
+            "load_response": true,
+            "brake_precedes_reverse": true,
+            "neutral_between_brake_and_reverse": true,
+            "completed_at_rest": true
+          },
+          "phase_events": {
+            "forward": 136,
+            "loaded": 82,
+            "reverse": 115
+          },
+          "metrics": {
+            "forward": {
+              "median_rpm": 2726.795,
+              "catalog_equilibrium_rpm": 2801.72,
+              "median_kiss_erpm": 2700.0,
+              "duty": 0.20772
+            },
+            "loaded": {
+              "median_rpm": 1414.81,
+              "catalog_equilibrium_rpm": 1438.5,
+              "median_kiss_erpm": 1400.0,
+              "duty": 0.20772
+            },
+            "reverse": {
+              "median_rpm": -1857.3,
+              "catalog_equilibrium_rpm": -1911.65,
+              "median_kiss_erpm": 1800,
+              "duty": 0.14173
+            }
+          },
+          "kiss_packets": 255,
+          "adc_scans": 8080,
+          "kiss_sha256": "25b002eba12ade2b2fa161e0400ea77d586a72f52419177e5f94f19d63d3ff51",
+          "trace_sha256": "ede3dfc059dd869c16ae2ab6a96fcd5c527410eba03459d9456f59c47029a857"
+        },
+        "execution": {
+          "cmd": [
+            "setarch",
+            "x86_64",
+            "-R",
+            "/home/runner/work/_temp/board/qemu-system-arm",
+            "-M",
+            "escape1-g071",
+            "-kernel",
+            "/home/runner/work/_temp/receipts/motor-original/deployed-flash.bin",
+            "-serial",
+            "null",
+            "-serial",
+            "file:/home/runner/work/_temp/receipts/motor-original/population/kiss.bin",
+            "-display",
+            "none",
+            "-monitor",
+            "none",
+            "-no-reboot",
+            "-icount",
+            "shift=4,align=off,sleep=off",
+            "-accel",
+            "tcg,supercache=/home/runner/work/_temp/receipts/motor-original/active.sc",
+            "-d",
+            "page",
+            "-D",
+            "/home/runner/work/_temp/receipts/motor-original/population/board.trace"
+          ],
+          "exit_code": 0,
+          "wall_ns": 7225807276,
+          "user_cpu_ns": 5190745000,
+          "system_cpu_ns": 1971769000
+        },
+        "trace_artifact": "ede3dfc059dd869c16ae2ab6a96fcd5c527410eba03459d9456f59c47029a857.trace.gz",
+        "uart_artifact": "25b002eba12ade2b2fa161e0400ea77d586a72f52419177e5f94f19d63d3ff51.uart.gz",
+        "stderr": ""
+      },
+      "fresh-replay": {
+        "oracle": {
+          "verdict": "PASS",
+          "checks": {
+            "all_430_command_edges_and_widths": true,
+            "regulator_and_conversions": true,
+            "no_watchdog_reset": true,
+            "neutral_before_ramp": true,
+            "forward_six_step_order": true,
+            "loaded_six_step_order": true,
+            "reverse_six_step_order": true,
+            "all_kiss_crc": true,
+            "complete_uart_dma": true,
+            "supply_and_temperature": true,
+            "forward_catalog_equilibrium": true,
+            "forward_independent_telemetry_rpm": true,
+            "loaded_catalog_equilibrium": true,
+            "loaded_independent_telemetry_rpm": true,
+            "reverse_catalog_equilibrium": true,
+            "reverse_independent_telemetry_rpm": true,
+            "load_response": true,
+            "brake_precedes_reverse": true,
+            "neutral_between_brake_and_reverse": true,
+            "completed_at_rest": true
+          },
+          "phase_events": {
+            "forward": 136,
+            "loaded": 82,
+            "reverse": 115
+          },
+          "metrics": {
+            "forward": {
+              "median_rpm": 2726.795,
+              "catalog_equilibrium_rpm": 2801.72,
+              "median_kiss_erpm": 2700.0,
+              "duty": 0.20772
+            },
+            "loaded": {
+              "median_rpm": 1414.81,
+              "catalog_equilibrium_rpm": 1438.5,
+              "median_kiss_erpm": 1400.0,
+              "duty": 0.20772
+            },
+            "reverse": {
+              "median_rpm": -1857.3,
+              "catalog_equilibrium_rpm": -1911.65,
+              "median_kiss_erpm": 1800,
+              "duty": 0.14173
+            }
+          },
+          "kiss_packets": 255,
+          "adc_scans": 8080,
+          "kiss_sha256": "25b002eba12ade2b2fa161e0400ea77d586a72f52419177e5f94f19d63d3ff51",
+          "trace_sha256": "ede3dfc059dd869c16ae2ab6a96fcd5c527410eba03459d9456f59c47029a857"
+        },
+        "execution": {
+          "cmd": [
+            "setarch",
+            "x86_64",
+            "-R",
+            "/home/runner/work/_temp/board/qemu-system-arm",
+            "-M",
+            "escape1-g071",
+            "-kernel",
+            "/home/runner/work/_temp/receipts/motor-original/deployed-flash.bin",
+            "-serial",
+            "null",
+            "-serial",
+            "file:/home/runner/work/_temp/receipts/motor-original/fresh-replay/kiss.bin",
+            "-display",
+            "none",
+            "-monitor",
+            "none",
+            "-no-reboot",
+            "-icount",
+            "shift=4,align=off,sleep=off",
+            "-accel",
+            "tcg,supercache=/home/runner/work/_temp/receipts/motor-original/active.sc",
+            "-d",
+            "page",
+            "-D",
+            "/home/runner/work/_temp/receipts/motor-original/fresh-replay/board.trace"
+          ],
+          "exit_code": 0,
+          "wall_ns": 7175349649,
+          "user_cpu_ns": 5082442000,
+          "system_cpu_ns": 2052174000
+        },
+        "deployed-state": {
+          "sc_path": "/home/runner/work/_temp/receipts/motor-original/active.sc",
+          "header_hex": "51534341434845310500000050000000000000800000000000000070ff7f00002d00000000000000530d000000000000be389688447f66f8001000000a0000009800000000000000bdfd93cd7908023a",
+          "header": {
+            "magic": "QSCACHE1",
+            "version": 5,
+            "header_size": 80,
+            "code_size": "0x80000000",
+            "code_address": "0x7fff70000000",
+            "prologue_end": "0x2d",
+            "record_count": 3411,
+            "runtime_signature": "0xf8667f44889638be",
+            "host_page_size": 4096,
+            "target_page_bits": 10,
+            "tb_size": 152,
+            "reserved": 0,
+            "checksum": "0x3a020879cd93fdbd",
+            "checksum_ok": true
+          },
+          "n": 3411,
+          "records_sha256": "sha256:7f8a7476eec9710d59b698473503b5110173ec84d2e38807181def69f3cd3a85",
+          "file_size": 2147903928,
+          "dev": 64512,
+          "inode": 1069621,
+          "mtime_ns": 1795331344570602447,
+          "manifest": null,
+          "frontend": "none",
+          "file_version": 5
+        },
+        "proof": {
+          "verdict": "PASS",
+          "appended": 0,
+          "proof": {
+            "verdict": "PASS",
+            "checks": [
+              {
+                "check": "sc_exists",
+                "ok": true,
+                "detail": ""
+              },
+              {
+                "check": "header",
+                "ok": true,
+                "detail": ""
+              },
+              {
+                "check": "records",
+                "ok": true,
+                "detail": ""
+              },
+              {
+                "check": "inode",
+                "ok": true,
+                "detail": ""
+              },
+              {
+                "check": "manifest",
+                "ok": true,
+                "detail": "direct QEMU run (no FastDyn frontend): no manifest to check"
+              }
+            ],
+            "failed": [],
+            "n": 3411,
+            "appended": 0,
+            "record_count_after": 3411,
+            "file_version": 5
+          }
+        },
+        "trace_artifact": "ede3dfc059dd869c16ae2ab6a96fcd5c527410eba03459d9456f59c47029a857.trace.gz",
+        "uart_artifact": "25b002eba12ade2b2fa161e0400ea77d586a72f52419177e5f94f19d63d3ff51.uart.gz",
+        "stderr": ""
+      }
+    }
+  }
+}
