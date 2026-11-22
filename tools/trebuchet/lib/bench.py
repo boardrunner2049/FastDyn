@@ -16,12 +16,13 @@ import glob, json, os, random, shutil, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import stock
-from result_schema import expected_values, stats_mismatches
+from result_schema import expected_values, schema, stats_mismatches
 from scopt.run.deploy import deploy
 from scopt.run.launcher import create_run_dir, launch
 
 E = Path(os.environ["TREBUCHET_WORK"]); WORK = E / "scopt"; Q = os.environ["TREBUCHET_QEMU"]
-INP = E / "inputs/final/freertos-mps2-compute"
+WL = os.environ["TREBUCHET_WORKLOAD"]; INP = Path(os.environ["TREBUCHET_INPUTS"]) / "final" / WL
+RESULT = (schema(WL)[0], len(schema(WL)[1]))
 out = Path(sys.argv[1]); REPS = int(sys.argv[2])
 SCRATCH = Path("/dev/shm/trebuchet-bench"); shutil.rmtree(SCRATCH, ignore_errors=True); SCRATCH.mkdir()
 
@@ -31,6 +32,8 @@ def snapshot(v):
 FB = "O0-fb"
 sel = json.loads((WORK / FB / "tune.json").read_text())
 selected = sel["selected_artifact"]
+parts = Path(selected).parts            # .../out/<candidate>/artifacts/<id>, or the snapshot when warm was kept
+candidate = parts[parts.index("out") + 1] if "out" in parts else "ordinary warm"
 ARMS = {
     "stock-O0": ("stock", "O0"), "stock-fb": ("stock", FB),
     "fd-O0": ("nocache", "O0"), "fd-fb": ("nocache", FB),
@@ -56,11 +59,11 @@ def fastdyn(kind, v, artifact, inp, ref):
     if len(doc["bench"]) != 1:
         failures.append(f"{len(doc['bench'])} benchmark windows")
     try:
-        got = expected_values(doc["guest_norm"])
+        got = expected_values(doc["guest_norm"], WL)
     except ValueError as error:
         failures.append(str(error))
     else:
-        want = expected_values(ref)
+        want = expected_values(ref, WL)
         failures += [f"report value {i} = 0x{g:08x}, expected 0x{w:08x}" for i, (g, w) in enumerate(zip(got, want)) if g != w]
     if kind == "cache":
         if doc["verdict"] != "PASS":
@@ -74,12 +77,12 @@ def fastdyn(kind, v, artifact, inp, ref):
 
 def stock_arm(v, inp, ref, key):
     elf = str(E / "fw" / v / "RTOSDemo.out")
-    a = stock.run(elf, str(inp), icount=True, window=True, expect_ns=expect.get((key, "g")))
-    b = stock.run(elf, str(inp), icount=True, window=False, expect_ns=expect.get((key, "w")))
+    a = stock.run(elf, str(inp), icount=True, window=True, expect_ns=expect.get((key, "g")), result=RESULT)
+    b = stock.run(elf, str(inp), icount=True, window=False, expect_ns=expect.get((key, "w")), result=RESULT)
     expect[(key, "g")] = a["ns"]; expect[(key, "w")] = b["ns"]
-    want = expected_values(ref)
-    failures = [f"window run: {m}" for m in stats_mismatches(a["stats"], want)]
-    failures += [f"process run: {m}" for m in stats_mismatches(b["stats"], want)]
+    want = expected_values(ref, WL)
+    failures = [f"window run: {m}" for m in stats_mismatches(a["stats"], want, WL)]
+    failures += [f"process run: {m}" for m in stats_mismatches(b["stats"], want, WL)]
     return {"guest_ns": a["ns"], "process_ns": b["ns"], "ok": not failures, "failures": failures,
             "uncertainty_ns": max(a["uncertainty_ns"], b["uncertainty_ns"])}
 
@@ -101,8 +104,9 @@ for rep in range(REPS):
         order = list(ARMS); rng.shuffle(order)
         for pos, arm in enumerate(order):
             r = one(arm, n); r.update(arm=arm, input=f"final-{n}", block=rep * 3 + n - 1, position=pos); samples.append(r)
-        out.write_text(json.dumps({"selection": {"status": sel.get("status"), "reason": sel.get("reason"), "selected": selected},
-                                   "valid": all(s["ok"] for s in samples), "samples": samples}, indent=1))
+        out.write_text(json.dumps({"selection": {"status": sel.get("status"), "reason": sel.get("reason"), "candidate": candidate,
+                                                 "selected": Path(selected).name},
+                                   "workload": WL, "valid": all(s["ok"] for s in samples), "samples": samples}, indent=1))
     print("rep", rep, "done", time.strftime("%H:%M:%S"), flush=True)
 bad = [s for s in samples if not s["ok"]]
 print("samples", len(samples), "bad", len(bad))

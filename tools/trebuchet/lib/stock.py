@@ -37,7 +37,8 @@ class Gdb:
     def cmd(self, data):
         self.send(data); return self.recv()
 
-def run(elf, inp, icount=False, qemu=None, timeout=120, expect_ns=None, window=True):
+def run(elf, inp, icount=False, qemu=None, timeout=120, expect_ns=None, window=True,
+        result=("xStats", 20)):
     """One run.  window=True: a breakpoint at the window start (removed when hit), then the end is
     found by polling the PC; the result is the guest window.  window=False: no breakpoint at all;
     the result is the time from process start to the end of the work.
@@ -85,8 +86,8 @@ def run(elf, inp, icount=False, qemu=None, timeout=120, expect_ns=None, window=T
                 t_done, t_prev = t_poll, last
                 break
             last = time.monotonic_ns(); g.send("c")
-        a = s["xStats"]
-        mem = bytes.fromhex(g.cmd(f"m{a:x},50"))
+        a = s[result[0]]                                   # (symbol, words) of the result structure
+        mem = bytes.fromhex(g.cmd(f"m{a:x},{4 * result[1]:x}"))
         stats = [int.from_bytes(mem[i:i + 4], "little") for i in range(0, len(mem), 4)]
         g.send("k")
     finally:

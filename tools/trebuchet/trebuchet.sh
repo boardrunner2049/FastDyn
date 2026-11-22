@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Trebuchet: -O0 firmware -> FirmBOLT -> FastDyn SuperCache -> scopt, measured end to end.
-# See README.md.  usage: trebuchet.sh STAGE [ARGS]   (stages in order below, or `all`)
+# See README.md.  usage: trebuchet.sh STAGE [ARGS]   (stages in order below, `all`, or `dataset`)
+# TREBUCHET_WORKLOAD picks the firmware of a single-workload stage (default: compute).
 set -euo pipefail
 
 T=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -8,48 +9,61 @@ F=$(cd "$T/../.." && pwd)
 : "${TREBUCHET_WORK:?set TREBUCHET_WORK to a work directory outside the checkout}"
 : "${FIRMBOLT_REPO:?set FIRMBOLT_REPO to a FirmBOLT checkout}"
 : "${FIRMBOLT_BOLT:?set FIRMBOLT_BOLT to the FirmBOLT-enabled llvm-bolt}"
-W=$(mkdir -p "$TREBUCHET_WORK" && cd "$TREBUCHET_WORK" && pwd)
-export TREBUCHET_WORK=$W TREBUCHET_FASTDYN=$F
+DATASET="compute fwbench kernbench libbench algobench"          # the categories, in report order
+WL=${TREBUCHET_WORKLOAD:-compute}
+case " $DATASET " in *" $WL "*) ;; *) echo "unknown workload $WL (one of: $DATASET)" >&2; exit 2;; esac
+ROOT=$(mkdir -p "$TREBUCHET_WORK" && cd "$TREBUCHET_WORK" && pwd)   # shared: FreeRTOS, inputs, scopt-data
+W=$ROOT/$WL; mkdir -p "$W"                                       # everything of one workload
+export TREBUCHET_ROOT=$ROOT TREBUCHET_WORK=$W TREBUCHET_WORKLOAD=$WL TREBUCHET_INPUTS=$ROOT/inputs TREBUCHET_FASTDYN=$F
 export TREBUCHET_QEMU=${TREBUCHET_QEMU:-$F/third_party/common/qemu/build/qemu-system-arm}
 export ARM_PREFIX=${ARM_PREFIX:-arm-none-eabi-}
 export STOCK_QEMU=${STOCK_QEMU:-/usr/bin/qemu-system-arm}
 PIN=${TREBUCHET_CPUS:+taskset -c $TREBUCHET_CPUS}      # CPUs for timed runs, e.g. 8-11
 FREERTOS_COMMIT=48d4714c71da903b39baa4615b623525a0c0e2a3
-DEMO=$W/FreeRTOS/FreeRTOS/Demo/CORTEX_MPS2_QEMU_IAR_GCC
+DEMO=$ROOT/FreeRTOS/FreeRTOS/Demo/CORTEX_MPS2_QEMU_IAR_GCC
 MARKERS=vComputeWindowStart,vComputeReport1,vComputeReport2,vComputeReport3,vComputeReport4,vComputeDone
 
 # scopt: everything it stores is bound to this QEMU executable (tools/scopt/docs/qemu.md).
 Q=$TREBUCHET_QEMU
 QSHA=$(sha256sum "$Q" | cut -d' ' -f1)
-export SCOPT_ENVLAYOUT_PATH=$W/scopt-data/envlayouts SCOPT_HELPER_EFFECTS_PATH=$W/scopt-data/helper_effects
+export SCOPT_ENVLAYOUT_PATH=$ROOT/scopt-data/envlayouts SCOPT_HELPER_EFFECTS_PATH=$ROOT/scopt-data/helper_effects
 export SCOPT_V6_EXES=$QSHA SCOPT_RUNTIME_QEMU=$Q SCOPT_RUNTIME_QEMU_SHA256=$QSHA
 export FASTDYN_ROOT=$W/scopt SCOPT_RAM_ROOT=${SCOPT_RAM_ROOT:-/dev/shm/trebuchet-ram}
 PY=$(dirname "$(command -v scopt)")/python             # the environment scopt is installed in
 mkdir -p "$SCOPT_ENVLAYOUT_PATH" "$SCOPT_HELPER_EFFECTS_PATH" "$FASTDYN_ROOT" "$SCOPT_RAM_ROOT"
 
-inputs() { local s n; for s in "$@"; do for n in 1 2 3; do printf -- '--inputs %s ' "$W/inputs/$s/freertos-mps2-compute/$s-$n.bin"; done; done; }
+inputs() { local s n; for s in "$@"; do for n in 1 2 3; do printf -- '--inputs %s ' "$ROOT/inputs/$s/$WL/$s-$n.bin"; done; done; }
 
-stage_firmware() {      # pinned FreeRTOS demo + the compute application + the nine inputs
-    if [ ! -d "$W/FreeRTOS/.git" ]; then
-        mkdir -p "$W/FreeRTOS"
-        git -C "$W/FreeRTOS" init -q
-        git -C "$W/FreeRTOS" remote add origin https://github.com/FreeRTOS/FreeRTOS.git
-        git -C "$W/FreeRTOS" fetch -q --depth 1 origin $FREERTOS_COMMIT
-        git -C "$W/FreeRTOS" checkout -q FETCH_HEAD
-        git -C "$W/FreeRTOS" submodule -q update --init --depth 1 FreeRTOS/Source FreeRTOS-Plus/Source/FreeRTOS-Plus-Trace
+stage_firmware() {      # pinned FreeRTOS demo + the five applications + nine inputs per workload
+    if [ ! -d "$ROOT/FreeRTOS/.git" ]; then
+        mkdir -p "$ROOT/FreeRTOS"
+        git -C "$ROOT/FreeRTOS" init -q
+        git -C "$ROOT/FreeRTOS" remote add origin https://github.com/FreeRTOS/FreeRTOS.git
+        git -C "$ROOT/FreeRTOS" fetch -q --depth 1 origin $FREERTOS_COMMIT
+        git -C "$ROOT/FreeRTOS" checkout -q FETCH_HEAD
+        git -C "$ROOT/FreeRTOS" submodule -q update --init --depth 1 FreeRTOS/Source FreeRTOS-Plus/Source/FreeRTOS-Plus-Trace
     fi
-    cp "$T"/firmware/compute/{main_compute.c,main.c,FreeRTOSConfig.h} "$DEMO/"
+    cp "$T"/firmware/compute/{main_compute.c,main.c,FreeRTOSConfig.h} "$T"/firmware/workloads/*.[ch] "$DEMO/"
     cp "$T"/firmware/compute/gcc/{Makefile,mps2_m3.ld,startup_gcc.c} "$DEMO/build/gcc/"
-    python3 "$T/firmware/compute/gen_inputs.py" --out "$W/inputs" > "$W/inputs.log"
-    echo "inputs: $(ls "$W"/inputs/*/freertos-mps2-compute/*.bin | wc -l)"
+    rm -rf "$ROOT/inputs"
+    python3 "$T/firmware/compute/gen_inputs.py" --out "$ROOT/inputs" > "$ROOT/inputs.log"
+    for s in train heldout final; do mv "$ROOT/inputs/$s/freertos-mps2-compute" "$ROOT/inputs/$s/compute"; done
+    python3 "$T/firmware/workloads/gen_params.py" --out "$ROOT/inputs" >> "$ROOT/inputs.log"
+    echo "inputs: $(ls "$ROOT"/inputs/*/*/*.bin | wc -l)"
 }
 
-stage_build() {         # -O0 image, linked with --emit-relocs so FirmBOLT can relocate code
+stage_build() {         # -O0 image of one workload, linked with --emit-relocs so FirmBOLT can relocate code
+    local number
+    number=$(python3 -c "import sys; sys.path.insert(0, '$T/lib'); from result_schema import WORKLOADS; print(WORKLOADS['$WL'])")
     mkdir -p "$W/fw/O0" "$DEMO/build/gcc/output"
-    make -C "$DEMO/build/gcc" clean > /dev/null
-    make -C "$DEMO/build/gcc" -j"$(nproc)" CC="$T/lib/ccopt.py O0" LD="$T/lib/ccopt.py O0" > "$W/fw/O0/build.log" 2>&1
-    cp "$DEMO/build/gcc/output/RTOSDemo.out" "$W/fw/O0/RTOSDemo.out"
-    "${ARM_PREFIX}size" "$W/fw/O0/RTOSDemo.out" | tail -1
+    (   # the build directory is shared by all workloads: one build at a time
+        flock 9
+        make -C "$DEMO/build/gcc" clean > /dev/null
+        TREBUCHET_CFLAGS="-DFW_WORKLOAD=$number" make -C "$DEMO/build/gcc" -j"$(nproc)" \
+            CC="$T/lib/ccopt.py O0" LD="$T/lib/ccopt.py O0" > "$W/fw/O0/build.log" 2>&1
+        cp "$DEMO/build/gcc/output/RTOSDemo.out" "$W/fw/O0/RTOSDemo.out"
+    ) 9> "$ROOT/FreeRTOS/.trebuchet-build.lock"
+    echo "$WL: $("${ARM_PREFIX}size" "$W/fw/O0/RTOSDemo.out" | tail -1)"
 }
 
 stage_firmbolt() {      # block profile on the training inputs inside FastDyn's machine, then FirmBOLT
@@ -63,7 +77,7 @@ stage_firmbolt() {      # block profile on the training inputs inside FastDyn's 
     : > "$P/run.preagg"
     for n in 1 2 3; do
         rm -rf "$P/run$n"; mkdir -p "$P/run$n"
-        cp "$W/inputs/train/freertos-mps2-compute/train-$n.bin" "$P/run$n/input.bin"; truncate -s 1M "$P/run$n/input.bin"
+        cp "$ROOT/inputs/train/$WL/train-$n.bin" "$P/run$n/input.bin"; truncate -s 1M "$P/run$n/input.bin"
         (cd "$P/run$n" && FBPROF_PLUGIN=$P/libtbprof.so FBPROF_OUT=$P/train-$n.tbprof FBPROF_STOP=$stop \
             setarch x86_64 -R timeout 600 "$F/fastdyn-env/bin/fastdyn" run -c "$P/prof.toml" -o out > run.log 2>&1) || true
         "$PY" "$tools/tbprof2bolt.py" "$P/train-$n.tbprof" "$P/train-$n.preagg" > /dev/null
@@ -159,6 +173,28 @@ stage_report() { python3 "$T/lib/report.py" "${1:-$W/results/campaign.json}"; }
 
 stage_all() { stage_firmware; stage_build; stage_firmbolt; stage_bind; stage_prepare; stage_select; stage_bench "$@"; stage_report; }
 
-stage=${1:?usage: trebuchet.sh firmware|build|firmbolt|bind|prepare|compose|select|bench [REPS]|report [FILE]|all [REPS]}
+each() { local w; for w in $DATASET; do TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" "$@"; done; }
+
+stage_dataset() {       # dataset [REPS]: the five numbers for every category
+    local w pids=()
+    TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" firmware
+    TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" bind
+    each build
+    each firmbolt
+    for w in $DATASET; do       # preparation is not timed: all categories side by side
+        TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" prepare > "$ROOT/$w/prepare.log" 2>&1 &
+        pids+=($!)
+    done
+    for w in "${pids[@]}"; do wait "$w" || echo "a prepare job failed (see the prepare.log files)"; done
+    for w in $DATASET; do       # timed stages: one at a time; a failed category does not stop the others
+        { TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" select &&
+          TREBUCHET_WORKLOAD=$w TREBUCHET_WORK=$ROOT "$T/trebuchet.sh" bench "$@"; } || echo "$w: FAILED (see above)"
+    done
+    stage_dataset_report
+}
+
+stage_dataset_report() { python3 "$T/lib/dataset_report.py" "$ROOT" $DATASET; }
+
+stage=${1:?usage: trebuchet.sh firmware|build|firmbolt|bind|prepare|compose|select|bench [REPS]|report [FILE]|all [REPS]|dataset [REPS]|dataset_report}
 shift
-"stage_${stage}" "$@"
+"stage_${stage//-/_}" "$@"

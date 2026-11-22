@@ -17,9 +17,9 @@ from scopt.run.launcher import create_run_dir, launch
 E = Path(os.environ["TREBUCHET_WORK"]); WORK = E / "scopt"; Q = os.environ["TREBUCHET_QEMU"]
 out = Path(sys.argv[1]); REPS = int(sys.argv[2]); V = sys.argv[3]
 ARMS = dict(a.split("=", 1) for a in sys.argv[4:])
-INP = E / "inputs/final/freertos-mps2-compute"
+WL = os.environ["TREBUCHET_WORKLOAD"]; INP = Path(os.environ["TREBUCHET_INPUTS"]) / "final" / WL
 SCRATCH = Path("/dev/shm/trebuchet-compare"); shutil.rmtree(SCRATCH, ignore_errors=True); SCRATCH.mkdir()
-refs = {n: expected_values((WORK / V / "ref" / f"final-{n}.guest.norm").read_text().split("\n")) for n in (1, 2, 3)}
+refs = {n: expected_values((WORK / V / "ref" / f"final-{n}.guest.norm").read_text().split("\n"), WL) for n in (1, 2, 3)}
 serial = 0
 
 def one(arm, n):
@@ -31,7 +31,7 @@ def one(arm, n):
     if doc["exit_code"] != 0 or doc["timed_out"] or len(doc["bench"]) != 1:
         failures.append(f"exit code {doc['exit_code']}, timed out {doc['timed_out']}, {len(doc['bench'])} benchmark windows")
     try:
-        got = expected_values(doc["guest_norm"])
+        got = expected_values(doc["guest_norm"], WL)
         failures += [f"report value {i} = 0x{g:08x}, expected 0x{w:08x}" for i, (g, w) in enumerate(zip(got, refs[n])) if g != w]
     except ValueError as error:
         failures.append(str(error))

@@ -10,8 +10,8 @@ from scopt.run.deploy import deploy
 from scopt.run.launcher import create_run_dir, launch
 
 E = Path(os.environ["TREBUCHET_WORK"]); WORK = E / "scopt"
-INP = E / "inputs"
-INPUTS = {f"{s}-{i}": INP / s / "freertos-mps2-compute" / f"{s}-{i}.bin"
+INP = Path(os.environ["TREBUCHET_INPUTS"]); WL = os.environ["TREBUCHET_WORKLOAD"]
+INPUTS = {f"{s}-{i}": INP / s / WL / f"{s}-{i}.bin"
           for s in ("train", "heldout", "final") for i in (1, 2, 3)}
 Q = os.environ["TREBUCHET_QEMU"]
 

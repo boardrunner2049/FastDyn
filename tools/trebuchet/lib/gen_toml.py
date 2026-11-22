@@ -28,6 +28,8 @@ ws = s["vComputeWindowStart"]
 v.append((ws, "benchmark_start", []))
 v.append((ws + 2, "debug_log", ["window-start"]))
 for i in range(1, 5):
+    if f"vComputeReport{i}" not in s:
+        continue            # the linker drops report functions a workload does not call
     for r in range(4):
         v.append((s[f"vComputeReport{i}"] + 2 * r, "printreg", [str(r)]))
 done = s["vComputeDone"]

@@ -7,7 +7,8 @@ from pathlib import Path
 
 T = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(T / "lib"))
-from result_schema import REPORTED, STATS_FIELDS, TIMING_DEPENDENT, expected_values, stats_mismatches  # noqa: E402
+from result_schema import (FW_FIELDS, FW_REPORTED, REPORTED, STATS_FIELDS, TIMING_DEPENDENT, WORKLOADS,  # noqa: E402
+                           expected_values, schema, stats_mismatches)
 
 SOURCE = (T / "firmware/compute/main_compute.c").read_text()
 CAMPAIGN = T / "results/2026-11-21/campaign.json"
@@ -129,3 +130,34 @@ def test_a_dropped_sample_does_not_make_the_campaign_valid(tmp_path):
     path = tmp_path / "campaign.json"; path.write_text(json.dumps(doc))
     run = report(path)
     assert run.returncode == 2 and "missing: fd-fb-warm in block 3" in run.stdout
+
+
+FW_MAIN = (T / "firmware/workloads/fw_main.c").read_text()
+
+
+def test_fixed_work_schema_matches_the_firmware_source():
+    body = re.search(r"typedef struct \{([^}]*)\} FwResult_t;", FW_MAIN).group(1)
+    assert tuple(n.strip() for n in body.replace("uint32_t", "").replace(";", "").split(",")) == FW_FIELDS
+    call = re.search(r"vComputeReport1\(([^;]*)\);", FW_MAIN.split("void fw_finish")[1]).group(1)
+    assert tuple((a.strip(),) if a.strip() in FW_FIELDS else () for a in call.split(",")) == FW_REPORTED
+    assert re.findall(r"fw_result\.(\w+) = (\w+);", FW_MAIN) == [(f, f) for f in FW_FIELDS]
+
+
+def test_workload_numbers_match_the_entry_points():
+    selected = dict(re.findall(r"#(?:el)?if FW_WORKLOAD == (\d)\s+(\w+)_start\(\);", FW_MAIN))
+    selected = {name: int(number) for number, name in selected.items()}
+    selected["algobench"] = 4                                    # the #else branch
+    assert "algobench_start();" in FW_MAIN.split("#else")[1]
+    assert selected == {name: number for name, number in WORKLOADS.items() if name != "compute"}
+    assert schema("compute")[0] == "xStats" and schema("fwbench")[0] == "fw_result"
+
+
+def test_fixed_work_results_are_checked_at_their_fields():
+    expected = [0xE41C9FC6, 0x2EE0, 0, 0]
+    assert stats_mismatches([0xE41C9FC6, 0x2EE0], expected, "fwbench") == []
+    assert len(stats_mismatches([0x2EE0, 0xE41C9FC6], expected, "fwbench")) == 2      # swapped
+    assert len(stats_mismatches([0xE41C9FC6, 0x2EE1], expected, "fwbench")) == 1
+    assert stats_mismatches([0xE41C9FC6, 0x2EE0], [0xE41C9FC6, 0x2EE0, 1, 0], "fwbench")   # a non-zero spare register
+    lines = [f"Reg {i}:0x{v:08x}" for i, v in enumerate(expected)]
+    assert expected_values(lines, "libbench") == expected
+

@@ -1,0 +1,73 @@
+{
+ "schema": "trebuchet.selection/1",
+ "workload": "fwbench",
+ "status": "ok",
+ "reason": "speedup_established",
+ "selected": "b3",
+ "ranking": [
+  {
+   "candidate": "b3",
+   "input": "heldout-1",
+   "median_paired_speedup": 1.0387953636537612,
+   "wins": 12,
+   "pairs": 12,
+   "p_value": 0.0010822510822510823
+  },
+  {
+   "candidate": "exit-pc-fold",
+   "input": "heldout-1",
+   "median_paired_speedup": 0.998423717611175,
+   "wins": 5,
+   "pairs": 12,
+   "p_value": 0.8787878787878788
+  },
+  {
+   "candidate": "b2-arena-slide",
+   "input": "heldout-1",
+   "median_paired_speedup": 0.9946620973680185,
+   "wins": 4,
+   "pairs": 12,
+   "p_value": 0.9696969696969697
+  },
+  {
+   "candidate": "sfb+b3",
+   "input": "heldout-1",
+   "median_paired_speedup": 1.0324144285457046,
+   "wins": 12,
+   "pairs": 12,
+   "p_value": 0.0010822510822510823
+  },
+  {
+   "candidate": "b4",
+   "input": "heldout-1",
+   "median_paired_speedup": 1.00122636226019,
+   "wins": 7,
+   "pairs": 12,
+   "p_value": 0.5
+  },
+  {
+   "candidate": "sfb",
+   "input": "heldout-1",
+   "median_paired_speedup": 0.9848503412572576,
+   "wins": 1,
+   "pairs": 12,
+   "p_value": 1.0
+  }
+ ],
+ "confirmation": [
+  {
+   "input": "heldout-2",
+   "median_paired_speedup": 1.031083737557319,
+   "wins": 12,
+   "pairs": 12,
+   "p_value": 0.0010822510822510823
+  },
+  {
+   "input": "heldout-3",
+   "median_paired_speedup": 1.036980193409962,
+   "wins": 12,
+   "pairs": 12,
+   "p_value": 0.0010822510822510823
+  }
+ ]
+}

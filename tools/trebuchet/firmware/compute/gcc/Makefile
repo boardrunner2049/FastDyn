@@ -61,6 +61,14 @@ VPATH += $(DEMO_PROJECT)
 INCLUDE_DIRS += -I$(DEMO_PROJECT) -I$(DEMO_PROJECT)/CMSIS
 SOURCE_FILES += (DEMO_PROJECT)/main.c
 SOURCE_FILES += (DEMO_PROJECT)/main_compute.c
+# The other Trebuchet workloads; main.c picks one with -DFW_WORKLOAD=N and the
+# linker drops the rest.
+SOURCE_FILES += (DEMO_PROJECT)/fw_main.c
+SOURCE_FILES += (DEMO_PROJECT)/fw_proto.c
+SOURCE_FILES += (DEMO_PROJECT)/main_fwbench.c
+SOURCE_FILES += (DEMO_PROJECT)/main_kernbench.c
+SOURCE_FILES += (DEMO_PROJECT)/main_libbench.c
+SOURCE_FILES += (DEMO_PROJECT)/main_algobench.c
 SOURCE_FILES += ./startup_gcc.c
 # Lightweight print formatting to use in place of the heavier GCC equivalent.
 SOURCE_FILES += ./printf-stdarg.c

@@ -88,6 +88,7 @@
  */
 extern void main_blinky( void );
 extern void main_compute( void ); /* fastdyn compute fixture */
+extern void main_workload( void ); /* the other Trebuchet workloads (FW_WORKLOAD != 0) */
 extern void main_full( void );
 
 /*
@@ -135,7 +136,11 @@ int main( void )
      * of this file. */
     #if ( mainCREATE_SIMPLE_BLINKY_DEMO_ONLY == 1 )
     {
-        main_compute(); /* fastdyn compute fixture (was main_blinky) */
+        #if !defined( FW_WORKLOAD ) || ( FW_WORKLOAD == 0 )
+            main_compute(); /* fastdyn compute fixture (was main_blinky) */
+        #else
+            main_workload();
+        #endif
     }
     #else
     {
