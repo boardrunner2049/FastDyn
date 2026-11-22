@@ -1,0 +1,117 @@
+{
+  "firmbolt_revision": "e4e505a0b76a44c5ac854815b2469a672c1e3e04",
+  "llvm_revision": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "backend_sha256": "296a4683f651480506284025558abe99d88e0ba1718a1a24971d076388b7a1b0",
+  "patch_sha256": "f94d0d776ebb572f3db0f4c39e4ecc78a891b8492cf709fa6901559af4cbbe68",
+  "fixtures": [
+    {
+      "test": "bolt/test/ARM/thumb1-absolute-jump-table.s",
+      "sha256": "e3bb2d574142c99b903d1b54c2584febe0e9ca37351772c226bcc996d784e12b",
+      "run_directives": 4,
+      "result": "pass"
+    },
+    {
+      "test": "bolt/test/ARM/thumb-abs32-jump-table-promotion-detached-rejected.s",
+      "sha256": "fc85329b32e1768e5398107c0ead35925c28da5aa0f90f5145c184ffc1080c2b",
+      "run_directives": 5,
+      "result": "pass"
+    },
+    {
+      "test": "bolt/test/ARM/thumb-abs32-jump-table-promotion-detached-relocs.s",
+      "sha256": "26b77ca8238ec3366f390141f11f1983e4a67e14f01cf86438c68baeff084820",
+      "run_directives": 8,
+      "result": "pass"
+    },
+    {
+      "test": "bolt/test/ARM/thumb-native-jump-table-promotion.s",
+      "sha256": "f1c8ccb4ab61745de2e6874b2fa79e4a85607b494aff5beb930d2a253084f917",
+      "run_directives": 9,
+      "result": "pass"
+    },
+    {
+      "test": "bolt/test/ARM/thumb-jump-table-promotion-flags-live.s",
+      "sha256": "ab99742175b4b419c955e1ba1a5cb60a23396e828f9469d8606400ffc2e44333",
+      "run_directives": 7,
+      "result": "pass"
+    },
+    {
+      "test": "bolt/test/ARM/thumb-mixed-isr-vector.s",
+      "sha256": "e5a5d280b72ea03843fdef46fac250f5d047e267e2c22eada301d527f96fda45",
+      "run_directives": 14,
+      "result": "pass"
+    },
+    {
+      "test": "bolt/test/ARM/thumb-fixed-data-boundary.yaml",
+      "sha256": "cd75d75a298f1f70b26d73cbba69f1410e762c353be18d3199c8ec8e63fb4aa0",
+      "run_directives": 6,
+      "result": "pass"
+    },
+    {
+      "test": "bolt/test/ARM/thumb-out-of-section-linker-constant.test",
+      "sha256": "3671266676e1aa0a03d7c7cd0c089a6dc5f35bbc6b8ce85958e887dc5149b89d",
+      "run_directives": 22,
+      "result": "pass"
+    },
+    {
+      "test": "bolt/test/ARM/thumb-riot-vector-symbols.s",
+      "sha256": "c6c1a831b2273172582075a5304764f24a3fdb50d0baeec423e62949cee57691",
+      "run_directives": 6,
+      "result": "pass"
+    }
+  ],
+  "frontend": {
+    "suite": "tests/unit/test_firmbolt_frontend.py",
+    "passed": 20
+  },
+  "canonical_image_sha256": "d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+  "load_equivalence": {
+    "prior_elf": "caab33a72ffc62ce66712d653ab31f13b3b920ad9640cd05caa23a568aee28eb",
+    "final_elf": "d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+    "identical": true,
+    "columns": [
+      "vaddr",
+      "paddr",
+      "memory_bytes",
+      "file_bytes",
+      "flags",
+      "segment_bytes_sha256"
+    ],
+    "prior": [
+      [
+        0,
+        0,
+        342292,
+        198132,
+        7,
+        "5295d62d1eb31ac36e32640c367af32e1aee6dca80ccc993383b63f9e0ec8795"
+      ],
+      [
+        524288,
+        524288,
+        198184,
+        198184,
+        5,
+        "c3fb5ff1bc34b54f8d2b6e07a2f22dfd5bd468c4c92a35614e9a149dbcb2a57a"
+      ]
+    ],
+    "final": [
+      [
+        0,
+        0,
+        342292,
+        198132,
+        7,
+        "5295d62d1eb31ac36e32640c367af32e1aee6dca80ccc993383b63f9e0ec8795"
+      ],
+      [
+        524288,
+        524288,
+        198184,
+        198184,
+        5,
+        "c3fb5ff1bc34b54f8d2b6e07a2f22dfd5bd468c4c92a35614e9a149dbcb2a57a"
+      ]
+    ]
+  },
+  "original_text_relocation_sites": 10988
+}

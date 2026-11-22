@@ -29,5 +29,20 @@
     "temporary_run_id": 44979153501,
     "result": "success"
   },
-  "application_binaries": "Per-image SHA-256 and hook contracts live in each applications/ subdirectory. Hosted QEMU is rebuilt and bound on each timing runner."
+  "application_binaries": "Per-image SHA-256 and hook contracts live in each applications/ subdirectory. Hosted QEMU is rebuilt and bound on each timing runner.",
+  "pye_ordinary_qualification": {
+    "run": 44980359811,
+    "archive_sha256": "fc23d912273ac4e96b771c336365b2da0268dcec822fa7c9dde1a3b9d60d347a",
+    "local_archive": "/workspace/trebuchet-work/runner/pye-2/pye.zip",
+    "receipt": "pye-qualification/ordinary-replay/ordinary-warm.json",
+    "profile": "pye-qualification/ordinary-replay/profile-run.json.gz"
+  },
+  "firmbolt_repaired": {
+    "commit": "e4e505a0b76a44c5ac854815b2469a672c1e3e04",
+    "patch_sha256": "f94d0d776ebb572f3db0f4c39e4ecc78a891b8492cf709fa6901559af4cbbe68",
+    "llvm_bolt_sha256": "296a4683f651480506284025558abe99d88e0ba1718a1a24971d076388b7a1b0",
+    "canonical_pye_elf_sha256": "d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+    "evidence": "../../applications/firmbolt-inspection/native-checks.json",
+    "canonical_qualification": "../../applications/pye/qualification/firmbolt-canonical/identity.json"
+  }
 }

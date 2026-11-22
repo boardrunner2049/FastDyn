@@ -17,6 +17,7 @@ from scopt.ids import canonical_json, runtime_identity_id, sha256_id
 from scopt.importer.import_cache import ImportRejected, import_snapshot, open_snapshot
 from scopt.importer.warm_origin import ordinary_warm
 from scopt.manager import load_pipeline
+from scopt.report.collect import hotset_metrics
 from scopt.run.deploy import resolve_artifact
 from scopt.run.launcher import file_sha256, write_json
 from scopt.run.pass_policy import PolicyMismatch, check_requested, policy_arguments
@@ -188,6 +189,7 @@ def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=N
         error = None
         try:
             snap, profile = prepare_image(image)
+            profile_doc = profile.doc
             cache[()] = dict(snapshot=image["snapshot"], snapshot_id=snap.snapshot_id,
                              artifact=image["snapshot"], ancestry=[], generations=[])
         except (ValueError, RuntimeError, ImportRejected, OSError, KeyError) as exc:
@@ -233,6 +235,7 @@ def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=N
                     row.update(status="equivalent", equivalent_to=seen[identity])
                 else:
                     seen[identity] = row["id"]
+                    row["hot_footprint"] = hotset_metrics(profile_doc, deployed["sc"])
             except (TimeoutError, subprocess.TimeoutExpired) as exc:
                 row.update(status="incomplete", reason=str(exc))
             except PolicyMismatch as exc:

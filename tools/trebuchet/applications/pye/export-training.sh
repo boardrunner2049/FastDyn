@@ -19,6 +19,14 @@ if [[ -d "$work/campaign" ]]; then
         source=campaign/$variant
         [[ -d $source ]] || continue
         files=()
+        snapshots=("$source"/store/snapshots/*/snapshot.json)
+        if (( ! ${#snapshots[@]} )); then
+            # The importer may have failed on a completed capture. Retain the
+            # original sparse cache and SCM inputs to reproduce that failure.
+            for raw in "$source"/prep/cache/fw.sc "$source"/prep/capture*.scm; do
+                [[ ! -f "$raw" ]] || files+=("$raw")
+            done
+        fi
         for path in "$source"/store/snapshots/* "$source"/profile/merged.profile.json \
             "$source"/profile/profile_run.json "$source"/profile/*/profile.json \
             "$source"/bundle.json "$source"/runtime.json "$source"/admission-runtime.json \
