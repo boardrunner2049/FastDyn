@@ -11,6 +11,8 @@ Trebuchet builds candidate registries for prepared original and FirmBOLT images,
 
 ## Runtime
 
+The existing ArduCopter and PX4 ports both completed a cacheless waypoint mission with independent FMI checks. Pye completed a release-image ordinary replay and a separate replay of the restricted guest rewrite. Each result records the exact image and inventory. [Flight receipts](flight/evidence/) · [Pye qualification](../results/real-applications/pye-qualification/) · [Two-image preparation](../results/real-applications/pye-joint-preparation/)
+
 Build FastDyn and its pinned QEMU according to [scopt setup](../../scopt/docs/getting-started.md). Build the Cortex-M FirmBOLT frontend and patched backend from the pinned checkout. The native inliner requires a separate [LLVM 20.1.2 bridge](../../scopt/native/README.md). Activate the scopt Python environment or set `TREBUCHET_PYTHON` to its interpreter. Set `SCOPT_RUNTIME_QEMU`, `SCOPT_RUNTIME_QEMU_SHA256`, `SCOPT_ENVLAYOUT_PATH`, `SCOPT_HELPER_EFFECTS_PATH` and `SCOPT_V6_EXES` for the exact binary. Configure the normal platform, clocks, devices and icount policy from the application manifest.
 
 On the timing runner, first check the exact per-process operation used by scopt.
@@ -53,4 +55,4 @@ tools/trebuchet/trebuchet.sh dataset frozen-corpus.json new-campaign
 tools/trebuchet/trebuchet.sh dataset_report new-campaign/dataset.json
 ```
 
-The table weights scenarios and applications as declared, then computes one geometric mean across the complete admitted family set. A blocked suite emits no numeric aggregate. The current generic selector measures fully warm deployments; frozen-preparation evaluation requires an adapter that measures late translations separately.
+The table weights scenarios and applications as declared, then computes one geometric mean across the complete admitted family set. A blocked suite emits no numeric aggregate. Fully warm comparisons require zero appended translations. The Pye training-frozen protocol deploys a fresh copy of a training-only snapshot for each trial and records late translations alongside the application oracle. See the [Pye campaign](pye/campaign.md) and its [frozen policy](pye/frozen-policy.json).

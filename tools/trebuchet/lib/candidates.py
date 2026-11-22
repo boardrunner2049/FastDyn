@@ -28,6 +28,7 @@ PIPELINES = {
     "b3-ph": "b3-ph", "b3": B3, "static": B3, "returns": B3, "general": B3,
     "dominant": "dominant-return", "ph": "b2-layout", "slide": "b2-arena-slide",
     "pc": "exit-pc-fold", "native": "host-inline-splice",
+    "scalar": "local-scalar", "global-region": "global-region",
     "native-1": "host-inline-splice", "native-2": "host-inline-splice",
 }
 PACKAGES = {"sfb", "sfb-hot", "b4", "b4-coalesce", "b4-absorb"}

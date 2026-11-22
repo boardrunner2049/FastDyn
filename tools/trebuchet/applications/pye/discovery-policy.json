@@ -1,0 +1,50 @@
+{
+  "application": "pye",
+  "scenario": "update-package-version",
+  "role": "supplementary training diagnostics only",
+  "rationale": "Profiled lookup traffic and active calls and NOP sites motivate a guarded-chain, layout and scalar ablation on the release image. Native helper execution remains an estimate until a site is traced.",
+  "recipes": [
+    "warm",
+    "general",
+    "static",
+    "returns",
+    "dominant",
+    "sfb-hot",
+    "ph",
+    "native-1",
+    "native-2",
+    "scalar",
+    "global-region",
+    "b4",
+    "b4-coalesce",
+    "b4-absorb",
+    "b3",
+    "sfb",
+    "sfb+b3",
+    "b3-ph",
+    "native-1+general",
+    "sfb-hot+general",
+    "sfb-hot+b4+b3"
+  ],
+  "budget": {
+    "candidate_limit": 21,
+    "offline_seconds": 2700
+  },
+  "params": {
+    "sfb-hot": {
+      "entry_coverage": 90,
+      "max_moved_units": 256,
+      "max_growth_bytes": 16384
+    },
+    "general": {
+      "chain-returns": {
+        "rank_by_net_work": true,
+        "max_total_growth_bytes": 8192
+      },
+      "chain-static": {
+        "rank_by_net_work": true,
+        "max_total_growth_bytes": 8192
+      }
+    }
+  }
+}
