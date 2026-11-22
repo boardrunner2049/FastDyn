@@ -11,6 +11,8 @@ On the held-out Pye editor-manual job, original-image SFB → B3 achieved a medi
 | grblHAL | Its upstream simulator accepted all 101 published drawing commands, traversed 96 planner endpoints and issued 125,104 logical step requests. The real BTT image reached driver initialization on the generic Cortex-M model. | The simulated drawing supplies operational evidence for the upstream core. An ARM command session, modeled step timing and checked output from that image remain open. [Board and simulator receipts](../../applications/grblhal/README.md) |
 | ESCape32 | Both the published image and normal-configuration rebuild reached the STM32G071 clock wait. Four samples per image found the PLL-ready poll at the same PC. | Board clocks, timers, sampled current, phase outputs and load response need a qualified model or hardware trace. The observed boot path carries no campaign weight. [Reset probes and boundaries](../../applications/escape32/README.md) |
 
+The [bounded discovery run](pye-discovery/) documents training results for §§6–9, 11 and 13. In the original image the selective SFB policy moved 96 units versus 770 for all-entry SFB. Static-only and return-only each installed hundreds of chains. An independent paired training comparison found no reliable latency gain from B4 alone or from guarded UDIV alone. [Training controls](pye-stage-controls/) The [historical control](pye-historical-eligible/) selected among six eligible pre-change host-cache recipes on the repaired guest.
+
 ## Implementation and acceptance by section
 
 | § | Observation and implementation | Evidence required to close the package |

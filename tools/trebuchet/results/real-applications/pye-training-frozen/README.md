@@ -29,3 +29,9 @@ The 354 hottest public units accounted for 1,623,250 of 1,803,465 exact entries 
 The selected layout reserves 10,572 bytes of appended guard tails across 77 of these units. Those bytes bound the allocated tail space available on the public paths. The profile has no selected-run guard-hit or private-entry counts. The 13 private variants contribute no bytes to this public-only comparison. Actual executed instructions, cache traffic and the held-out edit’s working set remain unmeasured.
 
 To reproduce, extract the raw inputs and run `python public_footprint.py campaign` from their parent directory. The script verifies both snapshot ancestries, all unit identities, exact guest members and keys, slots and moved or retained TB offsets. The ordinary and SFB results also reproduce their independently computed registry footprints. [Calculated ranges and input hashes](public-footprint.json) · [Reproduction script](public_footprint.py) · [Archived reimports, sidecars and profile](public-footprint-inputs.tgz)
+
+Regenerate the [application-level table](application-table.md) from the archived protocol and final measurement using the scopt environment.
+
+```sh
+scopt-env/bin/python tools/trebuchet/results/real-applications/pye-training-frozen/render_table.py
+```
