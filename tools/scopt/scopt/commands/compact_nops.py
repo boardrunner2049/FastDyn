@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 
 from ..compact_nops import Ineligible, compact
+from ..formats.profile_v1 import check_flow, read_profile
 from ..formats.sc_v5 import read_sc, write_sc
 from ..formats.scm_v1 import TbChunk, encode_scm
 from ..importer.classify import context_for
@@ -24,10 +25,13 @@ def generate(snapshot, profile_path, out):
     if not sc.loadable or sc.problems or sc.skipped:
         raise ValueError("requires a clean ordinary v5 input with all record slots intact")
     meta = json.loads((snapshot / "snapshot.json").read_text())
-    profile = json.loads(profile_path.read_text())
+    verified = read_profile(profile_path)
+    profile = verified.doc
     sid = sc.snapshot_id()
     if (sid != meta["snapshot_id"] or sid != profile["snapshot_id"]
-            or not profile["collection"]["complete"] or profile["collection"]["overflow"]):
+            or any(profile[k] != meta[k] for k in ("bundle_id", "runtime_identity_id", "contract_id"))
+            or not profile["collection"]["complete"] or profile["collection"]["overflow"]
+            or not check_flow(verified).ok):
         raise ValueError("requires a complete profile for this exact ordinary input")
     phases = [str(p["id"]) for p in profile["phases"] if p["name"] == "steady" and p["reached"]]
     if len(phases) != 1:
