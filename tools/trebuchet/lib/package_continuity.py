@@ -4,14 +4,16 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import shutil
 
 from scopt.canon import canonical_json, fnv1a64, sha256_id
 from scopt.formats import artifact as artifact_format
+from scopt.formats import scm_v1
 from scopt.formats.profile_v1 import ProfileView, read_profile
 from scopt.formats.sc_v5 import ScRecord
 from scopt.formats.sc_v6 import (EXIT_DIRECT, KIND_SPEC, ExtTable, LinkEntry,
                                 SlotEntry, VariantEntry, read_sc6, sc6_snapshot_id, sc6parse_compare, write_sc6)
-from scopt.importer.import_cache import open_snapshot
+from scopt.importer.import_cache import ImportCache, open_snapshot
 from scopt.run.deploy import artifact_refusals, resolve_artifact
 from scopt.link import TB_ALIGN, arena_limit, relocate_unit, round_up
 
@@ -62,7 +64,50 @@ def make_variant(snap, profile, source_uid, slot, dest_uid, phase):
     return ExtTable((variant,), (source_slot,), (LinkEntry(0, 0),), identity), body, report
 
 
-def publish(path, snap, ext, body, report):
+def write_capture_evidence(path, snap, ext, report, guest_elf):
+    """Preserve ordinary capture metadata and bind the one relocated variant."""
+    source_dir = Path(snap.path)
+    meta = json.loads((source_dir / "snapshot.json").read_bytes())
+    capture_names = meta["files"]["captures"]
+    require(capture_names, "missing source captures")
+    v, = ext.variants
+    patch = scm_v1.VariantPatch(report["reload_offset"], bytes.fromhex(report["old"]),
+                                bytes.fromhex(report["new"]))
+    key = hashlib.sha256(canonical_json(report)).digest()
+    chunk = scm_v1.VariantChunk(
+        v.variant_id, snap.unit(report["destination"]).slot, v.tb_offset, v.tc_offset,
+        v.tc_size, v.end_offset, v.code_fnv64, snap.unit(report["source"]).slot,
+        report["slot"], EXIT_DIRECT, key, (patch,))
+    files = []
+    for index, name in enumerate(capture_names):
+        require(Path(name).name == name, "unsafe capture basename")
+        target = path / ("cache.scm" if index == 0 else f"cache.{index}.scm")
+        files.append(target)
+        if index:
+            shutil.copyfile(source_dir / name, target)
+            continue
+        scm = scm_v1.read_scm(source_dir / name)
+        require(not scm.variants and not scm.rejected_chunks, "not an ordinary capture")
+        bodies = [(c.type, c.body) for c in scm.chunks]
+        insert = next((i for i, (_, b) in enumerate(bodies) if isinstance(b, scm_v1.EndChunk)),
+                      len(bodies))
+        bodies.insert(insert, (int(chunk.TYPE), chunk))
+        scm_v1.write_scm(target, scm_v1.make_scm(bodies, scm.header))
+    shutil.copyfile(source_dir / "manifest.json", path / "manifest.json")
+    imported = ImportCache(path / "cache.sc", files, manifest=path / "manifest.json",
+                           bundle=path / "bundle.json", runtime_identity=path / "runtime_identity.json",
+                           firmware=guest_elf, plugin=meta["options"].get("plugin"),
+                           use_manifest_firmware=False, verify_files=False).run()
+    require(len(imported.variants) == 1 and imported.variants[0]["ok"],
+            f"private capture failed re-import: {imported.variants}")
+    for before, after in zip(snap.units(), imported.snapshot.units(), strict=True):
+        require((before.uid, before.origin, before.meta_status, before.reloc, before.insns, before.sites) ==
+                (after.uid, after.origin, after.meta_status, after.reloc, after.insns, after.sites),
+                f"public origin, recovery or relocation metadata changed: {before.uid}")
+    return imported.variants[0]
+
+
+def publish(path, snap, ext, body, report, guest_elf):
     cache = path / "cache.sc"
     write_sc6(cache, snap.header, snap.units(), ext, [body])
     output = read_sc6(cache)
@@ -78,6 +123,7 @@ def publish(path, snap, ext, body, report):
     require(snap.bundle and snap.runtime, "missing deployable identity documents")
     artifact_format.write_json_file(path / "bundle.json", dict(snap.bundle))
     artifact_format.write_json_file(path / "runtime_identity.json", dict(snap.runtime))
+    report["derived_capture_reimport"] = write_capture_evidence(path, snap, ext, report, guest_elf)
     validation = artifact_format.write_json_file(path / "continuity.json", report)
     params = {k: report[k] for k in ("source", "slot", "destination", "phase")}
     sidecar = {
@@ -121,7 +167,7 @@ def main():
     with tempfile.TemporaryDirectory(dir=args.out.parent) as tmp:
         staged = Path(tmp) / "package"
         staged.mkdir()
-        publish(staged, snap, ext, body, report)
+        publish(staged, snap, ext, body, report, args.guest_elf)
         staged.rename(args.out)
 
 
