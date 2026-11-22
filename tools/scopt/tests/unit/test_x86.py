@@ -138,3 +138,16 @@ def test_extract_refs_tuple_arena_and_bad_skipped():
     refs = extract_refs(insns, (ARENA.base, ARENA.size))
     assert [r.kind for r in refs] == [RefKind.JMP_REL32]
     assert refs[0].region == "arena"
+
+
+def test_import_decode_memo_preserves_location_and_boundaries():
+    from scopt.decode.x86 import DecodeMemo
+
+    memo = DecodeMemo(capacity=3)
+    # GPR arithmetic, RIP-relative data, relative calls and a rejected byte.
+    code = h("01 c8 48 8d 05 12 00 00 00 e8 1c 00 00 00 06 31 c0")
+    for address in (BASE, 0x1000, BASE + 400):
+        for limit in (len(code), 4):
+            assert sweep(code, address, address + limit, memo=memo) == sweep(code, address, address + limit)
+    assert len(memo.templates) == 3
+    assert all(row.branch_target is None for row in memo.templates.values())

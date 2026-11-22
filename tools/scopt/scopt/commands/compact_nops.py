@@ -1,4 +1,4 @@
-"""Build a training-only ordinary v5 cache with one compacted direct-exit TB."""
+"""Build a training-only ordinary v5 cache with bounded direct-exit TB compaction."""
 import json
 import tempfile
 from collections import Counter
@@ -10,7 +10,7 @@ import click
 from ..compact_nops import Ineligible, compact
 from ..formats.profile_v1 import check_flow, read_profile
 from ..formats.sc_v5 import read_sc, write_sc
-from ..formats.scm_v1 import TbChunk, encode_scm
+from ..formats.scm_v1 import encode_scm
 from ..importer.classify import context_for
 from ..importer.crosscheck import crosscheck_unit
 from ..importer.join import join
@@ -20,7 +20,9 @@ def register(group):
     group.add_command(compact_nops)
 
 
-def generate(snapshot, profile_path, out):
+def generate(snapshot, profile_path, out, *, max_units=1):
+    if max_units < 1:
+        raise ValueError("max_units must be positive")
     sc = read_sc(snapshot / "cache.sc")
     if not sc.loadable or sc.problems or sc.skipped:
         raise ValueError("requires a clean ordinary v5 input with all record slots intact")
@@ -43,7 +45,8 @@ def generate(snapshot, profile_path, out):
     identifiers = sc.unit_ids()
     slots = sorted(range(len(units)), key=lambda i: (-counts.get(identifiers[i], 0), identifiers[i]))
     ctxs, skips = {}, Counter()
-    selected = None
+    selected = {}
+    rows_by_slot = []
     for slot in slots:
         uid = identifiers[slot]
         if counts.get(uid, 0) <= 0:
@@ -72,13 +75,21 @@ def generate(snapshot, profile_path, out):
                for other, b in bindings.slots.items() if other != slot):
             skips["unresolved or incoming references from other records"] += 1
             continue
-        selected = (slot, uid, changed, chunk, plan)
-        break
-    if selected is None:
+        record = dict(unit=uid,
+                      slot=slot, guest_pc=hex(chunk.vaddr), phase_entries=counts[uid],
+                      branch_off=plan.branch, store_off=plan.store, removed_nop_off=plan.store + 3,
+                      old_code=src.code.hex(), new_code=changed.code.hex(),
+                      old_search=src.search.hex(), new_search=changed.search.hex(),
+                      code_bytes_saved=src.record.tc_size - changed.record.tc_size,
+                      old_slot_fields=src.record.jmp_insn_offset, new_slot_fields=changed.record.jmp_insn_offset,
+                      search_rows=len(chunk.insns), exceptional_recovery_points=0, higher_ranked_skips=dict(skips))
+        selected[slot] = chunk
+        rows_by_slot.append(record)
+        units[slot] = changed
+        if len(selected) == max_units:
+            break
+    if not selected:
         raise ValueError(f"no eligible observed unit: {dict(skips)}")
-    slot, uid, changed, chunk, plan = selected
-    source = units[slot]
-    units[slot] = changed
     if out.exists():
         raise ValueError("output path exists")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -87,9 +98,9 @@ def generate(snapshot, profile_path, out):
         stage.mkdir()
         write_sc(stage / "cache.sc", sc.header, units)
         paths = []
+        replacements = {id(bindings.slots[i].chunk): chunk for i, chunk in selected.items()}
         for index, file in enumerate(bindings.captures):
-            rows = tuple(replace(row, body=chunk) if file is bindings.slots[slot].source
-                         and isinstance(row.body, TbChunk) and row.body is bindings.slots[slot].chunk
+            rows = tuple(replace(row, body=replacements[id(row.body)]) if id(row.body) in replacements
                          else row for row in file.chunks)
             dest = stage / ("cache.scm" if index == 0 else f"cache.{index}.scm")
             dest.write_bytes(encode_scm((file.header, rows)))
@@ -97,18 +108,18 @@ def generate(snapshot, profile_path, out):
         result = read_sc(stage / "cache.sc")
         rebound = join(result, paths)
         if (result.problems or result.unit_ids() != identifiers
-                or not rebound.slots[slot].bound or rebound.slots[slot].chunk.record != changed.record_bytes
+                or any(not rebound.slots[i].bound or rebound.slots[i].chunk != expected
+                       for i, expected in selected.items())
                 or any(rebound.slots[i].bound != b.bound for i, b in bindings.slots.items())):
             raise ValueError("written records or derived captures failed reimport")
-        report = dict(schema="scopt.nop-compaction/1", status="built", input_snapshot=sid,
-                      output_snapshot=result.snapshot_id(), profile_id=profile["profile_id"], unit=uid,
-                      slot=slot, guest_pc=hex(chunk.vaddr), phase_entries=counts[uid],
-                      branch_off=plan.branch, store_off=plan.store, removed_nop_off=plan.store + 3,
-                      old_code=source.code.hex(), new_code=changed.code.hex(),
-                      old_search=source.search.hex(), new_search=changed.search.hex(),
-                      code_bytes_saved=source.record.tc_size - changed.record.tc_size,
-                      old_slot_fields=source.record.jmp_insn_offset, new_slot_fields=changed.record.jmp_insn_offset,
-                      search_rows=len(chunk.insns), exceptional_recovery_points=0, higher_ranked_skips=dict(skips))
+        report = dict(schema="scopt.nop-compaction/1" if max_units == 1 else "scopt.nop-compaction/2",
+                      status="built", input_snapshot=sid, output_snapshot=result.snapshot_id(),
+                      profile_id=profile["profile_id"])
+        if max_units == 1:
+            report.update(rows_by_slot[0])
+        else:
+            report.update(max_units=max_units, units=rows_by_slot,
+                          code_bytes_saved=sum(row["code_bytes_saved"] for row in rows_by_slot))
         (stage / "compaction.json").write_text(json.dumps(report, indent=2) + "\n")
         stage.rename(out)
     return report
@@ -118,10 +129,11 @@ def generate(snapshot, profile_path, out):
 @click.argument("snapshot", type=click.Path(path_type=Path, exists=True, file_okay=False))
 @click.option("--profile", "profile_path", required=True, type=click.Path(path_type=Path, exists=True, dir_okay=False))
 @click.option("--out", required=True, type=click.Path(path_type=Path, file_okay=False))
-def compact_nops(snapshot, profile_path, out):
-    """Shrink one training-observed direct exit and emit a cache with derived captures."""
+@click.option("--max-units", type=click.IntRange(min=1), default=1, show_default=True)
+def compact_nops(snapshot, profile_path, out, max_units):
+    """Shrink eligible training-observed direct exits and emit the corresponding captures."""
     try:
-        doc = generate(snapshot, profile_path, out)
+        doc = generate(snapshot, profile_path, out, max_units=max_units)
     except (ValueError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(json.dumps(doc))

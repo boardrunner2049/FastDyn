@@ -275,3 +275,19 @@ scopt deploy --selection "$RUN/tuning/confirmation/selection.json" \
 ```
 
 Both case files use the `select-warm` format. For cases with input banks, give each phase its own bank data and list the original profile inputs under `training_inputs`. For a fixed workload without banks, the two phases use separate launches. The tuning directory records the candidate order, training scores and frozen artifact identity.
+
+### Bounded compaction and offline import reuse
+
+`scopt compact-nops SNAPSHOT --profile PROFILE --out OUT --max-units N` considers
+direct exits in decreasing order of exact observed phase entries. It applies
+the existing byte, reference and recovery checks separately to each selected
+unit, writes a fresh cache and reimports the derived captures. The default
+selects one unit and preserves the original receipt format. A larger bound
+writes a list of per-unit records. Padding in the enclosing allocation can
+remain after the translated instruction sequence shrinks.
+
+For offline import, `SCOPT_IMPORT_DECODE_MEMO=1` enables a per-import table
+of up to 8,192 instruction templates. Capstone decodes the boundaries and
+formats operands at each actual address. Relative branches receive fresh
+operand detail. Each import starts with an empty table and performs its usual
+relocation, provenance and recovery checks.

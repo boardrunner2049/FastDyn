@@ -55,6 +55,7 @@ from typing import Any
 
 from .. import __version__
 from ..canon import canonical_json, canonical_jsonl, content_id, hexaddr, sha256_hex, sha256_id
+from ..decode.x86 import DecodeMemo
 from ..formats import bundle_v1 as _bv1
 from ..formats import schemas
 from ..formats.region_v1 import build_region
@@ -453,6 +454,7 @@ class ImportCache:
             plugin = nf["plugin"].get("path")
 
         ctxs: dict[int, HostContext] = {}
+        decode_memo = DecodeMemo() if os.environ.get("SCOPT_IMPORT_DECODE_MEMO") == "1" else None
         native_resolvers, native_images = {}, {}
         units_in = sc.units()
         uids = unit_ids(u.record.tb_uid for u in units_in)
@@ -472,7 +474,7 @@ class ImportCache:
                 ri = b.source.run_info
                 ctx = context_for(b.source, ctxs, plugin_path=plugin)
                 uc = crosscheck_unit(su, b.chunk, sc.header, ctx,
-                                     icache_linesize=ri.icache_linesize, firmware=firmware)
+                                     icache_linesize=ri.icache_linesize, firmware=firmware, decode_memo=decode_memo)
                 if b.chunk.native_fragments and uc.meta_status == "ok":
                     problem = _native_binding_problem(b, ctx, self.runtime_identity, uid,
                                                       native_resolvers, native_images)

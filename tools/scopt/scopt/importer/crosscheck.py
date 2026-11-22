@@ -56,7 +56,7 @@ from typing import TYPE_CHECKING, Any
 from ..canon import fnv1a64
 from ..decode.search import SearchDecodeError, SearchRows, decode_search, is_pcrel
 from ..decode.thumb import check_lengths, lengths_from_words
-from ..decode.x86 import (Arena, DecodedRef, Insn as X86Insn, RefKind, decode_one,
+from ..decode.x86 import (Arena, DecodeMemo, DecodedRef, Insn as X86Insn, RefKind, decode_one,
                           extract_refs, sweep, tiles)
 from ..formats.enums import NONE_U32, Encoding, OpMarkKind, SiteKind, TbFlag
 from ..model.native import (FULL_UDIV_CLEANUP_KIND, FULL_UDIV_KINDS, GUARDED_UDIV_KINDS,
@@ -233,7 +233,8 @@ def _field_bytes(code: bytes, off: int, width: int) -> int:
 
 
 def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, *,
-                    icache_linesize: int = 64, firmware: Firmware | None = None) -> UnitCheck:
+                    icache_linesize: int = 64, firmware: Firmware | None = None,
+                    decode_memo: DecodeMemo | None = None) -> UnitCheck:
     """Run §2.7 steps 1-9 for one bound slot."""
     r = u.record
     code = u.code
@@ -356,15 +357,15 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
              "search_mismatch")
 
     # -- step 4: linear sweep ------------------------------------------------------
-    xs = sweep(code, tc_abs, tc_abs + pool_end) if order else []
+    xs = sweep(code, tc_abs, tc_abs + pool_end, memo=decode_memo) if order else []
     tiled = order and tiles(xs, tc_abs, tc_abs + pool_end)
     xs_stub = []
     if order and ss is not None:
-        xs_stub = sweep(code[ss:], tc_abs + ss, tc_abs + r.tc_size)
+        xs_stub = sweep(code[ss:], tc_abs + ss, tc_abs + r.tc_size, memo=decode_memo)
         tiled = tiled and tiles(xs_stub, tc_abs + ss, tc_abs + r.tc_size)
     xs_native = []
     if order and inline_start is not None:
-        xs_native = sweep(code[inline_start:], tc_abs + inline_start, tc_abs + r.tc_size)
+        xs_native = sweep(code[inline_start:], tc_abs + inline_start, tc_abs + r.tc_size, memo=decode_memo)
         tiled = tiled and tiles(xs_native, tc_abs + inline_start, tc_abs + r.tc_size)
     if not tiled:
         first_bad = next((i.address - tc_abs for i in xs + xs_stub + xs_native if i.bad),

@@ -26,7 +26,7 @@ Addresses in :class:`Insn` and :class:`DecodedRef` are absolute host addresses
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from functools import lru_cache
 from typing import Protocol
@@ -169,6 +169,29 @@ def _from_cs(i: capstone.CsInsn) -> Insn:
         disp_offset=i.disp_offset, disp_size=i.disp_size)
 
 
+class DecodeMemo:
+    """Reuse address-independent operand detail within one import.
+
+    Capstone still establishes each instruction boundary and renders operands at
+    its actual address. Relative transfers always receive a fresh detail decode.
+    RIP-relative memory retains its displacement and derives its target from end.
+    """
+
+    def __init__(self, capacity: int = 8192):
+        self.capacity = capacity
+        self.templates: dict[tuple[bytes, str, str], Insn] = {}
+
+    def decode(self, native: capstone.CsInsn) -> Insn:
+        key = bytes(native.bytes), native.mnemonic, native.op_str
+        template = self.templates.get(key)
+        if template is not None:
+            return replace(template, address=native.address)
+        insn = _from_cs(native)
+        if insn.branch_target is None and len(self.templates) < self.capacity:
+            self.templates[key] = insn
+        return insn
+
+
 def decode_one(code: bytes, address: int) -> Insn | None:
     """Decode only the instruction beginning at ``address``."""
     insn = next(decoder().disasm(code, address, count=1), None)
@@ -179,7 +202,7 @@ def _bad(addr: int, byte: bytes) -> Insn:
     return Insn(addr, 1, byte, "(bad)", "", bad=True)
 
 
-def sweep(code: bytes, addr: int, end: int | None = None) -> list[Insn]:
+def sweep(code: bytes, addr: int, end: int | None = None, *, memo: DecodeMemo | None = None) -> list[Insn]:
     """Linear sweep of ``code`` (mapped at ``addr``) over ``[addr, end)``.
 
     ``end`` is an absolute address (default ``addr + len(code)``). Decoding
@@ -195,9 +218,10 @@ def sweep(code: bytes, addr: int, end: int | None = None) -> list[Insn]:
     md = decoder()
     out: list[Insn] = []
     off = 0
+    decode = memo.decode if memo is not None else _from_cs
     while off < limit:
         for ci in md.disasm(code[off:], addr + off):
-            out.append(_from_cs(ci))
+            out.append(decode(ci))
             off += ci.size
             if off >= limit:
                 break
