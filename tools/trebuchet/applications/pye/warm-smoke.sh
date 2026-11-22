@@ -71,7 +71,8 @@ trap finish EXIT
     --store "$run/store" --no-progress > "$results/import.log"
 snapshots=("$run"/store/snapshots/*)
 test "${#snapshots[@]}" = 1 && test -d "${snapshots[0]}"
+# Each probe uses a fresh deployment of the imported snapshot.
+"${runner[@]}" profile "${args[@]}" --snapshot "${snapshots[0]}" --out "$run/profile"
 "${runner[@]}" warm "${args[@]}" --snapshot "${snapshots[0]}" --out "$run/warm"
 cp "$run/warm/run.json" "$results/ordinary-warm.json"
 cp "$run/warm/run-peer/result.json" "$results/ordinary-warm-application.json"
-"${runner[@]}" profile "${args[@]}" --snapshot "${snapshots[0]}" --out "$run/profile"

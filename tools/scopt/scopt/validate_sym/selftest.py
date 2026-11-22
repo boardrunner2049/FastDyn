@@ -51,6 +51,9 @@ def forms() -> list[bytes]:
           "test": 0x85, "mov": 0x89}
     for opc in rr.values():
         out += [f"{opc:02x}c8", f"48{opc:02x}c8", f"66{opc:02x}c8", f"{opc - 1:02x}c8"]
+    # Read/write bits 8..15 alongside their low-byte aliases, checking
+    # untouched bits in the 64-bit destination and architectural flags.
+    out += ["0fb6c5", "88cc", "88e8", "00ec", "80fc80", "0f94c4"]
     out += ["31c0", "85c0", "29c0", "4831c0"]
     for ext in (0, 1, 4, 5, 6, 7):
         m = 0xC0 | (ext << 3)

@@ -66,12 +66,25 @@ def reg_info(name: str) -> tuple[str, int]:
 # registers
 # ---------------------------------------------------------------------------
 
+# High-byte operands can appear in concrete arithmetic and moves. Keep the
+# low-register interface used by LDST block recognition strict.
+_HIGH_BYTE = {"ah": "rax", "bh": "rbx", "ch": "rcx", "dh": "rdx"}
+
+
 def rd_reg(st: State, name: str) -> Term:
+    if name in _HIGH_BYTE:
+        return lo(1, binop("shr", 8, st.regs[_HIGH_BYTE[name]], 8))
     fam, w = reg_info(name)
     return lo(w, st.regs[fam])
 
 
 def wr_reg(st: State, name: str, v: Term) -> None:
+    if name in _HIGH_BYTE:
+        family = _HIGH_BYTE[name]
+        preserved = binop("and", 8, st.regs[family], mask(8) ^ 0xFF00)
+        high_byte = binop("shl", 8, lo(1, v), 8)
+        st.regs[family] = binop("or", 8, preserved, high_byte)
+        return
     fam, w = reg_info(name)
     if fam in ("rbp", "rsp"):
         raise Unsupported(f"write:{fam}")
