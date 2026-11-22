@@ -33,10 +33,11 @@
       "Configuration.md"
     ]
   },
-  "admitted": false,
-  "reason": "The escape1-g071 board passes vendor maintenance readback and enters motor application ADC calibration. Motor feedback and drive behavior have no board-qualified baseline.",
-  "operational_baseline": "blocked",
+  "admitted": true,
+  "reason": "Both normal binaries pass startup, servo ramp, loaded forward motion, proportional brake, reverse, stop and external KISS telemetry checks on the declared Hall-sensored bench.",
+  "operational_baseline": "qualified modeled bench; cache comparison and transformations open",
   "cache_capture": "open",
   "validated_transformed_deployment": "open",
-  "board_qualification": "observations/board.json"
+  "board_qualification": "observations/board.json",
+  "motor_qualification": "observations/motor/results.json"
 }

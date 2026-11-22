@@ -1,0 +1,206 @@
+{
+  "scope": "Qualification on modeled bench",
+  "board_build": {
+    "qemu_revision": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+    "source_sha256": "f83692f1732ec1b9275fde63f9a1a0ccd40a4901bbc41f4e265c0d6490c7add9",
+    "original_uart_sha256": "6e986336d5acb63694e8ad623297f51dc63f21c9690e4dcdffb7140e8965084a",
+    "patched_uart_sha256": "3d002caa6bab95311024ff7443ee135d849e7a737d694887557ad8b2fe997469",
+    "qemu_sha256": "28bf272b7a82b7d79a734f82ab64d43f09d992aa539e90cb7b5f611e29a09c09"
+  },
+  "cases": {
+    "release": {
+      "verdict": "PASS",
+      "checks": {
+        "all_430_command_edges_and_widths": true,
+        "regulator_and_conversions": true,
+        "no_watchdog_reset": true,
+        "neutral_before_ramp": true,
+        "forward_six_step_order": true,
+        "loaded_six_step_order": true,
+        "reverse_six_step_order": true,
+        "all_kiss_crc": true,
+        "complete_uart_dma": true,
+        "supply_and_temperature": true,
+        "forward_catalog_equilibrium": true,
+        "forward_independent_telemetry_rpm": true,
+        "loaded_catalog_equilibrium": true,
+        "loaded_independent_telemetry_rpm": true,
+        "reverse_catalog_equilibrium": true,
+        "reverse_independent_telemetry_rpm": true,
+        "load_response": true,
+        "brake_precedes_reverse": true,
+        "neutral_between_brake_and_reverse": true,
+        "completed_at_rest": true
+      },
+      "phase_events": {
+        "forward": 136,
+        "loaded": 82,
+        "reverse": 115
+      },
+      "metrics": {
+        "forward": {
+          "median_rpm": 2726.925,
+          "catalog_equilibrium_rpm": 2801.72,
+          "median_kiss_erpm": 2700.0,
+          "duty": 0.20772
+        },
+        "loaded": {
+          "median_rpm": 1415.03,
+          "catalog_equilibrium_rpm": 1438.5,
+          "median_kiss_erpm": 1400.0,
+          "duty": 0.20772
+        },
+        "reverse": {
+          "median_rpm": -1857.3,
+          "catalog_equilibrium_rpm": -1911.65,
+          "median_kiss_erpm": 1800,
+          "duty": 0.14173
+        }
+      },
+      "kiss_packets": 255,
+      "adc_scans": 8080,
+      "command": [
+        "/workspace/trebuchet-work/escape32/board-motor/qemu-system-arm",
+        "-M",
+        "escape1-g071",
+        "-kernel",
+        "/workspace/trebuchet-work/escape32/board-motor/release-qualification/application-flash.bin",
+        "-serial",
+        "null",
+        "-serial",
+        "file:/workspace/trebuchet-work/escape32/board-motor/release-qualification/kiss.bin",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-no-reboot",
+        "-icount",
+        "shift=4,align=off,sleep=off",
+        "-d",
+        "page",
+        "-D",
+        "/workspace/trebuchet-work/escape32/board-motor/release-qualification/board.trace"
+      ],
+      "input_sha256": "990dc351bb981be8e16abc7c55bf2ff5c6f4d3bd6c7136692f3415dce9b145ac",
+      "configuration": {
+        "damp": {
+          "offset_in_configuration": 21,
+          "from": 1,
+          "to": 0
+        },
+        "throt_mode": {
+          "offset_in_configuration": 36,
+          "from": 0,
+          "to": 2
+        },
+        "telem_mode": {
+          "offset_in_configuration": 55,
+          "from": 0,
+          "to": 1
+        }
+      },
+      "deployed_sha256": "c245f64ab2ceba9e5acd6a98995a48353d8d3dcaed19d0636cf5d3ad3f8c6696",
+      "executable_flash_sha256": "ef937786c0dd31fe10b110576926c085713068e76afe6650b5343ca4f8e32f89",
+      "qemu_sha256": "28bf272b7a82b7d79a734f82ab64d43f09d992aa539e90cb7b5f611e29a09c09",
+      "trace_sha256": "34ff6312695d3954369d5d10a47dfb727e25e22c6d021f53a45e793c1653745e",
+      "kiss_sha256": "25b002eba12ade2b2fa161e0400ea77d586a72f52419177e5f94f19d63d3ff51"
+    },
+    "rebuild": {
+      "verdict": "PASS",
+      "checks": {
+        "all_430_command_edges_and_widths": true,
+        "regulator_and_conversions": true,
+        "no_watchdog_reset": true,
+        "neutral_before_ramp": true,
+        "forward_six_step_order": true,
+        "loaded_six_step_order": true,
+        "reverse_six_step_order": true,
+        "all_kiss_crc": true,
+        "complete_uart_dma": true,
+        "supply_and_temperature": true,
+        "forward_catalog_equilibrium": true,
+        "forward_independent_telemetry_rpm": true,
+        "loaded_catalog_equilibrium": true,
+        "loaded_independent_telemetry_rpm": true,
+        "reverse_catalog_equilibrium": true,
+        "reverse_independent_telemetry_rpm": true,
+        "load_response": true,
+        "brake_precedes_reverse": true,
+        "neutral_between_brake_and_reverse": true,
+        "completed_at_rest": true
+      },
+      "phase_events": {
+        "forward": 136,
+        "loaded": 82,
+        "reverse": 115
+      },
+      "metrics": {
+        "forward": {
+          "median_rpm": 2726.795,
+          "catalog_equilibrium_rpm": 2801.72,
+          "median_kiss_erpm": 2700.0,
+          "duty": 0.20772
+        },
+        "loaded": {
+          "median_rpm": 1414.81,
+          "catalog_equilibrium_rpm": 1438.5,
+          "median_kiss_erpm": 1400.0,
+          "duty": 0.20772
+        },
+        "reverse": {
+          "median_rpm": -1857.3,
+          "catalog_equilibrium_rpm": -1911.65,
+          "median_kiss_erpm": 1800,
+          "duty": 0.14173
+        }
+      },
+      "kiss_packets": 255,
+      "adc_scans": 8080,
+      "command": [
+        "/workspace/trebuchet-work/escape32/board-motor/qemu-system-arm",
+        "-M",
+        "escape1-g071",
+        "-kernel",
+        "/workspace/trebuchet-work/escape32/board-motor/rebuild-qualification/application-flash.bin",
+        "-serial",
+        "null",
+        "-serial",
+        "file:/workspace/trebuchet-work/escape32/board-motor/rebuild-qualification/kiss.bin",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-no-reboot",
+        "-icount",
+        "shift=4,align=off,sleep=off",
+        "-d",
+        "page",
+        "-D",
+        "/workspace/trebuchet-work/escape32/board-motor/rebuild-qualification/board.trace"
+      ],
+      "input_sha256": "275a1b041ea74d536958c1211c3ac99822aca38fd4de1a350b914aa09b72e2eb",
+      "configuration": {
+        "damp": {
+          "offset_in_configuration": 21,
+          "from": 1,
+          "to": 0
+        },
+        "throt_mode": {
+          "offset_in_configuration": 36,
+          "from": 0,
+          "to": 2
+        },
+        "telem_mode": {
+          "offset_in_configuration": 55,
+          "from": 0,
+          "to": 1
+        }
+      },
+      "deployed_sha256": "9f044f4d289e25dd4e871d76908c37cbca7f899d68f3ab223c96f1b55c3444b5",
+      "executable_flash_sha256": "bc6ad32b5de561176f692c8896b7a3272dd36dadd38f45d03409e44f20bc63de",
+      "qemu_sha256": "28bf272b7a82b7d79a734f82ab64d43f09d992aa539e90cb7b5f611e29a09c09",
+      "trace_sha256": "767fb09c17f3d48c763ba3a177a8bd5518b78b76b26b14bf42d919546f624fe0",
+      "kiss_sha256": "25b002eba12ade2b2fa161e0400ea77d586a72f52419177e5f94f19d63d3ff51"
+    }
+  }
+}
