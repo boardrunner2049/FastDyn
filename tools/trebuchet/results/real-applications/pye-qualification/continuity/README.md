@@ -12,6 +12,10 @@ The deployable packager reopens its input store strictly, checks the guest ELF, 
 
 The independent full-body harness executes the actual public and linked private 160-byte instruction streams. It first checks the complete reviewed instruction encoding, all three private return addresses and the reset jump encodings. All 125 comparisons per image agreed on the full CPU-state buffer, modified host registers, flags and normalized TB return index, covering both normal successors and the initial icount bailout. Independent public entry also passed with a stale incoming register. This proof exercises the two compiled TBs independently of the emulator’s dispatch decisions. [Original linked-body checks](original-linked-body.json) · [FirmBOLT linked-body checks](firmbolt-linked-body.json)
 
+The hosted training run activated both public TBs, installed one private link and completed the queued editor oracle. The emulator recorded 12 exits from the private TB, including 10 icount bailouts before the optimized instruction. The other two exits prove **at least two executed CPU-state reads were removed**. A successful outgoing native chain can bypass this counter. The run recorded zero TLB disarms and zero invariant checks. Its 12 scored blocks gave a median paired speedup of 1.00166× with a bootstrap interval of 0.89351–1.18089×, leaving the runtime effect unresolved.
+
+Independent replay of the hosted ordinary input, exact profile and release ELF produced the identical deployed cache SHA-256 `2c3126668f191c73abf81d8279908b7b2b2cc04b4d36383380729c51edcafbf9`. Both input endpoints retained their original region identities, the derived SCM re-import reconstructed the single private body, both deployment manifests verified and the actual deployed clone passed 125 native comparisons. [Hosted replay evidence](hosted-replay.json)
+
 Run from the FastDyn root with the exported training campaign:
 
 ```sh

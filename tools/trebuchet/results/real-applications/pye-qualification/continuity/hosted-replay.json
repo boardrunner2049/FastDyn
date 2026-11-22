@@ -1,0 +1,86 @@
+{
+  "hosted_run": 44995135735,
+  "cache_sha256": "2c3126668f191c73abf81d8279908b7b2b2cc04b4d36383380729c51edcafbf9",
+  "ext_artifact_id8": "0f0112ec2745db38",
+  "private_capture_reimport": {
+    "general_unit": "tb:20f98f2677e3aad2e4f66e4fe5480c19#0",
+    "ok": true,
+    "patches": 1,
+    "pred_unit": "tb:df6512343d9711338d8f856587c3bed1#0",
+    "problems": [],
+    "slot_n": 0,
+    "tb_offset": "0x1ce500",
+    "variant_index": 0,
+    "variant_key": "sha256:fdb05ebc9bb8a3266a18a43364cd56b6d4cd74b9da5d8ef5c34d72b1b3f2a811"
+  },
+  "native_body_execution": {
+    "trials": 125,
+    "TB_exit_indices": [
+      0,
+      1,
+      3
+    ],
+    "public_tb_offset": 249728,
+    "private_tb_offset": 1893632,
+    "resolved_return_prologue_offset": 24,
+    "normalized_public_code_sha256": "e6ee092aef29c6828535735648d64ed0fef31048c44f131697d6d68b8d4f19e5"
+  },
+  "snapshot": "sha256:a0d5fbebfac6fe50aff8add3c2824698768eeb412d80535c9a04ffa5c4d735e2",
+  "profile": "sha256:8fe12c1506c951807d6f20f9e077337723b44d52a4d1169b4b4a37ac04ae5613",
+  "public_record_count": 3530,
+  "observed_training_edge_exits": 279568,
+  "runtime_stats": {
+    "schema": "qemu-sc-v6-stats@1",
+    "loaded": true,
+    "file_version": 6,
+    "feature_flags": 7,
+    "artifact_id8": "0f0112ec2745db38",
+    "n_variants": 1,
+    "n_slots": 1,
+    "n_links": 1,
+    "ext_load_ns": 203000,
+    "activations": 2,
+    "links_armed": 1,
+    "refused": {
+      "forbidden": 0,
+      "profile_mode": 0,
+      "one_insn_per_tb": 0,
+      "nochain": 0,
+      "singlestep": 0,
+      "breakpoints": 0,
+      "watchpoints": 0,
+      "member_invalid": 0,
+      "two_page_target": 0,
+      "mmu_idx": 0,
+      "probe_no_host": 0,
+      "probe_page_size": 0,
+      "probe_mismatch": 0,
+      "slot_busy": 0
+    },
+    "variants_built": 1,
+    "tlb_hook_calls": 45,
+    "disarm_tlb_events": 0,
+    "disarm_tlb_links": 0,
+    "flush_resets": 0,
+    "disarm_flush_links": 0,
+    "forbid_requests": 0,
+    "disarm_forbid_events": 0,
+    "disarm_forbid_links": 0,
+    "slots_unlinked": 0,
+    "variant_slots_unlinked": 0,
+    "variant_exits": 12,
+    "variant_entry_exits": 10,
+    "variant_restores": 0,
+    "invariant_checks": 0,
+    "invariant_violations": 0,
+    "links": [
+      {
+        "armed": true,
+        "disarmed_epoch": false
+      }
+    ],
+    "tlb_disarm_budget_used": 0,
+    "forbidden": false,
+    "forbid_reason": "none"
+  }
+}
