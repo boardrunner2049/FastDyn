@@ -1,0 +1,10 @@
+{
+  "id": "pye-queued-uart-v1",
+  "objective": {"name":"operational_latency_ns","unit":"ns","direction":"minimize","useful_work":"one complete serial editor job with the declared returned document","boundaries":"host sends UART release byte and prequeued terminal macro through receipt of editor return marker"},
+  "board": "mps2-an385",
+  "icount": {"shift": 0, "align": false, "sleep": false},
+  "terminal": {"rows":24,"columns":80,"transport":"CMSDK UART, ordered Unix byte stream","scheduled_input":"after guest readiness send one release byte, VT100 cursor position answer, recorded editing keys, Ctrl-Q and affirmative quit confirmation in one write"},
+  "validation": ["editor begin and end", "terminal size request", "screen initialization and cursor teardown", "expected dialog", "quit confirmation", "complete UTF-8 output", "normal guest exit"],
+  "excludes_from_interval":["interpreter startup","ROM filesystem mounting","input document staging","full-buffer oracle transfer","reset"],
+  "comparison":"all arms use this protocol; earlier host-reactive qualification receipts are separate"
+}

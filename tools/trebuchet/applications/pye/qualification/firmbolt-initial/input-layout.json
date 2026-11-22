@@ -1,0 +1,15 @@
+{
+  "input_loads": [
+    {
+      "physical": 0,
+      "virtual": 0,
+      "file_size": 198132,
+      "memory_size": 342292
+    }
+  ],
+  "trampoline_and_code_region": [
+    524288,
+    2097152
+  ],
+  "stack_top": 4194304
+}

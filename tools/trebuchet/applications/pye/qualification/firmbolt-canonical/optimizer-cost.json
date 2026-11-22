@@ -1,0 +1,9 @@
+{
+  "wall_seconds": 0.131,
+  "user_seconds": 0.096,
+  "system_seconds": 0.035,
+  "scope": "Fresh local Python FirmBOLT frontend and llvm-bolt rewrite, excludes prebuilt host toolchain, profile acquisition and application validation",
+  "same_load_segments_as_canonical": true,
+  "rebuilt_elf_sha256": "d14bb235def8e8fa57fa8f4caf6debd526c02ffa2b3f4190b7738ec2d8c05e89",
+  "attempts": 1
+}

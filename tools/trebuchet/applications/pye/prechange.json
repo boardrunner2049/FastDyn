@@ -1,0 +1,21 @@
+{
+  "rotate-lcd-display": {
+    "role": "pre-change-ranking",
+    "file": "pye_lcd.py",
+    "sha256": "0094d20da625c6d2bbd6dbc5348575bc27fae47e3166b7d58c4bbbf3748502bf",
+    "job": "Configure the ST7789 display for a 90-degree mounted orientation",
+    "before": "rotation=0,",
+    "after": "rotation=90,",
+    "operation": "replace"
+  },
+  "clarify-unix-platforms": {
+    "role": "pre-change-confirmation",
+    "file": "pye_ux.py",
+    "sha256": "0b441eec4f4daf5c09e4ae87bee6ff434d8386c6688d80da6ef043074f5af1c5",
+    "job": "Document that the Unix terminal backend supports macOS as well as Linux",
+    "before": "# Front-end for Linux\n",
+    "after": "# Front-end for Linux and macOS\n",
+    "operation": "append-line",
+    "line": 2
+  }
+}

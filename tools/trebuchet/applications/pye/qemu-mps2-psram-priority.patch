@@ -1,0 +1,15 @@
+--- a/hw/arm/mps2.c
++++ b/hw/arm/mps2.c
+@@ -199,7 +199,11 @@
+         make_ram_alias(&mms->blockram_m3, "mps.blockram_m3",
+                        &mms->blockram, 0x0100c000);
+ 
+-		make_ram(&mms->fakeram, "fakeram", 0x20800000, 0x1E800000);
++        /* Fill unmapped addresses, keeping the board's native PSRAM visible. */
++        memory_region_init_ram(&mms->fakeram, NULL, "fakeram", 0x1e800000,
++                               &error_fatal);
++        memory_region_add_subregion_overlap(system_memory, 0x20800000,
++                                            &mms->fakeram, -1);
+     }
+ 
+     switch (mmc->fpga_type) {

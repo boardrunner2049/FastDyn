@@ -1,0 +1,27 @@
+insns 5.70M  TBs 1.80M  transitions: chainable 1.58M  indirect 0.11M  cross-page-direct 0.11M  => lookups 0.21M (12% of TBs)
+top functions by instructions:
+      2.46M  43.1%  tbs   0.88M  qstr_find_strn
+      0.38M   6.6%  tbs   0.10M  mp_map_lookup
+      0.33M   5.9%  tbs   0.09M  gc_info
+      0.25M   4.4%  tbs   0.06M  mp_execute_bytecode
+      0.22M   3.9%  tbs   0.10M  memset
+      0.20M   3.5%  tbs   0.05M  mp_parse
+      0.18M   3.2%  tbs   0.04M  gc_alloc
+      0.18M   3.1%  tbs   0.08M  strncmp
+      0.11M   2.0%  tbs   0.02M  uart_rx_chr
+      0.08M   1.4%  tbs   0.02M  qstr_compute_hash
+      0.07M   1.2%  tbs   0.01M  push_rule
+      0.07M   1.2%  tbs   0.01M  gc_mark_subtree
+top non-chainable function edges:
+      0.02M X mp_execute_bytecode -> mp_execute_bytecode
+      0.01M X mp_map_lookup -> mp_map_lookup
+      0.01M X qstr_find_strn -> strncmp
+      0.01M I strncmp -> qstr_find_strn
+      0.01M I uart_rx_chr -> uart_rx_chr
+      0.01M I uart_rx_chr -> mp_hal_stdin_rx_chr
+      0.01M I mp_execute_bytecode -> mp_execute_bytecode
+      0.00M X gc_alloc -> gc_alloc
+      0.00M I push_rule -> mp_parse
+      0.00M X mp_parse -> mp_parse
+      0.00M X mp_parse -> push_rule_from_arg
+      0.00M I find_qstr -> qstr_hash

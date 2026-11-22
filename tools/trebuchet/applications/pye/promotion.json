@@ -1,0 +1,11 @@
+{
+  "repair-packaging-shebang": {
+    "role": "promotion",
+    "file": "strip.sh",
+    "sha256": "fd3dddd5bfe66e18256a1a6aa60c34519c9a3c52ccb1d7657af8e627ed4d2ebb",
+    "job": "Give the editor packaging script a valid POSIX shell shebang",
+    "before": "# !sh\n",
+    "after": "#!/bin/sh\n",
+    "operation": "cut-and-type-first-line"
+  }
+}

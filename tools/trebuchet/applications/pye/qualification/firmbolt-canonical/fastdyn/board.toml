@@ -1,0 +1,29 @@
+[Machine]
+platform = "mps2-an385"
+qemu_path = "/workspace/trebuchet-work/pye/runner-build/qemu-system-arm"
+icount = {shift = 0, sleep = false, align = false}
+display = "none"
+serial = "unix:/tmp/trebuchet-pye-final.sock"
+monitor = "none"
+semihosting = true
+qmp_socket = "/tmp/trebuchet-pye-final-qmp.sock"
+log_options = "none"
+coverage = false
+[Memory.main]
+id = "psram"
+base_address = "0x21000000"
+memory_size = "16M"
+memory_type = "SRAM"
+backend = "file"
+memory_file = "/workspace/trebuchet-work/pye/queued-optimized-final/fastdyn-cold/psram.bin"
+share = false
+prealloc = false
+[Device.Models]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "mps2-an385"
+cpu = "cortex-m3"
+binary = "/workspace/trebuchet-work/pye/queued-optimized-final/firmware.elf"
+plugin_library = "/workspace/trebuchet-work/pye/runner-build/plugin/libfastdyn.so"
+[CPU.cpu0.plugins.introspection]
+enabled = false

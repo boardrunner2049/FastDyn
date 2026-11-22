@@ -1,0 +1,54 @@
+{
+  "family": "Micropython-Editor",
+  "upstream": "https://github.com/robert-hh/Micropython-Editor",
+  "revision": "b64e20050416cd8770ca2cd6d1ffe736637da224",
+  "application": "Pye v2.80, upstream distributed pye.mpy",
+  "application_sha256": "6caf3d2e0d5727da74360fdb011ff45887c8b2b4846967b0856c10e3eba54e1f",
+  "runtime": "MicroPython v1.27.0; ports/qemu; default MPS2_AN385; -Os -DNDEBUG",
+  "runtime_upstream": "https://github.com/micropython/micropython",
+  "runtime_revision": "78ff170de9e32c79db6e64d3e33d2bd60002bdcd",
+  "machine": "mps2-an385",
+  "cpu": "cortex-m3",
+  "input_boundary": "24x80 VT100 peer, emulated CMSDK APB UART, ROMFS in MPS2 PSRAM at 0x21000000, documented list editing interface",
+  "metric": "host elapsed time from receipt of editor entry marker through receipt of editor return marker, including initial redraw, UART input and application output",
+  "oracle": "entire returned UTF-8 document, expected displayed edit prompts, terminal entry and exit, semihosting exit status",
+  "cases": {
+    "update-package-version": {
+      "role": "training",
+      "file": "package.json",
+      "sha256": "ef3df11c18d8d937dad3cc56f9f43904168d91b8e4cd7f8a7e40a3b8fa90f512",
+      "job": "Synchronize the package version with the editor's displayed version",
+      "before": "2.78",
+      "after": "2.80",
+      "operation": "replace"
+    },
+    "fix-display-setup-instructions": {
+      "role": "ranking",
+      "file": "lcd_io.md",
+      "sha256": "87cc1d6dd3b4c6ad251bdd43548ce42d755e1644e91924f0332e7dd3fec4c438",
+      "job": "Fix the verb agreement in the LCD wiring instructions",
+      "before": "sections describes",
+      "after": "sections describe",
+      "operation": "find-delete-last-letter"
+    },
+    "annotate-teensy-import": {
+      "role": "confirmation",
+      "file": "peteensy.py",
+      "sha256": "216a194cd8e95a6a4fb5e2690bdd453588507240c684809bb86a278c70c4bba2",
+      "job": "Document the serial stream dependency on the Teensy import line",
+      "before": "import sys\n",
+      "after": "import sys  # Standard serial console streams\n",
+      "operation": "append-line",
+      "line": 4
+    },
+    "proofread-editor-manual": {
+      "role": "final",
+      "file": "README.md",
+      "sha256": "df805fc9c5fa1a14c8bed287eb92ffbcda6f3c889ef9c56f2123936bea2d4b67",
+      "job": "Correct the duplicated verb in the user manual",
+      "before": "allows allows",
+      "after": "allows",
+      "operation": "replace"
+    }
+  }
+}

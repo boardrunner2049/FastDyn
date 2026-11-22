@@ -1,0 +1,25 @@
+fastdyn.runner|INFO|  Creating output directory at path: /workspace/trebuchet-work/pye/fastdyn-cold-demo/out-fixed
+fastdyn.runner|INFO|  FastDyn timing log: /workspace/trebuchet-work/pye/fastdyn-cold-demo/out-fixed/fastdyn_timing.jsonl
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.fmu_auto_build 0.024s ok
+fastdyn.timing|INFO|  [timing] fastdyn:helpers.load_config 0.000s ok
+fastdyn.toml_parser|INFO|  Parsing Config file: /workspace/trebuchet-work/pye/fastdyn-cold-demo/fixed.toml
+fastdyn.fastdyn|INFO|  Parsing the passed path for the CMSIS SVD
+fastdyn.fastdyn|WARNING|  Could not resolve CMSIS SVD for platform 'mps2-an385': No SVD files discovered from: /workspace/FastDyn/third_party/common/cmsis-svd-data
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.parse_config 0.001s ok
+fastdyn.timing|INFO|  [timing] fastdyn:machine0.compile_device_routing 0.000s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.write_device_config 0.000s ok
+fastdyn.targets.qemu_target|INFO|  QEMU executable: /workspace/trebuchet-work/pye/runner-build/qemu-system-arm (from [Machine].qemu_path)
+fastdyn.targets.qemu_target|INFO|  Virtual Instructions available at /workspace/trebuchet-work/pye/fastdyn-cold-demo/out-fixed/virtuals/virtuals.txt
+fastdyn.targets.qemu_target|INFO|  Modifier Instructions available at /workspace/trebuchet-work/pye/fastdyn-cold-demo/out-fixed/virtuals/modifiers.txt
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.build_command 0.005s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.setup 0.006s ok
+fastdyn.timing|INFO|  [timing] fastdyn:machine0.qemu_setup 0.006s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.build_env 0.000s ok
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.popen 0.007s ok
+fastdyn.targets.qemu_target|INFO|  Letting QEMU run.
+fastdyn.core|INFO|  FastDyn Exit.
+fastdyn.targets.qemu_target|INFO|  QEMU exited with code 0
+fastdyn.timing|INFO|  [timing] fastdyn:qemu.wait 0.260s ok
+fastdyn.timing|INFO|  [timing] fastdyn:machine0.qemu_execution 0.268s ok
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.machine0.run 0.275s ok
+fastdyn.timing|INFO|  [timing] fastdyn:fastdyn.run.total 0.301s ok

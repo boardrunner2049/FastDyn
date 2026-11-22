@@ -1,0 +1,8 @@
+MicroPython v1.27.0 on 2025-12-09; mps2-an385 with Cortex-M3
+Type "help()" for more information.
+>>> 
+raw REPL; CTRL-B to exit
+>OK__PYE_EDIT_BEGIN__
+[?25l[999;999H[6n[1;23r[?9h[?25l[1;1H{[0K[2;1H  "urls": [[0K[3;1H    ["pye.mpy", "github:robert-hh/Micropython-Editor/pye.mpy"],[0K[4;1H    ["pye.py", "github:robert-hh/Micropython-Editor/pye.py"][0K[5;1H  ],[0K[6;1H  "version": "2.78"[0K[7;1H}[0K[8;1H[0K[9;1H[0K[10;1H[0K[11;1H[0K[12;1H[0K[13;1H[0K[14;1H[0K[15;1H[0K[16;1H[0K[17;1H[0K[18;1H[0K[19;1H[0K[20;1H[0K[21;1H[0K[22;1H[0K[23;1H[0K[24;1H[1;37;44m* Row: 1/8 Col: 1   V2.80 130240 Bytes Memory available[0K[0m[1;1H[?25h[24;1H[1;37;44mReplace: [0K2.78[0m[24;1H[1;37;44mWith: 2.78[0K    2.80[0m[?25l[24;1H[1;37;44m* Row: 6/8 Col: 15  Replace (yes/No/all/quit) ? [0K[0m[6;15H[?25h[?25l[6;1H  "version": "2.80"[0K[24;1H[1;37;44m* Row: 1/8 Col: 1  '2.78' replaced 1 times[0K[0m[1;1H[?25h[24;1H[1;37;44mFile changed! Quit (y/N/f)? N[0K y[0m[r[?9l[24;1H[0K__PYE_EDIT_END__
+['{', '  "urls": [', '    ["pye.mpy", "github:robert-hh/Micropython-Editor/pye.mpy"],', '    ["pye.py", "github:robert-hh/Micropython-Editor/pye.py"]', '  ],', '  "version": "2.80"', '}', '']
+__PYE_BUFFER_END__

@@ -1,0 +1,49 @@
+{
+  "prior_elf": "caab33a72ffc62ce66712d653ab31f13b3b920ad9640cd05caa23a568aee28eb",
+  "final_elf": "d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+  "identical": true,
+  "columns": [
+    "vaddr",
+    "paddr",
+    "memory_bytes",
+    "file_bytes",
+    "flags",
+    "segment_bytes_sha256"
+  ],
+  "prior": [
+    [
+      0,
+      0,
+      342292,
+      198132,
+      7,
+      "5295d62d1eb31ac36e32640c367af32e1aee6dca80ccc993383b63f9e0ec8795"
+    ],
+    [
+      524288,
+      524288,
+      198184,
+      198184,
+      5,
+      "c3fb5ff1bc34b54f8d2b6e07a2f22dfd5bd468c4c92a35614e9a149dbcb2a57a"
+    ]
+  ],
+  "final": [
+    [
+      0,
+      0,
+      342292,
+      198132,
+      7,
+      "5295d62d1eb31ac36e32640c367af32e1aee6dca80ccc993383b63f9e0ec8795"
+    ],
+    [
+      524288,
+      524288,
+      198184,
+      198184,
+      5,
+      "c3fb5ff1bc34b54f8d2b6e07a2f22dfd5bd468c4c92a35614e9a149dbcb2a57a"
+    ]
+  ]
+}

@@ -1,0 +1,737 @@
+{
+  "disassembler": "GNU objdump (GNU Tools for Arm Embedded Processors 7-2017-q4-major) 2.29.51.20171128",
+  "images": {
+    "ardupilot": {
+      "allocated_target_relocations": {},
+      "counts": {
+        "adjacent_adr_indexed_pc_load": 58,
+        "indexed_pc_load": 58,
+        "tbb": 295,
+        "tbh": 54,
+        "thumb1_case_helper_call": 0
+      },
+      "entry": "0x8005301",
+      "examples": {
+        "adjacent_adr_indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r0, r2, lsl #2]",
+            "pc": "0x80087f4",
+            "symbol": "_strtod_l"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x801442e",
+            "symbol": "_ZN18GCS_MAVLINK_Copter15send_pid_tuningEv"
+          },
+          {
+            "instruction": "ldr.w pc, [r4, r3, lsl #2]",
+            "pc": "0x8016a50",
+            "symbol": "_ZN17RC_Channel_Copter17init_aux_functionEN10RC_Channel8AUX_FUNCENS0_12AuxSwitchPosE"
+          }
+        ],
+        "indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r0, r2, lsl #2]",
+            "pc": "0x80087f4",
+            "symbol": "_strtod_l"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x801442e",
+            "symbol": "_ZN18GCS_MAVLINK_Copter15send_pid_tuningEv"
+          },
+          {
+            "instruction": "ldr.w pc, [r4, r3, lsl #2]",
+            "pc": "0x8016a50",
+            "symbol": "_ZN17RC_Channel_Copter17init_aux_functionEN10RC_Channel8AUX_FUNCENS0_12AuxSwitchPosE"
+          }
+        ],
+        "tbb": [
+          {
+            "instruction": "tbb [pc, r5]",
+            "pc": "0x80093e6",
+            "symbol": "_strtod_l"
+          },
+          {
+            "instruction": "tbb [pc, r1]",
+            "pc": "0x800f278",
+            "symbol": "_Unwind_VRS_Get"
+          },
+          {
+            "instruction": "tbb [pc, r1]",
+            "pc": "0x800f2c8",
+            "symbol": "_Unwind_VRS_Set"
+          }
+        ],
+        "tbh": [
+          {
+            "instruction": "tbh [pc, r3, lsl #1]",
+            "pc": "0x800af3e",
+            "symbol": "_dtoa_r"
+          },
+          {
+            "instruction": "tbh [pc, r3, lsl #1]",
+            "pc": "0x800c904",
+            "symbol": "_printf_i"
+          },
+          {
+            "instruction": "tbh [pc, r1, lsl #1]",
+            "pc": "0x800f654",
+            "symbol": "_Unwind_VRS_Pop"
+          }
+        ]
+      },
+      "executable_sections": [
+        {
+          "address": "0x8004000",
+          "name": "startup",
+          "sha256": "2660fa869a587b0891d8350e3755e1e6c87b7f0a0f053268b5690e21fffa5bd9",
+          "size": 480
+        },
+        {
+          "address": "0x8004280",
+          "name": ".text",
+          "sha256": "54728bf22b5c9862a03c3bc6b3a629667d4faea464f9505823037f149e857cff",
+          "size": 1794476
+        }
+      ],
+      "sha256": "3fc6ee14e94f5f8b4133b06747145a8e40c7755940b9f87fdab1ad4323c0aa8c"
+    },
+    "escape32": {
+      "allocated_target_relocations": {},
+      "counts": {
+        "adjacent_adr_indexed_pc_load": 0,
+        "indexed_pc_load": 0,
+        "tbb": 0,
+        "tbh": 0,
+        "thumb1_case_helper_call": 16
+      },
+      "entry": "0x8009295",
+      "examples": {
+        "thumb1_case_helper_call": [
+          {
+            "instruction": "bl 8008f68 <__gnu_thumb1_case_uqi>",
+            "pc": "0x800217c",
+            "symbol": "sbusirq2"
+          },
+          {
+            "instruction": "bl 8008f68 <__gnu_thumb1_case_uqi>",
+            "pc": "0x80024d2",
+            "symbol": "entryirq"
+          },
+          {
+            "instruction": "bl 8008f68 <__gnu_thumb1_case_uqi>",
+            "pc": "0x8002eb8",
+            "symbol": "serialfunc"
+          }
+        ]
+      },
+      "executable_sections": [
+        {
+          "address": "0x8001800",
+          "name": ".text",
+          "sha256": "03a3437c3fb330f530c6310f00da924e4ab55f8e34b2de94644be00da9e6aefa",
+          "size": 35124
+        }
+      ],
+      "sha256": "194c78776fdbdd9f9232f6014d4f84a09ff316c4d09716d56134ae1fdb1b2138"
+    },
+    "escape32-metadata": {
+      "allocated_target_relocations": {
+        ".data": 6,
+        ".text": 1885
+      },
+      "counts": {
+        "adjacent_adr_indexed_pc_load": 0,
+        "indexed_pc_load": 0,
+        "tbb": 0,
+        "tbh": 0,
+        "thumb1_case_helper_call": 16
+      },
+      "entry": "0x8009295",
+      "examples": {
+        "thumb1_case_helper_call": [
+          {
+            "instruction": "bl 8008f68 <__gnu_thumb1_case_uqi>",
+            "pc": "0x800217c",
+            "symbol": "sbusirq2"
+          },
+          {
+            "instruction": "bl 8008f68 <__gnu_thumb1_case_uqi>",
+            "pc": "0x80024d2",
+            "symbol": "entryirq"
+          },
+          {
+            "instruction": "bl 8008f68 <__gnu_thumb1_case_uqi>",
+            "pc": "0x8002eb8",
+            "symbol": "serialfunc"
+          }
+        ]
+      },
+      "executable_sections": [
+        {
+          "address": "0x8001800",
+          "name": ".text",
+          "sha256": "03a3437c3fb330f530c6310f00da924e4ab55f8e34b2de94644be00da9e6aefa",
+          "size": 35124
+        }
+      ],
+      "sha256": "3aa65e553ef86a34767bc6595c94f319fda99421d695deae30844c35cdb1cf4b"
+    },
+    "grblhal": {
+      "allocated_target_relocations": {},
+      "counts": {
+        "adjacent_adr_indexed_pc_load": 7,
+        "indexed_pc_load": 7,
+        "tbb": 20,
+        "tbh": 10,
+        "thumb1_case_helper_call": 0
+      },
+      "entry": "0x802cd35",
+      "examples": {
+        "adjacent_adr_indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x80157ca",
+            "symbol": "get_datetime"
+          },
+          {
+            "instruction": "ldr.w pc, [r3, r6, lsl #2]",
+            "pc": "0x80157e6",
+            "symbol": "get_datetime"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x801580c",
+            "symbol": "get_datetime"
+          }
+        ],
+        "indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x80157ca",
+            "symbol": "get_datetime"
+          },
+          {
+            "instruction": "ldr.w pc, [r3, r6, lsl #2]",
+            "pc": "0x80157e6",
+            "symbol": "get_datetime"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x801580c",
+            "symbol": "get_datetime"
+          }
+        ],
+        "tbb": [
+          {
+            "instruction": "tbb [pc, r3]",
+            "pc": "0x800a920",
+            "symbol": "tool_offset_apply"
+          },
+          {
+            "instruction": "tbb [pc, r1]",
+            "pc": "0x800e53c",
+            "symbol": "gc_execute_block"
+          },
+          {
+            "instruction": "tbb [pc, r3]",
+            "pc": "0x8010fce",
+            "symbol": "is_setting_available"
+          }
+        ],
+        "tbh": [
+          {
+            "instruction": "tbh [pc, r7, lsl #1]",
+            "pc": "0x800b8b4",
+            "symbol": "gc_execute_block"
+          },
+          {
+            "instruction": "tbh [pc, r5, lsl #1]",
+            "pc": "0x800b956",
+            "symbol": "gc_execute_block"
+          },
+          {
+            "instruction": "tbh [pc, r3, lsl #1]",
+            "pc": "0x800ca3c",
+            "symbol": "gc_execute_block"
+          }
+        ]
+      },
+      "executable_sections": [
+        {
+          "address": "0x80071e8",
+          "name": ".text",
+          "sha256": "9c66f75cb9af423ffc093a3e87975e2cb935a7b0d735500f749fd5a50e03fb1b",
+          "size": 154544
+        }
+      ],
+      "sha256": "1f1b8695535f92455f2a52b8282e911ac52a9296755dc7789b7a0c02430139b5"
+    },
+    "grblhal-metadata": {
+      "allocated_target_relocations": {
+        ".data": 56,
+        ".fini_array": 1,
+        ".init_array": 1,
+        ".isr_vector": 71,
+        ".rodata": 1363,
+        ".text": 6556
+      },
+      "counts": {
+        "adjacent_adr_indexed_pc_load": 7,
+        "indexed_pc_load": 7,
+        "tbb": 20,
+        "tbh": 10,
+        "thumb1_case_helper_call": 0
+      },
+      "entry": "0x802cd35",
+      "examples": {
+        "adjacent_adr_indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x80157ca",
+            "symbol": "get_datetime"
+          },
+          {
+            "instruction": "ldr.w pc, [r3, r6, lsl #2]",
+            "pc": "0x80157e6",
+            "symbol": "get_datetime"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x801580c",
+            "symbol": "get_datetime"
+          }
+        ],
+        "indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x80157ca",
+            "symbol": "get_datetime"
+          },
+          {
+            "instruction": "ldr.w pc, [r3, r6, lsl #2]",
+            "pc": "0x80157e6",
+            "symbol": "get_datetime"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x801580c",
+            "symbol": "get_datetime"
+          }
+        ],
+        "tbb": [
+          {
+            "instruction": "tbb [pc, r3]",
+            "pc": "0x800a920",
+            "symbol": "tool_offset_apply"
+          },
+          {
+            "instruction": "tbb [pc, r1]",
+            "pc": "0x800e53c",
+            "symbol": "gc_execute_block"
+          },
+          {
+            "instruction": "tbb [pc, r3]",
+            "pc": "0x8010fce",
+            "symbol": "is_setting_available"
+          }
+        ],
+        "tbh": [
+          {
+            "instruction": "tbh [pc, r7, lsl #1]",
+            "pc": "0x800b8b4",
+            "symbol": "gc_execute_block"
+          },
+          {
+            "instruction": "tbh [pc, r5, lsl #1]",
+            "pc": "0x800b956",
+            "symbol": "gc_execute_block"
+          },
+          {
+            "instruction": "tbh [pc, r3, lsl #1]",
+            "pc": "0x800ca3c",
+            "symbol": "gc_execute_block"
+          }
+        ]
+      },
+      "executable_sections": [
+        {
+          "address": "0x80071e8",
+          "name": ".text",
+          "sha256": "9c66f75cb9af423ffc093a3e87975e2cb935a7b0d735500f749fd5a50e03fb1b",
+          "size": 154544
+        }
+      ],
+      "sha256": "04d1c159ac1e588fc3174c9a0091d9fdec851bc2a6538b1044d4a7cf270d6b9a"
+    },
+    "px4": {
+      "allocated_target_relocations": {},
+      "counts": {
+        "adjacent_adr_indexed_pc_load": 26,
+        "indexed_pc_load": 26,
+        "tbb": 171,
+        "tbh": 26,
+        "thumb1_case_helper_call": 0
+      },
+      "entry": "0x8020000",
+      "examples": {
+        "adjacent_adr_indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [ip, r7, lsl #2]",
+            "pc": "0x802c05e",
+            "symbol": "stm32_ep0out_setup"
+          },
+          {
+            "instruction": "ldr.w pc, [r4, r2, lsl #2]",
+            "pc": "0x802e188",
+            "symbol": "lib_mode2oflags"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x808a964",
+            "symbol": "_ZN9Commander20executeActionRequestERK16action_request_s"
+          }
+        ],
+        "indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [ip, r7, lsl #2]",
+            "pc": "0x802c05e",
+            "symbol": "stm32_ep0out_setup"
+          },
+          {
+            "instruction": "ldr.w pc, [r4, r2, lsl #2]",
+            "pc": "0x802e188",
+            "symbol": "lib_mode2oflags"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r3, lsl #2]",
+            "pc": "0x808a964",
+            "symbol": "_ZN9Commander20executeActionRequestERK16action_request_s"
+          }
+        ],
+        "tbb": [
+          {
+            "instruction": "tbb [pc, r0]",
+            "pc": "0x8021fa0",
+            "symbol": "stm32_irqinfo"
+          },
+          {
+            "instruction": "tbb [r3, lr]",
+            "pc": "0x8022370",
+            "symbol": "_do_memcpy"
+          },
+          {
+            "instruction": "tbb [lr, fp]",
+            "pc": "0x80223c4",
+            "symbol": "MEM_DataCopy0_2"
+          }
+        ],
+        "tbh": [
+          {
+            "instruction": "tbh [pc, r3, lsl #1]",
+            "pc": "0x8036160",
+            "symbol": "proc_read"
+          },
+          {
+            "instruction": "tbh [pc, r3, lsl #1]",
+            "pc": "0x8047c34",
+            "symbol": "_ZN10septentrio16SeptentrioDriver15process_messageEv"
+          },
+          {
+            "instruction": "tbh [pc, r3, lsl #1]",
+            "pc": "0x804a454",
+            "symbol": "_ZN3GPS3runEv"
+          }
+        ]
+      },
+      "executable_sections": [
+        {
+          "address": "0x8020000",
+          "name": ".text",
+          "sha256": "b771e15bac3fac7d10ea30efd6318fb771df478f61df17250b20959a907f4b6c",
+          "size": 1921816
+        }
+      ],
+      "sha256": "e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010"
+    },
+    "pye-runtime": {
+      "allocated_target_relocations": {},
+      "counts": {
+        "adjacent_adr_indexed_pc_load": 12,
+        "indexed_pc_load": 12,
+        "tbb": 26,
+        "tbh": 8,
+        "thumb1_case_helper_call": 0
+      },
+      "entry": "0x0",
+      "examples": {
+        "adjacent_adr_indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r1, r2, lsl #2]",
+            "pc": "0x1904",
+            "symbol": "mp_vprintf"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r0, lsl #2]",
+            "pc": "0xd226",
+            "symbol": "mp_unary_op"
+          },
+          {
+            "instruction": "ldr.w pc, [r1, r2, lsl #2]",
+            "pc": "0x15380",
+            "symbol": "mp_obj_str_binary_op"
+          }
+        ],
+        "indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r1, r2, lsl #2]",
+            "pc": "0x1904",
+            "symbol": "mp_vprintf"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r0, lsl #2]",
+            "pc": "0xd226",
+            "symbol": "mp_unary_op"
+          },
+          {
+            "instruction": "ldr.w pc, [r1, r2, lsl #2]",
+            "pc": "0x15380",
+            "symbol": "mp_obj_str_binary_op"
+          }
+        ],
+        "tbb": [
+          {
+            "instruction": "tbb [pc, r2]",
+            "pc": "0x348c",
+            "symbol": "mp_lexer_to_next"
+          },
+          {
+            "instruction": "tbb [pc, r3]",
+            "pc": "0x3c04",
+            "symbol": "push_result_token"
+          },
+          {
+            "instruction": "tbb [pc, r3]",
+            "pc": "0x5230",
+            "symbol": "compile_funcdef_lambdef_param"
+          }
+        ],
+        "tbh": [
+          {
+            "instruction": "tbh [pc, r3, lsl #1]",
+            "pc": "0x3e14",
+            "symbol": "push_result_rule"
+          },
+          {
+            "instruction": "tbh [pc, r7, lsl #1]",
+            "pc": "0xb4a6",
+            "symbol": "emit_inline_thumb_op"
+          },
+          {
+            "instruction": "tbh [pc, r9, lsl #1]",
+            "pc": "0xb6d0",
+            "symbol": "emit_inline_thumb_op"
+          }
+        ]
+      },
+      "executable_sections": [
+        {
+          "address": "0x0",
+          "name": ".text",
+          "sha256": "42e1a9552b0f800630f060309400b53b7caa520f3c249a4c831f7db688fb4fe2",
+          "size": 198116
+        }
+      ],
+      "sha256": "e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77"
+    },
+    "pye-runtime-metadata": {
+      "allocated_target_relocations": {
+        ".text": 10988
+      },
+      "counts": {
+        "adjacent_adr_indexed_pc_load": 12,
+        "indexed_pc_load": 12,
+        "tbb": 26,
+        "tbh": 8,
+        "thumb1_case_helper_call": 0
+      },
+      "entry": "0x0",
+      "examples": {
+        "adjacent_adr_indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r1, r2, lsl #2]",
+            "pc": "0x1904",
+            "symbol": "mp_vprintf"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r0, lsl #2]",
+            "pc": "0xd226",
+            "symbol": "mp_unary_op"
+          },
+          {
+            "instruction": "ldr.w pc, [r1, r2, lsl #2]",
+            "pc": "0x15380",
+            "symbol": "mp_obj_str_binary_op"
+          }
+        ],
+        "indexed_pc_load": [
+          {
+            "instruction": "ldr.w pc, [r1, r2, lsl #2]",
+            "pc": "0x1904",
+            "symbol": "mp_vprintf"
+          },
+          {
+            "instruction": "ldr.w pc, [r2, r0, lsl #2]",
+            "pc": "0xd226",
+            "symbol": "mp_unary_op"
+          },
+          {
+            "instruction": "ldr.w pc, [r1, r2, lsl #2]",
+            "pc": "0x15380",
+            "symbol": "mp_obj_str_binary_op"
+          }
+        ],
+        "tbb": [
+          {
+            "instruction": "tbb [pc, r2]",
+            "pc": "0x348c",
+            "symbol": "mp_lexer_to_next"
+          },
+          {
+            "instruction": "tbb [pc, r3]",
+            "pc": "0x3c04",
+            "symbol": "push_result_token"
+          },
+          {
+            "instruction": "tbb [pc, r3]",
+            "pc": "0x5230",
+            "symbol": "compile_funcdef_lambdef_param"
+          }
+        ],
+        "tbh": [
+          {
+            "instruction": "tbh [pc, r3, lsl #1]",
+            "pc": "0x3e14",
+            "symbol": "push_result_rule"
+          },
+          {
+            "instruction": "tbh [pc, r7, lsl #1]",
+            "pc": "0xb4a6",
+            "symbol": "emit_inline_thumb_op"
+          },
+          {
+            "instruction": "tbh [pc, r9, lsl #1]",
+            "pc": "0xb6d0",
+            "symbol": "emit_inline_thumb_op"
+          }
+        ]
+      },
+      "executable_sections": [
+        {
+          "address": "0x0",
+          "name": ".text",
+          "sha256": "42e1a9552b0f800630f060309400b53b7caa520f3c249a4c831f7db688fb4fe2",
+          "size": 198116
+        }
+      ],
+      "observed_tb_terminators": {
+        "adjacent_adr_indexed_pc_load": [
+          {
+            "pc": "0x1904",
+            "symbol": "mp_vprintf",
+            "tb_entries": 175
+          },
+          {
+            "pc": "0x1a4d6",
+            "symbol": "mp_execute_bytecode",
+            "tb_entries": 6822
+          }
+        ],
+        "indexed_pc_load": [
+          {
+            "pc": "0x1904",
+            "symbol": "mp_vprintf",
+            "tb_entries": 175
+          },
+          {
+            "pc": "0x1a4d6",
+            "symbol": "mp_execute_bytecode",
+            "tb_entries": 6822
+          }
+        ],
+        "tbb": [
+          {
+            "pc": "0x348c",
+            "symbol": "mp_lexer_to_next",
+            "tb_entries": 1
+          },
+          {
+            "pc": "0x3c04",
+            "symbol": "push_result_token",
+            "tb_entries": 41
+          },
+          {
+            "pc": "0x6630",
+            "symbol": "compile_scope",
+            "tb_entries": 4
+          },
+          {
+            "pc": "0xdda2",
+            "symbol": "mp_binary_op",
+            "tb_entries": 445
+          },
+          {
+            "pc": "0xde32",
+            "symbol": "mp_binary_op",
+            "tb_entries": 499
+          },
+          {
+            "pc": "0x12426",
+            "symbol": "mp_obj_int_binary_op",
+            "tb_entries": 48
+          },
+          {
+            "pc": "0x1ed34",
+            "symbol": "recursiveloop",
+            "tb_entries": 156
+          },
+          {
+            "pc": "0x217d0",
+            "symbol": "pyexec_raw_repl",
+            "tb_entries": 1
+          },
+          {
+            "pc": "0x2190e",
+            "symbol": "pyexec_friendly_repl",
+            "tb_entries": 1
+          }
+        ],
+        "tbh": [
+          {
+            "pc": "0x3e14",
+            "symbol": "push_result_rule",
+            "tb_entries": 12
+          },
+          {
+            "pc": "0x1e878",
+            "symbol": "_compilecode",
+            "tb_entries": 4
+          },
+          {
+            "pc": "0x21258",
+            "symbol": "readline_process_char",
+            "tb_entries": 1
+          }
+        ]
+      },
+      "sha256": "73bf9158ba25e5628ec8c7c780f3aec48d3e640c7ad292acc7ed46aec157d46f",
+      "training": {
+        "case": "update-package-version",
+        "profile_sha256": "43774223765aabfc1f60daf83b00adb9db4cac30161f7481ac54f8f6d30d8e92",
+        "scope": "FirmBOLT TB profile from guest reset to exit",
+        "total_tb_entries": 1807537
+      }
+    }
+  }
+}

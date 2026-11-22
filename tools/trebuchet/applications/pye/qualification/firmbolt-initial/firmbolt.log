@@ -1,0 +1,61 @@
+BOLT-INFO: Cortex-M target CPU cortex-m3, input CPU attribute 7-M, input feature evidence +mclass,+hwdiv,+thumb2
+BOLT-INFO: Target architecture: arm
+BOLT-INFO: BOLT version: 7864c0736a8a09670dfbfc513f1e9649799f2486
+BOLT-INFO: first alloc address is 0x0
+BOLT-WARNING: debug info will be stripped from the binary. Use -update-debug-sections to keep it.
+BOLT-INFO: enabling relocation mode
+BOLT-INFO: static input executable detected
+BOLT-INFO: enabling lite mode
+BOLT-WARNING: ignoring symbol _estack at 0x400000, which lies outside .text
+BOLT-INFO: using __adddf3 as another entry to function __aeabi_dsub(*2)
+BOLT-INFO: using __aeabi_dadd as another entry to function __aeabi_dsub(*2)
+BOLT-INFO: using __floatdidf as another entry to function __aeabi_ul2d(*2)
+BOLT-INFO: using __aeabi_l2d as another entry to function __aeabi_ul2d(*2)
+BOLT-INFO: using __subsf3 as another entry to function __aeabi_frsub
+BOLT-INFO: using __aeabi_fsub as another entry to function __aeabi_frsub
+BOLT-INFO: using __aeabi_fadd as another entry to function __aeabi_frsub
+BOLT-INFO: using __addsf3 as another entry to function __aeabi_frsub
+BOLT-INFO: using __aeabi_i2f as another entry to function __aeabi_ui2f(*2)
+BOLT-INFO: using __floatsisf as another entry to function __aeabi_ui2f(*2)
+BOLT-INFO: using __floatdisf as another entry to function __floatundisf(*2)
+BOLT-INFO: using __aeabi_l2f as another entry to function __floatundisf(*2)
+BOLT-INFO: using __lesf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __ltsf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __nesf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __eqsf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __cmpsf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __aeabi_cfcmple as another entry to function __aeabi_cfrcmple
+BOLT-INFO: using __aeabi_cfcmpeq as another entry to function __aeabi_cfrcmple
+BOLT-ERROR: relocation at 0x0 in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0x4 in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0x8 in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0xc in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0x10 in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0x14 in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0x18 in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0x2c in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0x30 in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0x38 in executable section has neither function nor typed-data ownership
+BOLT-ERROR: relocation at 0x3c in executable section has neither function nor typed-data ownership
+llvm-bolt: /workspace/firmbolt/third_party/preflight/llvm-project/bolt/lib/Rewrite/RewriteInstance.cpp:4742: void llvm::bolt::RewriteInstance::handleRelocation(const llvm::object::SectionRef&, const llvm::object::RelocationRef&): Assertion `(IsAArch64 || BC->isRISCV() || IsSectionRelocation || BD->nameStartsWith(SymbolName) || BD->nameStartsWith("PG" + SymbolName) || (BD->nameStartsWith("ANONYMOUS") && (BD->getSectionName().starts_with(".plt") || BD->getSectionName().ends_with(".plt")))) && "BOLT symbol names of all non-section relocations must match up " "with symbol names referenced in the relocation"' failed.
+Stack dump without symbol names (ensure you have llvm-symbolizer in your PATH or set the environment var `LLVM_SYMBOLIZER_PATH` to point to it):
+0  llvm-bolt 0x0000559b1d215f0a
+1  llvm-bolt 0x0000559b1d212f74
+2  libc.so.6 0x00007f9f2036e330
+3  libc.so.6 0x00007f9f203c7bec pthread_kill + 284
+4  libc.so.6 0x00007f9f2036e27e gsignal + 30
+5  libc.so.6 0x00007f9f203518ff abort + 223
+6  libc.so.6 0x00007f9f2035181b
+7  libc.so.6 0x00007f9f20364517
+8  llvm-bolt 0x0000559b1bead86e
+9  llvm-bolt 0x0000559b1d322736
+10 llvm-bolt 0x0000559b1d3229d1
+11 llvm-bolt 0x0000559b1d32737d
+12 llvm-bolt 0x0000559b1d3666a2
+13 llvm-bolt 0x0000559b1c05b847
+14 libc.so.6 0x00007f9f203531ca
+15 libc.so.6 0x00007f9f2035328b __libc_start_main + 139
+16 llvm-bolt 0x0000559b1c0aa3f1
+PLEASE submit a bug report to https://github.com/llvm/llvm-project/issues/ and include the crash backtrace and instructions to reproduce the bug.
+Stack dump:
+0.	Program arguments: /workspace/firmbolt/third_party/preflight/llvm-build/bin/llvm-bolt /workspace/trebuchet-work/pye/micropython/ports/qemu/build-MPS2_AN385/firmware-relocs.elf --firmbolt-cortex-m-cpu=cortex-m3 --firmbolt-arm-full-pipeline --firmbolt-frame-alias-barriers --frame-opt=all --eliminate-unreachable=false --firmbolt-preserve-guest-instruction-count=false -p /workspace/trebuchet-work/pye/queued-train/train.preagg -pa --relocs --lite --no-scan --custom-allocation-vma=0x80000 --firmbolt-allow-instruction-count-changes --reorder-functions=tb-page --tb-page-size=1024 --reorder-blocks=ext-tsp --firmbolt-materialize-literals --firmbolt-materialize-literals-max-function-size=400 --firmbolt-materialize-literals-min-count=1000 --firmbolt-keep-input-entry-min-calls=1000 --firmbolt-allow-inlining --inline-small-functions --inline-small-functions-bytes=400 --inline-min-call-count=1000 --indirect-call-promotion=jump-tables --firmbolt-allow-jump-table-promotion --firmbolt-firmware-report=/workspace/trebuchet-work/pye/queued-optimized/firmbolt.json -o /workspace/trebuchet-work/pye/queued-optimized/firmware.elf

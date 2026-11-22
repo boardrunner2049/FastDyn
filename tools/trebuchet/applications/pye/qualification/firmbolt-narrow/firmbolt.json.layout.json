@@ -1,0 +1,482 @@
+{
+  "address_stable_function_count": 0,
+  "functions": [
+    {
+      "address_stable_layout": false,
+      "blocks": [
+        {
+          "original_address": 135310,
+          "output_end_address": 524292,
+          "output_start_address": 524290
+        },
+        {
+          "original_address": 135312,
+          "output_end_address": 524298,
+          "output_start_address": 524292
+        },
+        {
+          "original_address": 135318,
+          "output_end_address": 524304,
+          "output_start_address": 524298
+        },
+        {
+          "original_address": 135324,
+          "output_end_address": 524312,
+          "output_start_address": 524304
+        },
+        {
+          "original_address": 135330,
+          "output_end_address": 524344,
+          "output_start_address": 524338
+        },
+        {
+          "original_address": 135334,
+          "output_end_address": 524324,
+          "output_start_address": 524320
+        },
+        {
+          "original_address": 135340,
+          "output_end_address": 524320,
+          "output_start_address": 524312
+        },
+        {
+          "original_address": 135348,
+          "output_end_address": 524330,
+          "output_start_address": 524328
+        },
+        {
+          "original_address": 135350,
+          "output_end_address": 524334,
+          "output_start_address": 524330
+        },
+        {
+          "original_address": 135354,
+          "output_end_address": 524354,
+          "output_start_address": 524344
+        },
+        {
+          "original_address": 135362,
+          "output_end_address": 524328,
+          "output_start_address": 524324
+        },
+        {
+          "original_address": 135364,
+          "output_end_address": 524338,
+          "output_start_address": 524334
+        }
+      ],
+      "cortex_m_exception_entry": false,
+      "cortex_m_reset_entry": false,
+      "cortex_m_vector_entry": false,
+      "firmware_modification_attempted": true,
+      "firmware_modification_reasons": [
+        "block_reordering"
+      ],
+      "firmware_modified": true,
+      "firmware_publication_rejections": [],
+      "firmware_veneer_slot": false,
+      "fragments": [
+        {
+          "block_count": 12,
+          "block_original_addresses": [
+            135310,
+            135312,
+            135318,
+            135324,
+            135340,
+            135334,
+            135362,
+            135348,
+            135350,
+            135364,
+            135330,
+            135354
+          ],
+          "block_output_addresses": [
+            524290,
+            524292,
+            524298,
+            524304,
+            524312,
+            524320,
+            524324,
+            524328,
+            524330,
+            524334,
+            524338,
+            524344
+          ],
+          "fragment_number": 0,
+          "kind": "main",
+          "output_address": 524290,
+          "output_size": 64
+        }
+      ],
+      "inline_jump_tables": [],
+      "instruction_origins": [
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "70b5",
+          "may_load": false,
+          "may_store": true,
+          "origin_kind": "original_instruction",
+          "original_address": 135310,
+          "output_address": 524290,
+          "output_size": 2
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "0d46",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135312,
+          "output_address": 524292,
+          "output_size": 2
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "0646",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135314,
+          "output_address": 524294,
+          "output_size": 2
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "8ab1",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135316,
+          "output_address": 524296,
+          "output_size": 2
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "10f8014b",
+          "may_load": true,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135318,
+          "output_address": 524298,
+          "output_size": 4
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "84b1",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135322,
+          "output_address": 524302,
+          "output_size": 2
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "11f8013b",
+          "may_load": true,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135324,
+          "output_address": 524304,
+          "output_size": 4
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "03b9",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135328,
+          "output_address": 524308,
+          "output_size": 2
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "0ce0",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "synthesized_control_edge",
+          "output_address": 524310,
+          "output_size": 2,
+          "source_original_block_address": 135324
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "2b78",
+          "may_load": true,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135330,
+          "output_address": 524338,
+          "output_size": 2
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "03b1",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135332,
+          "output_address": 524340,
+          "output_size": 2
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "f3e7",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "synthesized_control_edge",
+          "output_address": 524342,
+          "output_size": 2,
+          "source_original_block_address": 135330
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "4ff0ff30",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135334,
+          "output_address": 524320,
+          "output_size": 4
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "9c42",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135340,
+          "output_address": 524312,
+          "output_size": 2
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "02f1ff32",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135342,
+          "output_address": 524314,
+          "output_size": 4
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "03d2",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135346,
+          "output_address": 524318,
+          "output_size": 2
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "ecd9",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135348,
+          "output_address": 524328,
+          "output_size": 2
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "0120",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135350,
+          "output_address": 524330,
+          "output_size": 2
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "fae7",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "synthesized_control_edge",
+          "output_address": 524332,
+          "output_size": 2,
+          "source_original_block_address": 135350
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "3078",
+          "may_load": true,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135354,
+          "output_address": 524344,
+          "output_size": 2
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "0038",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135356,
+          "output_address": 524346,
+          "output_size": 2
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "18bf",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135358,
+          "output_address": 524348,
+          "output_size": 2
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "0120",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135360,
+          "output_address": 524350,
+          "output_size": 2
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "f0e7",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "synthesized_control_edge",
+          "output_address": 524352,
+          "output_size": 2,
+          "source_original_block_address": 135354
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": true,
+          "linked_bytes_hex": "70bd",
+          "may_load": true,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135362,
+          "output_address": 524324,
+          "output_size": 2
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "02e0",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "synthesized_control_edge",
+          "output_address": 524326,
+          "output_size": 2,
+          "source_original_block_address": 135362
+        },
+        {
+          "is_branch": false,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "1046",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "original_instruction",
+          "original_address": 135364,
+          "output_address": 524334,
+          "output_size": 2
+        },
+        {
+          "is_branch": true,
+          "is_call": false,
+          "is_return": false,
+          "linked_bytes_hex": "f8e7",
+          "may_load": false,
+          "may_store": false,
+          "origin_kind": "synthesized_control_edge",
+          "output_address": 524336,
+          "output_size": 2,
+          "source_original_block_address": 135364
+        }
+      ],
+      "literal_pool_ranges": [],
+      "name": "strncmp",
+      "original_address": 135310,
+      "original_size": 58,
+      "output_address": 524290,
+      "output_size": 64,
+      "owned_literal_pools": [],
+      "synthesized_inline_data": []
+    }
+  ],
+  "identical_code_fold_count": 0,
+  "identical_code_folded_original_bytes": 0,
+  "identical_code_folds": [],
+  "inline_jump_table_count": 0,
+  "inline_jump_table_entry_count": 0,
+  "producer": "BOLT FirmBOLT final firmware layout",
+  "schema_version": 2,
+  "split_function_count": 0,
+  "synthesized_call_promotion_instruction_count": 0,
+  "synthesized_call_veneer_instruction_count": 0,
+  "synthesized_control_edge_instruction_count": 6,
+  "synthesized_from_original_instruction_count": 0,
+  "synthesized_inline_data_bytes": 0,
+  "synthesized_jump_table_promotion_instruction_count": 0,
+  "target": "arm_thumb",
+  "target_cpu": "cortex-m3",
+  "target_features": "+thumb-mode,+noarm",
+  "target_triple": "armv7m--"
+}

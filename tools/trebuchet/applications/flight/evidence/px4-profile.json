@@ -1,0 +1,33 @@
+{
+  "profile_validated": true,
+  "operational_baseline": false,
+  "transformed_deployment": false,
+  "ordinary_warm": false,
+  "state": "complete",
+  "family": "px4",
+  "scenario": "klaf-takeoff-three-waypoints-land",
+  "role": "qualification",
+  "source_revision": "d6f12ad1c4f70ad3230afd7d86e971421e02fef4",
+  "inputs": {
+    "elf": "e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010",
+    "config": "6213b8fd898cc9616c5d70143a9a2e610c52a3a599a4e335c858b2adab5a02d6",
+    "params": "4da4c949772703acd09e4849c82b6684623afbdd32929da6f9c9e2653d6d8a88",
+    "profile": "abe3ee14eccb670de3d655ad4e1209e35cbea5c36768aa7e24430b390b07d5eb",
+    "mission": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6"
+  },
+  "fastdyn_revision": "1106f8ca2a62d48bc2a0b36e9ecae1bafba48217",
+  "hook_files": {
+    "firmware.sha256": "7b1948891fccc79b24aa6f713ad81447f32801cf4375e3a731908cf1ee4dc6cd",
+    "modifiers.txt": "2d95477e5b8456e0fc0cfd63b10a745563f358350c241e08a1327cbfee8426b0",
+    "symbols.txt": "d7f0087d33c83dabf802b1225231e4748ad1eb577168bf7d101a1356e7c0a739",
+    "virtuals.txt": "fd7a1e011807e0c6c3ef50e23760a76ca4bb821c54c13d64aa4965cc33d73299"
+  },
+  "elf_metadata": {
+    "machine": "EM_ARM",
+    "class": 32,
+    "hard_float_abi": true,
+    "has_symbols": true,
+    "has_dwarf": true,
+    "code_relocation_sections": []
+  }
+}

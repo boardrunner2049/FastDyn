@@ -1,0 +1,49 @@
+{
+  "scenario": "klaf-takeoff-three-waypoints-land",
+  "role": "qualification",
+  "mission": "virtuals/physics/flight_controllers/courbet/mavlink/copter_mission.waypoints",
+  "mission_sha256": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6",
+  "families": {
+    "ardupilot": {
+      "upstream": "https://github.com/ArduPilot/ardupilot",
+      "release": "Copter-4.6.2",
+      "revision": "1ebd4d996e8b6bbeb1462a9655c00aa861d5beef",
+      "board": "FMUv3 / ChibiOS",
+      "config": "configs/copter462.toml",
+      "elf": "virtuals/physics/flight_controllers/courbet/bin/arducopter_v462",
+      "elf_sha256": "3fc6ee14e94f5f8b4133b06747145a8e40c7755940b9f87fdab1ad4323c0aa8c",
+      "profile": "virtuals/physics/flight_controllers/courbet/ardupilot/copter462/profile.toml",
+      "params": "virtuals/physics/flight_controllers/courbet/mavlink/copter_init.param",
+      "plant": "out/fmi3/Copter/FastDyn_Copter.fmu",
+      "config_sha256": "17538467f0563dbd437bc352c8c6919cb4a1c8ffa14f3b920f1227d5f3c47115",
+      "profile_sha256": "b0ba37716cf6956926cca83bdc54f7e8852d3ea111a1a65d6e86e1ffa9e4ae01",
+      "params_sha256": "483c55bbf002a759207a95d0356a4fc7c4ed3d29c92595bf089aa87ec18b6365"
+    },
+    "px4": {
+      "upstream": "https://github.com/PX4/PX4-Autopilot",
+      "release": "v1.17.0",
+      "revision": "d6f12ad1c4f70ad3230afd7d86e971421e02fef4",
+      "board": "px4_fmu-v6c_default / NuttX",
+      "config": "configs/px4_fmu_v6c_fire_p2.toml",
+      "elf": "virtuals/physics/flight_controllers/courbet/bin/px4_fmu-v6c_default.elf",
+      "elf_sha256": "e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010",
+      "profile": "virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/profile.toml",
+      "params": "virtuals/physics/flight_controllers/courbet/mavlink/px4_init.param",
+      "plant": "out/fmi3/ConfiguredQuadP2/ConfiguredQuadP2.fmu",
+      "config_sha256": "6213b8fd898cc9616c5d70143a9a2e610c52a3a599a4e335c858b2adab5a02d6",
+      "profile_sha256": "abe3ee14eccb670de3d655ad4e1209e35cbea5c36768aa7e24430b390b07d5eb",
+      "params_sha256": "4da4c949772703acd09e4849c82b6684623afbdd32929da6f9c9e2653d6d8a88"
+    }
+  },
+  "waypoint_radius_m": 5.0,
+  "waypoint_altitude_tolerance_m": 5.0,
+  "landing_height_m": 1.0,
+  "simulation_dependencies": {
+    "third_party/common/qemu": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+    "third_party/common/rumoca": "f7ff9ddd283d67c5eda27daf409af7108d7fb108",
+    "third_party/common/modelica_models": "c6cf47f5cbd0bb4dc77d16d19a685e534487d0da",
+    "third_party/courbet_deps/mavlink_headers": "d1beb068135e069d3fe28a53fc171700a632e06a",
+    "third_party/courbet_deps/fire_modelica_models": "73a110b1767182205e82bb99a1e4ec4dc9e78d45",
+    "out/toolchains/ModelicaStandardLibrary": "6626538a236a34a390655b55d5e8c906bfe31772"
+  }
+}

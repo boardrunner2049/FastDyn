@@ -1,0 +1,125 @@
+{
+  "run": "https://github.com/boardrunner2049/FastDyn/actions/runs/44979548250",
+  "source": "downloaded job artifacts; original snapshots were not retained in this job",
+  "families": {
+    "ardupilot": {
+      "artifact_zip_sha256": "7df4a997b752c35c89a780ef96241c4817978860eb868d6e6c66a1ca5c72326b",
+      "receipt_sha256": "b6b7eeb49f9d87fd640acb58e0150e02c0893b80c16c8e4cb694d62d36f7f4a1",
+      "mission_input_sha256": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6",
+      "binary_hashes": {
+        "plugin": "d8e915786086e121a1da00e2ce3b3fa649d274994031cc26f438e6ec735b3f52",
+        "qemu": "c6839721d6f7aef0b9b972334107494aeebcadfc966e23f01751b9d873368285",
+        "plant": "880bffb85383551430fe74341e15f74e0afdb8d2baa8705f95c1a4d77a85a974",
+        "launch_config": "ee29cb272d31d8c8e1b73810d169c32efe772504068413becb692430bd6f2523",
+        "plant_library": "67b0f289f01f544647551424775a6d06e02ee3853022938695df54c6d1ab2771",
+        "plant_description": "947f8b0df62f04766a62d3b33e99b26cfdfd63e181954d979a19e302d11b35a1",
+        "cache_config": "6e86b4531451ea6e8f53812f3135a063ffb9ea66a4afabbe1b798ffa17da5169"
+      },
+      "operational_baseline": true,
+      "ordinary_warm": false,
+      "error": "final position outside landing envelope",
+      "phases": [
+        {
+          "phase": "cold",
+          "oracle": "pass",
+          "record": {
+            "plant_samples": 1423,
+            "plant_elapsed_s": 148.5,
+            "telemetry_positions": 543,
+            "telemetry_attitudes": 543,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": false
+          }
+        },
+        {
+          "phase": "capture",
+          "oracle": "fail",
+          "error": "final position outside landing envelope"
+        }
+      ]
+    },
+    "px4": {
+      "artifact_zip_sha256": "e2f6a744958d31efe2c37213b23b05f73e0d074607522fe4a67076534b5f7673",
+      "receipt_sha256": "36f8321b931651f5e5032911fd341dd2d58427e8056323bf853de09625f619dd",
+      "mission_input_sha256": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6",
+      "binary_hashes": {
+        "plugin": "ae935cdac50702ce41ee76e183459425a010fd39e730ccede8369a73305729f4",
+        "qemu": "0f121cdaefed78a93bb3b8bf5206cad40e48a485bfe0e360a73a06b652476fbb",
+        "plant": "2b7f8ddbae642a7eea0ee226cf941b7f6be54b5073d3c4c1dbb7867e28bfcaad",
+        "launch_config": "930c3bdb234543443d64eec06c4f9d22faaa92612a9ac9be0bbb850c0b7361a6",
+        "plant_library": "8c0b688f8096f9bf55975f223c6cfb3848936cb078f12c346b1d49dd51409272",
+        "plant_description": "407f209124ba448e1b92bf05b0325f42c1a40f5191f0b8f5b4695a2812d7b33e",
+        "cache_config": "94866feebd690271b36bf75dae376ca77f93eea2055c38de0051b503f29e4b9d"
+      },
+      "operational_baseline": true,
+      "ordinary_warm": false,
+      "error": "warm mission still appends blocks after two checked replays",
+      "phases": [
+        {
+          "phase": "cold",
+          "oracle": "pass",
+          "record": {
+            "plant_samples": 582,
+            "plant_elapsed_s": 72.628,
+            "telemetry_positions": 245,
+            "telemetry_attitudes": 274,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          }
+        },
+        {
+          "phase": "capture",
+          "oracle": "pass",
+          "record": {
+            "plant_samples": 590,
+            "plant_elapsed_s": 73.626,
+            "telemetry_positions": 250,
+            "telemetry_attitudes": 277,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          }
+        },
+        {
+          "phase": "replay-1",
+          "oracle": "pass",
+          "record": {
+            "plant_samples": 590,
+            "plant_elapsed_s": 73.628,
+            "telemetry_positions": 249,
+            "telemetry_attitudes": 282,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "cache_use": {
+            "proof_verdict": "PASS",
+            "initial_records": 47399,
+            "initial_records_sha256": "sha256:72dedcceb7f6b87dd57fadc1da42760301b2f6ffc0ebbf7daf4463db97f47206",
+            "manifest_sha256": "sha256:98001c31df7a33dde1a7c38fddf4f2a8fd6189e4a8245d1b1f32c2be929a77e4",
+            "post_records": 54631,
+            "appended": 7232
+          }
+        },
+        {
+          "phase": "replay-2",
+          "oracle": "pass",
+          "record": {
+            "plant_samples": 590,
+            "plant_elapsed_s": 73.626,
+            "telemetry_positions": 249,
+            "telemetry_attitudes": 282,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "cache_use": {
+            "proof_verdict": "PASS",
+            "initial_records": 54631,
+            "initial_records_sha256": "sha256:3db487ac8ff530b5ea7746e8bea9765249cd5554033a3c441c752234fffa3de8",
+            "manifest_sha256": "sha256:98001c31df7a33dde1a7c38fddf4f2a8fd6189e4a8245d1b1f32c2be929a77e4",
+            "post_records": 59296,
+            "appended": 4665
+          }
+        }
+      ]
+    }
+  }
+}

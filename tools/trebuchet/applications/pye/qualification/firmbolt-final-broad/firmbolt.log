@@ -1,0 +1,83 @@
+/workspace/firmbolt/third_party/preflight/llvm-build/bin/llvm-bolt /workspace/trebuchet-work/pye/micropython/ports/qemu/build-MPS2_AN385/firmware-relocs.elf --firmbolt-cortex-m-cpu=cortex-m3 --firmbolt-arm-full-pipeline --firmbolt-frame-alias-barriers --frame-opt=all --eliminate-unreachable=false --firmbolt-preserve-guest-instruction-count=false -p /workspace/trebuchet-work/pye/queued-train/train.preagg -pa --relocs --lite --no-scan --custom-allocation-vma=0x80000 --firmbolt-allow-instruction-count-changes --reorder-functions=tb-page --tb-page-size=1024 --reorder-blocks=ext-tsp --firmbolt-materialize-literals --firmbolt-materialize-literals-max-function-size=400 --firmbolt-materialize-literals-min-count=1000 --firmbolt-keep-input-entry-min-calls=1000 --firmbolt-allow-inlining --inline-small-functions --inline-small-functions-bytes=400 --inline-min-call-count=1000 --indirect-call-promotion=jump-tables --firmbolt-allow-jump-table-promotion --firmbolt-firmware-report=/workspace/trebuchet-work/pye/queued-optimized-final-broad/firmbolt.json -o /workspace/trebuchet-work/pye/queued-optimized-final-broad/firmware.elf
+BOLT-INFO: Cortex-M target CPU cortex-m3, input CPU attribute 7-M, input feature evidence +mclass,+hwdiv,+thumb2
+BOLT-INFO: Target architecture: arm
+BOLT-INFO: BOLT version: 7864c0736a8a09670dfbfc513f1e9649799f2486
+BOLT-INFO: first alloc address is 0x0
+BOLT-WARNING: debug info will be stripped from the binary. Use -update-debug-sections to keep it.
+BOLT-INFO: enabling relocation mode
+BOLT-INFO: static input executable detected
+BOLT-INFO: enabling lite mode
+BOLT-WARNING: ignoring symbol _estack at 0x400000, which lies outside .text
+BOLT-INFO: using __adddf3 as another entry to function __aeabi_dsub(*2)
+BOLT-INFO: using __aeabi_dadd as another entry to function __aeabi_dsub(*2)
+BOLT-INFO: using __floatdidf as another entry to function __aeabi_ul2d(*2)
+BOLT-INFO: using __aeabi_l2d as another entry to function __aeabi_ul2d(*2)
+BOLT-INFO: using __subsf3 as another entry to function __aeabi_frsub
+BOLT-INFO: using __aeabi_fsub as another entry to function __aeabi_frsub
+BOLT-INFO: using __aeabi_fadd as another entry to function __aeabi_frsub
+BOLT-INFO: using __addsf3 as another entry to function __aeabi_frsub
+BOLT-INFO: using __aeabi_i2f as another entry to function __aeabi_ui2f(*2)
+BOLT-INFO: using __floatsisf as another entry to function __aeabi_ui2f(*2)
+BOLT-INFO: using __floatdisf as another entry to function __floatundisf(*2)
+BOLT-INFO: using __aeabi_l2f as another entry to function __floatundisf(*2)
+BOLT-INFO: using __lesf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __ltsf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __nesf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __eqsf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __cmpsf2 as another entry to function __gtsf2(*2)
+BOLT-INFO: using __aeabi_cfcmple as another entry to function __aeabi_cfrcmple
+BOLT-INFO: using __aeabi_cfcmpeq as another entry to function __aeabi_cfrcmple
+BOLT-INFO: preserving fixed ARM linker constant _estack = 0x400000
+BOLT-INFO: preserving fixed ARM linker constant _ebss = 0x53914
+BOLT-INFO: pre-processing profile using perf data aggregator
+PERF2BOLT: Starting data aggregation job for /workspace/trebuchet-work/pye/queued-train/train.preagg
+PERF2BOLT: parsing pre-aggregated profile...
+PERF2BOLT: read 7529 aggregated brstack entries
+PERF2BOLT: processing branch events...
+PERF2BOLT: traces mismatching disassembled function contents: 2 (0.0%)
+PERF2BOLT: out of range traces involving unknown regions: 0 (0.0%)
+BOLT-INFO: 450 out of 1523 functions in the binary (29.5%) have non-empty execution profile
+BOLT-INFO: 2 functions with profile could not be optimized
+BOLT-WARNING: 16 (3.6% of all profiled) functions have invalid (possibly stale) profile. Use -report-stale to see the list.
+BOLT-WARNING: 68650 out of 1782407 samples in the binary (3.9%) belong to functions with invalid (possibly stale) profile.
+BOLT-INFO: profile for 452 objects was ignored
+BOLT-INFO: profile quality metrics for the hottest 430 functions (reporting top 5% values): function CFG discontinuity 0.00%; call graph flow conservation gap 84.21%; CFG flow conservation gap 50.00% (weighted) 0.00% (worst); exception handling usage 0.00% (of total BBEC) 0.00% (of total InvokeEC)
+BOLT-INFO: Cortex-M firmware constraints: vector=0x0, source=isr_vector, entries=16, initial-sp=0x400000, protected-handlers=10, reserved=5, invalid-thumb=0, secondary-entry-handlers=0, primary-entry-handlers=10, reset-entry-functions=1, exception-entry-functions=9, veneer-slots=0, security-state-functions=0, unresolved=0
+BOLT-INFO: FirmBOLT attached 20380 original instruction identities
+BOLT-INFO: Thumb literal-pool placement qualified 150 function(s), attached 152 owner block(s), rebound 364 PC-relative reference(s), and retained 56 function(s); skipped 2 unreferenced island function(s)
+BOLT-INFO: relocation mode kept 60 address-stable function(s) at their input address
+BOLT-INFO: kept the input entry of 6 moved function(s) that code staying in place calls at least 1000 times
+BOLT-INFO: widened 7 Thumb byte jump table(s) to halfword entries
+BOLT-INFO: literal materialization replaced 2 PC-relative load(s) (dynamic count 3422) in 2 function(s); left 1 unmodeled load(s) in place
+BOLT-INFO: ICP Total indirect calls = 120, 7 callsites cover 99% of all indirect calls
+BOLT-INFO: ICP total indirect callsites with profile = 0
+BOLT-INFO: ICP total jump table callsites = 8
+BOLT-INFO: ICP total number of calls = 4307
+BOLT-INFO: ICP percentage of calls that are indirect = 0.0%
+BOLT-INFO: ICP percentage of indirect calls that can be optimized = 0.0%
+BOLT-INFO: ICP percentage of indirect callsites that are optimized = 0.0%
+BOLT-INFO: ICP number of method load elimination candidates = 0
+BOLT-INFO: ICP percentage of method calls candidates that have loads eliminated = 0.0%
+BOLT-INFO: ICP percentage of indirect branches that are optimized = 60.0%
+BOLT-INFO: ICP percentage of jump table callsites that are optimized = 75.0%
+BOLT-INFO: ICP number of jump table callsites that can use hot indices = 0
+BOLT-INFO: ICP percentage of jump table callsites that use hot indices = 0.0%
+BOLT-INFO: inlined 16996 calls at 6 call sites in 2 iteration(s). Change in binary size: 210 bytes.
+BOLT-INFO: 86 instructions were shortened
+BOLT-INFO: removed 61 empty blocks
+BOLT-INFO: basic block reordering modified layout of 198 functions (44.00% of profiled, 13.00% of total)
+BOLT-INFO: tb-page layout packed 102 call cluster(s) into 38 page(s) of 1024 bytes (2 oversized); in-page call weight 69.9%
+BOLT-INFO: routed 9 Thumb jump-table case(s) placed before their dispatch through a forward stub (dynamic count 0)
+BOLT-INFO: legalized 48 out-of-range CBZ/CBNZ instruction(s) (dynamic taken count 435)
+BOLT-INFO: FOP optimized 2 redundant load(s) and 0 unused store(s)
+BOLT-INFO: Frequency of redundant loads is 1 and frequency of unused stores is 0
+BOLT-INFO: Frequency of loads changed to use a register is 1 and frequency of loads changed to use an immediate is 0
+BOLT-INFO: FOP deleted 0 load(s) (dyn count: 0) and 0 store(s)
+BOLT-INFO: FRAME ANALYSIS: 1131 function(s) were not optimized.
+BOLT-INFO: FRAME ANALYSIS: 0 function(s) (0.0% dyn cov) could not have its frame indices restored.
+BOLT-INFO: FRAME ANALYSIS: 100 function(s) admitted with 2262 conservative stack-alias barrier(s).
+BOLT-INFO: Shrink wrapping moved 0 spills inserting load/stores and 0 spills inserting push/pops
+BOLT-INFO: Allocation combiner: 0 empty spaces coalesced (dyn count: 0).
+BOLT-INFO: Firm-BOLT publication policy checked 247 attempted function(s), rejected 0 for guest instruction-count changes
+BOLT-INFO: FirmBOLT wrote post-optimization firmware report /workspace/trebuchet-work/pye/queued-optimized-final-broad/firmbolt.json for 1523 function(s)
+BOLT-ERROR: 'cannot finalize FirmBOLT firmware layout': rebound Thumb PC-relative reference in gc_mark_subtree/1(*2) changed the observable address from 0x2f4 to 0x8a084

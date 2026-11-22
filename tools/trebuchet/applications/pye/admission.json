@@ -1,0 +1,33 @@
+{
+  "application": "pye",
+  "family": "Micropython-Editor",
+  "status": "admitted",
+  "scope": "Pye list-buffer editing through the modeled MPS2-AN385 serial terminal on release-configured MicroPython; no persistent filesystem writes",
+  "role": "training qualification only",
+  "upstream_pins": "manifest.json",
+  "contract": "manifest.json",
+  "case": "update-package-version",
+  "reproduction": "README.md",
+  "oracle": "session.py",
+  "input_identities": "qualification/case-identities.json",
+  "reproduced": {
+    "stock_qemu": "qualification/stock/result.json",
+    "patched_qemu": "qualification/patched/result.json",
+    "native_board_fastdyn": "qualification/fastdyn/result.json",
+    "fastdyn_process_log": "qualification/fastdyn/fastdyn-fixed.log",
+    "queued_stock": "qualification/queued-stock/result.json",
+    "queued_patched": "qualification/queued-patched/result.json"
+  },
+  "training_qualification": {
+    "expected_returned_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+    "original_sha256": "e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+    "payload_sha256": "c1e2de157c7d26ee47dd8aab33258fbb5e1ccfc29e39032aa72123c16aa25da9",
+    "relocation_elf_sha256": "73bf9158ba25e5628ec8c7c780f3aec48d3e640c7ad292acc7ed46aec157d46f",
+    "qemu_source": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+    "psram_overlay_sha256": "fbcf80089dbfa1d414af9e68e56bd6328bf30447ac50da57676b31545964757b",
+    "native_board_qemu_sha256": "e9e6dad2bd4da965174883a509db873422723a4db09be2c26ce855f382a162b8"
+  },
+  "warm_capture_and_transformed_validation": "separate receipts required",
+  "performance_promotion": "no selection implied by admission",
+  "queued_protocol": "protocol-queued.json"
+}

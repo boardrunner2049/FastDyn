@@ -1,0 +1,14 @@
+{
+  "qemu": "third_party/common/qemu/build/qemu-system-arm",
+  "qemu_sha256": "fa405951545dfeee0c0140a3f89d6a4777752f28d17c215b3d50cbc5da75d51b",
+  "regions": {
+    "ssram": "mps.ssram23",
+    "reserved_gap": "fakeram",
+    "psram": "fakeram",
+    "uart": "uart"
+  },
+  "marker_hex": "50594550524f4d31",
+  "observed_hex": "0000000000000000",
+  "psram_visible": false,
+  "verdict": "PASS"
+}

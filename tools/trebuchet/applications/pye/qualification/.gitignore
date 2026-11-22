@@ -1,0 +1,4 @@
+# Raw UART and tool diagnostics are part of the application qualification.
+!*/uart.bin
+!*/firmbolt.log
+!*/fastdyn-fixed.log

@@ -1,0 +1,13 @@
+{
+  "candidate_elf_sha256": "caab33a72ffc62ce66712d653ab31f13b3b920ad9640cd05caa23a568aee28eb",
+  "firmbolt_binary_sha256": "539cdc35a9e2cf74b421df4aacac6075daaef7b18fe1aa0ba217aeacc6dfc18c",
+  "training_profile_sha256": "1748b4716aa5b560b489ff235ed3f24b76da94dfda5a5c6d674f717d4571e668",
+  "recipe": "emulator-performance --new-code-address 0x80000 -- --funcs-no-regex=strncmp",
+  "selection_basis": "The queued training showed qstr_find_strn to strncmp among the most frequent cross-page transfers. The broad optimizer rejected functions with observable literal slot addresses.",
+  "cold": "cold/result.json",
+  "executed_code": "executed-layout.json",
+  "warm_qualification": "tracked separately by deployment",
+  "metadata_limitation": "The static .rel.text section links to the new .text despite old relocation offsets. Retained relocation metadata cannot be reused for a second guest rewrite. Cold QEMU and FastDyn consume the PT_LOAD segments.",
+  "stock_cold": "stock/result.json",
+  "editor_only_execution": "editor-trace/attribution.json"
+}

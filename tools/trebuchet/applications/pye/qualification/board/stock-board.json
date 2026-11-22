@@ -1,0 +1,14 @@
+{
+  "qemu": "/usr/bin/qemu-system-arm",
+  "qemu_sha256": "e5dc5f9ef15a3f39d65666ae0ff8facc3ae08c97cf642dfa1164531aa91bfdfb",
+  "regions": {
+    "ssram": "mps.ssram23",
+    "reserved_gap": "RESERVED 3",
+    "psram": "psram",
+    "uart": "uart"
+  },
+  "marker_hex": "50594550524f4d31",
+  "observed_hex": "50594550524f4d31",
+  "psram_visible": true,
+  "verdict": "PASS"
+}

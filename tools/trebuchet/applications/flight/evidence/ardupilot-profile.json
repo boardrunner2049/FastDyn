@@ -1,0 +1,33 @@
+{
+  "profile_validated": true,
+  "operational_baseline": false,
+  "transformed_deployment": false,
+  "ordinary_warm": false,
+  "state": "complete",
+  "family": "ardupilot",
+  "scenario": "klaf-takeoff-three-waypoints-land",
+  "role": "qualification",
+  "source_revision": "1ebd4d996e8b6bbeb1462a9655c00aa861d5beef",
+  "inputs": {
+    "elf": "3fc6ee14e94f5f8b4133b06747145a8e40c7755940b9f87fdab1ad4323c0aa8c",
+    "config": "17538467f0563dbd437bc352c8c6919cb4a1c8ffa14f3b920f1227d5f3c47115",
+    "params": "483c55bbf002a759207a95d0356a4fc7c4ed3d29c92595bf089aa87ec18b6365",
+    "profile": "b0ba37716cf6956926cca83bdc54f7e8852d3ea111a1a65d6e86e1ffa9e4ae01",
+    "mission": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6"
+  },
+  "fastdyn_revision": "1106f8ca2a62d48bc2a0b36e9ecae1bafba48217",
+  "hook_files": {
+    "firmware.sha256": "fd85a5abea652697ed20f95dfe24ccc1868d045feb628dc6e6ee7f724c462faa",
+    "modifiers.txt": "b600f41eafa62ebda809d0ccba0b1b12471778e070e4a41acd648e9790be18c5",
+    "symbols.txt": "b5f144f4b19328e4c12e09fb930f723ce0c04589f6bcea2597fef74f8295f502",
+    "virtuals.txt": "5c1d0ceed08346e1a0361f8b8b16987eda3c342665d249077d2fc96ac2c15178"
+  },
+  "elf_metadata": {
+    "machine": "EM_ARM",
+    "class": 32,
+    "hard_float_abi": true,
+    "has_symbols": true,
+    "has_dwarf": true,
+    "code_relocation_sections": []
+  }
+}

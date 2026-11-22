@@ -1,0 +1,18 @@
+{
+  "candidate_elf_sha256": "d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+  "firmbolt_binary_sha256": "077e261a89d3a9bf40e8256c0f67fb07a7e4ebc557cf7a6cd2db52060d042df0",
+  "training_profile_sha256": "1748b4716aa5b560b489ff235ed3f24b76da94dfda5a5c6d674f717d4571e668",
+  "recipe": "emulator-performance --new-code-address 0x80000 -- --funcs-no-regex=strncmp",
+  "selection_basis": "The queued training showed qstr_find_strn to strncmp among the most frequent cross-page transfers. The broad optimizer rejected functions with observable literal slot addresses.",
+  "cold": "cold/result.json",
+  "executed_code": "executed-layout.json",
+  "warm_qualification": "tracked separately by deployment",
+  "stock_cold": "stock/result.json",
+  "editor_only_execution": "../firmbolt-narrow/editor-trace/attribution.json",
+  "retained_relocation_section": ".rel.text sh_info refers to .bolt.org.text (section index 1)",
+  "previous_load_equivalence": "load-equivalence.json",
+  "editor_only_execution_scope": "Earlier ELF with identical PT_LOADs, independent evidence for this ELF in diagnostic/",
+  "native_board_fastdyn": "fastdyn/result.json",
+  "offline_cost": "optimizer-cost.json",
+  "broad_refusal": "../firmbolt-final-broad/firmbolt.log"
+}

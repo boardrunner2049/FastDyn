@@ -111,6 +111,8 @@ typedef struct {
     double pwm[4];
     bool pwm_dirty;
     bool initialized;
+    FILE *plant_trace;
+    double next_trace_s;
     fmu_value_refs_t vr;
 } fmu_state_t;
 
@@ -500,6 +502,17 @@ static int fmu_backend_init(void)
 
     fmu_state.time_s = 0.0;
     fmu_state.initialized = true;
+    const char *trace_path = getenv("FASTDYN_FMU_PLANT_TRACE");
+    if (trace_path && *trace_path) {
+        fmu_state.plant_trace = fopen(trace_path, "wx");
+        if (!fmu_state.plant_trace) {
+            perror("opening FASTDYN_FMU_PLANT_TRACE");
+            goto fail;
+        }
+        fmu_state.next_trace_s = 0.0;
+        setvbuf(fmu_state.plant_trace, NULL, _IOLBF, 0);
+        fprintf(fmu_state.plant_trace, "sim_s,lat_deg,lon_deg,alt_wgs84_m,vn_mps,ve_mps,vd_mps,yaw_deg,pwm0,pwm1,pwm2,pwm3\n");
+    }
     printf("FMU backend loaded: %s\n", so_path);
     if (fmu_profile_enabled()) {
         double now = wall_time_s();
@@ -517,6 +530,10 @@ fail:
 
 static void fmu_backend_shutdown(void)
 {
+    if (fmu_state.plant_trace) {
+        fclose(fmu_state.plant_trace);
+        fmu_state.plant_trace = NULL;
+    }
     if (fmu_state.instance != NULL) {
         if (fmu_state.initialized && fmu_state.terminate != NULL) {
             fmu_state.terminate(fmu_state.instance);
@@ -582,6 +599,19 @@ static int fmu_get_navsat_reading(gps_data_t *gps_data)
     gps_data->sec = (uint64_t)floor(fmu_state.time_s);
     gps_data->nsec = (uint32_t)((fmu_state.time_s - floor(fmu_state.time_s)) * 1.0e9);
     gps_data->yaw_deg = (float)yaw_deg;
+    // Sample the actual FMI outputs before either firmware adapter sees them.
+    // Reuse this sensor read so tracing cannot change the solver's call order.
+    if (fmu_state.plant_trace && fmu_state.time_s >= fmu_state.next_trace_s) {
+        if (fprintf(fmu_state.plant_trace,
+                    "%.9f,%.9f,%.9f,%.6f,%.6f,%.6f,%.6f,%.6f,%.0f,%.0f,%.0f,%.0f\n",
+                    fmu_state.time_s, gps[0], gps[1], gps[2], vel[0], vel[1], vel[2],
+                    yaw_deg, fmu_state.pwm[0], fmu_state.pwm[1], fmu_state.pwm[2],
+                    fmu_state.pwm[3]) < 0) {
+            perror("writing FASTDYN_FMU_PLANT_TRACE");
+            return 0;
+        }
+        fmu_state.next_trace_s = fmu_state.time_s + 0.1;
+    }
     return 1;
 }
 

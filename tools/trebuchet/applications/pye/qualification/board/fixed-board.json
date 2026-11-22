@@ -1,0 +1,14 @@
+{
+  "qemu": "/workspace/trebuchet-work/pye/runner-build/qemu-system-arm",
+  "qemu_sha256": "e9e6dad2bd4da965174883a509db873422723a4db09be2c26ce855f382a162b8",
+  "regions": {
+    "ssram": "mps.ssram23",
+    "reserved_gap": "fakeram",
+    "psram": "psram",
+    "uart": "uart"
+  },
+  "marker_hex": "50594550524f4d31",
+  "observed_hex": "50594550524f4d31",
+  "psram_visible": true,
+  "verdict": "PASS"
+}

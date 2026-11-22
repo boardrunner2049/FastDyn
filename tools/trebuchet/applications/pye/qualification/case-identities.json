@@ -1,0 +1,51 @@
+{
+  "annotate-teensy-import": {
+    "expected_output_sha256": "250a5f9a8040385326068f3688dd2ff95cf586322161af09242eaa08178ae2a2",
+    "input_sha256": "216a194cd8e95a6a4fb5e2690bdd453588507240c684809bb86a278c70c4bba2",
+    "keys_sha256": "6b1e907481ac5ab6a080a84799f78c85563c810d248d9d9b765c0ec37d2a9ecd",
+    "role": "confirmation",
+    "romfs_sha256": "ff83baa52ff1a52c753a62c7df0bd783f9ed3cd66e5ba3a48f4665c9e18c1aba"
+  },
+  "clarify-unix-platforms": {
+    "expected_output_sha256": "24c223cdb3c3b516cb3f549a9b55303b942b8d873c268e45ac9c9461ecd1ec8f",
+    "input_sha256": "0b441eec4f4daf5c09e4ae87bee6ff434d8386c6688d80da6ef043074f5af1c5",
+    "keys_sha256": "a58603fab78215c905a85c9528da339ad5cac84eac95da003817e26961f189f0",
+    "role": "pre-change-confirmation",
+    "romfs_sha256": "d46d22a050550a42f0f9bac384c1abc7d8338df9a2427daea19ce6828d37de9a"
+  },
+  "fix-display-setup-instructions": {
+    "expected_output_sha256": "a6f92b85be07f5ab55d0c4201775e3b0adf64659394aafcd35523bb29b56971c",
+    "input_sha256": "87cc1d6dd3b4c6ad251bdd43548ce42d755e1644e91924f0332e7dd3fec4c438",
+    "keys_sha256": "1530ed73565d3f9f7489bf7f74803f0a11982d9d92abf19748a9402d056b5b96",
+    "role": "ranking",
+    "romfs_sha256": "a43de0f6987f2c99827f8b4f722f1f41525171030d858615385298b28d680919"
+  },
+  "proofread-editor-manual": {
+    "expected_output_sha256": "6cdcf652d7cdd8722056dcdf898c1783335bbd7abbe4efdc1d59e2723cdf855f",
+    "input_sha256": "df805fc9c5fa1a14c8bed287eb92ffbcda6f3c889ef9c56f2123936bea2d4b67",
+    "keys_sha256": "6ef6c1eaf56fd6ea65e3131d0efa68929b4419c5dabd2e9b79e86e4d980b6f7d",
+    "role": "final",
+    "romfs_sha256": "610851a24487676f5ebbb703fa736421de35c50ff6533e088caad90328563405"
+  },
+  "repair-packaging-shebang": {
+    "expected_output_sha256": "57663a695ef8ab437387d6c3aac6d4bd3ba8856e7b6d5d4515d314f54ba42133",
+    "input_sha256": "fd3dddd5bfe66e18256a1a6aa60c34519c9a3c52ccb1d7657af8e627ed4d2ebb",
+    "keys_sha256": "5ca45c84a4a0c89551cd50b2f4cebde83ffbb50668b88dc3291ef2e9d2e2af4f",
+    "role": "promotion",
+    "romfs_sha256": "b29f9eaf1cef37071cdcbccbd5b7dcef52a5d6a823379cb9a99cb6a4eb7358c5"
+  },
+  "rotate-lcd-display": {
+    "expected_output_sha256": "6bf953440d92687bbcc441c9ca4ec3d21a6fee5935e4439045dd9b6cef4d24a9",
+    "input_sha256": "0094d20da625c6d2bbd6dbc5348575bc27fae47e3166b7d58c4bbbf3748502bf",
+    "keys_sha256": "2216f882697d3b8b0a4639e1336d77ba57c151e77b244e9f0db328658f6ddb20",
+    "role": "pre-change-ranking",
+    "romfs_sha256": "c3c93e2158a527df17d4138fa633e9c5c9eac24f665b53fdee756dcb1dea0cbf"
+  },
+  "update-package-version": {
+    "expected_output_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+    "input_sha256": "ef3df11c18d8d937dad3cc56f9f43904168d91b8e4cd7f8a7e40a3b8fa90f512",
+    "keys_sha256": "cf216d7dc0ac75f475af9742b69ce3d2739af3b8aac564e2bfc80824b958187e",
+    "role": "training",
+    "romfs_sha256": "2b5f2b29884e2d15390a60f2cb5b58ebc5fee0bca5e3021f61a9b38f76157124"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "verdict": "PASS",
+  "case": "update-package-version",
+  "role": "training",
+  "elapsed_ns": 95311693,
+  "returned_bytes": 166,
+  "returned_lines": 8,
+  "returned_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "uart_sha256": "a75c0aab30ca76a5a0f8d3f30bd817df0e17508a7ec55f51a330aab8b270a56a",
+  "expected_output_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "keys_sha256": "cf216d7dc0ac75f475af9742b69ce3d2739af3b8aac564e2bfc80824b958187e",
+  "romfs_sha256": "2b5f2b29884e2d15390a60f2cb5b58ebc5fee0bca5e3021f61a9b38f76157124",
+  "ui_prompt": "Replace (yes/No/all/quit) ?"
+}
