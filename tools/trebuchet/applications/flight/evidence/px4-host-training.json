@@ -1,0 +1,278 @@
+{
+  "run": 44995359989,
+  "head": "60b4b6d5fd29d1593430369b33ed7dc25deda0f6",
+  "raw": "/workspace/trebuchet-work/flight/release-px4-host-training",
+  "setup_only": [
+    44995147052,
+    44995171443
+  ],
+  "deleted_runs": [
+    44995147052,
+    44995171443,
+    44995359989
+  ],
+  "artifacts": [
+    {
+      "id": 14744000555,
+      "name": "px4-training-original-00",
+      "size_in_bytes": 18637712,
+      "digest": "sha256:1abc7be103b3210ed68bf20530975e9eb3570a8ec54b50de23d6ae3b87924750"
+    },
+    {
+      "id": 14743960782,
+      "name": "px4-training-original-observations",
+      "size_in_bytes": 1208415,
+      "digest": "sha256:8cce5d3601fa43038a263a3fb39399a0c653b9449a78fd20fbe6349dd164ed62"
+    },
+    {
+      "id": 14743722067,
+      "name": "px4-training-firmbolt-01",
+      "size_in_bytes": 18697992,
+      "digest": "sha256:75637aee4cdca2a623dcbc54a03f0c2183150a350172b3b02fc328dca9b08356"
+    },
+    {
+      "id": 14743564070,
+      "name": "px4-training-original-02",
+      "size_in_bytes": 10210551,
+      "digest": "sha256:b52165e1ec84e668cf13849344683ec8bc3f826f738f94be9ea49715da4e5931"
+    },
+    {
+      "id": 14743399535,
+      "name": "px4-training-original-01",
+      "size_in_bytes": 18751318,
+      "digest": "sha256:a8a80cd8e42b86b1b1b61f26995ab9c8869190dc4b4f99a8d598faedd1ce670d"
+    },
+    {
+      "id": 14743163449,
+      "name": "px4-training-firmbolt-02",
+      "size_in_bytes": 15072114,
+      "digest": "sha256:20469a533721c7308ab3f29f65c70f467a8adc07fdd8deeaccb51f64b7112be8"
+    },
+    {
+      "id": 14743138292,
+      "name": "px4-training-firmbolt-00",
+      "size_in_bytes": 18631781,
+      "digest": "sha256:6525dbabd46a164bd3775d7e8865231d93a87b0420a7bebb2b9c0f6c13a7896f"
+    },
+    {
+      "id": 14742869208,
+      "name": "px4-training-firmbolt-observations",
+      "size_in_bytes": 1167208,
+      "digest": "sha256:d900a3a75d891fb2758c17a6a9f2427c4b4aa37d391453c7816da41ec56891b4"
+    }
+  ],
+  "images": {
+    "original": {
+      "missions": {
+        "guest_sha256": "54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347",
+        "frozen": {
+          "cache_sha256": "24701b04b7d620977cd9f5cbaf244a6653dcb9658c876197f88ddbed71dd4e8c",
+          "logical_bytes": 2152491992,
+          "fastdyn_manifest_sha256": "22e6a31e425fa7287666f40e7dfd4a5fe3c5a2088c77814bdb1c2a6cd4905245"
+        },
+        "phases": {
+          "cold": {
+            "plant_samples": 595,
+            "plant_elapsed_s": 74.379,
+            "telemetry_positions": 253,
+            "telemetry_attitudes": 279,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "population": {
+            "plant_samples": 607,
+            "plant_elapsed_s": 75.879,
+            "telemetry_positions": 260,
+            "telemetry_attitudes": 284,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "profiled": {
+            "plant_samples": 555,
+            "plant_elapsed_s": 69.382,
+            "telemetry_positions": 236,
+            "telemetry_attitudes": 253,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          }
+        },
+        "stage": "profile admission",
+        "flow": null,
+        "rewrite": null,
+        "error": "schema: collection/inputs/0/split: 'training' is not one of ['train', 'heldout', 'final']",
+        "profile_header": {
+          "loaded_record_count": 47527,
+          "loaded_header_checksum": 1031011609920246533,
+          "clean_exit": true,
+          "tb_overflow": false,
+          "edge_overflow": false
+        }
+      },
+      "profile": {
+        "raw_inputs": {
+          "training.qprof": "951b2662769874cc254e114723d2c93d55fe9f4c61d958050c55cf8018a61481",
+          "training.scm": "d638c9e8692f4070f6d8a2fabe422cca9d8cbfff04297d59b2f39aea9af9a6c7"
+        },
+        "receipt_error": "schema: collection/inputs/0/split: 'training' is not one of ['train', 'heldout', 'final']",
+        "bundle_id": "sha256:89a2a65bcc89a70021e69407603540c544cab78c2c23a69acfdb91e495423f29",
+        "runtime_identity_id": "sha256:e66d28264134551af73e2859d40a9c86cefac526e116c94ce584b7e113b76233",
+        "snapshot_id": "sha256:b29b4abf806fabb26e8dc5c8895d78a38aea2943c859ef38a5cf54435dfebc4a",
+        "profile_id": "sha256:76dbe2ae29eb5aa1bccc8bd9501f29ce5669f087690aec05d669be2096f01c28",
+        "header": {
+          "version": 1,
+          "code_address": "0x7fff70000000",
+          "runtime_signature": "0xf213ae83a1e27747",
+          "loaded_record_count": 47527,
+          "loaded_max_end": "0x2471600",
+          "loaded_header_checksum": "0xe4ee398c0999305",
+          "n_phases": 2,
+          "flags": "0x1",
+          "clean_exit": true,
+          "tb_overflow": false,
+          "edge_overflow": false,
+          "n_tb_rows": 46698,
+          "n_edge_rows": 93065,
+          "total_dispatches": 911685212,
+          "created_realtime_ns": 1795330408599052652
+        },
+        "phases": [
+          {
+            "first_dispatch_index": 0,
+            "id": 0,
+            "marker": null,
+            "match": "exact_start",
+            "name": "boot",
+            "reached": true
+          },
+          {
+            "first_dispatch_index": 10106675,
+            "id": 1,
+            "marker": "0x808cb04",
+            "match": "exact_start",
+            "name": "steady",
+            "reached": true
+          }
+        ],
+        "flow": {
+          "ok": true,
+          "exact": true,
+          "violations": [],
+          "nodes": 54204,
+          "runs": 1,
+          "first_edges": 1,
+          "last_nodes": [
+            "tb:0c3cf1c38e966a977c789cda5f1c716c#0"
+          ]
+        },
+        "captured_tbs": 47527,
+        "replay_appends": 6676
+      }
+    },
+    "firmbolt": {
+      "missions": {
+        "guest_sha256": "1bcb49a3337553e58f37d1d84fe4d3596a6ddcec822edb112832492c971a1255",
+        "frozen": {
+          "cache_sha256": "5fc5890b4646858939b1f3b1a9da71b008b7d74fec2072087adeea36806cedde",
+          "logical_bytes": 2152529432,
+          "fastdyn_manifest_sha256": "311a7a0f54325519615ab7887db64a1518b2ad92ff08e4c3d0282d98e93232d9"
+        },
+        "phases": {
+          "cold": {
+            "plant_samples": 592,
+            "plant_elapsed_s": 73.875,
+            "telemetry_positions": 251,
+            "telemetry_attitudes": 278,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "population": {
+            "plant_samples": 580,
+            "plant_elapsed_s": 72.375,
+            "telemetry_positions": 246,
+            "telemetry_attitudes": 270,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "profiled": {
+            "plant_samples": 529,
+            "plant_elapsed_s": 66.0,
+            "telemetry_positions": 221,
+            "telemetry_attitudes": 240,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          }
+        },
+        "stage": "profile admission",
+        "flow": null,
+        "rewrite": null,
+        "error": "schema: collection/inputs/0/split: 'training' is not one of ['train', 'heldout', 'final']",
+        "profile_header": {
+          "loaded_record_count": 47887,
+          "loaded_header_checksum": 15989054384027336796,
+          "clean_exit": true,
+          "tb_overflow": false,
+          "edge_overflow": false
+        }
+      },
+      "profile": {
+        "raw_inputs": {
+          "training.qprof": "5fbfe0bdd1620d5dc5ea7cdd3eb2d9a11b7af04edbd562fc24b8b6ee8be6595a",
+          "training.scm": "be820b7f02339ea70172de7bd8e2d979c559d4e0fc662f23aa06b27ea3855159"
+        },
+        "receipt_error": "schema: collection/inputs/0/split: 'training' is not one of ['train', 'heldout', 'final']",
+        "bundle_id": "sha256:f7a500754a4ccf2230d10a04d047a6e98dd8624427f5101b55303677a4b6f96f",
+        "runtime_identity_id": "sha256:59cffabf69c00467f43720af4002644012bdccd1de4e6ddaf3b7137aac8415ec",
+        "snapshot_id": "sha256:a53797a55d8b105516c6babee390322f3e1c43e074a41461fcfb9c83dbbf3168",
+        "profile_id": "sha256:b2e9ee50bccd8fdc0721e9f02fb5aefd4c6e285b68589bac7faed63e6d34f59d",
+        "header": {
+          "version": 1,
+          "code_address": "0x7fff70000000",
+          "runtime_signature": "0x8fff733dd8f58c0b",
+          "loaded_record_count": 47887,
+          "loaded_max_end": "0x2779b70",
+          "loaded_header_checksum": "0xdde4883fa65a005c",
+          "n_phases": 2,
+          "flags": "0x1",
+          "clean_exit": true,
+          "tb_overflow": false,
+          "edge_overflow": false,
+          "n_tb_rows": 46782,
+          "n_edge_rows": 92824,
+          "total_dispatches": 868848639,
+          "created_realtime_ns": 1795330408372073534
+        },
+        "phases": [
+          {
+            "first_dispatch_index": 0,
+            "id": 0,
+            "marker": null,
+            "match": "exact_start",
+            "name": "boot",
+            "reached": true
+          },
+          {
+            "first_dispatch_index": 10097429,
+            "id": 1,
+            "marker": "0x808cb04",
+            "match": "exact_start",
+            "name": "steady",
+            "reached": true
+          }
+        ],
+        "flow": {
+          "ok": true,
+          "exact": true,
+          "violations": [],
+          "nodes": 55271,
+          "runs": 1,
+          "first_edges": 1,
+          "last_nodes": [
+            "tb:071c0dea518ed96348eff690394f7f94#0"
+          ]
+        },
+        "captured_tbs": 47887,
+        "replay_appends": 7383
+      }
+    }
+  }
+}
