@@ -27,9 +27,18 @@ def point(unit, offset, prefix_len):
     return {"offset": offset, "expected_hex": unit.code[offset:offset + prefix_len].hex()}
 
 
-def plans(stage, snapshot, profile):
+def plans(stage, snapshot, profile, polymorphic=False):
     """Only static, independently decoded path locations from the reimported candidate."""
-    counts = {u["unit"]: u["phase"]["1"]["entries"] for u in profile["units"] if u["status"] == "exact"}
+    steady, = [p["id"] for p in profile["phases"] if p["name"] == "steady" and p["reached"]]
+    counts = {u["unit"]: u["phase"][str(steady)]["entries"] for u in profile["units"] if u["status"] == "exact"}
+    destination_pcs = {u["unit"]: u["vaddrs"][0] for u in profile["units"] if len(u["vaddrs"]) == 1}
+    lookups = {}
+    if polymorphic:
+        from collections import Counter
+        for edge in profile["edges"]:
+            if (edge["phase"] == steady and edge["kind"] == "lookup_hit" and edge["status"] == "exact"
+                    and not edge["flags"] and edge["dst"] in destination_pcs):
+                lookups.setdefault(edge["src"], Counter())[int(destination_pcs[edge["dst"]], 16)] += edge["count"]
     rows = []
     for u in snapshot.units():
         pc = u.vaddrs[0] if u.vaddrs else None
@@ -60,13 +69,38 @@ def plans(stage, snapshot, profile):
             while start < u.tc_size:
                 guard = decode_guard(u.code, start, tc_abs=base, struct_off=u.tb_offset - u.tc_offset,
                                      registered=registered)
-                if len(guard.slots) == 1 and guard.slots[0].registered:
+                if (polymorphic and start == u.stub_start and guard.end == u.tc_size
+                        and all(t.registered and t.kind == "GENERAL" for t in guard.slots)):
+                    traffic = lookups.get(u.uid, {})
+                    target_pcs = {t.vaddr for t in guard.slots}
+                    outside = sum(n for pc, n in traffic.items() if pc not in target_pcs)
+                    visits = [traffic.get(t.vaddr, 0) for t in guard.slots]
+                    if outside and all(visits):
+                        points = {"entry": point(u, start, 3), "fallback": point(u, guard.f_off, 3)}
+                        for index, target in enumerate(guard.slots):
+                            points[f"match{index}"] = point(u, target.jmp_off, 1)
+                        if len(guard.slots) == 1:
+                            points["reset"] = point(u, guard.slots[0].reset_off, 1)
+                        rows.append({**common, "kind": "mixed-general", "points": points,
+                                     "target_pcs": [hex(t.vaddr) for t in guard.slots],
+                                     "baseline_observed_target_hits": visits,
+                                     "baseline_observed_other_targets": outside})
+                elif not polymorphic and len(guard.slots) == 1 and guard.slots[0].registered:
                     target, = guard.slots
                     rows.append({**common, "kind": target.kind, "target_pc": hex(target.vaddr),
                                  "points": {"entry": point(u, start, 3), "match": point(u, target.jmp_off, 1),
                                             "reset": point(u, target.reset_off, 1), "fallback": point(u, guard.f_off, 3)}})
                 start = guard.end
     rows.sort(key=lambda r: (-r["training_entries"], r["unit"]))
+    if polymorphic:
+        rows.sort(key=lambda r: (-r["baseline_observed_other_targets"],
+                                 -sum(r["baseline_observed_target_hits"]), r["unit"]))
+        selected = []
+        for width in (1, 2):
+            match = next((r for r in rows if len(r["target_pcs"]) == width), None)
+            if match:
+                selected.append(match)
+        return selected
     if stage != "native":
         return [next(r for r in rows if r["kind"] == k and r["training_entries"] > 0)
                 for k in ("GENERAL", "SPEC")]
@@ -81,6 +115,14 @@ def summarize(plan, counts):
     if plan["kind"] == "udiv":
         require(counts["fast"] + counts["fallback"] == counts["entry"], "UDIV paths do not conserve")
         return {"nonzero_inline": counts["fast"], "zero_helper_calls": counts["fallback"]}
+    if plan["kind"] == "mixed-general":
+        matches = [counts[f"match{i}"] for i in range(len(plan["target_pcs"]))]
+        require(sum(matches) + counts["fallback"] == counts["entry"], "GENERAL target paths do not conserve")
+        paths = {"target_matches": matches, "predicate_missed": counts["fallback"]}
+        if "reset" in counts:
+            require(counts["reset"] <= matches[0], "reset exceeds matched exits")
+            paths.update(matched_unlinked=counts["reset"], matched_linked=matches[0] - counts["reset"])
+        return paths
     matched, reset = counts["match"], counts["reset"]
     missed = counts["entry"] - matched
     require(0 <= reset <= matched <= counts["entry"], "guard entry and slot counts disagree")
@@ -131,7 +173,7 @@ def replay(out, image, artifact, plan):
             "debugger_wall_seconds": time.monotonic() - start, **frozen_append_counts(result)}
 
 
-def run(work, out):
+def run(work, out, polymorphic=False):
     out.mkdir()
     qemu = ROOT / "third_party/common/qemu/build/qemu-system-arm"
     elf = work / "product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf"
@@ -146,13 +188,20 @@ def run(work, out):
     snap, prof = validate_image(image)
     parent = {"snapshot": image["snapshot"], "snapshot_id": snap.snapshot_id, "artifact": image["snapshot"],
               "ancestry": [], "generations": []}
-    for stage, options in (("native", {"host-inline": {"mode": "splice", "allow_faulting": True,
-                                                        "udiv_mode": "guarded"}}), ("b3", {})):
+    stages = (("native", {"host-inline": {"mode": "splice", "allow_faulting": True,
+                                                        "udiv_mode": "guarded"}}), ("b3", {}))
+    for stage, options in stages:
+        if polymorphic and stage != "b3":
+            continue
         receipts = report["stages"][stage] = {"rows": []}
         try:
             gen = materialize(stage, parent, image, out / stage, options, 1200)
             receipts.update(input_snapshot=snap.snapshot_id, snapshot=gen["snapshot_id"], profile=prof.profile_id)
-            for k, plan in enumerate(plans(stage, open_snapshot(gen["snapshot"]), prof.doc)):
+            selected = plans(stage, open_snapshot(gen["snapshot"]), prof.doc, polymorphic)
+            if polymorphic:
+                widths = {len(plan["target_pcs"]) for plan in selected}
+                receipts["unavailable_target_widths"] = sorted({1, 2} - widths)
+            for k, plan in enumerate(selected):
                 row = {"plan": plan}
                 receipts["rows"].append(row)
                 dest = out / f"observe-{stage}-{k}"
@@ -174,5 +223,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("work", type=Path)
     p.add_argument("out", type=Path)
+    p.add_argument("--polymorphic-only", action="store_true")
     args = p.parse_args()
-    run(args.work.resolve(), args.out.resolve())
+    run(args.work.resolve(), args.out.resolve(), args.polymorphic_only)

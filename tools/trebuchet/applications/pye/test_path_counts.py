@@ -65,3 +65,11 @@ done:
     assert observed["exit_code"] == 0 and observed["errors"] == []
     assert observed["counts"] == dict(entry=8, loop_body=7, unreached=0, done=1)
     assert observed["checked"] == {key: prefix for key, prefix in prefixes.items() if key != "unreached"}
+
+
+def test_polymorphic_two_targets_have_distinct_matched_paths():
+    counts = dict(entry=100, match0=51, match1=25, fallback=24)
+    plan = dict(kind="mixed-general", points=counts, target_pcs=["0x10", "0x14"])
+    assert summarize(plan, counts) == {"target_matches": [51, 25], "predicate_missed": 24}
+    with pytest.raises(ValueError, match="conserve"):
+        summarize(plan, {**counts, "fallback": 23})
