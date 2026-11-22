@@ -1,0 +1,74 @@
+{
+ "aliases": {
+  "warm": "warm",
+  "compacted": "compacted",
+  "continuity": "continuity"
+ },
+ "warmup": [
+  "warm",
+  "compacted",
+  "continuity"
+ ],
+ "scored": [
+  [
+   "warm",
+   "continuity",
+   "compacted"
+  ],
+  [
+   "compacted",
+   "warm",
+   "continuity"
+  ],
+  [
+   "compacted",
+   "continuity",
+   "warm"
+  ],
+  [
+   "warm",
+   "compacted",
+   "continuity"
+  ],
+  [
+   "warm",
+   "compacted",
+   "continuity"
+  ],
+  [
+   "continuity",
+   "compacted",
+   "warm"
+  ],
+  [
+   "compacted",
+   "continuity",
+   "warm"
+  ],
+  [
+   "continuity",
+   "warm",
+   "compacted"
+  ],
+  [
+   "continuity",
+   "warm",
+   "compacted"
+  ],
+  [
+   "compacted",
+   "warm",
+   "continuity"
+  ],
+  [
+   "continuity",
+   "compacted",
+   "warm"
+  ],
+  [
+   "warm",
+   "continuity",
+   "compacted"
+  ]
+ ]
+}

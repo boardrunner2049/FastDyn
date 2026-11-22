@@ -1,0 +1,54 @@
+{
+  "group": "native",
+  "document_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "verified_launches": 78,
+  "rejections": [],
+  "scored_blocks": 12,
+  "contrasts": {
+    "warm/guarded": "complete",
+    "guarded/cleanup": "complete",
+    "guarded/guarded-general": "complete",
+    "cleanup/cleanup-general": "complete",
+    "guarded-general/cleanup-general": "complete",
+    "cleanup/partial": "complete",
+    "guarded/partial": "complete"
+  },
+  "median_phase_costs": {
+    "guarded": {
+      "fastdyn_pre_qemu_ns": 3240642.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 519850.5,
+      "bank_stage_ns": 435569.5
+    },
+    "guarded-general": {
+      "fastdyn_pre_qemu_ns": 3283570.5,
+      "late_translations": 2.0,
+      "ram_reset_ns": 504312.0,
+      "bank_stage_ns": 429458.5
+    },
+    "warm": {
+      "fastdyn_pre_qemu_ns": 3284668.5,
+      "late_translations": 2.0,
+      "ram_reset_ns": 523429.0,
+      "bank_stage_ns": 438264.5
+    },
+    "partial": {
+      "fastdyn_pre_qemu_ns": 3270260.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 520326.5,
+      "bank_stage_ns": 441993.5
+    },
+    "cleanup-general": {
+      "fastdyn_pre_qemu_ns": 3261378.5,
+      "late_translations": 3.5,
+      "ram_reset_ns": 509407.0,
+      "bank_stage_ns": 440119.5
+    },
+    "cleanup": {
+      "fastdyn_pre_qemu_ns": 3256255.0,
+      "late_translations": 4.0,
+      "ram_reset_ns": 517445.0,
+      "bank_stage_ns": 435466.5
+    }
+  }
+}

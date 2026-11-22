@@ -1,0 +1,92 @@
+{
+  "group": "layout-bridge",
+  "document_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "verified_launches": 156,
+  "rejections": [],
+  "scored_blocks": 12,
+  "contrasts": {
+    "warm/ph": "complete",
+    "warm/llvm": "complete",
+    "ph/llvm": "complete",
+    "warm/page-local": "complete",
+    "b3/b3-ph": "complete",
+    "b3/b3-llvm": "complete",
+    "b3-ph/b3-llvm": "complete",
+    "sfb-b3/sfb-b3-ph": "complete",
+    "regular-one/regular-two": "complete"
+  },
+  "median_phase_costs": {
+    "b3-llvm": {
+      "fastdyn_pre_qemu_ns": 3231860.5,
+      "late_translations": 2.0,
+      "ram_reset_ns": 524637.0,
+      "bank_stage_ns": 426675.0
+    },
+    "llvm": {
+      "fastdyn_pre_qemu_ns": 3247112.5,
+      "late_translations": 2.0,
+      "ram_reset_ns": 507611.0,
+      "bank_stage_ns": 432114.5
+    },
+    "sfb-b3-ph": {
+      "fastdyn_pre_qemu_ns": 3237911.5,
+      "late_translations": 2.0,
+      "ram_reset_ns": 503258.5,
+      "bank_stage_ns": 436637.0
+    },
+    "ph": {
+      "fastdyn_pre_qemu_ns": 3232348.0,
+      "late_translations": 4.0,
+      "ram_reset_ns": 499786.0,
+      "bank_stage_ns": 439885.5
+    },
+    "b3-ph": {
+      "fastdyn_pre_qemu_ns": 3229505.5,
+      "late_translations": 3.0,
+      "ram_reset_ns": 518203.0,
+      "bank_stage_ns": 428569.0
+    },
+    "b3": {
+      "fastdyn_pre_qemu_ns": 3250872.0,
+      "late_translations": 3.0,
+      "ram_reset_ns": 509910.0,
+      "bank_stage_ns": 428130.5
+    },
+    "sfb": {
+      "fastdyn_pre_qemu_ns": 3253990.5,
+      "late_translations": 5.5,
+      "ram_reset_ns": 507918.0,
+      "bank_stage_ns": 435157.5
+    },
+    "regular-one": {
+      "fastdyn_pre_qemu_ns": 3238716.0,
+      "late_translations": 3.0,
+      "ram_reset_ns": 507635.5,
+      "bank_stage_ns": 430013.5
+    },
+    "regular-two": {
+      "fastdyn_pre_qemu_ns": 3306607.0,
+      "late_translations": 4.0,
+      "ram_reset_ns": 518703.0,
+      "bank_stage_ns": 434043.0
+    },
+    "warm": {
+      "fastdyn_pre_qemu_ns": 3244045.0,
+      "late_translations": 4.0,
+      "ram_reset_ns": 527000.0,
+      "bank_stage_ns": 440116.0
+    },
+    "page-local": {
+      "fastdyn_pre_qemu_ns": 3241474.0,
+      "late_translations": 4.0,
+      "ram_reset_ns": 512275.0,
+      "bank_stage_ns": 447429.5
+    },
+    "sfb-b3": {
+      "fastdyn_pre_qemu_ns": 3251514.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 501349.5,
+      "bank_stage_ns": 440884.5
+    }
+  }
+}

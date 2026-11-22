@@ -1,0 +1,558 @@
+{
+  "schema": "trebuchet.pye-training-contrasts/1",
+  "case": "update-package-version",
+  "role": "training",
+  "track": "frozen preparation, fresh private inventory copy for every launch",
+  "timing": {
+    "primary": "queued UART release through editor return marker, ns",
+    "blocks": 12,
+    "warmup_blocks": 1,
+    "seed": 92177,
+    "order": "six seeded permutations shuffled together with their reverses; all available arms once per block",
+    "interval": "2000 paired block-bootstrap resamples, median operational latency ratios",
+    "failure": "exclude incomplete arms, preserve every attempted observation; no promotion"
+  },
+  "preparation": {
+    "sweeps": 8,
+    "stable_sweeps": 2
+  },
+  "offline_seconds_per_group": 3200,
+  "per_stage_limit_seconds": 650,
+  "groups": {
+    "chains-sfb": {
+      "arms": [
+        {
+          "name": "static",
+          "parent": "warm",
+          "stage": "static",
+          "params": {}
+        },
+        {
+          "name": "returns",
+          "parent": "warm",
+          "stage": "returns",
+          "params": {}
+        },
+        {
+          "name": "regular",
+          "parent": "warm",
+          "stage": "general",
+          "params": {
+            "chain-returns": {
+              "rank_by_net_work": true,
+              "max_total_growth_bytes": 8192,
+              "targets_per_exit": 1
+            },
+            "chain-static": {
+              "rank_by_net_work": true,
+              "max_total_growth_bytes": 8192,
+              "targets_per_exit": 1
+            }
+          }
+        },
+        {
+          "name": "compact",
+          "parent": "warm",
+          "stage": "general",
+          "params": {
+            "chain-returns": {
+              "rank_by_net_work": true,
+              "max_total_growth_bytes": 8192,
+              "targets_per_exit": 1,
+              "compact_guard": true
+            },
+            "chain-static": {
+              "rank_by_net_work": true,
+              "max_total_growth_bytes": 8192,
+              "targets_per_exit": 1,
+              "compact_guard": true
+            }
+          }
+        },
+        {
+          "name": "b3",
+          "parent": "warm",
+          "stage": "b3",
+          "params": {}
+        },
+        {
+          "name": "all",
+          "parent": "warm",
+          "stage": "sfb",
+          "params": {}
+        },
+        {
+          "name": "hot50",
+          "parent": "warm",
+          "stage": "sfb-hot",
+          "params": {
+            "entry_coverage": 50,
+            "max_growth_bytes": 16384,
+            "max_moved_units": 256
+          }
+        },
+        {
+          "name": "hot90",
+          "parent": "warm",
+          "stage": "sfb-hot",
+          "params": {
+            "entry_coverage": 90,
+            "max_growth_bytes": 16384,
+            "max_moved_units": 256
+          }
+        },
+        {
+          "name": "all-b3",
+          "parent": "all",
+          "stage": "b3",
+          "params": {}
+        },
+        {
+          "name": "hot90-b3",
+          "parent": "hot90",
+          "stage": "b3",
+          "params": {}
+        }
+      ],
+      "contrasts": [
+        [
+          "warm",
+          "static"
+        ],
+        [
+          "warm",
+          "returns"
+        ],
+        [
+          "warm",
+          "regular"
+        ],
+        [
+          "warm",
+          "compact"
+        ],
+        [
+          "warm",
+          "b3"
+        ],
+        [
+          "warm",
+          "all"
+        ],
+        [
+          "warm",
+          "hot50"
+        ],
+        [
+          "warm",
+          "hot90"
+        ],
+        [
+          "regular",
+          "compact"
+        ],
+        [
+          "b3",
+          "compact"
+        ],
+        [
+          "all",
+          "hot50"
+        ],
+        [
+          "all",
+          "hot90"
+        ],
+        [
+          "all-b3",
+          "hot90-b3"
+        ],
+        [
+          "hot90",
+          "hot90-b3"
+        ]
+      ]
+    },
+    "composition": {
+      "arms": [
+        {
+          "name": "b4",
+          "parent": "warm",
+          "stage": "b4",
+          "params": {}
+        },
+        {
+          "name": "coalesce",
+          "parent": "warm",
+          "stage": "b4-coalesce",
+          "params": {}
+        },
+        {
+          "name": "absorb",
+          "parent": "warm",
+          "stage": "b4-absorb",
+          "params": {}
+        },
+        {
+          "name": "b4-b3",
+          "parent": "b4",
+          "stage": "b3",
+          "params": {}
+        },
+        {
+          "name": "hot90",
+          "parent": "warm",
+          "stage": "sfb-hot",
+          "params": {
+            "entry_coverage": 90,
+            "max_growth_bytes": 16384,
+            "max_moved_units": 256
+          }
+        },
+        {
+          "name": "hot90-b4",
+          "parent": "hot90",
+          "stage": "b4",
+          "params": {}
+        },
+        {
+          "name": "hot90-b4-b3",
+          "parent": "hot90-b4",
+          "stage": "b3",
+          "params": {}
+        },
+        {
+          "name": "b3",
+          "parent": "warm",
+          "stage": "b3",
+          "params": {}
+        },
+        {
+          "name": "ph",
+          "parent": "warm",
+          "stage": "ph",
+          "params": {}
+        },
+        {
+          "name": "b3-ph",
+          "parent": "warm",
+          "stage": "b3-ph",
+          "params": {}
+        },
+        {
+          "name": "scalar",
+          "parent": "warm",
+          "stage": "scalar",
+          "params": {}
+        },
+        {
+          "name": "global",
+          "parent": "warm",
+          "stage": "global-region",
+          "params": {}
+        },
+        {
+          "name": "scalar-global",
+          "parent": "scalar",
+          "stage": "global-region",
+          "params": {}
+        }
+      ],
+      "contrasts": [
+        [
+          "warm",
+          "b4"
+        ],
+        [
+          "b4",
+          "coalesce"
+        ],
+        [
+          "b4",
+          "absorb"
+        ],
+        [
+          "b4",
+          "b4-b3"
+        ],
+        [
+          "b3",
+          "b4-b3"
+        ],
+        [
+          "hot90",
+          "hot90-b4"
+        ],
+        [
+          "hot90-b4",
+          "hot90-b4-b3"
+        ],
+        [
+          "warm",
+          "ph"
+        ],
+        [
+          "b3",
+          "b3-ph"
+        ],
+        [
+          "warm",
+          "scalar"
+        ],
+        [
+          "warm",
+          "global"
+        ],
+        [
+          "scalar",
+          "scalar-global"
+        ],
+        [
+          "b3",
+          "scalar-global"
+        ]
+      ]
+    },
+    "native": {
+      "arms": [
+        {
+          "name": "guarded",
+          "parent": "warm",
+          "stage": "native",
+          "params": {
+            "host-inline": {
+              "mode": "splice",
+              "allow_faulting": true,
+              "udiv_mode": "guarded"
+            }
+          }
+        },
+        {
+          "name": "cleanup",
+          "parent": "warm",
+          "stage": "native",
+          "params": {
+            "host-inline": {
+              "mode": "splice",
+              "allow_faulting": true,
+              "udiv_mode": "cleanup"
+            }
+          }
+        },
+        {
+          "name": "partial",
+          "parent": "warm",
+          "stage": "native",
+          "params": {
+            "host-inline": {
+              "mode": "splice",
+              "allow_faulting": true,
+              "udiv_mode": "partial-cleanup"
+            }
+          }
+        },
+        {
+          "name": "guarded-general",
+          "parent": "guarded",
+          "stage": "general",
+          "params": {}
+        },
+        {
+          "name": "cleanup-general",
+          "parent": "cleanup",
+          "stage": "general",
+          "params": {}
+        }
+      ],
+      "contrasts": [
+        [
+          "warm",
+          "guarded"
+        ],
+        [
+          "guarded",
+          "cleanup"
+        ],
+        [
+          "guarded",
+          "guarded-general"
+        ],
+        [
+          "cleanup",
+          "cleanup-general"
+        ],
+        [
+          "guarded-general",
+          "cleanup-general"
+        ],
+        [
+          "cleanup",
+          "partial"
+        ],
+        [
+          "guarded",
+          "partial"
+        ]
+      ]
+    },
+    "integrated": {
+      "runtime": "pinned FastDyn QEMU plus PSRAM and dispatch-resolved direct-slot patches",
+      "arms": [
+        {
+          "name": "compacted",
+          "stage": "compact-nops",
+          "parent": "warm",
+          "params": {}
+        },
+        {
+          "name": "continuity",
+          "stage": "direct-slot",
+          "parent": "warm",
+          "params": {}
+        }
+      ],
+      "contrasts": [
+        [
+          "warm",
+          "compacted"
+        ],
+        [
+          "warm",
+          "continuity"
+        ]
+      ],
+      "activation_gate": "Untimed replay must verify the complete editor job, load one SC6 variant, arm the direct link, execute a variant exit and report zero invariant violations."
+    },
+    "layout-bridge": {
+      "offline_seconds": 1700,
+      "arms": [
+        {
+          "name": "ph",
+          "parent": "warm",
+          "stage": "ph",
+          "params": {}
+        },
+        {
+          "name": "llvm",
+          "parent": "warm",
+          "stage": "llvm",
+          "params": {}
+        },
+        {
+          "name": "page-local",
+          "parent": "warm",
+          "stage": "page-local",
+          "params": {}
+        },
+        {
+          "name": "b3",
+          "parent": "warm",
+          "stage": "b3",
+          "params": {}
+        },
+        {
+          "name": "b3-ph",
+          "parent": "warm",
+          "stage": "b3-ph",
+          "params": {}
+        },
+        {
+          "name": "b3-llvm",
+          "parent": "warm",
+          "stage": "b3-llvm",
+          "params": {}
+        },
+        {
+          "name": "sfb",
+          "parent": "warm",
+          "stage": "sfb",
+          "params": {}
+        },
+        {
+          "name": "sfb-b3",
+          "parent": "sfb",
+          "stage": "b3",
+          "params": {}
+        },
+        {
+          "name": "sfb-b3-ph",
+          "parent": "sfb",
+          "stage": "b3-ph",
+          "params": {}
+        },
+        {
+          "name": "regular-one",
+          "parent": "warm",
+          "stage": "general",
+          "params": {
+            "chain-returns": {
+              "targets_per_exit": 1,
+              "rank_by_net_work": true,
+              "max_total_growth_bytes": 8192
+            },
+            "chain-static": {
+              "targets_per_exit": 1,
+              "rank_by_net_work": true,
+              "max_total_growth_bytes": 8192
+            }
+          }
+        },
+        {
+          "name": "regular-two",
+          "parent": "warm",
+          "stage": "general",
+          "params": {
+            "chain-returns": {
+              "targets_per_exit": 2,
+              "rank_by_net_work": true,
+              "max_total_growth_bytes": 8192
+            },
+            "chain-static": {
+              "targets_per_exit": 2,
+              "rank_by_net_work": true,
+              "max_total_growth_bytes": 8192
+            }
+          }
+        }
+      ],
+      "contrasts": [
+        [
+          "warm",
+          "ph"
+        ],
+        [
+          "warm",
+          "llvm"
+        ],
+        [
+          "ph",
+          "llvm"
+        ],
+        [
+          "warm",
+          "page-local"
+        ],
+        [
+          "b3",
+          "b3-ph"
+        ],
+        [
+          "b3",
+          "b3-llvm"
+        ],
+        [
+          "b3-ph",
+          "b3-llvm"
+        ],
+        [
+          "sfb-b3",
+          "sfb-b3-ph"
+        ],
+        [
+          "regular-one",
+          "regular-two"
+        ]
+      ]
+    }
+  }
+}

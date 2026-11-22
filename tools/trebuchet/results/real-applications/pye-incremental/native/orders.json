@@ -1,0 +1,116 @@
+{
+ "aliases": {
+  "warm": "warm",
+  "guarded": "guarded",
+  "cleanup": "cleanup",
+  "partial": "partial",
+  "guarded-general": "guarded-general",
+  "cleanup-general": "cleanup-general"
+ },
+ "warmup": [
+  "warm",
+  "guarded",
+  "cleanup",
+  "partial",
+  "guarded-general",
+  "cleanup-general"
+ ],
+ "scored": [
+  [
+   "guarded",
+   "guarded-general",
+   "warm",
+   "partial",
+   "cleanup-general",
+   "cleanup"
+  ],
+  [
+   "cleanup",
+   "cleanup-general",
+   "guarded-general",
+   "warm",
+   "partial",
+   "guarded"
+  ],
+  [
+   "guarded",
+   "partial",
+   "warm",
+   "guarded-general",
+   "cleanup-general",
+   "cleanup"
+  ],
+  [
+   "partial",
+   "guarded-general",
+   "guarded",
+   "warm",
+   "cleanup",
+   "cleanup-general"
+  ],
+  [
+   "guarded-general",
+   "guarded",
+   "warm",
+   "cleanup",
+   "partial",
+   "cleanup-general"
+  ],
+  [
+   "cleanup",
+   "cleanup-general",
+   "partial",
+   "warm",
+   "guarded-general",
+   "guarded"
+  ],
+  [
+   "cleanup-general",
+   "guarded",
+   "warm",
+   "guarded-general",
+   "partial",
+   "cleanup"
+  ],
+  [
+   "cleanup-general",
+   "cleanup",
+   "warm",
+   "guarded",
+   "guarded-general",
+   "partial"
+  ],
+  [
+   "cleanup-general",
+   "partial",
+   "cleanup",
+   "warm",
+   "guarded",
+   "guarded-general"
+  ],
+  [
+   "cleanup",
+   "partial",
+   "guarded-general",
+   "warm",
+   "guarded",
+   "cleanup-general"
+  ],
+  [
+   "guarded-general",
+   "cleanup",
+   "guarded",
+   "partial",
+   "warm",
+   "cleanup-general"
+  ],
+  [
+   "cleanup-general",
+   "warm",
+   "partial",
+   "guarded",
+   "cleanup",
+   "guarded-general"
+  ]
+ ]
+}

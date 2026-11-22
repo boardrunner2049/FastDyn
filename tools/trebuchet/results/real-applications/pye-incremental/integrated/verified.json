@@ -1,0 +1,31 @@
+{
+  "group": "integrated",
+  "document_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "verified_launches": 39,
+  "rejections": [],
+  "scored_blocks": 12,
+  "contrasts": {
+    "warm/compacted": "complete",
+    "warm/continuity": "complete"
+  },
+  "median_phase_costs": {
+    "warm": {
+      "fastdyn_pre_qemu_ns": 4459454.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 680056.5,
+      "bank_stage_ns": 560485.0
+    },
+    "continuity": {
+      "fastdyn_pre_qemu_ns": 4411708.0,
+      "late_translations": 4.0,
+      "ram_reset_ns": 678587.0,
+      "bank_stage_ns": 557926.5
+    },
+    "compacted": {
+      "fastdyn_pre_qemu_ns": 4417705.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 698522.5,
+      "bank_stage_ns": 565263.5
+    }
+  }
+}

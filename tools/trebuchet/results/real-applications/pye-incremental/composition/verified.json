@@ -1,0 +1,108 @@
+{
+  "group": "composition",
+  "document_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "verified_launches": 182,
+  "rejections": [],
+  "scored_blocks": 12,
+  "contrasts": {
+    "warm/b4": "complete",
+    "b4/coalesce": "complete",
+    "b4/absorb": "complete",
+    "b4/b4-b3": "complete",
+    "b3/b4-b3": "complete",
+    "hot90/hot90-b4": "complete",
+    "hot90-b4/hot90-b4-b3": "complete",
+    "warm/ph": "complete",
+    "b3/b3-ph": "complete",
+    "warm/scalar": "complete",
+    "warm/global": "complete",
+    "scalar/scalar-global": "complete",
+    "b3/scalar-global": "complete"
+  },
+  "median_phase_costs": {
+    "coalesce": {
+      "fastdyn_pre_qemu_ns": 3262179.0,
+      "late_translations": 4.0,
+      "ram_reset_ns": 510474.5,
+      "bank_stage_ns": 432104.0
+    },
+    "warm": {
+      "fastdyn_pre_qemu_ns": 3216569.5,
+      "late_translations": 3.5,
+      "ram_reset_ns": 511797.5,
+      "bank_stage_ns": 432805.5
+    },
+    "b4": {
+      "fastdyn_pre_qemu_ns": 3239833.5,
+      "late_translations": 2.0,
+      "ram_reset_ns": 499203.0,
+      "bank_stage_ns": 433716.5
+    },
+    "b3": {
+      "fastdyn_pre_qemu_ns": 3227612.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 499432.0,
+      "bank_stage_ns": 427689.0
+    },
+    "hot90-b4-b3": {
+      "fastdyn_pre_qemu_ns": 3259727.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 490769.5,
+      "bank_stage_ns": 441027.0
+    },
+    "hot90-b4": {
+      "fastdyn_pre_qemu_ns": 3218617.5,
+      "late_translations": 3.0,
+      "ram_reset_ns": 510544.0,
+      "bank_stage_ns": 435439.5
+    },
+    "b3-ph": {
+      "fastdyn_pre_qemu_ns": 3223654.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 503719.0,
+      "bank_stage_ns": 424222.0
+    },
+    "hot90": {
+      "fastdyn_pre_qemu_ns": 3243703.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 498373.0,
+      "bank_stage_ns": 420974.0
+    },
+    "scalar-global": {
+      "fastdyn_pre_qemu_ns": 3249637.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 507952.5,
+      "bank_stage_ns": 418694.5
+    },
+    "scalar": {
+      "fastdyn_pre_qemu_ns": 3234948.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 516958.5,
+      "bank_stage_ns": 433147.0
+    },
+    "absorb": {
+      "fastdyn_pre_qemu_ns": 3232963.5,
+      "late_translations": 2.0,
+      "ram_reset_ns": 501958.0,
+      "bank_stage_ns": 428158.5
+    },
+    "ph": {
+      "fastdyn_pre_qemu_ns": 3226191.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 490454.0,
+      "bank_stage_ns": 431515.0
+    },
+    "b4-b3": {
+      "fastdyn_pre_qemu_ns": 3282275.0,
+      "late_translations": 3.0,
+      "ram_reset_ns": 499415.0,
+      "bank_stage_ns": 417035.5
+    },
+    "global": {
+      "fastdyn_pre_qemu_ns": 3237239.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 498726.5,
+      "bank_stage_ns": 421670.5
+    }
+  }
+}

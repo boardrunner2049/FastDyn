@@ -1,0 +1,1167 @@
+{
+  "worker_commit": "e032d29ea31e608f754fda3ccdd796bb516caa61",
+  "run_id": 44994383883,
+  "raw_worker_archive_sha256": "bbf7d91b41fe81592f2a2f0c73f356ffa78c47f0977c99873ef20a824ecfb44a",
+  "group": "native",
+  "qemu": "sha256:b182c35faf054ae4685a5650f973b6e8a1e8b39d42f11618097afc4dae81e773",
+  "firmware": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "plugin": "sha256:7376649e5a274a2dbab35d3d59c98467b0976ee2928c1ab1bbc04e37797764e6",
+  "ordinary_snapshot_id": "sha256:76de48763159fc4a1dfa68a647b43350a29c2388363eb82c93d923ae92dec506",
+  "profile_id": "sha256:6ff479d5fd56beecc26c13f76403f5b37a1ae72fbc97eea83f840c8e1573292d",
+  "cpu_affinity": [
+    3
+  ],
+  "arms": {
+    "warm": {
+      "state": "materialized",
+      "identity": "sha256:83267067093bd971c1a922621e7570fb56926b3be13a96d917424a2595ac8e5f",
+      "materialization_s": 1.2320981870000196,
+      "spec": {
+        "name": "warm"
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6ff479d5fd56beecc26c13f76403f5b37a1ae72fbc97eea83f840c8e1573292d",
+        "profile_snapshot_id": "sha256:76de48763159fc4a1dfa68a647b43350a29c2388363eb82c93d923ae92dec506",
+        "sc": "/home/runner/work/_temp/diagnostics/ordinary/store/snapshots/76de48763159fc4a1dfa68a647b43350a29c2388363eb82c93d923ae92dec506/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3532,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1814652,
+        "join_coverage": 1.0,
+        "units_in_layout": 3532,
+        "hot": {
+          "units": 351,
+          "code_bytes": 99208,
+          "bytes_with_struct": 175552,
+          "lines64_code": 1706,
+          "pages4k_code": 118,
+          "lines64_with_struct": 2869,
+          "pages4k_with_struct": 119,
+          "span_bytes": 1810528,
+          "entries_covered": 1633194,
+          "fraction": 0.9000039677028984
+        },
+        "executed": {
+          "units": 3502,
+          "code_bytes": 1036480,
+          "bytes_with_struct": 1799616,
+          "lines64_code": 17781,
+          "pages4k_code": 461,
+          "lines64_with_struct": 29403,
+          "pages4k_with_struct": 461,
+          "span_bytes": 1884176
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:76de48763159fc4a1dfa68a647b43350a29c2388363eb82c93d923ae92dec506"
+    },
+    "guarded": {
+      "state": "materialized",
+      "identity": "sha256:7c10ba6eb5c0cdaa4bc94396ee7e06fd94b1f2c6ba7c95d4c0b52747e686b824",
+      "materialization_s": 104.52938947399997,
+      "spec": {
+        "name": "guarded",
+        "parent": "warm",
+        "stage": "native",
+        "params": {
+          "host-inline": {
+            "mode": "splice",
+            "allow_faulting": true,
+            "udiv_mode": "guarded"
+          }
+        }
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6ff479d5fd56beecc26c13f76403f5b37a1ae72fbc97eea83f840c8e1573292d",
+        "profile_snapshot_id": "sha256:76de48763159fc4a1dfa68a647b43350a29c2388363eb82c93d923ae92dec506",
+        "sc": "/home/runner/work/_temp/diagnostics/guarded/artifacts/6e873eb0dd23e0a439ad002dacd9c57463307f0b32d9a44543b0524eb694736a/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3532,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1814652,
+        "join_coverage": 1.0,
+        "units_in_layout": 3532,
+        "hot": {
+          "units": 351,
+          "code_bytes": 99304,
+          "bytes_with_struct": 175648,
+          "lines64_code": 1707,
+          "pages4k_code": 120,
+          "lines64_with_struct": 2869,
+          "pages4k_with_struct": 121,
+          "span_bytes": 1896112,
+          "entries_covered": 1633194,
+          "fraction": 0.9000039677028984
+        },
+        "executed": {
+          "units": 3502,
+          "code_bytes": 1036704,
+          "bytes_with_struct": 1799841,
+          "lines64_code": 17783,
+          "pages4k_code": 463,
+          "lines64_with_struct": 29406,
+          "pages4k_with_struct": 464,
+          "span_bytes": 1900481
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:403e3d4e045b886f1cda97edc8daa531396d89a3dc6b5d0d135938b363dab45f",
+      "effective_passes": [
+        {
+          "pass": "host-inline",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "native_calls_spliced",
+          "n_edits": 7
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "host-inline",
+          "reason": "native_calls_spliced",
+          "detail": "Full generation details in stdout.json in raw.tgz",
+          "n_edits": 7,
+          "outcome": "candidate",
+          "detail_summary": {
+            "native_images_id": "sha256:e46771df5c4fe2a9ba184d5ea6f9018c6ba5e1b19d5d2605e49f2b6731ad6091",
+            "ranking": "tb_entry_proxy",
+            "sites": 7995
+          },
+          "stats": {
+            "emitted_growth_bytes": 224,
+            "selected_tb_entries_proxy": 14682,
+            "sites:applied": 7,
+            "sites:unsupported_abi": 1526,
+            "sites:unsupported_recovery": 6462,
+            "sites_applied": 7,
+            "sites_seen": 7995
+          }
+        }
+      ],
+      "native_splice_bodies": [
+        {
+          "pcs": [
+            59208
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59646
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73300
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        }
+      ]
+    },
+    "cleanup": {
+      "state": "materialized",
+      "identity": "sha256:2e2311f6589dc1be18debc6575ffdf4e088a691a020f9e79d82c60145e8493b7",
+      "materialization_s": 103.59655377099995,
+      "spec": {
+        "name": "cleanup",
+        "parent": "warm",
+        "stage": "native",
+        "params": {
+          "host-inline": {
+            "mode": "splice",
+            "allow_faulting": true,
+            "udiv_mode": "cleanup"
+          }
+        }
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6ff479d5fd56beecc26c13f76403f5b37a1ae72fbc97eea83f840c8e1573292d",
+        "profile_snapshot_id": "sha256:76de48763159fc4a1dfa68a647b43350a29c2388363eb82c93d923ae92dec506",
+        "sc": "/home/runner/work/_temp/diagnostics/cleanup/artifacts/334dd30829ab4f3e6e52b799caee85e6efe3182a869031612321be4246679f4b/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3532,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1814652,
+        "join_coverage": 1.0,
+        "units_in_layout": 3532,
+        "hot": {
+          "units": 351,
+          "code_bytes": 99296,
+          "bytes_with_struct": 175640,
+          "lines64_code": 1706,
+          "pages4k_code": 120,
+          "lines64_with_struct": 2869,
+          "pages4k_with_struct": 121,
+          "span_bytes": 1896104,
+          "entries_covered": 1633194,
+          "fraction": 0.9000039677028984
+        },
+        "executed": {
+          "units": 3502,
+          "code_bytes": 1036688,
+          "bytes_with_struct": 1799825,
+          "lines64_code": 17782,
+          "pages4k_code": 463,
+          "lines64_with_struct": 29406,
+          "pages4k_with_struct": 464,
+          "span_bytes": 1900481
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:efc2974ba894ba13729feb3f5b6438a4052d438e9d6be42f8ccea6fb130f1a14",
+      "effective_passes": [
+        {
+          "pass": "host-inline",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "native_calls_spliced",
+          "n_edits": 7
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "host-inline",
+          "reason": "native_calls_spliced",
+          "detail": "Full generation details in stdout.json in raw.tgz",
+          "n_edits": 7,
+          "outcome": "candidate",
+          "detail_summary": {
+            "native_images_id": "sha256:e46771df5c4fe2a9ba184d5ea6f9018c6ba5e1b19d5d2605e49f2b6731ad6091",
+            "ranking": "tb_entry_proxy",
+            "sites": 7995
+          },
+          "stats": {
+            "emitted_growth_bytes": 208,
+            "selected_tb_entries_proxy": 14682,
+            "sites:applied": 7,
+            "sites:unsupported_abi": 1526,
+            "sites:unsupported_recovery": 6462,
+            "sites_applied": 7,
+            "sites_seen": 7995
+          }
+        }
+      ],
+      "native_splice_bodies": [
+        {
+          "pcs": [
+            59208
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59646
+          ],
+          "kind": "guarded-udiv-cleanup",
+          "bytes": 30
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73300
+          ],
+          "kind": "guarded-udiv-cleanup",
+          "bytes": 30
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        }
+      ]
+    },
+    "partial": {
+      "state": "materialized",
+      "identity": "sha256:45b56ba798fc732c066845e255072c2717c8a354e28bf7cd4036bba4a2e11a00",
+      "materialization_s": 105.68293504199994,
+      "spec": {
+        "name": "partial",
+        "parent": "warm",
+        "stage": "native",
+        "params": {
+          "host-inline": {
+            "mode": "splice",
+            "allow_faulting": true,
+            "udiv_mode": "partial-cleanup"
+          }
+        }
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6ff479d5fd56beecc26c13f76403f5b37a1ae72fbc97eea83f840c8e1573292d",
+        "profile_snapshot_id": "sha256:76de48763159fc4a1dfa68a647b43350a29c2388363eb82c93d923ae92dec506",
+        "sc": "/home/runner/work/_temp/diagnostics/partial/artifacts/fc8bda2b6c51b53301a629a59d884bb23e1f039a6b1c2144701495c101db80d1/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3532,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1814652,
+        "join_coverage": 1.0,
+        "units_in_layout": 3532,
+        "hot": {
+          "units": 351,
+          "code_bytes": 99280,
+          "bytes_with_struct": 175624,
+          "lines64_code": 1706,
+          "pages4k_code": 120,
+          "lines64_with_struct": 2869,
+          "pages4k_with_struct": 121,
+          "span_bytes": 1896104,
+          "entries_covered": 1633194,
+          "fraction": 0.9000039677028984
+        },
+        "executed": {
+          "units": 3502,
+          "code_bytes": 1036664,
+          "bytes_with_struct": 1799801,
+          "lines64_code": 17782,
+          "pages4k_code": 463,
+          "lines64_with_struct": 29406,
+          "pages4k_with_struct": 464,
+          "span_bytes": 1900481
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:0e5149343ee23da086db135796c6ba362969ed4ec7d7825215287ac8b09cc3c1",
+      "effective_passes": [
+        {
+          "pass": "host-inline",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "native_calls_spliced",
+          "n_edits": 7
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "host-inline",
+          "reason": "native_calls_spliced",
+          "detail": "Full generation details in stdout.json in raw.tgz",
+          "n_edits": 7,
+          "outcome": "candidate",
+          "detail_summary": {
+            "native_images_id": "sha256:e46771df5c4fe2a9ba184d5ea6f9018c6ba5e1b19d5d2605e49f2b6731ad6091",
+            "ranking": "tb_entry_proxy",
+            "sites": 7995
+          },
+          "stats": {
+            "emitted_growth_bytes": 184,
+            "selected_tb_entries_proxy": 14682,
+            "sites:applied": 7,
+            "sites:unsupported_abi": 1526,
+            "sites:unsupported_recovery": 6462,
+            "sites_applied": 7,
+            "sites_seen": 7995
+          }
+        }
+      ],
+      "native_splice_bodies": [
+        {
+          "pcs": [
+            59208
+          ],
+          "kind": "guarded-udiv-cleanup",
+          "bytes": 30
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv-cleanup",
+          "bytes": 30
+        },
+        {
+          "pcs": [
+            59646
+          ],
+          "kind": "guarded-udiv-cleanup",
+          "bytes": 30
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv-cleanup",
+          "bytes": 30
+        },
+        {
+          "pcs": [
+            73300
+          ],
+          "kind": "guarded-udiv-cleanup",
+          "bytes": 30
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        }
+      ]
+    },
+    "guarded-general": {
+      "state": "materialized",
+      "identity": "sha256:d93319dbc8031caafa40756c4021c428086d03cbc545a02554e2dae9a7876246",
+      "materialization_s": 118.86703649800006,
+      "spec": {
+        "name": "guarded-general",
+        "parent": "guarded",
+        "stage": "general",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6ff479d5fd56beecc26c13f76403f5b37a1ae72fbc97eea83f840c8e1573292d",
+        "profile_snapshot_id": "sha256:76de48763159fc4a1dfa68a647b43350a29c2388363eb82c93d923ae92dec506",
+        "sc": "/home/runner/work/_temp/diagnostics/guarded-general/artifacts/ce0b0deb3afb5f82c0fa5d76e9cc95391c55bd6bd9426fe2066c057ea96c03f8/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3532,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1814652,
+        "join_coverage": 1.0,
+        "units_in_layout": 3532,
+        "hot": {
+          "units": 351,
+          "code_bytes": 109732,
+          "bytes_with_struct": 186076,
+          "lines64_code": 1875,
+          "pages4k_code": 146,
+          "lines64_with_struct": 3037,
+          "pages4k_with_struct": 148,
+          "span_bytes": 2270111,
+          "entries_covered": 1633194,
+          "fraction": 0.9000039677028984
+        },
+        "executed": {
+          "units": 3502,
+          "code_bytes": 1104288,
+          "bytes_with_struct": 1867425,
+          "lines64_code": 18885,
+          "pages4k_code": 562,
+          "lines64_with_struct": 30497,
+          "pages4k_with_struct": 562,
+          "span_bytes": 2301915
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:4fbf00b807d5f1179220adfd0b8c32ca4c8540b7cbaf79951a835c746aacd5de",
+      "effective_passes": [
+        {
+          "pass": "specialize-returns",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "constant-propagation",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "branch-folding",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "dead-host-ops",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "chain-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 384
+        },
+        {
+          "pass": "chain-static",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 256
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "chain-returns",
+          "reason": "",
+          "detail": "384 GENERAL slots",
+          "n_edits": 384,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 384,
+            "edits:REDIRECT_EXIT": 384,
+            "estimated_train_link_installs": 384,
+            "estimated_train_lookups_avoided": 64345,
+            "exits": 413,
+            "guarded_exits_total": 256,
+            "origins": 256,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:not_profitable": 69,
+            "refused:slot_budget": 81,
+            "refused:target_not_profiled": 6,
+            "slots": 384,
+            "slots:GENERAL": 384,
+            "targets_without_estimated_reuse": 217,
+            "train_guard_attempts": 69149,
+            "train_lookups_guarded": 64729,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 0
+          }
+        },
+        {
+          "pass": "chain-static",
+          "reason": "",
+          "detail": "256 GENERAL slots",
+          "n_edits": 256,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 256,
+            "edits:REDIRECT_EXIT": 256,
+            "estimated_train_link_installs": 256,
+            "estimated_train_lookups_avoided": 50141,
+            "exits": 1017,
+            "guarded_exits_total": 512,
+            "origins": 256,
+            "refused:not_profitable": 100,
+            "refused:slot_budget": 595,
+            "refused:target_not_profiled": 66,
+            "slots": 256,
+            "slots:GENERAL": 256,
+            "targets_without_estimated_reuse": 100,
+            "train_guard_attempts": 50397,
+            "train_lookups_guarded": 50397,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 0
+          }
+        }
+      ],
+      "native_splice_bodies": [
+        {
+          "pcs": [
+            59208
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59646
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73300
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        }
+      ]
+    },
+    "cleanup-general": {
+      "state": "materialized",
+      "identity": "sha256:d2ac5750962bb80a2acecd0ab927dff2de63d1f604ff6fd6831842f47d4103cc",
+      "materialization_s": 119.85942109200005,
+      "spec": {
+        "name": "cleanup-general",
+        "parent": "cleanup",
+        "stage": "general",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6ff479d5fd56beecc26c13f76403f5b37a1ae72fbc97eea83f840c8e1573292d",
+        "profile_snapshot_id": "sha256:76de48763159fc4a1dfa68a647b43350a29c2388363eb82c93d923ae92dec506",
+        "sc": "/home/runner/work/_temp/diagnostics/cleanup-general/artifacts/68217afaf7657a2f106e036b736f55d6f5efbdc48e7a364e26e634365b69dc99/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3532,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1814652,
+        "join_coverage": 1.0,
+        "units_in_layout": 3532,
+        "hot": {
+          "units": 351,
+          "code_bytes": 109724,
+          "bytes_with_struct": 186068,
+          "lines64_code": 1874,
+          "pages4k_code": 146,
+          "lines64_with_struct": 3037,
+          "pages4k_with_struct": 148,
+          "span_bytes": 2270111,
+          "entries_covered": 1633194,
+          "fraction": 0.9000039677028984
+        },
+        "executed": {
+          "units": 3502,
+          "code_bytes": 1104272,
+          "bytes_with_struct": 1867409,
+          "lines64_code": 18884,
+          "pages4k_code": 562,
+          "lines64_with_struct": 30497,
+          "pages4k_with_struct": 562,
+          "span_bytes": 2301915
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:e3a5eac599c58d2264365fb951755e93d332cebcf19b93264da373c0de40b3f9",
+      "effective_passes": [
+        {
+          "pass": "specialize-returns",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "constant-propagation",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "branch-folding",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "dead-host-ops",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "chain-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 384
+        },
+        {
+          "pass": "chain-static",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 256
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "chain-returns",
+          "reason": "",
+          "detail": "384 GENERAL slots",
+          "n_edits": 384,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 384,
+            "edits:REDIRECT_EXIT": 384,
+            "estimated_train_link_installs": 384,
+            "estimated_train_lookups_avoided": 64345,
+            "exits": 413,
+            "guarded_exits_total": 256,
+            "origins": 256,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:not_profitable": 69,
+            "refused:slot_budget": 81,
+            "refused:target_not_profiled": 6,
+            "slots": 384,
+            "slots:GENERAL": 384,
+            "targets_without_estimated_reuse": 217,
+            "train_guard_attempts": 69149,
+            "train_lookups_guarded": 64729,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 0
+          }
+        },
+        {
+          "pass": "chain-static",
+          "reason": "",
+          "detail": "256 GENERAL slots",
+          "n_edits": 256,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 256,
+            "edits:REDIRECT_EXIT": 256,
+            "estimated_train_link_installs": 256,
+            "estimated_train_lookups_avoided": 50141,
+            "exits": 1017,
+            "guarded_exits_total": 512,
+            "origins": 256,
+            "refused:not_profitable": 100,
+            "refused:slot_budget": 595,
+            "refused:target_not_profiled": 66,
+            "slots": 256,
+            "slots:GENERAL": 256,
+            "targets_without_estimated_reuse": 100,
+            "train_guard_attempts": 50397,
+            "train_lookups_guarded": 50397,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 0
+          }
+        }
+      ],
+      "native_splice_bodies": [
+        {
+          "pcs": [
+            59208
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            59646
+          ],
+          "kind": "guarded-udiv-cleanup",
+          "bytes": 30
+        },
+        {
+          "pcs": [
+            59540
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73300
+          ],
+          "kind": "guarded-udiv-cleanup",
+          "bytes": 30
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        },
+        {
+          "pcs": [
+            73538
+          ],
+          "kind": "guarded-udiv",
+          "bytes": 38
+        }
+      ]
+    }
+  },
+  "contrasts": {
+    "warm/guarded": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11533774.0,
+        "candidate_median": 11654788.0,
+        "median_paired_gain": 0.9653809595439842,
+        "bootstrap_95": [
+          0.9345296921343857,
+          0.9957947498779229
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 51139276.5,
+        "candidate_median": 51610618.0,
+        "median_paired_gain": 0.9867487852027477,
+        "bootstrap_95": [
+          0.9126249732773287,
+          1.0187993622052955
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 226576000.0,
+        "candidate_median": 226375000.0,
+        "median_paired_gain": 0.9974213724135685,
+        "bootstrap_95": [
+          0.9849182057846919,
+          1.0175431489661404
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.2377267784999617,
+        "candidate_median": 0.23736666599995715,
+        "median_paired_gain": 0.997089662091659,
+        "bootstrap_95": [
+          0.9845956573886523,
+          1.0197179870799928
+        ]
+      }
+    },
+    "guarded/cleanup": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11654788.0,
+        "candidate_median": 11761364.0,
+        "median_paired_gain": 1.0208815757957457,
+        "bootstrap_95": [
+          0.9843614735131014,
+          1.1723683351413081
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 51610618.0,
+        "candidate_median": 50459112.0,
+        "median_paired_gain": 1.0155298100685142,
+        "bootstrap_95": [
+          0.9907499829134525,
+          1.181046825774753
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 226375000.0,
+        "candidate_median": 223736000.0,
+        "median_paired_gain": 1.0099697707473636,
+        "bootstrap_95": [
+          0.9983762898192212,
+          1.0309817203917082
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23736666599995715,
+        "candidate_median": 0.23517902700001514,
+        "median_paired_gain": 1.0105928389047165,
+        "bootstrap_95": [
+          0.9951625134827204,
+          1.0347986305394872
+        ]
+      }
+    },
+    "guarded/guarded-general": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11654788.0,
+        "candidate_median": 11285545.0,
+        "median_paired_gain": 1.0334783675924595,
+        "bootstrap_95": [
+          0.9606497520137589,
+          1.0695983833414056
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 51610618.0,
+        "candidate_median": 51582256.0,
+        "median_paired_gain": 0.9990787590469532,
+        "bootstrap_95": [
+          0.9616035174829655,
+          1.031974773652859
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 226375000.0,
+        "candidate_median": 226684500.0,
+        "median_paired_gain": 0.9966718087757607,
+        "bootstrap_95": [
+          0.9802557482597924,
+          1.0097808632990146
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23736666599995715,
+        "candidate_median": 0.238368272500054,
+        "median_paired_gain": 0.9938570985340405,
+        "bootstrap_95": [
+          0.9779241210229825,
+          1.0100541962316347
+        ]
+      }
+    },
+    "cleanup/cleanup-general": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11761364.0,
+        "candidate_median": 11466598.0,
+        "median_paired_gain": 1.0051847259500213,
+        "bootstrap_95": [
+          0.9396661476736494,
+          1.0257000723469494
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 50459112.0,
+        "candidate_median": 51447447.5,
+        "median_paired_gain": 0.9740459699309878,
+        "bootstrap_95": [
+          0.9492900304611435,
+          1.0096339196073258
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 223736000.0,
+        "candidate_median": 226609500.0,
+        "median_paired_gain": 0.9917530132820613,
+        "bootstrap_95": [
+          0.983201231733202,
+          1.0026360830310295
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23517902700001514,
+        "candidate_median": 0.23765132200003336,
+        "median_paired_gain": 0.9893018999251639,
+        "bootstrap_95": [
+          0.9849663698864162,
+          1.0015774675500173
+        ]
+      }
+    },
+    "guarded-general/cleanup-general": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11285545.0,
+        "candidate_median": 11466598.0,
+        "median_paired_gain": 0.9922768041192185,
+        "bootstrap_95": [
+          0.8934128141246751,
+          1.1797137687755899
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 51582256.0,
+        "candidate_median": 51447447.5,
+        "median_paired_gain": 1.0215222757306548,
+        "bootstrap_95": [
+          0.940106181216869,
+          1.1878597238315636
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 226684500.0,
+        "candidate_median": 226609500.0,
+        "median_paired_gain": 1.001780970035942,
+        "bootstrap_95": [
+          0.9870500555481021,
+          1.0267435291895572
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.238368272500054,
+        "candidate_median": 0.23765132200003336,
+        "median_paired_gain": 1.004203714815493,
+        "bootstrap_95": [
+          0.9859113425181105,
+          1.030143227684733
+        ]
+      }
+    },
+    "cleanup/partial": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11761364.0,
+        "candidate_median": 11229832.5,
+        "median_paired_gain": 1.0250198654711953,
+        "bootstrap_95": [
+          0.9514610465563332,
+          1.0913944857231996
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 50459112.0,
+        "candidate_median": 51099507.5,
+        "median_paired_gain": 0.9966320866184546,
+        "bootstrap_95": [
+          0.9724643532757343,
+          1.0164463455877777
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 223736000.0,
+        "candidate_median": 226049000.0,
+        "median_paired_gain": 0.9970524302746786,
+        "bootstrap_95": [
+          0.9834086933515594,
+          1.0083280974475115
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23517902700001514,
+        "candidate_median": 0.2373587710000038,
+        "median_paired_gain": 0.9956624512351118,
+        "bootstrap_95": [
+          0.9837276266458854,
+          1.0090830224399856
+        ]
+      }
+    },
+    "guarded/partial": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11654788.0,
+        "candidate_median": 11229832.5,
+        "median_paired_gain": 1.0553542116260655,
+        "bootstrap_95": [
+          0.9552880158488872,
+          1.1696606134664225
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 51610618.0,
+        "candidate_median": 51099507.5,
+        "median_paired_gain": 1.0108165769419954,
+        "bootstrap_95": [
+          0.9571797314574041,
+          1.1468171387708601
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 226375000.0,
+        "candidate_median": 226049000.0,
+        "median_paired_gain": 1.0080189234794346,
+        "bootstrap_95": [
+          0.9896678530505498,
+          1.0272358647199744
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23736666599995715,
+        "candidate_median": 0.2373587710000038,
+        "median_paired_gain": 1.0068483164213613,
+        "bootstrap_95": [
+          0.9861864143221185,
+          1.0294969486068561
+        ]
+      }
+    }
+  },
+  "runtime_metadata": {
+    "runtime_identity_id": "sha256:f49779fba486db1d8719ab53f1d155b5ebceb7c158e51d71131aefd7bfd3763a",
+    "cpuinfo": "0xdfef7",
+    "host_page_size": 4096,
+    "runtime_signature": "0xa9cfabe958364ae4",
+    "icache_linesize": 64,
+    "base_cflags": null,
+    "target_page_bits": 10
+  },
+  "host_image": [
+    "Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261116.133"
+  ],
+  "compact_archive_sha256": "49bcec55ada9563fcb7df7a5786beb6a0e961ee63fc8c0339d53a39eff2c3ca5"
+}

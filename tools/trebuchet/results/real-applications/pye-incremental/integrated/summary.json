@@ -1,0 +1,308 @@
+{
+  "worker_commit": "a75eca4a02557753334df7167c371e157ee1e753",
+  "run_id": 44995135735,
+  "raw_worker_archive_sha256": "5395341bca2f67b203910a9e2b638117fb08660c0e5039d9e03542e747e59ce7",
+  "group": "integrated",
+  "qemu": "sha256:c8e8b6303c72883f8945e71f0638a602a81f29f7820cabb4055a834fc59fd873",
+  "firmware": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "plugin": "sha256:7376649e5a274a2dbab35d3d59c98467b0976ee2928c1ab1bbc04e37797764e6",
+  "ordinary_snapshot_id": "sha256:a0d5fbebfac6fe50aff8add3c2824698768eeb412d80535c9a04ffa5c4d735e2",
+  "profile_id": "sha256:8fe12c1506c951807d6f20f9e077337723b44d52a4d1169b4b4a37ac04ae5613",
+  "cpu_affinity": [
+    3
+  ],
+  "arms": {
+    "warm": {
+      "state": "materialized",
+      "identity": "sha256:c89048dfbdf6c8d9cef46db446022c9f3a1d0957b5e5d91c9d01e1493cb10c10",
+      "materialization_s": 1.9535682560000396,
+      "spec": {
+        "name": "warm"
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:8fe12c1506c951807d6f20f9e077337723b44d52a4d1169b4b4a37ac04ae5613",
+        "profile_snapshot_id": "sha256:a0d5fbebfac6fe50aff8add3c2824698768eeb412d80535c9a04ffa5c4d735e2",
+        "sc": "/home/runner/work/_temp/diagnostics/ordinary/store/snapshots/a0d5fbebfac6fe50aff8add3c2824698768eeb412d80535c9a04ffa5c4d735e2/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3530,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1816162,
+        "join_coverage": 1.0,
+        "units_in_layout": 3530,
+        "hot": {
+          "units": 351,
+          "code_bytes": 99208,
+          "bytes_with_struct": 175552,
+          "lines64_code": 1706,
+          "pages4k_code": 117,
+          "lines64_with_struct": 2869,
+          "pages4k_with_struct": 119,
+          "span_bytes": 1810592,
+          "entries_covered": 1634706,
+          "fraction": 0.9000882079902564
+        },
+        "executed": {
+          "units": 3498,
+          "code_bytes": 1035884,
+          "bytes_with_struct": 1798192,
+          "lines64_code": 17771,
+          "pages4k_code": 460,
+          "lines64_with_struct": 29379,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1882720
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:a0d5fbebfac6fe50aff8add3c2824698768eeb412d80535c9a04ffa5c4d735e2"
+    },
+    "compacted": {
+      "state": "materialized",
+      "identity": "sha256:af64055ff42d241592b5969cb53c262b022dd957bf809be6577bca58af853c58",
+      "materialization_s": 28.38431934199997,
+      "spec": {
+        "name": "compacted",
+        "stage": "compact-nops",
+        "parent": "warm",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:8fe12c1506c951807d6f20f9e077337723b44d52a4d1169b4b4a37ac04ae5613",
+        "profile_snapshot_id": "sha256:a0d5fbebfac6fe50aff8add3c2824698768eeb412d80535c9a04ffa5c4d735e2",
+        "sc": "/home/runner/work/_temp/diagnostics/compacted/reimport/snapshots/1d892243bc312c7a0f4227682dca3f3277548699bbf997f0bfd2a5b37fdb9315/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3530,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1816162,
+        "join_coverage": 1.0,
+        "units_in_layout": 3530,
+        "hot": {
+          "units": 351,
+          "code_bytes": 99204,
+          "bytes_with_struct": 175552,
+          "lines64_code": 1706,
+          "pages4k_code": 117,
+          "lines64_with_struct": 2869,
+          "pages4k_with_struct": 119,
+          "span_bytes": 1810592,
+          "entries_covered": 1634706,
+          "fraction": 0.9000882079902564
+        },
+        "executed": {
+          "units": 3498,
+          "code_bytes": 1035880,
+          "bytes_with_struct": 1798192,
+          "lines64_code": 17771,
+          "pages4k_code": 460,
+          "lines64_with_struct": 29379,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1882720
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:1d892243bc312c7a0f4227682dca3f3277548699bbf997f0bfd2a5b37fdb9315",
+      "effective_passes": null
+    },
+    "continuity": {
+      "state": "materialized",
+      "identity": "sha256:c6e532c842e8813c00a492ce958e65e3bc783b5508f0e8c340df9504d71edfad",
+      "materialization_s": 28.43803289799996,
+      "spec": {
+        "name": "continuity",
+        "stage": "direct-slot",
+        "parent": "warm",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:8fe12c1506c951807d6f20f9e077337723b44d52a4d1169b4b4a37ac04ae5613",
+        "profile_snapshot_id": "sha256:a0d5fbebfac6fe50aff8add3c2824698768eeb412d80535c9a04ffa5c4d735e2",
+        "sc": "/home/runner/work/_temp/diagnostics/continuity/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3530,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1816162,
+        "join_coverage": 1.0,
+        "units_in_layout": 3530,
+        "hot": {
+          "units": 351,
+          "code_bytes": 99208,
+          "bytes_with_struct": 175552,
+          "lines64_code": 1706,
+          "pages4k_code": 117,
+          "lines64_with_struct": 2869,
+          "pages4k_with_struct": 119,
+          "span_bytes": 1810592,
+          "entries_covered": 1634706,
+          "fraction": 0.9000882079902564
+        },
+        "executed": {
+          "units": 3498,
+          "code_bytes": 1035884,
+          "bytes_with_struct": 1798192,
+          "lines64_code": 17771,
+          "pages4k_code": 460,
+          "lines64_with_struct": 29379,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1882720
+        },
+        "status": "ok"
+      },
+      "untimed_stats": {
+        "schema": "qemu-sc-v6-stats@1",
+        "loaded": true,
+        "file_version": 6,
+        "feature_flags": 7,
+        "artifact_id8": "0f0112ec2745db38",
+        "n_variants": 1,
+        "n_slots": 1,
+        "n_links": 1,
+        "ext_load_ns": 203000,
+        "activations": 2,
+        "links_armed": 1,
+        "refused": {
+          "forbidden": 0,
+          "profile_mode": 0,
+          "one_insn_per_tb": 0,
+          "nochain": 0,
+          "singlestep": 0,
+          "breakpoints": 0,
+          "watchpoints": 0,
+          "member_invalid": 0,
+          "two_page_target": 0,
+          "mmu_idx": 0,
+          "probe_no_host": 0,
+          "probe_page_size": 0,
+          "probe_mismatch": 0,
+          "slot_busy": 0
+        },
+        "variants_built": 1,
+        "tlb_hook_calls": 45,
+        "disarm_tlb_events": 0,
+        "disarm_tlb_links": 0,
+        "flush_resets": 0,
+        "disarm_flush_links": 0,
+        "forbid_requests": 0,
+        "disarm_forbid_events": 0,
+        "disarm_forbid_links": 0,
+        "slots_unlinked": 0,
+        "variant_slots_unlinked": 0,
+        "variant_exits": 12,
+        "variant_entry_exits": 10,
+        "variant_restores": 0,
+        "invariant_checks": 0,
+        "invariant_violations": 0,
+        "links": [
+          {
+            "armed": true,
+            "disarmed_epoch": false
+          }
+        ],
+        "tlb_disarm_budget_used": 0,
+        "forbidden": false,
+        "forbid_reason": "none"
+      },
+      "snapshot_id": null,
+      "effective_passes": null
+    }
+  },
+  "contrasts": {
+    "warm/compacted": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 17015339.5,
+        "candidate_median": 17095650.5,
+        "median_paired_gain": 1.0133317581780652,
+        "bootstrap_95": [
+          0.9344636708817087,
+          1.257228371454575
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 67009935.5,
+        "candidate_median": 65645728.5,
+        "median_paired_gain": 1.0123562867975768,
+        "bootstrap_95": [
+          0.9254648153942847,
+          1.2318109518512332
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 283031500.0,
+        "candidate_median": 278114500.0,
+        "median_paired_gain": 1.0176654241156322,
+        "bootstrap_95": [
+          0.9847560189745268,
+          1.0608355597128094
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.296920885999981,
+        "candidate_median": 0.2907908235000036,
+        "median_paired_gain": 1.0202930426588264,
+        "bootstrap_95": [
+          0.9855883907789889,
+          1.061121005286978
+        ]
+      }
+    },
+    "warm/continuity": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 17015339.5,
+        "candidate_median": 17324990.0,
+        "median_paired_gain": 1.0016562198180536,
+        "bootstrap_95": [
+          0.8935124871259976,
+          1.1808886562770837
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 67009935.5,
+        "candidate_median": 67676625.0,
+        "median_paired_gain": 0.9960626884013136,
+        "bootstrap_95": [
+          0.9502292962645327,
+          1.1648933664314722
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 283031500.0,
+        "candidate_median": 280166000.0,
+        "median_paired_gain": 0.9990469345411964,
+        "bootstrap_95": [
+          0.9843114261046566,
+          1.0494265680897437
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.296920885999981,
+        "candidate_median": 0.2936458670000093,
+        "median_paired_gain": 1.0009258612311922,
+        "bootstrap_95": [
+          0.980663242718604,
+          1.0471422143324411
+        ]
+      }
+    }
+  },
+  "runtime_metadata": {
+    "runtime_identity_id": "sha256:fa54b27fe0292a82e3d91d1e1c87bbc37b6b0ed28e3b202dee4fca4ce262324f",
+    "cpuinfo": "0xdfef7",
+    "host_page_size": 4096,
+    "runtime_signature": "0x5ffb2dc0ec1a0fba",
+    "icache_linesize": 64,
+    "base_cflags": null,
+    "target_page_bits": 10
+  },
+  "host_image": [
+    "Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261116.376"
+  ],
+  "compact_archive_sha256": "ad3bbe6af4a0cee565bbdebc25f892c3f12f1780ef000deadc7a9e68cd274f15"
+}

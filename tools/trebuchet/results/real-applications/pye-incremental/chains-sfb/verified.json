@@ -1,0 +1,91 @@
+{
+  "group": "chains-sfb",
+  "document_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "verified_launches": 143,
+  "rejections": [],
+  "scored_blocks": 12,
+  "contrasts": {
+    "warm/static": "complete",
+    "warm/returns": "complete",
+    "warm/regular": "complete",
+    "warm/compact": "complete",
+    "warm/b3": "complete",
+    "warm/all": "complete",
+    "warm/hot50": "complete",
+    "warm/hot90": "complete",
+    "regular/compact": "complete",
+    "b3/compact": "complete",
+    "all/hot50": "complete",
+    "all/hot90": "complete",
+    "all-b3/hot90-b3": "complete",
+    "hot90/hot90-b3": "complete"
+  },
+  "median_phase_costs": {
+    "hot90": {
+      "fastdyn_pre_qemu_ns": 3289140.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 513835.5,
+      "bank_stage_ns": 440814.5
+    },
+    "compact": {
+      "fastdyn_pre_qemu_ns": 3266618.0,
+      "late_translations": 3.5,
+      "ram_reset_ns": 512263.5,
+      "bank_stage_ns": 447646.0
+    },
+    "warm": {
+      "fastdyn_pre_qemu_ns": 3286951.0,
+      "late_translations": 3.0,
+      "ram_reset_ns": 534305.5,
+      "bank_stage_ns": 456846.5
+    },
+    "all-b3": {
+      "fastdyn_pre_qemu_ns": 3267059.0,
+      "late_translations": 2.0,
+      "ram_reset_ns": 514181.5,
+      "bank_stage_ns": 439662.5
+    },
+    "b3": {
+      "fastdyn_pre_qemu_ns": 3269254.5,
+      "late_translations": 3.0,
+      "ram_reset_ns": 510141.5,
+      "bank_stage_ns": 443288.0
+    },
+    "all": {
+      "fastdyn_pre_qemu_ns": 3267177.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 518389.0,
+      "bank_stage_ns": 434876.5
+    },
+    "returns": {
+      "fastdyn_pre_qemu_ns": 3272328.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 527279.0,
+      "bank_stage_ns": 431486.5
+    },
+    "hot90-b3": {
+      "fastdyn_pre_qemu_ns": 3283558.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 526821.5,
+      "bank_stage_ns": 434425.0
+    },
+    "static": {
+      "fastdyn_pre_qemu_ns": 3280197.5,
+      "late_translations": 2.0,
+      "ram_reset_ns": 515937.5,
+      "bank_stage_ns": 443143.5
+    },
+    "hot50": {
+      "fastdyn_pre_qemu_ns": 3252477.5,
+      "late_translations": 4.0,
+      "ram_reset_ns": 536950.5,
+      "bank_stage_ns": 437014.0
+    },
+    "regular": {
+      "fastdyn_pre_qemu_ns": 3282922.5,
+      "late_translations": 2.0,
+      "ram_reset_ns": 523462.0,
+      "bank_stage_ns": 442140.0
+    }
+  }
+}

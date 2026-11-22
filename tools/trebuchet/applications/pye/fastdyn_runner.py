@@ -68,8 +68,11 @@ def main():
     parser.add_argument("--case", action="append", required=True, help="repeat for each capture/input")
     parser.add_argument("--stable-sweep-size", type=int, default=0, help="capture stops after two unchanged full sweeps")
     parser.add_argument("--snapshot", type=Path)
+    parser.add_argument("--v6-stats", action="store_true", help="collect SC6 counters on a separate diagnostic replay")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    if args.v6_stats and args.action != "frozen":
+        parser.error("--v6-stats requires a frozen diagnostic replay")
     work, run, elf, qemu, plugin, out = (p.resolve() for p in
                                         (args.work, args.run, args.elf, args.qemu, args.plugin, args.out))
     run.mkdir(parents=True, exist_ok=True)
@@ -115,7 +118,8 @@ def main():
         identity = deploy(args.snapshot, rd)["identity"]
         if not identity["checked"] or not identity["bundle_id"] or not identity["runtime_identity_id"] or identity["reasons"]:
             sys.exit("deployment identity unchecked")
-        result = launch(rd, inputs={"psram": banks[0]}, prove=True, timeout_s=120, peer=peer)
+        extra = {"QEMU_SC_V6_STATS": str(out / "v6-stats.json")} if args.v6_stats else None
+        result = launch(rd, inputs={"psram": banks[0]}, prove=True, timeout_s=120, peer=peer, extra_env=extra)
         if args.action == "frozen":
             from scopt.run.proof import frozen_append_counts
             frozen_append_counts(result)

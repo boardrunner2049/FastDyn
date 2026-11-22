@@ -1,0 +1,2617 @@
+{
+  "worker_commit": "3b175a8af4ef1cc1e3e49fca49ed4723464b237c",
+  "run_id": 44995291852,
+  "raw_worker_archive_sha256": "ef2da86888058979202cd2d1c35f35af81e5430064191750a0682fdb4827766c",
+  "group": "layout-bridge",
+  "qemu": "sha256:c187a787aca9ab57a7d1a45cf036b8819ea4bde64a684cdf5d642c3040d3352f",
+  "firmware": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "plugin": "sha256:7376649e5a274a2dbab35d3d59c98467b0976ee2928c1ab1bbc04e37797764e6",
+  "ordinary_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+  "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+  "cpu_affinity": [
+    3
+  ],
+  "arms": {
+    "warm": {
+      "state": "materialized",
+      "identity": "sha256:92d284fde6b59b9a34ffc9657207c153f30b04089e844457b96516efe8db2fda",
+      "materialization_s": 1.2242331190000186,
+      "spec": {
+        "name": "warm"
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/ordinary/store/snapshots/069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 96116,
+          "bytes_with_struct": 170928,
+          "lines64_code": 1654,
+          "pages4k_code": 112,
+          "lines64_with_struct": 2795,
+          "pages4k_with_struct": 114,
+          "span_bytes": 1808992,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1036300,
+          "bytes_with_struct": 1799024,
+          "lines64_code": 17778,
+          "pages4k_code": 461,
+          "lines64_with_struct": 29393,
+          "pages4k_with_struct": 461,
+          "span_bytes": 1887600
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4"
+    },
+    "ph": {
+      "state": "materialized",
+      "identity": "sha256:466c0f223aac490d1e0897b4ace1b517795fec5678eb85cf0a2ea1fb7c83dc77",
+      "materialization_s": 60.65080012300007,
+      "spec": {
+        "name": "ph",
+        "parent": "warm",
+        "stage": "ph",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/ph/artifacts/063fb153729034c6c6ddac5c06ea8c3664a89c10eeb9bfa260539cae885dfe71/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 96116,
+          "bytes_with_struct": 170928,
+          "lines64_code": 1654,
+          "pages4k_code": 85,
+          "lines64_with_struct": 2795,
+          "pages4k_with_struct": 85,
+          "span_bytes": 615840,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1036300,
+          "bytes_with_struct": 1799024,
+          "lines64_code": 17778,
+          "pages4k_code": 460,
+          "lines64_with_struct": 29393,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1881136
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:52f30f1c0ce7758f0a327f47ac4846a985ae8fac7496260d85a9cbc0c4eea7f4",
+      "effective_passes": [
+        {
+          "pass": "hotcold-partition",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "classified",
+          "n_edits": 3533
+        },
+        {
+          "pass": "cluster-hot",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "clustered",
+          "n_edits": 1
+        },
+        {
+          "pass": "order-cold",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "ordered",
+          "n_edits": 2
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "hotcold-partition",
+          "reason": "classified",
+          "detail": "",
+          "n_edits": 3533,
+          "outcome": "candidate",
+          "stats": {
+            "class_boot_only": 0.0,
+            "class_cold_zero": 33.0,
+            "class_hot": 1462.0,
+            "class_unknown": 0.0,
+            "class_warm": 2038.0,
+            "coverage": 0.99,
+            "exact_entries": 1845159.0,
+            "hot": 1462.0,
+            "hot_entries": 1826708.0,
+            "pinned_hot": 0.0,
+            "status_exact": 3533.0,
+            "status_lower_bound": 0.0,
+            "status_unknown": 0.0
+          }
+        },
+        {
+          "pass": "cluster-hot",
+          "reason": "clustered",
+          "detail": "",
+          "n_edits": 1,
+          "outcome": "candidate",
+          "stats": {
+            "chains": 279.0,
+            "edge_weight": 1798455.0,
+            "edges": 1861.0,
+            "hot": 1462.0,
+            "merged_fraction": 0.716354,
+            "merged_weight": 1288330.0,
+            "ordered": 1462.0,
+            "skipped": 0.0
+          }
+        },
+        {
+          "pass": "order-cold",
+          "reason": "ordered",
+          "detail": "",
+          "n_edits": 2,
+          "outcome": "candidate",
+          "stats": {
+            "already_laid_out": 1462.0,
+            "pinned_or_not_relocatable": 0.0,
+            "section_boot": 0.0,
+            "section_cold": 33.0,
+            "section_hot": 0.0,
+            "section_unknown": 0.0,
+            "section_warm": 2038.0,
+            "unannotated": 0.0
+          }
+        }
+      ]
+    },
+    "llvm": {
+      "state": "materialized",
+      "identity": "sha256:e2299e9cf48f99006bbf76480c4c348975c49ceef7256afffac304bb658db152",
+      "materialization_s": 60.57199764799998,
+      "spec": {
+        "name": "llvm",
+        "parent": "warm",
+        "stage": "llvm",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/llvm/artifacts/9d79976aea27cad12bbe47ddf53e6cbb69bdb939985cb181f538c7603ae034a1/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 96116,
+          "bytes_with_struct": 170928,
+          "lines64_code": 1654,
+          "pages4k_code": 79,
+          "lines64_with_struct": 2795,
+          "pages4k_with_struct": 81,
+          "span_bytes": 649728,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1036300,
+          "bytes_with_struct": 1799024,
+          "lines64_code": 17778,
+          "pages4k_code": 460,
+          "lines64_with_struct": 29393,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1881136
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:583d34b0a0f7647e3adb3161a97c8e87391385119edd3a42fd44b09f8f785997",
+      "effective_passes": [
+        {
+          "pass": "hotcold-partition",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "classified",
+          "n_edits": 3533
+        },
+        {
+          "pass": "llvm-cache-layout",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "cache_directed_layout",
+          "n_edits": 1
+        },
+        {
+          "pass": "order-cold",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "ordered",
+          "n_edits": 2
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "hotcold-partition",
+          "reason": "classified",
+          "detail": "",
+          "n_edits": 3533,
+          "outcome": "candidate",
+          "stats": {
+            "class_boot_only": 0.0,
+            "class_cold_zero": 33.0,
+            "class_hot": 1462.0,
+            "class_unknown": 0.0,
+            "class_warm": 2038.0,
+            "coverage": 0.99,
+            "exact_entries": 1845159.0,
+            "hot": 1462.0,
+            "hot_entries": 1826708.0,
+            "pinned_hot": 0.0,
+            "status_exact": 3533.0,
+            "status_lower_bound": 0.0,
+            "status_unknown": 0.0
+          }
+        },
+        {
+          "pass": "llvm-cache-layout",
+          "reason": "cache_directed_layout",
+          "detail": "bridge sha256:ae1b66a8194160fa2d52522132b713eb3cea4c2a7d09611af8b92463bf82dd77",
+          "n_edits": 1,
+          "outcome": "candidate",
+          "stats": {
+            "hot": 1462.0,
+            "llvm_edge_weight": 1797512,
+            "llvm_edges": 1857,
+            "llvm_edges_unlocated": 4,
+            "llvm_nodes": 1462,
+            "llvm_private_source_nodes": 0,
+            "llvm_traffic_ordinary": 1797512,
+            "llvm_traffic_outside_nodes": 24705,
+            "llvm_traffic_self_excluded": 2488,
+            "llvm_traffic_total": 1825648,
+            "llvm_traffic_unlocated": 943,
+            "llvm_unknown_counts": 0,
+            "ordered": 1462.0,
+            "skipped": 0.0
+          }
+        },
+        {
+          "pass": "order-cold",
+          "reason": "ordered",
+          "detail": "",
+          "n_edits": 2,
+          "outcome": "candidate",
+          "stats": {
+            "already_laid_out": 1462.0,
+            "pinned_or_not_relocatable": 0.0,
+            "section_boot": 0.0,
+            "section_cold": 33.0,
+            "section_hot": 0.0,
+            "section_unknown": 0.0,
+            "section_warm": 2038.0,
+            "unannotated": 0.0
+          }
+        }
+      ]
+    },
+    "page-local": {
+      "state": "materialized",
+      "identity": "sha256:f13b283e4bccb1f26ccd3ed9d616c79d33f4d5fc10aaacf4448846ad6b856650",
+      "materialization_s": 52.32999194799993,
+      "spec": {
+        "name": "page-local",
+        "parent": "warm",
+        "stage": "page-local",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/page-local/artifacts/6fa1a1bfe3cc94f0005fb3801af44c86bded21b473ec4c1ec7cac94e85b43271/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 96116,
+          "bytes_with_struct": 170928,
+          "lines64_code": 1654,
+          "pages4k_code": 111,
+          "lines64_with_struct": 2795,
+          "pages4k_with_struct": 113,
+          "span_bytes": 1808992,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1036300,
+          "bytes_with_struct": 1799024,
+          "lines64_code": 17778,
+          "pages4k_code": 461,
+          "lines64_with_struct": 29393,
+          "pages4k_with_struct": 461,
+          "span_bytes": 1887600
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:fb0bb9157b36523fc6db2ebcacf3ac453a00ea43ca9a137bb540efa4bd20b5f2",
+      "effective_passes": [
+        {
+          "pass": "page-aware-local-layout",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "weighted_page_crossings_reduced",
+          "n_edits": 1
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "page-aware-local-layout",
+          "reason": "weighted_page_crossings_reduced",
+          "detail": "",
+          "n_edits": 1,
+          "outcome": "candidate",
+          "stats": {
+            "adjacent_pairs_considered": 7002,
+            "adjacent_swaps": 5,
+            "exact_captured_transfer_weight": 1825648,
+            "located_self_loop_weight": 2541,
+            "located_transfer_coverage": 0.9994626568414848,
+            "located_transfer_weight": 1824668,
+            "page_gains_blocked_by_native_distance": 8,
+            "page_gains_blocked_by_original_adjacency": 338,
+            "profile_transfer_weight": 1825649,
+            "protected_adjacency_weight": 1105930,
+            "unlocated_transfer_rows": 8,
+            "weighted_page_crossings_after": 21386,
+            "weighted_page_crossings_before": 22214,
+            "weighted_transfer_distance_after": 58024843469,
+            "weighted_transfer_distance_before": 58025681229
+          }
+        }
+      ]
+    },
+    "b3": {
+      "state": "materialized",
+      "identity": "sha256:9d49b7f2541192ff62527927273d6f9ada32e6364fc1895ca7f93e3ac8171925",
+      "materialization_s": 102.516511864,
+      "spec": {
+        "name": "b3",
+        "parent": "warm",
+        "stage": "b3",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/b3/artifacts/1f76403ce5b5cd05ef7a1b140ee7f30f129d2a30289cc9b9fa1b8f7b37d28468/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 106247,
+          "bytes_with_struct": 181059,
+          "lines64_code": 1817,
+          "pages4k_code": 142,
+          "lines64_with_struct": 2958,
+          "pages4k_with_struct": 147,
+          "span_bytes": 2240255,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1105056,
+          "bytes_with_struct": 1867780,
+          "lines64_code": 18900,
+          "pages4k_code": 563,
+          "lines64_with_struct": 30505,
+          "pages4k_with_struct": 563,
+          "span_bytes": 2306052
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:ab660de036e1259b599c7da80e6742fb44ccd4d5a119d61c3be192ada0473aab",
+      "effective_passes": [
+        {
+          "pass": "specialize-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 75
+        },
+        {
+          "pass": "constant-propagation",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 9
+        },
+        {
+          "pass": "branch-folding",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 14
+        },
+        {
+          "pass": "dead-host-ops",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 17
+        },
+        {
+          "pass": "chain-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 382
+        },
+        {
+          "pass": "chain-static",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 256
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "specialize-returns",
+          "reason": "",
+          "detail": "13 variants",
+          "n_edits": 75,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 62,
+            "edits:ADD_ENTRY": 13,
+            "edits:ATTACH_FACT": 36,
+            "edits:CLONE": 13,
+            "edits:REDIRECT_EXIT": 13,
+            "guarded_exits_total": 13,
+            "origins": 24,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:fact_not_constant": 330,
+            "refused:fact_not_local_to_return_tb": 5,
+            "refused:fact_unused": 61,
+            "refused:not_profitable": 10,
+            "refused:provenance_unexplained": 7,
+            "refused:target_not_profiled": 6,
+            "return_exits": 413,
+            "saving_ns_model": 13344.4,
+            "slots:SPEC": 13,
+            "train_lookups_guarded": 2254,
+            "variants": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "constant-propagation",
+          "reason": "",
+          "detail": "1 loads folded",
+          "n_edits": 9,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 31,
+            "deps_added": 33,
+            "edits:PURE_REWRITE": 9,
+            "folded_loads": 9,
+            "guarded_exits_total": 13,
+            "no_applicable_sites": 5,
+            "origins": 7,
+            "patches": 9,
+            "refused:no_same_length_encoding": 5,
+            "removed_work": 1148,
+            "units_candidate": 8,
+            "units_skipped_unsupported": 5,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "branch-folding",
+          "reason": "",
+          "detail": "1 branches folded",
+          "n_edits": 14,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 68,
+            "decided_branches": 14,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 14,
+            "guarded_exits_total": 13,
+            "origins": 11,
+            "patches": 14,
+            "removed_work": 2278,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "dead-host-ops",
+          "reason": "",
+          "detail": "2 dead host ops",
+          "n_edits": 17,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 35,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 17,
+            "guarded_exits_total": 13,
+            "nopped": 17,
+            "origins": 11,
+            "patches": 17,
+            "removed_work": 2578,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-returns",
+          "reason": "",
+          "detail": "382 GENERAL slots",
+          "n_edits": 382,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 382,
+            "edits:REDIRECT_EXIT": 382,
+            "estimated_train_link_installs": 382,
+            "estimated_train_lookups_avoided": 68342,
+            "exits": 413,
+            "guarded_exits_total": 266,
+            "origins": 256,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:not_profitable": 70,
+            "refused:slot_budget": 80,
+            "refused:target_not_profiled": 6,
+            "slots": 382,
+            "slots:GENERAL": 382,
+            "targets_without_estimated_reuse": 220,
+            "train_guard_attempts": 73807,
+            "train_lookups_guarded": 68724,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-static",
+          "reason": "",
+          "detail": "256 GENERAL slots",
+          "n_edits": 256,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 256,
+            "edits:REDIRECT_EXIT": 256,
+            "estimated_train_link_installs": 256,
+            "estimated_train_lookups_avoided": 50102,
+            "exits": 1014,
+            "guarded_exits_total": 522,
+            "origins": 256,
+            "refused:not_profitable": 100,
+            "refused:slot_budget": 592,
+            "refused:target_not_profiled": 63,
+            "refused:unit_not_relocatable": 3,
+            "slots": 256,
+            "slots:GENERAL": 256,
+            "targets_without_estimated_reuse": 100,
+            "train_guard_attempts": 50358,
+            "train_lookups_guarded": 50358,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        }
+      ]
+    },
+    "b3-ph": {
+      "state": "materialized",
+      "identity": "sha256:b9e9281a249009dcd828f6edea9d485e7e0224546159902d229c3be754cf434b",
+      "materialization_s": 110.33004970299999,
+      "spec": {
+        "name": "b3-ph",
+        "parent": "warm",
+        "stage": "b3-ph",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/b3-ph/artifacts/40bb61430c071bf34611e27fd06d6aa450862f27804e866e1982d64ffbd91a9b/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 106247,
+          "bytes_with_struct": 181059,
+          "lines64_code": 1817,
+          "pages4k_code": 86,
+          "lines64_with_struct": 2958,
+          "pages4k_with_struct": 89,
+          "span_bytes": 646176,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1105056,
+          "bytes_with_struct": 1867780,
+          "lines64_code": 18900,
+          "pages4k_code": 477,
+          "lines64_with_struct": 30505,
+          "pages4k_with_struct": 477,
+          "span_bytes": 1952304
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:760453cf9f0ba0831c26c9c6ff7b671142d33a4fdbcb17c78003ccc20b2b09cd",
+      "effective_passes": [
+        {
+          "pass": "specialize-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 75
+        },
+        {
+          "pass": "constant-propagation",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 9
+        },
+        {
+          "pass": "branch-folding",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 14
+        },
+        {
+          "pass": "dead-host-ops",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 17
+        },
+        {
+          "pass": "chain-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 382
+        },
+        {
+          "pass": "chain-static",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 256
+        },
+        {
+          "pass": "hotcold-partition",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "classified",
+          "n_edits": 3533
+        },
+        {
+          "pass": "cluster-hot",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "clustered",
+          "n_edits": 1
+        },
+        {
+          "pass": "order-cold",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "ordered",
+          "n_edits": 2
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "specialize-returns",
+          "reason": "",
+          "detail": "13 variants",
+          "n_edits": 75,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 62,
+            "edits:ADD_ENTRY": 13,
+            "edits:ATTACH_FACT": 36,
+            "edits:CLONE": 13,
+            "edits:REDIRECT_EXIT": 13,
+            "guarded_exits_total": 13,
+            "origins": 24,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:fact_not_constant": 330,
+            "refused:fact_not_local_to_return_tb": 5,
+            "refused:fact_unused": 61,
+            "refused:not_profitable": 10,
+            "refused:provenance_unexplained": 7,
+            "refused:target_not_profiled": 6,
+            "return_exits": 413,
+            "saving_ns_model": 13344.4,
+            "slots:SPEC": 13,
+            "train_lookups_guarded": 2254,
+            "variants": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "constant-propagation",
+          "reason": "",
+          "detail": "1 loads folded",
+          "n_edits": 9,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 31,
+            "deps_added": 33,
+            "edits:PURE_REWRITE": 9,
+            "folded_loads": 9,
+            "guarded_exits_total": 13,
+            "no_applicable_sites": 5,
+            "origins": 7,
+            "patches": 9,
+            "refused:no_same_length_encoding": 5,
+            "removed_work": 1148,
+            "units_candidate": 8,
+            "units_skipped_unsupported": 5,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "branch-folding",
+          "reason": "",
+          "detail": "1 branches folded",
+          "n_edits": 14,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 68,
+            "decided_branches": 14,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 14,
+            "guarded_exits_total": 13,
+            "origins": 11,
+            "patches": 14,
+            "removed_work": 2278,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "dead-host-ops",
+          "reason": "",
+          "detail": "2 dead host ops",
+          "n_edits": 17,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 35,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 17,
+            "guarded_exits_total": 13,
+            "nopped": 17,
+            "origins": 11,
+            "patches": 17,
+            "removed_work": 2578,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-returns",
+          "reason": "",
+          "detail": "382 GENERAL slots",
+          "n_edits": 382,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 382,
+            "edits:REDIRECT_EXIT": 382,
+            "estimated_train_link_installs": 382,
+            "estimated_train_lookups_avoided": 68342,
+            "exits": 413,
+            "guarded_exits_total": 266,
+            "origins": 256,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:not_profitable": 70,
+            "refused:slot_budget": 80,
+            "refused:target_not_profiled": 6,
+            "slots": 382,
+            "slots:GENERAL": 382,
+            "targets_without_estimated_reuse": 220,
+            "train_guard_attempts": 73807,
+            "train_lookups_guarded": 68724,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-static",
+          "reason": "",
+          "detail": "256 GENERAL slots",
+          "n_edits": 256,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 256,
+            "edits:REDIRECT_EXIT": 256,
+            "estimated_train_link_installs": 256,
+            "estimated_train_lookups_avoided": 50102,
+            "exits": 1014,
+            "guarded_exits_total": 522,
+            "origins": 256,
+            "refused:not_profitable": 100,
+            "refused:slot_budget": 592,
+            "refused:target_not_profiled": 63,
+            "refused:unit_not_relocatable": 3,
+            "slots": 256,
+            "slots:GENERAL": 256,
+            "targets_without_estimated_reuse": 100,
+            "train_guard_attempts": 50358,
+            "train_lookups_guarded": 50358,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "hotcold-partition",
+          "reason": "classified",
+          "detail": "",
+          "n_edits": 3533,
+          "outcome": "candidate",
+          "stats": {
+            "class_boot_only": 0.0,
+            "class_cold_zero": 33.0,
+            "class_hot": 1462.0,
+            "class_unknown": 0.0,
+            "class_warm": 2038.0,
+            "coverage": 0.99,
+            "exact_entries": 1845159.0,
+            "hot": 1462.0,
+            "hot_entries": 1826708.0,
+            "pinned_hot": 0.0,
+            "status_exact": 3533.0,
+            "status_lower_bound": 0.0,
+            "status_unknown": 0.0
+          }
+        },
+        {
+          "pass": "cluster-hot",
+          "reason": "clustered",
+          "detail": "",
+          "n_edits": 1,
+          "outcome": "candidate",
+          "stats": {
+            "chains": 279.0,
+            "edge_weight": 1798455.0,
+            "edges": 1861.0,
+            "hot": 1462.0,
+            "merged_fraction": 0.716354,
+            "merged_weight": 1288330.0,
+            "ordered": 1462.0,
+            "skipped": 0.0
+          }
+        },
+        {
+          "pass": "order-cold",
+          "reason": "ordered",
+          "detail": "",
+          "n_edits": 2,
+          "outcome": "candidate",
+          "stats": {
+            "already_laid_out": 1462.0,
+            "pinned_or_not_relocatable": 0.0,
+            "section_boot": 0.0,
+            "section_cold": 33.0,
+            "section_hot": 0.0,
+            "section_unknown": 0.0,
+            "section_warm": 2038.0,
+            "unannotated": 0.0
+          }
+        }
+      ]
+    },
+    "b3-llvm": {
+      "state": "materialized",
+      "identity": "sha256:b72c122670336f9b4fa998bb67af249fee096056c3d570f21eb10a27c321d8a3",
+      "materialization_s": 108.79016489799994,
+      "spec": {
+        "name": "b3-llvm",
+        "parent": "warm",
+        "stage": "b3-llvm",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/b3-llvm/artifacts/86a1d327189cd16612b53b1f1628b84f1c4dd8770beac71173ecb2b6f34ff979/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 106247,
+          "bytes_with_struct": 181059,
+          "lines64_code": 1817,
+          "pages4k_code": 91,
+          "lines64_with_struct": 2958,
+          "pages4k_with_struct": 92,
+          "span_bytes": 809952,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1105056,
+          "bytes_with_struct": 1867780,
+          "lines64_code": 18900,
+          "pages4k_code": 477,
+          "lines64_with_struct": 30505,
+          "pages4k_with_struct": 477,
+          "span_bytes": 1952304
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:f12d4e62e7386732b7f2eae05b5aa3e01f94172cdd04e7db3ce50d365222f31d",
+      "effective_passes": [
+        {
+          "pass": "specialize-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 75
+        },
+        {
+          "pass": "constant-propagation",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 9
+        },
+        {
+          "pass": "branch-folding",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 14
+        },
+        {
+          "pass": "dead-host-ops",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 17
+        },
+        {
+          "pass": "chain-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 382
+        },
+        {
+          "pass": "chain-static",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 256
+        },
+        {
+          "pass": "hotcold-partition",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "classified",
+          "n_edits": 3533
+        },
+        {
+          "pass": "llvm-cache-layout",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "cache_directed_layout",
+          "n_edits": 1
+        },
+        {
+          "pass": "order-cold",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "ordered",
+          "n_edits": 2
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "specialize-returns",
+          "reason": "",
+          "detail": "13 variants",
+          "n_edits": 75,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 62,
+            "edits:ADD_ENTRY": 13,
+            "edits:ATTACH_FACT": 36,
+            "edits:CLONE": 13,
+            "edits:REDIRECT_EXIT": 13,
+            "guarded_exits_total": 13,
+            "origins": 24,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:fact_not_constant": 330,
+            "refused:fact_not_local_to_return_tb": 5,
+            "refused:fact_unused": 61,
+            "refused:not_profitable": 10,
+            "refused:provenance_unexplained": 7,
+            "refused:target_not_profiled": 6,
+            "return_exits": 413,
+            "saving_ns_model": 13344.4,
+            "slots:SPEC": 13,
+            "train_lookups_guarded": 2254,
+            "variants": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "constant-propagation",
+          "reason": "",
+          "detail": "1 loads folded",
+          "n_edits": 9,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 31,
+            "deps_added": 33,
+            "edits:PURE_REWRITE": 9,
+            "folded_loads": 9,
+            "guarded_exits_total": 13,
+            "no_applicable_sites": 5,
+            "origins": 7,
+            "patches": 9,
+            "refused:no_same_length_encoding": 5,
+            "removed_work": 1148,
+            "units_candidate": 8,
+            "units_skipped_unsupported": 5,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "branch-folding",
+          "reason": "",
+          "detail": "1 branches folded",
+          "n_edits": 14,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 68,
+            "decided_branches": 14,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 14,
+            "guarded_exits_total": 13,
+            "origins": 11,
+            "patches": 14,
+            "removed_work": 2278,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "dead-host-ops",
+          "reason": "",
+          "detail": "2 dead host ops",
+          "n_edits": 17,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 35,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 17,
+            "guarded_exits_total": 13,
+            "nopped": 17,
+            "origins": 11,
+            "patches": 17,
+            "removed_work": 2578,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-returns",
+          "reason": "",
+          "detail": "382 GENERAL slots",
+          "n_edits": 382,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 382,
+            "edits:REDIRECT_EXIT": 382,
+            "estimated_train_link_installs": 382,
+            "estimated_train_lookups_avoided": 68342,
+            "exits": 413,
+            "guarded_exits_total": 266,
+            "origins": 256,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:not_profitable": 70,
+            "refused:slot_budget": 80,
+            "refused:target_not_profiled": 6,
+            "slots": 382,
+            "slots:GENERAL": 382,
+            "targets_without_estimated_reuse": 220,
+            "train_guard_attempts": 73807,
+            "train_lookups_guarded": 68724,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-static",
+          "reason": "",
+          "detail": "256 GENERAL slots",
+          "n_edits": 256,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 256,
+            "edits:REDIRECT_EXIT": 256,
+            "estimated_train_link_installs": 256,
+            "estimated_train_lookups_avoided": 50102,
+            "exits": 1014,
+            "guarded_exits_total": 522,
+            "origins": 256,
+            "refused:not_profitable": 100,
+            "refused:slot_budget": 592,
+            "refused:target_not_profiled": 63,
+            "refused:unit_not_relocatable": 3,
+            "slots": 256,
+            "slots:GENERAL": 256,
+            "targets_without_estimated_reuse": 100,
+            "train_guard_attempts": 50358,
+            "train_lookups_guarded": 50358,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "hotcold-partition",
+          "reason": "classified",
+          "detail": "",
+          "n_edits": 3533,
+          "outcome": "candidate",
+          "stats": {
+            "class_boot_only": 0.0,
+            "class_cold_zero": 33.0,
+            "class_hot": 1462.0,
+            "class_unknown": 0.0,
+            "class_warm": 2038.0,
+            "coverage": 0.99,
+            "exact_entries": 1845159.0,
+            "hot": 1462.0,
+            "hot_entries": 1826708.0,
+            "pinned_hot": 0.0,
+            "status_exact": 3533.0,
+            "status_lower_bound": 0.0,
+            "status_unknown": 0.0
+          }
+        },
+        {
+          "pass": "llvm-cache-layout",
+          "reason": "cache_directed_layout",
+          "detail": "bridge sha256:ae1b66a8194160fa2d52522132b713eb3cea4c2a7d09611af8b92463bf82dd77",
+          "n_edits": 1,
+          "outcome": "candidate",
+          "stats": {
+            "hot": 1462.0,
+            "llvm_edge_weight": 1677161,
+            "llvm_edges": 1533,
+            "llvm_edges_unlocated": 349,
+            "llvm_nodes": 1452,
+            "llvm_private_source_nodes": 10,
+            "llvm_traffic_forced_fallback": 2770,
+            "llvm_traffic_guard_unresolved": 115481,
+            "llvm_traffic_ordinary": 1674391,
+            "llvm_traffic_outside_nodes": 24437,
+            "llvm_traffic_private_destination_unlocated": 2569,
+            "llvm_traffic_private_source_unlocated": 2569,
+            "llvm_traffic_self_excluded": 2488,
+            "llvm_traffic_total": 1825648,
+            "llvm_traffic_unlocated": 943,
+            "llvm_unknown_counts": 0,
+            "ordered": 1462.0,
+            "skipped": 0.0
+          }
+        },
+        {
+          "pass": "order-cold",
+          "reason": "ordered",
+          "detail": "",
+          "n_edits": 2,
+          "outcome": "candidate",
+          "stats": {
+            "already_laid_out": 1462.0,
+            "pinned_or_not_relocatable": 0.0,
+            "section_boot": 0.0,
+            "section_cold": 33.0,
+            "section_hot": 0.0,
+            "section_unknown": 0.0,
+            "section_warm": 2038.0,
+            "unannotated": 0.0
+          }
+        }
+      ]
+    },
+    "sfb": {
+      "state": "materialized",
+      "identity": "sha256:fae28f02a97f8b0ab728d8430a5e98bb21b9e395ae046fad64500e4cb30d9d85",
+      "materialization_s": 67.60764160200006,
+      "spec": {
+        "name": "sfb",
+        "parent": "warm",
+        "stage": "sfb",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/sfb/artifacts/ddcde0ca28789ed69ff4a5ee767c58ddb81ffb6388461944170f7c7ae8d90979/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 101556,
+          "bytes_with_struct": 176368,
+          "lines64_code": 1729,
+          "pages4k_code": 145,
+          "lines64_with_struct": 2884,
+          "pages4k_with_struct": 149,
+          "span_bytes": 2355984,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1092156,
+          "bytes_with_struct": 1855008,
+          "lines64_code": 18565,
+          "pages4k_code": 577,
+          "lines64_with_struct": 30163,
+          "pages4k_with_struct": 577,
+          "span_bytes": 2369808
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:7a668d12a3a01cc29160a24a6d2b33ff59d3232650a0ff99569433e80f967a87",
+      "effective_passes": [
+        {
+          "pass": "sfb",
+          "outcome": "candidate",
+          "units": 3524
+        }
+      ],
+      "proposal": {
+        "outcome": "candidate",
+        "units": 3524,
+        "moved": 776
+      }
+    },
+    "sfb-b3": {
+      "state": "materialized",
+      "identity": "sha256:2af7dc331b5c4ea8bb86bac4c17306d393e7c5998dd7fdf27fc2b7640670487d",
+      "materialization_s": 104.21664293599997,
+      "spec": {
+        "name": "sfb-b3",
+        "parent": "sfb",
+        "stage": "b3",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/sfb-b3/artifacts/c2005635f9a8aaa6de1a21209af8015695a79c6cf158512bed2e9e6740ad1515/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 111687,
+          "bytes_with_struct": 186499,
+          "lines64_code": 1893,
+          "pages4k_code": 170,
+          "lines64_with_struct": 3044,
+          "pages4k_with_struct": 177,
+          "span_bytes": 2724495,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1160912,
+          "bytes_with_struct": 1923764,
+          "lines64_code": 19684,
+          "pages4k_code": 678,
+          "lines64_with_struct": 31257,
+          "pages4k_with_struct": 678,
+          "span_bytes": 2791380
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:5fd3bc1adca569143289fb038bb7b0d5e001536b46a9aa128ecd80376703f358",
+      "effective_passes": [
+        {
+          "pass": "specialize-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 75
+        },
+        {
+          "pass": "constant-propagation",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 9
+        },
+        {
+          "pass": "branch-folding",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 14
+        },
+        {
+          "pass": "dead-host-ops",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 17
+        },
+        {
+          "pass": "chain-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 382
+        },
+        {
+          "pass": "chain-static",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 256
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "specialize-returns",
+          "reason": "",
+          "detail": "13 variants",
+          "n_edits": 75,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 62,
+            "edits:ADD_ENTRY": 13,
+            "edits:ATTACH_FACT": 36,
+            "edits:CLONE": 13,
+            "edits:REDIRECT_EXIT": 13,
+            "guarded_exits_total": 13,
+            "origins": 24,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:fact_not_constant": 330,
+            "refused:fact_not_local_to_return_tb": 5,
+            "refused:fact_unused": 61,
+            "refused:not_profitable": 10,
+            "refused:provenance_unexplained": 7,
+            "refused:target_not_profiled": 6,
+            "return_exits": 413,
+            "saving_ns_model": 13344.4,
+            "slots:SPEC": 13,
+            "train_lookups_guarded": 2254,
+            "variants": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "constant-propagation",
+          "reason": "",
+          "detail": "1 loads folded",
+          "n_edits": 9,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 31,
+            "deps_added": 33,
+            "edits:PURE_REWRITE": 9,
+            "folded_loads": 9,
+            "guarded_exits_total": 13,
+            "no_applicable_sites": 5,
+            "origins": 7,
+            "patches": 9,
+            "refused:no_same_length_encoding": 5,
+            "removed_work": 1148,
+            "units_candidate": 8,
+            "units_skipped_unsupported": 5,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "branch-folding",
+          "reason": "",
+          "detail": "1 branches folded",
+          "n_edits": 14,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 68,
+            "decided_branches": 14,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 14,
+            "guarded_exits_total": 13,
+            "origins": 11,
+            "patches": 14,
+            "removed_work": 2278,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "dead-host-ops",
+          "reason": "",
+          "detail": "2 dead host ops",
+          "n_edits": 17,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 35,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 17,
+            "guarded_exits_total": 13,
+            "nopped": 17,
+            "origins": 11,
+            "patches": 17,
+            "removed_work": 2578,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-returns",
+          "reason": "",
+          "detail": "382 GENERAL slots",
+          "n_edits": 382,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 382,
+            "edits:REDIRECT_EXIT": 382,
+            "estimated_train_link_installs": 382,
+            "estimated_train_lookups_avoided": 68342,
+            "exits": 413,
+            "guarded_exits_total": 266,
+            "origins": 256,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:not_profitable": 70,
+            "refused:slot_budget": 80,
+            "refused:target_not_profiled": 6,
+            "slots": 382,
+            "slots:GENERAL": 382,
+            "targets_without_estimated_reuse": 220,
+            "train_guard_attempts": 73807,
+            "train_lookups_guarded": 68724,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-static",
+          "reason": "",
+          "detail": "256 GENERAL slots",
+          "n_edits": 256,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 256,
+            "edits:REDIRECT_EXIT": 256,
+            "estimated_train_link_installs": 256,
+            "estimated_train_lookups_avoided": 50102,
+            "exits": 1014,
+            "guarded_exits_total": 522,
+            "origins": 256,
+            "refused:not_profitable": 100,
+            "refused:slot_budget": 592,
+            "refused:target_not_profiled": 63,
+            "refused:unit_not_relocatable": 3,
+            "slots": 256,
+            "slots:GENERAL": 256,
+            "targets_without_estimated_reuse": 100,
+            "train_guard_attempts": 50358,
+            "train_lookups_guarded": 50358,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        }
+      ]
+    },
+    "sfb-b3-ph": {
+      "state": "materialized",
+      "identity": "sha256:6fee9eaccc53fe6fc320d87bcaa3d6c38b91281bf498a406ae476a40fef0d046",
+      "materialization_s": 112.64274535100003,
+      "spec": {
+        "name": "sfb-b3-ph",
+        "parent": "sfb",
+        "stage": "b3-ph",
+        "params": {}
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/sfb-b3-ph/artifacts/8ca614971f72032c41d8ef30458a5f8510ac6296314d1c788fec68b2ca5f236d/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 111687,
+          "bytes_with_struct": 186499,
+          "lines64_code": 1893,
+          "pages4k_code": 88,
+          "lines64_with_struct": 3044,
+          "pages4k_with_struct": 90,
+          "span_bytes": 661808,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1160912,
+          "bytes_with_struct": 1923764,
+          "lines64_code": 19684,
+          "pages4k_code": 489,
+          "lines64_with_struct": 31257,
+          "pages4k_with_struct": 489,
+          "span_bytes": 2000448
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:232f5fc007d043ebd805893512513c922eb7aa4a88a6652ae58de36e62e8b48c",
+      "effective_passes": [
+        {
+          "pass": "specialize-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 75
+        },
+        {
+          "pass": "constant-propagation",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 9
+        },
+        {
+          "pass": "branch-folding",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 14
+        },
+        {
+          "pass": "dead-host-ops",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 17
+        },
+        {
+          "pass": "chain-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 382
+        },
+        {
+          "pass": "chain-static",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 256
+        },
+        {
+          "pass": "hotcold-partition",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "classified",
+          "n_edits": 3533
+        },
+        {
+          "pass": "cluster-hot",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "clustered",
+          "n_edits": 1
+        },
+        {
+          "pass": "order-cold",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "ordered",
+          "n_edits": 2
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "specialize-returns",
+          "reason": "",
+          "detail": "13 variants",
+          "n_edits": 75,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 62,
+            "edits:ADD_ENTRY": 13,
+            "edits:ATTACH_FACT": 36,
+            "edits:CLONE": 13,
+            "edits:REDIRECT_EXIT": 13,
+            "guarded_exits_total": 13,
+            "origins": 24,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:fact_not_constant": 330,
+            "refused:fact_not_local_to_return_tb": 5,
+            "refused:fact_unused": 61,
+            "refused:not_profitable": 10,
+            "refused:provenance_unexplained": 7,
+            "refused:target_not_profiled": 6,
+            "return_exits": 413,
+            "saving_ns_model": 13344.4,
+            "slots:SPEC": 13,
+            "train_lookups_guarded": 2254,
+            "variants": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "constant-propagation",
+          "reason": "",
+          "detail": "1 loads folded",
+          "n_edits": 9,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 31,
+            "deps_added": 33,
+            "edits:PURE_REWRITE": 9,
+            "folded_loads": 9,
+            "guarded_exits_total": 13,
+            "no_applicable_sites": 5,
+            "origins": 7,
+            "patches": 9,
+            "refused:no_same_length_encoding": 5,
+            "removed_work": 1148,
+            "units_candidate": 8,
+            "units_skipped_unsupported": 5,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "branch-folding",
+          "reason": "",
+          "detail": "1 branches folded",
+          "n_edits": 14,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 68,
+            "decided_branches": 14,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 14,
+            "guarded_exits_total": 13,
+            "origins": 11,
+            "patches": 14,
+            "removed_work": 2278,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "dead-host-ops",
+          "reason": "",
+          "detail": "2 dead host ops",
+          "n_edits": 17,
+          "outcome": "candidate",
+          "stats": {
+            "bytes_changed": 35,
+            "deps_added": 49,
+            "edits:PURE_REWRITE": 17,
+            "guarded_exits_total": 13,
+            "nopped": 17,
+            "origins": 11,
+            "patches": 17,
+            "removed_work": 2578,
+            "units_candidate": 13,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-returns",
+          "reason": "",
+          "detail": "382 GENERAL slots",
+          "n_edits": 382,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 382,
+            "edits:REDIRECT_EXIT": 382,
+            "estimated_train_link_installs": 382,
+            "estimated_train_lookups_avoided": 68342,
+            "exits": 413,
+            "guarded_exits_total": 266,
+            "origins": 256,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:not_profitable": 70,
+            "refused:slot_budget": 80,
+            "refused:target_not_profiled": 6,
+            "slots": 382,
+            "slots:GENERAL": 382,
+            "targets_without_estimated_reuse": 220,
+            "train_guard_attempts": 73807,
+            "train_lookups_guarded": 68724,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "chain-static",
+          "reason": "",
+          "detail": "256 GENERAL slots",
+          "n_edits": 256,
+          "outcome": "candidate",
+          "stats": {
+            "deps_added": 256,
+            "edits:REDIRECT_EXIT": 256,
+            "estimated_train_link_installs": 256,
+            "estimated_train_lookups_avoided": 50102,
+            "exits": 1014,
+            "guarded_exits_total": 522,
+            "origins": 256,
+            "refused:not_profitable": 100,
+            "refused:slot_budget": 592,
+            "refused:target_not_profiled": 63,
+            "refused:unit_not_relocatable": 3,
+            "slots": 256,
+            "slots:GENERAL": 256,
+            "targets_without_estimated_reuse": 100,
+            "train_guard_attempts": 50358,
+            "train_lookups_guarded": 50358,
+            "training_replays": 1,
+            "units": 256,
+            "variants_total": 13
+          }
+        },
+        {
+          "pass": "hotcold-partition",
+          "reason": "classified",
+          "detail": "",
+          "n_edits": 3533,
+          "outcome": "candidate",
+          "stats": {
+            "class_boot_only": 0.0,
+            "class_cold_zero": 33.0,
+            "class_hot": 1462.0,
+            "class_unknown": 0.0,
+            "class_warm": 2038.0,
+            "coverage": 0.99,
+            "exact_entries": 1845159.0,
+            "hot": 1462.0,
+            "hot_entries": 1826708.0,
+            "pinned_hot": 0.0,
+            "status_exact": 3533.0,
+            "status_lower_bound": 0.0,
+            "status_unknown": 0.0
+          }
+        },
+        {
+          "pass": "cluster-hot",
+          "reason": "clustered",
+          "detail": "",
+          "n_edits": 1,
+          "outcome": "candidate",
+          "stats": {
+            "chains": 279.0,
+            "edge_weight": 1798455.0,
+            "edges": 1861.0,
+            "hot": 1462.0,
+            "merged_fraction": 0.716354,
+            "merged_weight": 1288330.0,
+            "ordered": 1462.0,
+            "skipped": 0.0
+          }
+        },
+        {
+          "pass": "order-cold",
+          "reason": "ordered",
+          "detail": "",
+          "n_edits": 2,
+          "outcome": "candidate",
+          "stats": {
+            "already_laid_out": 1462.0,
+            "pinned_or_not_relocatable": 0.0,
+            "section_boot": 0.0,
+            "section_cold": 33.0,
+            "section_hot": 0.0,
+            "section_unknown": 0.0,
+            "section_warm": 2038.0,
+            "unannotated": 0.0
+          }
+        }
+      ]
+    },
+    "regular-one": {
+      "state": "materialized",
+      "identity": "sha256:86aab1f70f09d5ad4fcbc76464b20973a97068af3f235914b598d8b0093cd7d9",
+      "materialization_s": 85.760657842,
+      "spec": {
+        "name": "regular-one",
+        "parent": "warm",
+        "stage": "general",
+        "params": {
+          "chain-returns": {
+            "targets_per_exit": 1,
+            "rank_by_net_work": true,
+            "max_total_growth_bytes": 8192
+          },
+          "chain-static": {
+            "targets_per_exit": 1,
+            "rank_by_net_work": true,
+            "max_total_growth_bytes": 8192
+          }
+        }
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/regular-one/artifacts/7fc550a883c76308eba2e0f0ae101194294ffd7361c311dd3cba2a1126e4f617/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 99683,
+          "bytes_with_struct": 174495,
+          "lines64_code": 1712,
+          "pages4k_code": 120,
+          "lines64_with_struct": 2853,
+          "pages4k_with_struct": 122,
+          "span_bytes": 1937499,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1043926,
+          "bytes_with_struct": 1806650,
+          "lines64_code": 17902,
+          "pages4k_code": 475,
+          "lines64_with_struct": 29517,
+          "pages4k_with_struct": 475,
+          "span_bytes": 1948955
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:3f83a5709c8a8c0c66b3a09c949b1fc13dcc1583e9ba4ad1ad0c36fb7dbaadea",
+      "effective_passes": [
+        {
+          "pass": "specialize-returns",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "constant-propagation",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "branch-folding",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "dead-host-ops",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "chain-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 62
+        },
+        {
+          "pass": "chain-static",
+          "status": "no_change",
+          "outcome": "skipped_unsupported",
+          "reason": "growth_budget",
+          "n_edits": 0
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "chain-returns",
+          "reason": "",
+          "detail": "62 GENERAL slots",
+          "n_edits": 62,
+          "outcome": "candidate",
+          "stats": {
+            "c_target_check": 1.5,
+            "deps_added": 62,
+            "edits:REDIRECT_EXIT": 62,
+            "eligible_exit_plans": 301,
+            "estimated_net_saving_ns": 314577.5999999999,
+            "estimated_train_link_installs": 62,
+            "estimated_train_lookups_avoided": 53826,
+            "existing_growth_upper_bytes": 0,
+            "exits": 413,
+            "guarded_exits_total": 62,
+            "max_total_growth_bytes": 8192,
+            "origins": 62,
+            "proposed_growth_upper_bytes": 8122,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:growth_budget": 239,
+            "refused:not_profitable": 105,
+            "refused:target_not_profiled": 6,
+            "slots": 62,
+            "slots:GENERAL": 62,
+            "targets_without_estimated_reuse": 235,
+            "train_guard_attempts": 63000,
+            "train_lookups_guarded": 53888,
+            "train_unmatched_guard_attempts": 9112,
+            "training_replays": 1,
+            "units": 62,
+            "variants_total": 0
+          }
+        },
+        {
+          "pass": "chain-static",
+          "reason": "growth_budget",
+          "detail": "growth_budget=755, not_profitable=196, target_not_profiled=63",
+          "n_edits": 0,
+          "outcome": "skipped_unsupported",
+          "stats": {
+            "c_target_check": 1.5,
+            "eligible_exit_plans": 755,
+            "estimated_net_saving_ns": 0.0,
+            "estimated_train_link_installs": 0,
+            "estimated_train_lookups_avoided": 0,
+            "existing_growth_upper_bytes": 8122,
+            "exits": 1014,
+            "max_total_growth_bytes": 8192,
+            "no_applicable_sites": 1,
+            "proposed_growth_upper_bytes": 8122,
+            "refused:growth_budget": 755,
+            "refused:not_profitable": 196,
+            "refused:target_not_profiled": 63,
+            "slots": 0,
+            "targets_without_estimated_reuse": 196,
+            "train_guard_attempts": 0,
+            "train_lookups_guarded": 0,
+            "train_unmatched_guard_attempts": 0,
+            "training_replays": 1,
+            "units": 0
+          }
+        }
+      ]
+    },
+    "regular-two": {
+      "state": "materialized",
+      "identity": "sha256:896d19701412e7870b1a6d30237a544e4aaf37dc769617d2cfd4ff0fd5fd4b30",
+      "materialization_s": 85.71359717500013,
+      "spec": {
+        "name": "regular-two",
+        "parent": "warm",
+        "stage": "general",
+        "params": {
+          "chain-returns": {
+            "targets_per_exit": 2,
+            "rank_by_net_work": true,
+            "max_total_growth_bytes": 8192
+          },
+          "chain-static": {
+            "targets_per_exit": 2,
+            "rank_by_net_work": true,
+            "max_total_growth_bytes": 8192
+          }
+        }
+      },
+      "public_hot_footprint": {
+        "label": "model (static offsets x profile counts), not measured",
+        "profile_id": "sha256:6a4cd68ad32a8b564f37301a493e438ec5aa0f54d348c38406158c41bd4aa7e4",
+        "profile_snapshot_id": "sha256:069ca7be08e706f97f7d6bb23fafd5e7142ff3f307e8d411fc49d59774f59eb4",
+        "sc": "/home/runner/work/_temp/diagnostics/regular-two/artifacts/2dd75970e8832961502651288fef304ee7e6a9b8cf3f0d0c7adc5c7448503566/cache.sc",
+        "phase": "steady",
+        "coverage_target": 0.9,
+        "exact_units": 3533,
+        "non_exact_units": 0,
+        "phase_entries_exact": 1845159,
+        "join_coverage": 1.0,
+        "units_in_layout": 3533,
+        "hot": {
+          "units": 344,
+          "code_bytes": 101219,
+          "bytes_with_struct": 176031,
+          "lines64_code": 1735,
+          "pages4k_code": 119,
+          "lines64_with_struct": 2876,
+          "pages4k_with_struct": 121,
+          "span_bytes": 1934079,
+          "entries_covered": 1660761,
+          "fraction": 0.9000638969324595
+        },
+        "executed": {
+          "units": 3500,
+          "code_bytes": 1043998,
+          "bytes_with_struct": 1806722,
+          "lines64_code": 17903,
+          "pages4k_code": 473,
+          "lines64_with_struct": 29517,
+          "pages4k_with_struct": 473,
+          "span_bytes": 1940047
+        },
+        "status": "ok"
+      },
+      "snapshot_id": "sha256:40063dc0e5248a80bd5f79d0ca1a0b844c38ed98ea7f27d8c668bd2946afba9d",
+      "effective_passes": [
+        {
+          "pass": "specialize-returns",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "constant-propagation",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "branch-folding",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "dead-host-ops",
+          "status": "policy_disabled",
+          "outcome": "skipped_unsupported",
+          "reason": "ablation_disabled",
+          "n_edits": 0
+        },
+        {
+          "pass": "chain-returns",
+          "status": "edited",
+          "outcome": "candidate",
+          "reason": "",
+          "n_edits": 93
+        },
+        {
+          "pass": "chain-static",
+          "status": "no_change",
+          "outcome": "skipped_unsupported",
+          "reason": "growth_budget",
+          "n_edits": 0
+        }
+      ],
+      "pass_stats": [
+        {
+          "pass": "chain-returns",
+          "reason": "",
+          "detail": "93 GENERAL slots",
+          "n_edits": 93,
+          "outcome": "candidate",
+          "stats": {
+            "c_target_check": 1.5,
+            "deps_added": 93,
+            "edits:REDIRECT_EXIT": 93,
+            "eligible_exit_plans": 443,
+            "estimated_net_saving_ns": 341463.3,
+            "estimated_train_link_installs": 93,
+            "estimated_train_lookups_avoided": 59478,
+            "existing_growth_upper_bytes": 0,
+            "exits": 413,
+            "guarded_exits_total": 50,
+            "max_total_growth_bytes": 8192,
+            "origins": 50,
+            "proposed_growth_upper_bytes": 8098,
+            "refused:exit_not_goto_ptr": 1,
+            "refused:growth_budget": 355,
+            "refused:not_profitable": 117,
+            "refused:target_not_profiled": 6,
+            "slots": 93,
+            "slots:GENERAL": 93,
+            "targets_without_estimated_reuse": 235,
+            "train_guard_attempts": 62967,
+            "train_lookups_guarded": 59571,
+            "train_unmatched_guard_attempts": 3396,
+            "training_replays": 1,
+            "units": 50,
+            "variants_total": 0
+          }
+        },
+        {
+          "pass": "chain-static",
+          "reason": "growth_budget",
+          "detail": "growth_budget=755, not_profitable=196, target_not_profiled=63",
+          "n_edits": 0,
+          "outcome": "skipped_unsupported",
+          "stats": {
+            "c_target_check": 1.5,
+            "eligible_exit_plans": 755,
+            "estimated_net_saving_ns": 0.0,
+            "estimated_train_link_installs": 0,
+            "estimated_train_lookups_avoided": 0,
+            "existing_growth_upper_bytes": 8098,
+            "exits": 1014,
+            "max_total_growth_bytes": 8192,
+            "no_applicable_sites": 1,
+            "proposed_growth_upper_bytes": 8098,
+            "refused:growth_budget": 755,
+            "refused:not_profitable": 196,
+            "refused:target_not_profiled": 63,
+            "slots": 0,
+            "targets_without_estimated_reuse": 196,
+            "train_guard_attempts": 0,
+            "train_lookups_guarded": 0,
+            "train_unmatched_guard_attempts": 0,
+            "training_replays": 1,
+            "units": 0
+          }
+        }
+      ]
+    }
+  },
+  "contrasts": {
+    "warm/ph": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11284388.5,
+        "candidate_median": 11626870.0,
+        "median_paired_gain": 0.9987596589194908,
+        "bootstrap_95": [
+          0.7829941933067281,
+          1.0346176890277665
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 50694138.0,
+        "candidate_median": 55835472.0,
+        "median_paired_gain": 0.9519673959634591,
+        "bootstrap_95": [
+          0.8765938260738856,
+          1.0069810657418419
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 226021000.0,
+        "candidate_median": 229683000.0,
+        "median_paired_gain": 0.9923717541622566,
+        "bootstrap_95": [
+          0.9714066938824584,
+          1.0006160677388065
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23745946299993648,
+        "candidate_median": 0.24123869150002974,
+        "median_paired_gain": 0.9897304162634353,
+        "bootstrap_95": [
+          0.9709561727830301,
+          1.002925980244342
+        ]
+      }
+    },
+    "warm/llvm": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11284388.5,
+        "candidate_median": 11232935.5,
+        "median_paired_gain": 0.9789016976702929,
+        "bootstrap_95": [
+          0.92324878651931,
+          1.0953796006904617
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 50694138.0,
+        "candidate_median": 50835435.0,
+        "median_paired_gain": 0.9904899201425019,
+        "bootstrap_95": [
+          0.9470266390785446,
+          1.0589912514212378
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 226021000.0,
+        "candidate_median": 223559000.0,
+        "median_paired_gain": 1.0038054346386127,
+        "bootstrap_95": [
+          0.9786377165781319,
+          1.027961136661637
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23745946299993648,
+        "candidate_median": 0.234709692000024,
+        "median_paired_gain": 1.0048685978828735,
+        "bootstrap_95": [
+          0.9789137023435077,
+          1.0274103371115286
+        ]
+      }
+    },
+    "ph/llvm": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11626870.0,
+        "candidate_median": 11232935.5,
+        "median_paired_gain": 1.005757643022494,
+        "bootstrap_95": [
+          0.9761210302721552,
+          1.435520809309153
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 55835472.0,
+        "candidate_median": 50835435.0,
+        "median_paired_gain": 1.0247370188613512,
+        "bootstrap_95": [
+          0.9459436471746623,
+          1.1871016810631767
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 229683000.0,
+        "candidate_median": 223559000.0,
+        "median_paired_gain": 1.005614808618663,
+        "bootstrap_95": [
+          0.9982113407780887,
+          1.0435853043959349
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.24123869150002974,
+        "candidate_median": 0.234709692000024,
+        "median_paired_gain": 1.0061504198159064,
+        "bootstrap_95": [
+          0.9951643830026367,
+          1.048314608407872
+        ]
+      }
+    },
+    "warm/page-local": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11284388.5,
+        "candidate_median": 11613825.5,
+        "median_paired_gain": 0.9699788741079372,
+        "bootstrap_95": [
+          0.7551876796023278,
+          1.1154441216619695
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 50694138.0,
+        "candidate_median": 55598007.0,
+        "median_paired_gain": 0.9224559738434516,
+        "bootstrap_95": [
+          0.8275022758716905,
+          1.0063358364405697
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 226021000.0,
+        "candidate_median": 227447500.0,
+        "median_paired_gain": 0.9918577610662438,
+        "bootstrap_95": [
+          0.9642136950471124,
+          1.0055325464259086
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23745946299993648,
+        "candidate_median": 0.23869834449999416,
+        "median_paired_gain": 0.9903886774374786,
+        "bootstrap_95": [
+          0.9646764549065298,
+          1.0074485732502243
+        ]
+      }
+    },
+    "b3/b3-ph": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 10299807.5,
+        "candidate_median": 13026599.5,
+        "median_paired_gain": 0.8086553526367095,
+        "bootstrap_95": [
+          0.6745122642035988,
+          0.987524433393552
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 49087131.5,
+        "candidate_median": 58864919.5,
+        "median_paired_gain": 0.8430951040844457,
+        "bootstrap_95": [
+          0.7641649762239697,
+          0.977975259349386
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 221405500.0,
+        "candidate_median": 231297000.0,
+        "median_paired_gain": 0.9621420738638492,
+        "bootstrap_95": [
+          0.940236195278193,
+          0.984352025487937
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23225361900006192,
+        "candidate_median": 0.24295785150002303,
+        "median_paired_gain": 0.9620880346794841,
+        "bootstrap_95": [
+          0.936547315446695,
+          0.9833215967159272
+        ]
+      }
+    },
+    "b3/b3-llvm": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 10299807.5,
+        "candidate_median": 10442099.0,
+        "median_paired_gain": 0.9706169985118855,
+        "bootstrap_95": [
+          0.9075042772772606,
+          1.0103158017011813
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 49087131.5,
+        "candidate_median": 49734057.5,
+        "median_paired_gain": 0.9850655275244047,
+        "bootstrap_95": [
+          0.881506248107697,
+          1.012336171317119
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 221405500.0,
+        "candidate_median": 223959000.0,
+        "median_paired_gain": 0.9890267746048724,
+        "bootstrap_95": [
+          0.9577578651816103,
+          1.008260998562903
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23225361900006192,
+        "candidate_median": 0.23498248449993753,
+        "median_paired_gain": 0.9897575975774253,
+        "bootstrap_95": [
+          0.9561107345793417,
+          1.0093800432751
+        ]
+      }
+    },
+    "b3-ph/b3-llvm": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 13026599.5,
+        "candidate_median": 10442099.0,
+        "median_paired_gain": 1.007735403997888,
+        "bootstrap_95": [
+          0.937664572819664,
+          1.4804003855028625
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 58864919.5,
+        "candidate_median": 49734057.5,
+        "median_paired_gain": 1.0353939512047319,
+        "bootstrap_95": [
+          0.9934898798261386,
+          1.2562015863269165
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 231297000.0,
+        "candidate_median": 223959000.0,
+        "median_paired_gain": 1.012974415709932,
+        "bootstrap_95": [
+          0.9990831035369022,
+          1.0518480487034458
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.24295785150002303,
+        "candidate_median": 0.23498248449993753,
+        "median_paired_gain": 1.0109974441801257,
+        "bootstrap_95": [
+          0.9961550773200414,
+          1.0583859320905145
+        ]
+      }
+    },
+    "sfb-b3/sfb-b3-ph": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 9129018.0,
+        "candidate_median": 9270387.5,
+        "median_paired_gain": 0.9955763530675035,
+        "bootstrap_95": [
+          0.890565941895165,
+          1.0351793209072655
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 49964324.5,
+        "candidate_median": 47381091.5,
+        "median_paired_gain": 1.04575147516736,
+        "bootstrap_95": [
+          1.0112878791132303,
+          1.1395456732288003
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 223004000.0,
+        "candidate_median": 220024000.0,
+        "median_paired_gain": 1.0047193927043425,
+        "bootstrap_95": [
+          0.9895263667241905,
+          1.0248879801078266
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23470780349998677,
+        "candidate_median": 0.23109204850004517,
+        "median_paired_gain": 1.005044435856711,
+        "bootstrap_95": [
+          0.9934983881543059,
+          1.0256266544532846
+        ]
+      }
+    },
+    "regular-one/regular-two": {
+      "state": "complete",
+      "blocks": 12,
+      "operational_ns": {
+        "reference_median": 11077307.5,
+        "candidate_median": 10986232.0,
+        "median_paired_gain": 1.0422723583627151,
+        "bootstrap_95": [
+          0.9411607446868383,
+          1.2049582492176985
+        ]
+      },
+      "qemu_ns": {
+        "reference_median": 52136641.0,
+        "candidate_median": 50861010.5,
+        "median_paired_gain": 1.0178183750565442,
+        "bootstrap_95": [
+          0.9875393249397761,
+          1.1673604538110403
+        ]
+      },
+      "process_cpu_ns": {
+        "reference_median": 223981500.0,
+        "candidate_median": 226179500.0,
+        "median_paired_gain": 0.9998754741336158,
+        "bootstrap_95": [
+          0.9843445103447592,
+          1.0229475646744643
+        ]
+      },
+      "wall_s": {
+        "reference_median": 0.23488034350009457,
+        "candidate_median": 0.23731865349998316,
+        "median_paired_gain": 0.9991567253359807,
+        "bootstrap_95": [
+          0.9834354494732941,
+          1.0242898816959007
+        ]
+      }
+    }
+  },
+  "runtime_metadata": {
+    "runtime_identity_id": "sha256:fe6aa040914b3585db3604bb1ed206b7e6c1acc6880881df064e5eb68f98d2a5",
+    "cpuinfo": "0xdfef7",
+    "host_page_size": 4096,
+    "runtime_signature": "0xdf537a8576e5b221",
+    "icache_linesize": 64,
+    "base_cflags": null,
+    "target_page_bits": 10
+  },
+  "host_image": [
+    "Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261116.133"
+  ],
+  "compact_archive_sha256": "c120a6097d384161922adb4e0ba6cbeb1bcb90df4e105ddc09f39b111dd096c9"
+}
