@@ -1,8 +1,10 @@
 # Courbet Autopilot Firmware In FastDyn
 
-This directory contains ArduPilot and PX4 firmware images, virtual instruction
+This directory contains ArduPilot, PX4 and Betaflight firmware images, virtual instruction
 configuration, MAVLink helpers, missions, and legacy Gazebo assets used by the
 FastDyn/Courbet vehicle tests.
+
+For a new platform, start with the [rehosting workflow and troubleshooting reference](../../../../docs/rehosting/README.md).
 
 The maintained default path is no longer a manual Gazebo launch. Use the
 repository root `setup.sh` and the FastDyn TOML configs:
@@ -15,7 +17,7 @@ fastdyn run -c configs/copter462.toml
 ## Execution Configuration Generation
 
 Use one command-line tool for the supplied ArduCopter 4.6.2, ArduPlane 4.6.2,
-and PX4 FMUv6C profiles. Run these commands from the FastDyn repository root:
+PX4 FMUv6C and Betaflight F405 profiles. Run these commands from the FastDyn repository root:
 
 ```bash
 fastdyn-env/bin/python virtuals/physics/flight_controllers/courbet/prepare_execution_configuration.py \
@@ -26,6 +28,9 @@ fastdyn-env/bin/python virtuals/physics/flight_controllers/courbet/prepare_execu
 
 fastdyn-env/bin/python virtuals/physics/flight_controllers/courbet/prepare_execution_configuration.py \
   --profile virtuals/physics/flight_controllers/courbet/px4/fmu_v6c/profile.toml
+
+fastdyn-env/bin/python virtuals/physics/flight_controllers/courbet/prepare_execution_configuration.py \
+  --profile virtuals/physics/flight_controllers/courbet/betaflight/matekf405ctr/profile.toml
 ```
 
 The PX4 version sweep also supplies `fmu_v6c_v1_13`, `fmu_v6c_v1_14`,
@@ -38,7 +43,7 @@ that file are relative to the file; `--elf` and `--output-dir` overrides are
 relative to the caller's working directory. Use `--output-dir /tmp/px4-conf`
 to review generated bindings without replacing the target's current output.
 Dependencies are FastDyn's Python environment (pyelftools and TOML support),
-plus a Python-enabled `gdb-multiarch` or `arm-none-eabi-gdb` for PX4 DWARF checks.
+plus a Python-enabled `gdb-multiarch` or `arm-none-eabi-gdb` for PX4/Betaflight DWARF checks.
 
 ```text
 courbet/
@@ -46,6 +51,7 @@ courbet/
 ├── execution_configuration/       # ELF resolution, rule compilation, validation, output
 ├── profiles/
 │   ├── ardupilot/                 # Legacy callback argument conventions
+│   ├── betaflight/                # STM32 hardware sensor/UART bridge ABI
 │   └── px4/                       # NuttX/uORB ABI and console callback arguments
 ├── tests/
 │   ├── test_execution_configuration.py
@@ -70,7 +76,7 @@ courbet/
     └── fmu_v6c_v1_16/
 ```
 
-`profile.toml` selects `firmware = "ardupilot"` or `"px4"`, the input ELF,
+`profile.toml` selects `firmware = "ardupilot"`, `"px4"` or `"betaflight"`, the input ELF,
 the labeled directory, the output directory, and target-specific checks.
 It is a generator descriptor; QEMU CPU/memory and FMU settings remain in the
 FastDyn `configs/*.toml` files. `boot.nsh` remains a runtime input.
@@ -137,6 +143,15 @@ a Rumoca-generated FMI v3 plant:
 - `configs/copter462.toml` uses `FastDyn.Copter`.
 - `configs/rover462.toml` uses `FastDyn.Rover`.
 - `configs/plane462.toml` uses `FastDyn.Plane`.
+
+`fastdyn run -c configs/betaflight_f405.toml` runs the MATEKF405CTR STM32F405 ELF
+with physical MPU6000 SPI and BMP280 I2C drivers against `FastDyn.Copter`,
+with a host RC pilot flying a 30 m rectangle at 15 m,
+returning, landing and disarming. Its profile validates the bridge's DWARF ABI.
+MAVProxy and MAVCesium start automatically on private 155xx defaults; the mission
+helper exits the run on success or failure after the viewing window. See
+[betaflight/matekf405ctr/README.md](betaflight/matekf405ctr/README.md) for setup, ports,
+board defaults and the limits of this host-controlled mission.
 
 The FastDyn wrapper models inherit reusable base plants from
 `third_party/common/modelica_models/RigidBody/Examples` and define the
