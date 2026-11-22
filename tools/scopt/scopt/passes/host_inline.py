@@ -22,7 +22,8 @@ from .base import BudgetExceeded, Budgets, EditKind, Outcome, PassDescriptor, Pa
 
 BACKEND_REVISION = "58df0ef89dd64126512e4ee27b4ac3fd8ddf6247"
 BRIDGE_VERSION = 1
-POLICY_VERSION = 2
+POLICY_VERSION = 3
+_UNBOUNDED_GROWTH = (1 << 63) - 1
 
 _DEFAULTS = {
     "bridge": "",
@@ -140,7 +141,7 @@ class HostInline:
         name="host-inline", version=1, unit_scope="snapshot",
         requires=(("envlayout", 1), ("native-callees", 1)),
         capabilities=frozenset({EditKind.INLINE_CALL}),
-        budgets=Budgets(max_wall_s=60, max_code_growth_bytes=65536),
+        budgets=Budgets(max_wall_s=60, max_code_growth_bytes=_UNBOUNDED_GROWTH),
         invalidates=frozenset({"code", "meta", "layout"}),
         params_schema={**_COMMON_SCHEMA, **_EXTREME_SCHEMA, "mode": str, "allow_faulting": bool,
                        "udiv_mode": str, "udiv_only": bool},
@@ -220,6 +221,7 @@ class HostInline:
 
     def _run_candidates(self, view, ctx, edits) -> PassResult:
         params = {**self.default_params, "max_sites_per_unit": self.default_sites_per_unit, **ctx.params}
+        unbounded_growth = host_inline_mode(params) == "maximal"
         for key, limit in _LIMITS.items():
             minimum = 1 if key in ("max_cfg_insns", "max_wall_s") else 0
             if not minimum <= params[key] <= limit:
@@ -257,6 +259,9 @@ class HostInline:
         candidates = []
         stats = Counter({"sites_seen": 0, "sites_applied": 0, "emitted_growth_bytes": 0,
                          "selected_tb_entries_proxy": 0})
+        if unbounded_growth:
+            stats["growth_policy_unbounded"] = 1
+            stats["site_policy_unbounded"] = 1
         diagnostics = []
 
         def report(binding, reason, detail="", entries=None):
@@ -310,7 +315,7 @@ class HostInline:
             call, callee = binding.call, binding.callee
             entries = candidate.entries
             unit = view.unit(call.uid)
-            if (stats["sites_applied"] >= params["max_sites"]
+            if (not unbounded_growth and stats["sites_applied"] >= params["max_sites"]
                     or by_unit[call.uid] >= unit_site_limit):
                 report(binding, "site_budget", entries=entries)
                 continue
@@ -332,8 +337,9 @@ class HostInline:
                     image_offset=callee.image_offset, symbol=callee.symbol,
                     callee_code=callee.code, native_input_id=prepared.input_id, fragment=frag,
                     bridge_sha256=bridge_id)
-                growth_room = min(params["max_growth_per_unit"] - growth[call.uid],
-                                  params["max_total_growth"] - stats["emitted_growth_bytes"])
+                growth_room = (_UNBOUNDED_GROWTH if unbounded_growth else min(
+                    params["max_growth_per_unit"] - growth[call.uid],
+                    params["max_total_growth"] - stats["emitted_growth_bytes"]))
                 req = self._prepare_request(unit, req, view.header.code_address, binding, params, growth_room)
                 if req.splice is not None and (earlier := selected.get(call.uid)):
                     from ..splice_layout import materialize_splices

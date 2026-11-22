@@ -120,7 +120,13 @@ def test_splice_pass_stages_at_most_one_per_tb(world):
 
 def test_maximal_mode_attempts_second_call_and_keeps_proved_subset(world):
     snap, registry = world
-    result = PassManager(snap, "host-inline-maximal", analyses=registry).execute()
+    # Inherited/user growth and global-site thresholds are deliberately ignored.
+    result = PassManager(
+        snap, "host-inline-maximal", analyses=registry,
+        params={"host-inline": {
+            "max_sites": 0, "max_growth_per_unit": 0, "max_total_growth": 0,
+        }},
+    ).execute()
     record, = result.passes
 
     assert record.name == "host-inline"
@@ -135,6 +141,8 @@ def test_maximal_mode_attempts_second_call_and_keeps_proved_subset(world):
     assert coverage["complete"] is False
     assert record.stats["sites:splice_interior_offset"] == 2
     assert "sites:site_budget" not in record.stats
+    assert record.stats["growth_policy_unbounded"] == 1
+    assert record.stats["site_policy_unbounded"] == 1
     assert all(len(u.native_fragments) == 1 for u in result.working_set.units())
 
 

@@ -109,6 +109,17 @@ def test_python_pass_manager_uses_same_shorthand_and_json_precedence(optimize):
     assert record.params == {"mode": "splice", "allow_faulting": True, "max_inline_depth": 1}
 
 
+def test_maximal_pipeline_has_no_growth_profitability_cap():
+    from scopt.manager import load_pipeline
+    from scopt.passes.host_inline import HostInline
+
+    entry, = load_pipeline("host-inline-maximal").passes
+    assert "max_sites" not in entry.params
+    assert "max_growth_per_unit" not in entry.params
+    assert "max_total_growth" not in entry.params
+    assert HostInline.descriptor.budgets.max_code_growth_bytes > (1 << 32)
+
+
 def test_extensionless_path_with_equals_is_literal(tmp_path, monkeypatch):
     from pathlib import Path
 

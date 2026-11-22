@@ -17,11 +17,8 @@ compact_frame = true
 max_inline_depth = 2147483647
 max_callee_bytes = 1024
 max_cfg_insns = 128
-max_sites = 4096
 # The current linker certifies at most two compatible integer splices in one TB.
 max_sites_per_unit = 2
-max_growth_per_unit = 65536
-max_total_growth = 65536
 max_wall_s = 60
 static_max_callee_bytes = 1024
 min_tb_entries = 0

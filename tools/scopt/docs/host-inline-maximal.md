@@ -34,11 +34,19 @@ The built-in configuration uses the existing audited ceilings:
 |---|---:|---|
 | `max_callee_bytes` | 1,024 | Largest top-level callee considered. |
 | `max_cfg_insns` | 128 | Existing leaf control-flow proof limit. |
-| `max_sites` | 4,096 | Captured sites considered across the snapshot. |
+| global site policy | none | Every captured top-level call site is considered. |
 | `max_sites_per_unit` | 2 | Current linker ceiling for compatible integer splices in one TB. |
-| `max_growth_per_unit` | 65,536 bytes | Per-TB emitted-growth ceiling. |
-| `max_total_growth` | 65,536 bytes | Whole-artifact emitted-growth ceiling. |
+| code-growth policy | none | No per-TB or whole-artifact profitability ceiling. |
 | `max_wall_s` | 60 seconds | Pass wall-time ceiling. |
+
+Maximal mode deliberately ignores `max_sites`, `max_growth_per_unit`, and
+`max_total_growth`, even if inherited from the ordinary pipeline or supplied in a
+parameter file. The receipt sets `site_policy_unbounded=1` and
+`growth_policy_unbounded=1`. The linker can still reject an artifact that cannot be
+represented in the captured arena or whose offsets cannot be encoded; those are
+format/correctness failures, not size-profitability decisions. The 1,024-byte callee
+and 128-instruction CFG bounds remain part of the current fragment certificate and are
+not SuperCache-size profitability policies.
 
 Two independent calls in one TB are attempted. The linker currently accepts both only
 when they are compatible integer splices without conflicting replaced ranges,
