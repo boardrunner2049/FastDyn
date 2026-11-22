@@ -1,0 +1,164 @@
+{
+  "release_revision": "1ebd4d996e8b6bbeb1462a9655c00aa861d5beef",
+  "ChibiOS_revision": "88b84600b59d2f39c9d9137aacdc9f098b374b4a",
+  "QEMU_revision": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+  "operational_status": "Blocked before scheduler initialization at the HSI-ready wait in the unmodified clock driver.",
+  "board": "CubeBlack STM32F427, Courbet generic Cortex-M4 board, Copter FMI",
+  "physical_interface_entries": 7,
+  "instruction_modifiers": 0,
+  "real_release_boots": [
+    {
+      "image": "published",
+      "elf_sha256": "e420db42babb612dec4cfcd3311871b9e4b804036f927900664932bb6661ca9d",
+      "plugin_sha256": "3f4b498f7622a65e26b4c340df91287ef945e2d7e60f5e14ec4e81772c5a8e0a",
+      "qemu_sha256": "fa405951545dfeee0c0140a3f89d6a4777752f28d17c215b3d50cbc5da75d51b",
+      "plant_library_sha256": "0a553c685a61a121732086bc0143fb41e0e1cb4b279d51d494702d3907cae491",
+      "generated_rules": {
+        "virtuals.txt": "07418218a58792e190a5f1f8e74ff3453cea2e80d2f9a8d32dcb900dafd5335e",
+        "modifiers.txt": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "symbols.txt": "c5847f121cf558c0ba1a7649193c86757aa0a726d1548d6f6b094719bf49fb31"
+      },
+      "sampled_pcs": [
+        "0x8169430",
+        "0x8169430",
+        "0x8169430",
+        "0x8169430"
+      ],
+      "sampled_functions": [
+        [
+          "stm32_clock_init",
+          "??:?"
+        ],
+        [
+          "stm32_clock_init",
+          "??:?"
+        ],
+        [
+          "stm32_clock_init",
+          "??:?"
+        ],
+        [
+          "stm32_clock_init",
+          "??:?"
+        ]
+      ],
+      "boot_observed": true,
+      "operational_mission_admitted": false,
+      "mmio": {
+        "raw_sha256": "19f4534ce05780068db4d6a6e32dc393a02edcdf98c0a26e1b6fba42068c2258",
+        "raw_bytes": 242779908,
+        "tail_unhandled": [
+          {
+            "operation": "Read",
+            "address": "0x40023800",
+            "bytes": 4,
+            "pc": "0x08169430"
+          }
+        ]
+      },
+      "complete_compressed_mmio": "/workspace/trebuchet-work/flight/cubeblack-boot-published/run/io.log.gz"
+    },
+    {
+      "image": "normal",
+      "elf_sha256": "4bca82a3e14afb44c820fdc893582e8c4f2371de49b64a23752ed8ab80cddbf8",
+      "plugin_sha256": "3f4b498f7622a65e26b4c340df91287ef945e2d7e60f5e14ec4e81772c5a8e0a",
+      "qemu_sha256": "fa405951545dfeee0c0140a3f89d6a4777752f28d17c215b3d50cbc5da75d51b",
+      "plant_library_sha256": "0a553c685a61a121732086bc0143fb41e0e1cb4b279d51d494702d3907cae491",
+      "generated_rules": {
+        "virtuals.txt": "07418218a58792e190a5f1f8e74ff3453cea2e80d2f9a8d32dcb900dafd5335e",
+        "modifiers.txt": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "symbols.txt": "c5847f121cf558c0ba1a7649193c86757aa0a726d1548d6f6b094719bf49fb31"
+      },
+      "sampled_pcs": [
+        "0x8169430",
+        "0x8169430",
+        "0x8169430",
+        "0x8169430"
+      ],
+      "sampled_functions": [
+        [
+          "stm32_clock_init",
+          "/home/runner/work/_temp/release/source/build/CubeBlack/../../modules/ChibiOS/os/hal/ports/STM32/STM32F4xx/hal_lld.c:174 (discriminator 1)"
+        ],
+        [
+          "stm32_clock_init",
+          "/home/runner/work/_temp/release/source/build/CubeBlack/../../modules/ChibiOS/os/hal/ports/STM32/STM32F4xx/hal_lld.c:174 (discriminator 1)"
+        ],
+        [
+          "stm32_clock_init",
+          "/home/runner/work/_temp/release/source/build/CubeBlack/../../modules/ChibiOS/os/hal/ports/STM32/STM32F4xx/hal_lld.c:174 (discriminator 1)"
+        ],
+        [
+          "stm32_clock_init",
+          "/home/runner/work/_temp/release/source/build/CubeBlack/../../modules/ChibiOS/os/hal/ports/STM32/STM32F4xx/hal_lld.c:174 (discriminator 1)"
+        ]
+      ],
+      "boot_observed": true,
+      "operational_mission_admitted": false,
+      "mmio": {
+        "raw_sha256": "9815da6443ea557aa7c337781b30052c1ec580a07120bfecff4e0322b63986d9",
+        "raw_bytes": 242710720,
+        "tail_unhandled": [
+          {
+            "operation": "Read",
+            "address": "0x40023800",
+            "bytes": 4,
+            "pc": "0x08169430"
+          }
+        ]
+      },
+      "complete_compressed_mmio": "/workspace/trebuchet-work/flight/cubeblack-boot-normal/run/io.log.gz"
+    },
+    {
+      "image": "retained",
+      "elf_sha256": "df6b1ba76f1b6cad1a3818b34dbe332aebebed533ad36cf309cbb7181ab966af",
+      "plugin_sha256": "3f4b498f7622a65e26b4c340df91287ef945e2d7e60f5e14ec4e81772c5a8e0a",
+      "qemu_sha256": "fa405951545dfeee0c0140a3f89d6a4777752f28d17c215b3d50cbc5da75d51b",
+      "plant_library_sha256": "0a553c685a61a121732086bc0143fb41e0e1cb4b279d51d494702d3907cae491",
+      "generated_rules": {
+        "virtuals.txt": "07418218a58792e190a5f1f8e74ff3453cea2e80d2f9a8d32dcb900dafd5335e",
+        "modifiers.txt": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "symbols.txt": "d2fce61907f005850b2c8ea5864eab88412a87f1ae452238fc8a63e83bd25ca2"
+      },
+      "sampled_pcs": [
+        "0x8169430",
+        "0x8169430",
+        "0x8169430",
+        "0x8169430"
+      ],
+      "sampled_functions": [
+        [
+          "stm32_clock_init",
+          "/home/runner/work/_temp/release/source/build/CubeBlack/../../modules/ChibiOS/os/hal/ports/STM32/STM32F4xx/hal_lld.c:174 (discriminator 1)"
+        ],
+        [
+          "stm32_clock_init",
+          "/home/runner/work/_temp/release/source/build/CubeBlack/../../modules/ChibiOS/os/hal/ports/STM32/STM32F4xx/hal_lld.c:174 (discriminator 1)"
+        ],
+        [
+          "stm32_clock_init",
+          "/home/runner/work/_temp/release/source/build/CubeBlack/../../modules/ChibiOS/os/hal/ports/STM32/STM32F4xx/hal_lld.c:174 (discriminator 1)"
+        ],
+        [
+          "stm32_clock_init",
+          "/home/runner/work/_temp/release/source/build/CubeBlack/../../modules/ChibiOS/os/hal/ports/STM32/STM32F4xx/hal_lld.c:174 (discriminator 1)"
+        ]
+      ],
+      "boot_observed": true,
+      "operational_mission_admitted": false,
+      "mmio": {
+        "raw_sha256": "e3b8ffbbb81e040180856953c7c69c05766e0a3cc1d34266d403e63727a7eec6",
+        "raw_bytes": 149743804,
+        "tail_unhandled": [
+          {
+            "operation": "Read",
+            "address": "0x40023800",
+            "bytes": 4,
+            "pc": "0x08169430"
+          }
+        ]
+      },
+      "complete_compressed_mmio": "/workspace/trebuchet-work/flight/cubeblack-boot-retained/run/io.log.gz"
+    }
+  ]
+}
