@@ -21,7 +21,7 @@ def summarize(observations):
         for member in archive:
             path = Path(member.name)
             if (member.isfile() and path.parts[:1] == ("campaign",) and len(path.parts) >= 3
-                    and path.parts[1] in {"pre-change", "selection", "final"}
+                    and path.parts[1] in {"pre-change", "selection", "final", "rebuilt-promotion"}
                     and path.name in {"observations.jsonl", "run.json", "uart.bin", "returned.utf8"}):
                 index[str(path)] = archive.extractfile(member).read()
     def data(path):
@@ -30,7 +30,7 @@ def summarize(observations):
     def doc(path):
         return json.loads(data(path))
 
-    for folder in ("pre-change", "selection", "final"):
+    for folder in ("pre-change", "selection", "final", "rebuilt-promotion"):
         log = f"campaign/{folder}/observations.jsonl"
         if log not in index:
             continue

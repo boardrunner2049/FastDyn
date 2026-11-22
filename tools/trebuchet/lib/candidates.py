@@ -152,7 +152,7 @@ def materialize(stage, previous, image, root, params, remaining, *, optimizer=No
             "ancestry": ancestry, "generations": [*previous["generations"], {**record, "output": output}]}
 
 
-def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=None):
+def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=None, fixed_recipe=None):
     plan = json.loads(plan_path.read_text())
     admission = json.loads(Path(plan["admission"]).read_text())
     if (admission["status"] != "admitted" or admission["application"] != plan["application"]
@@ -160,7 +160,10 @@ def build(plan_path, output, *, optimizer=None, pipeline_dir=None, fixed_image=N
         raise ValueError("requires a real application's completed admission record")
     recipes = plan.get("recipes", CORE)
     images = plan["images"]
-    if (not set(CORE) <= set(recipes) or len(set(recipes)) != len(recipes)
+    bounded_rebuild = fixed_recipe is not None and fixed_image is not None and (
+        recipes == ["warm"] if fixed_recipe == "warm" else recipes == ["warm", fixed_recipe])
+    valid_recipes = set(CORE) <= set(recipes) if fixed_recipe is None else bounded_rebuild
+    if (not valid_recipes or len(set(recipes)) != len(recipes)
             or (fixed_image is None and "original" not in images)
             or (fixed_image is not None and set(images) != {fixed_image})
             or not set(images) <= {"original", "firmbolt"}):

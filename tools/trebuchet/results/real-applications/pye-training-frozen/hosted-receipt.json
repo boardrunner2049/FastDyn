@@ -1,0 +1,55 @@
+{
+  "run_id": 44982087570,
+  "source_commit": "0083b2b0fbc73f27225b4bbbd779a795b5c6e5a5",
+  "branch": "trebuchet/hosted-pye-training-frozen",
+  "conclusion": "success",
+  "started_at": "2026-11-22T03:45:47Z",
+  "completed_at": "2026-11-22T04:15:01Z",
+  "raw_workspace": "/workspace/trebuchet-work/runner/pye-frozen/44982087570",
+  "raw_archive_sha256": "48062e5db47f10f4621377614ccee979eed74b7be117ece9f7758cd4550d7b61",
+  "retained_archive_sha256": "61e390278bd96067bcf84f9ce9ef2b457498cbf473523eb62a7aae5c9d745b72",
+  "included": {
+    "stdout.json": 6,
+    "command.json": 6,
+    "returned.utf8": 234,
+    "uart.bin": 234,
+    "run.json": 234,
+    "observations.jsonl": 2,
+    "frozen.json": 1,
+    "b4-D1-D2-D3-6eee27c48a88.json": 1,
+    "inventory-plan.json": 2,
+    "prep.json": 2
+  },
+  "downloads": [
+    {
+      "name": "part-002",
+      "digest": "sha256:32ba4689c99b12b148f10bd8cc7f195f6053fa04a8ef912e618b489484ea65f5",
+      "size": 20971658
+    },
+    {
+      "name": "part-001",
+      "digest": "sha256:c22a23e31c3a313f84efa15637f933622be9218a4e653963c901b45141830d9d",
+      "size": 20971658
+    },
+    {
+      "name": "checksums",
+      "digest": "sha256:902deb09857d9042b99fd8e390ac2ea3dc9d8fcba5552a67b74b16b77e23d7d5",
+      "size": 348
+    },
+    {
+      "name": "part-000",
+      "digest": "sha256:86c7dab5450738068896bf998f88c3354a1e5f3191a275991209f03bd26a43ba",
+      "size": 20971658
+    },
+    {
+      "name": "part-003",
+      "digest": "sha256:dcadc4d1a48b4b1bee8bfbc7e2ca99503de5a8944738f9db6fb63dd2bbe5dd52",
+      "size": 20971658
+    },
+    {
+      "name": "part-004",
+      "digest": "sha256:0decd47a396c03867093af5df4f699fda6fe2788dd69c8c5ea4692cc3b2a0653",
+      "size": 1351132
+    }
+  ]
+}

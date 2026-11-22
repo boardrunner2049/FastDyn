@@ -1,0 +1,39 @@
+{
+ "state": "completed",
+ "images": {
+  "firmbolt": {
+   "status": "prepared",
+   "firmware": "/home/runner/work/_temp/pye/campaign/firmbolt-guest/firmware.elf",
+   "config": "/home/runner/work/_temp/pye/campaign/firmbolt/pye.toml",
+   "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+   "snapshot": "/home/runner/work/_temp/pye/campaign/firmbolt/store/snapshots/99de98dfcd2ebf8e8f18bca79d47095b5c4d6425772202483990ee74008d8703",
+   "prep": "/home/runner/work/_temp/pye/campaign/firmbolt/prep",
+   "profile": "/home/runner/work/_temp/pye/campaign/firmbolt/profile/merged.profile.json",
+   "manifest": "/home/runner/work/_temp/pye/campaign/firmbolt/prep/cache/fw.sc.fastdyn.json",
+   "admission_runtime": "/home/runner/work/_temp/pye/campaign/firmbolt/admission-runtime.json"
+  }
+ },
+ "policy": {
+  "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/historical-eligible-policy.json",
+  "sha256": "sha256:2f2b957396922fb5905796afe5265710a380fe2b46dfd62175bb70235f993077"
+ },
+ "timing_cpu": 3,
+ "errors": {},
+ "qemu": {
+  "path": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "sha256": "sha256:27aea2eb5938303b99cec4834f5f52eba9c4d5feda7a58c9e23f5b63f8060992"
+ },
+ "plugin": {
+  "path": "/home/runner/work/_temp/pye/plugin-release/libfastdyn.so",
+  "sha256": "sha256:7376649e5a274a2dbab35d3d59c98467b0976ee2928c1ab1bbc04e37797764e6"
+ },
+ "host": [
+  "Linux",
+  "runnervmeozm8",
+  "7.0.0-1017-azure",
+  "#17~24.04.1-Ubuntu SMP PREEMPT Thu Sep 24 18:46:57 UTC 2026",
+  "x86_64"
+ ],
+ "scope": "supplemental historical host-cache control",
+ "campaign_wall_seconds": 1035.84932822
+}

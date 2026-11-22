@@ -1,0 +1,396 @@
+{
+ "schema": "trebuchet.joint-selection/1",
+ "state": "completed",
+ "objective": {
+  "name": "time to edit and return the document",
+  "direction": "minimize",
+  "unit": "ns",
+  "useful_work": "one complete declared document edit, verified against the whole expected UTF-8 document",
+  "boundaries": "host monotonic release at the pre-editor UART barrier through receipt of the editor-return marker"
+ },
+ "ranking": {
+  "original/sfb": {
+   "absolute_score": 15703556.00000002,
+   "reference_score": 20261427.50000003,
+   "scenarios": {
+    "fix-display-setup-instructions": {
+     "median_gain": 1.2535385158574617,
+     "wins": 12,
+     "ties": 0,
+     "p_value": 0.0010822510822510823,
+     "candidate_first": 6,
+     "candidate_median": 15703556.0,
+     "reference_median": 20261427.5
+    }
+   }
+  },
+  "original/sfb+b3": {
+   "absolute_score": 15512639.500000024,
+   "reference_score": 18960398.49999999,
+   "scenarios": {
+    "fix-display-setup-instructions": {
+     "median_gain": 1.2474536034728656,
+     "wins": 12,
+     "ties": 0,
+     "p_value": 0.0010822510822510823,
+     "candidate_first": 6,
+     "candidate_median": 15512639.5,
+     "reference_median": 18960398.5
+    }
+   }
+  },
+  "firmbolt/sfb+b3": {
+   "absolute_score": 15825998.500000015,
+   "reference_score": 19283812.000000022,
+   "scenarios": {
+    "fix-display-setup-instructions": {
+     "median_gain": 1.24376542577409,
+     "wins": 12,
+     "ties": 0,
+     "p_value": 0.0010822510822510823,
+     "candidate_first": 6,
+     "candidate_median": 15825998.5,
+     "reference_median": 19283812.0
+    }
+   }
+  },
+  "firmbolt/b3": {
+   "absolute_score": 18542905.00000001,
+   "reference_score": 20280635.000000004,
+   "scenarios": {
+    "fix-display-setup-instructions": {
+     "median_gain": 1.0739878729828631,
+     "wins": 10,
+     "ties": 0,
+     "p_value": 0.04004329004329004,
+     "candidate_first": 6,
+     "candidate_median": 18542905.0,
+     "reference_median": 20280635.0
+    }
+   }
+  },
+  "firmbolt/warm": {
+   "absolute_score": 20264616.999999974,
+   "reference_score": 19599804.49999999,
+   "scenarios": {
+    "fix-display-setup-instructions": {
+     "median_gain": 1.0181816623053228,
+     "wins": 7,
+     "ties": 0,
+     "p_value": 0.5,
+     "candidate_first": 6,
+     "candidate_median": 20264617.0,
+     "reference_median": 19599804.5
+    }
+   }
+  },
+  "original/b3": {
+   "absolute_score": 18413307.99999997,
+   "reference_score": 19544281.499999974,
+   "scenarios": {
+    "fix-display-setup-instructions": {
+     "median_gain": 1.0433642836851407,
+     "wins": 10,
+     "ties": 0,
+     "p_value": 0.04004329004329004,
+     "candidate_first": 6,
+     "candidate_median": 18413308.0,
+     "reference_median": 19544281.5
+    }
+   }
+  },
+  "firmbolt/sfb": {
+   "absolute_score": 16394689.499999981,
+   "reference_score": 18891955.000000015,
+   "scenarios": {
+    "fix-display-setup-instructions": {
+     "median_gain": 1.1694040651924067,
+     "wins": 11,
+     "ties": 0,
+     "p_value": 0.007575757575757576,
+     "candidate_first": 6,
+     "candidate_median": 16394689.5,
+     "reference_median": 18891955.0
+    }
+   }
+  }
+ },
+ "selected": {
+  "id": "original/sfb+b3",
+  "application": "pye",
+  "image_variant": "original",
+  "recipe": [
+   "sfb",
+   "b3"
+  ],
+  "contract_sha256": "sha256:9fc19ec9f5c2540380ab9c14f1495026c02c1c58efec781dedd7008984886ba7",
+  "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+  "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+  "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+  "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+  "profile_id": "sha256:a4b6a21502e429c42725234695b4f9e6822b6ec4989740024dc719a4ee74174f",
+  "ordinary_snapshot_id": "sha256:5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+  "artifact": "/home/runner/work/_temp/pye/campaign/registry/original.sfb.b3/artifacts/d71d6b5c2817a1aac499cdfe3356bb07dc1ea1857c27114a0af2b53cb283979f",
+  "generations": [
+   {
+    "stage": "sfb",
+    "params": {},
+    "input": "sha256:5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+    "receipt": "/home/runner/work/_temp/pye/campaign/registry/original.sfb/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "sfb",
+      "outcome": "candidate",
+      "units": 3500
+     }
+    ],
+    "output": "sha256:12131b002d796403c081d423e0d094c40a3190de0cf516a803f1d941bd9cc64d"
+   },
+   {
+    "stage": "b3",
+    "params": {},
+    "input": "sha256:12131b002d796403c081d423e0d094c40a3190de0cf516a803f1d941bd9cc64d",
+    "receipt": "/home/runner/work/_temp/pye/campaign/registry/original.sfb.b3/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "specialize-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 75
+     },
+     {
+      "pass": "constant-propagation",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 9
+     },
+     {
+      "pass": "branch-folding",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 14
+     },
+     {
+      "pass": "dead-host-ops",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 17
+     },
+     {
+      "pass": "chain-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 382
+     },
+     {
+      "pass": "chain-static",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 256
+     }
+    ],
+    "output": "sha256:72dbc243f095be4a36347dcb7c44a34b2e4d6f2e849ac614edeab266dfccbaee"
+   }
+  ],
+  "runtime_identity": "sha256:ad3da87bba17ca405367a5cc6414c7a1bc90f88ca9ff8b1e20cd1ef95ac00021",
+  "deployment_identity": "sha256:af9069178c87ada59ef6f75d0a342f5a637b602c9bb051724f341aaf716c2280",
+  "status": "ready",
+  "hot_footprint": {
+   "label": "model (static offsets x profile counts), not measured",
+   "profile_id": "sha256:a4b6a21502e429c42725234695b4f9e6822b6ec4989740024dc719a4ee74174f",
+   "profile_snapshot_id": "sha256:5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+   "sc": "/home/runner/work/_temp/pye/campaign/registry/original.sfb.b3/artifacts/d71d6b5c2817a1aac499cdfe3356bb07dc1ea1857c27114a0af2b53cb283979f/cache.sc",
+   "phase": "steady",
+   "coverage_target": 0.9,
+   "exact_units": 0,
+   "non_exact_units": 0,
+   "phase_entries_exact": 1803465,
+   "join_coverage": 0.0,
+   "units_in_layout": 0,
+   "status": "not_run",
+   "reason": "no_matching_entries"
+  }
+ },
+ "promoted": null,
+ "fallback": {
+  "id": "original/warm",
+  "application": "pye",
+  "image_variant": "original",
+  "recipe": [],
+  "contract_sha256": "sha256:9fc19ec9f5c2540380ab9c14f1495026c02c1c58efec781dedd7008984886ba7",
+  "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+  "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+  "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+  "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+  "profile_id": "sha256:a4b6a21502e429c42725234695b4f9e6822b6ec4989740024dc719a4ee74174f",
+  "ordinary_snapshot_id": "sha256:5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+  "artifact": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+  "generations": [],
+  "runtime_identity": "sha256:0032ae3ec52c344a58d3160993d4cea3c0701a4a6827827384aabceff834a90f",
+  "deployment_identity": "sha256:37b1806775a96743dbe889877a16ff6cbbe8e8b013f8c50c315ba0ebc43f8825",
+  "status": "ready",
+  "hot_footprint": {
+   "label": "model (static offsets x profile counts), not measured",
+   "profile_id": "sha256:a4b6a21502e429c42725234695b4f9e6822b6ec4989740024dc719a4ee74174f",
+   "profile_snapshot_id": "sha256:5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+   "sc": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2/cache.sc",
+   "phase": "steady",
+   "coverage_target": 0.9,
+   "exact_units": 3509,
+   "non_exact_units": 0,
+   "phase_entries_exact": 1803465,
+   "join_coverage": 1.0,
+   "units_in_layout": 3509,
+   "hot": {
+    "units": 354,
+    "code_bytes": 100504,
+    "bytes_with_struct": 177520,
+    "lines64_code": 1728,
+    "pages4k_code": 118,
+    "lines64_with_struct": 2901,
+    "pages4k_with_struct": 119,
+    "span_bytes": 1810272,
+    "entries_covered": 1623250,
+    "fraction": 0.9000729151938075
+   },
+   "executed": {
+    "units": 3500,
+    "code_bytes": 1036064,
+    "bytes_with_struct": 1798784,
+    "lines64_code": 17774,
+    "pages4k_code": 460,
+    "lines64_with_struct": 29389,
+    "pages4k_with_struct": 460,
+    "span_bytes": 1883024
+   },
+   "status": "ok"
+  }
+ },
+ "ranking_winner": {
+  "id": "original/sfb+b3",
+  "application": "pye",
+  "image_variant": "original",
+  "recipe": [
+   "sfb",
+   "b3"
+  ],
+  "contract_sha256": "sha256:9fc19ec9f5c2540380ab9c14f1495026c02c1c58efec781dedd7008984886ba7",
+  "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+  "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+  "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+  "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+  "profile_id": "sha256:a4b6a21502e429c42725234695b4f9e6822b6ec4989740024dc719a4ee74174f",
+  "ordinary_snapshot_id": "sha256:5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+  "artifact": "/home/runner/work/_temp/pye/campaign/registry/original.sfb.b3/artifacts/d71d6b5c2817a1aac499cdfe3356bb07dc1ea1857c27114a0af2b53cb283979f",
+  "generations": [
+   {
+    "stage": "sfb",
+    "params": {},
+    "input": "sha256:5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+    "receipt": "/home/runner/work/_temp/pye/campaign/registry/original.sfb/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "sfb",
+      "outcome": "candidate",
+      "units": 3500
+     }
+    ],
+    "output": "sha256:12131b002d796403c081d423e0d094c40a3190de0cf516a803f1d941bd9cc64d"
+   },
+   {
+    "stage": "b3",
+    "params": {},
+    "input": "sha256:12131b002d796403c081d423e0d094c40a3190de0cf516a803f1d941bd9cc64d",
+    "receipt": "/home/runner/work/_temp/pye/campaign/registry/original.sfb.b3/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "specialize-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 75
+     },
+     {
+      "pass": "constant-propagation",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 9
+     },
+     {
+      "pass": "branch-folding",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 14
+     },
+     {
+      "pass": "dead-host-ops",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 17
+     },
+     {
+      "pass": "chain-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 382
+     },
+     {
+      "pass": "chain-static",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 256
+     }
+    ],
+    "output": "sha256:72dbc243f095be4a36347dcb7c44a34b2e4d6f2e849ac614edeab266dfccbaee"
+   }
+  ],
+  "runtime_identity": "sha256:ad3da87bba17ca405367a5cc6414c7a1bc90f88ca9ff8b1e20cd1ef95ac00021",
+  "deployment_identity": "sha256:af9069178c87ada59ef6f75d0a342f5a637b602c9bb051724f341aaf716c2280",
+  "status": "ready",
+  "hot_footprint": {
+   "label": "model (static offsets x profile counts), not measured",
+   "profile_id": "sha256:a4b6a21502e429c42725234695b4f9e6822b6ec4989740024dc719a4ee74174f",
+   "profile_snapshot_id": "sha256:5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+   "sc": "/home/runner/work/_temp/pye/campaign/registry/original.sfb.b3/artifacts/d71d6b5c2817a1aac499cdfe3356bb07dc1ea1857c27114a0af2b53cb283979f/cache.sc",
+   "phase": "steady",
+   "coverage_target": 0.9,
+   "exact_units": 0,
+   "non_exact_units": 0,
+   "phase_entries_exact": 1803465,
+   "join_coverage": 0.0,
+   "units_in_layout": 0,
+   "status": "not_run",
+   "reason": "no_matching_entries"
+  }
+ },
+ "confirmation": {
+  "annotate-teensy-import": {
+   "median_gain": 1.3816632347771345,
+   "wins": 12,
+   "ties": 0,
+   "p_value": 0.0010822510822510823,
+   "candidate_first": 6,
+   "candidate_median": 37117625.5,
+   "reference_median": 51038138.5
+  }
+ },
+ "incumbent": null,
+ "promotion_reason": "pre_change_incumbent_unavailable"
+}

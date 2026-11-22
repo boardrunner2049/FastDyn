@@ -10,6 +10,8 @@ mkdir "$work" "$results"
 policy="$here/campaign-policy.json"
 for option in "${@:4}"; do
     if [[ $option == --training-frozen ]]; then policy="$here/frozen-policy.json"; fi
+    if [[ $option == --promotion-only ]]; then policy="$here/rebuilt-promotion-policy.json"; break; fi
+    if [[ $option == --eligible-history-only ]]; then policy="$here/historical-eligible-policy.json"; break; fi
 done
 cp "$policy" "$results/predeclared-policy.json"
 git -C "$repo" rev-parse HEAD > "$results/fastdyn.commit"

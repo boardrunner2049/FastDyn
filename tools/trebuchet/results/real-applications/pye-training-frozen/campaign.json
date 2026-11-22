@@ -1,0 +1,51 @@
+{
+ "state": "completed",
+ "images": {
+  "original": {
+   "status": "prepared",
+   "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+   "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+   "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+   "snapshot": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+   "prep": "/home/runner/work/_temp/pye/campaign/original/prep",
+   "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+   "manifest": "/home/runner/work/_temp/pye/campaign/original/prep/cache/fw.sc.fastdyn.json",
+   "admission_runtime": "/home/runner/work/_temp/pye/campaign/original/admission-runtime.json"
+  },
+  "firmbolt": {
+   "status": "prepared",
+   "firmware": "/home/runner/work/_temp/pye/campaign/firmbolt-guest/firmware.elf",
+   "config": "/home/runner/work/_temp/pye/campaign/firmbolt/pye.toml",
+   "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+   "snapshot": "/home/runner/work/_temp/pye/campaign/firmbolt/store/snapshots/6eee27c48a88d82e06831027194cfb698035c762043be24d2c88b41ba29459a6",
+   "prep": "/home/runner/work/_temp/pye/campaign/firmbolt/prep",
+   "profile": "/home/runner/work/_temp/pye/campaign/firmbolt/profile/merged.profile.json",
+   "manifest": "/home/runner/work/_temp/pye/campaign/firmbolt/prep/cache/fw.sc.fastdyn.json",
+   "admission_runtime": "/home/runner/work/_temp/pye/campaign/firmbolt/admission-runtime.json"
+  }
+ },
+ "policy": {
+  "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/frozen-policy.json",
+  "sha256": "sha256:bddf9c7a5215309d3ce65174ca5df430ec02000367deca58462ecff687d9106b"
+ },
+ "timing_cpu": 3,
+ "errors": {
+  "pre-change incumbent": "pre-change recipes did not all establish a materialized deployment; see pre-change registry"
+ },
+ "qemu": {
+  "path": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "sha256": "sha256:4705f0449beccd1049d29a8a91a3f8584cde43741359cd034f836990aeefbf53"
+ },
+ "plugin": {
+  "path": "/home/runner/work/_temp/pye/plugin-release/libfastdyn.so",
+  "sha256": "sha256:7376649e5a274a2dbab35d3d59c98467b0976ee2928c1ab1bbc04e37797764e6"
+ },
+ "host": [
+  "Linux",
+  "ip-10-0-143-35",
+  "7.0.0-1014-aws",
+  "#14~24.04.1-Ubuntu SMP PREEMPT Fri Sep 18 21:24:59 UTC 2026",
+  "x86_64"
+ ],
+ "campaign_wall_seconds": 1343.8111398370002
+}

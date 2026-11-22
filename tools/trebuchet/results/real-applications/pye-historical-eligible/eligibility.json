@@ -1,0 +1,28 @@
+{
+ "excluded": [
+  {
+   "id": "firmbolt/b4",
+   "source_revision": "16790d6e56c25b820748d275cb80577db205bcbd",
+   "reason": "V12:validation_inconclusive",
+   "snapshot": "sha256:99de98dfcd2ebf8e8f18bca79d47095b5c4d6425772202483990ee74008d8703",
+   "invocation_sha256": "sha256:733406c6bc8e79488054db7d428331fcbea1cd92148bfd3398c859001b789a3f",
+   "stdout_sha256": "sha256:15f751fe4f599b8d920d37efb3b817fdfb1b94c3a222d671b0ad6262d5370df5",
+   "rejection_sha256": "sha256:77099d32d8dd28cb1d035682fadaad045e4a1420ebcfe4fee676c24c3854cfa7",
+   "unsupported": [
+    {
+     "check": "equiv:U':tb:607159ac1695f640757962753fa2a1ce#0",
+     "code": "V12",
+     "detail": "unsupported: N:register:bh@0x90, O:register:bh@0x90",
+     "paths": [
+      2,
+      2
+     ],
+     "reason": "validation_inconclusive",
+     "result": "fail",
+     "verdict": "inconclusive"
+    }
+   ]
+  }
+ ],
+ "scope": "historical host-cache control"
+}

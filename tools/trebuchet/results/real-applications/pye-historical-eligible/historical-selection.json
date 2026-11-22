@@ -1,0 +1,121 @@
+{
+ "source_revision": "16790d6e56c25b820748d275cb80577db205bcbd",
+ "state": "completed",
+ "selected": {
+  "id": "firmbolt/sfb+b3",
+  "application": "pye",
+  "image_variant": "firmbolt",
+  "recipe": [
+   "sfb",
+   "b3"
+  ],
+  "contract_sha256": "sha256:24d5708efff68c4e9a054fe24b5650df67229dc1dc2a5b848bce0f5ed2ec2e76",
+  "firmware": "/home/runner/work/_temp/pye/campaign/firmbolt-guest/firmware.elf",
+  "config": "/home/runner/work/_temp/pye/campaign/firmbolt/pye.toml",
+  "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "profile": "/home/runner/work/_temp/pye/campaign/firmbolt/profile/merged.profile.json",
+  "firmware_sha256": "sha256:d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+  "config_sha256": "sha256:91a7ba68e5f84dd477bfeeb093c7c9ca06f90dd92499e4817e526586c4eaa583",
+  "profile_id": "sha256:23bba4757cc6774e8b367d53378f4f4ced25a7e90470508298ee667653700b7a",
+  "ordinary_snapshot_id": "sha256:99de98dfcd2ebf8e8f18bca79d47095b5c4d6425772202483990ee74008d8703",
+  "artifact": "/home/runner/work/_temp/pye/campaign/pre-change/registry/firmbolt.sfb.b3/artifacts/f293b298d3d4716dbcfaced8970da92b9a69df790fe78a926a8ad1d65539d13f",
+  "generations": [
+   {
+    "stage": "sfb",
+    "params": {},
+    "input": "sha256:99de98dfcd2ebf8e8f18bca79d47095b5c4d6425772202483990ee74008d8703",
+    "receipt": "/home/runner/work/_temp/pye/campaign/pre-change/registry/firmbolt.sfb/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "sfb",
+      "outcome": "candidate",
+      "units": 3502
+     }
+    ],
+    "output": "sha256:2003574b6a43ccc24204c6e67ca2c5da3cbdb86d50e8baca409ebb65386d02ee"
+   },
+   {
+    "stage": "b3",
+    "params": {},
+    "input": "sha256:2003574b6a43ccc24204c6e67ca2c5da3cbdb86d50e8baca409ebb65386d02ee",
+    "receipt": "/home/runner/work/_temp/pye/campaign/pre-change/registry/firmbolt.sfb.b3/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "specialize-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 79
+     },
+     {
+      "pass": "constant-propagation",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 12
+     },
+     {
+      "pass": "branch-folding",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 14
+     },
+     {
+      "pass": "dead-host-ops",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 17
+     },
+     {
+      "pass": "chain-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 383
+     },
+     {
+      "pass": "chain-static",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 256
+     }
+    ],
+    "output": "sha256:f564c038c99143cb0569c0cf3a924696da62dd0b991ff5e6beaa22a547118833"
+   }
+  ],
+  "runtime_identity": "sha256:ddf51b15375cffe6affd6fa0f2afb029bb1b98e62eb54b5c348ccc7dddbcae95",
+  "deployment_identity": "sha256:e9c477dcfd9f9ec6337f351ba0e8c975f0603179643ced2adc8d45258a0aad75",
+  "status": "ready",
+  "hot_footprint": {
+   "label": "model (static offsets x profile counts), not measured",
+   "profile_id": "sha256:23bba4757cc6774e8b367d53378f4f4ced25a7e90470508298ee667653700b7a",
+   "profile_snapshot_id": "sha256:99de98dfcd2ebf8e8f18bca79d47095b5c4d6425772202483990ee74008d8703",
+   "sc": "/home/runner/work/_temp/pye/campaign/pre-change/registry/firmbolt.sfb.b3/artifacts/f293b298d3d4716dbcfaced8970da92b9a69df790fe78a926a8ad1d65539d13f/cache.sc",
+   "phase": "steady",
+   "coverage_target": 0.9,
+   "exact_units": 0,
+   "non_exact_units": 0,
+   "phase_entries_exact": 1887412,
+   "join_coverage": 0.0,
+   "units_in_layout": 0,
+   "status": "not_run",
+   "reason": "no_matching_entries"
+  }
+ },
+ "confirmation": {
+  "pairs": 12,
+  "wins": 12,
+  "ties": 0,
+  "losses": 0,
+  "candidate_first": 6,
+  "median_paired_speedup": 1.2782144559988544,
+  "p_value": 0.0010822510822510823,
+  "p_value_numerator": 1,
+  "p_value_denominator": 924,
+  "passes": true
+ },
+ "fixed_image": "firmbolt"
+}

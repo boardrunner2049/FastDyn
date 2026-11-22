@@ -1,0 +1,111 @@
+{
+  "cache_track": "training-frozen",
+  "cost_scope": "full-launch translation counts and process-tree CPU",
+  "scored_groups": [
+    {
+      "role": "pre-change-confirmation",
+      "case": "clarify-unix-platforms",
+      "identity": "sha256:3176d2bda1caba3a9ca1ee5a8783020cece6015a2ba2e01ecd36117008e88192",
+      "runs": 12,
+      "initial_records": 3511,
+      "appended_min": 50,
+      "appended_median": 57.0,
+      "appended_max": 60,
+      "operational_ns_median": 51455377.5,
+      "qemu_lifetime_ns_median": 148834674.0,
+      "process_tree_cpu_ns_median": 363919500.0
+    },
+    {
+      "role": "pre-change-confirmation",
+      "case": "clarify-unix-platforms",
+      "identity": "sha256:e9c477dcfd9f9ec6337f351ba0e8c975f0603179643ced2adc8d45258a0aad75",
+      "runs": 12,
+      "initial_records": 3511,
+      "appended_min": 50,
+      "appended_median": 56.5,
+      "appended_max": 60,
+      "operational_ns_median": 40142431.5,
+      "qemu_lifetime_ns_median": 135263965.5,
+      "process_tree_cpu_ns_median": 346416500.0
+    },
+    {
+      "role": "pre-change-ranking",
+      "case": "rotate-lcd-display",
+      "identity": "sha256:16a7eaa0ecd6df6aa3f76081f724236d3ec937a8623a2b70f7ef3e3c1c27d33f",
+      "runs": 12,
+      "initial_records": 3511,
+      "appended_min": 26,
+      "appended_median": 30.0,
+      "appended_max": 36,
+      "operational_ns_median": 50421601.5,
+      "qemu_lifetime_ns_median": 143360164.5,
+      "process_tree_cpu_ns_median": 358146500.0
+    },
+    {
+      "role": "pre-change-ranking",
+      "case": "rotate-lcd-display",
+      "identity": "sha256:3176d2bda1caba3a9ca1ee5a8783020cece6015a2ba2e01ecd36117008e88192",
+      "runs": 60,
+      "initial_records": 3511,
+      "appended_min": 24,
+      "appended_median": 30.0,
+      "appended_max": 38,
+      "operational_ns_median": 57463719.5,
+      "qemu_lifetime_ns_median": 156090391.0,
+      "process_tree_cpu_ns_median": 368800500.0
+    },
+    {
+      "role": "pre-change-ranking",
+      "case": "rotate-lcd-display",
+      "identity": "sha256:486a8857ea2c7efd4fe7db461716204844efc6eacf685556dce40338f0841e36",
+      "runs": 12,
+      "initial_records": 3511,
+      "appended_min": 24,
+      "appended_median": 32.5,
+      "appended_max": 38,
+      "operational_ns_median": 57271542.0,
+      "qemu_lifetime_ns_median": 155235163.5,
+      "process_tree_cpu_ns_median": 369222500.0
+    },
+    {
+      "role": "pre-change-ranking",
+      "case": "rotate-lcd-display",
+      "identity": "sha256:e9c477dcfd9f9ec6337f351ba0e8c975f0603179643ced2adc8d45258a0aad75",
+      "runs": 12,
+      "initial_records": 3511,
+      "appended_min": 24,
+      "appended_median": 31.5,
+      "appended_max": 36,
+      "operational_ns_median": 45351438.5,
+      "qemu_lifetime_ns_median": 138866908.5,
+      "process_tree_cpu_ns_median": 348353000.0
+    },
+    {
+      "role": "pre-change-ranking",
+      "case": "rotate-lcd-display",
+      "identity": "sha256:ed6a37e7475a6a32dd945e50750b19a524b57a2703a6d4c55afcf8df07c3e243",
+      "runs": 12,
+      "initial_records": 3511,
+      "appended_min": 26,
+      "appended_median": 32.0,
+      "appended_max": 38,
+      "operational_ns_median": 56825093.5,
+      "qemu_lifetime_ns_median": 159271619.5,
+      "process_tree_cpu_ns_median": 378284000.0
+    },
+    {
+      "role": "pre-change-ranking",
+      "case": "rotate-lcd-display",
+      "identity": "sha256:f63a30eb7cf9e32ce6e219c623419a6af54027675512e005782c1035188437c0",
+      "runs": 12,
+      "initial_records": 3511,
+      "appended_min": 27,
+      "appended_median": 32.0,
+      "appended_max": 36,
+      "operational_ns_median": 54168021.5,
+      "qemu_lifetime_ns_median": 153434725.5,
+      "process_tree_cpu_ns_median": 365739500.0
+    }
+  ],
+  "rejected": []
+}

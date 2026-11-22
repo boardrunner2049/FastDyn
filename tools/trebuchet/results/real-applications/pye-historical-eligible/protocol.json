@@ -1,0 +1,178 @@
+{
+ "schema": "trebuchet.pye-supplemental-historical-control/1",
+ "application": "pye",
+ "family": "Micropython-Editor",
+ "configuration": "MicroPython-v1.27.0-release-MPS2-AN385-Cortex-M3-queued-UART-training-frozen-v1-historical-eligibility",
+ "transport": "pye-queued-uart-v1",
+ "measurement": "operational_latency_ns",
+ "secondary_measurement": "qemu_lifetime_ns",
+ "objective": {
+  "name": "time to edit and return the document",
+  "direction": "minimize",
+  "unit": "ns",
+  "useful_work": "one complete declared document edit, verified against the whole expected UTF-8 document",
+  "boundaries": "host monotonic release at the pre-editor UART barrier through receipt of the editor-return marker"
+ },
+ "scenarios": {
+  "training": [
+   {
+    "id": "update-package-version",
+    "weight": 1,
+    "bank_inputs": {
+     "psram": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/update-package-version/product.romfs",
+      "sha256": "sha256:2b5f2b29884e2d15390a60f2cb5b58ebc5fee0bca5e3021f61a9b38f76157124"
+     }
+    },
+    "expected": {
+     "path": "/home/runner/work/_temp/pye/campaign/cases/update-package-version/oracle.json",
+     "sha256": "sha256:4deec05f067b33d8a9935b72c05f0c624c9b54320b5cf2a1bcfee246f58d22d4"
+    },
+    "peer": {
+     "program": {
+      "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/session.py",
+      "sha256": "sha256:4f77aeafec4fe8135ea94e2861094c4bbf15a921437fb5b6a3a635404113626a"
+     },
+     "stage": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/update-package-version/stage.json",
+      "sha256": "sha256:8038c87bd2aab2f6462be1a8e8c5904126601b20fa2fca5a6a88c6a205bd5202"
+     },
+     "bank": "psram",
+     "input_sha256": "sha256:2b5f2b29884e2d15390a60f2cb5b58ebc5fee0bca5e3021f61a9b38f76157124"
+    }
+   }
+  ],
+  "pre-change-ranking": [
+   {
+    "id": "rotate-lcd-display",
+    "weight": 1,
+    "bank_inputs": {
+     "psram": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/rotate-lcd-display/product.romfs",
+      "sha256": "sha256:c3c93e2158a527df17d4138fa633e9c5c9eac24f665b53fdee756dcb1dea0cbf"
+     }
+    },
+    "expected": {
+     "path": "/home/runner/work/_temp/pye/campaign/cases/rotate-lcd-display/oracle.json",
+     "sha256": "sha256:92bf41e9dd91545ac765940f574b4cb259a42f814d3bb9176d9d612677c04da3"
+    },
+    "peer": {
+     "program": {
+      "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/session.py",
+      "sha256": "sha256:4f77aeafec4fe8135ea94e2861094c4bbf15a921437fb5b6a3a635404113626a"
+     },
+     "stage": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/rotate-lcd-display/stage.json",
+      "sha256": "sha256:35e751389b59b3fd88f50957512f9ed5cbe17a67e4a52a41308f60b1bc03945b"
+     },
+     "bank": "psram",
+     "input_sha256": "sha256:c3c93e2158a527df17d4138fa633e9c5c9eac24f665b53fdee756dcb1dea0cbf"
+    }
+   }
+  ],
+  "pre-change-confirmation": [
+   {
+    "id": "clarify-unix-platforms",
+    "weight": 1,
+    "bank_inputs": {
+     "psram": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/clarify-unix-platforms/product.romfs",
+      "sha256": "sha256:d46d22a050550a42f0f9bac384c1abc7d8338df9a2427daea19ce6828d37de9a"
+     }
+    },
+    "expected": {
+     "path": "/home/runner/work/_temp/pye/campaign/cases/clarify-unix-platforms/oracle.json",
+     "sha256": "sha256:2c880b30400880f574321c1840d6426b984dea293667bb14f23726ac185b1fa5"
+    },
+    "peer": {
+     "program": {
+      "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/session.py",
+      "sha256": "sha256:4f77aeafec4fe8135ea94e2861094c4bbf15a921437fb5b6a3a635404113626a"
+     },
+     "stage": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/clarify-unix-platforms/stage.json",
+      "sha256": "sha256:959ec145191f1504cbcdcd9bfb0edd46475fb735968d8da66b35d1624e23024e"
+     },
+     "bank": "psram",
+     "input_sha256": "sha256:d46d22a050550a42f0f9bac384c1abc7d8338df9a2427daea19ce6828d37de9a"
+    }
+   }
+  ]
+ },
+ "track": "frozen preparation: two fixed training-only sweeps per image; fresh verified cache copy per trial; late translations retained and counted",
+ "inventory_sweeps": 2,
+ "recipes": [
+  "warm",
+  "b3",
+  "sfb",
+  "sfb+b3"
+ ],
+ "budget": {
+  "candidate_limit": 8,
+  "offline_seconds": 3600
+ },
+ "incumbent_revision": "16790d6e56c25b820748d275cb80577db205bcbd",
+ "seed": 1729,
+ "final_seed": 2718,
+ "warmup_pairs": 1,
+ "pairs": {
+  "ranking": 12,
+  "confirmation": 12,
+  "promotion": 12,
+  "final": 12
+ },
+ "alpha": 0.05,
+ "minimum_gain": 1.01,
+ "timeout_seconds": 120,
+ "prechange_scenarios": {
+  "pre-change-ranking": [
+   "rotate-lcd-display"
+  ],
+  "pre-change-confirmation": [
+   "clarify-unix-platforms"
+  ]
+ },
+ "prechange_recipes": [
+  "warm",
+  "b3",
+  "pc",
+  "slide",
+  "sfb+b3",
+  "b4",
+  "sfb"
+ ],
+ "prechange_budget": {
+  "candidate_limit": 7,
+  "offline_seconds": 3600
+ },
+ "prechange_seed": 193483,
+ "cache_track": "training-frozen",
+ "eligibility": "All seven historical recipes must be ready, equivalent, or an explicit linked B4 scopt.rejection for V12 unsupported symbolic instructions/registers plus derivative coverage failures. Budget expiry, missing or indeterminate receipts block the control. Fixed canonical repaired guest. No current ranking, promotion or final.",
+ "images": {
+  "firmbolt": {
+   "config_sha256": "sha256:91a7ba68e5f84dd477bfeeb093c7c9ca06f90dd92499e4817e526586c4eaa583",
+   "firmware_sha256": "sha256:d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+   "profile_id": "sha256:23bba4757cc6774e8b367d53378f4f4ced25a7e90470508298ee667653700b7a",
+   "observer": {
+    "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/observe.py",
+    "sha256": "sha256:4d7a3f053aed4933c36cd6650125418e58b5edda13850a24c433a10c9d32f3dc"
+   }
+  }
+ },
+ "incumbent_registry": {
+  "path": "/home/runner/work/_temp/pye/campaign/pre-change/registry/registry.json",
+  "sha256": "sha256:3346fa136d7940bf2523b2b93aceb2996d34d6b9909ac9c289be563cfc9f73de"
+ },
+ "incumbent_id": "firmbolt/sfb+b3",
+ "incumbent_identity": "sha256:e9c477dcfd9f9ec6337f351ba0e8c975f0603179643ced2adc8d45258a0aad75",
+ "incumbent_image": {
+  "config_sha256": "sha256:91a7ba68e5f84dd477bfeeb093c7c9ca06f90dd92499e4817e526586c4eaa583",
+  "firmware_sha256": "sha256:d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+  "profile_id": "sha256:23bba4757cc6774e8b367d53378f4f4ced25a7e90470508298ee667653700b7a",
+  "observer": {
+   "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/observe.py",
+   "sha256": "sha256:4d7a3f053aed4933c36cd6650125418e58b5edda13850a24c433a10c9d32f3dc"
+  }
+ },
+ "promotion_enabled": true
+}

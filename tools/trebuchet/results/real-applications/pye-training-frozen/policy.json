@@ -1,0 +1,81 @@
+{
+ "schema": "trebuchet.pye-frozen-policy/1",
+ "application": "pye",
+ "family": "Micropython-Editor",
+ "configuration": "MicroPython-v1.27.0-release-MPS2-AN385-Cortex-M3-queued-UART-training-frozen-v1",
+ "transport": "pye-queued-uart-v1",
+ "measurement": "operational_latency_ns",
+ "secondary_measurement": "qemu_lifetime_ns",
+ "objective": {
+  "name": "time to edit and return the document",
+  "direction": "minimize",
+  "unit": "ns",
+  "useful_work": "one complete declared document edit, verified against the whole expected UTF-8 document",
+  "boundaries": "host monotonic release at the pre-editor UART barrier through receipt of the editor-return marker"
+ },
+ "scenarios": {
+  "training": [
+   "update-package-version"
+  ],
+  "ranking": [
+   "fix-display-setup-instructions"
+  ],
+  "confirmation": [
+   "annotate-teensy-import"
+  ],
+  "promotion": [
+   "repair-packaging-shebang"
+  ],
+  "final": [
+   "proofread-editor-manual"
+  ]
+ },
+ "track": "frozen preparation: two fixed training-only sweeps per image; fresh verified cache copy per trial; late translations retained and counted",
+ "inventory_sweeps": 2,
+ "recipes": [
+  "warm",
+  "b3",
+  "sfb",
+  "sfb+b3"
+ ],
+ "budget": {
+  "candidate_limit": 8,
+  "offline_seconds": 3600
+ },
+ "incumbent_revision": "16790d6e56c25b820748d275cb80577db205bcbd",
+ "seed": 1729,
+ "final_seed": 2718,
+ "warmup_pairs": 1,
+ "pairs": {
+  "ranking": 12,
+  "confirmation": 12,
+  "promotion": 12,
+  "final": 12
+ },
+ "alpha": 0.05,
+ "minimum_gain": 1.01,
+ "timeout_seconds": 120,
+ "prechange_scenarios": {
+  "pre-change-ranking": [
+   "rotate-lcd-display"
+  ],
+  "pre-change-confirmation": [
+   "clarify-unix-platforms"
+  ]
+ },
+ "prechange_recipes": [
+  "warm",
+  "b3",
+  "pc",
+  "slide",
+  "sfb+b3",
+  "b4",
+  "sfb"
+ ],
+ "prechange_budget": {
+  "candidate_limit": 7,
+  "offline_seconds": 3600
+ },
+ "prechange_seed": 193483,
+ "cache_track": "training-frozen"
+}

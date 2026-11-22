@@ -164,6 +164,13 @@ def campaign(args):
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
     policy_name = "frozen-policy.json" if args.training_frozen else "campaign-policy.json"
+    if args.eligible_history_only:
+        require(args.training_frozen and args.firmbolt_elf, "supplemental historical control requires the frozen track and a qualified fixed guest")
+        policy_name = "historical-eligible-policy.json"
+    if args.promotion_only:
+        require(args.training_frozen and not args.eligible_history_only and args.firmbolt_elf,
+                "promotion-only comparison requires training-frozen preparation and a prequalified fixed guest")
+        policy_name = "rebuilt-promotion-policy.json"
     policy = read(HERE / policy_name)
     write_json(out / "policy.json", policy)
     receipt = {"state": "running", "images": {}, "policy": pin(HERE / policy_name),
@@ -223,6 +230,9 @@ def campaign(args):
             receipt["errors"][phase] = str(exc)
         phase = "per-image preparation"
         specs = {}
+        if args.eligible_history_only:
+            require("firmbolt" in images, "supplemental historical fixed guest failed qualification")
+            images = {"firmbolt": images["firmbolt"]}
         for name, elf in images.items():
             try:
                 specs[name] = prepare_image(product, out / name, elf, qemu, plugin, policy)
@@ -230,12 +240,29 @@ def campaign(args):
             except (OSError, ValueError, subprocess.SubprocessError) as exc:
                 receipt["images"][name] = {"status": "failed", "error": str(exc)}
             write_json(out / "campaign.json", receipt)
-        require("original" in specs, "original ordinary-warm preparation failed; see image logs")
+        require(("firmbolt" if args.eligible_history_only else "original") in specs, "original ordinary-warm preparation failed; see image logs")
         phase = "registry"
         plan = {k: policy[k] for k in ("application", "configuration", "objective", "recipes", "budget")}
         plan.update(scenario=policy["track"], admission=str(HERE / "admission.json"),
                     contract=str(contract), images=specs)
         write_json(out / "materialization-plan.json", plan)
+        if args.promotion_only:
+            from replay_promotion import compare_rebuilt
+            phase = "supplemental comparison of previously frozen recipes"
+            compare_rebuilt(out, plan, policy, cases, PyeTrial)
+            receipt.update(state="completed", scope=phase)
+            return
+        if args.eligible_history_only:
+            from scopt.formats.profile_v1 import read_profile
+            image = specs["firmbolt"]
+            protocol = dict(policy, scenarios=cases, images={"firmbolt": {
+                "config_sha256": file_sha256(image["config"]), "firmware_sha256": file_sha256(image["firmware"]),
+                "profile_id": read_profile(image["profile"]).profile_id, "observer": pin(HERE / "observe.py")}})
+            phase = "supplemental historical host-cache control"
+            prepare_incumbent(out, policy, plan, protocol, eligible_only=True)
+            write_json(out / "protocol.json", protocol)
+            receipt.update(state="completed", scope=phase)
+            return
         registry_dir = out / "registry"
         registry = build(out / "materialization-plan.json", registry_dir)
         ready = {row["id"]: row for row in registry["candidates"] if row["status"] == "ready"}
@@ -288,10 +315,9 @@ class PyeTrial(ApplicationTrial):
         return record
 
 
-def prepare_incumbent(out, policy, plan, protocol):
+def historical_optimizer(out, revision):
     dest = out / "pre-change"
     dest.mkdir()
-    revision = policy["incumbent_revision"]
     archive = dest / "scopt.tar"
     command(dest, "source", ["git", "-C", ROOT, "archive", "--format=tar", "-o", archive, revision, "tools/scopt"])
     with tarfile.open(archive) as source:
@@ -301,6 +327,12 @@ def prepare_incumbent(out, policy, plan, protocol):
     # The contemporary runner and strict receipt reader apply to both releases.
     optimizer = [sys.executable, "-I", "-c",
                  "import sys; sys.path.insert(0, sys.argv.pop(1)); from scopt.cli import main; main()", str(src)]
+    return dest, src, archive, optimizer
+
+
+def prepare_incumbent(out, policy, plan, protocol, eligible_only=False):
+    revision = policy["incumbent_revision"]
+    dest, src, archive, optimizer = historical_optimizer(out, revision)
     fixed = "firmbolt" if "firmbolt" in plan["images"] else "original"
     legacy_plan = dict(plan, recipes=policy["prechange_recipes"], budget=policy["prechange_budget"],
                        images={fixed: plan["images"][fixed]}, source_revision=revision, source_archive=pin(archive))
@@ -309,6 +341,12 @@ def prepare_incumbent(out, policy, plan, protocol):
                      pipeline_dir=src / "pipelines", fixed_image=fixed)
     rows = registry["candidates"]
     # An unknown or incomplete historical result could conceal a stronger incumbent.
+    if eligible_only:
+        from historical_eligibility import excluded_b4
+        excluded = [excluded_b4(dest, r, plan["images"][fixed], revision)
+                    for r in rows if r["status"] not in ("ready", "equivalent")]
+        write_json(dest / "eligibility.json", {"excluded": excluded, "scope": "historical host-cache control"})
+        rows = [r for r in rows if r["status"] in ("ready", "equivalent")]
     require(all(r["status"] in ("ready", "equivalent") for r in rows),
             "pre-change recipes did not all establish a materialized deployment; see pre-change registry")
     warm, = [r for r in rows if r["id"] == fixed + "/warm"]
@@ -382,6 +420,8 @@ if __name__ == "__main__":
     parser.add_argument("--firmbolt-origin-sha256", help="SHA-256 of the source loadable binary",
                         default=read(HERE / "admission.json")["training_qualification"]["payload_sha256"])
     parser.add_argument("--training-frozen", action="store_true", help="seal a training-only inventory and allow checked late translations on private copies")
+    parser.add_argument("--eligible-history-only", action="store_true")
+    parser.add_argument("--promotion-only", action="store_true")
     args = parser.parse_args()
     if bool(args.firmbolt_elf) != bool(args.firmbolt_sha256):
         parser.error("--firmbolt-elf and --firmbolt-sha256 must be supplied together")
