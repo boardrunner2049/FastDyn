@@ -10,23 +10,25 @@ Both profiles cover reset through the editor’s return on the same queued UART 
 | Profile dispatches, including profile-only units | 1,805,044 | 1,822,393 |
 | Additional profile-only units | 4 | 2 |
 | Physical host CALL sites | 8,417 | 8,393 |
-| CALL sites with a proven per-dispatch upper bound | 526 | 527 |
-| Sum of execution bounds across that subset | 82,334 | 92,796 |
+| CALL sites with a proven per-dispatch upper bound | 8,417 | 8,393 |
+| Sum of execution bounds across that subset | 2,165,697 | 2,192,359 |
 | Exact unflagged in-domain P3 lookup-hit events | 203,713 | 216,872 |
 | Physical NOP instructions | 12,405 | 12,379 |
 | Static NOP bytes | 15,967 | 15,933 |
-| NOP sites with a proven per-dispatch upper bound | 1,900 | 1,893 |
-| Sum of byte-execution bounds across that subset | 2,551,343 | 2,555,465 |
-| Sites with NOPs proved mandatory for recorded unflagged slot exits | 1,231 | 1,234 |
-| Minimum NOP instruction executions at those sites | 606,919 | 606,156 |
-| Minimum NOP byte-executions at those sites | 1,450,017 | 1,449,760 |
-| Sites where both ends of the exit-derived execution interval coincide | 1,192 | 1,199 |
+| NOP sites with a proven per-dispatch upper bound | 3,551 | 3,537 |
+| Sum of byte-execution bounds across that subset | 4,410,414 | 4,414,721 |
+| Sites with NOPs proved mandatory for recorded unflagged slot exits | 2,309 | 2,313 |
+| Minimum NOP instruction executions at those sites | 1,196,386 | 1,195,682 |
+| Minimum NOP byte-executions at those sites | 2,299,579 | 2,299,504 |
+| Sites where both ends of the exit-derived execution interval coincide | 2,238 | 2,241 |
 
-A byte-execution charges the encoded length of a visited instruction once. The subset sums omit sites whose count is unknown and the lower-bound and upper-bound subsets overlap. P3 runs inside the native lookup helper. Its counted lookup events give a minimum on calls across the full in-domain observation, including units where the per-site upper bound is unavailable. These counters establish execution volume. Elapsed cost and I-cache traffic require separate measurements.
+A byte-execution charges the encoded length of a visited instruction once. The subset sums omit sites whose count is unknown and the lower-bound and upper-bound subsets overlap. P3 runs inside the native lookup helper. Its counted lookup events give a minimum on calls across the full in-domain observation. These counters establish execution volume. Elapsed cost and I-cache traffic require separate measurements.
 
 The largest proved contribution is a three-byte NOP at guest TB PC 0xe40, host offset 96. Its interval is 279,567–279,571 visits on the original image and 279,567–279,576 on FirmBOLT. The following jump has an aligned mutable rel32 field at offset 100. Deleting those three bytes without compensating layout would unalign the atomic field. At guest PC 0xde4 the alternate exit illustrates why TB counts mislead. The original entered the TB 279,580 times, while the NOP before slot 1 has only 4,169 guaranteed visits. Each row in the compressed census carries its physical identity, encoded bytes, evidence class and applicable interval.
 
-The original exposes nine captured unsigned-division helper CALL sites and FirmBOLT exposes twelve. Four original and five FirmBOLT sites have per-entry upper bounds totaling 109 on each image. The other sites have unknown counts. The identical archived QEMU ELF bounds its unsigned-division function at 107 bytes and 35 linearly decoded instructions. The lookup function occupies 572 bytes and 142 instructions. Neither footprint gives instructions retired per call. No private scopt generation was produced by this preparation stage, so private NOPs, weighted private encoding refusals and post-splice growth remain unmeasured.
+The original exposes nine captured unsigned-division helper CALL sites and FirmBOLT exposes twelve. Removing each CALL from the verified full host CFG shows which observed chain exits require that CALL. Summing those proven visits and the independent per-unit upper bounds gives 14,680–14,683 original and 14,680–14,681 FirmBOLT calls. In the original, guest PC 0xe8fe contributes 8,525–8,528, 0xe748 contributes exactly 4,186 and 0xe894 contributes exactly 1,725. These three sites occupy distinct TBs. The selective one- and two-site register-only recipes disable faulting helpers. The broader native stage has a separate UDIV path whose eligibility requires a matching helper identity and semantics. The identical archived QEMU ELF bounds its unsigned-division function at 107 bytes and 35 linearly decoded instructions. The lookup function occupies 572 bytes and 142 instructions. Neither footprint gives instructions retired per call. These files contain ordinary code. Private NOPs, weighted private encoding refusals and post-splice growth remain unmeasured.
+
+An independent original-only campaign recorded 3,834 ordinary units and eight profile-only additions. The training replay passed the zero-append gate. The subsequent ranking reference on a different document appended six units, so ranking stopped. Its offline training census bounds UDIV at 14,679–14,682 executions, detects 8,386 physical CALL sites and proves at least 1,218,612 NOP executions on observed exits. This separate capture is excluded from the two-image table above. [Original-only candidate receipts](../pye-original-known-inventory/README.md) · [Original-only raw census](original-only-census.json.gz)
 
 ## Reproduction
 
@@ -47,5 +49,7 @@ for img in original firmbolt; do
         --out "$img-census.json"
 done
 ```
+
+To reproduce the separate original-only census, use the export under `/workspace/trebuchet-work/runner/pye-campaign/attempt-1/offline` with `img=original` and the same command.
 
 [Original guest raw census](original-census.json.gz) · [FirmBOLT guest raw census](firmbolt-census.json.gz)

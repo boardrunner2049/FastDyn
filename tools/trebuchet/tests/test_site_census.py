@@ -203,3 +203,31 @@ def test_phase_transition_attribution():
     assert whole_run_slot_counts(view, "steady") == {}
     phases[1]["first_dispatch_index"] = 0
     assert whole_run_slot_counts(view, "steady") == {"tb": {1: 5}}
+
+
+def test_calls_mandatory_for_some_observed_exits():
+    from scopt.analysis.hcfg import HCfg
+    from scopt.analysis.hostops import HostOp
+    from site_census import mandatory_call_exits
+
+    host = NS(status="ok", ops=[HostOp(i, 1, "", k, "insn", 0) for i, k in enumerate(
+        (OpKind.JCC, OpKind.CALL, OpKind.JMP, OpKind.JMP))])
+    succ = ((1, 3), (2,), (), ())
+    cfg = HCfg("tb", True, (), 4, succ, succ, {}, {2: "goto_tb:0", 3: "goto_tb:1"})
+    assert mandatory_call_exits(host, cfg, {0: 12, 1: 40}, {1}) == {
+        1: {"guaranteed_by_slot": {"0": 12}, "minimum_executions": 12}}
+    host.status = "pinned"
+    assert mandatory_call_exits(host, cfg, {0: 12}, {1}) == {}
+
+
+def test_slow_path_rejoins_earlier_offset_without_a_cycle():
+    from scopt.analysis.hcfg import HCfg
+    from scopt.analysis.hostops import HostOp
+
+    ops = [HostOp(i, 1, "", kind, "insn", 0, target=target) for i, (kind, target) in enumerate(
+        [(OpKind.JCC, 3), (OpKind.CALL, None), (OpKind.EXIT_JMP, None), (OpKind.JMP, 1)])]
+    succ = ((1, 3), (2,), (), (1,))
+    graph = HCfg("tb", True, (), 4, succ, succ, {}, {2: "exit_null"})
+    host = NS(status="ok", ops=ops)
+    store = NS(get=lambda name, scope: NS(value=host if name == "hostops" else graph))
+    assert at_most_once(store, NS(uid="tb", native_fragments=[], stub_start=None)) == {0, 1, 2, 3}

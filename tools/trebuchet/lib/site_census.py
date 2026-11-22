@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter, defaultdict
+from graphlib import TopologicalSorter, CycleError
 from pathlib import Path
 
 from scopt.analysis.api import ScopeRef
@@ -45,6 +46,14 @@ def at_most_once(store, unit):
             if successor <= i:
                 covered[successor] += 1
                 covered[i + 1] -= 1
+    # LD/ST slow paths commonly jump backwards to a continuation without
+    # forming a cycle. All sites of a verified DAG are at most once.
+    try:
+        TopologicalSorter(dict(enumerate(cfg.succ_full))).prepare()
+    except CycleError:
+        pass
+    else:
+        return {op.off for op in host.ops if op.block != "pad"}
     depth, once = 0, set()
     for i, op in enumerate(host.ops):
         depth += covered[i]
@@ -115,6 +124,34 @@ def exit_nop_evidence(host, cfg, once, counts, entries):
                                 "maximum_executions": ceiling}
             index = pred
     return observed
+
+
+def mandatory_call_exits(host, cfg, counts, offsets):
+    """Count observed ordinary slot exits whose every path goes through a CALL."""
+    if host.status != "ok" or not cfg.ok or not offsets:
+        return {}
+    def reachable_without(blocked):
+        seen, pending = set(), [cfg.entry]
+        while pending:
+            i = pending.pop()
+            if i == blocked or i in seen:
+                continue
+            seen.add(i)
+            pending.extend(cfg.succ_full[i])
+        return seen
+    reached = reachable_without(None)
+    exits = {slot: {i for i, kind in cfg.exits.items() if kind == f"goto_tb:{slot}"} & reached
+             for slot in counts}
+    result = {}
+    for i, op in enumerate(host.ops):
+        if op.kind != OpKind.CALL or op.off not in offsets or i not in reached:
+            continue
+        bypass = reachable_without(i)
+        proved = {str(slot): counts[slot] for slot, endpoints in exits.items()
+                  if endpoints and not bypass.intersection(endpoints)}
+        if proved:
+            result[op.off] = {"guaranteed_by_slot": proved, "minimum_executions": sum(proved.values())}
+    return result
 
 
 def replay_counts(path, identity):
@@ -273,11 +310,14 @@ def census(args):
         entries = view.count(unit.uid, args.phase) if view and origin is None else None
         once = at_most_once(store, unit) if physical and entries and entries.exact else set()
 
-        evidence = {}
-        if once and slots.get(unit.uid):
+        evidence, call_evidence = {}, {}
+        if entries and entries.exact and slots.get(unit.uid):
             scope = ScopeRef("unit", unit.uid)
-            evidence = exit_nop_evidence(store.get("hostops", scope).value, store.get("hcfg", scope).value,
-                                         once, slots[unit.uid], entries.value)
+            host, cfg = store.get("hostops", scope).value, store.get("hcfg", scope).value
+            evidence = exit_nop_evidence(host, cfg, once, slots[unit.uid], entries.value)
+            offsets = {off for off, row in calls_by_unit[unit.uid].items() if
+                       (row.get("call") or {}).get("helper_name") not in (None, "lookup_tb_ptr")}
+            call_evidence = mandatory_call_exits(host, cfg, slots[unit.uid], offsets)
 
         def site_weight(off):
             key = body, off, physical[off].raw.hex()
@@ -305,6 +345,7 @@ def census(args):
             calls.append({**_public_row(site), "body": body, "specialized": origin is not None,
                           "offset": off, "bytes": physical[off].raw.hex() if seen else None,
                           "physical_call_verified": seen,
+                          **({"exit_evidence": call_evidence[off]} if seen and off in call_evidence else {}),
                           "callee": callee, "cost_proxy": cost,
                           "weight": site_weight(off) if seen else weight(None, {}, None)})
     archive_sha = None
