@@ -5,7 +5,11 @@
   "hypothesis": "Mission-trained b2-layout will change executed host units and improve a sealed warm replay for each guest image.",
   "revisions": {
     "fastdyn": "5e80989016a0ff5e07f9abc3309f776d96de6491",
-    "firmbolt": "1389fe3df7c541665bb5e4c6ab224e0abe9cefba plus recorded working-tree fixes",
+    "firmbolt": {
+      "commit": "1389fe3df7c541665bb5e4c6ab224e0abe9cefba",
+      "working_diff_sha256": "715aa1a4bb387473c2f834fe5ed6a5f1e0b75f5cd6d0f314373adbddc3d9b7f1",
+      "equivalent_commit": "366a31385b42abbc7d89ad895f96ffdf5d1e70bb"
+    },
     "qemu": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
     "qemu_sha256": "94e2c7862c7f511f2158988216e8b933a2327bb42025392a34751000750305cd",
     "plugin_sha256": "b245a8fd352d63876279049cd1fe6bdf8c06e6ded9c4a69fd9d9dd908f142b9d",

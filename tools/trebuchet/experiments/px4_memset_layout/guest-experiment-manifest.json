@@ -11,7 +11,8 @@
     },
     "firmbolt": {
       "commit": "1389fe3df7c541665bb5e4c6ab224e0abe9cefba",
-      "working_diff_sha256": "715aa1a4bb387473c2f834fe5ed6a5f1e0b75f5cd6d0f314373adbddc3d9b7f1"
+      "working_diff_sha256": "715aa1a4bb387473c2f834fe5ed6a5f1e0b75f5cd6d0f314373adbddc3d9b7f1",
+      "equivalent_commit": "366a31385b42abbc7d89ad895f96ffdf5d1e70bb"
     },
     "llvm_bolt": {
       "commit": "7864c0736a8a09670dfbfc513f1e9649799f2486",
