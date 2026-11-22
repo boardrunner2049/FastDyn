@@ -49,6 +49,9 @@ def run(qemu, firmware, out):
         d.mkdir()
         if label == "fresh-replay":
             subprocess.run(["cp", "--sparse=always", seal, active], check=True)
+            # cp inherits the sealed 0444 mode. Native QEMU opens each trial's
+            # deployment read/write even when it appends zero translations.
+            active.chmod(0o600)
             before = deployed_state(active, None, frontend="none")
             save(d / "deployed-state.json", before)
             if before["n"] <= 0 or before["n"] != before["header"]["record_count"] or digest(active) != context["sealed_sha256"]:
@@ -68,7 +71,9 @@ def run(qemu, firmware, out):
                   "user_cpu_ns": round((after_cpu.ru_utime-before_cpu.ru_utime)*1e9),
                   "system_cpu_ns": round((after_cpu.ru_stime-before_cpu.ru_stime)*1e9)}
         save(d / "execution.json", result)
-        process.check_returncode()
+        if process.returncode:
+            print((d / "qemu.log").read_text(errors="replace")[-4000:], file=sys.stderr)
+            process.check_returncode()
         observed = oracle(trace.read_text(), wire.read_bytes())
         observed.update(kiss_sha256=digest(wire), trace_sha256=digest(trace))
         save(d / "oracle.json", observed)
