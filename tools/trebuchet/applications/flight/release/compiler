@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Intercept only the final cross-link. All compilation and link flags come
+# from the upstream board build.
+set -euo pipefail
+name=${0##*/}
+real=${FLIGHT_REAL_TOOLCHAIN:?}/$name
+case " $* " in
+    *" -c "*|*" -E "*|*" -S "*) exec "$real" "$@" ;;
+esac
+args=("$@")
+output=
+for ((i=0; i<${#args[@]}; ++i)); do
+    case "${args[i]}" in
+        -o) output=${args[i+1]} ;;
+        -o?*) output=${args[i]#-o} ;;
+    esac
+done
+if [[ ${output##*/} != "$FLIGHT_LINK_NAME" ]]; then exec "$real" "$@"; fi
+"$real" "$@"
+# Keep the same -o path across both links so it cannot affect input or layout.
+cp "$output" "$FLIGHT_RELEASE_OUTPUT/linked.elf"
+if [[ $name == *-ld ]]; then emit=--emit-relocs; else emit=-Wl,--emit-relocs; fi
+"$real" "$@" "$emit"
+cp "$output" "$FLIGHT_RELEASE_OUTPUT/relocs.elf"
+cp "$FLIGHT_RELEASE_OUTPUT/linked.elf" "$output"
+printf '%q ' "$real" "$@" > "$FLIGHT_RELEASE_OUTPUT/link-command.txt"
+printf '\n' >> "$FLIGHT_RELEASE_OUTPUT/link-command.txt"
+pwd > "$FLIGHT_RELEASE_OUTPUT/link-cwd.txt"

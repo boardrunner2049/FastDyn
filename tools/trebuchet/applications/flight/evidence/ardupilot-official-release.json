@@ -1,0 +1,133 @@
+{
+  "release_asset": "https://firmware.ardupilot.org/Copter/stable-4.6.2/CubeBlack/arducopter.elf",
+  "upstream_commit": "1ebd4d996e8b6bbeb1462a9655c00aa861d5beef",
+  "official": {
+    "sha256": "e420db42babb612dec4cfcd3311871b9e4b804036f927900664932bb6661ca9d",
+    "entry": 134238997,
+    "e_flags": 83887104,
+    "load_segments": [
+      {
+        "paddr": 134217728,
+        "vaddr": 134217728,
+        "filesz": 1804128,
+        "memsz": 1804128,
+        "align": 65536,
+        "flags": 7,
+        "bytes_sha256": "feb89218c80d0af4ed28ebcef1738e2199168940e25a68a4c133c61d3bded0f6"
+      },
+      {
+        "paddr": 136021856,
+        "vaddr": 536879616,
+        "filesz": 4000,
+        "memsz": 4000,
+        "align": 65536,
+        "flags": 6,
+        "bytes_sha256": "0163b95869d02c140866388e6936c942424e15dff39be9a75362363b775bd196"
+      },
+      {
+        "paddr": 136025856,
+        "vaddr": 136025856,
+        "filesz": 0,
+        "memsz": 289024,
+        "align": 65536,
+        "flags": 6,
+        "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "paddr": 136025856,
+        "vaddr": 536883616,
+        "filesz": 0,
+        "memsz": 96796,
+        "align": 65536,
+        "flags": 6,
+        "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "paddr": 136025856,
+        "vaddr": 536980412,
+        "filesz": 0,
+        "memsz": 87108,
+        "align": 65536,
+        "flags": 6,
+        "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "paddr": 536870912,
+        "vaddr": 536870912,
+        "filesz": 0,
+        "memsz": 8704,
+        "align": 65536,
+        "flags": 6,
+        "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "named_symbols_sha256": "ee25b8b5a7d31f2d50f430bdfdab370e24fc2b2ddef7825caa3e6b840ce57c1f",
+    "code_relocations": {}
+  },
+  "shipped": {
+    "sha256": "3fc6ee14e94f5f8b4133b06747145a8e40c7755940b9f87fdab1ad4323c0aa8c",
+    "entry": 134238977,
+    "e_flags": 83887104,
+    "load_segments": [
+      {
+        "paddr": 134234112,
+        "vaddr": 134234112,
+        "filesz": 1795340,
+        "memsz": 1795344,
+        "align": 4096,
+        "flags": 7,
+        "bytes_sha256": "4378cfb26efad5340e9fd0a2613ca0916adee3ff44b3ab09f728fa495ef90c58"
+      },
+      {
+        "paddr": 136029456,
+        "vaddr": 536879616,
+        "filesz": 3988,
+        "memsz": 3988,
+        "align": 4096,
+        "flags": 6,
+        "bytes_sha256": "6a60d21837c2063bc0800d628a51bc90d5d053876ef30d8c4993ac96f7d1cc8e"
+      },
+      {
+        "paddr": 136033444,
+        "vaddr": 136033444,
+        "filesz": 0,
+        "memsz": 281436,
+        "align": 4096,
+        "flags": 6,
+        "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "paddr": 136033444,
+        "vaddr": 536883608,
+        "filesz": 0,
+        "memsz": 97160,
+        "align": 4096,
+        "flags": 6,
+        "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "paddr": 136033444,
+        "vaddr": 536980768,
+        "filesz": 0,
+        "memsz": 86752,
+        "align": 4096,
+        "flags": 6,
+        "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "paddr": 536870912,
+        "vaddr": 536870912,
+        "filesz": 0,
+        "memsz": 8704,
+        "align": 4096,
+        "flags": 6,
+        "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "named_symbols_sha256": "9eb5a83fb37f272a8c9ddb5fb8de43a276ca096a467da37992de75e52b3db519",
+    "code_relocations": {}
+  },
+  "load_identical": false,
+  "official_compiler": "GNU Arm Embedded 10.2.1 20201103, 10-2020-q4-major",
+  "shipped_ardupilot_cxx_compiler": "GCC 13.2.1 20231009, effective -Og (from DW_AT_producer)"
+}

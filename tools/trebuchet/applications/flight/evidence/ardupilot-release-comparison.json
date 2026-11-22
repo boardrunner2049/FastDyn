@@ -1,0 +1,300 @@
+{
+  "family": "ardupilot",
+  "source_revision": "1ebd4d996e8b6bbeb1462a9655c00aa861d5beef",
+  "images": {
+    "reference": {
+      "sha256": "3fc6ee14e94f5f8b4133b06747145a8e40c7755940b9f87fdab1ad4323c0aa8c",
+      "entry": 134238977,
+      "e_flags": 83887104,
+      "load_segments": [
+        {
+          "paddr": 134234112,
+          "vaddr": 134234112,
+          "filesz": 1795340,
+          "memsz": 1795344,
+          "align": 4096,
+          "flags": 7,
+          "bytes_sha256": "4378cfb26efad5340e9fd0a2613ca0916adee3ff44b3ab09f728fa495ef90c58"
+        },
+        {
+          "paddr": 136029456,
+          "vaddr": 536879616,
+          "filesz": 3988,
+          "memsz": 3988,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "6a60d21837c2063bc0800d628a51bc90d5d053876ef30d8c4993ac96f7d1cc8e"
+        },
+        {
+          "paddr": 136033444,
+          "vaddr": 136033444,
+          "filesz": 0,
+          "memsz": 281436,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 136033444,
+          "vaddr": 536883608,
+          "filesz": 0,
+          "memsz": 97160,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 136033444,
+          "vaddr": 536980768,
+          "filesz": 0,
+          "memsz": 86752,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 536870912,
+          "vaddr": 536870912,
+          "filesz": 0,
+          "memsz": 8704,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "named_symbols_sha256": "9eb5a83fb37f272a8c9ddb5fb8de43a276ca096a467da37992de75e52b3db519",
+      "code_relocations": {}
+    },
+    "normal": {
+      "sha256": "4bca82a3e14afb44c820fdc893582e8c4f2371de49b64a23752ed8ab80cddbf8",
+      "entry": 134238997,
+      "e_flags": 83887104,
+      "load_segments": [
+        {
+          "paddr": 134217728,
+          "vaddr": 134217728,
+          "filesz": 1804128,
+          "memsz": 1804128,
+          "align": 65536,
+          "flags": 7,
+          "bytes_sha256": "3d2e59302286de7405c2f7079b9802954a3b46c87e95bd9ae95ba7f877769684"
+        },
+        {
+          "paddr": 136021856,
+          "vaddr": 536879616,
+          "filesz": 4000,
+          "memsz": 4000,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "0163b95869d02c140866388e6936c942424e15dff39be9a75362363b775bd196"
+        },
+        {
+          "paddr": 136025856,
+          "vaddr": 136025856,
+          "filesz": 0,
+          "memsz": 289024,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 136025856,
+          "vaddr": 536883616,
+          "filesz": 0,
+          "memsz": 96796,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 136025856,
+          "vaddr": 536980412,
+          "filesz": 0,
+          "memsz": 87108,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 536870912,
+          "vaddr": 536870912,
+          "filesz": 0,
+          "memsz": 8704,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "named_symbols_sha256": "ee25b8b5a7d31f2d50f430bdfdab370e24fc2b2ddef7825caa3e6b840ce57c1f",
+      "code_relocations": {}
+    },
+    "linked": {
+      "sha256": "4bca82a3e14afb44c820fdc893582e8c4f2371de49b64a23752ed8ab80cddbf8",
+      "entry": 134238997,
+      "e_flags": 83887104,
+      "load_segments": [
+        {
+          "paddr": 134217728,
+          "vaddr": 134217728,
+          "filesz": 1804128,
+          "memsz": 1804128,
+          "align": 65536,
+          "flags": 7,
+          "bytes_sha256": "3d2e59302286de7405c2f7079b9802954a3b46c87e95bd9ae95ba7f877769684"
+        },
+        {
+          "paddr": 136021856,
+          "vaddr": 536879616,
+          "filesz": 4000,
+          "memsz": 4000,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "0163b95869d02c140866388e6936c942424e15dff39be9a75362363b775bd196"
+        },
+        {
+          "paddr": 136025856,
+          "vaddr": 136025856,
+          "filesz": 0,
+          "memsz": 289024,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 136025856,
+          "vaddr": 536883616,
+          "filesz": 0,
+          "memsz": 96796,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 136025856,
+          "vaddr": 536980412,
+          "filesz": 0,
+          "memsz": 87108,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 536870912,
+          "vaddr": 536870912,
+          "filesz": 0,
+          "memsz": 8704,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "named_symbols_sha256": "ee25b8b5a7d31f2d50f430bdfdab370e24fc2b2ddef7825caa3e6b840ce57c1f",
+      "code_relocations": {}
+    },
+    "relocs": {
+      "sha256": "df6b1ba76f1b6cad1a3818b34dbe332aebebed533ad36cf309cbb7181ab966af",
+      "entry": 134238997,
+      "e_flags": 83887104,
+      "load_segments": [
+        {
+          "paddr": 134217728,
+          "vaddr": 134217728,
+          "filesz": 1804128,
+          "memsz": 1804128,
+          "align": 65536,
+          "flags": 7,
+          "bytes_sha256": "04041fbf3de4c968f7e0e27d0b32a95d5a3aa6da8060f55811c0ba4402166547"
+        },
+        {
+          "paddr": 136021856,
+          "vaddr": 536879616,
+          "filesz": 4000,
+          "memsz": 4000,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "0163b95869d02c140866388e6936c942424e15dff39be9a75362363b775bd196"
+        },
+        {
+          "paddr": 136025856,
+          "vaddr": 136025856,
+          "filesz": 0,
+          "memsz": 289024,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 136025856,
+          "vaddr": 536883616,
+          "filesz": 0,
+          "memsz": 96796,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 136025856,
+          "vaddr": 536980412,
+          "filesz": 0,
+          "memsz": 87108,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "paddr": 536870912,
+          "vaddr": 536870912,
+          "filesz": 0,
+          "memsz": 8704,
+          "align": 65536,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "named_symbols_sha256": "7863455160785ed9f6268ca407512542d64125b74a50fe431025f4caeca3d678",
+      "code_relocations": {
+        ".relstartup": 120,
+        ".rel.text": 62943
+      }
+    }
+  },
+  "checks": {
+    "linked_and_relocs_load_identical": false,
+    "final_and_relocs_load_identical": false,
+    "final_and_relocs_symbols_identical": false,
+    "code_relocation_count": 63063,
+    "shipped_and_rebuilt_load_identical": false,
+    "symbol_delta": {
+      "removed_or_changed": 0,
+      "added": 5,
+      "local_aliases_of_existing_extents": 5,
+      "preserved_with_only_local_aliases": true
+    },
+    "rebuilt_hook_bindings_preserved": false
+  },
+  "hooks": {
+    "reference": {
+      "returncode": 0,
+      "stdout": "Prepared execution configuration: /workspace/trebuchet-work/flight/release-ardupilot/hooks-reference\n3fc6ee14e94f5f8b4133b06747145a8e40c7755940b9f87fdab1ad4323c0aa8c  arducopter_v462\n",
+      "stderr": "",
+      "file_sha256": {
+        "modifiers.txt": "b600f41eafa62ebda809d0ccba0b1b12471778e070e4a41acd648e9790be18c5",
+        "symbols.txt": "b5f144f4b19328e4c12e09fb930f723ce0c04589f6bcea2597fef74f8295f502",
+        "virtuals.txt": "5c1d0ceed08346e1a0361f8b8b16987eda3c342665d249077d2fc96ac2c15178"
+      }
+    },
+    "normal": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Cannot prepare execution configuration: ELF SHA-256 mismatch; review absolute-address hooks before changing the profile\n",
+      "file_sha256": {}
+    },
+    "relocs": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Cannot prepare execution configuration: ELF SHA-256 mismatch; review absolute-address hooks before changing the profile\n",
+      "file_sha256": {}
+    }
+  },
+  "operational_mission_reproduced_on_rebuild": false
+}

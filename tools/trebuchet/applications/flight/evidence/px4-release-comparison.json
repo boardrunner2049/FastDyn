@@ -1,0 +1,199 @@
+{
+  "family": "px4",
+  "source_revision": "d6f12ad1c4f70ad3230afd7d86e971421e02fef4",
+  "images": {
+    "reference": {
+      "sha256": "e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010",
+      "entry": 134348800,
+      "e_flags": 83887104,
+      "load_segments": [
+        {
+          "paddr": 134348800,
+          "vaddr": 134348800,
+          "filesz": 1922176,
+          "memsz": 1922176,
+          "align": 4096,
+          "flags": 7,
+          "bytes_sha256": "b6e0c90f0b121d7c51b9f97156f2224acc15f25f1dd1a4e86fc16df23cff2a05"
+        },
+        {
+          "paddr": 136270976,
+          "vaddr": 603979776,
+          "filesz": 4080,
+          "memsz": 4080,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "070b0ded31094eca33d3e560daa203c4671196639632b0a26008cc49e3332385"
+        },
+        {
+          "paddr": 136275056,
+          "vaddr": 603983872,
+          "filesz": 0,
+          "memsz": 57868,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "named_symbols_sha256": "d03aed281143862ff2d65cd1fb557cbe440067ad0ff79a85cd607a9df6f931cc",
+      "code_relocations": {}
+    },
+    "normal": {
+      "sha256": "8e2027528faaf4a89c54e5a5b7568275ac401b958d38d83d915a8714727e1b79",
+      "entry": 134348800,
+      "e_flags": 83887104,
+      "load_segments": [
+        {
+          "paddr": 134348800,
+          "vaddr": 134348800,
+          "filesz": 1922216,
+          "memsz": 1922216,
+          "align": 4096,
+          "flags": 7,
+          "bytes_sha256": "fb4053ba95a0b051ecfe0a981f9af878c2b9ba877b91c0cafa979b2c0373a186"
+        },
+        {
+          "paddr": 136271016,
+          "vaddr": 603979776,
+          "filesz": 4080,
+          "memsz": 4080,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "b658f4f3ec6c221647418a8f6108bc4b35a90633d6fc5126c6a24defd2eb22e0"
+        },
+        {
+          "paddr": 136275096,
+          "vaddr": 603983872,
+          "filesz": 0,
+          "memsz": 57868,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "named_symbols_sha256": "669c2ec4908bdfe263adc79a3d3ddae987f6d1e016f10f14a593629529e264f8",
+      "code_relocations": {}
+    },
+    "linked": {
+      "sha256": "8e2027528faaf4a89c54e5a5b7568275ac401b958d38d83d915a8714727e1b79",
+      "entry": 134348800,
+      "e_flags": 83887104,
+      "load_segments": [
+        {
+          "paddr": 134348800,
+          "vaddr": 134348800,
+          "filesz": 1922216,
+          "memsz": 1922216,
+          "align": 4096,
+          "flags": 7,
+          "bytes_sha256": "fb4053ba95a0b051ecfe0a981f9af878c2b9ba877b91c0cafa979b2c0373a186"
+        },
+        {
+          "paddr": 136271016,
+          "vaddr": 603979776,
+          "filesz": 4080,
+          "memsz": 4080,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "b658f4f3ec6c221647418a8f6108bc4b35a90633d6fc5126c6a24defd2eb22e0"
+        },
+        {
+          "paddr": 136275096,
+          "vaddr": 603983872,
+          "filesz": 0,
+          "memsz": 57868,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "named_symbols_sha256": "669c2ec4908bdfe263adc79a3d3ddae987f6d1e016f10f14a593629529e264f8",
+      "code_relocations": {}
+    },
+    "relocs": {
+      "sha256": "54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347",
+      "entry": 134348800,
+      "e_flags": 83887104,
+      "load_segments": [
+        {
+          "paddr": 134348800,
+          "vaddr": 134348800,
+          "filesz": 1922216,
+          "memsz": 1922216,
+          "align": 4096,
+          "flags": 7,
+          "bytes_sha256": "fb4053ba95a0b051ecfe0a981f9af878c2b9ba877b91c0cafa979b2c0373a186"
+        },
+        {
+          "paddr": 136271016,
+          "vaddr": 603979776,
+          "filesz": 4080,
+          "memsz": 4080,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "b658f4f3ec6c221647418a8f6108bc4b35a90633d6fc5126c6a24defd2eb22e0"
+        },
+        {
+          "paddr": 136275096,
+          "vaddr": 603983872,
+          "filesz": 0,
+          "memsz": 57868,
+          "align": 4096,
+          "flags": 6,
+          "bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "named_symbols_sha256": "e7100d7c75711035f2e73618ed2ced8bd7ee27dba6cee194938cf2e4aacf09c8",
+      "code_relocations": {
+        ".rel.text": 73993
+      }
+    }
+  },
+  "checks": {
+    "linked_and_relocs_load_identical": true,
+    "final_and_relocs_load_identical": true,
+    "final_and_relocs_symbols_identical": false,
+    "code_relocation_count": 73993,
+    "shipped_and_rebuilt_load_identical": false,
+    "symbol_delta": {
+      "removed_or_changed": 0,
+      "added": 502,
+      "local_aliases_of_existing_extents": 502,
+      "preserved_with_only_local_aliases": true
+    },
+    "rebuilt_hook_bindings_preserved": true
+  },
+  "hooks": {
+    "reference": {
+      "returncode": 0,
+      "stdout": "Prepared execution configuration: /workspace/trebuchet-work/flight/release-px4/rechecked/hooks-reference\ne6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010  px4_fmu-v6c_default.elf\n",
+      "stderr": "",
+      "file_sha256": {
+        "modifiers.txt": "2d95477e5b8456e0fc0cfd63b10a745563f358350c241e08a1327cbfee8426b0",
+        "symbols.txt": "d7f0087d33c83dabf802b1225231e4748ad1eb577168bf7d101a1356e7c0a739",
+        "virtuals.txt": "fd7a1e011807e0c6c3ef50e23760a76ca4bb821c54c13d64aa4965cc33d73299"
+      }
+    },
+    "normal": {
+      "returncode": 0,
+      "stdout": "Prepared execution configuration: /workspace/trebuchet-work/flight/release-px4/rechecked/hooks-normal\n8e2027528faaf4a89c54e5a5b7568275ac401b958d38d83d915a8714727e1b79  normal.elf\n",
+      "stderr": "",
+      "file_sha256": {
+        "modifiers.txt": "2d95477e5b8456e0fc0cfd63b10a745563f358350c241e08a1327cbfee8426b0",
+        "symbols.txt": "720bb6cd01461da1188dd8fc01c9015c3b655bb254c96389ff36122b4c80a6ee",
+        "virtuals.txt": "fd7a1e011807e0c6c3ef50e23760a76ca4bb821c54c13d64aa4965cc33d73299"
+      }
+    },
+    "relocs": {
+      "returncode": 0,
+      "stdout": "Prepared execution configuration: /workspace/trebuchet-work/flight/release-px4/rechecked/hooks-relocs\n54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347  relocs.elf\n",
+      "stderr": "",
+      "file_sha256": {
+        "modifiers.txt": "2d95477e5b8456e0fc0cfd63b10a745563f358350c241e08a1327cbfee8426b0",
+        "symbols.txt": "59b0512ea50157e18cfdc0770acbe968ff2f7ccef89c753783ee45c07ed29e9d",
+        "virtuals.txt": "fd7a1e011807e0c6c3ef50e23760a76ca4bb821c54c13d64aa4965cc33d73299"
+      }
+    }
+  },
+  "operational_mission_reproduced_on_rebuild": false
+}

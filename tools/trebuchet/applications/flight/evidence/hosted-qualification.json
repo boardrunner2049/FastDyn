@@ -1,0 +1,909 @@
+{
+  "schema": "trebuchet.hosted-flight-qualification/1",
+  "scenario": "klaf-takeoff-three-waypoints-land",
+  "attempts": [
+    {
+      "workflow_run": 44979548250,
+      "commit": "43347ae0e323f6fc92e74cb7568d11a7c857d3b8",
+      "status": "failure",
+      "artifacts": {
+        "flight-ardupilot": {
+          "artifact_id": 14738011239,
+          "digest": "sha256:7df4a997b752c35c89a780ef96241c4817978860eb868d6e6c66a1ca5c72326b",
+          "bytes": 669355
+        },
+        "flight-px4": {
+          "artifact_id": 14737198659,
+          "digest": "sha256:e2f6a744958d31efe2c37213b23b05f73e0d074607522fe4a67076534b5f7673",
+          "bytes": 1768395
+        }
+      },
+      "applications": {
+        "ardupilot": {
+          "source_revision": "1ebd4d996e8b6bbeb1462a9655c00aa861d5beef",
+          "inputs": {
+            "elf": "3fc6ee14e94f5f8b4133b06747145a8e40c7755940b9f87fdab1ad4323c0aa8c",
+            "config": "17538467f0563dbd437bc352c8c6919cb4a1c8ffa14f3b920f1227d5f3c47115",
+            "params": "483c55bbf002a759207a95d0356a4fc7c4ed3d29c92595bf089aa87ec18b6365",
+            "profile": "b0ba37716cf6956926cca83bdc54f7e8852d3ea111a1a65d6e86e1ffa9e4ae01",
+            "mission": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6"
+          },
+          "runtime": {
+            "plugin": "d8e915786086e121a1da00e2ce3b3fa649d274994031cc26f438e6ec735b3f52",
+            "qemu": "c6839721d6f7aef0b9b972334107494aeebcadfc966e23f01751b9d873368285",
+            "plant": "880bffb85383551430fe74341e15f74e0afdb8d2baa8705f95c1a4d77a85a974",
+            "launch_config": "ee29cb272d31d8c8e1b73810d169c32efe772504068413becb692430bd6f2523",
+            "plant_library": "67b0f289f01f544647551424775a6d06e02ee3853022938695df54c6d1ab2771",
+            "plant_description": "947f8b0df62f04766a62d3b33e99b26cfdfd63e181954d979a19e302d11b35a1",
+            "cache_config": "6e86b4531451ea6e8f53812f3135a063ffb9ea66a4afabbe1b798ffa17da5169"
+          },
+          "simulation_dependencies": {
+            "third_party/common/qemu": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+            "third_party/common/rumoca": "f7ff9ddd283d67c5eda27daf409af7108d7fb108",
+            "third_party/common/modelica_models": "c6cf47f5cbd0bb4dc77d16d19a685e534487d0da",
+            "third_party/courbet_deps/mavlink_headers": "d1beb068135e069d3fe28a53fc171700a632e06a"
+          },
+          "scenario": "klaf-takeoff-three-waypoints-land",
+          "operational_baseline": true,
+          "ordinary_warm": false,
+          "transformed_deployment": false,
+          "state": "failed",
+          "receipt_sha256": "b6b7eeb49f9d87fd640acb58e0150e02c0893b80c16c8e4cb694d62d36f7f4a1",
+          "phases": {
+            "capture": {
+              "raw_sha256": {
+                "plant.csv": "2e79c9e656b45e8ffd0174175695619d54fde5bf3eab2dbc2eacd269073c9fcc",
+                "run/mav.tlog": "f0c322033b11ae2e0498b43e5dedc2c5be73743bcd10dfb2d8b27b7991f0cbf8",
+                "console.log": "adc92a15c6d00acb32d92ee744bf71e047e599b0b5cb3eaf6c2481ac17fb0d8f"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.835,
+                "fastdyn.run.total": 38.061
+              },
+              "timing_source": "FastDyn console seconds rounded to milliseconds",
+              "verdict": "FAIL",
+              "error": "final position outside landing envelope"
+            },
+            "cold": {
+              "raw_sha256": {
+                "plant.csv": "72c0296f50edf019fc4dc86a781bee1dd392c624316d178c67c57710dbb5fb2b",
+                "run/mav.tlog": "9ae643641c5789769827e2561b414f9bfaa48f87c7bc450ab9eeb10244d4326a",
+                "console.log": "aa102e07608079e2f9028e9d55df644585188d4b307ca64ddd0b00856d4c4ca2"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.835,
+                "fastdyn.run.total": 38.06
+              },
+              "timing_source": "FastDyn console seconds rounded to milliseconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1423,
+                "plant_elapsed_s": 148.5,
+                "telemetry_positions": 543,
+                "telemetry_attitudes": 543,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            }
+          },
+          "cache_ledger": [],
+          "error": "final position outside landing envelope"
+        },
+        "px4": {
+          "source_revision": "d6f12ad1c4f70ad3230afd7d86e971421e02fef4",
+          "inputs": {
+            "elf": "e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010",
+            "config": "6213b8fd898cc9616c5d70143a9a2e610c52a3a599a4e335c858b2adab5a02d6",
+            "params": "4da4c949772703acd09e4849c82b6684623afbdd32929da6f9c9e2653d6d8a88",
+            "profile": "abe3ee14eccb670de3d655ad4e1209e35cbea5c36768aa7e24430b390b07d5eb",
+            "mission": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6"
+          },
+          "runtime": {
+            "plugin": "ae935cdac50702ce41ee76e183459425a010fd39e730ccede8369a73305729f4",
+            "qemu": "0f121cdaefed78a93bb3b8bf5206cad40e48a485bfe0e360a73a06b652476fbb",
+            "plant": "2b7f8ddbae642a7eea0ee226cf941b7f6be54b5073d3c4c1dbb7867e28bfcaad",
+            "launch_config": "930c3bdb234543443d64eec06c4f9d22faaa92612a9ac9be0bbb850c0b7361a6",
+            "plant_library": "8c0b688f8096f9bf55975f223c6cfb3848936cb078f12c346b1d49dd51409272",
+            "plant_description": "407f209124ba448e1b92bf05b0325f42c1a40f5191f0b8f5b4695a2812d7b33e",
+            "cache_config": "94866feebd690271b36bf75dae376ca77f93eea2055c38de0051b503f29e4b9d"
+          },
+          "simulation_dependencies": {
+            "third_party/common/qemu": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+            "third_party/common/rumoca": "f7ff9ddd283d67c5eda27daf409af7108d7fb108",
+            "third_party/common/modelica_models": "c6cf47f5cbd0bb4dc77d16d19a685e534487d0da",
+            "third_party/courbet_deps/mavlink_headers": "d1beb068135e069d3fe28a53fc171700a632e06a",
+            "third_party/courbet_deps/fire_modelica_models": "73a110b1767182205e82bb99a1e4ec4dc9e78d45",
+            "out/toolchains/ModelicaStandardLibrary": "6626538a236a34a390655b55d5e8c906bfe31772"
+          },
+          "scenario": "klaf-takeoff-three-waypoints-land",
+          "operational_baseline": true,
+          "ordinary_warm": false,
+          "transformed_deployment": false,
+          "state": "failed",
+          "receipt_sha256": "36f8321b931651f5e5032911fd341dd2d58427e8056323bf853de09625f619dd",
+          "phases": {
+            "capture": {
+              "raw_sha256": {
+                "plant.csv": "80a6526030e8270894455712b8ed3fb9b370ef6ee8a96d2359757abd1ae2057b",
+                "run/mav.tlog": "f9c1aac8e5f31ffea4b07609d34bbe637f4e0eb9617805f38ed4fe7834cc5d88",
+                "console.log": "7f96e4169516819138f93f1b22fa33de96aff467fa8eaced5a5e8e3bc8e992b1"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 26.838,
+                "fastdyn.run.total": 27.059
+              },
+              "timing_source": "FastDyn console seconds rounded to milliseconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 590,
+                "plant_elapsed_s": 73.626,
+                "telemetry_positions": 250,
+                "telemetry_attitudes": 277,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "cold": {
+              "raw_sha256": {
+                "plant.csv": "359635d5fb52e9c95c0277b8df8fcfa6bcc09509182f3be06ad620560e95a4ff",
+                "run/mav.tlog": "5cde942144461503c1427a330061fe53423b2057a61e7663ad0e8944649a900b",
+                "console.log": "70d116ad16e23da7f61db1fd9a47075180556427534e08a7bda19d3ad6deeef9"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 26.426,
+                "fastdyn.run.total": 26.661
+              },
+              "timing_source": "FastDyn console seconds rounded to milliseconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 582,
+                "plant_elapsed_s": 72.628,
+                "telemetry_positions": 245,
+                "telemetry_attitudes": 274,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-1": {
+              "raw_sha256": {
+                "plant.csv": "f5b978416657c7f64e73e5076e82a9120a8d483977c6251b14539cf27780e1df",
+                "run/mav.tlog": "ee474c35dd8e32fa76bf03160d60fc3fe742920591eaad3274bde6bf6de822c9",
+                "console.log": "56ddd5bbef6e3cca1ea5490638143ce9d5cc35ff2cd56a0f5b513d7e75529e09"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 26.227,
+                "fastdyn.run.total": 26.46
+              },
+              "timing_source": "FastDyn console seconds rounded to milliseconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 590,
+                "plant_elapsed_s": 73.628,
+                "telemetry_positions": 249,
+                "telemetry_attitudes": 282,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-2": {
+              "raw_sha256": {
+                "plant.csv": "6d4287348413bba31b5b2704bf49e4cbeeebb71cf26675cf16baf4027f8c4ceb",
+                "run/mav.tlog": "c041527685eb0f37b1df3c40b58fdc7787b8d2934793236863e2990377cfbb1a",
+                "console.log": "b5c64375f9041ebf1757a3372d75ad92242b0b55372c8e6ddbc97ff841778c08"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 26.226,
+                "fastdyn.run.total": 26.461
+              },
+              "timing_source": "FastDyn console seconds rounded to milliseconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 590,
+                "plant_elapsed_s": 73.626,
+                "telemetry_positions": 249,
+                "telemetry_attitudes": 282,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            }
+          },
+          "cache_ledger": [
+            {
+              "phase": "replay-1",
+              "records_before": 47399,
+              "proof": "PASS",
+              "appended": 7232,
+              "records_after": 54631
+            },
+            {
+              "phase": "replay-2",
+              "records_before": 54631,
+              "proof": "PASS",
+              "appended": 4665,
+              "records_after": 59296
+            }
+          ],
+          "error": "warm mission still appends blocks after two checked replays"
+        }
+      }
+    },
+    {
+      "workflow_run": 44981299246,
+      "commit": "4fd4a15ff73d1d9218fb199d980f36555b951889",
+      "status": "cancelled",
+      "artifacts": {},
+      "applications": {}
+    },
+    {
+      "workflow_run": 44981427385,
+      "commit": "80707bf320ed83a8433756b55a93ed8853ee68ff",
+      "status": "failure",
+      "artifacts": {
+        "frozen-px4-00": {
+          "artifact_id": 14738945460,
+          "digest": "sha256:2cc733bf581be8db1b0b5f88b27bfc2080a674b8eca900cdab83bb97b64384e5",
+          "bytes": 9171260
+        },
+        "flight-ardupilot": {
+          "artifact_id": 14738885731,
+          "digest": "sha256:bed75f90e35772873ea81ef1d32805212f650464013d448f485d0a5a344597ab",
+          "bytes": 2572960
+        },
+        "frozen-ardupilot-00": {
+          "artifact_id": 14738765989,
+          "digest": "sha256:f9d3fdfd206a831e89bd2484b95a83a5a1977a3c66f55738af65b3f667ffbc6f",
+          "bytes": 4733704
+        },
+        "flight-px4": {
+          "artifact_id": 14738681144,
+          "digest": "sha256:943673358f1c7ac894173ad362a35115e0c7de853d454fc2c222284609141697",
+          "bytes": 4154090
+        }
+      },
+      "applications": {
+        "ardupilot": {
+          "source_revision": "1ebd4d996e8b6bbeb1462a9655c00aa861d5beef",
+          "inputs": {
+            "elf": "3fc6ee14e94f5f8b4133b06747145a8e40c7755940b9f87fdab1ad4323c0aa8c",
+            "config": "17538467f0563dbd437bc352c8c6919cb4a1c8ffa14f3b920f1227d5f3c47115",
+            "params": "483c55bbf002a759207a95d0356a4fc7c4ed3d29c92595bf089aa87ec18b6365",
+            "profile": "b0ba37716cf6956926cca83bdc54f7e8852d3ea111a1a65d6e86e1ffa9e4ae01",
+            "mission": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6"
+          },
+          "runtime": {
+            "plugin": "d8e915786086e121a1da00e2ce3b3fa649d274994031cc26f438e6ec735b3f52",
+            "qemu": "f5c7aa92bfa669e9f857517fd69e7e95114970a5677d68d8c959ca2958e9c9f1",
+            "plant": "31ab17ce8c2a257534d37be11788ca07f367f4e2e033f0f0f5cb28f792c865fd",
+            "launch_config": "ad0021199179ef948689db9abad2ab8d1fcfb45c4b99b36c261bd2a5c1edf8ad",
+            "plant_library": "5109e1c216f8495e6ea2b3f00b62c6bd671ad58e428a0452977f241320ab0ead",
+            "plant_description": "42469445ac8ded20a9fb3feba4df8a6def2ab769e44f4a8737481dfec77c8a35",
+            "cache_config": "13c1bd443ae9bb58a486537c2ea2a5c36e1522851015911071df0b30c20d21c3"
+          },
+          "simulation_dependencies": {
+            "third_party/common/qemu": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+            "third_party/common/rumoca": "f7ff9ddd283d67c5eda27daf409af7108d7fb108",
+            "third_party/common/modelica_models": "c6cf47f5cbd0bb4dc77d16d19a685e534487d0da",
+            "third_party/courbet_deps/mavlink_headers": "d1beb068135e069d3fe28a53fc171700a632e06a"
+          },
+          "scenario": "klaf-takeoff-three-waypoints-land",
+          "operational_baseline": true,
+          "ordinary_warm": false,
+          "transformed_deployment": false,
+          "state": "failed",
+          "receipt_sha256": "40cad0eb9433a09fa7f5b82276e7027e572f1d16bcb7ee57a6c9e0c38b602dd6",
+          "phases": {
+            "capture": {
+              "raw_sha256": {
+                "plant.csv": "0f843526c6df6ce593645f314adf42d1db1481c9122447308b95d97497366cc2",
+                "run/mav.tlog": "f1d832c66bdfed413e735499fb1950bb14be721de8b344fdc29ec62b09e91f64",
+                "console.log": "4cfc77b588a0ff183e5eb52ffece1cdf21268ac0a4dcc4da19570e25a10939fb"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.22967740499985,
+                "fastdyn.run.total": 37.35409821799999
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1427,
+                "plant_elapsed_s": 148.9,
+                "telemetry_positions": 543,
+                "telemetry_attitudes": 543,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            },
+            "cold": {
+              "raw_sha256": {
+                "plant.csv": "b39ccd16a462c6708cf6ddecfa44758d877e3daed35edf57963d65bcc167c00a",
+                "run/mav.tlog": "76147c70827a7924099e935e6ae6ccbbc09a19c0f17eaf2a912a5b54c87113f7",
+                "console.log": "edf1e7f664466342c4c1efeaf3bd6f3cecdd7ac0318645df5c963aa49a63ea1b"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.22866702500005,
+                "fastdyn.run.total": 37.453165906000095
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1433,
+                "plant_elapsed_s": 149.4,
+                "telemetry_positions": 533,
+                "telemetry_attitudes": 533,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            },
+            "replay-1": {
+              "raw_sha256": {
+                "plant.csv": "2889452aaf3937b76acce4221573525fe9a5334f68931393531beb4ac84bb1c9",
+                "run/mav.tlog": "38d28441063ee19a87aa5ee78c03cec06791236daa4942e5321be627a0bf3e83",
+                "console.log": "ab1919f2863ef4ce9e41d9fdef48855f8e51b11445e331306df364906591a27d"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.028751547999946,
+                "fastdyn.run.total": 37.25318446899996
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1434,
+                "plant_elapsed_s": 149.6,
+                "telemetry_positions": 548,
+                "telemetry_attitudes": 548,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            },
+            "replay-2": {
+              "raw_sha256": {
+                "plant.csv": "ef662ef639496452a214cd288289305d6854607ddf4a6118615bb66b75256685",
+                "run/mav.tlog": "9338291294ee5bf7143f93d6b4961540a950706e2f0499d638d64cd2bab32014",
+                "console.log": "e2de5618990c5086095dffb1a05d6b6bd986f9298d38d1aab516b40b3776aefe"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.029034850000016,
+                "fastdyn.run.total": 37.25345587699985
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1440,
+                "plant_elapsed_s": 150.2,
+                "telemetry_positions": 548,
+                "telemetry_attitudes": 548,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            },
+            "replay-3": {
+              "raw_sha256": {
+                "plant.csv": "959623689dca79a9f37138ca3aba37cc7ceace582261cb87acbc4fea83a2ee27",
+                "run/mav.tlog": "09363bce678376c7cf05edb258ec39ed2616e058747066b5698e9b461422d9b8",
+                "console.log": "3f5c4ba0e80b4746cbdd3b37b0d309e64fc8caf567c7b4434ba6c265c8c36244"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 36.828118455000094,
+                "fastdyn.run.total": 37.05266611000002
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1436,
+                "plant_elapsed_s": 149.7,
+                "telemetry_positions": 546,
+                "telemetry_attitudes": 546,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            },
+            "replay-4": {
+              "raw_sha256": {
+                "plant.csv": "752bfabc044b7e1a4b3dff99d66c46299215165d2d06215aae9a62e734127158",
+                "run/mav.tlog": "1ceeffbd68f741c881b6626809669c27618843b0ac7f366c76f8586f18837f08",
+                "console.log": "3e2aaa7ecd87b0fe1b4353f1ccd7c0b82b9154e4f36a80de10e1722da1a6027f"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.02933220099999,
+                "fastdyn.run.total": 37.25422526599982
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1442,
+                "plant_elapsed_s": 150.3,
+                "telemetry_positions": 549,
+                "telemetry_attitudes": 549,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            },
+            "replay-5": {
+              "raw_sha256": {
+                "plant.csv": "feb8385ace8c088c863145c095cc5f0b3a4df6f7b22ebd8f296a715346df40a6",
+                "run/mav.tlog": "7331f405673de501dc22f1cede553fd03f9bbdcd7b7cac30fdc33ecb37a449d3",
+                "console.log": "79771a75dd2c135d0813da6538a780ff0e96bd2408e74db022a4179a13612d83"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.02850183600003,
+                "fastdyn.run.total": 37.25325654099993
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1441,
+                "plant_elapsed_s": 150.2,
+                "telemetry_positions": 549,
+                "telemetry_attitudes": 549,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            },
+            "replay-6": {
+              "raw_sha256": {
+                "plant.csv": "c3bbd99dd81b5e3ed8b9e47d064156bb6647a5280e578113d26b992fde879599",
+                "run/mav.tlog": "2855ce170ecda2144f7a9e92631b3a0c77c20d1b949013b10c951d64487071d3",
+                "console.log": "6680a9babf63d136349fe760b371cbb2fd0add794ab7e7792093f759b3c0077b"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.03181154499998,
+                "fastdyn.run.total": 37.256242279999924
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1442,
+                "plant_elapsed_s": 150.3,
+                "telemetry_positions": 549,
+                "telemetry_attitudes": 549,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            },
+            "replay-7": {
+              "raw_sha256": {
+                "plant.csv": "f34bac5d1d3695afd05624a5bfabccd94156d369bc05d2d1219ee12eae65962f",
+                "run/mav.tlog": "c981f084a7dc3e0f88bf0b071881837218d901bfa62fd16a6541db9358cf5a4b",
+                "console.log": "fcf2fd79cd73226068aaaf4c3575b8ae5f39a4f3963a7aba1fc96763bb147baa"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.033301360999985,
+                "fastdyn.run.total": 37.25748738900006
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1437,
+                "plant_elapsed_s": 149.8,
+                "telemetry_positions": 547,
+                "telemetry_attitudes": 547,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            },
+            "replay-8": {
+              "raw_sha256": {
+                "plant.csv": "02e86e8b1c4cf3c977be3d6b4497782d24acc9c9df332038366b4588d823e827",
+                "run/mav.tlog": "cf5689879bc388661c61a356f0d00f80db8c02a1300ee434b529578f0fd881f5",
+                "console.log": "9e99b8bb576492731736cf06c9d062fbf645614b3cc155594b71734b36d070f4"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 37.02843483299989,
+                "fastdyn.run.total": 37.25261757299995
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 1440,
+                "plant_elapsed_s": 150.1,
+                "telemetry_positions": 548,
+                "telemetry_attitudes": 548,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": false
+              }
+            }
+          },
+          "cache_ledger": [
+            {
+              "phase": "replay-1",
+              "records_before": 32465,
+              "proof": "PASS",
+              "appended": 3573,
+              "records_after": 36038
+            },
+            {
+              "phase": "replay-2",
+              "records_before": 36038,
+              "proof": "PASS",
+              "appended": 2925,
+              "records_after": 38963
+            },
+            {
+              "phase": "replay-3",
+              "records_before": 38963,
+              "proof": "PASS",
+              "appended": 1610,
+              "records_after": 40573
+            },
+            {
+              "phase": "replay-4",
+              "records_before": 40573,
+              "proof": "PASS",
+              "appended": 1332,
+              "records_after": 41905
+            },
+            {
+              "phase": "replay-5",
+              "records_before": 41905,
+              "proof": "PASS",
+              "appended": 951,
+              "records_after": 42856
+            },
+            {
+              "phase": "replay-6",
+              "records_before": 42856,
+              "proof": "PASS",
+              "appended": 855,
+              "records_after": 43711
+            },
+            {
+              "phase": "replay-7",
+              "records_before": 43711,
+              "proof": "PASS",
+              "appended": 796,
+              "records_after": 44507
+            },
+            {
+              "phase": "replay-8",
+              "records_before": 44507,
+              "proof": "PASS",
+              "appended": 692,
+              "records_after": 45199
+            }
+          ],
+          "error": "warm mission still appends blocks after 8 checked replays",
+          "warm_attempt_budget": 8,
+          "frozen_preparation": {
+            "identity": {
+              "cache_sha256": "89c1216fe8a09ed2212984de56c86c0cd0bc26b380ff6e794b1555ab014525e2",
+              "logical_bytes": 2150925544,
+              "fastdyn_manifest_sha256": "2bb477d58d03d3da62a31d5e7436666befa02b5e1834608e1e71bcf792cecbc9"
+            },
+            "population_scenario": "klaf-takeoff-three-waypoints-land",
+            "evaluation_scenario": "klaf-takeoff-three-waypoints-land",
+            "previously_unseen_input": false,
+            "mission_sha256": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6",
+            "qualified": true,
+            "replay": "replay-1",
+            "initial_records": 32465,
+            "final_records": 36038,
+            "appended_records": 3573,
+            "post_cache_sha256": "16525543a405677e63430afb9b8c2538b8cd1df87947215670c14cfd4156dfa1"
+          }
+        },
+        "px4": {
+          "source_revision": "d6f12ad1c4f70ad3230afd7d86e971421e02fef4",
+          "inputs": {
+            "elf": "e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010",
+            "config": "6213b8fd898cc9616c5d70143a9a2e610c52a3a599a4e335c858b2adab5a02d6",
+            "params": "4da4c949772703acd09e4849c82b6684623afbdd32929da6f9c9e2653d6d8a88",
+            "profile": "abe3ee14eccb670de3d655ad4e1209e35cbea5c36768aa7e24430b390b07d5eb",
+            "mission": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6"
+          },
+          "runtime": {
+            "plugin": "ae935cdac50702ce41ee76e183459425a010fd39e730ccede8369a73305729f4",
+            "qemu": "3573cb03559adf58623df758c0ff86f82242d1c5c1e7b5c780b2b934b8bb6e04",
+            "plant": "44fc72734983e59111269570fb57f308ed433bf9c6e58305f7eb0425f03f3fb0",
+            "launch_config": "930c3bdb234543443d64eec06c4f9d22faaa92612a9ac9be0bbb850c0b7361a6",
+            "plant_library": "e24353b9e0356edac493da30a58820793dfb6a864a51b7d97c5c73aed9d1e855",
+            "plant_description": "78361fd4053c3b6adcd12472e03d724e62b417759aa15f1ae52236033050a5b8",
+            "cache_config": "94866feebd690271b36bf75dae376ca77f93eea2055c38de0051b503f29e4b9d"
+          },
+          "simulation_dependencies": {
+            "third_party/common/qemu": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+            "third_party/common/rumoca": "f7ff9ddd283d67c5eda27daf409af7108d7fb108",
+            "third_party/common/modelica_models": "c6cf47f5cbd0bb4dc77d16d19a685e534487d0da",
+            "third_party/courbet_deps/mavlink_headers": "d1beb068135e069d3fe28a53fc171700a632e06a",
+            "third_party/courbet_deps/fire_modelica_models": "73a110b1767182205e82bb99a1e4ec4dc9e78d45",
+            "out/toolchains/ModelicaStandardLibrary": "6626538a236a34a390655b55d5e8c906bfe31772"
+          },
+          "scenario": "klaf-takeoff-three-waypoints-land",
+          "operational_baseline": true,
+          "ordinary_warm": false,
+          "transformed_deployment": false,
+          "state": "failed",
+          "receipt_sha256": "236b2dc450955b7b1ece1097013d7f9162786f0265c1a22a5356a4a66c7df4ed",
+          "phases": {
+            "capture": {
+              "raw_sha256": {
+                "plant.csv": "dad9ead2369de18a9ab93bafcefaa0f3d7cecb85fa1e7a4029c8528915a46291",
+                "run/mav.tlog": "9ccc7bb3a9e9884f21ff8706483b11a512e4068718e7983a5c73b66ffa9fd3c8",
+                "console.log": "d045d3455e2556e2d7eccceeaaffd757081d4594a5ebb96d021707a4c0613d85"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 27.039120048999848,
+                "fastdyn.run.total": 27.260229265000135
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 580,
+                "plant_elapsed_s": 72.376,
+                "telemetry_positions": 246,
+                "telemetry_attitudes": 270,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "cold": {
+              "raw_sha256": {
+                "plant.csv": "0d24580ab73b4abc4626ef3d1f2a119c1edf897bd5da4ab735d17c40ed0d813a",
+                "run/mav.tlog": "679ce635f1af8d50326672d91951952ad5ab4aa0b21d6d305ac551bd7bbf19be",
+                "console.log": "c0681bfc2d6bf954f8a316809c5e980a6221d3fb54dc14496e5a47816df7a4ef"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 27.424559507999902,
+                "fastdyn.run.total": 27.66120929700014
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 591,
+                "plant_elapsed_s": 73.75500000000001,
+                "telemetry_positions": 250,
+                "telemetry_attitudes": 278,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-1": {
+              "raw_sha256": {
+                "plant.csv": "5bc5d6008b3a4af2b164428f64785210118f9515d74e0131b7afc2fea64263db",
+                "run/mav.tlog": "a2809202ada0f7454ef19b26b36d663be61b0e1e69a35b280d877f77022fa800",
+                "console.log": "55f38a619652210be42c2c5b4dacd16076cd5e3dca56fa15cf41b2674eb73795"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 26.631001894000065,
+                "fastdyn.run.total": 26.864541111000108
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 592,
+                "plant_elapsed_s": 73.882,
+                "telemetry_positions": 251,
+                "telemetry_attitudes": 285,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-2": {
+              "raw_sha256": {
+                "plant.csv": "b22169aa581f8ba04ff1104bb940db80d9d5a71dd8d5666a74a15a9a0435a4bb",
+                "run/mav.tlog": "13e18353ff76f87563b3fbf7dbbae45af1d3a5885bae206bd441f669f07d65eb",
+                "console.log": "8f2029e002e65af1859b019285319d76881b9f85d2edd76d1c285410dbe20c89"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 26.42702195800007,
+                "fastdyn.run.total": 26.612026828000126
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 592,
+                "plant_elapsed_s": 73.875,
+                "telemetry_positions": 250,
+                "telemetry_attitudes": 283,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-3": {
+              "raw_sha256": {
+                "plant.csv": "a5b254ecf5b7e269a7fd21397ed279960c4322650af98e484ec553749a87cfdf",
+                "run/mav.tlog": "57f006a37657ecad11396018332c6b0f9bb4d72e88ac24650a7e8301abb7e3a4",
+                "console.log": "f86f1d8641754f0b67b539513c93d7c710919a21b02bf3fb4ef60677151b6b03"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 26.424071627000103,
+                "fastdyn.run.total": 26.609274295999967
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 591,
+                "plant_elapsed_s": 73.751,
+                "telemetry_positions": 249,
+                "telemetry_attitudes": 282,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-4": {
+              "raw_sha256": {
+                "plant.csv": "f8c6cb8b173488a4f760f574522aca07cc02a2b340781cfc36938329baaebd45",
+                "run/mav.tlog": "61ed3030491e550091b8e3991b770fc7b2cd1b5bc67e9ef0eb7749c599dcc5ca",
+                "console.log": "b8d5a4c326c4b0771fc56f246397e1dccb71009c94bc7bba23d1a132ca6b50db"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 25.6233280429999,
+                "fastdyn.run.total": 25.858900747999996
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 575,
+                "plant_elapsed_s": 71.75,
+                "telemetry_positions": 242,
+                "telemetry_attitudes": 275,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-5": {
+              "raw_sha256": {
+                "plant.csv": "02c4f7f50e649eaac0ff253c56594ff5c53ccc234f3e67073c79d8697a2b3617",
+                "run/mav.tlog": "e9c912b9b8aa7e8e72abb79f6663fb83d45cfeccfefec9b3540566abf5592af8",
+                "console.log": "a413f76ebf3a271a74d27c7e0f3e948c5a8468613a06b1da5b9cb9e9ae0bdb04"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 26.02599405700016,
+                "fastdyn.run.total": 26.262138106999828
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 582,
+                "plant_elapsed_s": 72.626,
+                "telemetry_positions": 245,
+                "telemetry_attitudes": 278,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-6": {
+              "raw_sha256": {
+                "plant.csv": "09b07cdaee94b290838c51029a18d179adb78cd0b7d4a2d6e2c8c7d4b1aa3235",
+                "run/mav.tlog": "38e6b5778ae87d2aba96e74491cf62368af5442a84d9a0f0d5bc0b6bab2da9ef",
+                "console.log": "dc0b40145c833c80edaba4c7c924682e8425fdece1f8c7951a22a6211049ddd4"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 25.825372625,
+                "fastdyn.run.total": 26.06185110399997
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 580,
+                "plant_elapsed_s": 72.375,
+                "telemetry_positions": 245,
+                "telemetry_attitudes": 278,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-7": {
+              "raw_sha256": {
+                "plant.csv": "9e55f5e260f3e7e8ee729149aed08478a5957030b37a56ed8f052f9a2ab03a06",
+                "run/mav.tlog": "71c9d08213ed9cf5ba338c488882103ebc1637c0f84015f5b4c999d9b8152583",
+                "console.log": "960518764f106158f11a7af95df833d6e51910ffe717cdb6a16c0ad5cb4f2a11"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 25.62580373800006,
+                "fastdyn.run.total": 25.81180283599997
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 575,
+                "plant_elapsed_s": 71.751,
+                "telemetry_positions": 242,
+                "telemetry_attitudes": 275,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            },
+            "replay-8": {
+              "raw_sha256": {
+                "plant.csv": "34a930eafc3c7b34186e0753e6729da70388bf4f53c99418bead2379cb8b3f94",
+                "run/mav.tlog": "1c2fa505b509aff22d8b0eef655b006f8d21df7f6f629ef74d03f3db02045748",
+                "console.log": "2c2d564e884fb1082681d8beb7d8a53b9b28dac99ddaee42fd756152bbfcc8ef"
+              },
+              "observed_seconds": {
+                "machine0.qemu_execution": 25.42270791100009,
+                "fastdyn.run.total": 25.658518664999974
+              },
+              "timing_source": "FastDyn JSONL seconds",
+              "verdict": "PASS",
+              "oracle": {
+                "plant_samples": 575,
+                "plant_elapsed_s": 71.75200000000001,
+                "telemetry_positions": 241,
+                "telemetry_attitudes": 274,
+                "waypoints_checked_per_track": 4,
+                "disarmed_after_arming": true
+              }
+            }
+          },
+          "cache_ledger": [
+            {
+              "phase": "replay-1",
+              "records_before": 47128,
+              "proof": "PASS",
+              "appended": 7409,
+              "records_after": 54537
+            },
+            {
+              "phase": "replay-2",
+              "records_before": 54537,
+              "proof": "PASS",
+              "appended": 4429,
+              "records_after": 58966
+            },
+            {
+              "phase": "replay-3",
+              "records_before": 58966,
+              "proof": "PASS",
+              "appended": 3271,
+              "records_after": 62237
+            },
+            {
+              "phase": "replay-4",
+              "records_before": 62237,
+              "proof": "PASS",
+              "appended": 2749,
+              "records_after": 64986
+            },
+            {
+              "phase": "replay-5",
+              "records_before": 64986,
+              "proof": "PASS",
+              "appended": 2467,
+              "records_after": 67453
+            },
+            {
+              "phase": "replay-6",
+              "records_before": 67453,
+              "proof": "PASS",
+              "appended": 1908,
+              "records_after": 69361
+            },
+            {
+              "phase": "replay-7",
+              "records_before": 69361,
+              "proof": "PASS",
+              "appended": 1591,
+              "records_after": 70952
+            },
+            {
+              "phase": "replay-8",
+              "records_before": 70952,
+              "proof": "PASS",
+              "appended": 1395,
+              "records_after": 72347
+            }
+          ],
+          "error": "warm mission still appends blocks after 8 checked replays",
+          "warm_attempt_budget": 8,
+          "frozen_preparation": {
+            "identity": {
+              "cache_sha256": "8275c37e4824a0e36a1b575e014b0336386a57b443154b68dca58cf4a5e73373",
+              "logical_bytes": 2152450496,
+              "fastdyn_manifest_sha256": "0b309a90f03bd9854a9b7d117c9501aaabf9b7e60524d8e711606e4b1d8f0fe1"
+            },
+            "population_scenario": "klaf-takeoff-three-waypoints-land",
+            "evaluation_scenario": "klaf-takeoff-three-waypoints-land",
+            "previously_unseen_input": false,
+            "mission_sha256": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6",
+            "qualified": true,
+            "replay": "replay-1",
+            "initial_records": 47128,
+            "final_records": 54537,
+            "appended_records": 7409,
+            "post_cache_sha256": "3d9ee6132733ac0b0da31d05721bbd24a56114dc6a187955d56eb7b056870713"
+          }
+        }
+      }
+    }
+  ]
+}

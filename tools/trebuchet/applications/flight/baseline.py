@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shlex
 import signal
 import shutil
 import subprocess
@@ -78,11 +79,48 @@ def run(args, receipt):
                        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip())
     work = args.work.resolve()
     hooks = work / "hooks"
-    subprocess.run([sys.executable, str(COURBET / "prepare_execution_configuration.py"),
-                    "--profile", str(ROOT / family["profile"]), "--output-dir", str(hooks)],
-                   cwd=ROOT, check=True)
+    image = ROOT / family["elf"]
+    if args.release_pair:
+        from release.compare import inspect, same_load, symbol_delta
+
+        directory = args.release_pair.resolve()
+        comparison = json.loads((directory / "comparison.json").read_text())
+        image = directory / "relocs.elf"
+        normal = inspect(directory / "normal.elf")
+        relocated = inspect(image)
+        if (comparison["source_revision"] != family["revision"] or comparison["family"] != args.family
+                or comparison["images"]["reference"]["sha256"] != inputs["elf"]
+                or comparison["images"]["normal"] != normal or comparison["images"]["relocs"] != relocated
+                or not same_load(normal, relocated) or not relocated["code_relocations"]
+                or not symbol_delta(directory / "normal.elf", image)["preserved_with_only_local_aliases"]):
+            raise ValueError("release pair does not match the named source, layout, symbols and retained relocations")
+        inputs["shipped_reference_elf"] = inputs["elf"]
+        inputs["elf"] = relocated["sha256"]
+        receipt["release_pair"] = {"normal_sha256": normal["sha256"],
+                                   "comparison_sha256": digest(directory / "comparison.json")}
+    def prepare(elf_path, dest):
+        subprocess.run([sys.executable, str(COURBET / "prepare_execution_configuration.py"),
+                        "--elf", str(elf_path), "--profile", str(ROOT / family["profile"]),
+                        "--output-dir", str(dest)], cwd=ROOT, check=True)
+
+    if args.candidate_elf:
+        from release.px4_placement import examine, verify_layout
+
+        parent = image
+        source_hooks = work / "source-hooks"
+        prepare(parent, source_hooks)
+        image = args.candidate_elf.resolve(strict=True)
+        prepare(image, hooks)
+        check = examine(parent, image, source_hooks, hooks)
+        receipt["candidate"] = {"layout_sha256": digest(args.candidate_layout), "placement": check}
+        if not check["admissible"]:
+            raise ValueError("candidate fails PX4 board placement or hook contract")
+        receipt["candidate"]["moves"] = verify_layout(parent, image, args.candidate_layout)
+        inputs["parent_elf"], inputs["elf"] = inputs["elf"], digest(image)
+    else:
+        prepare(image, hooks)
     receipt["hook_files"] = {p.name: digest(p) for p in sorted(hooks.iterdir()) if p.is_file()}
-    with (ROOT / family["elf"]).open("rb") as stream:
+    with image.open("rb") as stream:
         elf = ELFFile(stream)
         # .ARM.exidx and debug relocations alone cannot relocate executable text.
         text_relocations = [section.name for section in elf.iter_sections()
@@ -113,6 +151,8 @@ def run(args, receipt):
     receipt["runtime"] = {name: digest(path) for name, path in
                           (("plugin", args.plugin.resolve()), ("qemu", QEMU), ("plant", ROOT / family["plant"]))}
     config = (ROOT / family["config"]).read_text()
+    if args.release_pair:
+        config = replace_one(config, json.dumps(family["elf"]), json.dumps(str(image)))
     config = replace_one(config, '"build/libfastdyn.so"', json.dumps(str(args.plugin.resolve())))
     original = tomllib.loads(config)
     hook_path = original["CPU"]["cpu0"][0]["existing_config_path"]
@@ -143,8 +183,28 @@ def run(args, receipt):
     env.update(FASTDYN_QEMU=str(QEMU), FASTDYN_MISSION_FILE=str(mission),
                FASTDYN_PARAM_FILE=str(ROOT / family["params"]), FASTDYN_FMI_BUILD="false",
                FASTDYN_FMI_OUTPUT=str(plant_root))
+    if args.training_profiler:
+        profiler = args.training_profiler.resolve(strict=True)
+        output = work / "session.tbprof"
+        wrapper = work / "profile-qemu"
+        option = f"{profiler},out={output}"
+        if "," in str(profiler) or "," in str(output):
+            raise ValueError("commas are unsupported in QEMU plugin and profile paths")
+        wrapper.write_text(f'#!/bin/sh\nexec {shlex.quote(str(QEMU))} "$@" -plugin {shlex.quote(option)}\n')
+        wrapper.chmod(0o755)
+        env["FASTDYN_QEMU"] = str(wrapper)
+        receipt["training_profiler"] = {"plugin_sha256": digest(profiler), "launch_sha256": digest(wrapper)}
     env["PATH"] = str(ROOT / "fastdyn-env/bin") + os.pathsep + env["PATH"]
     receipt["cold"] = launch(args, manifest, mission, work / "cold", runtime, env)
+    if args.training_profiler:
+        output = work / "session.tbprof"
+        if not output.is_file() or not output.stat().st_size:
+            raise ValueError("training plugin returned no profile")
+        receipt["training_profiler"]["profile_sha256"] = digest(output)
+        if args.candidate_elf:
+            from release.px4_placement import executed
+            receipt["candidate"]["execution"] = executed(output, receipt["candidate"]["moves"])
+            receipt["transformed_deployment"] = True
     receipt["operational_baseline"] = True
     checkpoint(work, receipt)
     if not (args.ordinary_warm or args.frozen_preparation):
@@ -239,6 +299,10 @@ def main():
     parser.add_argument("family", choices=["ardupilot", "px4"])
     parser.add_argument("work", type=Path, help="new output directory")
     parser.add_argument("--plugin", type=Path, default=ROOT / "build/libfastdyn.so")
+    parser.add_argument("--release-pair", type=Path, help="directory with checked normal.elf, relocs.elf and comparison.json")
+    parser.add_argument("--candidate-elf", type=Path, help="FirmBOLT deployment to check against the PX4 release pair")
+    parser.add_argument("--candidate-layout", type=Path, help="linker-resolved layout report for --candidate-elf")
+    parser.add_argument("--training-profiler", type=Path, help="run a diagnostic mission with a FirmBOLT TB profiler plugin")
     parser.add_argument("--timeout", type=float, default=420)
     parser.add_argument("--ordinary-warm", action="store_true", help="qualify cache capture and replay after cold success")
     parser.add_argument("--warm-attempts", type=int, default=2, metavar="1..16",
@@ -246,6 +310,11 @@ def main():
     parser.add_argument("--frozen-preparation", action="store_true",
                         help="seal the capture and qualify its first replay with exact late-translation counts")
     args = parser.parse_args()
+    if bool(args.candidate_elf) != bool(args.candidate_layout) or (args.candidate_elf and
+                                                                  (not args.release_pair or args.family != "px4")):
+        parser.error("candidate-elf and candidate-layout require together a PX4 release pair")
+    if args.training_profiler and (args.step != "run" or args.ordinary_warm or args.frozen_preparation):
+        parser.error("training-profiler requires a single uncached diagnostic run")
     if not 1 <= args.warm_attempts <= 16:
         parser.error("warm-attempts must be from 1 through 16")
     if args.timeout <= 0:
