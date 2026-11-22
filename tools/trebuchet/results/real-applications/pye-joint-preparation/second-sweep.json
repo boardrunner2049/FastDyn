@@ -1,0 +1,120 @@
+{
+  "original": {
+    "records_by_capture": [
+      3506,
+      3548,
+      3598,
+      3635,
+      3732,
+      3743,
+      3752,
+      3756,
+      3767,
+      3777,
+      3783,
+      3835,
+      3845,
+      3855
+    ],
+    "second_sweep_additions": 103,
+    "known_key_except_instruction_count": 53,
+    "cflags_count_histogram": [
+      [
+        0,
+        50
+      ],
+      [
+        1,
+        19
+      ],
+      [
+        2,
+        13
+      ],
+      [
+        3,
+        5
+      ],
+      [
+        4,
+        3
+      ],
+      [
+        5,
+        5
+      ],
+      [
+        6,
+        2
+      ],
+      [
+        7,
+        3
+      ],
+      [
+        8,
+        1
+      ],
+      [
+        11,
+        1
+      ],
+      [
+        15,
+        1
+      ]
+    ],
+    "source_snapshot": "c46891ac8f382286ff936d7ef36990b4f6acbda910ad495fef10282007787bc3"
+  },
+  "firmbolt": {
+    "records_by_capture": [
+      3507,
+      3555,
+      3602,
+      3646,
+      3739,
+      3747,
+      3754,
+      3756,
+      3760,
+      3772,
+      3784,
+      3823,
+      3831,
+      3837
+    ],
+    "second_sweep_additions": 83,
+    "known_key_except_instruction_count": 42,
+    "cflags_count_histogram": [
+      [
+        0,
+        41
+      ],
+      [
+        1,
+        19
+      ],
+      [
+        2,
+        7
+      ],
+      [
+        3,
+        5
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        5,
+        4
+      ],
+      [
+        6,
+        3
+      ]
+    ],
+    "source_snapshot": "c37a6dfe251722bd42b54ac2e4c4fae67afcafcd7b5554da24d014bb0c9d5a2f"
+  }
+}

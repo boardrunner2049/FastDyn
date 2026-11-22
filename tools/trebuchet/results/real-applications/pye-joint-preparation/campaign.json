@@ -1,0 +1,44 @@
+{
+ "state": "failed",
+ "images": {
+  "original": {
+   "status": "failed",
+   "error": "ordinary replay or exact training profile failed: {'warm': \"Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/python', '/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/fastdyn_runner.py', 'warm', '--work', '/home/runner/work/_temp/pye/product', '--run', '/home/runner/work/_temp/pye/campaign/original', '--qemu', '/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm', '--plugin', '/home/runner/work/_temp/pye/plugin-release/libfastdyn.so', '--elf', '/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf', '--case', 'update-package-version', '--snapshot', '/home/runner/work/_temp/pye/campaign/original/store/snapshots/c46891ac8f382286ff936d7ef36990b4f6acbda910ad495fef10282007787bc3', '--out', '/home/runner/work/_temp/pye/campaign/original/warm']' returned non-zero exit status 1.\"}"
+  },
+  "firmbolt": {
+   "status": "prepared",
+   "firmware": "/home/runner/work/_temp/pye/campaign/firmbolt-guest/firmware.elf",
+   "config": "/home/runner/work/_temp/pye/campaign/firmbolt/pye.toml",
+   "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+   "snapshot": "/home/runner/work/_temp/pye/campaign/firmbolt/store/snapshots/c37a6dfe251722bd42b54ac2e4c4fae67afcafcd7b5554da24d014bb0c9d5a2f",
+   "prep": "/home/runner/work/_temp/pye/campaign/firmbolt/prep",
+   "profile": "/home/runner/work/_temp/pye/campaign/firmbolt/profile/merged.profile.json",
+   "manifest": "/home/runner/work/_temp/pye/campaign/firmbolt/prep/cache/fw.sc.fastdyn.json",
+   "admission_runtime": "/home/runner/work/_temp/pye/campaign/firmbolt/admission-runtime.json"
+  }
+ },
+ "policy": {
+  "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/campaign-policy.json",
+  "sha256": "sha256:723d69830b529f2cdcb0403c53c22214d996f3c56bf05fd1bc545dfc2389bb47"
+ },
+ "timing_cpu": 3,
+ "errors": {},
+ "qemu": {
+  "path": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "sha256": "sha256:4b5b2301820782a446457ccf2068b651f950279ae6d23120630940d4c9f20bd1"
+ },
+ "plugin": {
+  "path": "/home/runner/work/_temp/pye/plugin-release/libfastdyn.so",
+  "sha256": "sha256:7376649e5a274a2dbab35d3d59c98467b0976ee2928c1ab1bbc04e37797764e6"
+ },
+ "host": [
+  "Linux",
+  "runnervmeozm8",
+  "7.0.0-1017-azure",
+  "#17~24.04.1-Ubuntu SMP PREEMPT Thu Sep 24 18:46:57 UTC 2026",
+  "x86_64"
+ ],
+ "phase": "per-image preparation",
+ "error": "original ordinary-warm preparation failed; see image logs",
+ "campaign_wall_seconds": 117.61748520100002
+}

@@ -1,0 +1,17 @@
+{
+  "verdict": "PASS",
+  "case": "update-package-version",
+  "role": "training",
+  "protocol": "pye-queued-uart-v1",
+  "protocol_sha256": "60ddf1702ac11b8c9aa4ced5816cf1962160a987ca46510a4220f084fcd03b9b",
+  "queued_uart_sha256": "7c7cf02edc3c2ede89cf8958b7d42ca624cfba0eac5011fec292f9d596a462be",
+  "elapsed_ns": 26438756,
+  "returned_bytes": 166,
+  "returned_lines": 8,
+  "returned_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "uart_sha256": "f4377ecd610eea3865caf5152194dad26b3c4b347784a573ce0b0402dbe674c4",
+  "expected_output_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "keys_sha256": "cf216d7dc0ac75f475af9742b69ce3d2739af3b8aac564e2bfc80824b958187e",
+  "romfs_sha256": "2b5f2b29884e2d15390a60f2cb5b58ebc5fee0bca5e3021f61a9b38f76157124",
+  "ui_prompt": "Replace (yes/No/all/quit) ?"
+}
