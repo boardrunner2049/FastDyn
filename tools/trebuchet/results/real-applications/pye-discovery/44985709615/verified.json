@@ -1,0 +1,81 @@
+{
+  "run": "44985709615",
+  "offline_seconds": 892.7412308019999,
+  "campaign_state": "completed",
+  "results": [
+    {
+      "id": "original/warm",
+      "status": "ready",
+      "initial": 3512,
+      "appended": 6,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/b3-ph",
+      "status": "ready",
+      "initial": 3512,
+      "appended": 4,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/b4",
+      "status": "ready",
+      "initial": 3512,
+      "appended": 4,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/b4-coalesce",
+      "status": "ready",
+      "initial": 3512,
+      "appended": 4,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/b4-absorb",
+      "status": "ready",
+      "initial": 3512,
+      "appended": 4,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/sfb-hot+b4+b3",
+      "status": "ready",
+      "initial": 3512,
+      "appended": 4,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/b3",
+      "status": "ready",
+      "initial": 3512,
+      "appended": 2,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/sfb",
+      "status": "ready",
+      "initial": 3512,
+      "appended": 6,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/sfb+b3",
+      "status": "ready",
+      "initial": 3512,
+      "appended": 6,
+      "zero_append": false,
+      "document": "pass"
+    }
+  ],
+  "training_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "raw_sha256": "e0bb0d36b428a7d3f0bbd32816bf19fe34ba466f54b84bb9ae4f77f077743bfe"
+}
