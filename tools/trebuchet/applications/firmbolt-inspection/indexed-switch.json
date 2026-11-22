@@ -1,7 +1,7 @@
 {
-  "commit": "8af3989fbb1ed0465885a2cbfa1a05c6af9c48d7",
-  "patch_sha256": "4c106cf2a8e7fd14c734795707d49ebc5ede3aad0c23cfdbf648b35ba0e614c7",
-  "llvm_bolt_sha256": "f2b2ecfaca604bb443f1445d83696129707a951d9f206108f3bcfb5a4f33e8d8",
+  "commit": "fcf5e971be47b3ae3406b9639c51a7bac23e8946",
+  "patch_sha256": "2056347de32936b30823e03a8a0a029671c604fd414f13994378d5f492a87fb0",
+  "llvm_bolt_sha256": "4c7f7b12c57f153827e579b69f7754baefe493c749088e55e2ec064892dc5598",
   "build": "Five changed upstream translation units compiled with their recorded release flags and linked with the pinned build archives.",
   "recovered_pye_slots": [
     90,
@@ -27,7 +27,7 @@
       "none",
       "-semihosting",
       "-serial",
-      "unix:/tmp/tmptkiabvv_/uart.sock",
+      "unix:/tmp/tmpopvdq6tu/uart.sock",
       "-icount",
       "shift=0,align=off,sleep=off",
       "-kernel",
@@ -42,7 +42,7 @@
       "protocol": "pye-queued-uart-v1",
       "protocol_sha256": "60ddf1702ac11b8c9aa4ced5816cf1962160a987ca46510a4220f084fcd03b9b",
       "queued_uart_sha256": "7c7cf02edc3c2ede89cf8958b7d42ca624cfba0eac5011fec292f9d596a462be",
-      "elapsed_ns": 17226403,
+      "elapsed_ns": 18464550,
       "returned_bytes": 166,
       "returned_lines": 8,
       "returned_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
@@ -53,8 +53,8 @@
       "ui_prompt": "Replace (yes/No/all/quit) ?"
     },
     "exit_code": 0,
-    "process_wall_ns": 87654832,
-    "qemu_process_cpu_seconds": 0.08852399999999999
+    "process_wall_ns": 110024076,
+    "qemu_process_cpu_seconds": 0.10741199999999998
   },
   "fixture_differential_unicorn_2_1_4": {
     "fixture.elf": {
@@ -127,5 +127,12 @@
   "corrupt_fixture_refusals": [
     "even case address",
     "missing per-slot R_ARM_ABS32"
-  ]
+  ],
+  "assembly_regressions": [
+    "thumb-abs32-jump-table-promotion-detached-rejected.s",
+    "thumb-abs32-jump-table-promotion-detached-relocs.s",
+    "thumb-abs32-jump-table-promotion.s",
+    "thumb2-indexed-pc-table.s"
+  ],
+  "refused_shared_table": "An independent retained pointer to the middle of the input table kept its guard and original layout."
 }

@@ -52,9 +52,9 @@
     "evidence": "../../applications/firmbolt-inspection/README.md"
   },
   "firmbolt_indexed_switch": {
-    "commit": "8af3989fbb1ed0465885a2cbfa1a05c6af9c48d7",
-    "patch_sha256": "4c106cf2a8e7fd14c734795707d49ebc5ede3aad0c23cfdbf648b35ba0e614c7",
-    "llvm_bolt_sha256": "f2b2ecfaca604bb443f1445d83696129707a951d9f206108f3bcfb5a4f33e8d8",
+    "commit": "fcf5e971be47b3ae3406b9639c51a7bac23e8946",
+    "patch_sha256": "2056347de32936b30823e03a8a0a029671c604fd414f13994378d5f492a87fb0",
+    "llvm_bolt_sha256": "4c7f7b12c57f153827e579b69f7754baefe493c749088e55e2ec064892dc5598",
     "evidence": "../../applications/firmbolt-inspection/indexed-switch.json"
   }
 }
