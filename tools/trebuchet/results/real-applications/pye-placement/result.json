@@ -1,0 +1,158 @@
+{
+  "run_id": 44995243391,
+  "conclusion": "reporting step failed after all measured blocks; reconstructed from verified raw results",
+  "archive_sha256": "101fc538690256308cfa3d3fa427e2e01e1521184defa725dab369d74bbecbd8",
+  "plan": {
+    "scope": "stock QEMU, cacheless, training edit only",
+    "seed": 901783,
+    "pairs": 24,
+    "reference": "page_80000",
+    "candidate": "page_54000",
+    "cpu": 3,
+    "host": {
+      "system": "Linux",
+      "node": "ip-10-0-129-131",
+      "release": "7.0.0-1014-aws",
+      "version": "#14~24.04.1-Ubuntu SMP PREEMPT Fri Sep 18 21:24:59 UTC 2026",
+      "machine": "x86_64",
+      "processor": "x86_64"
+    },
+    "qemu_sha256": "e5dc5f9ef15a3f39d65666ae0ff8facc3ae08c97cf642dfa1164531aa91bfdfb",
+    "qemu_version": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+    "firmware_sha256": {
+      "page_80000": "58d017e6833f6d42694f16b618b931bc4582911f3cbb8df3b3d2db49c3699af4",
+      "page_54000": "9bccace1c645edf151106a23799d7093acba5715ec054a1d5df9d042bfdbb19a"
+    },
+    "orders": [
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_54000",
+        "page_80000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ],
+      [
+        "page_80000",
+        "page_54000"
+      ]
+    ],
+    "warmup_pairs": 1,
+    "primary": "operational_ns",
+    "interval": "paired percentile bootstrap, 2000 samples"
+  },
+  "trials_verified": 50,
+  "summary": {
+    "operational_ns": {
+      "page_80000": 17290905.0,
+      "page_54000": 16987160.0,
+      "paired_median": 1.0214426779311634,
+      "interval_95": [
+        0.9931174459176894,
+        1.0644336625386737
+      ]
+    },
+    "process_ns": {
+      "page_80000": 66812923.0,
+      "page_54000": 66389050.5,
+      "paired_median": 1.0089556976415386,
+      "interval_95": [
+        0.9875906471224632,
+        1.0350725260028975
+      ]
+    },
+    "qemu_cpu_s": {
+      "page_80000": 0.0620615,
+      "page_54000": 0.061058,
+      "paired_median": 1.0142058977521597,
+      "interval_95": [
+        0.989942815346765,
+        1.036793539021175
+      ]
+    }
+  }
+}
