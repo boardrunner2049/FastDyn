@@ -53,6 +53,8 @@ def measure(work, original, relocated, qemu, out, labels=("original", "firmbolt"
 
 def summarize_recording(out):
     """Replay the declared schedule and check the saved product outputs."""
+    summary = out / "summary.json"
+    summary.unlink(missing_ok=True)
     policy = json.loads((out / "plan.json").read_text())
     reference, candidate = policy.get("reference", "original"), policy.get("candidate", "firmbolt")
     pairs = policy["pairs"]
@@ -95,7 +97,9 @@ def summarize_recording(out):
         boot = sorted(statistics.median(rng.choices(ratios, k=pairs)) for _ in range(2000))
         report[metric] = {reference + "_median": statistics.median(a), candidate + "_median": statistics.median(b),
                           "median_paired_speedup": statistics.median(ratios), "bootstrap_95": [boot[49],boot[1949]]}
-    (out / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
+    pending = summary.with_suffix(".tmp")
+    pending.write_text(json.dumps(report, indent=2) + "\n")
+    pending.replace(summary)
 
 
 if __name__ == "__main__":
