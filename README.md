@@ -15,6 +15,11 @@ Tools built on FastDyn live in their own repositories:
   models from a hardware trace with an LLM and verifies them.
 - [PhantomSmith](https://github.com/PSecLab/PhantomSmith): rehosts complete
   firmware automatically, including the ArduRover 4.6.2 reference target.
+- [FirmBOLT](https://github.com/boardrunner2049/firmbolt): the standalone
+  Cortex-M firmware optimizer, pinned here as `third_party/firmbolt`. Initialize
+  it with `git submodule update --init --recursive third_party/firmbolt`; its
+  source, LLVM dependency, build, and qualification remain owned by that
+  repository rather than duplicated in FastDyn.
 
 The supercache optimizer scopt lives in [tools/scopt](tools/scopt/README.md); start with [tools/scopt/docs/getting-started.md](tools/scopt/docs/getting-started.md).
 

@@ -376,6 +376,11 @@ def _register_builtin_virtuals() -> None:
         ("benchmark_start", "Start a benchmark region.", "[]"),
         ("benchmark_end", "Finish a benchmark and terminate QEMU.", '["boot"]'),
         ("bench_tick", "Increment a benchmark tick.", "[]"),
+        (
+            "benchmark_end_after",
+            "Finish after a fixed number of benchmark callback hits.",
+            '["25000:fixed-work"]',
+        ),
     )
     for name, description, args in core_virtuals:
         register_virtual(VirtualDefinition(

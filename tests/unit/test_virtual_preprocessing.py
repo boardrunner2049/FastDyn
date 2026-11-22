@@ -82,6 +82,26 @@ def test_generic_virtual_arguments_still_receive_symbol_resolution(tmp_path):
     assert rules == ["0x8000100 debug_log 0x8000101"]
 
 
+def test_fixed_work_benchmark_virtual_is_registered_and_preserves_its_contract(tmp_path):
+    cpu = _Cpu()
+
+    rules = prepare_virtual_rules(
+        cpu,
+        tmp_path,
+        [
+            VirtualRule(
+                VirtualInstruction(
+                    "0x8000100", "benchmark_end_after", ["25000:rtos-ticks"]
+                )
+            )
+        ],
+    )
+
+    assert "benchmark_end_after" in VIRTUAL_DEFINITIONS
+    assert "fixed number" in VIRTUAL_DEFINITIONS["benchmark_end_after"].help.description
+    assert rules == ["0x8000100 benchmark_end_after 25000:rtos-ticks"]
+
+
 def test_conflicting_virtuals_at_one_pc_are_rejected(tmp_path):
     cpu = _Cpu()
 

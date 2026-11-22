@@ -262,6 +262,19 @@ void benchmark_end(unsigned int cpu_index, void *udata);
  */
 void bench_tick(unsigned int cpu_index, void *udata);
 
+/**
+ * @brief Finish a benchmark after a fixed number of callback hits.
+ *
+ * The argument is ``<count>:<tag>``.  Each hit increments the same counter
+ * reset by @ref benchmark_start.  The callback emits the benchmark result and
+ * exits only when the declared count is reached, allowing fixed-work firmware
+ * measurements without per-hit logging.
+ *
+ * Example:
+ * - `0x08000d60 benchmark_end_after 25000:rtos-ticks`
+ */
+void benchmark_end_after(unsigned int cpu_index, void *udata);
+
 // Helper functions
 unsigned char get_random_byte(void);
 uint32_t get_random_word(void);
