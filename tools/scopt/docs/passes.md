@@ -208,11 +208,13 @@ stack alignment, guest-state effects, fault paths, and recovery metadata.
 - Controls include `mode`, `bridge`, phase, callee/CFG/site/growth/time limits,
   `max_inline_depth`, `allow_partial`, `compact_frame`, `allow_faulting`, and UDIV mode.
 - Examples: `--pipeline host-inline --only host-inline`; or
-  `--pipeline host-inline=extreme,faulting,4-level --only host-inline`.
+  `--pipeline host-inline=extreme,faulting,4-level --only host-inline`. The explicit
+  aggressive experiment is `--pipeline host-inline=maximal --only host-inline`.
 - Evidence: 0.998x on the combined fixture; a separate active RBIT workload measured
   1.138x with interval [1.089, 1.204]. Treat that as workload-specific.
 - Source: `scopt/passes/host_inline.py`; details: `docs/host-inline.md`,
-  `docs/host-inline-splice.md`, `docs/host-inline-extreme.md`, `docs/native-program.md`.
+  `docs/host-inline-splice.md`, `docs/host-inline-extreme.md`,
+  `docs/host-inline-maximal.md`, `docs/native-program.md`.
 
 ## `hotcold-partition@1`
 

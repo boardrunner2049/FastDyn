@@ -118,6 +118,26 @@ def test_splice_pass_stages_at_most_one_per_tb(world):
     assert [len(u.native_fragments) for u in result.working_set.units()] == [1, 1]
 
 
+def test_maximal_mode_attempts_second_call_and_keeps_proved_subset(world):
+    snap, registry = world
+    result = PassManager(snap, "host-inline-maximal", analyses=registry).execute()
+    record, = result.passes
+
+    assert record.name == "host-inline"
+    assert record.outcome is Outcome.CANDIDATE
+    assert record.reason == "native_inline_partial_coverage"
+    assert [(e.payload.target, e.payload.call_off) for e in result.edits] == [
+        (u.uid, 3) for u in snap.units()
+    ]
+    coverage = json.loads(record.detail)["coverage"]
+    assert coverage["sites_seen"] == 4
+    assert coverage["sites_approved"] == coverage["sites_applied"] == 2
+    assert coverage["complete"] is False
+    assert record.stats["sites:splice_interior_offset"] == 2
+    assert "sites:site_budget" not in record.stats
+    assert all(len(u.native_fragments) == 1 for u in result.working_set.units())
+
+
 def test_splice_pass_keeps_going_after_an_unplaceable_splice(world, monkeypatch):
     from scopt import splice_layout
 

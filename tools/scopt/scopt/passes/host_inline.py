@@ -22,7 +22,7 @@ from .base import BudgetExceeded, Budgets, EditKind, Outcome, PassDescriptor, Pa
 
 BACKEND_REVISION = "58df0ef89dd64126512e4ee27b4ac3fd8ddf6247"
 BRIDGE_VERSION = 1
-POLICY_VERSION = 1
+POLICY_VERSION = 2
 
 _DEFAULTS = {
     "bridge": "",
@@ -50,7 +50,7 @@ _LIMITS = {
 }
 _COMMON_SCHEMA = {k: type(v) for k, v in _DEFAULTS.items()}
 _EXTREME_SCHEMA = {"allow_partial": bool, "max_inline_depth": int, "compact_frame": bool}
-_MODES = ("island", "splice", "faulting", "extreme")
+_MODES = ("island", "splice", "faulting", "extreme", "maximal")
 _BRIDGE_ENV = {"LC_ALL": "C", "PATH": "/usr/bin:/bin"}
 
 
@@ -184,9 +184,10 @@ class HostInline:
             return PassResult(Outcome.FAILED, "invalid_params", "faulting mode requires allow_faulting=true")
         if mode == "island" and (faulting or depth != 1):
             return PassResult(Outcome.FAILED, "invalid_params", "island mode requires nonfaulting, one-level inlining")
-        if mode != "extreme" and "allow_partial" in params:
-            return PassResult(Outcome.FAILED, "invalid_params", "allow_partial requires extreme mode")
-        framed = mode == "extreme" or mode != "island" and "max_inline_depth" in params
+        if mode not in ("extreme", "maximal") and "allow_partial" in params:
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "allow_partial requires extreme or maximal mode")
+        framed = mode in ("extreme", "maximal") or mode != "island" and "max_inline_depth" in params
         if not framed and "compact_frame" in params:
             return PassResult(Outcome.FAILED, "invalid_params", "compact_frame requires extreme mode or recursive splicing")
         if params.get("udiv_only") and not faulting:
@@ -197,15 +198,21 @@ class HostInline:
             from .host_inline_extreme import HostInlineExtreme
 
             engine = HostInlineExtreme(allow_faulting=faulting)
-            if mode != "extreme":
+            if mode not in ("extreme", "maximal"):
                 engine.consider_cold = HostInlineSplice.consider_cold
                 engine.default_params = HostInlineSplice.default_params
                 engine.max_sites_per_unit = HostInlineSplice.max_sites_per_unit
                 return engine.run(view, ctx, edits, best_effort=True)
-            # Extreme mode attempts all sites within the standalone extreme pipeline's limits.
+            # Extreme modes attempt all sites within the standalone pipeline's limits.
             engine.default_params = {**engine.default_params, **{
                 k: _LIMITS[k] for k in ("max_callee_bytes", "static_max_callee_bytes",
                                         "max_sites", "max_growth_per_unit")}}
+            if mode == "maximal":
+                # The strict extreme fixture historically admits one site per TB. Maximal
+                # is an explicit experiment that spends the complete audited per-unit
+                # allowance so independent calls in the same translated block are tried.
+                engine.max_sites_per_unit = MAX_INTEGER_SPLICES
+                engine.default_sites_per_unit = MAX_INTEGER_SPLICES
             return engine.run(view, ctx, edits)
         if mode != "island":
             return HostInlineSplice(allow_faulting=faulting).run(view, ctx, edits)

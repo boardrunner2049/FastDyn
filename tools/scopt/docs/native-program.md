@@ -58,6 +58,7 @@ For the configured inliner alone use `--only host-inline`. For a full-pipeline a
 | `host-inline=extreme` | Attempt every captured call site at depth one and require full coverage. |
 | `host-inline=3-level` or `host-inline=splice,4-level` | Splice supported nested calls up to the requested depth and keep eligible edits. The outermost inlined callee counts as level one. |
 | `host-inline=extreme,faulting,4-level` | Request full site coverage, exception-capable inlining and up to four levels. |
+| `host-inline=maximal` | Exhaust each certified acyclic wrapper chain, attempt every eligible cold or hot site, and publish the proved subset. See `host-inline-maximal.md`. |
 
 For example, run these on an imported snapshot and its training profile:
 
@@ -67,6 +68,11 @@ scopt optimize "$snapshot" --pipeline native-program --only host-inline=splice -
 ```
 
 Use any positive integer for `N` in `host-inline=N-level`. An explicit `host-inline=1-level` can splice a framed callback and keep its nested call. At higher depths, each nested callee must qualify for inlining. The coverage receipt records the depth reached in `frame_expansion_depths_applied` and the requested ceiling in `frame_expansion_depth_limit`. Add `extreme` to request full coverage of the captured call sites.
+
+`maximal` is the aggressive certified setting, not an unlimited emitter. It selects the
+existing audited ceilings, enables faulting and compact-frame handling, uses a depth
+that cannot truncate a verified finite chain, and keeps eligible edits when unrelated
+calls are unsupported. It cannot be combined with `N-level` or another mode.
 
 The recursive path handles x86-64 FastDyn callbacks whose stack frames each wrap one direct call. It checks the bytes of every function in the chain against the captured plugin, including the final register-only function or recognized benchmark timer. The timer retains its external `clock_gettime` call. Per-unit and total code-growth budgets still apply to the generated splice. Integer TCG helper splices and the ARM UDIV exception path keep their existing eligibility rules.
 

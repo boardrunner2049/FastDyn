@@ -100,7 +100,9 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @click.argument("snapshot")
 @click.option("--pipeline", "pipeline", required=True,
               help="Pipeline name or TOML file. Combine host-inline options, e.g. host-inline=faulting,4-level. "
-                   "N-level sets the maximum inline depth to a positive integer. Add extreme to require full site coverage.")
+                   "N-level sets the maximum inline depth to a positive integer. Add extreme to "
+                   "require full site coverage; maximal exhausts every supported certified "
+                   "chain and keeps the proved subset.")
 @click.option("--store", required=True, type=click.Path(file_okay=False),
               help="Store: artifacts/ and rejections/ are written here.")
 @click.option("--profile", "profiles", multiple=True, type=click.Path(exists=True),

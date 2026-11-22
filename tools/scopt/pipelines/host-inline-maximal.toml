@@ -1,0 +1,27 @@
+schema = "scopt.pipeline"
+version = 1
+name = "host-inline-maximal"
+description = "Exhaust every certified helper chain and apply every eligible captured callsite."
+allowed_capabilities = ["INLINE_CALL"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+
+[pass.params]
+mode = "maximal"
+allow_faulting = true
+allow_partial = true
+compact_frame = true
+# The verifier stops at the terminal of the complete capture-bound acyclic chain.
+max_inline_depth = 2147483647
+max_callee_bytes = 1024
+max_cfg_insns = 128
+max_sites = 4096
+# The current linker certifies at most two compatible integer splices in one TB.
+max_sites_per_unit = 2
+max_growth_per_unit = 65536
+max_total_growth = 65536
+max_wall_s = 60
+static_max_callee_bytes = 1024
+min_tb_entries = 0

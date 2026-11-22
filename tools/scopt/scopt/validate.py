@@ -1089,7 +1089,8 @@ class ValidateAndPackage:
             canonical = record.name == "host-inline"
             if canonical and record.reason == "invalid_params":
                 return self._reject(record.reason)
-            extreme = record.name == EXTREME_PASS or canonical and host_inline_mode(record.params) == "extreme"
+            extreme = (record.name == EXTREME_PASS or canonical and
+                       host_inline_mode(record.params) in ("extreme", "maximal"))
             if extreme and record.outcome not in (Outcome.CANDIDATE, Outcome.NO_CHANGE):
                 return self._reject(record.reason)
         from .ordinary_exit import PASS as ORDINARY_EXIT

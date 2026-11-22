@@ -364,7 +364,7 @@ def _with_inline_options(pl: Pipeline, options: set[str]) -> Pipeline:
 
     if not options:
         return pl
-    modes = {"island", "splice", "faulting", "extreme"}
+    modes = {"island", "splice", "faulting", "extreme", "maximal"}
     depth_options = {option for option in options if option.endswith("-level")}
     unknown = options - modes - depth_options
     if unknown:
@@ -388,10 +388,18 @@ def _with_inline_options(pl: Pipeline, options: set[str]) -> Pipeline:
         raise PipelineError(f"host-inline is not in pipeline {pl.name}")
     if "island" in options and (options - depth_options - {"island"} or depths - {1}):
         raise PipelineError("host-inline island cannot be combined with splice, faulting, extreme or a depth above one")
+    if "maximal" in options and (depth_options or options & {"island", "splice", "extreme"}):
+        raise PipelineError(
+            "host-inline maximal already exhausts certified chains and cannot be combined "
+            "with another mode or N-level")
     mode = "island" if "island" in options else "splice"
     if "extreme" in options:
         mode = "extreme"
-    args = {"mode": mode, "allow_faulting": "faulting" in options}
+    if "maximal" in options:
+        mode = "maximal"
+    args = {"mode": mode, "allow_faulting": "faulting" in options or mode == "maximal"}
+    if mode == "maximal":
+        args.update(allow_partial=True, compact_frame=True, max_inline_depth=(1 << 31) - 1)
     if depths:
         args["max_inline_depth"] = depths.pop()
     entries = tuple(replace(entry, params=MappingProxyType({**entry.params, **args}))
@@ -405,7 +413,8 @@ def load_pipeline(spec: "str | os.PathLike | Mapping[str, Any] | Pipeline", *,
 
     A bare name (no suffix or directory) resolves inside the configured pipeline directory.
     For example, ``host-inline=faulting,4-level`` selects fault-capable splicing with
-    a maximum depth of four. Only the ``extreme`` option requests full site coverage.
+    a maximum depth of four. ``extreme`` requests strict full site coverage; ``maximal``
+    exhausts supported certified chains and publishes the proved subset.
     File paths containing an equals sign retain their literal meaning.
     """
     options = set(inline_options)

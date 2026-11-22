@@ -42,6 +42,8 @@ def optimize(tmp_path, monkeypatch):
     ("3-level", "splice", False, 3),
     ("4-level,faulting", "splice", True, 4),
     ("extreme,splice,17-level", "extreme", False, 17),
+    ("maximal", "maximal", True, 2147483647),
+    ("maximal,faulting", "maximal", True, 2147483647),
 ])
 def test_shorthand_configures_one_pass(optimize, options, mode, faulting, depth):
     result, observed = optimize("host-inline=" + options)
@@ -50,6 +52,9 @@ def test_shorthand_configures_one_pass(optimize, options, mode, faulting, depth)
     assert entry.name == "host-inline"
     assert entry.params["mode"] == mode and entry.params["allow_faulting"] is faulting
     assert entry.params.get("max_inline_depth") == depth
+    if mode == "maximal":
+        assert entry.params["allow_partial"] is True
+        assert entry.params["compact_frame"] is True
 
 
 def test_selector_with_shorthand_preserves_other_toml_params_and_json_overrides(tmp_path, optimize):
@@ -79,6 +84,8 @@ def test_selector_with_shorthand_preserves_other_toml_params_and_json_overrides(
     ("host-inline=0-level", [], "positive integer"),
     ("host-inline=-1-level", [], "positive integer"),
     ("host-inline=x-level", [], "positive integer"),
+    ("host-inline=maximal,2-level", [], "maximal already exhausts certified chains"),
+    ("host-inline=maximal,extreme", [], "maximal already exhausts certified chains"),
     ("identity", ["--only", "host-inline=faulting"], "host-inline is not in pipeline"),
 ])
 def test_invalid_shorthand_reports_usage_error(optimize, pipeline, flags, error):
