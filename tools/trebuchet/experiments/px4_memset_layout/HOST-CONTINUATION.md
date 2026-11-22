@@ -6,6 +6,17 @@ under that prefix and loaded their requested v5 caches at `0x7fff6c000000`.
 They are not timing-ready, however: the runs appended 7,280 and 7,537
 translation records respectively.
 
+The configurable-phase admission fix was then exercised on both preserved
+PX4 snapshots. It produced nonidentity artifacts with consumed profiles:
+
+- original guest: 5,059 hot units accepted and all 47,005 units moved;
+- FirmBOLT guest: 5,021 hot units accepted and 48,135 of 48,137 units moved.
+
+Both artifacts passed V1-V8, including two-sided reimport and recovery checks.
+This establishes activation and static validity, not runtime performance: the
+profiles came from the unsealed runs above, and neither candidate has yet passed
+an independent zero-append replay.
+
 The correct continuation is **seal, profile, optimize, seal again**. Reimport
 the expanded cache produced by the preserved warm run; profile that new
 snapshot first so the profile is bound to its new SnapshotId; then optimize

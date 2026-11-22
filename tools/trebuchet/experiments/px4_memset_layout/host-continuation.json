@@ -3,6 +3,7 @@
   "recorded_at": "2026-11-22",
   "revisions": {
     "fastdyn": "f4477bf33e878e10ed117f9dbfcceb427c9f6d0d",
+        "phase_admission_fix": "641a8b03f2271687cd90a0312365ed5483db519f",
     "qemu_sha256": "94e2c7862c7f511f2158988216e8b933a2327bb42025392a34751000750305cd"
   },
   "fixed_address_host": {
@@ -30,9 +31,33 @@
       "expanded_cache": "/data/trebuchet-clean/work/scopt-px4-combined/prof/rep-0/cache/px4.sc"
     }
   },
+    "active_artifacts": {
+        "original": {
+            "artifact_id": "sha256:1d7d44fc904c41cd6a267d8300c58ba26000ee0153c1352c2ba7a7719b7d2188",
+            "output_snapshot_id": "sha256:fc9182b86d8ca97d9b663dbce7bdd336221d825c2a199b338ee97d45e3119578",
+            "sidecar": "/data/trebuchet-clean/work/scopt-px4-phase-fix/original-store/artifacts/1d7d44fc904c41cd6a267d8300c58ba26000ee0153c1352c2ba7a7719b7d2188/cache.sc.scopt.json",
+            "sidecar_sha256": "ba063381381611a6db1378b42caab029d37015b71dd2bccede919ce7c09feebe",
+            "profile_id": "sha256:c418b0d117cdf7adc809a24a16d7a286c18caf8775ba80a1e143e4841d92b1b7",
+            "moved_units": 47005,
+            "hotcold_affected": 5059,
+            "cluster_affected": 5059,
+            "validation": "V1-V8 pass; V9 skipped for nonidentity"
+        },
+        "firmbolt_memset": {
+            "artifact_id": "sha256:68b5e52b0ad08bd57d68c97602b3000a06a7d6b431a440b485e9da481f1d8d1b",
+            "output_snapshot_id": "sha256:f7290c79aac6cb49930854119e8df7793e6e823149ab347fb70eee3c99979ecc",
+            "sidecar": "/data/trebuchet-clean/work/scopt-px4-phase-fix/firmbolt-store/artifacts/68b5e52b0ad08bd57d68c97602b3000a06a7d6b431a440b485e9da481f1d8d1b/cache.sc.scopt.json",
+            "sidecar_sha256": "2a4b81659b0f274b3abc586c77ea1607d8cf20115f9c65a8dfa4866e7e76aad3",
+            "profile_id": "sha256:e5dc32567d31ceb4d39026e488f762a078549c69d21fe4fa32be413f25f392c0",
+            "moved_units": 48135,
+            "hotcold_affected": 5021,
+            "cluster_affected": 5021,
+            "validation": "V1-V8 pass; V9 skipped for nonidentity"
+        }
+    },
   "timing_readiness": {
     "status": "blocked",
-    "reason": "The preserved warm runs appended translations, so neither cache is sealed. Timing is valid only after an expanded cache is reimported, independently replayed with appended=0, optimized with an active pass, and the loaded candidate independently replays with appended=0.",
+        "reason": "Both repaired boot-layout runs are active and statically valid, but their source profiles appended translations, so neither candidate is sealed. Timing is valid only after an expanded cache is reimported, independently replayed with appended=0, re-profiled, optimized, and the loaded candidate independently replays with appended=0.",
     "active_artifact_requirements": [
       "at least one requested pass receipt has outcome candidate and nonempty affected units",
       "input_snapshot_id differs from output_snapshot_id",

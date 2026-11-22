@@ -41,9 +41,9 @@
   "passes": {
     "pipeline": "b2-layout",
     "requested": ["hotcold-partition", "cluster-hot", "order-cold"],
-    "executed": [],
-    "changed_units": [],
-    "receipts_both_variants": [
+    "executed": ["hotcold-partition", "cluster-hot", "order-cold"],
+    "changed_units": ["original:47005", "firmbolt_memset:48135"],
+    "pre_fix_receipts_both_variants": [
       {"pass": "hotcold-partition", "outcome": "skipped_unknown", "reason": "missing_profile", "affected": []},
       {"pass": "cluster-hot", "outcome": "skipped_unknown", "reason": "missing_profile", "affected": []},
       {"pass": "order-cold", "outcome": "skipped_unknown", "reason": "missing_hotness", "affected": []}
@@ -53,27 +53,34 @@
       "original_guest_result": "inactive identity; admission still required steady before either pass ran",
       "combined_result": "stopped after the shared admission defect was established on the original guest",
       "diagnosis": "The two pass descriptors hardcode requires_profile_phase=steady even though their implementations expose and read params.phase."
+    },
+    "post_fix_activation": {
+      "revision": "641a8b03f2271687cd90a0312365ed5483db519f",
+      "original_guest": {"profile_consumed": true, "hotcold_affected": 5059, "cluster_affected": 5059, "moved_units": 47005},
+      "firmbolt_memset_guest": {"profile_consumed": true, "hotcold_affected": 5021, "cluster_affected": 5021, "moved_units": 48135}
     }
   },
   "artifacts": {
     "original_sidecar": {"path": "/data/trebuchet-clean/work/scopt-px4-original/out-layout/artifacts/4cb6a9eb248f9daadb65ea59bb787e440084a4afe9974d2303d4dab1d3904e5c/cache.sc.scopt.json", "sha256": "fd20db3b9c39c7179324437c52bde493b78419763a235383caee5cd83a51c6a5"},
     "combined_sidecar": {"path": "/data/trebuchet-clean/work/scopt-px4-combined/out/layout/artifacts/9e202b6faed048ac9e4f95624d1877314ff861b794b502c3cc8f38cbfeeb7d9c/cache.sc.scopt.json", "sha256": "45c8dcf7707c0017a9f56c8a871f74977bd529dd75af96c2ac1efe3ba44d9139"},
     "original_boot_retry_sidecar": {"path": "/data/trebuchet-clean/work/scopt-px4-original/out-layout-boot/artifacts/04d6769d2fd44300e89b7c7b2b230d9101c460708809c213a1921152465bc748/cache.sc.scopt.json", "sha256": "b6a9bbe29e340f34f8150af71b95be0bac436790269576e6338560e22a5a39e6"},
+    "original_active_sidecar": {"path": "/data/trebuchet-clean/work/scopt-px4-phase-fix/original-store/artifacts/1d7d44fc904c41cd6a267d8300c58ba26000ee0153c1352c2ba7a7719b7d2188/cache.sc.scopt.json", "sha256": "ba063381381611a6db1378b42caab029d37015b71dd2bccede919ce7c09feebe"},
+    "firmbolt_active_sidecar": {"path": "/data/trebuchet-clean/work/scopt-px4-phase-fix/firmbolt-store/artifacts/68b5e52b0ad08bd57d68c97602b3000a06a7d6b431a440b485e9da481f1d8d1b/cache.sc.scopt.json", "sha256": "2a4b81659b0f274b3abc586c77ea1607d8cf20115f9c65a8dfa4866e7e76aad3"},
     "boot_params_sha256": "c87f7273ae19ad9cbe7439cda249332cf70763a1d6fff77841bb156160993bfc",
     "envlayout_sha256": "630c126b6ef581b38693e3a28e77a3ffd998025da13133f2cc2eaac893cbb106",
     "helper_effects_sha256": "913242917877d756415ebb8d48be8d46bd44c21f5b7eb9ff90c4a6e746486f4f"
   },
-  "activation": {"status": "inactive", "proof": "Both default artifacts and the completed original-guest boot retry have identical input/output SnapshotIds, empty move maps, unused pass profiles, and V9 identity status."},
-  "measurement": {"status": "unavailable", "reason": "No host pass changed code and both warm profiles translated thousands of late TBs."},
+  "activation": {"status": "active", "proof": "After configurable-phase admission was fixed, both profiles were consumed. The original artifact classified and clustered 5059 units and moved 47005; the FirmBOLT artifact classified and clustered 5021 units and moved 48135. Input and output SnapshotIds differ."},
+  "measurement": {"status": "unavailable", "reason": "The host passes now change code, but both source warm profiles translated thousands of late TBs. Baseline and candidate zero-append seals remain mandatory before timing."},
   "correctness": {
     "capture_import": "Both cold captures exited zero and imported.",
-    "static_validation": "Both identity outputs passed V1-V9.",
+    "static_validation": "Both active outputs passed V1-V8, including two-sided reimport and recovery checks; V9 skipped because they are nonidentity.",
     "lifecycle_counterexample": "Warm profiles appended 7280 and 7537 records, falsifying the sealed-cache prerequisite."
   },
   "results": {"outcome": "untested_or_blocked", "performance": null, "break_even": null},
   "decision": {
     "action": "revise",
-    "rationale": "Timing an inactive identity artifact would measure publication/loading noise.",
-    "next_experiment": "Make pass admission honor the configured phase and test it, capture cold plus late-warm TBs, prove an independent zero-append replay, then require a consumed profile and nonempty affected units."
+    "rationale": "Activation is established, but timing an artifact derived from an unsealed profile would confound layout with late translation.",
+    "next_experiment": "Reimport each expanded warm cache, independently prove a zero-append baseline, re-profile and optimize it, then require a zero-append candidate replay before paired timing."
   }
 }
