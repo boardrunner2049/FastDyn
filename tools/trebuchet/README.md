@@ -129,8 +129,8 @@ the combined `sfb+b3` candidate existed: pipeline 1.131×) and
   pinned QEMU (`third_party/common/qemu/build/qemu-system-arm`), `build/libfastdyn.so`,
   `fastdyn-env/`, and scopt installed in a Python 3.12 environment whose `scopt` command
   is on `PATH`.
-- [FirmBOLT](https://github.com/boardrunner2049/firmbolt) at `3453c70` or later, with its
-  `llvm-bolt` built (revisions before `aa7db77` cannot process the `-O0` image;
+- The pinned FirmBOLT submodule at `third_party/firmbolt`, with its `llvm-bolt` built
+  (revisions before `aa7db77` cannot process the `-O0` image;
   revisions before `3453c70` give other numbers from arm 3 on).
 - `arm-none-eabi-gcc` (Arm GNU Toolchain 13.3.Rel1 was used).
 - A stock `qemu-system-arm` with the `mps2-an385` board (Ubuntu 24.04 packages 8.2.2).
@@ -142,10 +142,11 @@ the combined `sfb+b3` candidate existed: pipeline 1.131×) and
 ```sh
 export PATH=/path/to/scopt-env/bin:$PATH        # scopt
 export TREBUCHET_WORK=$HOME/trebuchet-work      # a new directory outside the checkout
-export FIRMBOLT_REPO=/path/to/firmbolt
-export FIRMBOLT_BOLT=/path/to/llvm-bolt         # the FirmBOLT-enabled build
 export TREBUCHET_CPUS=8-11                      # optional: CPUs for the timed runs
 
+git submodule update --init third_party/firmbolt
+# Build third_party/firmbolt's pinned LLVM overlay before the first run.
+# FIRMBOLT_REPO and FIRMBOLT_BOLT may still override the in-tree defaults.
 tools/trebuchet/trebuchet.sh fixture dataset            # all five categories, then the tables
 TREBUCHET_WORKLOAD=fwbench tools/trebuchet/trebuchet.sh fixture all    # one category
 ```

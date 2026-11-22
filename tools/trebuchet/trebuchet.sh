@@ -22,8 +22,8 @@ case ${1:-} in
     *) echo "usage: trebuchet.sh {candidates|select|final|dataset|dataset_report} ... (archived correctness runner: fixture STAGE)" >&2; exit 2 ;;
 esac
 : "${TREBUCHET_WORK:?set TREBUCHET_WORK to a work directory outside the checkout}"
-: "${FIRMBOLT_REPO:?set FIRMBOLT_REPO to a FirmBOLT checkout}"
-: "${FIRMBOLT_BOLT:?set FIRMBOLT_BOLT to the FirmBOLT-enabled llvm-bolt}"
+FIRMBOLT_REPO=${FIRMBOLT_REPO:-"$F/third_party/firmbolt"}
+FIRMBOLT_BOLT=${FIRMBOLT_BOLT:-"$FIRMBOLT_REPO/third_party/preflight/llvm-build/bin/llvm-bolt"}
 DATASET="compute fwbench kernbench libbench algobench"          # the categories, in report order
 WL=${TREBUCHET_WORKLOAD:-compute}
 case " $DATASET " in *" $WL "*) ;; *) echo "unknown workload $WL (one of: $DATASET)" >&2; exit 2;; esac
