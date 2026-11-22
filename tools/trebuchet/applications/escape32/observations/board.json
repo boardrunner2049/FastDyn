@@ -1,0 +1,159 @@
+{
+  "qemu_build": {
+    "qemu_revision": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+    "source_sha256": "81a8a2204f0b30afcfa9f644822a51dd61bd6a678d8bbd3a54560ad19c1291c1",
+    "original_uart_sha256": "6e986336d5acb63694e8ad623297f51dc63f21c9690e4dcdffb7140e8965084a",
+    "patched_uart_sha256": "3d002caa6bab95311024ff7443ee135d849e7a737d694887557ad8b2fe997469",
+    "qemu_sha256": "6f218ba17817d8284c9fab37e80c4ac91ceaf5346fec09829526261918ee43aa"
+  },
+  "release": {
+    "maintenance": {
+      "verdict": "PASS",
+      "workload": "read both 1-KiB blocks of ESCAPE1 configuration flash",
+      "boot_sha256": "bc0e49a782a622f966b1387ef117f338ef820489b80fe1c91a7d57bd15fed42a",
+      "application_sha256": "ca88d9c173f784717f6c75cebee4ed43ed4abb83756de8e065aa09e410a10604",
+      "qemu_sha256": "6f218ba17817d8284c9fab37e80c4ac91ceaf5346fec09829526261918ee43aa",
+      "operations": [
+        "probe",
+        "read board identity and verify CRC",
+        "read both configuration blocks and verify CRC and every byte"
+      ],
+      "command": [
+        "/workspace/trebuchet-work/escape32/board-build/qemu-system-arm",
+        "-M",
+        "escape1-g071",
+        "-kernel",
+        "/workspace/trebuchet-work/escape32/board-release-final/flash.bin",
+        "-serial",
+        "unix:/tmp/tmp7ks_kzw8/uart",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-icount",
+        "shift=0,align=off,sleep=off",
+        "-d",
+        "in_asm,guest_errors,trace:stm32l4x5_usart_write,trace:stm32l4x5_usart_rx",
+        "-D",
+        "/workspace/trebuchet-work/escape32/board-release-final/startup.trace"
+      ],
+      "device_info": "0401600400100000000000000000000000000000000000000000000000000000",
+      "readback_bytes": 2048,
+      "returned_sha256": "218d9994e22d701a48fb0012645b0aaedee1e75265a1d1adef9f04f0abf98cb6"
+    },
+    "startup": {
+      "verdict": "PASS",
+      "scope": "startup through ADC calibration request",
+      "flash_sha256": "990dc351bb981be8e16abc7c55bf2ff5c6f4d3bd6c7136692f3415dce9b145ac",
+      "qemu_sha256": "6f218ba17817d8284c9fab37e80c4ac91ceaf5346fec09829526261918ee43aa",
+      "command": [
+        "/workspace/trebuchet-work/escape32/board-build/qemu-system-arm",
+        "-M",
+        "escape1-g071",
+        "-kernel",
+        "/workspace/trebuchet-work/escape32/board-release-final/flash.bin",
+        "-serial",
+        "null",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-icount",
+        "shift=4,align=off,sleep=off",
+        "-d",
+        "in_asm,int,guest_errors",
+        "-D",
+        "/workspace/trebuchet-work/escape32/board-release-final/startup/startup.trace"
+      ],
+      "reset_handler": "0x8008f50",
+      "reset_handler_executed": true,
+      "observations": {
+        "sysclk": "64000000",
+        "tim6_psc": "0",
+        "tim6_arr": "1279",
+        "tim6_cen": "0",
+        "tim6_uif": "1",
+        "regulator_ns": "20320",
+        "adc_cfgr2": "0xa0000000",
+        "adc_ccr": "0xc00000",
+        "mux": "40,50,51,5"
+      },
+      "trace_sha256": "6ada7726503a5d185dff49340c5bc36eb4b1250cb0c2a1cdb0ed92a84af77b77"
+    }
+  },
+  "rebuild": {
+    "maintenance": {
+      "verdict": "PASS",
+      "workload": "read both 1-KiB blocks of ESCAPE1 configuration flash",
+      "boot_sha256": "cc438334a82d569a09aac2d18ca7141e66a4ccb8c52f119933dc8a9d2d0ce2ce",
+      "application_sha256": "25293f73e1a5315802e6ac44c2f1040ee73ec6569531385a416731e9ffef4244",
+      "qemu_sha256": "6f218ba17817d8284c9fab37e80c4ac91ceaf5346fec09829526261918ee43aa",
+      "operations": [
+        "probe",
+        "read board identity and verify CRC",
+        "read both configuration blocks and verify CRC and every byte"
+      ],
+      "command": [
+        "/workspace/trebuchet-work/escape32/board-build/qemu-system-arm",
+        "-M",
+        "escape1-g071",
+        "-kernel",
+        "/workspace/trebuchet-work/escape32/board-rebuild-final/flash.bin",
+        "-serial",
+        "unix:/tmp/tmph78ml8uz/uart",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-icount",
+        "shift=0,align=off,sleep=off",
+        "-d",
+        "in_asm,guest_errors,trace:stm32l4x5_usart_write,trace:stm32l4x5_usart_rx",
+        "-D",
+        "/workspace/trebuchet-work/escape32/board-rebuild-final/startup.trace"
+      ],
+      "device_info": "0401600400100000000000000000000000000000000000000000000000000000",
+      "readback_bytes": 2048,
+      "returned_sha256": "218d9994e22d701a48fb0012645b0aaedee1e75265a1d1adef9f04f0abf98cb6"
+    },
+    "startup": {
+      "verdict": "PASS",
+      "scope": "startup through ADC calibration request",
+      "flash_sha256": "275a1b041ea74d536958c1211c3ac99822aca38fd4de1a350b914aa09b72e2eb",
+      "qemu_sha256": "6f218ba17817d8284c9fab37e80c4ac91ceaf5346fec09829526261918ee43aa",
+      "command": [
+        "/workspace/trebuchet-work/escape32/board-build/qemu-system-arm",
+        "-M",
+        "escape1-g071",
+        "-kernel",
+        "/workspace/trebuchet-work/escape32/board-rebuild-final/flash.bin",
+        "-serial",
+        "null",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-icount",
+        "shift=4,align=off,sleep=off",
+        "-d",
+        "in_asm,int,guest_errors",
+        "-D",
+        "/workspace/trebuchet-work/escape32/board-rebuild-final/startup/startup.trace"
+      ],
+      "reset_handler": "0x8009294",
+      "reset_handler_executed": true,
+      "observations": {
+        "sysclk": "64000000",
+        "tim6_psc": "0",
+        "tim6_arr": "1279",
+        "tim6_cen": "0",
+        "tim6_uif": "1",
+        "regulator_ns": "20320",
+        "adc_cfgr2": "0xa0000000",
+        "adc_ccr": "0xc00000",
+        "mux": "40,50,51,5"
+      },
+      "trace_sha256": "c72e74ce047a16912f46744f606fcbb17d2f02ff942a19db3e5e686532be971b"
+    }
+  }
+}

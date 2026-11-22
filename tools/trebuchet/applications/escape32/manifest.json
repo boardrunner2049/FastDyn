@@ -34,8 +34,9 @@
     ]
   },
   "admitted": false,
-  "reason": "The STM32G071 bootloader remains in the PLL-ready loop on the generic Cortex-M machine. No board-qualified plant or recorded device-event oracle is available.",
+  "reason": "The escape1-g071 board passes vendor maintenance readback and enters motor application ADC calibration. Motor feedback and drive behavior have no board-qualified baseline.",
   "operational_baseline": "blocked",
   "cache_capture": "open",
-  "validated_transformed_deployment": "open"
+  "validated_transformed_deployment": "open",
+  "board_qualification": "observations/board.json"
 }

@@ -1,6 +1,27 @@
 # ESCape32 admission
 
-**Blocked at boot.** The released ESCAPE1 rev17.3 controller and BOOT2_PA2 rev4 loader target the STM32G071 on the Axen 60A and Hybrid 60A boards. The published binaries and a source rebuild both reached the bootloader clock initialization on FastDyn’s generic Cortex-M machine. Four QMP samples per image found PC `0x080000f4` testing the PLL-ready bit. The preceding load read zero from RCC_CR at `0x40021000`. The source rebuild maps this instruction to `boot/mcu/STM32G0/config.c:28`. [Upstream target table](https://github.com/neoxic/ESCape32/wiki/Targets) · [Boot initialization at the tested revision](https://github.com/neoxic/ESCape32/blob/1d718c143380c3eb7e6581478990e1496632e5b8/boot/mcu/STM32G0/config.c#L20-L29)
+**The dedicated ESCAPE1 model passes configuration readback and reaches ADC calibration in motor application startup.** The released ESCAPE1 rev17.3 controller and BOOT2_PA2 rev4 loader target the STM32G071 on the Axen 60A and Hybrid 60A boards. The published binaries and a source rebuild both reached the bootloader clock initialization on FastDyn’s generic Cortex-M machine. Four QMP samples per image found PC `0x080000f4` testing the PLL-ready bit. The preceding load read zero from RCC_CR at `0x40021000`. The source rebuild maps this instruction to `boot/mcu/STM32G0/config.c:28`. [Upstream target table](https://github.com/neoxic/ESCape32/wiki/Targets) · [Boot initialization at the tested revision](https://github.com/neoxic/ESCape32/blob/1d718c143380c3eb7e6581478990e1496632e5b8/boot/mcu/STM32G0/config.c#L20-L29)
+
+## Run the ESCAPE1 board
+
+The opt-in machine uses the STM32G071GB flash and SRAM map, flash boot alias, HSI16 and PLL clock switching, gated GPIO/USART2, TIM1/TIM6 update and one-pulse events, and bit-reversed hardware CRC with polynomial 0x04c11db7. The normal bootloader opens a half-duplex UART on PA2. The operator sends the vendor probe, requests the 32-byte board identity, and reads both 1 KiB configuration blocks. The host checks the complete identity, length/complement framing, CRC32 and every returned byte against the original configuration stored in flash. Both firmware pairs returned the same configuration SHA-256, `218d9994e22d701a48fb0012645b0aaedee1e75265a1d1adef9f04f0abf98cb6`. [Receipts](observations/board.json) · [Vendor loader protocol](https://github.com/neoxic/ESCape32/tree/1d718c143380c3eb7e6581478990e1496632e5b8/boot)
+
+Without an operator the bootloader jumps to the application after its receive timeout. Both binaries executed their own reset handler and programmed DMAMUX channels for TIM15 capture, USART1 RX/TX and the ADC. The application enabled the ADC regulator, set the clock to 16 MHz and ran TIM6 at 64 MHz with PSC 0 and ARR 1279. At the calibration request the one-pulse timer had stopped, UIF was set and 20,320 virtual ns had elapsed since regulator enable. The trace and oracle bind this observation to the exact flash and QEMU binary. The model holds ADCAL pending at this boundary. [STM32G0 reference manual RM0444](https://www.st.com/resource/en/reference_manual/rm0444-stm32g0x1-advanced-armbased-32bit-mcus-stmicroelectronics.pdf)
+
+Run these commands from FastDyn, with a configured QEMU build, Ninja, its original compiler and the previously prepared images. Use fresh output directories for each invocation.
+
+```sh
+W=/workspace/trebuchet-work/escape32
+D=tools/trebuchet/applications/escape32/board
+python3 "$D/build.py" third_party/common/qemu/build "$W/escape1-qemu"
+Q="$W/escape1-qemu/qemu-system-arm"
+python3 "$D/maintenance.py" "$Q" "$W/release/BOOT2_PA2-rev4.bin" "$W/release/ESCAPE1-rev17.3.bin" "$W/release-maint"
+python3 "$D/startup.py" "$Q" "$W/release-maint/flash.bin" "$W/release-start"
+python3 "$D/maintenance.py" "$Q" "$W/build/boot/BOOT2_PA2-rev4.bin" "$W/build/ESCAPE1-rev17.3.bin" "$W/rebuilt-maint"
+python3 "$D/startup.py" "$Q" "$W/rebuilt-maint/flash.bin" "$W/rebuilt-start"
+```
+
+The build reuses native QEMU objects and supplies a board-local correction that wakes the UART backend when the guest drains the receive register. Both probes start a fresh process. The machine uses QEMU's Cortex-M0 ARMv6-M core for the physical Cortex-M0+, the selected G07x device ID, and a modeled 100 µs PLL lock. RCC prescalers follow the exercised divide-by-one path. Diagnostic instruction counting and RCC/TIM6 virtual time support functional ordering only. Motor qualification still requires ADC acquisitions through DMA, throttle capture, inverter outputs, timed feedback and a measured or independently validated load/response oracle.
 
 ## Reproduce the reset diagnosis
 
