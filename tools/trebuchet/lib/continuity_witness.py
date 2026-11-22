@@ -61,6 +61,13 @@ def prove_edge(snapshot, source_uid, slot, dest_uid):
     require(reload and reload.kind == OpKind.ENV_LOAD and reload.dst_reg == "ebx"
             and len(reload.env) == 1 and reload.env[0].exact and reload.env[0].width == 4
             and reload.env[0].field in D1_FIELDS, "unqualified successor reload")
+    arrivals = []
+    for path in dg.paths():
+        offsets = [dh.ops[index].off for index in path]
+        if reload.off in offsets:
+            arrivals.append(offsets[:offsets.index(reload.off)])
+    require(arrivals and all(p == [0, 3, 6, 8, 14, 18] for p in arrivals),
+            "private reload reachable without the certified prefix")
     ends = {sh.ops[path[-1]].off for path in spaths}
     require(len(ends) == 1, "ambiguous selected exit")
     jump = ends.pop()

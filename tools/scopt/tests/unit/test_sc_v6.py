@@ -16,7 +16,7 @@ import pytest
 from scopt.canon import fnv1a64
 from scopt.formats.sc_v5 import ScFormatError, ScRecord, read_sc, write_sc
 from scopt.formats.sc_v6 import (FEAT_EXT_TABLE, FEAT_GUARDED_SLOTS, FEAT_VARIANTS,
-                                 KIND_GENERAL, SC6PARSE, ExtTable, LinkEntry, SlotEntry,
+                                 EXIT_DIRECT, KIND_GENERAL, KIND_SPEC, SC6PARSE, ExtTable, LinkEntry, SlotEntry,
                                  VariantEntry, ext_problem, read_sc6, sc6_snapshot_id,
                                  sc6parse_compare, write_sc6)
 from scopt.link import B3Plan, NativeLinkerV2, arena_limit
@@ -104,7 +104,8 @@ def test_identity_v6_and_v5(tmp_path):
     assert res5.version == 5 and res5.ext is None
 
 
-def test_synthetic_table_roundtrip(tmp_path):
+@pytest.mark.parametrize("direct", ["ordinary", "private", "general_refused"])
+def test_synthetic_table_roundtrip(tmp_path, direct):
     """A hand-made table on a synthetic file (no snapshot): one GENERAL slot on a
     synthetic record whose code has a registered jump inside the 'guard'."""
     from tests.synth import builders as B
@@ -129,9 +130,26 @@ def test_synthetic_table_roundtrip(tmp_path):
     ext = ExtTable(slots=(SlotEntry(r0.tb_offset, 0, KIND_GENERAL, 2, 0x100, 0, glen,
                                     fnv1a64(parts[0][1][:glen])),), artifact_id8=b"WP18TEST")
     p = tmp_path / "s.sc"
-    write_sc6(p, hdr, parts, ext, [])
+    bodies = []
+    if direct == "private":
+        dst = ScRecord.from_bytes(parts[1][0])
+        last = ScRecord.from_bytes(parts[-1][0])
+        delta = (last.end_offset + 63) // 64 * 64 - dst.tb_offset
+        bodies = [parts[1][1]]
+        private = VariantEntry(dst.tb_offset, dst.tb_offset + delta, dst.tc_offset + delta,
+                               dst.tc_size, dst.end_offset + delta, fnv1a64(bodies[0]), 0)
+        slot = replace(ext.slots[0], exit_class=EXIT_DIRECT, kind=KIND_SPEC,
+                       target_vaddr=dst.page_addr0 & 0xffffffff)
+        ext = replace(ext, slots=(slot,), variants=(private,), links=(LinkEntry(0, 0),))
+    if direct == "general_refused":
+        ext = replace(ext, slots=(replace(ext.slots[0], exit_class=EXIT_DIRECT),))
+    write_sc6(p, hdr, parts, ext, bodies, check=direct != "general_refused")
     f, ok, det, _ = _both(p)
-    assert f.problem is None and ok, (f.problem, det)
+    assert ok, det
+    if direct == "general_refused":
+        assert f.problem[0] == "direct_requires_variant"
+        return
+    assert f.problem is None, f.problem
     assert f.ext.slots == ext.slots
 
 
@@ -334,6 +352,8 @@ CASES = [
     ("slot_src", _slot(src_tb_offset=0x40), "slot 0: src_tb_offset 0x40 names no valid record"),
     ("slot_n", _slot(slot_n=2), "slot 0: slot_n 2"),
     ("slot_kind", _slot(kind=3), "slot 0: bad kind 3"),
+    ("direct_requires_variant", _slot(kind=KIND_GENERAL, exit_class=3),
+     "slot 0: ordinary direct edge requires a private variant"),
     ("slot_exit_class", _slot(exit_class=0), "slot 0: bad exit_class 0"),
     ("slot_reserved", _slot(reserved=1), "slot 0: reserved not zero"),
     ("slot_unregistered", _unregistered, "R has no registered jump"),
