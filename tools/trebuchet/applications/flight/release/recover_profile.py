@@ -25,7 +25,10 @@ def recover(out):
             or runtime["plugin_sha256"] != "sha256:" + receipt["runtime"]["plugin"]):
         raise ValueError("training bundle or runtime does not match the flown firmware")
     qprof = read_qprof(out / "training.qprof")
-    result = ingest(qprof, out / "mission.sc", out / "frozen/mission.sc",
+    staged = out / "profiled-post.sc"
+    if not staged.is_file():
+        staged = out / "mission.sc"
+    result = ingest(qprof, staged, out / "frozen/mission.sc",
                     bundle_id=bundle["bundle_id"], contract_id=bundle["contract_id"],
                     runtime_identity=runtime, inputs=[{"name": "copter_mission.waypoints",
                     "split": "train", "sha256": "sha256:" + receipt["inputs"]["mission"]}])

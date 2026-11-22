@@ -40,7 +40,6 @@ def train(args, receipt, work, manifest, mission, config, env, cache, sidecar, *
     scm = work / "training.scm"
     report["population"] = run("population", {"QEMU_SC_CAPTURE": str(scm)})
     report["frozen"] = freeze(cache, sidecar, work)
-    frozen = work / "frozen" / cache.name
     captured_manifest = work / "frozen" / sidecar.name
     nm = subprocess.check_output(["arm-none-eabi-nm", "-P", str(args.candidate_elf or
                                  args.release_pair / "relocs.elf")], text=True)
@@ -62,10 +61,12 @@ def train(args, receipt, work, manifest, mission, config, env, cache, sidecar, *
         checkpoint(work, receipt)
     candidate = work / "compacted"
     stage("rewritten uninstrumented mission")
+    cache.rename(work / "profiled-post.sc")
     subprocess.run(["cp", "--sparse=always", str(candidate / "cache.sc"), str(cache)], check=True)
     shutil.copyfile(captured_manifest, sidecar)
     replay("transformed", {})
     stage("qualified")
+
 
 def admit(work, qemu, plugin, mission, mission_hash):
     from scopt.commands.compact_nops import generate
@@ -75,14 +76,17 @@ def admit(work, qemu, plugin, mission, mission_hash):
     from scopt.formats.sc_v5 import read_sc
     from scopt.formats.scm_v1 import read_scm
     from scopt.importer.import_cache import import_snapshot
+
     report = {}
     cache = work / "mission.sc"
     frozen = work / "frozen/mission.sc"
     captured_manifest = work / "frozen/mission.sc.fastdyn.json"
     scm, qprof, config = work / "training.scm", work / "training.qprof", work / "cache.toml"
+
     def stage(name):
         report["stage"] = name
         write(work / "training-admission.json", report)
+
     try:
         for key, path in (("capture", scm), ("qprof", qprof)):
             with path.open("rb") as stream:
