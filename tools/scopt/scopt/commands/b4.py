@@ -165,26 +165,51 @@ def sfb() -> None:
 @sfb.command("package")
 @click.argument("snapshot", type=click.Path(exists=True, file_okay=False))
 @click.option("--store", required=True, type=click.Path(file_okay=False))
+@click.option("--profile", type=click.Path(exists=True, dir_okay=False),
+              help="Rank eligible units by exact entry counts from this training profile.")
+@click.option("--phase", default="steady", show_default=True)
+@click.option("--entry-coverage", type=click.IntRange(1, 100), default=100, show_default=True,
+              help="Stop at this percentage of exact entries in eligible units.")
+@click.option("--max-units", type=click.IntRange(min=0))
+@click.option("--max-growth-bytes", type=click.IntRange(min=0),
+              help="Upper bound on added executable code bytes.")
+@click.option("--max-moved-units", type=click.IntRange(min=0),
+              help="Upper bound on selected units moved to the arena end.")
 @click.option("--candidate-id", default=None)
 @click.option("--native/--no-native", default=True, show_default=True,
               help="Execute every entry form natively for all 2x65536 icount values.")
 @click.option("--out", type=click.Path(dir_okay=False))
-def sfb_package_cmd(snapshot, store, candidate_id, native, out):
+def sfb_package_cmd(snapshot, store, candidate_id, native, out, profile, phase, entry_coverage,
+                    max_units, max_growth_bytes, max_moved_units):
     """Propose, rebuild (+16 bytes per unit), validate (SFB1-SFB9) and publish."""
     from collections import Counter
 
+    from ..canon import canonical_json, sha256_id
+    from ..formats.profile_v1 import read_profile
     from ..importer.import_cache import open_snapshot
     from ..passes.icount_entry_sfb import package_sfb, propose_sfb
 
     s = open_snapshot(snapshot)
-    prop = propose_sfb(s)
+
+    try:
+        prop = propose_sfb(s, profile=read_profile(profile) if profile else None, phase=phase,
+                           entry_coverage=entry_coverage, max_units=max_units,
+                           max_growth_bytes=max_growth_bytes, max_moved_units=max_moved_units)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if candidate_id is None:
+        candidate_id = f"sfb-{s.snapshot_id[7:19]}"
+        if prop.selection:
+            candidate_id += "-" + sha256_id(canonical_json(prop.selection))[7:19]
     Path(store).mkdir(parents=True, exist_ok=True)
-    r = package_sfb(s, prop, store, candidate_id=candidate_id or f"sfb-{s.snapshot_id[7:19]}",
+    r = package_sfb(s, prop, store, candidate_id=candidate_id,
                     native=native)
     doc = {"proposal": {"outcome": prop.result.outcome.value, "units": len(prop.units),
                         "skips": dict(Counter(prop.skips.values()))},
            "status": r.status, "reason": r.reason, "artifact_id": r.artifact_id, "path": r.path,
            "moved": None if r.link is None else len(r.link.moved),
            "validation": None if r.validation is None else r.validation.to_json()["rows"]}
+    if prop.selection:
+        doc["proposal"]["selection"] = prop.selection
     _out(doc, out)
     sys.exit(0 if r.status in ("published", "no_change") else 1)
