@@ -1,0 +1,131 @@
+{
+  "commit": "8af3989fbb1ed0465885a2cbfa1a05c6af9c48d7",
+  "patch_sha256": "4c106cf2a8e7fd14c734795707d49ebc5ede3aad0c23cfdbf648b35ba0e614c7",
+  "llvm_bolt_sha256": "f2b2ecfaca604bb443f1445d83696129707a951d9f206108f3bcfb5a4f33e8d8",
+  "build": "Five changed upstream translation units compiled with their recorded release flags and linked with the pinned build archives.",
+  "recovered_pye_slots": [
+    90,
+    33
+  ],
+  "rewritten_pye_functions": [],
+  "real_replay": {
+    "verdict": "PASS",
+    "method": "native MPS2 board, cacheless",
+    "case": "update-package-version",
+    "elf_sha256": "adb9e619dd55361e487a0e82fb7b3b0ab0d708c3e11b6f26e88fa3755ec8503d",
+    "qemu_sha256": "fa405951545dfeee0c0140a3f89d6a4777752f28d17c215b3d50cbc5da75d51b",
+    "stage_sha256": "46b56a7a3722ad2f205b2f7be8dc27c9cc23ecd2a5a17f6003a3e54d99e8c0b3",
+    "argv": [
+      "/workspace/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "-M",
+      "mps2-an385",
+      "-cpu",
+      "cortex-m3",
+      "-display",
+      "none",
+      "-monitor",
+      "none",
+      "-semihosting",
+      "-serial",
+      "unix:/tmp/tmptkiabvv_/uart.sock",
+      "-icount",
+      "shift=0,align=off,sleep=off",
+      "-kernel",
+      "/workspace/trebuchet-work/firmbolt-indexed/release/indexed-pye.elf",
+      "-device",
+      "loader,file=/workspace/trebuchet-work/pye/cases-queued/update-package-version/product.romfs,addr=0x21000000,force-raw=on"
+    ],
+    "application": {
+      "verdict": "PASS",
+      "case": "update-package-version",
+      "role": "training",
+      "protocol": "pye-queued-uart-v1",
+      "protocol_sha256": "60ddf1702ac11b8c9aa4ced5816cf1962160a987ca46510a4220f084fcd03b9b",
+      "queued_uart_sha256": "7c7cf02edc3c2ede89cf8958b7d42ca624cfba0eac5011fec292f9d596a462be",
+      "elapsed_ns": 17226403,
+      "returned_bytes": 166,
+      "returned_lines": 8,
+      "returned_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+      "uart_sha256": "f4377ecd610eea3865caf5152194dad26b3c4b347784a573ce0b0402dbe674c4",
+      "expected_output_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+      "keys_sha256": "cf216d7dc0ac75f475af9742b69ce3d2739af3b8aac564e2bfc80824b958187e",
+      "romfs_sha256": "2b5f2b29884e2d15390a60f2cb5b58ebc5fee0bca5e3021f61a9b38f76157124",
+      "ui_prompt": "Replace (yes/No/all/quit) ?"
+    },
+    "exit_code": 0,
+    "process_wall_ns": 87654832,
+    "qemu_process_cpu_seconds": 0.08852399999999999
+  },
+  "fixture_differential_unicorn_2_1_4": {
+    "fixture.elf": {
+      "sha256": "598b2da6fc8414ef93df9c35e6ae06fc7addc4ff7f3065ce8df11131dec62cc6",
+      "results": [
+        [
+          0,
+          10
+        ],
+        [
+          1,
+          20
+        ],
+        [
+          2,
+          30
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          255,
+          0
+        ],
+        [
+          2147483648,
+          0
+        ],
+        [
+          4294967295,
+          0
+        ]
+      ]
+    },
+    "fixture-opt.elf": {
+      "sha256": "b0f5f4b1cfc521612fdba50cfa2f0a06f91c8c21da45f2ec0239df351dc7c329",
+      "results": [
+        [
+          0,
+          10
+        ],
+        [
+          1,
+          20
+        ],
+        [
+          2,
+          30
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          255,
+          0
+        ],
+        [
+          2147483648,
+          0
+        ],
+        [
+          4294967295,
+          0
+        ]
+      ]
+    }
+  },
+  "corrupt_fixture_refusals": [
+    "even case address",
+    "missing per-slot R_ARM_ABS32"
+  ]
+}

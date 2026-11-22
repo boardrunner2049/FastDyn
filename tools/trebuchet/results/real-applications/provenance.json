@@ -50,5 +50,11 @@
     "patch_sha256": "8ef629c94de5c85b48a8863596126bee7c396e8c7b15475d5eb9e6b5a547be44",
     "scope": "Training-derived bounded load segments. The pinned main Pye comparison retains its predeclared ELF.",
     "evidence": "../../applications/firmbolt-inspection/README.md"
+  },
+  "firmbolt_indexed_switch": {
+    "commit": "8af3989fbb1ed0465885a2cbfa1a05c6af9c48d7",
+    "patch_sha256": "4c106cf2a8e7fd14c734795707d49ebc5ede3aad0c23cfdbf648b35ba0e614c7",
+    "llvm_bolt_sha256": "f2b2ecfaca604bb443f1445d83696129707a951d9f206108f3bcfb5a4f33e8d8",
+    "evidence": "../../applications/firmbolt-inspection/indexed-switch.json"
   }
 }
