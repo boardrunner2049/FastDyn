@@ -1,0 +1,320 @@
+{
+  "run": 44995970987,
+  "head": "36cb3a1d1c5cf0ef78bc37d9b12e64772a721109",
+  "state": "success",
+  "role": "training",
+  "timing": false,
+  "raw_archives_and_files": "/workspace/trebuchet-work/flight/release-px4-host-rewrite",
+  "cleanup": {
+    "run": "HTTP/2.0 404 Not Found",
+    "branch": "verified absent"
+  },
+  "raw_archive_parts": [
+    {
+      "id": 14744800028,
+      "name": "px4-training-firmbolt-05",
+      "size_in_bytes": 3576857,
+      "digest": "sha256:39a04681dfbb74bd9402061032d0308c847103f2d9e2e3efcd92df8ee65cd786"
+    },
+    {
+      "id": 14744600658,
+      "name": "px4-training-firmbolt-04",
+      "size_in_bytes": 18687600,
+      "digest": "sha256:b224fae6e47f885a09dec8abee45dba6d0e6baaa0a25327df7515197899938ef"
+    },
+    {
+      "id": 14744595703,
+      "name": "px4-training-firmbolt-00",
+      "size_in_bytes": 18628117,
+      "digest": "sha256:e0ccbda94e560fec45fc233ca73ea8c33ea14c7f8d2aa2db8b2637b49de70d1f"
+    },
+    {
+      "id": 14744441163,
+      "name": "px4-training-firmbolt-01",
+      "size_in_bytes": 18687670,
+      "digest": "sha256:23967ba0562a328c7b9051e53940a26cb33717e7256c0ac680993addb114b721"
+    },
+    {
+      "id": 14744436092,
+      "name": "px4-training-original-04",
+      "size_in_bytes": 12277431,
+      "digest": "sha256:c004541630fcb0108136302147d8d284593b7884a67b5f22f55d67d186b74356"
+    },
+    {
+      "id": 14744346260,
+      "name": "px4-training-firmbolt-02",
+      "size_in_bytes": 18859370,
+      "digest": "sha256:a3457efde687bdfa0d715185b62ba38d59abc50bf1fe1edf33be0823bae7ae08"
+    },
+    {
+      "id": 14744286479,
+      "name": "px4-training-original-02",
+      "size_in_bytes": 18805245,
+      "digest": "sha256:a0aa162b641c684aba9ae6c8d5f9a46beacabf88d9745e592320f1a50b4ef24d"
+    },
+    {
+      "id": 14744246529,
+      "name": "px4-training-firmbolt-observations",
+      "size_in_bytes": 1566881,
+      "digest": "sha256:4e104963ecd3877822cdab46354e22520cc213093e7ef7b0e3d5bf54cea99d2b"
+    },
+    {
+      "id": 14744126853,
+      "name": "px4-training-original-01",
+      "size_in_bytes": 18757136,
+      "digest": "sha256:99ee815b74fa63239561c5b274a89ec8043d73eb6f46313f9d89d33d719740b0"
+    },
+    {
+      "id": 14743997496,
+      "name": "px4-training-original-03",
+      "size_in_bytes": 18602232,
+      "digest": "sha256:c8391a724e72fc1df4837c1720d15f83128742658ad0d3b10bc2839b1fe8a01a"
+    },
+    {
+      "id": 14743883339,
+      "name": "px4-training-firmbolt-03",
+      "size_in_bytes": 18628047,
+      "digest": "sha256:2ac95d11dc3530b3724805351f62a3a69016b99db72d92b3696b0790586f0c76"
+    },
+    {
+      "id": 14743489015,
+      "name": "px4-training-original-00",
+      "size_in_bytes": 18634157,
+      "digest": "sha256:42d1dfea83e39138a9c03b2dbf488c9994133b57986cc6d13ece13e6a77849a5"
+    },
+    {
+      "id": 14743014960,
+      "name": "px4-training-original-observations",
+      "size_in_bytes": 1586269,
+      "digest": "sha256:e4b9ee7b05e3df77dcf0ff75c6d0f2be5bb02f23a9a71718d5ccd797ac9e02fd"
+    }
+  ],
+  "images": {
+    "original": {
+      "missions": {
+        "guest_sha256": "54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347",
+        "frozen": {
+          "cache_sha256": "4bd651da6956dbfd60f540f613f3cae5d240e668fc46bc019283a0d8695e1505",
+          "logical_bytes": 2152459128,
+          "fastdyn_manifest_sha256": "288b74c5c264b19ad28c5d5ee07b39981c0e233284f1805d189d3f3d7864a1b1"
+        },
+        "phases": {
+          "cold": {
+            "plant_samples": 582,
+            "plant_elapsed_s": 72.75,
+            "telemetry_positions": 246,
+            "telemetry_attitudes": 274,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "population": {
+            "plant_samples": 597,
+            "plant_elapsed_s": 74.628,
+            "telemetry_positions": 255,
+            "telemetry_attitudes": 279,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "profiled": {
+            "plant_samples": 567,
+            "plant_elapsed_s": 70.875,
+            "telemetry_positions": 241,
+            "telemetry_attitudes": 258,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "transformed": {
+            "plant_samples": 548,
+            "plant_elapsed_s": 68.5,
+            "telemetry_positions": 229,
+            "telemetry_attitudes": 264,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          }
+        },
+        "stage": "qualified",
+        "flow": {
+          "ok": true,
+          "exact": true,
+          "violations": [],
+          "nodes": 54059,
+          "runs": 1,
+          "first_edges": 1,
+          "last_nodes": [
+            "tb:42d1fb4e11eabcf4082ec8f1ba6e635b#0"
+          ]
+        },
+        "rewrite": {
+          "schema": "scopt.nop-compaction/1",
+          "status": "built",
+          "input_snapshot": "sha256:35d6ce91dab99658bc2a9d12c16aae73997ef6aef10601497005175e7ae6bbff",
+          "output_snapshot": "sha256:ce240f6c88347e25c654a92f3cba22a6f4e09812e45e5b392533efb65043ab7d",
+          "profile_id": "sha256:e91a27e699f5516ac2ea6efe9cd358e468bd3b99b7f894a14a68a6d9d0a3cda6",
+          "unit": "tb:e91313cfd249ff0003eb0418f1909e7c#0",
+          "slot": 198,
+          "guest_pc": "0x80226a8",
+          "phase_entries": 1240940,
+          "branch_off": 85,
+          "store_off": 97,
+          "removed_nop_off": 100,
+          "old_code": "8b5df883c3fe85db0f8c8600000066895df8c645fc008b5d08448d63ff4489a518020000458bec4489ad1c02000083fb01451bf641ffc64489b5100200004433e383f3014423e34489a514020000c645fc014585ed0f841d0000008b5d3c83c394895d3c666690e900000000488d05cdfeffffe9607efeff8b5d3c83c304895d3c6690e900000000488d05b2feffffe9447efeff488d05a8feffffe9387efeff",
+          "new_code": "8b5df883c3fe85db0f8c8200000066895df8c645fc008b5d08448d63ff4489a518020000458bec4489ad1c02000083fb01451bf641ffc64489b5100200004433e383f3014423e34489a514020000c645fc014585ed741d8b5d3c83c394899d3c000000e900000000488d05d1feffffe9647efeff8b5d3c83c304895d3c6690e900000000488d05b6feffffe9487efeff488d05acfeffffe93c7efeff",
+          "old_search": "a8050000d200020000ce000000000000",
+          "new_search": "a8050000d200020000ca00000000000000000000",
+          "code_bytes_saved": 4,
+          "old_slot_fields": [
+            104,
+            132
+          ],
+          "new_slot_fields": [
+            100,
+            128
+          ],
+          "search_rows": 2,
+          "exceptional_recovery_points": 0,
+          "higher_ranked_skips": {
+            "no eligible short branch and three-byte exit padding": 11,
+            "requires ordinary pool-free code without slow paths": 30,
+            "input code does not tile": 6
+          }
+        },
+        "error": null,
+        "profile_header": {
+          "loaded_record_count": 47211,
+          "loaded_header_checksum": 14929408126000610238,
+          "clean_exit": true,
+          "tb_overflow": false,
+          "edge_overflow": false
+        }
+      },
+      "native_rewrite": {
+        "candidate_cache_sha256": "b641418a86e36adfe9a069c2fca2ce68b0754e61a3ac9b89be05524ed361a90c",
+        "trained_unit": "tb:e91313cfd249ff0003eb0418f1909e7c#0",
+        "slot": 198,
+        "guest_pc": "0x80226a8",
+        "exact_steady_entries": 1240940,
+        "old_code_bytes": 160,
+        "new_code_bytes": 156,
+        "unchanged_units": 47210,
+        "initial_snapshot": "sha256:35d6ce91dab99658bc2a9d12c16aae73997ef6aef10601497005175e7ae6bbff",
+        "rewritten_snapshot": "sha256:ce240f6c88347e25c654a92f3cba22a6f4e09812e45e5b392533efb65043ab7d",
+        "profile_id": "sha256:e91a27e699f5516ac2ea6efe9cd358e468bd3b99b7f894a14a68a6d9d0a3cda6",
+        "record_table_sha256": "sha256:0085015e86e1976c7684daa75f095262cbc3cd96b31c2154020a8dc892187dfd",
+        "replay_appended": 6868
+      }
+    },
+    "firmbolt": {
+      "missions": {
+        "guest_sha256": "1bcb49a3337553e58f37d1d84fe4d3596a6ddcec822edb112832492c971a1255",
+        "frozen": {
+          "cache_sha256": "2222b8a82205351dad7bbfdbeca7f8702a15244673f83eb5a37d92e3c00697f1",
+          "logical_bytes": 2152530264,
+          "fastdyn_manifest_sha256": "4501bde257eb7bf07c93e109ea7f17db52f2e07d35d0a667b8753ea02f14ecb8"
+        },
+        "phases": {
+          "cold": {
+            "plant_samples": 586,
+            "plant_elapsed_s": 73.126,
+            "telemetry_positions": 248,
+            "telemetry_attitudes": 275,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "population": {
+            "plant_samples": 590,
+            "plant_elapsed_s": 73.631,
+            "telemetry_positions": 250,
+            "telemetry_attitudes": 274,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "profiled": {
+            "plant_samples": 540,
+            "plant_elapsed_s": 67.5,
+            "telemetry_positions": 227,
+            "telemetry_attitudes": 246,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          },
+          "transformed": {
+            "plant_samples": 549,
+            "plant_elapsed_s": 68.5,
+            "telemetry_positions": 230,
+            "telemetry_attitudes": 264,
+            "waypoints_checked_per_track": 4,
+            "disarmed_after_arming": true
+          }
+        },
+        "stage": "qualified",
+        "flow": {
+          "ok": true,
+          "exact": true,
+          "violations": [],
+          "nodes": 55381,
+          "runs": 1,
+          "first_edges": 1,
+          "last_nodes": [
+            "tb:cd6c04f5fa748dedc88139d760c812f3#0"
+          ]
+        },
+        "rewrite": {
+          "schema": "scopt.nop-compaction/1",
+          "status": "built",
+          "input_snapshot": "sha256:e7f106930a9dbe13905725d8ea08c66be5a079d3e7c3ae5522b31b666f4c75f9",
+          "output_snapshot": "sha256:43a48bf7b9bd8afab32f11ffc6347b062ff9f28f2bdc6859ffe1a24b743497ef",
+          "profile_id": "sha256:f34abec5e0ab84e7c120e217d866bb0035dd199bca499dca60967385f10d0c08",
+          "unit": "tb:89050f945d226b051a7e3ba94c4ebf2d#0",
+          "slot": 7140,
+          "guest_pc": "0x817da8a",
+          "phase_entries": 699724,
+          "branch_off": 8,
+          "store_off": 49,
+          "removed_nop_off": 52,
+          "old_code": "8b5df883c3fe85db0f8c3a00000066895df8c645fc008b5d10895d00c645fc018b5d3c448d63074489653881c34affffff895d3c666690e900000000488d05fdfeffffe950fdc6ff488d05f4feffffe944fdc6ff",
+          "new_code": "8b5df883c3fe85db7c3a66895df8c645fc008b5d10895d00c645fc018b5d3c448d63074489653881c34affffff899d3c000000e900000000488d0501ffffffe954fdc6ff488d05f8feffffe948fdc6ff",
+          "old_search": "8a0500002002000034000000",
+          "new_search": "8a0500001c0200003400000000000000",
+          "code_bytes_saved": 4,
+          "old_slot_fields": [
+            56,
+            65535
+          ],
+          "new_slot_fields": [
+            52,
+            65535
+          ],
+          "search_rows": 2,
+          "exceptional_recovery_points": 0,
+          "higher_ranked_skips": {
+            "requires ordinary pool-free code without slow paths": 59,
+            "no eligible short branch and three-byte exit padding": 24,
+            "input code does not tile": 7
+          }
+        },
+        "error": null,
+        "profile_header": {
+          "loaded_record_count": 47895,
+          "loaded_header_checksum": 2484662295792198570,
+          "clean_exit": true,
+          "tb_overflow": false,
+          "edge_overflow": false
+        }
+      },
+      "native_rewrite": {
+        "candidate_cache_sha256": "adf6027940a93bef4f4e1a0034487f97ec04a78fc53b779a66fbece57b919684",
+        "trained_unit": "tb:89050f945d226b051a7e3ba94c4ebf2d#0",
+        "slot": 7140,
+        "guest_pc": "0x817da8a",
+        "exact_steady_entries": 699724,
+        "old_code_bytes": 84,
+        "new_code_bytes": 80,
+        "unchanged_units": 47894,
+        "initial_snapshot": "sha256:e7f106930a9dbe13905725d8ea08c66be5a079d3e7c3ae5522b31b666f4c75f9",
+        "rewritten_snapshot": "sha256:43a48bf7b9bd8afab32f11ffc6347b062ff9f28f2bdc6859ffe1a24b743497ef",
+        "profile_id": "sha256:f34abec5e0ab84e7c120e217d866bb0035dd199bca499dca60967385f10d0c08",
+        "record_table_sha256": "sha256:bcc72b20c807d6e052b36695ed2b9de0ad6c99f8d84d69e42ddb1908076780b1",
+        "replay_appended": 7604
+      }
+    }
+  }
+}

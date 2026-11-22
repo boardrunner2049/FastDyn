@@ -200,3 +200,26 @@ and mission archives for that run are at
 Use `scopt-env/bin/python "$flight/release/recover_profile.py" "$RUN/out"` for
 the profile and `fastdyn-env/bin/python "$flight/release/verify_training.py" "$RUN/out"`
 for the application oracles and frozen prefix.
+
+Run `44995970987` completed the same training procedure with corrected split
+metadata and a new population on each image. Each emitted inventory changes one
+x86-64 translation block. On the original guest, the block at guest PC
+`0x080226a8` shrank from 160 to 156 host-code bytes (1,240,940 steady entries in
+the source profile). On the FirmBOLT guest, the block at `0x0817da8a` shrank
+from 84 to 80 bytes (699,724 steady entries). Each rewritten cache passed the
+deployment prefix proof and the complete uninstrumented landing mission,
+including disarm. The original and FirmBOLT deployments appended 6,868 and
+7,604 records respectively. Counts for the edited blocks come from profiling
+the source inventories. This campaign collected functional observations only.
+
+The raw observations and native archive hashes are indexed in
+[evidence/px4-host-rewrite.json](evidence/px4-host-rewrite.json). Complete
+source and generated native caches, their SCMs, the canonical profiles and
+raw QPROFs are in `/workspace/trebuchet-work/flight/release-px4-host-rewrite`.
+`scopt-env/bin/python "$flight/release/verify_rewrite.py" "$RUN/out"` checks
+the selected unit, re-encodes its native bytes, compares the entire source and
+candidate inventories, and matches the candidate to the hosted deployment.
+The completed hosted workflow reused the profiled working-cache path for the
+candidate. The earlier capture preserved a complete untouched post-profile
+cache for each guest; the current adapter retains `profiled-post.sc` for
+subsequent transformed runs.
