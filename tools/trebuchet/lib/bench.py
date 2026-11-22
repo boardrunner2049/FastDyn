@@ -12,10 +12,11 @@ Guest work: FastDyn's benchmark window ([BENCH]); for stock QEMU the same window
 gdbstub (stock.py).  Process: wall time of the FastDyn frontend process, or of stock QEMU from
 start until the work is done.  Run with the python of the scopt environment (see trebuchet.sh).
 """
-import glob, json, os, random, shutil, sys, time
+import glob, json, os, random, shutil, sys, tempfile, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import stock
+from campaign import record_campaign, write_json
 from result_schema import expected_values, schema, stats_mismatches
 from scopt.run.deploy import deploy
 from scopt.run.launcher import create_run_dir, launch
@@ -24,26 +25,6 @@ E = Path(os.environ["TREBUCHET_WORK"]); WORK = E / "scopt"; Q = os.environ["TREB
 WL = os.environ["TREBUCHET_WORKLOAD"]; INP = Path(os.environ["TREBUCHET_INPUTS"]) / "final" / WL
 RESULT = (schema(WL)[0], len(schema(WL)[1]))
 out = Path(sys.argv[1]); REPS = int(sys.argv[2])
-SCRATCH = Path("/dev/shm/trebuchet-bench"); shutil.rmtree(SCRATCH, ignore_errors=True); SCRATCH.mkdir()
-
-def snapshot(v):
-    return glob.glob(str(WORK / v / "store/snapshots/*"))[0]
-
-FB = "O0-fb"
-sel = json.loads((WORK / FB / "tune.json").read_text())
-selected = sel["selected_artifact"]
-parts = Path(selected).parts            # .../out/<candidate>/artifacts/<id>, or the snapshot when warm was kept
-candidate = parts[parts.index("out") + 1] if "out" in parts else "ordinary warm"
-ARMS = {
-    "stock-O0": ("stock", "O0"), "stock-fb": ("stock", FB),
-    "fd-O0": ("nocache", "O0"), "fd-fb": ("nocache", FB),
-    "fd-O0-warm": ("cache", "O0", snapshot("O0")),
-    "fd-fb-warm": ("cache", FB, snapshot(FB)),
-    "fd-fb-scopt": ("cache", FB, selected),
-}
-refs = {v: {n: (WORK / v / "ref" / f"final-{n}.guest.norm").read_text().split("\n")[:-1] for n in (1, 2, 3)} for v in ("O0", FB)}
-expect = {}
-samples = []; serial = 0
 
 def fastdyn(kind, v, artifact, inp, ref):
     global serial; serial += 1
@@ -92,26 +73,43 @@ def one(arm, n):
         return stock_arm(spec[1], inp, ref, (arm, n))
     return fastdyn(spec[0], spec[1], spec[2] if len(spec) > 2 else None, inp, ref)
 
-assert refs["O0"] == refs[FB], "FirmBOLT image and O0 image disagree on a final input"
-rng = random.Random(20261121)
-for n in (1, 2, 3):                       # warm-up block per input (also calibrates the stock polling), not recorded
-    for arm in ARMS:
-        r = one(arm, n)
-        if not r["ok"]:
-            sys.exit(f"warm-up launch failed its checks ({arm}, final-{n}): {r['failures']}")
-for rep in range(REPS):
-    for n in (1, 2, 3):
-        order = list(ARMS); rng.shuffle(order)
-        for pos, arm in enumerate(order):
-            r = one(arm, n); r.update(arm=arm, input=f"final-{n}", block=rep * 3 + n - 1, position=pos); samples.append(r)
-        out.write_text(json.dumps({"selection": {"status": sel.get("status"), "reason": sel.get("reason"), "candidate": candidate,
-                                                 "selected": Path(selected).name},
-                                   "workload": WL, "valid": all(s["ok"] for s in samples), "samples": samples}, indent=1))
-    print("rep", rep, "done", time.strftime("%H:%M:%S"), flush=True)
-bad = [s for s in samples if not s["ok"]]
-print("samples", len(samples), "bad", len(bad))
-if bad:
-    # The samples and the reasons stay in the file; the campaign is not a valid comparison.
-    for s in bad:
-        print("FAILED", s["arm"], s["input"], "block", s["block"], "; ".join(s["failures"]))
-    sys.exit(1)
+with record_campaign(out, WL, REPS, os.environ.get("TREBUCHET_DATASET_ID")) as campaign, \
+     tempfile.TemporaryDirectory(dir="/dev/shm", prefix="trebuchet-bench-") as scratch:
+    SCRATCH = Path(scratch)
+
+    def snapshot(v):
+        return glob.glob(str(WORK / v / "store/snapshots/*"))[0]
+
+    FB = "O0-fb"
+    sel = json.loads((WORK / FB / "tune.json").read_text())
+    selected = sel["selected_artifact"]
+    parts = Path(selected).parts            # .../out/<candidate>/artifacts/<id>, or the snapshot when warm was kept
+    candidate = parts[parts.index("out") + 1] if "out" in parts else "ordinary warm"
+    ARMS = {
+        "stock-O0": ("stock", "O0"), "stock-fb": ("stock", FB),
+        "fd-O0": ("nocache", "O0"), "fd-fb": ("nocache", FB),
+        "fd-O0-warm": ("cache", "O0", snapshot("O0")),
+        "fd-fb-warm": ("cache", FB, snapshot(FB)),
+        "fd-fb-scopt": ("cache", FB, selected),
+    }
+    refs = {v: {n: (WORK / v / "ref" / f"final-{n}.guest.norm").read_text().split("\n")[:-1] for n in (1, 2, 3)} for v in ("O0", FB)}
+    expect = {}
+    samples = campaign["samples"]; serial = 0
+    campaign["selection"] = {"status": sel.get("status"), "reason": sel.get("reason"),
+                             "candidate": candidate, "selected": Path(selected).name}
+
+    if refs["O0"] != refs[FB]:
+        raise ValueError("FirmBOLT image and O0 image disagree on a final input")
+    rng = random.Random(20261121)
+    for n in (1, 2, 3):                       # warm-up block per input (also calibrates the stock polling), not recorded
+        for arm in ARMS:
+            r = one(arm, n)
+            if not r["ok"]:
+                raise RuntimeError(f"warm-up launch failed its checks ({arm}, final-{n}): {r['failures']}")
+    for rep in range(REPS):
+        for n in (1, 2, 3):
+            order = list(ARMS); rng.shuffle(order)
+            for pos, arm in enumerate(order):
+                r = one(arm, n); r.update(arm=arm, input=f"final-{n}", block=rep * 3 + n - 1, position=pos); samples.append(r)
+            write_json(out, campaign)
+        print("rep", rep, "done", time.strftime("%H:%M:%S"), flush=True)

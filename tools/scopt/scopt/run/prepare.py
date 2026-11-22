@@ -59,7 +59,7 @@ def _check_base(base_toml: Path) -> None:
 def prepare(base_toml: str | os.PathLike, out: str | os.PathLike, *,
             inputs: Sequence[str | os.PathLike] = (), input_bank: str = "input",
             qemu: str | os.PathLike | None = None, quiet: bool = False,
-            timeout_s: float = 300.0, oracle: bool = True) -> dict[str, Any]:
+            timeout_s: float = 300.0, oracle: bool = True, peer=None) -> dict[str, Any]:
     """Run the prep capture(s) into the fresh directory ``out``; returns prep.json."""
     from .deploy import DeployError, oracle as run_oracle
 
@@ -80,7 +80,7 @@ def prepare(base_toml: str | os.PathLike, out: str | os.PathLike, *,
         doc = launch(rd, timeout_s=timeout_s, extra_env={"QEMU_SC_CAPTURE": str(scm)},
                      prove=False, capture_files_ok=True, allow_rerun=k > 0,
                      run_json="run.json" if k == 0 else f"run-{k}.json",
-                     inputs={input_bank: inp} if inp else None)
+                     inputs={input_bank: inp} if inp else None, **({"peer": peer} if peer is not None else {}))
         log = Path(doc["stdout_log"]).read_text(errors="replace")
         rec: dict[str, Any] = {
             "k": k, "kind": "cold" if k == 0 else "warm_append", "input": inp,

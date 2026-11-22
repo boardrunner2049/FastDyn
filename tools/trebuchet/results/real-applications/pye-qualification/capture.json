@@ -1,0 +1,57 @@
+{
+  "base_toml": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+  "base_toml_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+  "captures": [
+    "/home/runner/work/_temp/pye/ordinary/prep/capture.scm",
+    "/home/runner/work/_temp/pye/ordinary/prep/capture-1.scm"
+  ],
+  "failures": [],
+  "input_bank": "psram",
+  "manifest": "/home/runner/work/_temp/pye/ordinary/prep/cache/fw.sc.fastdyn.json",
+  "oracle": {
+    "fingerprint": "6d88f45e914073ac0dddaae4e087dc47c5eb26a7e12da7a1d99ed7f30c6aba4a",
+    "qemu": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+    "run_dir": "/home/runner/work/_temp/pye/ordinary/prep/oracle"
+  },
+  "out": "/home/runner/work/_temp/pye/ordinary/prep",
+  "runs": [
+    {
+      "capture": "/home/runner/work/_temp/pye/ordinary/prep/capture.scm",
+      "capture_banner": true,
+      "capture_exists": true,
+      "capture_size": 3635272,
+      "exit_code": 0,
+      "input": "/home/runner/work/_temp/pye/ordinary/cases/update-package-version/product.romfs",
+      "k": 0,
+      "kind": "cold",
+      "qemu": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "qemu_sha256": "sha256:af40ee8663c9d10b1ce859880ac7947c2240d2f94c976b8be4a8371b571d95a9",
+      "records_after": 3415,
+      "records_before": null,
+      "run_json": "/home/runner/work/_temp/pye/ordinary/prep/run.json",
+      "timed_out": false,
+      "valid_records": 3415
+    },
+    {
+      "capture": "/home/runner/work/_temp/pye/ordinary/prep/capture-1.scm",
+      "capture_banner": true,
+      "capture_exists": true,
+      "capture_size": 41104,
+      "exit_code": 0,
+      "input": "/home/runner/work/_temp/pye/ordinary/cases/update-package-version/product.romfs",
+      "k": 1,
+      "kind": "warm_append",
+      "qemu": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "qemu_sha256": "sha256:af40ee8663c9d10b1ce859880ac7947c2240d2f94c976b8be4a8371b571d95a9",
+      "records_after": 3421,
+      "records_before": 3415,
+      "run_json": "/home/runner/work/_temp/pye/ordinary/prep/run-1.json",
+      "timed_out": false,
+      "valid_records": 3421
+    }
+  ],
+  "sc": "/home/runner/work/_temp/pye/ordinary/prep/cache/fw.sc",
+  "sc_sha256": "sha256:46f89cbfab54c2f1c86b4cad5b7f7e1b645996eaecf758acadeb492f50d25714",
+  "schema": "scopt.prepare/1",
+  "verdict": "PASS"
+}

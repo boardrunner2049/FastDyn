@@ -82,7 +82,7 @@ def profile_run(base_toml: str | os.PathLike, target: str | os.PathLike,
                 runtime_identity: str | os.PathLike | None = None,
                 artifact_domain: bool = False, store: str | os.PathLike | None = None,
                 watch: Sequence[str | os.PathLike] = (), quiet: bool = False,
-                timeout_s: float = 300.0) -> dict[str, Any]:
+                timeout_s: float = 300.0, peer=None) -> dict[str, Any]:
     """Profile ``target`` (store snapshot dir, artifact dir or ``.sc``) into ``out``."""
     from ..formats.profile_v1 import (ProfileError, check_flow, ingest, merge,
                                       publish_profile, write_profile)
@@ -137,7 +137,7 @@ def profile_run(base_toml: str | os.PathLike, target: str | os.PathLike,
             if phase_spec:
                 env["QEMU_SC_PROFILE_PHASES"] = phase_spec
             doc = launch(rd, timeout_s=timeout_s, extra_env=env, capture_files_ok=True,
-                         inputs={input_bank: inp} if inp else None)
+                         inputs={input_bank: inp} if inp else None, **({"peer": peer} if peer is not None else {}))
             rec.update(verdict=doc["verdict"], exit_code=doc["exit_code"],
                        appended=doc["appended"], output_norm_sha256=doc["output_norm_sha256"],
                        guest_norm=doc["guest_norm"], qemu=doc["qemu"],

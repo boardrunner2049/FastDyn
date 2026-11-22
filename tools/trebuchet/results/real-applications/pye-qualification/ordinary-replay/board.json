@@ -1,0 +1,14 @@
+{
+  "qemu": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "qemu_sha256": "4c31f261108c71740a99fa53a2e8a44eb46b36c1b38bed85ac28763ca25fab0a",
+  "regions": {
+    "ssram": "mps.ssram23",
+    "reserved_gap": "fakeram",
+    "psram": "psram",
+    "uart": "uart"
+  },
+  "marker_hex": "50594550524f4d31",
+  "observed_hex": "50594550524f4d31",
+  "psram_visible": true,
+  "verdict": "PASS"
+}

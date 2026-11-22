@@ -1,5 +1,13 @@
 # Trebuchet
 
+Use the [real application workflow](applications/README.md) for admission, candidate materialization,
+joint image selection, reserved final evaluation and reporting. The historical FreeRTOS dataset
+below is retained for implementation regressions and archival reproducibility. Its executable
+stages require the explicit `fixture` subcommand.
+
+## Historical FreeRTOS development campaign
+
+
 Trebuchet is the end-to-end pipeline that takes an unoptimized (`-O0`) firmware image
 through every optimization stage this project has, and measures each stage:
 
@@ -112,7 +120,7 @@ Speedup of each step, process (median of within-block ratios)
 | `algobench` | 0.917× | 1.013× | 1.236× | 1.148× | 0.903× |
 | **geometric mean** | **1.128×** | **1.024×** | **1.111×** | **1.281×** | **0.906×** |
 
-`trebuchet.sh dataset_report` prints these tables from a work directory;
+`trebuchet.sh fixture dataset_report` prints these tables from a work directory;
 `python3 lib/dataset_report.py results/2026-11-21-dataset compute fwbench kernbench libbench algobench`
 prints them from the stored samples.
 
@@ -142,8 +150,8 @@ export FIRMBOLT_REPO=/path/to/firmbolt
 export FIRMBOLT_BOLT=/path/to/llvm-bolt         # the FirmBOLT-enabled build
 export TREBUCHET_CPUS=8-11                      # optional: CPUs for the timed runs
 
-tools/trebuchet/trebuchet.sh dataset            # all five categories, then the tables
-TREBUCHET_WORKLOAD=fwbench tools/trebuchet/trebuchet.sh all    # one category
+tools/trebuchet/trebuchet.sh fixture dataset            # all five categories, then the tables
+TREBUCHET_WORKLOAD=fwbench tools/trebuchet/trebuchet.sh fixture all    # one category
 ```
 
 `dataset` takes about two and a half hours on a 32-core host: preparation of the five
@@ -306,3 +314,20 @@ are the `firmware` and `build` stages, the marker symbols and input bank address
 `lib/bench.py`. The image needs a defined end of work, an input that does not go
 through the FastDyn configuration, `--emit-relocs`, one `.text` section, and free flash
 for FirmBOLT's relocated code.
+
+### Campaign checkpoints
+
+Each new campaign records a run ID, workload, planned input order, arms, and repetition
+count in `results/campaign.json` before warm-up. Checkpoints are replaced atomically
+after each complete block. Only a completed campaign with one checked launch per
+planned block and arm, the correct input, distinct positions, and positive timing
+values can produce a performance report. A terminated process can leave a running
+checkpoint. A detected launch or preparation error leaves the campaign failed.
+`report.py CAMPAIGN.json --diagnostic` can display available timed blocks after a
+failure and exits with status 2. Archived version 1 campaigns use their published
+eight-repetition, three-input, seven-arm plan.
+
+The dataset driver assigns a dataset run ID before preparation, records it in each
+campaign, and stops on preparation, selection, or benchmark failure. The dataset
+report checks the workload and dataset identities before aggregation. An interrupted
+or failed dataset has no suite geometric mean.

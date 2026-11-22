@@ -173,6 +173,18 @@ def cpu_model(cpu: str) -> tuple[str, list[str]]:
     return isa, sorted(feats)
 
 
+def _vector_base(cpu: Mapping[str, Any]) -> int:
+    value = cpu.get("init_nsvtor", "0")
+    if value is None and cpu.get("machine") == "mps2-an385":
+        # This board boots its Cortex-M3 from the on-chip vector table at zero.
+        return 0
+    try:
+        return int(str(value), 0)
+    except ValueError as exc:
+        raise BundleSchemaError("cannot bind this machine's reset vector base",
+                                code="unknown_vector_base") from exc
+
+
 def _elf_entry_points(path: str, vtor: int) -> dict[str, str]:
     from elftools.elf.elffile import ELFFile
 
@@ -281,7 +293,7 @@ def identity_bundle(config: str | os.PathLike, manifest: str | os.PathLike | Map
     plan = _manifest_plan(man)
 
     isa, feats = cpu_model(str(cpu0.get("cpu")))
-    vtor = int(str(cpu0.get("init_nsvtor", "0")), 0)
+    vtor = _vector_base(cpu0)
     dev_sha = _content_sha(cf.get("device_config"))
     banks = sorted((b.canonical() for b in memory_banks(cfg)), key=lambda b: b["id"])
 
@@ -388,7 +400,7 @@ def manifest_bundle_fields(man: Mapping[str, Any], *, files: bool = True
             "fmu": None if fmu is None else _file_sha256_id(fmu)})
         if fw is not None:
             out["entry_points"] = _elf_entry_points(
-                fw, int(str(cpu0.get("init_nsvtor", "0")), 0))
+                fw, _vector_base(cpu0))
         else:
             unver.append("entry_points")
     else:

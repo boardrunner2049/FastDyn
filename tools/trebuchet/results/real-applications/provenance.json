@@ -1,0 +1,33 @@
+{
+  "base_fastdyn": "16790d6e56c25b820748d275cb80577db205bcbd",
+  "base_firmbolt": "881dfdb5a7897f964a2219fb77f2b1f25e4a6a08",
+  "qemu": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+  "llvm_firmbolt": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "llvm_bridge": "llvmorg-20.1.2",
+  "bridge_release_archive_sha256": "f0a4a240aabc9b056142d14d5478bb6d962aeac549cbd75b809f5499240a8b38",
+  "bridge_development_package": "Debian llvm-toolchain-20 1:20.1.2-1~exp1, amd64",
+  "bridge_packaging_note": "Relocated LLVMExports.cmake bound the distribution libz3 linker name to installed libz3.so.4.",
+  "setup_runtime": {
+    "local_qemu_sha256": "fa405951545dfeee0c0140a3f89d6a4777752f28d17c215b3d50cbc5da75d51b",
+    "local_cortexm_plugin_sha256": "2b1a38488a7bec08f2ff954a5463ba1d0ee86fa522fe6a5e398209b7681106e9",
+    "native_bridge_sha256": "ae1b66a8194160fa2d52522132b713eb3cea4c2a7d09611af8b92463bf82dd77",
+    "initial_firmbolt_sha256": "750b945ebbfed7bc0eaf5036736194e4c1c182de4611afdce6bc61ca71accaf3"
+  },
+  "host": {
+    "machine": "x86_64",
+    "kernel": "6.18.57",
+    "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+    "cpu_quota": "400000 100000"
+  },
+  "setup_arm_gcc": "Ubuntu gcc-arm-none-eabi 15:13.2.rel1-2",
+  "hosted_arm_toolchain": "record per job",
+  "local_aslr": "setarch x86_64 -R denied by outer host, including constrained rootless Docker experiment",
+  "hosted_aslr": {
+    "check": "Two independent processes asserted personality & 0x40000 and identical stack mapping",
+    "os": "ubuntu-24.04",
+    "kernel": "7.0.0-1014-aws",
+    "temporary_run_id": 44979153501,
+    "result": "success"
+  },
+  "application_binaries": "Per-image SHA-256 and hook contracts live in each applications/ subdirectory. Hosted QEMU is rebuilt and bound on each timing runner."
+}
