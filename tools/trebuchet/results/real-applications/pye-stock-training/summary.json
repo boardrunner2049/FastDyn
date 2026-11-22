@@ -1,0 +1,29 @@
+{
+  "operational_ns": {
+    "original_median": 16892409.0,
+    "firmbolt_median": 16928242.5,
+    "median_paired_speedup": 1.0119683963622528,
+    "bootstrap_95": [
+      0.9892009426124972,
+      1.0225126660276598
+    ]
+  },
+  "process_ns": {
+    "original_median": 64814506.5,
+    "firmbolt_median": 64856113.5,
+    "median_paired_speedup": 0.9976248474351112,
+    "bootstrap_95": [
+      0.9816530268436613,
+      1.0126728084197647
+    ]
+  },
+  "qemu_cpu_s": {
+    "original_median": 0.060252,
+    "firmbolt_median": 0.060433499999999994,
+    "median_paired_speedup": 0.9916869063925595,
+    "bootstrap_95": [
+      0.9781318028893726,
+      1.0110801417707582
+    ]
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "scope": "stock QEMU, cacheless, training edit only",
+  "seed": 901783,
+  "pairs": 24,
+  "cpu": 3,
+  "host": {
+    "system": "Linux",
+    "node": "ip-10-0-129-160",
+    "release": "7.0.0-1014-aws",
+    "version": "#14~24.04.1-Ubuntu SMP PREEMPT Fri Sep 18 21:24:59 UTC 2026",
+    "machine": "x86_64",
+    "processor": "x86_64"
+  },
+  "qemu_sha256": "e5dc5f9ef15a3f39d65666ae0ff8facc3ae08c97cf642dfa1164531aa91bfdfb",
+  "qemu_version": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+  "firmware_sha256": {
+    "original": "e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+    "firmbolt": "d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016"
+  },
+  "orders": [
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "firmbolt",
+      "original"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ],
+    [
+      "original",
+      "firmbolt"
+    ]
+  ],
+  "warmup_pairs": 1,
+  "primary": "operational_ns",
+  "interval": "paired percentile bootstrap, 2000 samples"
+}
