@@ -993,3 +993,23 @@ def test_compact_single_guard_retains_all_failure_paths(kf2):
     with pytest.raises(GuardError):
         decode_guard(code, short.off, tc_abs=0x7FFF_0000_00C0,
                      struct_off=-0xc0, registered={}, offsets=short.offsets)
+
+
+def test_reversed_general_comparisons_preserve_slot_identity_and_fallback():
+    targets = (GuardTarget(0x1800, 0, "GENERAL"), GuardTarget(0x1c00, 1, "GENERAL"))
+    regular = _emit(targets)
+    reverse = _emit(tuple(replace(t, reverse_comparisons=True) for t in targets))
+    regs = {s.slot_n: (s.field_off, s.reset_off) for s in regular.slots}
+    assert regs == {s.slot_n: (s.field_off, s.reset_off) for s in reverse.slots}
+    for stub, order in ((regular, targets), (reverse, targets[::-1])):
+        guard = decode_guard(bytes(112) + stub.code, 112, tc_abs=0x7fff_0000_00c0,
+                             struct_off=-0xc0, offsets=GuardOffsets(), registered=regs)
+        assert [v for atom, _, v in guard.atoms if atom == "g_pc"] == [t.vaddr for t in order]
+        assert [(s.vaddr, s.slot_n) for s in guard.slots] == [(t.vaddr, t.slot_n) for t in targets]
+    first = min(s.label_off for s in regular.slots) - 112
+    assert regular.code[first:] == reverse.code[first:]
+    with pytest.raises(GuardError):
+        _emit((replace(targets[0], reverse_comparisons=True),))
+    with pytest.raises(GuardError):
+        _emit((replace(targets[0], reverse_comparisons=True),
+               replace(targets[1], kind="SPEC", reverse_comparisons=True)))

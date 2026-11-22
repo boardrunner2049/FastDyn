@@ -1,5 +1,7 @@
 """Guarded UDIV sidecar serialization, physical correspondence and recovery."""
 
+import pytest
+
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -11,14 +13,15 @@ from scopt.formats.scm_v1 import ScmInsn, ScmOpMark, ScmPool, TbChunk, parse_scm
 from scopt.importer.crosscheck import _native_splice_error
 from scopt.link import _scm_sites
 from scopt.splice_layout import materialize_splice
-from scopt.validate_sym.native_udiv import prepare_udiv_splice
+from scopt.validate_sym.native_udiv import prepare_udiv_splice, prepare_reciprocal29
 from tests.synth import builders
 from tests.unit.test_native_udiv import _fixture
 
 
-def test_derived_capture_rejects_fallback_recovery_and_binding_mutations():
+@pytest.mark.parametrize("prepare", [prepare_udiv_splice, prepare_reciprocal29])
+def test_derived_capture_rejects_fallback_recovery_and_binding_mutations(prepare):
     unit, req, base = _fixture()
-    req = replace(req, splice=prepare_udiv_splice(unit, req, base))
+    req = replace(req, splice=prepare(unit, req, base))
     out = materialize_splice(unit, req, base)
     raw, = parse_scm(builders.build_scm(builders.simple_units(1))).tbs.values()
     mark, = out.opmarks

@@ -143,7 +143,7 @@ class HostInline:
         budgets=Budgets(max_wall_s=60, max_code_growth_bytes=65536),
         invalidates=frozenset({"code", "meta", "layout"}),
         params_schema={**_COMMON_SCHEMA, **_EXTREME_SCHEMA, "mode": str, "allow_faulting": bool,
-                       "udiv_mode": str},
+                       "udiv_mode": str, "udiv_only": bool},
     )
 
     def _accept_abi(self, typemask: int) -> bool:
@@ -189,6 +189,8 @@ class HostInline:
         framed = mode == "extreme" or mode != "island" and "max_inline_depth" in params
         if not framed and "compact_frame" in params:
             return PassResult(Outcome.FAILED, "invalid_params", "compact_frame requires extreme mode or recursive splicing")
+        if params.get("udiv_only") and not faulting:
+            return PassResult(Outcome.FAILED, "invalid_params", "udiv_only requires faulting inlining")
         if "udiv_mode" in params and not faulting:
             return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode requires faulting inlining")
         if framed:
@@ -259,6 +261,9 @@ class HostInline:
 
         for unit in view.units():
             _remaining(deadline)
+            if params.get("udiv_only") and not any(h.name == "udiv" for h in unit.bindings.helpers):
+                stats["units_without_udiv"] += 1
+                continue
             scope = ScopeRef("unit", unit.uid)
             result = ctx.analysis("native-callees", scope)
             count = None if profile is None else profile.count(unit.uid, params["phase"])
@@ -266,6 +271,8 @@ class HostInline:
             for binding in result.value:
                 stats["sites_seen"] += 1
                 call, callee = binding.call, binding.callee
+                if params.get("udiv_only") and call.helper_name != "udiv":
+                    continue
                 if binding.reason is not None or callee is None:
                     report(binding, binding.reason or "native_image_unavailable", binding.detail, entries)
                 elif (unit.stub_start is not None or unit.native_fragments
@@ -356,7 +363,7 @@ class HostInlineSplice(HostInline):
     """Replace a call with a verified fallthrough splice."""
 
     descriptor = replace(HostInline.descriptor, name="host-inline-splice",
-                         params_schema={**_COMMON_SCHEMA, "udiv_mode": str})
+                         params_schema={**_COMMON_SCHEMA, "udiv_mode": str, "udiv_only": bool})
     default_params = {**HostInline.default_params, "max_callee_bytes": 256,
                       "static_max_callee_bytes": 160}
     max_sites_per_unit = MAX_INTEGER_SPLICES
@@ -368,8 +375,8 @@ class HostInlineSplice(HostInline):
         self.allow_faulting = allow_faulting
 
     def run(self, view, ctx, edits) -> PassResult:
-        if ctx.params.get("udiv_mode", "auto") not in ("auto", "full", "cleanup", "partial-cleanup", "guarded"):
-            return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode must be auto, full, cleanup, partial-cleanup or guarded")
+        if ctx.params.get("udiv_mode", "auto") not in ("auto", "full", "cleanup", "partial-cleanup", "guarded", "reciprocal29", "reciprocal29-inline"):
+            return PassResult(Outcome.FAILED, "invalid_params", "udiv_mode must be auto, full, cleanup, partial-cleanup, guarded, reciprocal29 or reciprocal29-inline")
         return self._run_candidates(view, ctx, edits)
 
     def _binding_refusal(self, binding: NativeCallBinding) -> tuple[str, str] | None:
@@ -397,6 +404,10 @@ class HostInlineSplice(HostInline):
             from ..validate_sym.native_udiv_full import is_full_udiv_binding, prepare_full_udiv_splice
 
             mode = params.get("udiv_mode", "auto")
+            if mode in ("reciprocal29", "reciprocal29-inline"):
+                from ..validate_sym.native_udiv import prepare_reciprocal29
+
+                return prepare_reciprocal29(unit, request, code_address, inline_miss=mode == "reciprocal29-inline")
             if mode == "full" or (mode == "auto" and is_full_udiv_binding(binding)):
                 return prepare_full_udiv_splice(unit, request, code_address, cleanup=(mode == "auto"))
             if mode in ("cleanup", "partial-cleanup", "auto"):

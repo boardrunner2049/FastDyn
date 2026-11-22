@@ -10,11 +10,13 @@ from ..canon import canonical_json, sha256_id
 
 
 UDIV_KIND = "guarded-udiv"
+UDIV_29_KIND = "guarded-udiv-29"
+UDIV_29_INLINE_KIND = "guarded-udiv-29-inline"
 UDIV_CLEANUP_KIND = "guarded-udiv-cleanup"
 FULL_UDIV_KIND = "full-udiv"
 FULL_UDIV_CLEANUP_KIND = "full-udiv-cleanup"
 FULL_UDIV_KINDS = frozenset((FULL_UDIV_KIND, FULL_UDIV_CLEANUP_KIND))
-GUARDED_UDIV_KINDS = frozenset((UDIV_KIND, UDIV_CLEANUP_KIND))
+GUARDED_UDIV_KINDS = frozenset((UDIV_KIND, UDIV_CLEANUP_KIND, UDIV_29_KIND, UDIV_29_INLINE_KIND))
 UDIV_KINDS = GUARDED_UDIV_KINDS | FULL_UDIV_KINDS
 # QEMU TCG u32 (env, u32, u32) on the admitted x86-64 SysV host.
 UDIV_TYPEMASK = 2 | (6 << 3) | (2 << 6) | (2 << 9)

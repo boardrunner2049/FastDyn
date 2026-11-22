@@ -60,7 +60,7 @@ from ..decode.x86 import (Arena, DecodeMemo, DecodedRef, Insn as X86Insn, RefKin
                           extract_refs, sweep, tiles)
 from ..formats.enums import NONE_U32, Encoding, OpMarkKind, SiteKind, TbFlag
 from ..model.native import (FULL_UDIV_CLEANUP_KIND, FULL_UDIV_KINDS, GUARDED_UDIV_KINDS,
-                            UDIV_CLEANUP_KIND, UDIV_KIND, UDIV_TYPEMASK)
+                            UDIV_29_INLINE_KIND, UDIV_29_KIND, UDIV_CLEANUP_KIND, UDIV_KIND, UDIV_TYPEMASK)
 from ..formats.sc_v5 import ScHeader, ScUnit
 from ..formats.scm_v1 import TbChunk
 from ..model.unit import (AnchoredPointer, Fixup, HelperBinding, Insn, Ldst, OpMark,
@@ -650,6 +650,10 @@ def _native_single_splice_error(code, chunk, ctx, tc_abs, physical, page_bits, r
 
             verify_udiv_cleanup_body(req, code[:chunk.pool_start_or_none], end, chunk.sites, tc_abs,
                                      tb_ret=ctx.tb_ret_addr, epilogue=ctx.epilogue_addr)
+        elif splice.kind in (UDIV_29_KIND, UDIV_29_INLINE_KIND):
+            from ..validate_sym.native_udiv import verify_reciprocal29_body
+
+            verify_reciprocal29_body(req)
         elif splice.kind == UDIV_KIND:
             from ..validate_sym.native_udiv import verify_udiv_body
 

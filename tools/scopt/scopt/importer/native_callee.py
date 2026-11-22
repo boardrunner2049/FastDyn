@@ -167,13 +167,26 @@ class NativeCalleeResolver:
         if image is not None:
             return role, image
         try:
+            export = os.environ.get("SCOPT_NATIVE_ATTESTED_IMAGES")
+            witness = None
+            if export:
+                from .native_attestation import verify_export
+
+                try:
+                    witness = verify_export(export, os.environ.get("SCOPT_NATIVE_ATTESTATION_SHA256"),
+                                            role, self._runtime["runtime_identity_id"], self._run_info,
+                                            mapping, identity, digest)
+                except (ValueError, KeyError, OSError, TypeError) as error:
+                    raise CalleeResolutionError("native_image_mismatch", str(error)) from error
             fd = os.open(mapping.path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
             with os.fdopen(fd, "rb") as f:
                 st = os.fstat(f.fileno())
-                if not stat.S_ISREG(st.st_mode) or _file_identity(st) != identity:
+                physical_identity = _file_identity(st)
+                if (not stat.S_ISREG(st.st_mode) or st.st_size != identity[2]
+                        or witness is None and physical_identity != identity):
                     raise CalleeResolutionError("native_image_mismatch", "image file was replaced")
                 data = f.read()
-                if (_file_identity(os.fstat(f.fileno())) != identity
+                if (_file_identity(os.fstat(f.fileno())) != physical_identity
                         or sha256_id(data) != digest):
                     raise CalleeResolutionError("native_image_mismatch", "image digest differs")
             stream = io.BytesIO(data)
@@ -194,6 +207,16 @@ class NativeCalleeResolver:
             if len(build_ids) > 1:
                 raise CalleeResolutionError("native_image_mismatch", "conflicting ELF build IDs")
             stream.seek(0)
+            if witness is not None and role == "qemu":
+                helper = witness["helper"]
+                start = helper["image_offset"]
+                expected = bytes.fromhex(helper["code"])
+                symbols = read_elf(stream, mapping.path)
+                sym = symbols.bounded_function("helper_udiv", helper["elf_address"])
+                if (helper["symbol"] != "helper_udiv" or sym is None or sym.size != len(expected)
+                        or data[start:start + len(expected)] != expected):
+                    raise CalleeResolutionError("native_image_mismatch", "attested UDIV image bytes differ")
+                stream.seek(0)
             image = _NativeImage(read_elf(stream, mapping.path), data,
                                  next(iter(build_ids), None), digest)
         except OSError as exc:

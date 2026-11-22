@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ..decode.x86 import sweep
 from ..formats.enums import SiteKind
-from ..model.native import (FULL_UDIV_KINDS, UDIV_CLEANUP_KIND, UDIV_KIND, UDIV_TYPEMASK,
+from ..model.native import (FULL_UDIV_KINDS, UDIV_29_INLINE_KIND, UDIV_29_KIND, UDIV_CLEANUP_KIND, UDIV_KIND, UDIV_TYPEMASK,
                             InlineCall, NativeFragment, NativeSplice)
 from ..model.unit import TBUnit
 from .native_inline import _require, _verify_bound_site
@@ -59,15 +59,44 @@ def _body(request: InlineCall) -> NativeSplice:
     return _emit_guarded(request, source[arm:ret])
 
 
-def _emit_guarded(request: InlineCall, hot: bytes) -> NativeSplice:
-    """Lay out a verified nonzero arm and the original recovery CALL."""
+def _emit_guarded(request: InlineCall, hot: bytes, *, guard=_TEST_EDX, fallback_branch=0x74, kind=UDIV_KIND) -> NativeSplice:
+    """Keep the fallback CALL ending at the exact remapped guest continuation."""
     call = request.call_bytes
-    padding = (-(4 + len(hot) + 2)) % 8
+    header_size = len(guard) + 2
+    padding = (-(header_size + len(hot) + 2)) % 8
     to_call = len(hot) + 2 + padding
     over_call = padding + len(call)
-    code = (_TEST_EDX + bytes((0x74, to_call)) + hot + bytes((0xeb, over_call))
+    code = (guard + bytes((fallback_branch, to_call)) + hot + bytes((0xeb, over_call))
             + b"\x90" * padding + call)
-    return NativeSplice(request.call_off, b"", code, kind=UDIV_KIND)
+    return NativeSplice(request.call_off, b"", code, kind=kind)
+
+
+def _reciprocal29_body(request: InlineCall, *, inline_miss=False) -> NativeSplice:
+    _body(request)  # Reprove the captured helper entry, ABI and complete register/flag tail.
+    # M = ceil(2**36 / 29), 29*M - 2**36 = 5. For n < 2**32,
+    # 5*n / (29*2**36) < 1/29. Even remainder 28 cannot round
+    # into the next quotient. The unsigned 32x32 product fits 64 bits.
+    multiply = bytes.fromhex("89f0 b909cb3d8d 480fafc1 48c1e824")
+    clears = _NONZERO[8:]
+    if inline_miss:
+        # Zero retains the precise helper CALL. Other nonmatches use the
+        # original hardware divide and join the same register/flags tail.
+        ordinary = _NONZERO[:8]
+        check = bytes.fromhex("83fa1d") + bytes((0x74, len(ordinary) + 2))
+        hot = check + ordinary + bytes((0xeb, len(multiply))) + multiply + clears
+        return _emit_guarded(request, hot, kind=UDIV_29_INLINE_KIND)
+    return _emit_guarded(request, multiply + clears, guard=bytes.fromhex("83fa1d"),
+                         fallback_branch=0x75, kind=UDIV_29_KIND)
+
+
+def verify_reciprocal29_body(request: InlineCall) -> None:
+    _require(_reciprocal29_body(request, inline_miss=request.splice.kind == UDIV_29_INLINE_KIND) == request.splice, "splice_correspondence",
+             "constant-29 guard, quotient, clobbers or retained recovery CALL differ")
+
+
+def prepare_reciprocal29(unit: TBUnit, request: InlineCall, code_address: int, *, inline_miss=False) -> NativeSplice:
+    prepare_udiv_splice(unit, request, code_address)
+    return _reciprocal29_body(request, inline_miss=inline_miss)
 
 
 def verify_udiv_body(request: InlineCall) -> None:
@@ -114,7 +143,10 @@ def verify_udiv_splice(unit: TBUnit, request: InlineCall, code_address: int) -> 
 
 def verify_udiv_variant(unit: TBUnit, request: InlineCall, code_address: int) -> None:
     kind = request.splice.kind
-    if kind in FULL_UDIV_KINDS:
+    if kind in (UDIV_29_KIND, UDIV_29_INLINE_KIND):
+        _require(prepare_reciprocal29(unit, request, code_address, inline_miss=kind == UDIV_29_INLINE_KIND) == request.splice,
+                 "splice_correspondence", "constant-29 site/body mismatch")
+    elif kind in FULL_UDIV_KINDS:
         from .native_udiv_full import verify_full_udiv_splice
 
         verify_full_udiv_splice(unit, request, code_address)

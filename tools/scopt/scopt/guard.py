@@ -57,6 +57,7 @@ __all__ = [
 ]
 
 GUARD_TEMPLATE_ID = "guard-v1"
+REVERSED_GENERAL_PAIR = "guard-v1-reverse-general-pair"
 COMPACT_GUARD = "guard-single-fallthrough-v1"
 TAIL_LEN = 11
 #: cs_base bits the lookup ORs into a local copy only (design §4.1, G17)
@@ -132,6 +133,7 @@ class GuardTarget:
     registered: bool = True
     r0_zero: bool = False
     compact: bool = False
+    reverse_comparisons: bool = False
 
 
 @dataclass(frozen=True)
@@ -335,9 +337,17 @@ def emit_guard(*, stub_off: int, tail: bytes, pool_slot_off: int, lookup_helper_
         assert o.r0 is not None
         buf += b"\x83\xbd" + _d32(o.r0) + b"\x00"
         jcc(_JNE, "F")
-    pc_cmp = []
-    for k, t in enumerate(targets):
-        pc_cmp.append(pos())
+    order = list(range(len(targets)))
+    reversed_pair = any(t.reverse_comparisons for t in targets)
+    if reversed_pair:
+        if len(targets) != 2 or not all(t.kind == "GENERAL" and t.registered
+                                        and t.reverse_comparisons for t in targets):
+            raise GuardError("guard_contract_violation", "reverse requires two new GENERAL slots")
+        order.reverse()
+    pc_cmp = {}
+    for k in order:
+        t = targets[k]
+        pc_cmp[k] = pos()
         buf += b"\x81\xbd" + _d32(o.pc) + _u32(t.vaddr)
         if compact:
             jcc(_JNE, "F")
@@ -400,7 +410,7 @@ def emit_guard(*, stub_off: int, tail: bytes, pool_slot_off: int, lookup_helper_
         out_sites.append(tuple(s))
     return GuardStub(stub_off, bytes(buf), f_off, kf, kf2, tuple(infos), tuple(out_sites),
                      tuple(sorted(marks)), tuple(fixups), offsets,
-                     COMPACT_GUARD if compact else GUARD_TEMPLATE_ID)
+                     REVERSED_GENERAL_PAIR if reversed_pair else COMPACT_GUARD if compact else GUARD_TEMPLATE_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +554,8 @@ def decode_guard(code: bytes, off: int, *, tc_abs: int, struct_off: int,
     rets: list[int | None] = []
     srel: list[int | None] = []
     reg = dict(registered or {})
-    for co, v, lk in pcs:
+    reversed_pair = len(pcs) == 2 and pcs[0][2] > pcs[1][2]
+    for co, v, lk in sorted(pcs, key=lambda pc: pc[2]):
         if p != lk:
             raise GuardError(viol, f"L for {v:#x} at +{lk:#x}, expected +{p:#x}")
         lab = p
@@ -588,6 +599,8 @@ def decode_guard(code: bytes, off: int, *, tc_abs: int, struct_off: int,
                                   co, lab, jo, fo, ro, "jmp_F"))
             rets.append(None)
             srel.append(None)
+    if reversed_pair and not all(s.registered and s.kind == "GENERAL" for s in slots):
+        raise GuardError(viol, "reversed comparisons require two registered GENERAL slots")
     if compact and (r0_zero or len(slots) != 1 or not slots[0].registered or slots[0].kind != "GENERAL"):
         raise GuardError(viol, "compact guard requires one registered GENERAL slot")
     if r0_zero and (len(slots) != 1 or slots[0].kind != "SPEC"):

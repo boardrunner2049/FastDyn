@@ -55,7 +55,7 @@ def _descriptor(name: str) -> PassDescriptor:
     params = {"targets_per_exit": int, "max_units": int, "min_pass_share": float,
               "c_lookup": float, "c_guard": float, "c_fail": float,
               "min_target_hits": int, "c_link": float, "compact_guard": bool,
-              "rank_by_net_work": bool, "c_target_check": float, "max_total_growth_bytes": int}
+              "reverse_general_pair": bool, "rank_by_net_work": bool, "c_target_check": float, "max_total_growth_bytes": int}
     if name == "chain-returns":
         params["min_return_share"] = float
     return PassDescriptor(
@@ -123,7 +123,7 @@ def _exit_bound(exit_plan):
 
 
 def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResult:
-    from ..guard import COMPACT_GUARD, GUARD_TEMPLATE_ID, GuardError, guard_key
+    from ..guard import REVERSED_GENERAL_PAIR, COMPACT_GUARD, GUARD_TEMPLATE_ID, GuardError, guard_key
 
     b3 = ctx.b3
     if b3 is None:
@@ -321,10 +321,14 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
         net_saving += plan.saving
         guard_attempts += plan.total
         fallbacks += plan.fallback
+        template = COMPACT_GUARD if plan.compact else GUARD_TEMPLATE_ID
+        if (p.get("reverse_general_pair", False) and len(plan.picks) == 2
+                and st.exit_plan(row.uid, row.tail_off) is None):
+            template = REVERSED_GENERAL_PAIR
         for c, cu, slot, installs, avoided in plan.picks:
             edits.redirect_exit(GuardedSlot(row.uid, row.exit_id, slot, "GENERAL", exit_class,
                                             c.vaddr, cu.key, tail_off=row.tail_off,
-                                            guard_template_id=COMPACT_GUARD if plan.compact else GUARD_TEMPLATE_ID),
+                                            guard_template_id=template),
                                 dependency_additions=(f"edge:{row.uid}->{cu.uid}",))
             n_slots += 1
             guarded_w += int(c.count)

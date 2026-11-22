@@ -17,7 +17,7 @@ from scopt.model.native import InlineCall, NativeFragment
 from scopt.model.unit import Bindings, HelperBinding, Insn, OpMark, PoolEntry, RecoveryPoint, Site
 from scopt.splice_layout import materialize_splice, prepare_splice_layout
 from scopt.validate_sym.native_inline import NativeInlineError, verify_site
-from scopt.validate_sym.native_udiv import prepare_udiv_splice, verify_udiv_body, verify_udiv_splice
+from scopt.validate_sym.native_udiv import prepare_reciprocal29, prepare_udiv_splice, verify_udiv_body, verify_udiv_splice
 from tests.synth.fake_snapshot import fake_snapshot
 
 
@@ -142,3 +142,33 @@ def test_native_nonzero_bypasses_call_and_zero_observes_precise_return_address()
             assert observed.value == 0
         assert invoke(ctypes.byref(observed), 0xffffffff, 0) == 0
         assert observed.value == address + cont
+
+
+@pytest.mark.skipif(platform.system() != "Linux" or platform.machine() != "x86_64",
+                    reason="executes the emitted AMD64 instructions")
+def test_reciprocal29_native_quotient_and_fallback_return_pc():
+    unit, req, base = _fixture()
+    splice = prepare_reciprocal29(unit, req, base)
+    cont = len(splice.code)
+    slot = req.pool_slot_off - req.call_off + cont - len(req.call_bytes)
+    probe = bytes.fromhex("488b0424 488907 31c0 c3")
+    with mmap.mmap(-1, mmap.PAGESIZE, prot=mmap.PROT_READ | mmap.PROT_WRITE) as page:
+        addr = ctypes.addressof(ctypes.c_char.from_buffer(page))
+        page[:cont+1] = splice.code + b"\xc3"
+        page[slot:slot+8] = (addr+slot+8).to_bytes(8, "little")
+        page[slot+8:slot+8+len(probe)] = probe
+        assert ctypes.CDLL(None).mprotect(ctypes.c_void_p(addr), ctypes.c_size_t(mmap.PAGESIZE),
+                                          mmap.PROT_READ | mmap.PROT_EXEC) == 0
+        call = ctypes.CFUNCTYPE(ctypes.c_uint32, ctypes.POINTER(ctypes.c_size_t),
+                               ctypes.c_uint32, ctypes.c_uint32)(addr)
+        observed = ctypes.c_size_t()
+        rng = random.Random(29)
+        numerators = [0,1,28,29,30,0x7fffffff,0x80000000,0xfffffffe,0xffffffff]
+        numerators.extend(rng.getrandbits(32) for _ in range(8192))
+        for n in numerators:
+            assert call(ctypes.byref(observed), n, 29) == n // 29
+        assert observed.value == 0
+        for d in (0, 1, 2, 28, 30, 0xffffffff):
+            observed.value = 0
+            assert call(ctypes.byref(observed), 0xffffffff, d) == 0
+            assert observed.value == addr + cont
