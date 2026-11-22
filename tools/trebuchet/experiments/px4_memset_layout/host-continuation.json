@@ -1,0 +1,52 @@
+{
+  "schema": "trebuchet.host-continuation/1",
+  "recorded_at": "2026-11-22",
+  "revisions": {
+    "fastdyn": "f4477bf33e878e10ed117f9dbfcceb427c9f6d0d",
+    "qemu_sha256": "94e2c7862c7f511f2158988216e8b933a2327bb42025392a34751000750305cd"
+  },
+  "fixed_address_host": {
+    "kernel": "Linux 6.17.0-1033-oem x86_64 GNU/Linux",
+    "probe": ["setarch", "x86_64", "-R", "true"],
+    "exit_code": 0,
+    "status": "available",
+    "evidence": "Both preserved profile runs also exited zero under setarch x86_64 -R and loaded their requested v5 caches at code_address 0x7fff6c000000."
+  },
+  "preserved_warm_runs": {
+    "original": {
+      "run": "/data/trebuchet-clean/work/scopt-px4-original/unpacked-prof/rep-0/run.json",
+      "verdict": "PASS",
+      "records_before": 47005,
+      "records_after": 54285,
+      "appended": 7280,
+      "expanded_cache": "/data/trebuchet-clean/work/scopt-px4-original/unpacked-prof/rep-0/cache/px4.sc"
+    },
+    "firmbolt_memset": {
+      "run": "/data/trebuchet-clean/work/scopt-px4-combined/prof/rep-0/run.json",
+      "verdict": "PASS",
+      "records_before": 48137,
+      "records_after": 55674,
+      "appended": 7537,
+      "expanded_cache": "/data/trebuchet-clean/work/scopt-px4-combined/prof/rep-0/cache/px4.sc"
+    }
+  },
+  "timing_readiness": {
+    "status": "blocked",
+    "reason": "The preserved warm runs appended translations, so neither cache is sealed. Timing is valid only after an expanded cache is reimported, independently replayed with appended=0, optimized with an active pass, and the loaded candidate independently replays with appended=0.",
+    "active_artifact_requirements": [
+      "at least one requested pass receipt has outcome candidate and nonempty affected units",
+      "input_snapshot_id differs from output_snapshot_id",
+      "the runtime proof identifies the requested artifact and reports no replacement",
+      "every scored replay reports appended=0"
+    ]
+  },
+  "missing_prior_campaign": {
+    "path": "/workspace/trebuchet-work/empirical/runtime",
+    "status": "absent",
+    "impact": "The old Pye campaign described as six warmups plus two of four scored blocks cannot be resumed or summarized from this host because its raw records and boot-bound caches are unavailable. This is untested/blocked, not a negative result."
+  },
+  "next_procedure": {
+    "document": "HOST-CONTINUATION.md",
+    "decision_rule": "Do not time until the baseline sealing replay and candidate sealing replay both pass with appended=0 and the candidate activation checks pass."
+  }
+}
