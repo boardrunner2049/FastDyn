@@ -1,0 +1,77 @@
+{
+  "training_policy_sha256": "db30b2a341a7fac2a4d2adac28b43135977866e6924627f8608ab20e38615fed",
+  "allocator": [
+    "0x08010000",
+    "0x08020000"
+  ],
+  "input_elf_sha256": "3aa65e553ef86a34767bc6595c94f319fda99421d695deae30844c35cdb1cf4b",
+  "preaggregated_sha256": "94b3b6fb5fe6e687121338504cf4e0a422d5a26c07fa2146140c86c1d0063e80",
+  "tbprof_sha256": "b7176bb6c4df1f9875f88783d6419680e2bc06366208e3e5ed15bcc7730ed3a4",
+  "plugin_sha256": "37f13cec5c2df2d994b41ed02a3402bbac6199be7dbdc6a1e2a47967c7fb9b93",
+  "qualification": {
+    "verdict": "PASS",
+    "checks": {
+      "all_430_command_edges_and_widths": true,
+      "regulator_and_conversions": true,
+      "no_watchdog_reset": true,
+      "neutral_before_ramp": true,
+      "forward_six_step_order": true,
+      "loaded_six_step_order": true,
+      "reverse_six_step_order": true,
+      "all_kiss_crc": true,
+      "complete_uart_dma": true,
+      "supply_and_temperature": true,
+      "forward_catalog_equilibrium": true,
+      "forward_independent_telemetry_rpm": true,
+      "loaded_catalog_equilibrium": true,
+      "loaded_independent_telemetry_rpm": true,
+      "reverse_catalog_equilibrium": true,
+      "reverse_independent_telemetry_rpm": true,
+      "load_response": true,
+      "brake_precedes_reverse": true,
+      "neutral_between_brake_and_reverse": true,
+      "completed_at_rest": true
+    },
+    "phase_events": {
+      "forward": 136,
+      "loaded": 82,
+      "reverse": 115
+    },
+    "metrics": {
+      "forward": {
+        "median_rpm": 2726.795,
+        "catalog_equilibrium_rpm": 2801.72,
+        "median_kiss_erpm": 2700.0,
+        "duty": 0.20772
+      },
+      "loaded": {
+        "median_rpm": 1414.81,
+        "catalog_equilibrium_rpm": 1438.5,
+        "median_kiss_erpm": 1400.0,
+        "duty": 0.20772
+      },
+      "reverse": {
+        "median_rpm": -1857.3,
+        "catalog_equilibrium_rpm": -1911.65,
+        "median_kiss_erpm": 1800,
+        "duty": 0.14173
+      }
+    },
+    "kiss_packets": 255,
+    "adc_scans": 8080
+  },
+  "original_backend_refusals": {
+    "full": {
+      "error": "BOLT-ERROR: JITLink failed: In graph in-memory object file, section .text: relocation target 0x8010018 (.LThumbLiteralClone221:0x801001c + 0xfffffffffffffffc) is out of range of Thumb_Pc8 fixup at address 0x8010032 (beep/1, 0x8010000 + 0x32)",
+      "report_sha256": "15c51be65930eff679c30a4c9c69d92ad0663bf595a37ccbb271c62e3badcdff",
+      "log_sha256": "469589ba047f1e05fe7b36a446fdd5915e5e6cf0f2c894bb754c9e7165f1d2ce",
+      "modification_attempts": 35
+    },
+    "narrow": {
+      "error": "BOLT-ERROR: JITLink failed: In graph in-memory object file, section .text: relocation target 0x8010014 (.LThumbLiteralClone2:0x8010018 + 0xfffffffffffffffc) is out of range of Thumb_Pc8 fixup at address 0x8010024 (__hot_start, 0x8010000 + 0x24)",
+      "report_sha256": "a353461f65346bb1b8c6262943fe2ba02c4d95c6e01feb8caa74268a8e389f45",
+      "log_sha256": "70bafddaaeb3d0df1a5e59b4974c8cbb471e343ec4dc142d603f850738069d2d",
+      "modification_attempts": 1
+    }
+  }
+}

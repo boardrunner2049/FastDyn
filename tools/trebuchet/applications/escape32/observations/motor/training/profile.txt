@@ -1,0 +1,43 @@
+insns 193.00M  TBs 60.89M  transitions: chainable 50.09M  indirect 9.44M  cross-page-direct 1.36M  => lookups 10.80M (18% of TBs)
+top functions by instructions:
+     57.95M  30.0%  tbs  16.58M  delayf
+     49.11M  25.4%  tbs  17.87M  ?
+     27.75M  14.4%  tbs   6.86M  __divsi3
+     23.70M  12.3%  tbs   4.32M  main
+     20.70M  10.7%  tbs  12.43M  delay
+      4.44M   2.3%  tbs   0.52M  sys_tick_handler
+      3.18M   1.6%  tbs   1.01M  scale
+      1.68M   0.9%  tbs   0.41M  sendtelem
+      1.47M   0.8%  tbs   0.12M  dma1_channel4_7_dmamux_isr
+      1.02M   0.5%  tbs   0.42M  pend_sv_handler
+      0.78M   0.4%  tbs   0.10M  adcdata
+      0.45M   0.2%  tbs   0.10M  smooth
+      0.22M   0.1%  tbs   0.05M  adctrig
+      0.14M   0.1%  tbs   0.03M  beep
+      0.13M   0.1%  tbs   0.02M  nextstep
+      0.08M   0.0%  tbs   0.01M  hallcode
+      0.05M   0.0%  tbs   0.01M  tim34_isr
+      0.04M   0.0%  tbs   0.01M  tim1_brk_up_trg_com_isr
+      0.02M   0.0%  tbs   0.01M  getcode
+      0.02M   0.0%  tbs   0.01M  crc8
+top non-chainable function edges:
+      4.14M I delayf -> delay
+      4.14M I delay -> delayf
+      0.37M X main -> main
+      0.28M I scale -> main
+      0.28M X main -> scale
+      0.22M X main -> __divsi3
+      0.22M I __divsi3 -> main
+      0.13M I sendtelem -> pend_sv_handler
+      0.13M X pend_sv_handler -> sendtelem
+      0.13M I sys_tick_handler -> pend_sv_handler
+      0.12M I __divsi3 -> scale
+      0.12M X scale -> __divsi3
+      0.12M I pend_sv_handler -> main
+      0.12M X main -> sys_tick_handler
+      0.03M X adcdata -> smooth
+      0.03M I smooth -> adcdata
+      0.02M I __divsi3 -> dma1_channel4_7_dmamux_isr
+      0.02M X dma1_channel4_7_dmamux_isr -> __divsi3
+      0.02M I adctrig -> adctrig
+      0.01M I beep -> main

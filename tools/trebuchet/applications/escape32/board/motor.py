@@ -125,7 +125,7 @@ def oracle(trace, wire):
             "metrics": metrics, "kiss_packets": len(packets), "adc_scans": int(frames[430]["adc"])}
 
 
-def run(qemu, source, out):
+def run(qemu, source, out, profile_plugin=None):
     out.mkdir(parents=True, exist_ok=False)
     original = source.read_bytes()
     if len(original) != 128 * 1024:
@@ -138,6 +138,9 @@ def run(qemu, source, out):
     cmd = [str(qemu), "-M", "escape1-g071", "-kernel", str(image), "-serial", "null", "-serial",
            "file:" + str(telemetry), "-display", "none", "-monitor", "none", "-no-reboot",
            "-icount", "shift=4,align=off,sleep=off", "-d", "page", "-D", str(trace)]
+    profile = out / "session.tbprof"
+    if profile_plugin:
+        cmd.extend(["-plugin", f"{profile_plugin.resolve()},out={profile}"])
     with (out / "qemu.log").open("wb") as log:
         subprocess.run(cmd, stdout=log, stderr=log, env={**os.environ, "ESCAPE1_BENCH": "maxon-283828"},
                        check=True, timeout=150)
@@ -147,6 +150,11 @@ def run(qemu, source, out):
     result.update(command=cmd, input_sha256=sha(original), configuration=changes, deployed_sha256=sha(flash),
                   executable_flash_sha256=sha(flash[0x1800:]), qemu_sha256=sha(qemu.read_bytes()),
                   trace_sha256=sha(raw), kiss_sha256=sha(wire))
+    if profile_plugin:
+        if not profile.is_file() or profile.stat().st_size == 0:
+            raise RuntimeError("profiler did not emit operating-session evidence")
+        result["training_profile_sha256"] = sha(profile.read_bytes())
+        result["training_plugin_sha256"] = sha(profile_plugin.read_bytes())
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     if result["verdict"] != "PASS":
         raise ValueError([key for key, accepted in result["checks"].items() if not accepted])
@@ -157,5 +165,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for arg in ("qemu", "input_flash", "out"):
         parser.add_argument(arg, type=Path)
+    parser.add_argument("--training-plugin", type=Path, help="private FirmBOLT TB diagnostic with normal-exit writer")
     args = parser.parse_args()
-    run(args.qemu.resolve(), args.input_flash.resolve(), args.out.resolve())
+    run(args.qemu.resolve(), args.input_flash.resolve(), args.out.resolve(), args.training_plugin)

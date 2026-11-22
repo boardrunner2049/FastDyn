@@ -1,0 +1,15 @@
+{
+  "scope": "training qualification of the release-settings RC-car motor job",
+  "scenario": "430-frame maxon-283828 cycle from motor.py",
+  "known_input": true,
+  "firmware": "normal source build with identical flash bytes and retained relocations",
+  "candidate_budget": 2,
+  "optimizer_wall_seconds_per_candidate": 300,
+  "profiles": 1,
+  "candidate_order": ["full predeclared cortex-m0plus pipeline", "one trained non-ISR application helper with strongest entry coverage and valid Thumb-1 output"],
+  "new_code_address": "0x08010000",
+  "allowed_new_code_limit": "0x08020000",
+  "ordinary_cache": {"populate": 1, "fresh_sealed_replays": 1, "include_every_late_record": true},
+  "acceptance": "all twenty independent RC motor oracle checks; guest relocation must run in a diagnostic profile; frozen replay must prove actual restore",
+  "selection": "no rank, historical, promotion or reserved-final decision from this training scenario"
+}
