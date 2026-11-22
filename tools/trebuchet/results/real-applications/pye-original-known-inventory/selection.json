@@ -1,0 +1,35 @@
+{
+ "schema": "trebuchet.joint-selection/1",
+ "state": "failed",
+ "objective": {
+  "name": "time to edit and return the document",
+  "direction": "minimize",
+  "unit": "ns",
+  "useful_work": "one complete declared document edit, verified against the whole expected UTF-8 document",
+  "boundaries": "host monotonic release at the pre-editor UART barrier through receipt of the editor-return marker"
+ },
+ "ranking": {},
+ "selected": null,
+ "promoted": null,
+ "fallback": {
+  "id": "original/warm",
+  "application": "pye",
+  "image_variant": "original",
+  "recipe": [],
+  "contract_sha256": "sha256:8b5fdcdee9d936c5e9e57b4af67779c76fc16a7b26217251192714e57e111331",
+  "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+  "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+  "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+  "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+  "profile_id": "sha256:172585963228e5ef8015dea6a4e02a88796abb78d506c397e6449a49eb104dc0",
+  "ordinary_snapshot_id": "sha256:ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+  "artifact": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+  "generations": [],
+  "runtime_identity": "sha256:79a77fa7cc105616e1d65f7c047c4f005d6878cd4eb5771268b2b783179a7251",
+  "deployment_identity": "sha256:b1da60d4353b7d8e31187f3f27cd3324cffa4a5a477e80f2269f45cd8ffb17b0",
+  "status": "ready"
+ },
+ "error": "invalid warm launch: /home/runner/work/_temp/pye/campaign/selection/trial-1"
+}

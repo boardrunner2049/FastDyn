@@ -1,0 +1,31 @@
+{
+  "assembly_sha256": "cfe0481db8d0a5e9dd14d510184c12596706caac0e280858360ede9ef8cb5038",
+  "bailout_offset": 148,
+  "binding": {
+    "mode": "archived_ordinary",
+    "units_checked": 3855,
+    "units_with_different_host_annotations": 1591
+  },
+  "destination": "tb:20f98f2677e3aad2e4f66e4fe5480c19#0",
+  "field": "regs[5]",
+  "host_bytes_delta": 0,
+  "jump_offset": 99,
+  "native_differential_trials": 42,
+  "observed_unflagged_slot_exits": 279567,
+  "original_reload": "8b5d14",
+  "phase": "steady",
+  "predecessor_suffix": "44896d14c645fc018b5d3c83c3a4895d3c666690",
+  "private_body_at_input_address_sha256": "d9942a24e206fc8e7101821823885f96c706c1e62d8624df68a53af4466ac2b3",
+  "private_copy": "4489eb",
+  "profile": "sha256:271b3a97a7d63d7693966466fea425ce772dcc75cc67b3b1de0dce767976ff52",
+  "public_body_sha256": "1cb5ab98b3e8e33551597bf2fdfc63009f3c65d2921bf5d2e7524719ba253747",
+  "reload_offset": 22,
+  "scope": "closed direct-chain execution window; public and icount-bailout entries retained",
+  "slot": 0,
+  "snapshot": "sha256:c46891ac8f382286ff936d7ef36990b4f6acbda910ad495fef10282007787bc3",
+  "source": "tb:df6512343d9711338d8f856587c3bed1#0",
+  "source_body_sha256": "3925601a1ca0554c857224bcc0e16faf8213682191c5aff6ab5985b9e8499a3d",
+  "source_path_count": 1,
+  "store_offset": 79,
+  "successor_prefix": "8b5df883c3fe85db0f8c8600000066895df8c645fc00"
+}

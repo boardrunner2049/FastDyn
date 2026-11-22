@@ -1,0 +1,248 @@
+{
+  "admission": {
+    "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/admission.json",
+    "sha256": "sha256:07a86f2019e73970c367342d8f70633815c80a811e80d87c9d3865b37602515f"
+  },
+  "application": "pye",
+  "budget": {
+    "candidate_limit": 8,
+    "offline_seconds": 3600
+  },
+  "candidates": [
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+      "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+      "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+      "contract_sha256": "sha256:8b5fdcdee9d936c5e9e57b4af67779c76fc16a7b26217251192714e57e111331",
+      "deployment_identity": "sha256:b1da60d4353b7d8e31187f3f27cd3324cffa4a5a477e80f2269f45cd8ffb17b0",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [],
+      "id": "original/warm",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+      "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+      "profile_id": "sha256:172585963228e5ef8015dea6a4e02a88796abb78d506c397e6449a49eb104dc0",
+      "recipe": [],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:79a77fa7cc105616e1d65f7c047c4f005d6878cd4eb5771268b2b783179a7251",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/pye/campaign/registry/original.b3/artifacts/99085ff20203f9059ff692a113a39795e513d1713df949256ad28ac86c69009e",
+      "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+      "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+      "contract_sha256": "sha256:8b5fdcdee9d936c5e9e57b4af67779c76fc16a7b26217251192714e57e111331",
+      "deployment_identity": "sha256:006bc81653c484ecf30168a1b2dcc0696ae9abcb8b2f6d0ca797f0f2c81afd4e",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 75,
+              "outcome": "candidate",
+              "pass": "specialize-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 9,
+              "outcome": "candidate",
+              "pass": "constant-propagation",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 14,
+              "outcome": "candidate",
+              "pass": "branch-folding",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 17,
+              "outcome": "candidate",
+              "pass": "dead-host-ops",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 382,
+              "outcome": "candidate",
+              "pass": "chain-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 256,
+              "outcome": "candidate",
+              "pass": "chain-static",
+              "reason": "",
+              "status": "edited"
+            }
+          ],
+          "input": "sha256:ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+          "output": "sha256:0a8e6cdf35f3dc5b4c23d73a26c56fe1364077e1c3744ba8291e0189a8ea4b56",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/pye/campaign/registry/original.b3/stdout.json",
+          "stage": "b3"
+        }
+      ],
+      "id": "original/b3",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+      "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+      "profile_id": "sha256:172585963228e5ef8015dea6a4e02a88796abb78d506c397e6449a49eb104dc0",
+      "recipe": [
+        "b3"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:2e6b1837c2f63c2f6dcc7ef1eff2c36e662722be4d1d31fadd29f5a5ae6de4af",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/pye/campaign/registry/original.sfb/artifacts/a80c3db10d590c6873052b590ccdbd62cd0bc14f51792b9cc55743fcfb45a735",
+      "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+      "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+      "contract_sha256": "sha256:8b5fdcdee9d936c5e9e57b4af67779c76fc16a7b26217251192714e57e111331",
+      "deployment_identity": "sha256:148d1976478a2642c75e085421c5f7cf95b657d1fd9c78ed5d2a69845fa5c940",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "outcome": "candidate",
+              "pass": "sfb",
+              "units": 3825
+            }
+          ],
+          "input": "sha256:ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+          "output": "sha256:eb4292df55baf2377d46c9f4d51e02bdfefd3edad8afb588e188e0bb1072cc85",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/pye/campaign/registry/original.sfb/stdout.json",
+          "stage": "sfb"
+        }
+      ],
+      "id": "original/sfb",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+      "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+      "profile_id": "sha256:172585963228e5ef8015dea6a4e02a88796abb78d506c397e6449a49eb104dc0",
+      "recipe": [
+        "sfb"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:79a77fa7cc105616e1d65f7c047c4f005d6878cd4eb5771268b2b783179a7251",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/pye/campaign/registry/original.sfb.b3/artifacts/4fc5e105c62f12cbbcaf9b455b8ca3365328d11741f40891b71d1e5e3fc7060b",
+      "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+      "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+      "contract_sha256": "sha256:8b5fdcdee9d936c5e9e57b4af67779c76fc16a7b26217251192714e57e111331",
+      "deployment_identity": "sha256:003aa46e11cbcf608e8cf194f5e55ff61eb0ea06fd935e995b4492f46d552a9f",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "outcome": "candidate",
+              "pass": "sfb",
+              "units": 3825
+            }
+          ],
+          "input": "sha256:ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+          "output": "sha256:eb4292df55baf2377d46c9f4d51e02bdfefd3edad8afb588e188e0bb1072cc85",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/pye/campaign/registry/original.sfb/stdout.json",
+          "stage": "sfb"
+        },
+        {
+          "effective_passes": [
+            {
+              "n_edits": 75,
+              "outcome": "candidate",
+              "pass": "specialize-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 9,
+              "outcome": "candidate",
+              "pass": "constant-propagation",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 14,
+              "outcome": "candidate",
+              "pass": "branch-folding",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 17,
+              "outcome": "candidate",
+              "pass": "dead-host-ops",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 382,
+              "outcome": "candidate",
+              "pass": "chain-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 256,
+              "outcome": "candidate",
+              "pass": "chain-static",
+              "reason": "",
+              "status": "edited"
+            }
+          ],
+          "input": "sha256:eb4292df55baf2377d46c9f4d51e02bdfefd3edad8afb588e188e0bb1072cc85",
+          "output": "sha256:6cdc96f840d09786a61587c3660bb620f3ea7078fe398d5bb82a060aac2e6689",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/pye/campaign/registry/original.sfb.b3/stdout.json",
+          "stage": "b3"
+        }
+      ],
+      "id": "original/sfb+b3",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+      "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+      "profile_id": "sha256:172585963228e5ef8015dea6a4e02a88796abb78d506c397e6449a49eb104dc0",
+      "recipe": [
+        "sfb",
+        "b3"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:2e6b1837c2f63c2f6dcc7ef1eff2c36e662722be4d1d31fadd29f5a5ae6de4af",
+      "status": "ready"
+    }
+  ],
+  "configuration": "MicroPython-v1.27.0-release-MPS2-AN385-Cortex-M3-queued-UART",
+  "contract": "/home/runner/work/_temp/pye/campaign/contract.json",
+  "contract_sha256": "sha256:8b5fdcdee9d936c5e9e57b4af67779c76fc16a7b26217251192714e57e111331",
+  "objective": {
+    "boundaries": "host monotonic release at the pre-editor UART barrier through receipt of the editor-return marker",
+    "direction": "minimize",
+    "name": "time to edit and return the document",
+    "unit": "ns",
+    "useful_work": "one complete declared document edit, verified against the whole expected UTF-8 document"
+  },
+  "offline_seconds": 298.8110029709999,
+  "plan_sha256": "sha256:886875fc194543b2d6b96ddaa8c27863074ccf383679d4f7771df13c5715abdc",
+  "scenario": "known-inventory UART editing",
+  "schema": "trebuchet.registry/1",
+  "state": "completed"
+}

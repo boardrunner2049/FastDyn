@@ -1,0 +1,46 @@
+{
+ "state": "failed",
+ "images": {
+  "firmbolt": {
+   "status": "unavailable",
+   "reason": "no prequalified ELF or local FirmBOLT toolchain supplied"
+  },
+  "original": {
+   "status": "prepared",
+   "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+   "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+   "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+   "snapshot": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+   "prep": "/home/runner/work/_temp/pye/campaign/original/prep",
+   "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+   "manifest": "/home/runner/work/_temp/pye/campaign/original/prep/cache/fw.sc.fastdyn.json",
+   "admission_runtime": "/home/runner/work/_temp/pye/campaign/original/admission-runtime.json"
+  }
+ },
+ "policy": {
+  "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/campaign-policy.json",
+  "sha256": "sha256:723d69830b529f2cdcb0403c53c22214d996f3c56bf05fd1bc545dfc2389bb47"
+ },
+ "timing_cpu": 3,
+ "errors": {
+  "pre-change incumbent": "pre-change recipes did not all establish a materialized deployment; see pre-change registry"
+ },
+ "qemu": {
+  "path": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "sha256": "sha256:805b8507cbe0f8278e40ef1df46b958518f37dff9964ebd914e3c94a8b718629"
+ },
+ "plugin": {
+  "path": "/home/runner/work/_temp/pye/plugin-release/libfastdyn.so",
+  "sha256": "sha256:7376649e5a274a2dbab35d3d59c98467b0976ee2928c1ab1bbc04e37797764e6"
+ },
+ "host": [
+  "Linux",
+  "ip-10-0-136-20",
+  "7.0.0-1014-aws",
+  "#14~24.04.1-Ubuntu SMP PREEMPT Fri Sep 18 21:24:59 UTC 2026",
+  "x86_64"
+ ],
+ "phase": "selection",
+ "error": "invalid warm launch: /home/runner/work/_temp/pye/campaign/selection/trial-1",
+ "campaign_wall_seconds": 925.8491235399999
+}

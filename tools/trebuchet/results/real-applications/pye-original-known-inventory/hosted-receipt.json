@@ -1,0 +1,61 @@
+{
+  "campaign_run": {
+    "id": 44981018091,
+    "head_sha": "dcb04bf60919814f9dbeeac49ca10165b8b8e4a2",
+    "status": "completed",
+    "conclusion": "failure",
+    "run_started_at": "2026-11-22T03:31:20Z",
+    "updated_at": "2026-11-22T03:51:19Z"
+  },
+  "retrieval_run": {
+    "id": 44982506686,
+    "head_sha": "bb14ca3a9f3800976b96fa3daf886915d8cde0e8",
+    "status": "completed",
+    "conclusion": "success",
+    "run_started_at": "2026-11-22T03:51:38Z",
+    "updated_at": "2026-11-22T03:52:25Z"
+  },
+  "artifact": {
+    "id": 14737974054,
+    "digest": "sha256:fd2aae4fa86ac909742962b7b5a99e836a2b6a7ef9a968928ea9f12a7e35cd74",
+    "size_in_bytes": 69158085
+  },
+  "transfer_parts": [
+    {
+      "id": 14738630448,
+      "digest": "sha256:aabb8cf697a48b5be37abc66bed877ffeb413ed88803064d877f20b69c0575b8",
+      "size_in_bytes": 6243663,
+      "name": "pye-part-0003"
+    },
+    {
+      "id": 14738530798,
+      "digest": "sha256:3a1c4b936da5295ef380ad6d8c6f788eb0e739d9f6a81477de29e386c50f48ba",
+      "size_in_bytes": 20971658,
+      "name": "pye-part-0002"
+    },
+    {
+      "id": 14738321407,
+      "digest": "sha256:40f3c5340656319666041b3602edb25b2cf9fcfc4a6b70242629d94e29befc44",
+      "size_in_bytes": 20971658,
+      "name": "pye-part-0001"
+    },
+    {
+      "id": 14737434895,
+      "digest": "sha256:c07d3f953918a3bbf4d1a5fe46e4c49b4726a6d05b4da497884cbb545a8f7ccc",
+      "size_in_bytes": 20971658,
+      "name": "pye-part-0000"
+    }
+  ],
+  "archive_verified": true,
+  "sparse_parts_verified": true,
+  "tests": {
+    "test_direct_deploy_and_launch": "passed",
+    "test_prepare_direct_plumbing": "passed"
+  },
+  "cleanup": {
+    "temporary_remote_ref": "absent",
+    "remaining_runs_on_temporary_branch": 0,
+    "source_run_lookup_http": 404,
+    "artifact_transfer_run_lookup_http": 404
+  }
+}
