@@ -70,6 +70,26 @@ def test_imported_image_census_and_sparse_untimed_counts(tmp_path):
     assert all(c["tb_entries_proxy"]["value"] == 7 for c in calls.values())
     assert all(c["weight"]["kind"] != "observed_untimed_replay" for c in calls.values())
     assert not report["encoding_capture_by_stage"]
+    args.archived_ordinary = True
+    archive_report = census(args)
+    assert archive_report["import_check"]["units_checked"] == 1
+    assert archive_report["nops"] == report["nops"]
+    from archived_snapshot import archived_ordinary
+    from scopt.ids import region_id
+
+    # Even a correctly rehashed stored region cannot alter the physical NOP/
+    # instruction boundary compared with the imported SCM and actual code.
+    regions = Path(result.store_dir) / "units.jsonl"
+    saved = regions.read_bytes()
+    regions.chmod(0o600)
+    edited = json.loads(saved)
+    edited["native"]["pool_start"] -= 1
+    edited["region_id"] = region_id(edited)
+    regions.write_text(json.dumps(edited) + "\n")
+    with pytest.raises(ValueError, match="physical region differs"):
+        archived_ordinary(result.store_dir, elf)
+    regions.write_bytes(saved)
+    args.archived_ordinary = False
     sites[0]["bytes"] = "90"
     args.site_counts.write_text(json.dumps(doc))
     with pytest.raises(ValueError, match="unknown physical site"):
@@ -151,3 +171,35 @@ def test_private_site_weights_use_only_the_physical_copy(tmp_path, monkeypatch):
     (art / SIDECAR).write_text("{}")
     with pytest.raises(ValueError, match="manifest differs"):
         census(args)
+
+
+def test_unique_exit_nop_and_branch_bypass():
+    from scopt.analysis.hcfg import HCfg
+    from scopt.analysis.hostops import HostOp
+    from site_census import exit_nop_evidence
+
+    def op(off, kind, size=1, sites=()):
+        return HostOp(off, size, "", kind, "insn", 0, sites=sites)
+
+    host = NS(ops=(op(0, OpKind.JCC), op(1, OpKind.NOP, 3),
+                   op(4, OpKind.JMP, 5, ("GOTO_TB",)), op(9, OpKind.JMP, 5, ("GOTO_TB",))))
+    def cfg(succ):
+        return HCfg("tb", True, (), 4, succ, succ, {}, {2: "goto_tb:0", 3: "goto_tb:1"})
+    graph = cfg(((1, 3), (2,), (), ()))
+    # 19 dispatches, of which 3 are not accounted for by these unflagged exits.
+    assert exit_nop_evidence(host, graph, {1}, {0: 11, 1: 5}, 19) == {
+        1: {"slot": 0, "jump_offset": 4, "minimum_executions": 11, "maximum_executions": 14}}
+    assert exit_nop_evidence(host, cfg(((1, 2, 3), (2,), (), ())), {1}, {0: 11}, 19) == {}
+
+
+def test_phase_transition_attribution():
+    from site_census import whole_run_slot_counts
+    phases = [dict(id=0, reached=True, first_dispatch_index=0), dict(id=1, reached=True, first_dispatch_index=5)]
+    profile = NS(phases=phases, phase_id=lambda name: 1 if name == "steady" else 0)
+    view = NS(profile=profile, edges=lambda phase: [
+        {"status": "exact", "flags": [], "kind": "chain1", "src": "tb", "count": 5},
+        {"status": "exact", "flags": ["irq"], "kind": "chain1", "src": "tb", "count": 2}])
+    assert whole_run_slot_counts(view, "boot") == {}
+    assert whole_run_slot_counts(view, "steady") == {}
+    phases[1]["first_dispatch_index"] = 0
+    assert whole_run_slot_counts(view, "steady") == {"tb": {1: 5}}
