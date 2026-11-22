@@ -1,0 +1,43 @@
+{
+  "run_id": 44984725747,
+  "source_commit": "9d4775782eb7c17308b423b9e95c292991edd2ee",
+  "branch": "trebuchet/hosted-pye-rebuilt-promotion",
+  "conclusion": "success",
+  "started_at": "2026-11-22T04:21:58Z",
+  "completed_at": "2026-11-22T04:36:27Z",
+  "raw_workspace": "/workspace/trebuchet-work/runner/pye-frozen/44984725747",
+  "raw_archive_sha256": "b1181109fe2b99e63fcec61d6132e9d8e2b0e92c0185b133cb9af604b8939a90",
+  "retained_archive_sha256": "508008561de83a086d5bcb8864746de3c968051e1977eb2173717be915c02c15",
+  "included": {
+    "inventory-plan.json": 2,
+    "prep.json": 2,
+    "returned.utf8": 26,
+    "uart.bin": 26,
+    "run.json": 26,
+    "observations.jsonl": 1,
+    "comparison.json": 1,
+    "arms.json": 1
+  },
+  "downloads": [
+    {
+      "name": "part-001",
+      "digest": "sha256:c8778546b6cd2813858cabc85a11d4b7647a06de72963e439bb47445d11de1bd",
+      "size": 20971658
+    },
+    {
+      "name": "checksums",
+      "digest": "sha256:868f48474e3eed59d0c9870d3c7835d6064af3abc6def3d2a153133b35e902d7",
+      "size": 277
+    },
+    {
+      "name": "part-000",
+      "digest": "sha256:d266e7dec8633e3de59ca21d70c991bb69b8b45ddce3ba14f532b66aa184d230",
+      "size": 20971658
+    },
+    {
+      "name": "part-002",
+      "digest": "sha256:e77e51625826cf5d35121e20b491d86d2eb9a03ba593aecb49bfea340162b8dc",
+      "size": 19803419
+    }
+  ]
+}

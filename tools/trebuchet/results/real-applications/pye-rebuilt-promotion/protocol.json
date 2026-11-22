@@ -1,0 +1,149 @@
+{
+ "schema": "trebuchet.pye-rebuilt-promotion/1",
+ "application": "pye",
+ "family": "Micropython-Editor",
+ "configuration": "MicroPython-v1.27.0-release-MPS2-AN385-Cortex-M3-queued-UART-training-frozen-v1-rebuilt-promotion",
+ "transport": "pye-queued-uart-v1",
+ "measurement": "operational_latency_ns",
+ "secondary_measurement": "qemu_lifetime_ns",
+ "objective": {
+  "name": "time to edit and return the document",
+  "direction": "minimize",
+  "unit": "ns",
+  "useful_work": "one complete declared document edit, verified against the whole expected UTF-8 document",
+  "boundaries": "host monotonic release at the pre-editor UART barrier through receipt of the editor-return marker"
+ },
+ "scenarios": {
+  "training": [
+   {
+    "id": "update-package-version",
+    "weight": 1,
+    "bank_inputs": {
+     "psram": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/update-package-version/product.romfs",
+      "sha256": "sha256:2b5f2b29884e2d15390a60f2cb5b58ebc5fee0bca5e3021f61a9b38f76157124"
+     }
+    },
+    "expected": {
+     "path": "/home/runner/work/_temp/pye/campaign/cases/update-package-version/oracle.json",
+     "sha256": "sha256:4deec05f067b33d8a9935b72c05f0c624c9b54320b5cf2a1bcfee246f58d22d4"
+    },
+    "peer": {
+     "program": {
+      "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/session.py",
+      "sha256": "sha256:4f77aeafec4fe8135ea94e2861094c4bbf15a921437fb5b6a3a635404113626a"
+     },
+     "stage": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/update-package-version/stage.json",
+      "sha256": "sha256:8038c87bd2aab2f6462be1a8e8c5904126601b20fa2fca5a6a88c6a205bd5202"
+     },
+     "bank": "psram",
+     "input_sha256": "sha256:2b5f2b29884e2d15390a60f2cb5b58ebc5fee0bca5e3021f61a9b38f76157124"
+    }
+   }
+  ],
+  "promotion": [
+   {
+    "id": "repair-packaging-shebang",
+    "weight": 1,
+    "bank_inputs": {
+     "psram": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/repair-packaging-shebang/product.romfs",
+      "sha256": "sha256:b29f9eaf1cef37071cdcbccbd5b7dcef52a5d6a823379cb9a99cb6a4eb7358c5"
+     }
+    },
+    "expected": {
+     "path": "/home/runner/work/_temp/pye/campaign/cases/repair-packaging-shebang/oracle.json",
+     "sha256": "sha256:e2c01910c2ca2b9ecf87738ad690b12407751a8ebd21e09cab92855abfbdb6ce"
+    },
+    "peer": {
+     "program": {
+      "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/session.py",
+      "sha256": "sha256:4f77aeafec4fe8135ea94e2861094c4bbf15a921437fb5b6a3a635404113626a"
+     },
+     "stage": {
+      "path": "/home/runner/work/_temp/pye/campaign/cases/repair-packaging-shebang/stage.json",
+      "sha256": "sha256:a96928e303a85ce0a104929b7c2cf383533a3ce215848b1a8513cc89946ceaa1"
+     },
+     "bank": "psram",
+     "input_sha256": "sha256:b29f9eaf1cef37071cdcbccbd5b7dcef52a5d6a823379cb9a99cb6a4eb7358c5"
+    }
+   }
+  ]
+ },
+ "track": "frozen preparation: two fixed training-only sweeps per image; fresh verified cache copy per trial; late translations retained and counted",
+ "inventory_sweeps": 2,
+ "recipes": [],
+ "budget": {
+  "candidate_limit": 2,
+  "offline_seconds": 1800
+ },
+ "incumbent_revision": "16790d6e56c25b820748d275cb80577db205bcbd",
+ "seed": 1729,
+ "final_seed": 2718,
+ "warmup_pairs": 1,
+ "pairs": {
+  "promotion": 12
+ },
+ "alpha": 0.05,
+ "minimum_gain": 1.01,
+ "timeout_seconds": 120,
+ "prechange_scenarios": {},
+ "prechange_recipes": [
+  "warm",
+  "b3",
+  "pc",
+  "slide",
+  "sfb+b3",
+  "b4",
+  "sfb"
+ ],
+ "prechange_budget": {
+  "candidate_limit": 7,
+  "offline_seconds": 3600
+ },
+ "prechange_seed": 193483,
+ "cache_track": "training-frozen",
+ "promotion_seed": 109077,
+ "frozen_arms": {
+  "current": {
+   "id": "original/sfb+b3",
+   "deployment_identity": "sha256:af9069178c87ada59ef6f75d0a342f5a637b602c9bb051724f341aaf716c2280",
+   "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+   "profile_id": "sha256:a4b6a21502e429c42725234695b4f9e6822b6ec4989740024dc719a4ee74174f",
+   "ordinary_snapshot_id": "sha256:5bbed4c120b0b26e1a3a4681b4dd2593922b78fe61ac6489791b860ce31777a2",
+   "source_run": 44982087570,
+   "selection_sha256": "d01cd00f006f1fde75e285fd37575f99a0c025303e49d19ee92f1e12d6a57b80"
+  },
+  "historical": {
+   "id": "firmbolt/sfb+b3",
+   "deployment_identity": "sha256:e9c477dcfd9f9ec6337f351ba0e8c975f0603179643ced2adc8d45258a0aad75",
+   "firmware_sha256": "sha256:d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+   "profile_id": "sha256:23bba4757cc6774e8b367d53378f4f4ced25a7e90470508298ee667653700b7a",
+   "ordinary_snapshot_id": "sha256:99de98dfcd2ebf8e8f18bca79d47095b5c4d6425772202483990ee74008d8703",
+   "source_run": 44982822095,
+   "selection_sha256": "52c8aedd8f6d65e25f3cfe1f1c043e3620b24c4d42e2782b664a9e050746ff4a"
+  }
+ },
+ "scope": "Rebuild exactly the two frozen recipes on the same machine. One warmup and 12 balanced pairs on the untouched packaging-shebang edit. No new ranking, confirmation or final trials. The significance and 1% practical gates describe this rebuilt comparison only.",
+ "images": {
+  "firmbolt": {
+   "config_sha256": "sha256:91a7ba68e5f84dd477bfeeb093c7c9ca06f90dd92499e4817e526586c4eaa583",
+   "firmware_sha256": "sha256:d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+   "profile_id": "sha256:b8611089e72a20357656bb11699caa0d55fc2c6485287163922002c44c646360",
+   "observer": {
+    "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/observe.py",
+    "sha256": "sha256:4d7a3f053aed4933c36cd6650125418e58b5edda13850a24c433a10c9d32f3dc"
+   }
+  },
+  "original": {
+   "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+   "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+   "profile_id": "sha256:a78e9cdb724080d334426efc4768e3cd8e9e06212150b022228c9a7bc87e53e1",
+   "observer": {
+    "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/observe.py",
+    "sha256": "sha256:4d7a3f053aed4933c36cd6650125418e58b5edda13850a24c433a10c9d32f3dc"
+   }
+  }
+ }
+}

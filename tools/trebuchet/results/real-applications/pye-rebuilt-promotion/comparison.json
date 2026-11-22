@@ -1,0 +1,56 @@
+{
+ "case": "repair-packaging-shebang",
+ "pairs": 12,
+ "metrics": {
+  "value": {
+   "reference_median": 16786878.5,
+   "selected_median": 18041254.5,
+   "median_gain": 0.9991223055804708,
+   "bootstrap_95": [
+    0.9262935693700227,
+    1.0216587629418945
+   ]
+  },
+  "qemu_lifetime_ns": {
+   "reference_median": 56383278.5,
+   "selected_median": 56625126.5,
+   "median_gain": 0.9967348060689847,
+   "bootstrap_95": [
+    0.9679460195971816,
+    1.0336093766528407
+   ]
+  },
+  "wall_s": {
+   "reference_median": 0.23365295700006072,
+   "selected_median": 0.23294383450001988,
+   "median_gain": 1.0042122696289868,
+   "bootstrap_95": [
+    0.9990592521700237,
+    1.0083776154723834
+   ]
+  },
+  "process_tree_cpu_ns": {
+   "reference_median": 220854000.0,
+   "selected_median": 219976000.0,
+   "median_gain": 1.003866790675895,
+   "bootstrap_95": [
+    0.9972460889628542,
+    1.0100198808184995
+   ]
+  }
+ },
+ "paired_test": {
+  "pairs": 12,
+  "wins": 6,
+  "ties": 0,
+  "losses": 6,
+  "candidate_first": 6,
+  "median_paired_speedup": 0.9991223055804708,
+  "p_value": 0.7164502164502164,
+  "p_value_numerator": 662,
+  "p_value_denominator": 924,
+  "passes": false
+ },
+ "passes_supplemental_gate": false,
+ "scope": "rebuilt implementations on fixed guests; leaves primary strict promotion disposition unchanged"
+}

@@ -1,0 +1,210 @@
+{
+ "historical": {
+  "id": "firmbolt/sfb+b3",
+  "application": "pye",
+  "image_variant": "firmbolt",
+  "recipe": [
+   "sfb",
+   "b3"
+  ],
+  "contract_sha256": "sha256:bd6388584282f78a1346571c0fb8a97c0ece8dd1f1797bd4c70802f77617ee60",
+  "firmware": "/home/runner/work/_temp/pye/campaign/firmbolt-guest/firmware.elf",
+  "config": "/home/runner/work/_temp/pye/campaign/firmbolt/pye.toml",
+  "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "profile": "/home/runner/work/_temp/pye/campaign/firmbolt/profile/merged.profile.json",
+  "firmware_sha256": "sha256:d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+  "config_sha256": "sha256:91a7ba68e5f84dd477bfeeb093c7c9ca06f90dd92499e4817e526586c4eaa583",
+  "profile_id": "sha256:b8611089e72a20357656bb11699caa0d55fc2c6485287163922002c44c646360",
+  "ordinary_snapshot_id": "sha256:8b7b18f516b0b1256c00c602d25dc1fadc80cde698c9051693d748c3830372de",
+  "artifact": "/home/runner/work/_temp/pye/campaign/rebuilt-promotion/historical/firmbolt.sfb.b3/artifacts/5693ae3e49ce6eeaeb831daf99497fb55c7f88077eea8fa9de50c9a64f2a282a",
+  "generations": [
+   {
+    "stage": "sfb",
+    "params": {},
+    "input": "sha256:8b7b18f516b0b1256c00c602d25dc1fadc80cde698c9051693d748c3830372de",
+    "receipt": "/home/runner/work/_temp/pye/campaign/rebuilt-promotion/historical/firmbolt.sfb/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "sfb",
+      "outcome": "candidate",
+      "units": 3502
+     }
+    ],
+    "output": "sha256:997ab8c425ee905fcf25c3af68b3a31627bf3ca0513181cced880e1f2428f938"
+   },
+   {
+    "stage": "b3",
+    "params": {},
+    "input": "sha256:997ab8c425ee905fcf25c3af68b3a31627bf3ca0513181cced880e1f2428f938",
+    "receipt": "/home/runner/work/_temp/pye/campaign/rebuilt-promotion/historical/firmbolt.sfb.b3/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "specialize-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 79
+     },
+     {
+      "pass": "constant-propagation",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 12
+     },
+     {
+      "pass": "branch-folding",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 14
+     },
+     {
+      "pass": "dead-host-ops",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 17
+     },
+     {
+      "pass": "chain-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 383
+     },
+     {
+      "pass": "chain-static",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 256
+     }
+    ],
+    "output": "sha256:4da9cc8e88c6df02d981d7f5d620e9d815148359bb8a5ade6b38c400e27953e3"
+   }
+  ],
+  "runtime_identity": "sha256:072d82a5648962307e0941c814eeee9beb7ac2d18e2f6007e77574b0820a12c4",
+  "deployment_identity": "sha256:520d185182fd20660ba41d10f7aff9d16a789017472a4d3d0d7eacb959ec7093",
+  "status": "ready",
+  "hot_footprint": {
+   "label": "model (static offsets x profile counts), not measured",
+   "profile_id": "sha256:b8611089e72a20357656bb11699caa0d55fc2c6485287163922002c44c646360",
+   "profile_snapshot_id": "sha256:8b7b18f516b0b1256c00c602d25dc1fadc80cde698c9051693d748c3830372de",
+   "sc": "/home/runner/work/_temp/pye/campaign/rebuilt-promotion/historical/firmbolt.sfb.b3/artifacts/5693ae3e49ce6eeaeb831daf99497fb55c7f88077eea8fa9de50c9a64f2a282a/cache.sc",
+   "phase": "steady",
+   "coverage_target": 0.9,
+   "exact_units": 0,
+   "non_exact_units": 0,
+   "phase_entries_exact": 1864912,
+   "join_coverage": 0.0,
+   "units_in_layout": 0,
+   "status": "not_run",
+   "reason": "no_matching_entries"
+  }
+ },
+ "current": {
+  "id": "original/sfb+b3",
+  "application": "pye",
+  "image_variant": "original",
+  "recipe": [
+   "sfb",
+   "b3"
+  ],
+  "contract_sha256": "sha256:bd6388584282f78a1346571c0fb8a97c0ece8dd1f1797bd4c70802f77617ee60",
+  "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+  "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+  "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+  "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+  "profile_id": "sha256:a78e9cdb724080d334426efc4768e3cd8e9e06212150b022228c9a7bc87e53e1",
+  "ordinary_snapshot_id": "sha256:f417e8fa128ef3619b590512f840f0a6aab7f9f63091d97cb353d293edd63bd8",
+  "artifact": "/home/runner/work/_temp/pye/campaign/rebuilt-promotion/current/original.sfb.b3/artifacts/1985dffc9ed911aaad55eac4d6d62f3160ea1bef7ac510319e86f969482707a5",
+  "generations": [
+   {
+    "stage": "sfb",
+    "params": {},
+    "input": "sha256:f417e8fa128ef3619b590512f840f0a6aab7f9f63091d97cb353d293edd63bd8",
+    "receipt": "/home/runner/work/_temp/pye/campaign/rebuilt-promotion/current/original.sfb/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "sfb",
+      "outcome": "candidate",
+      "units": 3504
+     }
+    ],
+    "output": "sha256:6fac2ad1103a21a33f439c9e12ed50eda96db38a9c240cc19e326beb8bf5df66"
+   },
+   {
+    "stage": "b3",
+    "params": {},
+    "input": "sha256:6fac2ad1103a21a33f439c9e12ed50eda96db38a9c240cc19e326beb8bf5df66",
+    "receipt": "/home/runner/work/_temp/pye/campaign/rebuilt-promotion/current/original.sfb.b3/stdout.json",
+    "effective_passes": [
+     {
+      "pass": "specialize-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 75
+     },
+     {
+      "pass": "constant-propagation",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 9
+     },
+     {
+      "pass": "branch-folding",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 14
+     },
+     {
+      "pass": "dead-host-ops",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 17
+     },
+     {
+      "pass": "chain-returns",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 382
+     },
+     {
+      "pass": "chain-static",
+      "status": "edited",
+      "outcome": "candidate",
+      "reason": "",
+      "n_edits": 256
+     }
+    ],
+    "output": "sha256:872176441d97649427565e8f98be1b61276710de54e27ea5e84892b3774281b1"
+   }
+  ],
+  "runtime_identity": "sha256:a5907cd49bbeb9891569487dafcf28567792aae8119c4b30dfac315f89e55cf5",
+  "deployment_identity": "sha256:67f68880aec15551c8d367970f10235302cbf532656853b29a136c39cde13974",
+  "status": "ready",
+  "hot_footprint": {
+   "label": "model (static offsets x profile counts), not measured",
+   "profile_id": "sha256:a78e9cdb724080d334426efc4768e3cd8e9e06212150b022228c9a7bc87e53e1",
+   "profile_snapshot_id": "sha256:f417e8fa128ef3619b590512f840f0a6aab7f9f63091d97cb353d293edd63bd8",
+   "sc": "/home/runner/work/_temp/pye/campaign/rebuilt-promotion/current/original.sfb.b3/artifacts/1985dffc9ed911aaad55eac4d6d62f3160ea1bef7ac510319e86f969482707a5/cache.sc",
+   "phase": "steady",
+   "coverage_target": 0.9,
+   "exact_units": 0,
+   "non_exact_units": 0,
+   "phase_entries_exact": 1843984,
+   "join_coverage": 0.0,
+   "units_in_layout": 0,
+   "status": "not_run",
+   "reason": "no_matching_entries"
+  }
+ }
+}

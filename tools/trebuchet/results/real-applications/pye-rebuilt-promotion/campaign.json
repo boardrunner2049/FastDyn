@@ -1,0 +1,50 @@
+{
+ "state": "completed",
+ "images": {
+  "original": {
+   "status": "prepared",
+   "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+   "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+   "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+   "snapshot": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/f417e8fa128ef3619b590512f840f0a6aab7f9f63091d97cb353d293edd63bd8",
+   "prep": "/home/runner/work/_temp/pye/campaign/original/prep",
+   "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+   "manifest": "/home/runner/work/_temp/pye/campaign/original/prep/cache/fw.sc.fastdyn.json",
+   "admission_runtime": "/home/runner/work/_temp/pye/campaign/original/admission-runtime.json"
+  },
+  "firmbolt": {
+   "status": "prepared",
+   "firmware": "/home/runner/work/_temp/pye/campaign/firmbolt-guest/firmware.elf",
+   "config": "/home/runner/work/_temp/pye/campaign/firmbolt/pye.toml",
+   "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+   "snapshot": "/home/runner/work/_temp/pye/campaign/firmbolt/store/snapshots/8b7b18f516b0b1256c00c602d25dc1fadc80cde698c9051693d748c3830372de",
+   "prep": "/home/runner/work/_temp/pye/campaign/firmbolt/prep",
+   "profile": "/home/runner/work/_temp/pye/campaign/firmbolt/profile/merged.profile.json",
+   "manifest": "/home/runner/work/_temp/pye/campaign/firmbolt/prep/cache/fw.sc.fastdyn.json",
+   "admission_runtime": "/home/runner/work/_temp/pye/campaign/firmbolt/admission-runtime.json"
+  }
+ },
+ "policy": {
+  "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/rebuilt-promotion-policy.json",
+  "sha256": "sha256:e9142522494434acbdf2710fe4874417a87a4d0808b17bcb7334ff1579958736"
+ },
+ "timing_cpu": 3,
+ "errors": {},
+ "qemu": {
+  "path": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "sha256": "sha256:23df70f3d225348a3456fc1f95d45ae5ffba276b3a5178474b88ea361172e495"
+ },
+ "plugin": {
+  "path": "/home/runner/work/_temp/pye/plugin-release/libfastdyn.so",
+  "sha256": "sha256:7376649e5a274a2dbab35d3d59c98467b0976ee2928c1ab1bbc04e37797764e6"
+ },
+ "host": [
+  "Linux",
+  "ip-10-0-142-69",
+  "7.0.0-1014-aws",
+  "#14~24.04.1-Ubuntu SMP PREEMPT Fri Sep 18 21:24:59 UTC 2026",
+  "x86_64"
+ ],
+ "scope": "supplemental comparison of previously frozen recipes",
+ "campaign_wall_seconds": 448.359579996
+}

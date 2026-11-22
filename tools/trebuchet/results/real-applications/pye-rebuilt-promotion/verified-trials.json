@@ -1,0 +1,33 @@
+{
+  "cache_track": "training-frozen",
+  "cost_scope": "full-launch translation counts and process-tree CPU",
+  "scored_groups": [
+    {
+      "role": "promotion",
+      "case": "repair-packaging-shebang",
+      "identity": "sha256:520d185182fd20660ba41d10f7aff9d16a789017472a4d3d0d7eacb959ec7093",
+      "runs": 12,
+      "initial_records": 3511,
+      "appended_min": 51,
+      "appended_median": 54.0,
+      "appended_max": 58,
+      "operational_ns_median": 16786878.5,
+      "qemu_lifetime_ns_median": 56383278.5,
+      "process_tree_cpu_ns_median": 220854000.0
+    },
+    {
+      "role": "promotion",
+      "case": "repair-packaging-shebang",
+      "identity": "sha256:67f68880aec15551c8d367970f10235302cbf532656853b29a136c39cde13974",
+      "runs": 12,
+      "initial_records": 3513,
+      "appended_min": 50,
+      "appended_median": 53.0,
+      "appended_max": 57,
+      "operational_ns_median": 18041254.5,
+      "qemu_lifetime_ns_median": 56625126.5,
+      "process_tree_cpu_ns_median": 219976000.0
+    }
+  ],
+  "rejected": []
+}

@@ -2,6 +2,8 @@
 
 On the held-out Pye editor-manual job, original-image SFB → B3 achieved a median paired gain of **1.5275×** over original-image ordinary (95% bootstrap interval 1.437–1.579×). Twelve scored pairs began from copies of the frozen training cache. Median edit latency was 56.395 ms for ordinary and 35.803 ms for SFB → B3. Both arms executed new translations and passed the full document oracle. The independent fully warm track stopped in warmup. The strict historical search also stopped when one required recipe failed validation, leaving incumbent promotion unresolved under that rule. [Final measurements](pye-training-frozen/final.json) · [Audited observations](pye-training-frozen/verified-trials.json) · [Historical registry](pye-training-frozen/historical-registry.json) · [Fully warm attempt](pye-stabilized-inventory/README.md)
 
+The supplemental promotion-only comparison retained the eligible historical host-cache recipe. Rebuilt current and historical selections split 12 reserved shebang-edit pairs six to six. The median paired gain was 0.999× (95% interval 0.926–1.022×). Both used freshly captured per-image training inventories. The historical recipe used the repaired FirmBOLT guest. [Reserved promotion comparison](pye-rebuilt-promotion/)
+
 ## Application evidence
 
 | Application or product | Observed work and limits | Performance eligibility |
