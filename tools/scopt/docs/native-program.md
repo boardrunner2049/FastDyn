@@ -91,6 +91,7 @@ After splicing, the optimizer follows the caller's native control flow to test w
 | `auto` (default) | Full body on the audited QEMU image, guarded splice on other supported builds | Applied when the caller proof succeeds |
 | `full` | Require the audited full body | Disabled |
 | `cleanup` | Original helper call for zero | Applied when the caller proof succeeds |
+| `partial-cleanup` | Original helper call for zero | Individually omit each proven-dead register clear. Reimport checks the exact emitted sequence and repeats the proof on the linked continuation. |
 | `guarded` | Original helper call for zero | Disabled |
 
 Pass parameters can be supplied through `--params`. For example, use `{"host-inline": {"mode": "faulting", "udiv_mode": "full"}}` to measure the complete body with its register clears. In `auto`, the optimizer can try the smaller guarded form if the full form exceeds the remaining growth budget or cannot fit the caller’s encoding. The native pass produces its eligible candidates before any warm-cache timing selector is run. The selector compares an already published candidate against ordinary warm.
