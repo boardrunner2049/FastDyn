@@ -36,9 +36,10 @@
   "admitted": true,
   "reason": "Both normal binaries pass startup, servo ramp, loaded forward motion, proportional brake, reverse, stop and external KISS telemetry checks on the declared Hall-sensored bench.",
   "operational_baseline": "qualified modeled bench; cache comparison and transformations open",
-  "cache_capture": "PASS original frozen replay, 3411 sealed TB records, zero late translations, full operational oracle",
+  "cache_capture": "PASS same-host known-input fresh replays, original 3411 sealed +0 appended; FirmBOLT 3420 sealed +176 appended",
   "validated_transformed_deployment": "PASS known-input cold and profiled RC-car job; 48 added loaded bytes; 14 relocated TB addresses and 16577657 entries",
   "board_qualification": "observations/board.json",
   "motor_qualification": "observations/motor/results.json",
-  "guest_execution": "observations/motor/training/executed.json"
+  "guest_execution": "observations/motor/training/executed.json",
+  "frozen_result": "observations/motor/frozen/44996734243.json"
 }

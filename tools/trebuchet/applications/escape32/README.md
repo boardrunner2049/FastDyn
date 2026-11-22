@@ -75,3 +75,12 @@ With `FIRMBOLT_REPO` pointing to the native private checkout, `board/training.sh
 On a fixed-ASLR host, `board/frozen.py BOARD_QEMU BASE_FLASH NEW_OUTPUT` populates an ordinary native FastDyn QEMU supercache from training, seals it, checks its digest against a fresh writable sparse copy and runs one full training replay. Its proof checks the deployed header, inode, record bytes and exact count of subsequently translated records. Each process emits the entire application trace and actual serial data, CPU time, elapsed time and cache identity. This known-input training job provides no ranking or reserved-final comparison. [Replay driver](board/frozen.py)
 
 The repaired callback recipe places 48 bytes at 0x08010000 and rebinds the original typed Thumb callback pointer at 0x080087ac. Its relocated body is byte-identical to the original body. Across 14 relocated TB addresses the independent execution profile counted 16,577,657 entries, including 4,140,400 at the function entry. The transformed firmware completed the full cold and instrumented motor jobs and emitted byte-identical KISS telemetry to the normal rebuild. Both input and linked output identities, original rejection, and the distinction between executable and debug metadata qualification are retained. [Linked image and dynamic receipt](observations/motor/training/executed.json)
+
+One known-input replay per image ran on the same fixed-ASLR host. Both trials redeployed the sealed prefix and emitted the same 255 CRC-valid KISS packets. The counts below include every late native translation. Full QEMU process times include startup, the 430-frame job and teardown. A single training observation per image provides no held-out speedup or selection. [Raw case, hashes, elapsed and CPU costs](observations/motor/frozen/44996734243.json)
+
+| Guest | Captured records | New records on replay | Replay wall | Replay CPU |
+| --- | ---: | ---: | ---: | ---: |
+| Normal source release | 3,411 | 0 | 7.075 s | 7.060 s |
+| FirmBOLT callback relocation | 3,420 | 176 | 7.124 s | 7.112 s |
+
+The original also replayed with zero appended records on a separate fixed-ASLR run. The FirmBOLT job passed the training-frozen protocol and retained 176 late translations in its record proof. Fully warmed execution of this transformed guest remains unqualified. Each raw evidence archive and sparse sealed inventory was downloaded and checked before its temporary hosted run and branch were removed. [Independent original replay](observations/motor/frozen/44996606690.json)
