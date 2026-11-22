@@ -105,7 +105,7 @@ def admit(work, qemu, plugin, mission, mission_hash):
         write(work / "bundle.json", bundle)
         write(work / "runtime.json", runtime)
         profile = ingest(qprof, cache, sc, bundle_id=bundle["bundle_id"], contract_id=bundle["contract_id"],
-                         runtime_identity=runtime, inputs=[{"name": mission.name, "split": "training",
+                         runtime_identity=runtime, inputs=[{"name": mission.name, "split": "train",
                                                              "sha256": "sha256:" + mission_hash}])
         (work / "profile.json").write_bytes(profile.to_bytes())
         report["profile_id"] = profile.profile_id
