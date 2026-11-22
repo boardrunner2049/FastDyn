@@ -215,7 +215,7 @@ def run(args, receipt):
             receipt["transformed_deployment"] = True
     receipt["operational_baseline"] = True
     checkpoint(work, receipt)
-    if not (args.ordinary_warm or args.frozen_preparation):
+    if not (args.ordinary_warm or args.frozen_preparation or args.scopt_training):
         return
     # Import only for the optional warm proof; the source is the same pinned checkout.
     sys.path.insert(0, str(ROOT / "tools/scopt"))
@@ -227,6 +227,11 @@ def run(args, receipt):
     warm_config.write_text(replace_one(config, "[Machine]", "[Machine]\nsupercache = "
                                        + json.dumps(str(cache)) + "\nsupercache_flat = false"))
     receipt["runtime"]["cache_config"] = digest(warm_config)
+    if args.scopt_training:
+        from release.scopt_training import train
+        train(args, receipt, work, manifest, mission, warm_config, env, cache, sidecar,
+              launch=launch, freeze=freeze_inventory, checkpoint=checkpoint, qemu=QEMU)
+        return
     receipt["warm_attempt_budget"] = args.warm_attempts if args.ordinary_warm else 1
     checkpoint(work, receipt)
     receipt["capture"] = launch(args, manifest, mission, work / "capture", warm_config, env, no_aslr=True)
@@ -335,7 +340,13 @@ def main():
                         help="maximum checked replays after population (default 2)")
     parser.add_argument("--frozen-preparation", action="store_true",
                         help="seal the capture and qualify its first replay with exact late-translation counts")
+    parser.add_argument("--scopt-training", action="store_true",
+                        help="qualify an instrumented release PX4 training replay and one host rewrite")
     args = parser.parse_args()
+    if args.scopt_training and (args.step != "run" or args.family != "px4" or not args.release_pair
+                                or args.training_profiler or args.measure_cpu or args.ordinary_warm
+                                or args.frozen_preparation):
+        parser.error("scopt-training requires a separate PX4 release run")
     if bool(args.candidate_elf) != bool(args.candidate_layout) or (args.candidate_elf and
                                                                   (not args.release_pair or args.family != "px4")):
         parser.error("candidate-elf and candidate-layout require together a PX4 release pair")
