@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Trebuchet: -O0 firmware -> FirmBOLT -> FastDyn SuperCache -> scopt, measured end to end.
-# See README.md.  usage: trebuchet.sh STAGE [ARGS]   (stages in order below, `all`, or `dataset`)
-# TREBUCHET_WORKLOAD picks the firmware of a single-workload stage (default: compute).
+# Build, select and measure original and optimized deployments for real applications.
+# The historical single-workload commands are available under the fixture subcommand.
 set -euo pipefail
 
 T=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

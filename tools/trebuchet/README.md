@@ -1,9 +1,10 @@
 # Trebuchet
 
-Use the [real application workflow](applications/README.md) for admission, candidate materialization,
-joint image selection, reserved final evaluation and reporting. The historical FreeRTOS dataset
-below is retained for implementation regressions and archival reproducibility. Its executable
-stages require the explicit `fixture` subcommand.
+The real-application workflow builds original and FirmBOLT guest deployments, selects a host-cache recipe, and checks it on reserved operational scenarios. See the [application adapters and commands](applications/README.md).
+
+The held-out Pye editor job ran 1.53× faster with original-image SFB → B3 than with the ordinary cache. The separate comparison against the historical host-cache winner gave 0.999× and retained the incumbent. Both results used frozen training-only preparation. The results index also covers the ArduCopter and PX4 missions, the controller admission checks and the fully warm attempts. [Measurements and qualification evidence](results/real-applications/README.md) · [Work-package ledger](results/real-applications/work-packages.md)
+
+The archived FreeRTOS campaign below supplies implementation regressions and can be invoked with the explicit `fixture` subcommand.
 
 ## Historical FreeRTOS development campaign
 
