@@ -234,5 +234,12 @@
   "wire_equal_to_ordinary": true,
   "reloadable_flash_sha256": "d0c802acadf7dd5787969811d1dcd082178551b18fac50b7b6582ba8d765be62",
   "metadata_scope": "Final native default output retains allocated relocation records and omits orphan debug relocation sections. Its entire 128 KiB bank is byte-identical to the instrumented, cold and hosted input. Input and intermediate ELF identities remain distinct.",
-  "initial_execution_elf_sha256": "8de6ed2c004a4fb332c4b17fe0942bdf653753cf35179dd81ddd32923023ab3a"
+  "initial_execution_elf_sha256": "8de6ed2c004a4fb332c4b17fe0942bdf653753cf35179dd81ddd32923023ab3a",
+  "native_reproduction": {
+    "firmbolt_revision": "f6e5340e59b5a03d6c859c8794cecd2e60e9b746",
+    "release_llvm_bolt_sha256": "9e94cf3dc72b5ce26b9d005fd873596ca28924f55a6af63b0146d0d8ba5c0824",
+    "overlay_sha256": "cbc46e975bc700c8a082323e2c8c8f1cc720987e61281c6a994cc0a620ac704d",
+    "canonical_qualification_elf": "4dda1a6e6bf63444180f9ee755caed8e02e5894725613b97cf627114fbbb0b94",
+    "note": "Recorded canonical candidate and final private toolchain reproduce identical loaded firmware. The final toolchain changes a nonallocated argv note."
+  }
 }

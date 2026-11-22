@@ -37,10 +37,12 @@ PY
     ;;
 optimize)
     profile=$(realpath "${5:?supply the training profile directory}")
+    backend=()
+    if [[ -n ${FIRMBOLT_BOLT:-} ]]; then backend=(--bolt "$FIRMBOLT_BOLT"); fi
     for recipe in full narrow; do
         extra=()
         if [[ "$recipe" == narrow ]]; then extra=(-- '--funcs=^delayf/2'); fi
-        timeout 300 "$fbpy" -m firmbolt --verbose --cpu cortex-m0plus --emulator-profile "$profile/motor.preagg" \
+        timeout 300 "$fbpy" -m firmbolt --verbose "${backend[@]}" --cpu cortex-m0plus --emulator-profile "$profile/motor.preagg" \
             --new-code-address 0x08010000 --report "$out/$recipe.json" "$elf" -o "$out/$recipe.elf" \
             "${extra[@]}" > "$out/$recipe.log" 2>&1 || continue
         "$fbpy" "$adapter/guest.py" "$elf" "$out/$recipe.elf" "$bank" "$out/$recipe.bin" "$out/$recipe-layout.json"
