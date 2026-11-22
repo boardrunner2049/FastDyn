@@ -32,12 +32,21 @@ echo FASTDYN_PX4_SMOKE_OK
 """
 
 
+def runtime_command(profile, runtime_config=None):
+    if runtime_config is None:
+        return [str(profile / 'run.sh')]
+    return [str(ROOT / 'fastdyn-env/bin/fastdyn'), 'run', '-c',
+            str(Path(runtime_config).resolve())]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60)
     parser.add_argument('--version', choices=VERSION_PROFILES, default='1.17.0')
     parser.add_argument('--auto-boot', action='store_true',
                         help='Check the TOML boot default without an environment override')
+    parser.add_argument('--runtime-config', type=Path,
+                        help='Run an already-generated config, for a rebuilt or rewritten ELF')
     args = parser.parse_args()
     profile_name, _ = VERSION_PROFILES[args.version]
     profile = COURBET / 'px4' / profile_name
@@ -47,13 +56,13 @@ def main():
     env = dict(os.environ, FASTDYN_DEBUG_PWM='1')
     if args.auto_boot:
         env.pop('FASTDYN_BRIDGE_BOOT', None)
-        command = [str(profile / 'run.sh')]
+        command = runtime_command(profile, args.runtime_config)
         marker = 'FASTDYN_PX4_READY'
     else:
         boot = artifacts / 'smoke.nsh'
         boot.write_text((profile / 'boot.nsh').read_text() + COMMANDS)
         env['FASTDYN_BRIDGE_BOOT'] = str(boot)
-        command = [str(profile / 'run.sh')]
+        command = runtime_command(profile, args.runtime_config)
         marker = 'FASTDYN_PX4_SMOKE_OK'
     completed = False
     with logfile.open('w') as log:

@@ -1,0 +1,226 @@
+{
+  "schema": "trebuchet.experiment/1",
+  "experiment_id": "A04-PX4-001",
+  "opportunity_ids": ["A04", "A06", "A14"],
+  "evidence_scope": "newly_reproduced_in_clean_checkout",
+  "hypothesis": "Moving and profile-reordering the mission-hot PX4 memset body will reduce FastDyn time enough to offset its input-entry redirect and changed block transfers.",
+  "revisions": {
+    "fastdyn": {
+      "commit": "5e80989016a0ff5e07f9abc3309f776d96de6491",
+      "working_diff_sha256": "3cdf2aa7a2b3adfa728ac3e151ab9f1efb95d8721e346ddb5772508676f17144"
+    },
+    "firmbolt": {
+      "commit": "1389fe3df7c541665bb5e4c6ab224e0abe9cefba",
+      "working_diff_sha256": "715aa1a4bb387473c2f834fe5ed6a5f1e0b75f5cd6d0f314373adbddc3d9b7f1"
+    },
+    "llvm_bolt": {
+      "commit": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+      "binary_sha256": "7cac4b0df7c568e20290968c4df170f14356be9623a8acc5aae644abc717fa41",
+      "version": "LLVM 24.0.0git, optimized assertions build"
+    },
+    "qemu": {
+      "commit": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+      "binary_sha256": "94e2c7862c7f511f2158988216e8b933a2327bb42025392a34751000750305cd"
+    },
+    "fastdyn_plugin_sha256": "b245a8fd352d63876279049cd1fe6bdf8c06e6ded9c4a69fd9d9dd908f142b9d",
+    "px4": {
+      "commit": "d6f12ad1c4f70ad3230afd7d86e971421e02fef4",
+      "version": "v1.17.0",
+      "toolchain": "arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009",
+      "build_flags_of_interest": ["px4_fmu-v6c_default", "--emit-relocs"]
+    }
+  },
+  "contract": {
+    "execution_mode": "FastDyn Cortex-M7 with instruction-counted virtual time",
+    "virtual_time": {
+      "icount_shift": 5,
+      "sleep": false,
+      "align": false,
+      "timer_irq_period_ns": 1000000
+    },
+    "instruction_count_changes": "FirmBOLT publication policy left enabled; it checked the one attempted function and reported zero instruction-count rejections.",
+    "external_events": "The same FastDyn PX4 bridge, synchronous FMI3 plant, 1 ms service quantum, UART7 bytes, MAVProxy, mission helper, ports, boot script, and mission are used for both variants.",
+    "feedback": "No coverage or translation-block profiler is enabled in scored runs.",
+    "required_observables": [
+      "process exit 0",
+      "viewer HTTP/WebSocket available",
+      "typed parameter and mission upload",
+      "normal arming",
+      "flight and final mission item",
+      "landing and disarm",
+      "position and attitude telemetry",
+      "no missing mission checks"
+    ]
+  },
+  "application": {
+    "name": "PX4 FMUv6C v1.17.0",
+    "class": "real flight-controller firmware",
+    "device_model": "FastDyn STM32H743x/Cortex-M7 plus ConfiguredQuadP2 FMI3",
+    "workload": "boot, estimator readiness, upload five-item mission, normal arm, takeoff, waypoint flight, land, disarm",
+    "original_elf": "/data/trebuchet-clean/PX4-Autopilot/build/px4_fmu-v6c_default/px4_fmu-v6c_default.elf",
+    "original_elf_sha256": "ae254ce857e54e3e5d6a006772cf4abd5458edad7b29bb68988002b1521aba5c"
+  },
+  "inputs": {
+    "training": {
+      "name": "default KLAF copter mission",
+      "use": "FirmBOLT translation-block profile",
+      "tbprof": "/data/trebuchet-clean/work/px4-reloc/mission.tbprof",
+      "tbprof_sha256": "e9ea58e96485c41d0cc8d904003343a2a4ce673cd81aa711914e2add065c3a24",
+      "preaggregated_profile": "/data/trebuchet-clean/work/px4-reloc/mission.preagg",
+      "preaggregated_profile_sha256": "c9fd5692b8f92a5171f32a41cebfd80da2be21eb25350141f6473f69bf9e5af0"
+    },
+    "development": {
+      "name": "same default mission",
+      "use": "correctness and paired timing"
+    },
+    "held_out": {
+      "available": false,
+      "claim": "No held-out or cross-application generalization claim is made; the scored mission also supplied the profile."
+    }
+  },
+  "variants": {
+    "baseline": {
+      "guest": "rebuilt PX4 image, no FirmBOLT transformation",
+      "host": "ordinary FastDyn, no SuperCache/scopt factor",
+      "runtime_config": "/data/trebuchet-clean/work/px4-reloc/original.toml",
+      "runtime_config_sha256": "7c62b986103b02a64d53627143152daf38fdc86641e1d604f6549ae49930e58b"
+    },
+    "identity": {
+      "status": "passed",
+      "guest": "memset selected and relocated with --reorder-blocks=none; input entry redirects to the unchanged moved body",
+      "firmware_modified": false,
+      "runtime_config": "/data/trebuchet-clean/work/px4-reloc/identity.toml",
+      "runtime_config_sha256": "367ad61c7d554c04629f40f7ccb5e16d68dd55f18a1950e58c637ce806eb0725"
+    },
+    "candidate": {
+      "guest": "only memset selected; profile-guided block reordering and relocation to 0x08210002 with an input-entry redirect",
+      "host": "ordinary FastDyn, no SuperCache/scopt factor",
+      "runtime_config": "/data/trebuchet-clean/work/px4-reloc/memset.toml",
+      "runtime_config_sha256": "43f60a8ad52ab0a89c08e40a94a205b48ce50bce8f3de9deddebdf451f42370e",
+      "deployment_scope": "FastDyn/QEMU only: 0x08210002 is beyond the STM32H743 2 MiB physical flash aperture. This artifact is valid application-level emulator evidence, not a hardware-deployable firmware image."
+    },
+    "host_only": {
+      "status": "untested_or_blocked",
+      "reason": "The default b2-layout artifact was an inactive identity. A targeted phase=boot retry was also an identity because pass admission hardcodes steady before the pass can read its configurable phase parameter. Warm profiling appended 7280 translations, so the cache was not sealed for timing."
+    },
+    "combined": {
+      "status": "untested_or_blocked",
+      "reason": "The default b2-layout artifact was an inactive identity. The redundant phase=boot retry was stopped after the original-guest arm proved the shared admission defect. Warm profiling appended 7537 translations, so the cache was not sealed for timing."
+    }
+  },
+  "passes": {
+    "requested": ["FirmBOLT current Cortex-M pipeline", "function filter ^memset$"],
+    "enabled": ["profile-guided basic-block reordering", "relocation/input-entry redirect"],
+    "executed": ["block_reordering"],
+    "changed_units": ["memset"],
+    "changed_function_count": 1,
+    "ignored_function_count": 11238,
+    "rejection_reasons": [],
+    "report_limitation": "FirmBOLT emits a firmware report rather than scopt-style per-pass receipts."
+  },
+  "artifacts": {
+    "candidate_elf": {
+      "path": "/data/trebuchet-clean/work/px4-reloc/px4-firmbolt-memset-dwarf.elf",
+      "sha256": "964b77abfe00f823afccb6a003a22c6d456ab58c7cf524715a88cf5abd200bfe",
+      "bytes": 63857968
+    },
+    "identity_elf": {
+      "path": "/data/trebuchet-clean/work/px4-reloc/px4-firmbolt-memset-identity.elf",
+      "sha256": "0d0dadf0476c32b4d87d473e9dc068785542ed96f8a169be15300d2be6e080bc"
+    },
+    "identity_report": {
+      "path": "/data/trebuchet-clean/work/px4-reloc/firmbolt-memset-identity-report.json",
+      "sha256": "faa988a3b42b22897065af891b09dc489afc973ce5bc6236c4bb0542567cc368"
+    },
+    "firmbolt_report": {
+      "path": "/data/trebuchet-clean/work/px4-reloc/firmbolt-memset-dwarf-report.json",
+      "sha256": "793f64e02fa3ea1bab13bfef60fdef69f6387976b15915200a4ce789a76c81dd"
+    },
+    "linked_layout": {
+      "path": "/data/trebuchet-clean/work/px4-reloc/firmbolt-memset-dwarf-report.json.layout.json",
+      "sha256": "8462f8c6eca80ede55ed7bcbd7b6e67c3ddf44be9f602c1ea9a3c552c99f1ef5"
+    },
+    "raw_results": {
+      "path": "/data/trebuchet-clean/work/px4-reloc/paired-missions.jsonl",
+      "sha256": "eb0b36cd3e5692baa99e6104a9dc1867d050b6df5e5c27aa5e1654c4e8fe91a5"
+    },
+    "summary": {
+      "path": "/data/trebuchet-clean/work/px4-reloc/paired-missions.summary.json",
+      "sha256": "30b6888a30d108625801c6d92b2a5ec41a31432ab9347e7886bf03742e936edc"
+    }
+  },
+  "activation": {
+    "proof": "The candidate report marks memset firmware_modified=true with reason block_reordering; disassembly shows the input entry branches to 0x08210002.",
+    "profiled_entry_count": 1280322,
+    "profile_context": "The mission profile attributed approximately 129.53 million dynamic guest instructions to memset.",
+    "candidate_output_address": "0x08210002"
+  },
+  "measurement": {
+    "driver": "tools/trebuchet/experiments/px4_memset_layout/run_paired.py",
+    "independent_unit": "one fresh process completing a full PX4 mission",
+    "plan": "six randomized paired blocks, fixed before scored results",
+    "blocks": 6,
+    "seed": 20261122,
+    "timing_boundary": "monotonic wall time around the complete smoke_px4_mission.py process",
+    "host": {
+      "hostname": "e5-cse-359-01",
+      "cpu": "Intel Xeon w5-3435X, 16 cores/32 threads",
+      "kernel": "Linux 6.17.0-1033-oem",
+      "affinity": "not pinned",
+      "frequency_policy": "not fixed; reported hardware range 800-4700 MHz",
+      "background_load": "not isolated"
+    },
+    "diagnostics_excluded": ["FirmBOLT TB profiler", "coverage", "scopt activation counters"]
+  },
+  "correctness": {
+    "configuration_generation": "Fresh symbols, modifiers, virtuals, and firmware hash generated from the candidate; GDB/DWARF ABI checks passed.",
+    "short_smoke": "PASS: TOML auto-initialization and six FMI bridge topics.",
+    "identity_mission": {
+      "returncode": 0,
+      "viewer_http_ok": true,
+      "position_samples": 251,
+      "attitude_samples": 275,
+      "max_relative_alt_m": 15.125,
+      "max_horizontal_distance_m": 13.468261090490863,
+      "missing": []
+    },
+    "admission_mission": {
+      "returncode": 0,
+      "viewer_http_ok": true,
+      "position_samples": 252,
+      "attitude_samples": 273,
+      "max_relative_alt_m": 15.08,
+      "max_horizontal_distance_m": 13.462456891521645,
+      "missing": []
+    },
+    "scored_missions": {
+      "runs": 12,
+      "passed": 12,
+      "returncodes": [0],
+      "viewer_http_ok_all": true,
+      "missing_checks_all_empty": true
+    },
+    "limits": "These real-input checks are bounded evidence, not a proof for every input, address comparison, interrupt timing, or fault path."
+  },
+  "results": {
+    "baseline_median_s": 30.384150169,
+    "candidate_median_s": 31.125134232,
+    "paired_speedups": [1.0132842644420712, 1.0198722648822367, 0.9646122059692773, 0.962140814072238, 0.9547640718576051, 0.9808763123328599],
+    "median_paired_speedup": 0.9727442591510687,
+    "bootstrap_95_interval": [0.9584524429649215, 1.016578264662154],
+    "footprint": {
+      "original_total_function_bytes": 1473052,
+      "estimated_post_optimization_total_function_bytes": 1473060,
+      "candidate_memset_estimated_bytes": 152,
+      "candidate_post_optimization_instruction_count": 63
+    },
+    "setup_cost": "FirmBOLT and profile preparation were not timed in this scoped run.",
+    "break_even": "none: the measured median per-mission delta is negative, so no extra setup cost can be amortized"
+  },
+  "decision": {
+    "outcome": "measured_neutral_or_regression",
+    "action": "disable",
+    "rationale": "The transformation was active and all behavior checks passed, but the median candidate was 2.73% slower and the interval includes both a modest regression and a small gain. The input redirect, extra bytes/transfers, and process noise plausibly offset block-order benefits.",
+    "next_experiment": "Do not generalize this policy. If revisited, compare an in-place final-size-constrained layout or a redirect-only identity control on fresh development inputs before obtaining a new held-out set."
+  }
+}

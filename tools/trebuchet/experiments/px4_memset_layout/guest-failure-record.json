@@ -1,0 +1,112 @@
+{
+  "schema": "trebuchet.failure_record/1",
+  "experiment_id": "A04-PX4-001",
+  "records": [
+    {
+      "id": "PX4-FULL-001",
+      "classification": "invalid_implementation",
+      "variant": "current full FirmBOLT policy before legalization fix",
+      "failure": "Commander::run CBZ/CBNZ legalization did not converge after an arbitrary 64-round cap.",
+      "diagnosis": "The real PX4 image contains more than 64 out-of-range compare-and-branch sites; each legalization round rewrites one existing site.",
+      "revision": "The loop is now bounded by the function's actual CBZ/CBNZ count plus one final scan.",
+      "evidence": "A new 80-site Thumb regression passed, and the real image subsequently legalized 2309 sites; this fixed the convergence defect but did not make the full artifact publishable.",
+      "disposition": "retain_bounded_fix"
+    },
+    {
+      "id": "PX4-FULL-002",
+      "classification": "invalid_implementation",
+      "variant": "full policy after legalization fix",
+      "failure": "Final publication rejected a rebound Thumb PC-relative reference in up_set_format because its observable address changed from 0x0802087c to 0x08221f44.",
+      "disposition": "rejected_by_required_address_gate"
+    },
+    {
+      "id": "PX4-FULL-003",
+      "classification": "invalid_implementation",
+      "variant": "full policy with up_set_format excluded",
+      "failure": "Final publication rejected a rebound Thumb PC-relative reference in up_udelay because its observable address changed from 0x080219f4 to 0x082656b4.",
+      "disposition": "rejected_by_required_address_gate"
+    },
+    {
+      "id": "PX4-FULL-004",
+      "classification": "invalid_implementation",
+      "variant": "full policy with up_set_format and up_udelay excluded",
+      "failure": "Final publication rejected a rebound Thumb PC-relative reference in stm32_configgpio because its observable address changed from 0x08021ef8 to 0x0823dc00.",
+      "disposition": "rejected_by_required_address_gate"
+    },
+    {
+      "id": "PX4-FULL-005",
+      "classification": "invalid_implementation",
+      "variant": "full policy with three observed failures excluded",
+      "failure": "A fourth distinct address failure appeared in stm32_irqinfo/1(*2), changing 0x08021fd0 to 0x0826265c.",
+      "diagnosis": "Repeated per-function exclusions are not a defensible selection rule. The exclusion-list variant was stopped rather than timed.",
+      "disposition": "reject_variant"
+    },
+    {
+      "id": "PX4-FULL-006",
+      "classification": "invalid_implementation",
+      "variant": "full policy physical layout",
+      "failure": "The candidate requested new text at 0x08210000 and padded through approximately 0x082ce90c, outside the STM32H743's physical flash range used by the image.",
+      "diagnosis": "Even an emulator-loadable full artifact would not be a hardware-deployable firmware image without a bounded placement budget.",
+      "disposition": "requires_final_size_and_flash_capacity_policy"
+    },
+    {
+      "id": "PX4-SCOPED-001",
+      "classification": "invalid_implementation",
+      "variant": "first scoped memset artifact",
+      "artifact_sha256": "e00d8f3b7409ed684cdfbcd415c30289ab559375c3f013b261b4e2d423309c12",
+      "failure": "FirmBOLT stripped debug information, and the PX4 configuration generator rejected the image because GDB could not resolve struct file.",
+      "revision": "Rebuilt the same scoped candidate with --update-debug-sections and regenerated firmware-bound hook metadata.",
+      "disposition": "superseded_by_valid_candidate"
+    },
+    {
+      "id": "FIRMBOLT-BACKEND-001",
+      "classification": "invalid_implementation",
+      "variant": "existing backend CI test thumb-relocated-keep-input-entry.s",
+      "failure": "Retained ARM text relocations span both original and moved text, and the writer requires separate relocation sections.",
+      "scope": "Reproduced locally but not encountered by the scoped memset candidate.",
+      "disposition": "outstanding_backend_bug"
+    },
+    {
+      "id": "PX4-SCOPED-RESULT-001",
+      "classification": "measured_neutral_or_regression",
+      "variant": "valid scoped memset layout",
+      "failure": "No useful performance improvement was established: median paired speedup 0.972744x, bootstrap 95% interval 0.958452-1.016578x.",
+      "correctness": "All 12 scored missions passed.",
+      "scope_limit": "The relocated body begins at 0x08210002, beyond the STM32H743 2 MiB physical flash aperture; the result applies to FastDyn/QEMU execution and is not hardware-deployment evidence.",
+      "disposition": "disable"
+    },
+    {
+      "id": "PX4-SCOPT-LIFECYCLE-001",
+      "classification": "untested_or_blocked",
+      "variant": "original and FirmBOLT-memset warm SuperCache profiles",
+      "failure": "Warm replay appended 7280 records to the original cache and 7537 records to the rewritten-guest cache.",
+      "diagnosis": "Cold mission capture did not cover all translations reached by warm profiling, so neither cache is sealed for timing.",
+      "disposition": "extend_capture_then_require_zero_append_replay"
+    },
+    {
+      "id": "PX4-SCOPT-ACTIVATION-001",
+      "classification": "untested_or_blocked",
+      "variant": "b2-layout for both guest images",
+      "failure": "Both artifacts were identities: passes reported missing_profile or missing_hotness and affected units were empty.",
+      "diagnosis": "The requested host transformation did not execute; timing would measure only publication/loading noise.",
+      "disposition": "fix_profile_consumption_before_timing"
+    },
+    {
+      "id": "PX4-SCOPT-FINGERPRINT-001",
+      "classification": "invalid_implementation",
+      "variant": "intermediate packaged-FMU warm profile attempts",
+      "failure": "QEMU replaced the deployed cache after configuration fingerprint drift; proof failed header, records, inode, and manifest checks with INVALID_artifact_not_used.",
+      "revision": "Stable runtime inputs produced a loadable cache and exposed the separate late-translation issue.",
+      "disposition": "retain_stable_runtime_inputs"
+    },
+    {
+      "id": "PX4-SCOPT-PHASE-001",
+      "classification": "untested_or_blocked",
+      "variant": "b2-layout with phase=boot for hotcold-partition and cluster-hot",
+      "failure": "The completed original-guest retry was still an identity and reported that no attached profile had phase steady.",
+      "diagnosis": "Both pass descriptors hardcode requires_profile_phase=steady, so manager admission rejects the boot-only profile before the pass implementation reads params.phase.",
+      "evidence": "Artifact 04d6769d2fd44300e89b7c7b2b230d9101c460708809c213a1921152465bc748 passed V1-V9 but moved zero units; its input and output SnapshotIds are identical.",
+      "disposition": "fix_configurable_phase_admission_and_add_regression"
+    }
+  ]
+}

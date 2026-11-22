@@ -1,0 +1,75 @@
+{
+  "schema": "trebuchet.experiment/1",
+  "experiment_id": "A30-PX4-001",
+  "opportunity_ids": ["A04", "A06", "A27", "A30"],
+  "hypothesis": "Mission-trained b2-layout will change executed host units and improve a sealed warm replay for each guest image.",
+  "revisions": {
+    "fastdyn": "5e80989016a0ff5e07f9abc3309f776d96de6491",
+    "firmbolt": "1389fe3df7c541665bb5e4c6ab224e0abe9cefba plus recorded working-tree fixes",
+    "qemu": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+    "qemu_sha256": "94e2c7862c7f511f2158988216e8b933a2327bb42025392a34751000750305cd",
+    "plugin_sha256": "b245a8fd352d63876279049cd1fe6bdf8c06e6ded9c4a69fd9d9dd908f142b9d",
+    "px4": "d6f12ad1c4f70ad3230afd7d86e971421e02fef4"
+  },
+  "contract": {
+    "mode": "FastDyn Cortex-M7 under setarch x86_64 -R, non-flat SuperCache v5, complete PX4 mission",
+    "cache": "A scored replay must load the requested artifact without replacement and append zero records.",
+    "activation": "Receipts must show executed passes and nonempty changed units before timing."
+  },
+  "application": "PX4 FMUv6C v1.17.0 with ConfiguredQuadP2 FMI3",
+  "inputs": {"training": "default KLAF mission", "held_out": null},
+  "variants": {
+    "original_guest": {
+      "elf_sha256": "ae254ce857e54e3e5d6a006772cf4abd5458edad7b29bb68988002b1521aba5c",
+      "work_root": "/data/trebuchet-clean/work/scopt-px4-original",
+      "capture": {"verdict": "PASS", "records": 47005, "snapshot_id": "sha256:2c309b3910c2708b292a0777e4b642e3ca82d2dd3fa6f3646ad61addd3ef76d7"},
+      "profile": {"appended": 7280, "records_after": 54285, "profile_id": "sha256:c418b0d117cdf7adc809a24a16d7a286c18caf8775ba80a1e143e4841d92b1b7"},
+      "artifact_id": "4cb6a9eb248f9daadb65ea59bb787e440084a4afe9974d2303d4dab1d3904e5c"
+    },
+    "firmbolt_memset_guest": {
+      "elf_sha256": "964b77abfe00f823afccb6a003a22c6d456ab58c7cf524715a88cf5abd200bfe",
+      "work_root": "/data/trebuchet-clean/work/scopt-px4-combined",
+      "capture": {"verdict": "PASS", "records": 48137, "snapshot_id": "sha256:059c2e58fb97a3830c389be299e427a0ad86b2fa684a11864abba6be8f428c81"},
+      "profile": {"appended": 7537, "records_after": 55674, "profile_id": "sha256:e5dc32567d31ceb4d39026e488f762a078549c69d21fe4fa32be413f25f392c0"},
+      "artifact_id": "9e202b6faed048ac9e4f95624d1877314ff861b794b502c3cc8f38cbfeeb7d9c"
+    }
+  },
+  "passes": {
+    "pipeline": "b2-layout",
+    "requested": ["hotcold-partition", "cluster-hot", "order-cold"],
+    "executed": [],
+    "changed_units": [],
+    "receipts_both_variants": [
+      {"pass": "hotcold-partition", "outcome": "skipped_unknown", "reason": "missing_profile", "affected": []},
+      {"pass": "cluster-hot", "outcome": "skipped_unknown", "reason": "missing_profile", "affected": []},
+      {"pass": "order-cold", "outcome": "skipped_unknown", "reason": "missing_hotness", "affected": []}
+    ],
+    "targeted_revision": {
+      "requested": "phase=boot for hotcold-partition and cluster-hot",
+      "original_guest_result": "inactive identity; admission still required steady before either pass ran",
+      "combined_result": "stopped after the shared admission defect was established on the original guest",
+      "diagnosis": "The two pass descriptors hardcode requires_profile_phase=steady even though their implementations expose and read params.phase."
+    }
+  },
+  "artifacts": {
+    "original_sidecar": {"path": "/data/trebuchet-clean/work/scopt-px4-original/out-layout/artifacts/4cb6a9eb248f9daadb65ea59bb787e440084a4afe9974d2303d4dab1d3904e5c/cache.sc.scopt.json", "sha256": "fd20db3b9c39c7179324437c52bde493b78419763a235383caee5cd83a51c6a5"},
+    "combined_sidecar": {"path": "/data/trebuchet-clean/work/scopt-px4-combined/out/layout/artifacts/9e202b6faed048ac9e4f95624d1877314ff861b794b502c3cc8f38cbfeeb7d9c/cache.sc.scopt.json", "sha256": "45c8dcf7707c0017a9f56c8a871f74977bd529dd75af96c2ac1efe3ba44d9139"},
+    "original_boot_retry_sidecar": {"path": "/data/trebuchet-clean/work/scopt-px4-original/out-layout-boot/artifacts/04d6769d2fd44300e89b7c7b2b230d9101c460708809c213a1921152465bc748/cache.sc.scopt.json", "sha256": "b6a9bbe29e340f34f8150af71b95be0bac436790269576e6338560e22a5a39e6"},
+    "boot_params_sha256": "c87f7273ae19ad9cbe7439cda249332cf70763a1d6fff77841bb156160993bfc",
+    "envlayout_sha256": "630c126b6ef581b38693e3a28e77a3ffd998025da13133f2cc2eaac893cbb106",
+    "helper_effects_sha256": "913242917877d756415ebb8d48be8d46bd44c21f5b7eb9ff90c4a6e746486f4f"
+  },
+  "activation": {"status": "inactive", "proof": "Both default artifacts and the completed original-guest boot retry have identical input/output SnapshotIds, empty move maps, unused pass profiles, and V9 identity status."},
+  "measurement": {"status": "unavailable", "reason": "No host pass changed code and both warm profiles translated thousands of late TBs."},
+  "correctness": {
+    "capture_import": "Both cold captures exited zero and imported.",
+    "static_validation": "Both identity outputs passed V1-V9.",
+    "lifecycle_counterexample": "Warm profiles appended 7280 and 7537 records, falsifying the sealed-cache prerequisite."
+  },
+  "results": {"outcome": "untested_or_blocked", "performance": null, "break_even": null},
+  "decision": {
+    "action": "revise",
+    "rationale": "Timing an inactive identity artifact would measure publication/loading noise.",
+    "next_experiment": "Make pass admission honor the configured phase and test it, capture cold plus late-warm TBs, prove an independent zero-append replay, then require a consumed profile and nonempty affected units."
+  }
+}

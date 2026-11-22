@@ -25,6 +25,13 @@ VERSION_PROFILES = {
 }
 
 
+def runtime_command(profile, runtime_config=None):
+    if runtime_config is None:
+        return [str(profile / 'run.sh')]
+    return [str(ROOT / 'fastdyn-env/bin/fastdyn'), 'run', '-c',
+            str(Path(runtime_config).resolve())]
+
+
 async def run(args):
     profile_name, _ = VERSION_PROFILES[args.version]
     profile = COURBET / 'px4' / profile_name
@@ -48,7 +55,7 @@ async def run(args):
     http_ok = False
     client = AsyncHTTPClient()
     with logfile.open('w') as log, (artifacts / 'viewer.jsonl').open('w') as messages:
-        proc = subprocess.Popen([str(profile / 'run.sh'), '--no-build-fmu',
+        proc = subprocess.Popen(runtime_command(profile, args.runtime_config) + ['--no-build-fmu',
             '-o', str(artifacts / 'run')],
             cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log,
             stderr=subprocess.STDOUT, start_new_session=True)
@@ -128,6 +135,8 @@ def main():
     parser.add_argument('--version', choices=VERSION_PROFILES, default='1.17.0')
     parser.add_argument('--base-port', type=int, default=19551,
                         help='Three ports: firmware UDP, GCS UDP, viewer TCP')
+    parser.add_argument('--runtime-config', type=Path,
+                        help='Run an already-generated config, for a rebuilt or rewritten ELF')
     args = parser.parse_args()
     if not 1 <= args.base_port <= 65533 or args.timeout <= 0:
         parser.error('invalid port range or timeout')
