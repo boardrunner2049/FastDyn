@@ -1,0 +1,30 @@
+[Machine]
+platform = "btt-skr-e3-v2"
+qemu_path = "/workspace/trebuchet-work/grblhal/board/qemu-system-arm"
+icount = {shift = 3, sleep = false, align = false}
+serial = "stdio"
+monitor = "none"
+display = "none"
+log_options = "none"
+qmp_socket = "/tmp/tmpkzj1zypm/qmp"
+semihosting = false
+coverage = false
+
+[Memory.main]
+id = "ram0"
+memory_size = "48K"
+base_address = "0x20000000"
+memory_type = "SRAM"
+backend = "ram"
+share = false
+prealloc = false
+[Device.Models]
+[[CPU.cpu0]]
+arch = "arm"
+machine = "btt-skr-e3-v2"
+cpu = "cortex-m3"
+binary = "/workspace/trebuchet-work/grblhal/release-historical/platformio/BTT_SKR_MINI_E3_V20/firmware.elf"
+init_nsvtor = 134246400
+plugin_library = "/workspace/trebuchet-work/pye/runner-build/plugin/libfastdyn.so"
+[CPU.cpu0.plugins.introspection]
+enabled = false

@@ -1,0 +1,43 @@
+insns 9582.19M  TBs 2836.85M  transitions: chainable 1248.83M  indirect 830.45M  cross-page-direct 757.57M  => lookups 1588.02M (56% of TBs)
+top functions by instructions:
+   2550.75M  26.6%  tbs 1159.50M  protocol_exec_rt_system
+   1152.77M  12.0%  tbs 303.51M  task_execute
+   1101.23M  11.5%  tbs 463.73M  protocol_execute_realtime
+    871.72M   9.1%  tbs 174.66M  st_prep_buffer
+    753.48M   7.9%  tbs  58.02M  get_feed_override
+    753.48M   7.9%  tbs  58.02M  get_spindle_override
+    753.48M   7.9%  tbs  58.02M  get_coolant_override
+    530.14M   5.5%  tbs 176.75M  state_get
+    464.24M   4.8%  tbs  58.07M  plan_get_current_block
+    347.84M   3.6%  tbs 231.90M  protocol_buffer_synchronize
+    182.44M   1.9%  tbs  60.82M  getElapsedTicks
+     40.33M   0.4%  tbs   8.51M  TIM2_IRQHandler
+     35.13M   0.4%  tbs   7.73M  stepper_driver_interrupt_handler
+     16.55M   0.2%  tbs  11.03M  driver_delay
+     12.58M   0.1%  tbs   3.29M  stepperPulseStart
+      2.84M   0.0%  tbs   0.40M  __aeabi_fadd
+      1.48M   0.0%  tbs   0.49M  tmc_uart_read
+      1.46M   0.0%  tbs   0.14M  __nesf2
+      1.42M   0.0%  tbs   0.18M  __mulsf3
+      1.35M   0.0%  tbs   0.09M  __divsf3
+top non-chainable function edges:
+    115.91M X protocol_exec_rt_system -> protocol_exec_rt_system
+    115.91M I state_get -> protocol_exec_rt_system
+    115.91M X protocol_exec_rt_system -> state_get
+     60.71M I task_execute -> getElapsedTicks
+     60.71M I getElapsedTicks -> task_execute
+     57.99M X st_prep_buffer -> st_prep_buffer
+     57.95M I get_coolant_override -> protocol_exec_rt_system
+     57.95M I state_get -> protocol_execute_realtime
+     57.95M X protocol_execute_realtime -> protocol_exec_rt_system
+     57.95M I protocol_exec_rt_system -> protocol_execute_realtime
+     57.95M I protocol_exec_rt_system -> task_execute
+     57.95M I get_feed_override -> protocol_exec_rt_system
+     57.95M X protocol_exec_rt_system -> get_feed_override
+     57.95M X protocol_exec_rt_system -> get_spindle_override
+     57.95M X protocol_exec_rt_system -> get_coolant_override
+     57.95M I get_spindle_override -> protocol_exec_rt_system
+     57.95M X protocol_execute_realtime -> state_get
+     57.95M I task_execute -> protocol_exec_rt_system
+     57.95M I st_prep_buffer -> protocol_exec_rt_system
+     57.95M X protocol_exec_rt_system -> st_prep_buffer

@@ -1,0 +1,57 @@
+QEMU 10.0.50 monitor - type 'help' for more information
+Current CPU type: cortex-m3-arm-cpu
+(qemu) s[K[Dst[K[D[Dsto[K[D[D[Dstop[K
+(qemu) i[K[Din[K[D[Dinf[K[D[D[Dinfo[K[D[D[D[Dinfo [K[D[D[D[D[Dinfo r[K[D[D[D[D[D[Dinfo re[K[D[D[D[D[D[D[Dinfo reg[K[D[D[D[D[D[D[D[Dinfo regi[K[D[D[D[D[D[D[D[D[Dinfo regis[K[D[D[D[D[D[D[D[D[D[Dinfo regist[K[D[D[D[D[D[D[D[D[D[D[Dinfo registe[K[D[D[D[D[D[D[D[D[D[D[D[Dinfo register[K[D[D[D[D[D[D[D[D[D[D[D[D[Dinfo registers[K
+
+CPU#0
+R00=00000008 R01=200009a0 R02=20000934 R03=2000086c
+R04=00000000 R05=0000b790 R06=2000bffc R07=00000003
+R08=200009a0 R09=40011000 R10=00000001 R11=00000024
+R12=000007a6 R13=2000bf40 R14=fffffff9 R15=080294ae
+XPSR=01000003 ---- T handler
+FPSCR: 00000000
+(qemu) x[K[Dxp[K[D[Dxp [K[D[D[Dxp /[K[D[D[D[Dxp /8[K[D[D[D[D[Dxp /8w[K[D[D[D[D[D[Dxp /8wx[K[D[D[D[D[D[D[Dxp /8wx [K[D[D[D[D[D[D[D[Dxp /8wx 0[K[D[D[D[D[D[D[D[D[Dxp /8wx 0x[K[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe[K[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe0[K[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe00[K[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000[K[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000e[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000ed[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000ed2[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000ed28[K
+00000000e000ed28: 0x00008200 0x40000000 0x00000000 0x00000000
+00000000e000ed38: 0x2000c008 0x00000000 0x00000030 0x00000200
+(qemu) x[K[Dxp[K[D[Dxp [K[D[D[Dxp /[K[D[D[D[Dxp /1[K[D[D[D[D[Dxp /12[K[D[D[D[D[D[Dxp /12w[K[D[D[D[D[D[D[Dxp /12wx[K[D[D[D[D[D[D[D[Dxp /12wx [K[D[D[D[D[D[D[D[D[Dxp /12wx 0[K[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x[K[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2[K[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x20[K[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x200[K[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000b[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000bf[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000bf3[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000bf30[K
+000000002000bf30: 0x20000020 0x200031a0 0x00000000 0x00000001
+000000002000bf40: 0x00000008 0x200009a0 0x20000934 0x2000086c
+000000002000bf50: 0x000007a6 0x00000010 0x08027f22 0x01000000
+(qemu) c[K[Dco[K[D[Dcon[K[D[D[Dcont[K
+(qemu) s[K[Dst[K[D[Dsto[K[D[D[Dstop[K
+(qemu) i[K[Din[K[D[Dinf[K[D[D[Dinfo[K[D[D[D[Dinfo [K[D[D[D[D[Dinfo r[K[D[D[D[D[D[Dinfo re[K[D[D[D[D[D[D[Dinfo reg[K[D[D[D[D[D[D[D[Dinfo regi[K[D[D[D[D[D[D[D[D[Dinfo regis[K[D[D[D[D[D[D[D[D[D[Dinfo regist[K[D[D[D[D[D[D[D[D[D[D[Dinfo registe[K[D[D[D[D[D[D[D[D[D[D[D[Dinfo register[K[D[D[D[D[D[D[D[D[D[D[D[D[Dinfo registers[K
+
+CPU#0
+R00=00000008 R01=200009a0 R02=20000934 R03=2000086c
+R04=00000000 R05=0000b790 R06=2000bffc R07=00000003
+R08=200009a0 R09=40011000 R10=00000001 R11=00000024
+R12=000007a6 R13=2000bf40 R14=fffffff9 R15=080294ae
+XPSR=01000003 ---- T handler
+FPSCR: 00000000
+(qemu) x[K[Dxp[K[D[Dxp [K[D[D[Dxp /[K[D[D[D[Dxp /8[K[D[D[D[D[Dxp /8w[K[D[D[D[D[D[Dxp /8wx[K[D[D[D[D[D[D[Dxp /8wx [K[D[D[D[D[D[D[D[Dxp /8wx 0[K[D[D[D[D[D[D[D[D[Dxp /8wx 0x[K[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe[K[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe0[K[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe00[K[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000[K[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000e[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000ed[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000ed2[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000ed28[K
+00000000e000ed28: 0x00008200 0x40000000 0x00000000 0x00000000
+00000000e000ed38: 0x2000c008 0x00000000 0x00000030 0x00000200
+(qemu) x[K[Dxp[K[D[Dxp [K[D[D[Dxp /[K[D[D[D[Dxp /1[K[D[D[D[D[Dxp /12[K[D[D[D[D[D[Dxp /12w[K[D[D[D[D[D[D[Dxp /12wx[K[D[D[D[D[D[D[D[Dxp /12wx [K[D[D[D[D[D[D[D[D[Dxp /12wx 0[K[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x[K[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2[K[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x20[K[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x200[K[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000b[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000bf[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000bf3[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000bf30[K
+000000002000bf30: 0x20000020 0x200031a0 0x00000000 0x00000001
+000000002000bf40: 0x00000008 0x200009a0 0x20000934 0x2000086c
+000000002000bf50: 0x000007a6 0x00000010 0x08027f22 0x01000000
+(qemu) c[K[Dco[K[D[Dcon[K[D[D[Dcont[K
+(qemu) s[K[Dst[K[D[Dsto[K[D[D[Dstop[K
+(qemu) i[K[Din[K[D[Dinf[K[D[D[Dinfo[K[D[D[D[Dinfo [K[D[D[D[D[Dinfo r[K[D[D[D[D[D[Dinfo re[K[D[D[D[D[D[D[Dinfo reg[K[D[D[D[D[D[D[D[Dinfo regi[K[D[D[D[D[D[D[D[D[Dinfo regis[K[D[D[D[D[D[D[D[D[D[Dinfo regist[K[D[D[D[D[D[D[D[D[D[D[Dinfo registe[K[D[D[D[D[D[D[D[D[D[D[D[Dinfo register[K[D[D[D[D[D[D[D[D[D[D[D[D[Dinfo registers[K
+
+CPU#0
+R00=00000008 R01=200009a0 R02=20000934 R03=2000086c
+R04=00000000 R05=0000b790 R06=2000bffc R07=00000003
+R08=200009a0 R09=40011000 R10=00000001 R11=00000024
+R12=000007a6 R13=2000bf40 R14=fffffff9 R15=080294ae
+XPSR=01000003 ---- T handler
+FPSCR: 00000000
+(qemu) x[K[Dxp[K[D[Dxp [K[D[D[Dxp /[K[D[D[D[Dxp /8[K[D[D[D[D[Dxp /8w[K[D[D[D[D[D[Dxp /8wx[K[D[D[D[D[D[D[Dxp /8wx [K[D[D[D[D[D[D[D[Dxp /8wx 0[K[D[D[D[D[D[D[D[D[Dxp /8wx 0x[K[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe[K[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe0[K[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe00[K[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000[K[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000e[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000ed[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000ed2[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /8wx 0xe000ed28[K
+00000000e000ed28: 0x00008200 0x40000000 0x00000000 0x00000000
+00000000e000ed38: 0x2000c008 0x00000000 0x00000030 0x00000200
+(qemu) x[K[Dxp[K[D[Dxp [K[D[D[Dxp /[K[D[D[D[Dxp /1[K[D[D[D[D[Dxp /12[K[D[D[D[D[D[Dxp /12w[K[D[D[D[D[D[D[Dxp /12wx[K[D[D[D[D[D[D[D[Dxp /12wx [K[D[D[D[D[D[D[D[D[Dxp /12wx 0[K[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x[K[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2[K[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x20[K[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x200[K[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000b[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000bf[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000bf3[K[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[D[Dxp /12wx 0x2000bf30[K
+000000002000bf30: 0x20000020 0x200031a0 0x00000000 0x00000001
+000000002000bf40: 0x00000008 0x200009a0 0x20000934 0x2000086c
+000000002000bf50: 0x000007a6 0x00000010 0x08027f22 0x01000000
+(qemu) c[K[Dco[K[D[Dcon[K[D[D[Dcont[K
+(qemu) q[K[Dqu[K[D[Dqui[K[D[D[Dquit[K

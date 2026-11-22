@@ -1,0 +1,45 @@
+{
+  "image_sha256": "ef84509e4bbf2f0b40238cc01eb6e30e8895b671ead19de45e84475eadef364b",
+  "qemu_sha256": "c741a2f1cfbfe2c241076678d85b983d88433cd59dca82b814c1748636562a2d",
+  "job_sha256": "b3aa0a1ac047b669fd6788ecd8283dc71fd3f885fb477eaa1a1272706e849ab3",
+  "protocol": "UART1 line/ack, final dwell then idle position and drained pins",
+  "accepted_commands": 101,
+  "profile_plugin_sha256": "50863d22d5791c206257a239316ef79dfb11da4738a7a60507816d9ea340019a",
+  "final_status": "<Idle|MPos:0.000,0.000,3.812|Bf:100,512|FS:0,0>",
+  "qemu_exit": 0,
+  "rises": 125104,
+  "completed_axis_pulses": 130999,
+  "pulse_width_ns": [
+    3368,
+    3368
+  ],
+  "ordered_rises_sha256": "142b861eb33e74522b85251b8b5fb0d75a99f03e23eadc3567616db2ddba156f",
+  "eeprom_read_bytes": 1070,
+  "eeprom_write_bytes": 1909,
+  "tmc_address_reads_writes": [
+    [
+      0,
+      8,
+      35
+    ],
+    [
+      1,
+      8,
+      35
+    ],
+    [
+      2,
+      5,
+      19
+    ],
+    [
+      3,
+      0,
+      0
+    ]
+  ],
+  "tmc_crc_errors": 0,
+  "pins_sha256": "92912db86f88dd62904e7e681f1cdafdb7a6ea5716c6efb93fc7cea1bcf586e7",
+  "profile_sha256": "590cb230660285d4e67e7faffbfb11adc65725a675576408630317f88a3a9122",
+  "state": "passed"
+}

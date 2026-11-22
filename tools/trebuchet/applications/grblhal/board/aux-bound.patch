@@ -1,0 +1,13 @@
+diff --git a/pin_bits_masks.h b/pin_bits_masks.h
+index ae481da..47e1d25 100644
+--- a/pin_bits_masks.h
++++ b/pin_bits_masks.h
+@@ -251,7 +251,7 @@ static inline aux_ctrl_t *aux_ctrl_get_fn (aux_gpio_t gpio)
+ 
+     if(sizeof(aux_ctrl) / sizeof(aux_ctrl_t)) {
+         uint_fast8_t idx;
+-        for(idx = 0; ctrl_pin == NULL && aux_ctrl[idx].gpio.pin != 0xFF && idx < sizeof(aux_ctrl) / sizeof(aux_ctrl_t); idx++) {
++        for(idx = 0; ctrl_pin == NULL && idx < sizeof(aux_ctrl) / sizeof(aux_ctrl_t) && aux_ctrl[idx].gpio.pin != 0xFF; idx++) {
+             if(aux_ctrl[idx].gpio.pin == gpio.pin && aux_ctrl[idx].gpio.port == gpio.port)
+                 ctrl_pin = &aux_ctrl[idx];
+         }

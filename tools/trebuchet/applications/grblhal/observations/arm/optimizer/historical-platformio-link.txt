@@ -1,0 +1,2 @@
+driver.c:(.text.driver_init+0x724): undefined reference to `board_init'
+*** [.pio/build/BTT_SKR_MINI_E3_V20/firmware.elf] Error 1

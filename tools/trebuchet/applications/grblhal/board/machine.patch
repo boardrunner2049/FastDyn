@@ -1,0 +1,91 @@
+--- a/cortexm.c
++++ b/cortexm.c
+@@ -32,6 +32,7 @@
+ #include "qemu/units.h"
+ #include "hw/misc/unimp.h"
+ #include "system/address-spaces.h"
++#include "btt.inc"
+ 
+ /* olimex-stm32-h405 implementation is derived from netduinoplus2 */
+ 
+@@ -46,13 +47,17 @@
+     Clock *sysclk;
+     /* This clock doesn't need migration because it is fixed-frequency */
+     sysclk = clock_new(OBJECT(machine), "SYSCLK");
+-    clock_set_hz(sysclk, SYSCLK_FRQ);
++    bool btt = !strcmp(MACHINE_GET_CLASS(machine)->name, "btt-skr-e3-v2");
++    clock_set_hz(sysclk, btt ? 72000000 : SYSCLK_FRQ);
+ 
+ 	// const char *cpu_type = mc->default_cpu_type;
+ 	printf("Current CPU type: %s\n", ms->cpu_type ? ms->cpu_type : "<unset>");
+ 
+ 
+     dev = qdev_new(TYPE_CORTEXM_SOC);
++    if (btt) {
++        object_property_set_uint(OBJECT(dev), "ram_baseaddr0", 0x20000000, &error_fatal);
++    }
+     object_property_add_child(OBJECT(machine), "soc", OBJECT(dev));
+     qdev_connect_clock_in(dev, "sysclk", sysclk);
+ 
+@@ -70,6 +75,13 @@
+ 
+ 		memory_region_add_subregion(get_system_memory(), object_property_get_uint(OBJECT(dev), "ram_baseaddr0", &error_fatal), machine->ram);
+ 
++    if (btt) {
++        if (machine->ram_size != 48 * KiB) {
++            error_report("BTT board requires 48 KiB SRAM");
++            exit(1);
++        }
++        btt_init(dev);
++    }
+     armv7m_load_kernel(CORTEXM_SOC(dev)->armv7m.cpu,
+                        machine->kernel_filename,
+                        0, FLASH_SIZE);
+@@ -104,3 +116,11 @@
+ }
+ 
+ DEFINE_MACHINE("cortexm", cortexm_machine_init)
++
++static void btt_machine_init(MachineClass *mc)
++{
++    cortexm_machine_init(mc);
++    mc->desc = "BTT SKR Mini E3 v2 drawing-job model";
++}
++
++DEFINE_MACHINE("btt-skr-e3-v2", btt_machine_init)
+--- a/cortexm_soc.c
++++ b/cortexm_soc.c
+@@ -98,13 +98,20 @@
+     clock_set_mul_div(s->refclk, 8, 1);
+     clock_set_source(s->refclk, s->sysclk);
+ 
++    bool btt = !strcmp(MACHINE_GET_CLASS(ms)->name, "btt-skr-e3-v2");
+     memory_region_init_rom(&s->flash, OBJECT(dev_soc), "generic_flash",
+-                           FLASH_SIZE, &err);
++                           btt ? 256 * 1024 : FLASH_SIZE, &err);
+     if (err != NULL) {
+         error_propagate(errp, err);
+         return;
+     }
+-    memory_region_add_subregion(system_memory, FLASH_BASE_ADDRESS, &s->flash);
++    if (btt) {
++        memory_region_init_alias(&s->flash_alias, OBJECT(dev_soc), "btt-boot-flash",
++                                 &s->flash, 0, 256 * 1024);
++        memory_region_add_subregion(system_memory, 0x08000000, &s->flash);
++    } else {
++        memory_region_add_subregion(system_memory, FLASH_BASE_ADDRESS, &s->flash);
++    }
+     memory_region_add_subregion(system_memory, 0, &s->flash_alias);
+ 
+ #if 0
+@@ -151,7 +158,9 @@
+         return;
+     }
+ 
+-    create_unimplemented_device("generic_io",    0x00000000, 0xFFFFFFFF);
++    if (!btt) {
++        create_unimplemented_device("generic_io", 0x00000000, 0xFFFFFFFF);
++    }
+ }
+ 
+ static void cortexm_soc_class_init(ObjectClass *klass, const void *data)

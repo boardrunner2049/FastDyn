@@ -1,0 +1,4 @@
+missing_edge rejected: ordered pin-direction and rise stream mismatch (125103 events)
+wrong_direction rejected: direction changed during active pulse on axis 2
+disabled_motor rejected: axis 2 stepped while disabled
+zero_width rejected: zero-width step

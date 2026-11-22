@@ -1,0 +1,15 @@
+{
+  "original_sha256": "8730a0125aa559a158f7ce768f2800e1ebd96cc3ad6eba7c2e1c3d3f2778cbaf",
+  "candidate_sha256": "d0fc2c326e27caa1c09f3ba149a1caa4c14fe8f2a8b31c6b249a633e6db649dd",
+  "identical_vector_words": 121,
+  "installed_nonzero_vectors": 70,
+  "initial_sp": "0x2000c000",
+  "reset_pc": "0x802968d",
+  "moved_start": "0x8038000",
+  "original_start": "0x8007ca4",
+  "moved_bytes": 360,
+  "original_text_changed_bytes": 3,
+  "distinct_relocated_tb_starts": 46,
+  "relocated_tb_executions": 179581,
+  "relocated_entry_executions": 46409
+}

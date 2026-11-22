@@ -1,0 +1,60 @@
+name: BTT grblHAL drawing admission
+on:
+  push:
+    branches: [trebuchet/hosted-cnc-admission]
+permissions:
+  contents: read
+jobs:
+  cnc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build pinned BTT runtime and FastDyn
+        run: |
+          set -euo pipefail
+          setarch x86_64 -R true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends build-essential git ninja-build cmake pkg-config python3-venv python3-dev libglib2.0-dev libcjson-dev libpixman-1-dev libfdt-dev zlib1g-dev flex bison meson libstlink-dev libusb-1.0-0-dev
+          git submodule update --init --depth 1 third_party/common/qemu
+          test "$(git -C third_party/common/qemu rev-parse HEAD)" = 957530a637cf5e4ca38df4f7aec3f967031bd0e5
+          python3 -m venv fastdyn-env
+          fastdyn-env/bin/pip install -r requirements.txt -e src
+          python3 -m venv scopt-env
+          scopt-env/bin/pip install -e 'tools/scopt[test,zstd]'
+          src="$GITHUB_WORKSPACE/third_party/common/qemu"
+          mkdir -p "$src/build" build
+          (cd "$src/build" && ../configure --target-list=arm-softmmu --enable-plugins --disable-docs && ninja -j3 qemu-system-arm)
+          python3 tools/trebuchet/applications/grblhal/board/build.py "$src/build" "$RUNNER_TEMP/board"
+          meson setup "$RUNNER_TEMP/plugin" -Dqemu_path="$src" -Ddevice_models=true -Drelease=true
+          ninja -C "$RUNNER_TEMP/plugin" -j3
+      - name: Verify inputs and run original and trained board images
+        run: |
+          set -euo pipefail
+          app=tools/trebuchet/applications/grblhal
+          cd cnc-input
+          sha256sum -c SHA256SUMS
+          cd ..
+          export PATH="$GITHUB_WORKSPACE/fastdyn-env/bin:$PATH"
+          cpu=$(python3 -c 'import os; print(max(os.sched_getaffinity(0)))')
+          taskset -c "$cpu" scopt-env/bin/python "$app/hosted_training.py" "$RUNNER_TEMP/board/qemu-system-arm" "$RUNNER_TEMP/plugin/libfastdyn.so" cnc-input/OSHW_Logo.nc cnc-input/normal.elf cnc-input/candidate.elf "$RUNNER_TEMP/runs"
+      - if: always()
+        name: Preserve exact outcomes and evidence
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          mkdir -p evidence runs
+          uname -a > evidence/host.txt
+          lscpu >> evidence/host.txt
+          git -C "$GITHUB_WORKSPACE" rev-parse HEAD > evidence/source.txt
+          find runs -type f \( -name 'receipt.json' -o -name 'summary.json' -o -name 'proof.json' -o -name '*-frozen.json' -o -name 'fastdyn-launch.json' -o -name 'io.txt' -o -name 'serial.txt' -o -name 'stderr.txt' -o -name '*.toml' -o -name '*.fastdyn.json' \) -print0 | tar --null -T - -czf evidence/raw.tgz
+          find runs -path '*-pair0/pins.txt' -print0 | tar --null -T - -czf evidence/edges.tgz
+          sha256sum evidence/*.tgz > evidence/SHA256SUMS
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cnc-fixed-address
+          path: ${{ runner.temp }}/evidence
+          retention-days: 1
