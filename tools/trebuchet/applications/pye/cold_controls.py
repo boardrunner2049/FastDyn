@@ -38,10 +38,8 @@ def measure(work, original, relocated, qemu, out, labels=("original", "firmbolt"
               "firmware_sha256": {k: digest(f) for k, f in firmware.items()}, "orders": orders,
               "warmup_pairs": 1, "primary": "operational_ns", "interval": "paired percentile bootstrap, 2000 samples"}
     (out / "plan.json").write_text(json.dumps(policy, indent=2))
-    blocks = []
     with (out / "observations.jsonl").open("x") as log:
         for i, order in enumerate([(reference, candidate), *orders], -1):
-            block = {}
             for arm in order:
                 trial = out / f"pair-{i}-{arm}"
                 proc = subprocess.run([sys.executable, HERE / "cold.py", "--stage", out / "input/stage.json",
@@ -50,26 +48,67 @@ def measure(work, original, relocated, qemu, out, labels=("original", "firmbolt"
                 print(json.dumps({"block": i, "order": order, "arm": arm, "result": result}), file=log, flush=True)
                 if proc.returncode or result["verdict"] != "PASS" or result["application"]["verdict"] != "PASS":
                     raise RuntimeError(f"failed application oracle in {trial}")
-                block[arm] = {"operational_ns": result["application"]["elapsed_ns"], "process_ns": result["process_wall_ns"],
-                              "qemu_cpu_s": result["qemu_process_cpu_seconds"]}
-            if i >= 0:
-                blocks.append(block)
+    summarize_recording(out)
+
+
+def summarize_recording(out):
+    """Replay the declared schedule and check the saved product outputs."""
+    policy = json.loads((out / "plan.json").read_text())
+    reference, candidate = policy.get("reference", "original"), policy.get("candidate", "firmbolt")
+    pairs = policy["pairs"]
+    if reference == candidate or any(not arm.isidentifier() for arm in (reference, candidate)):
+        raise ValueError("invalid deployment labels")
+    if pairs <= 0 or pairs % 2 or policy["warmup_pairs"] != 1:
+        raise ValueError("invalid paired trial plan")
+    rng = random.Random(policy["seed"])
+    orders = [(reference, candidate), (candidate, reference)] * (pairs // 2)
+    rng.shuffle(orders)
+    if [list(order) for order in orders] != policy["orders"]:
+        raise ValueError("stored plan disagrees with seeded orders")
+    rows = [json.loads(line) for line in (out / "observations.jsonl").read_text().splitlines()]
+    if len(rows) != 2 * (pairs + 1):
+        raise ValueError("incomplete trial recording")
+    blocks = []
+    for index, order in enumerate([(reference, candidate), *orders], -1):
+        block = {}
+        start = 2 * (index + 1)
+        for arm, row in zip(order, rows[start:start + 2]):
+            trial = out / f"pair-{index}-{arm}"
+            result = json.loads((trial / "result.json").read_text())
+            app = result["application"]
+            if (row["block"] != index or row["arm"] != arm or row["order"] != list(order)
+                    or row["result"] != result or result["verdict"] != "PASS" or app["verdict"] != "PASS"
+                    or result["elf_sha256"] != policy["firmware_sha256"][arm]
+                    or digest(trial / "returned.utf8") != app["expected_output_sha256"]
+                    or app["returned_sha256"] != app["expected_output_sha256"]
+                    or digest(trial / "uart.bin") != app["uart_sha256"]):
+                raise ValueError(f"trial evidence mismatch for {trial.name}")
+            block[arm] = {"operational_ns": app["elapsed_ns"], "process_ns": result["process_wall_ns"],
+                          "qemu_cpu_s": result["qemu_process_cpu_seconds"]}
+        if index >= 0:
+            blocks.append(block)
     report = {}
     for metric in blocks[0][reference]:
         a = [b[reference][metric] for b in blocks]
         b = [x[candidate][metric] for x in blocks]
         ratios = [x/y for x,y in zip(a,b)]
-        boot = sorted(statistics.median(rng.choices(ratios, k=PAIRS)) for _ in range(2000))
+        boot = sorted(statistics.median(rng.choices(ratios, k=pairs)) for _ in range(2000))
         report[metric] = {reference + "_median": statistics.median(a), candidate + "_median": statistics.median(b),
                           "median_paired_speedup": statistics.median(ratios), "bootstrap_95": [boot[49],boot[1949]]}
     (out / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     epilog="Use --summarize DIR to verify and summarize an existing recording.")
     for name in ("work", "original", "relocated", "qemu", "out"):
         parser.add_argument(name, type=Path)
     parser.add_argument("--labels", nargs=2, default=("original", "firmbolt"))
+    if sys.argv[1:2] == ["--summarize"]:
+        replay = argparse.ArgumentParser(description="Verify and summarize a complete paired recording.")
+        replay.add_argument("--summarize", type=Path, required=True, metavar="DIR")
+        summarize_recording(replay.parse_args().summarize)
+        sys.exit(0)
     args = parser.parse_args()
     measure(args.work.resolve(), args.original.resolve(), args.relocated.resolve(), args.qemu.resolve(),
             args.out.resolve(), args.labels)
