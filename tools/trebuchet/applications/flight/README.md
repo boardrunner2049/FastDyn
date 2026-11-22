@@ -161,3 +161,42 @@ artifact ZIPs and extracted observations are saved under
 `/workspace/trebuchet-work/flight/release-px4-sealed/{original,firmbolt}`.
 To verify cache identities and re-run the six application oracles, use
 `fastdyn-env/bin/python tools/trebuchet/applications/flight/release/verify_sealed.py /workspace/trebuchet-work/flight/release-px4-sealed`.
+
+### PX4 host-translation training
+
+`--scopt-training` starts a separate training campaign. It needs the existing release
+pair, the pinned FastDyn environment and a second Python environment containing
+the scopt package. FastDyn and scopt pin different Capstone versions. From the
+repository root run `python3 -m venv scopt-env` followed by
+`scopt-env/bin/python -m pip install -e tools/scopt`.
+
+```sh
+fastdyn-env/bin/python "$flight/baseline.py" run px4 "$OUT/host-training" \
+  --release-pair "$PAIR" --plugin "$PLUGIN" --px4-tlog flush-each-packet-v2 \
+  --scopt-training --timeout 480
+```
+
+An uninstrumented cold mission precedes population with `QEMU_SC_CAPTURE`.
+The adapter freezes that inventory before collecting `QEMU_SC_PROFILE` on a
+separate replay. The steady phase begins at the release ELF's
+`Commander::run()` entry. Offline admission verifies the native runtime and
+execution bundle, ingests the QPROF with its originating snapshot, checks exact
+flow conservation and attempts one training-observed `compact-nops` rewrite.
+A generated cache must pass its own uninstrumented full flight and prefix proof.
+
+In run `44995359989`, the original release yielded 47,527 captured translation
+blocks and a profile of 911,685,212 dispatches. The FirmBOLT image yielded 47,887
+blocks and 868,848,639 dispatches. Both profiles reached the steady marker at
+the exact entry and passed independent flow-conservation checks. The original
+collection receipt records a schema rejection of the split label `training`.
+Re-ingesting the same raw bytes with the required label `train` produced these
+two complete profiles. The cold, population and profiled missions all passed
+independent verification. These collection runs used the previously exercised
+KLAF scenario. [Verified profiles and native artifact identities](evidence/px4-host-training.json)
+
+Raw SCM, QPROF, pre- and post-replay sparse caches, runtime/bundle identities
+and mission archives for that run are at
+`/workspace/trebuchet-work/flight/release-px4-host-training/{original,firmbolt}`.
+Use `scopt-env/bin/python "$flight/release/recover_profile.py" "$RUN/out"` for
+the profile and `fastdyn-env/bin/python "$flight/release/verify_training.py" "$RUN/out"`
+for the application oracles and frozen prefix.
