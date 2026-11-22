@@ -1,0 +1,53 @@
+{
+  "b3": {
+    "rows": [
+      {
+        "state": "observed",
+        "unit": "tb:f44dc9151e79f27c387b5cbd4e34dbea#0",
+        "guest_pc": "0x1238",
+        "kind": "mixed-general",
+        "counts": {
+          "entry": 36,
+          "fallback": 3,
+          "match0": 33,
+          "reset": 1
+        },
+        "paths": {
+          "target_matches": [
+            33
+          ],
+          "predicate_missed": 3,
+          "matched_unlinked": 1,
+          "matched_linked": 32
+        },
+        "initial_records": 3508,
+        "record_count_after": 3512,
+        "appended": 4
+      },
+      {
+        "state": "observed",
+        "unit": "tb:7452ad6b75d596b41f2646570c0563d5#0",
+        "guest_pc": "0x39fa",
+        "kind": "mixed-general",
+        "counts": {
+          "entry": 3901,
+          "fallback": 1041,
+          "match0": 2139,
+          "match1": 721
+        },
+        "paths": {
+          "target_matches": [
+            2139,
+            721
+          ],
+          "predicate_missed": 1041
+        },
+        "initial_records": 3508,
+        "record_count_after": 3516,
+        "appended": 8
+      }
+    ],
+    "error": null,
+    "snapshot": "sha256:f84e8aad9df51e2fabc8d10473c5374cfd0c5e28aa7ed4ce7f449ee132672d42"
+  }
+}

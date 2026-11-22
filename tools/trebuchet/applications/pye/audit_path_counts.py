@@ -1,5 +1,6 @@
 """Audit an extracted path-count worker archive without its original absolute run paths."""
 import argparse
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -18,6 +19,9 @@ def audit(folder):
     stage_file = folder / "ordinary/cases" / CASE / "stage.json"
     stage = read(stage_file)
     require(report["case"] == CASE and stage["case"] == CASE, "wrong training edit")
+    training = read(folder / "ordinary/profile/merged.profile.json")
+    vaddrs = {u["unit"]: int(u["vaddrs"][0], 16) for u in training["units"] if len(u["vaddrs"]) == 1}
+    steady, = [p["id"] for p in training["phases"] if p["name"] == "steady" and p["reached"]]
     result = {}
     for name, data in report["stages"].items():
         rows = []
@@ -51,6 +55,16 @@ def audit(folder):
                     and digest(run / "run-peer/uart.bin") == case["uart_sha256"]
                     and doc["inputs"]["psram"]["sha256"] == "sha256:" + want["romfs_sha256"],
                     "returned bytes, input bytes or transcript changed")
+            if plan["kind"] == "mixed-general":
+                traffic = Counter()
+                for edge in training["edges"]:
+                    if (edge["src"] == plan["unit"] and edge["dst"] in vaddrs and edge["phase"] == steady
+                            and edge["status"] == "exact" and edge["kind"] == "lookup_hit" and not edge["flags"]):
+                        traffic[vaddrs[edge["dst"]]] += edge["count"]
+                hits = [traffic[int(pc, 16)] for pc in plan["target_pcs"]]
+                require(hits == plan["baseline_observed_target_hits"] and
+                        sum(traffic.values()) - sum(hits) == plan["baseline_observed_other_targets"],
+                        "ordinary source profile differs from selection plan")
             shape = summarize(plan, counts["counts"])
             require(shape == row["paths"], "path conservation differs")
             rows.append({"state": "observed", "unit": plan["unit"], "guest_pc": plan["guest_pc"],

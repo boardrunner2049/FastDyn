@@ -1,0 +1,36 @@
+[
+  {
+    "run": 44995090950,
+    "worker_commit": "436f4d34546ec4f7ac4a3929927f287c53441782",
+    "raw_sha256": "02b950df9782d9cdb6ef0b3727e05e55979bbe650f2473e67fcfe7ed41c1a6d7",
+    "downloaded_parts": [
+      {
+        "name": "training-path-counts-00",
+        "digest": "sha256:df6f9daffb98c6ed724f46e35483f3319ce9ebb3869fa4a03e4b6f6e2c0f8f0c",
+        "size_in_bytes": 1056981
+      },
+      {
+        "name": "training-path-counts-index",
+        "digest": "sha256:ac30c145a698c4e2472ead814d8996f0b62daa4cccf4b628ff624d9d713a1f55",
+        "size_in_bytes": 354
+      }
+    ]
+  },
+  {
+    "run": 44996094997,
+    "worker_commit": "f3792aed3ef6a4cd70318d1d7a8f19983a4b1530",
+    "raw_sha256": "1b054f6b334071bd421ed6725bac0b424e3ad6bac83c1d3fed1de8775bc94bb4",
+    "downloaded_parts": [
+      {
+        "name": "training-polymorphic-index",
+        "digest": "sha256:331c56eac90cc284a9275e1602464defcee545f32074969bb28d637b521ec04c",
+        "size_in_bytes": 355
+      },
+      {
+        "name": "training-polymorphic-00",
+        "digest": "sha256:ecf62a9784b68fe942762e27d6daf82e4a6e6dd8b26598c0d059c6aef2a301a5",
+        "size_in_bytes": 908892
+      }
+    ]
+  }
+]
