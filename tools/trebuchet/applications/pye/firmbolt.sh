@@ -25,21 +25,22 @@ profile)
     "$fbpy" "$tools/tbprof_report.py" "$elf" "$out/run/session.tbprof" 12 > "$out/profile.txt"
     ;;
 optimize)
+    placement=${TREBUCHET_PYE_CODE_ADDRESS:-0x80000}
     train=$(realpath "${5:?supply the profile output}")
-    "$fbpy" "$adapter/guest_layout.py" "$elf" > "$out/input-layout.json"
+    "$fbpy" "$adapter/guest_layout.py" "$elf" --new-code-address "$placement" > "$out/input-layout.json"
     # The full-image policy cannot publish several functions with observable
     # literal addresses. Training identifies strncmp as a hot cross-page callee.
     TIMEFORMAT='{"wall_seconds":%3R,"user_seconds":%3U,"system_seconds":%3S}'
     { time "$fbpy" -m firmbolt --verbose --cpu cortex-m3 --emulator-profile "$train/train.preagg" \
-        --new-code-address 0x80000 --report "$out/firmbolt.json" "$elf" \
+        --new-code-address "$placement" --report "$out/firmbolt.json" "$elf" \
         -o "$out/firmware.elf" -- --funcs-no-regex=strncmp > "$out/firmbolt.log" 2>&1; } \
         2> "$out/optimizer-cost.json"
-    "$fbpy" "$adapter/guest_layout.py" "$elf" --candidate "$out/firmware.elf" > "$out/layout.json"
+    "$fbpy" "$adapter/guest_layout.py" "$elf" --new-code-address "$placement" --candidate "$out/firmware.elf" > "$out/layout.json"
     python3 "$adapter/cold.py" --stage "$stage" --qemu "$qemu" --elf "$out/firmware.elf" \
         --out "$out/cold"
     python3 "$adapter/cold.py" --stage "$stage" --qemu "$qemu" --elf "$out/firmware.elf" \
         --out "$out/diagnostic" --training-profile-plugin "$train/libtbprof.so"
-    "$fbpy" "$adapter/guest_layout.py" "$elf" --candidate "$out/firmware.elf" \
+    "$fbpy" "$adapter/guest_layout.py" "$elf" --new-code-address "$placement" --candidate "$out/firmware.elf" \
         --profile "$out/diagnostic/session.tbprof" > "$out/executed-layout.json"
     ;;
 *) echo "Unknown action: $action" >&2; exit 2 ;;

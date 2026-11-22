@@ -37,12 +37,14 @@ def inspect(path):
     return loads, code, vectors
 
 
-def check(original, candidate=None, profile=None):
+def check(original, candidate=None, profile=None, new_code=NEW_CODE):
+    if not 0 < new_code < RESERVED_END or new_code % 1024:
+        raise ValueError("new code must start at a legal 1 KiB guest page boundary")
     loads, _, vectors = inspect(original)
-    if not loads or any(s["physical"] + s["file_size"] > NEW_CODE
-                        or s["virtual"] + s["memory_size"] > NEW_CODE for s in loads):
+    if not loads or any(s["physical"] + s["file_size"] > new_code
+                        or s["virtual"] + s["memory_size"] > new_code for s in loads):
         raise ValueError("the proposed code allocation overlaps the original image")
-    result = {"input_loads": loads, "trampoline_and_code_region": [NEW_CODE, RESERVED_END],
+    result = {"input_loads": loads, "trampoline_and_code_region": [new_code, RESERVED_END],
               "stack_top": STACK_TOP, "input_vectors": vectors}
     if candidate:
         candidate_loads, code, new_vectors = inspect(candidate)
@@ -52,7 +54,7 @@ def check(original, candidate=None, profile=None):
                                      or s["virtual"] + s["memory_size"] > RESERVED_END
                                      for s in candidate_loads):
             raise ValueError("the optimized image exceeds the allowed board allocation")
-        moved = [s for s in code if NEW_CODE <= s["start"] < s["end"] <= RESERVED_END]
+        moved = [s for s in code if new_code <= s["start"] < s["end"] <= RESERVED_END]
         if not moved:
             raise ValueError("the optimized image has no executable section in the new allocation")
         result.update(candidate_loads=candidate_loads, relocated_sections=moved, candidate_vectors=new_vectors)
@@ -79,5 +81,6 @@ if __name__ == "__main__":
     parser.add_argument("original", type=Path)
     parser.add_argument("--candidate", type=Path)
     parser.add_argument("--profile", type=Path)
+    parser.add_argument("--new-code-address", type=lambda value: int(value, 0), default=NEW_CODE)
     args = parser.parse_args()
-    print(json.dumps(check(args.original, args.candidate, args.profile), indent=2))
+    print(json.dumps(check(args.original, args.candidate, args.profile, args.new_code_address), indent=2))
