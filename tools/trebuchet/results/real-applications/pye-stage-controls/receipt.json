@@ -1,0 +1,9 @@
+{
+  "run": 44984269001,
+  "raw_sha256": "83a0e16303303ae4616d30910f2e093db4df3d6b04b8312fd1d840ff864e13a8",
+  "verified_launches": 39,
+  "scored_blocks": 12,
+  "warmup_blocks": 1,
+  "case": "update-package-version",
+  "returned_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43"
+}

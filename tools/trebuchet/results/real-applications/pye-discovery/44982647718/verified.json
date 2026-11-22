@@ -1,0 +1,162 @@
+{
+  "run": "44982647718",
+  "offline_seconds": 1545.759411305,
+  "campaign_state": "completed",
+  "results": [
+    {
+      "id": "original/warm",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 8,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/general",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 2,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/static",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 8,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/returns",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 10,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/dominant",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 3,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/sfb-hot",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 8,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/ph",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 2,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/native-1",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 6,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/native-2",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 6,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/scalar",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 6,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/global-region",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 8,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/b4",
+      "status": "failed",
+      "reason": "Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/scopt', 'b4', 'package', '/home/runner/work/_temp/pye/ordinary/store/snapshots/983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d', '--store', '/home/runner/work/_temp/discovery/registry/original.b4', '--runtime', '/home/runner/work/_temp/discovery/admission-runtime.json', '--enable', 'eliminate-state-sync']' returned non-zero exit status 1."
+    },
+    {
+      "id": "original/b4-coalesce",
+      "status": "failed",
+      "reason": "Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/scopt', 'b4', 'package', '/home/runner/work/_temp/pye/ordinary/store/snapshots/983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d', '--store', '/home/runner/work/_temp/discovery/registry/original.b4-coalesce', '--runtime', '/home/runner/work/_temp/discovery/admission-runtime.json', '--enable', 'eliminate-state-sync', '--coalesce-nops']' returned non-zero exit status 1."
+    },
+    {
+      "id": "original/b4-absorb",
+      "status": "failed",
+      "reason": "Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/scopt', 'b4', 'package', '/home/runner/work/_temp/pye/ordinary/store/snapshots/983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d', '--store', '/home/runner/work/_temp/discovery/registry/original.b4-absorb', '--runtime', '/home/runner/work/_temp/discovery/admission-runtime.json', '--enable', 'eliminate-state-sync', '--absorb-nops']' returned non-zero exit status 1."
+    },
+    {
+      "id": "original/b3",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 6,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/sfb",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 6,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/sfb+b3",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 8,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/b3-ph",
+      "status": "failed",
+      "reason": "pipeline b3-ph not found (looked at /home/runner/work/FastDyn/FastDyn/tools/scopt/pipelines/b3-ph.toml)"
+    },
+    {
+      "id": "original/native-1+general",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 10,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/sfb-hot+general",
+      "status": "ready",
+      "initial": 3506,
+      "appended": 6,
+      "zero_append": false,
+      "document": "pass"
+    },
+    {
+      "id": "original/sfb-hot+b4+b3",
+      "status": "failed",
+      "reason": "Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/scopt', 'b4', 'package', '/home/runner/work/_temp/discovery/registry/original.sfb-hot/import/snapshots/1f58bd1dbe4fbbba480a882cd6a74eb427174df02de202a4e5e62f139a0e264d', '--store', '/home/runner/work/_temp/discovery/registry/original.sfb-hot.b4', '--runtime', '/home/runner/work/_temp/discovery/admission-runtime.json', '--enable', 'eliminate-state-sync']' returned non-zero exit status 1."
+    }
+  ],
+  "training_sha256": "379a2081d39ea4d038ba71f307375062ef6fd8199dc4f4d5bdef3936c4a8cb43",
+  "raw_sha256": "ba286d616052ac24020c699c7f1b1ba5c3f44ec5e52d571314414f5816d50797"
+}

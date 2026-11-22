@@ -1,0 +1,1535 @@
+{
+  "admission": {
+    "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/admission.json",
+    "sha256": "sha256:07a86f2019e73970c367342d8f70633815c80a811e80d87c9d3865b37602515f"
+  },
+  "application": "pye",
+  "budget": {
+    "candidate_limit": 21,
+    "offline_seconds": 2700
+  },
+  "candidates": [
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/pye/ordinary/store/snapshots/983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:52004e2fb4a782144deb2c208ec137929075f9dfa51d264596c00cbe97d3b8eb",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 3506,
+        "executed": {
+          "bytes_with_struct": 1798192,
+          "code_bytes": 1035884,
+          "lines64_code": 17771,
+          "lines64_with_struct": 29379,
+          "pages4k_code": 460,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1883040,
+          "units": 3498
+        },
+        "hot": {
+          "bytes_with_struct": 180576,
+          "code_bytes": 101824,
+          "entries_covered": 1593882,
+          "fraction": 0.9000574294963992,
+          "lines64_code": 1753,
+          "lines64_with_struct": 2951,
+          "pages4k_code": 120,
+          "pages4k_with_struct": 121,
+          "span_bytes": 1810912,
+          "units": 362
+        },
+        "join_coverage": 1.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "sc": "/home/runner/work/_temp/pye/ordinary/store/snapshots/983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d/cache.sc",
+        "status": "ok",
+        "units_in_layout": 3506
+      },
+      "id": "original/warm",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:7804a0a783a8eb29942069f628e057caebb1bf4256dc1fee1aa6c48874f9215a",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.general/artifacts/59468f355e74074fe2f8588ec39302c92f20503968d1c78ff355e2c8579ca59b",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:a58fce3b4fe02fa4b82fd0f17a1df7bc0105ddac1548a2f17930a393b9bf2c53",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "specialize-returns",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "constant-propagation",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "branch-folding",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "dead-host-ops",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 93,
+              "outcome": "candidate",
+              "pass": "chain-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "chain-static",
+              "reason": "growth_budget",
+              "status": "no_change"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:95202eb8d184ae01426ec472b791554595eee4dacee93f052d38498fb9ed4737",
+          "params": {
+            "chain-returns": {
+              "max_total_growth_bytes": 8192,
+              "rank_by_net_work": true
+            },
+            "chain-static": {
+              "max_total_growth_bytes": 8192,
+              "rank_by_net_work": true
+            }
+          },
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.general/stdout.json",
+          "stage": "general"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 0,
+        "join_coverage": 0.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "reason": "no_matching_entries",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.general/artifacts/59468f355e74074fe2f8588ec39302c92f20503968d1c78ff355e2c8579ca59b/cache.sc",
+        "status": "not_run",
+        "units_in_layout": 0
+      },
+      "id": "original/general",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "general"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:c9b74df4166e2b283aaae0449f45ec808d894535083a8685cc6f60b96c1d211e",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.static/artifacts/67c8baa7bad1ba8c8ed59703db09405ef1aa2da29d4c3244152104b5ff1d7127",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:f61a3fac5fd92e9552c835a00199ca11804a2803c862b64e5f97f8ce0a2e535b",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "specialize-returns",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "constant-propagation",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "branch-folding",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "dead-host-ops",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "chain-returns",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 256,
+              "outcome": "candidate",
+              "pass": "chain-static",
+              "reason": "",
+              "status": "edited"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:6e42323f68e1b0ed3fdb6cd4b4ef944152c59ef56465d00765c4499a47542996",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.static/stdout.json",
+          "stage": "static"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 0,
+        "join_coverage": 0.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "reason": "no_matching_entries",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.static/artifacts/67c8baa7bad1ba8c8ed59703db09405ef1aa2da29d4c3244152104b5ff1d7127/cache.sc",
+        "status": "not_run",
+        "units_in_layout": 0
+      },
+      "id": "original/static",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "static"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:c9b74df4166e2b283aaae0449f45ec808d894535083a8685cc6f60b96c1d211e",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.returns/artifacts/a19176a8423afbfe242eab8065a0453ec72762ddca481bf2242029e8c7b02357",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:e089ff8c4aca451df06e3ba3cad1fb03cef50bacc3cb06d29ed490f938d89e0c",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "specialize-returns",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "constant-propagation",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "branch-folding",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "dead-host-ops",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 384,
+              "outcome": "candidate",
+              "pass": "chain-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "chain-static",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:c4ac1e1528e46ff9d01f0e498794a86e99f479d5241bd99e2830b791a4a4c659",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.returns/stdout.json",
+          "stage": "returns"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 0,
+        "join_coverage": 0.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "reason": "no_matching_entries",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.returns/artifacts/a19176a8423afbfe242eab8065a0453ec72762ddca481bf2242029e8c7b02357/cache.sc",
+        "status": "not_run",
+        "units_in_layout": 0
+      },
+      "id": "original/returns",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "returns"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:c9b74df4166e2b283aaae0449f45ec808d894535083a8685cc6f60b96c1d211e",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.dominant/artifacts/fe014b22dd3d3d6b7cb7d7aa25cce69e70bfb0b00562cf53d58b22e6210abfd7",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:ee32062f10887c2a10a452b26f3c3598a713cb1b98dd2ac7f9d37c06f09f2977",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "chain-returns",
+              "reason": "not_profitable",
+              "status": "no_change"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.dominant/stdout.json",
+          "stage": "dominant"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 3506,
+        "executed": {
+          "bytes_with_struct": 1798192,
+          "code_bytes": 1035884,
+          "lines64_code": 17771,
+          "lines64_with_struct": 29379,
+          "pages4k_code": 460,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1883040,
+          "units": 3498
+        },
+        "hot": {
+          "bytes_with_struct": 180576,
+          "code_bytes": 101824,
+          "entries_covered": 1593882,
+          "fraction": 0.9000574294963992,
+          "lines64_code": 1753,
+          "lines64_with_struct": 2951,
+          "pages4k_code": 120,
+          "pages4k_with_struct": 121,
+          "span_bytes": 1810912,
+          "units": 362
+        },
+        "join_coverage": 1.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.dominant/artifacts/fe014b22dd3d3d6b7cb7d7aa25cce69e70bfb0b00562cf53d58b22e6210abfd7/cache.sc",
+        "status": "ok",
+        "units_in_layout": 3506
+      },
+      "id": "original/dominant",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "dominant"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:7804a0a783a8eb29942069f628e057caebb1bf4256dc1fee1aa6c48874f9215a",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.sfb-hot/artifacts/ad252eb3328b5357f1f422d0c1727783ced3ebabd6a2e535ab509077cda2b3b9",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:ebec4b42875da4e96eb6c10f667709ce3935db51eacd9f4a4c48e790a083b236",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "outcome": "candidate",
+              "pass": "sfb-hot",
+              "units": 359
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:1f58bd1dbe4fbbba480a882cd6a74eb427174df02de202a4e5e62f139a0e264d",
+          "params": {
+            "entry_coverage": 90,
+            "max_growth_bytes": 16384,
+            "max_moved_units": 256
+          },
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.sfb-hot/stdout.json",
+          "stage": "sfb-hot"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 3506,
+        "executed": {
+          "bytes_with_struct": 1803936,
+          "code_bytes": 1041628,
+          "lines64_code": 17847,
+          "lines64_with_struct": 29475,
+          "pages4k_code": 473,
+          "pages4k_with_struct": 473,
+          "span_bytes": 1935760,
+          "units": 3498
+        },
+        "hot": {
+          "bytes_with_struct": 186304,
+          "code_bytes": 107552,
+          "entries_covered": 1593882,
+          "fraction": 0.9000574294963992,
+          "lines64_code": 1829,
+          "lines64_with_struct": 3047,
+          "pages4k_code": 126,
+          "pages4k_with_struct": 128,
+          "span_bytes": 1934928,
+          "units": 362
+        },
+        "join_coverage": 1.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.sfb-hot/artifacts/ad252eb3328b5357f1f422d0c1727783ced3ebabd6a2e535ab509077cda2b3b9/cache.sc",
+        "status": "ok",
+        "units_in_layout": 3506
+      },
+      "id": "original/sfb-hot",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "sfb-hot"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:7804a0a783a8eb29942069f628e057caebb1bf4256dc1fee1aa6c48874f9215a",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.ph/artifacts/1cb3958600534e74cb01ce6cc4dced65c87d40c8988b42838503a55b017e2f71",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:efbfaf1d199a90ede61a361978f48fabc04faa9bac2ee633a96b3d346d402969",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 3506,
+              "outcome": "candidate",
+              "pass": "hotcold-partition",
+              "reason": "classified",
+              "status": "edited"
+            },
+            {
+              "n_edits": 1,
+              "outcome": "candidate",
+              "pass": "cluster-hot",
+              "reason": "clustered",
+              "status": "edited"
+            },
+            {
+              "n_edits": 2,
+              "outcome": "candidate",
+              "pass": "order-cold",
+              "reason": "ordered",
+              "status": "edited"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:b5f686df68d04c05672171adcc284fd4ccd376bfe243d32a6befda893a6b1d46",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.ph/stdout.json",
+          "stage": "ph"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 3506,
+        "executed": {
+          "bytes_with_struct": 1798192,
+          "code_bytes": 1035884,
+          "lines64_code": 17771,
+          "lines64_with_struct": 29379,
+          "pages4k_code": 460,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1880224,
+          "units": 3498
+        },
+        "hot": {
+          "bytes_with_struct": 180576,
+          "code_bytes": 101824,
+          "entries_covered": 1593882,
+          "fraction": 0.9000574294963992,
+          "lines64_code": 1753,
+          "lines64_with_struct": 2951,
+          "pages4k_code": 88,
+          "pages4k_with_struct": 89,
+          "span_bytes": 628160,
+          "units": 362
+        },
+        "join_coverage": 1.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.ph/artifacts/1cb3958600534e74cb01ce6cc4dced65c87d40c8988b42838503a55b017e2f71/cache.sc",
+        "status": "ok",
+        "units_in_layout": 3506
+      },
+      "id": "original/ph",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "ph"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:7804a0a783a8eb29942069f628e057caebb1bf4256dc1fee1aa6c48874f9215a",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.native-1/artifacts/b0690fbeda141f337caee57d66bddbf93aa71ea543a6541589525c77909ea0ca",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:8edc35f12a3f62edfb4b400492aec5122df0f74ddc16765f63d23a176478ca73",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 0,
+              "outcome": "no_change",
+              "pass": "host-inline",
+              "reason": "no_eligible_native_calls",
+              "status": "no_change"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "params": {
+            "host-inline": {
+              "allow_faulting": false,
+              "max_sites_per_unit": 1,
+              "mode": "splice"
+            }
+          },
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.native-1/stdout.json",
+          "stage": "native-1"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 3506,
+        "executed": {
+          "bytes_with_struct": 1798192,
+          "code_bytes": 1035884,
+          "lines64_code": 17771,
+          "lines64_with_struct": 29379,
+          "pages4k_code": 460,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1883040,
+          "units": 3498
+        },
+        "hot": {
+          "bytes_with_struct": 180576,
+          "code_bytes": 101824,
+          "entries_covered": 1593882,
+          "fraction": 0.9000574294963992,
+          "lines64_code": 1753,
+          "lines64_with_struct": 2951,
+          "pages4k_code": 120,
+          "pages4k_with_struct": 121,
+          "span_bytes": 1810912,
+          "units": 362
+        },
+        "join_coverage": 1.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.native-1/artifacts/b0690fbeda141f337caee57d66bddbf93aa71ea543a6541589525c77909ea0ca/cache.sc",
+        "status": "ok",
+        "units_in_layout": 3506
+      },
+      "id": "original/native-1",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "native-1"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:7804a0a783a8eb29942069f628e057caebb1bf4256dc1fee1aa6c48874f9215a",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.native-2/artifacts/88271f4acac990a4af982beb32fd1a72ce816b769a9dd4333dc050bd0341b9e2",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:573b384b8195ae030e63ea25e6413e4e48bf473b3ab15041add290aae9db75da",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 0,
+              "outcome": "no_change",
+              "pass": "host-inline",
+              "reason": "no_eligible_native_calls",
+              "status": "no_change"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "params": {
+            "host-inline": {
+              "allow_faulting": false,
+              "max_sites_per_unit": 2,
+              "mode": "splice"
+            }
+          },
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.native-2/stdout.json",
+          "stage": "native-2"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 3506,
+        "executed": {
+          "bytes_with_struct": 1798192,
+          "code_bytes": 1035884,
+          "lines64_code": 17771,
+          "lines64_with_struct": 29379,
+          "pages4k_code": 460,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1883040,
+          "units": 3498
+        },
+        "hot": {
+          "bytes_with_struct": 180576,
+          "code_bytes": 101824,
+          "entries_covered": 1593882,
+          "fraction": 0.9000574294963992,
+          "lines64_code": 1753,
+          "lines64_with_struct": 2951,
+          "pages4k_code": 120,
+          "pages4k_with_struct": 121,
+          "span_bytes": 1810912,
+          "units": 362
+        },
+        "join_coverage": 1.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.native-2/artifacts/88271f4acac990a4af982beb32fd1a72ce816b769a9dd4333dc050bd0341b9e2/cache.sc",
+        "status": "ok",
+        "units_in_layout": 3506
+      },
+      "id": "original/native-2",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "native-2"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:7804a0a783a8eb29942069f628e057caebb1bf4256dc1fee1aa6c48874f9215a",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.scalar/artifacts/62e3445790ae8d4fe24343c21f3ea25ec12d68b8050c4523f425efb7c67d7c25",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:3ee98f276384d8feda599c45b350654efbabdcc45afc7f06fc40223035adc123",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 204,
+              "outcome": "candidate",
+              "pass": "local-scalar-cleanup",
+              "reason": "",
+              "status": "edited"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:364d874f382d95d7854905252bddce41035b67544e4076057143af79f78576fa",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.scalar/stdout.json",
+          "stage": "scalar"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 3506,
+        "executed": {
+          "bytes_with_struct": 1798192,
+          "code_bytes": 1035884,
+          "lines64_code": 17771,
+          "lines64_with_struct": 29379,
+          "pages4k_code": 460,
+          "pages4k_with_struct": 460,
+          "span_bytes": 1883040,
+          "units": 3498
+        },
+        "hot": {
+          "bytes_with_struct": 180576,
+          "code_bytes": 101824,
+          "entries_covered": 1593882,
+          "fraction": 0.9000574294963992,
+          "lines64_code": 1753,
+          "lines64_with_struct": 2951,
+          "pages4k_code": 120,
+          "pages4k_with_struct": 121,
+          "span_bytes": 1810912,
+          "units": 362
+        },
+        "join_coverage": 1.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.scalar/artifacts/62e3445790ae8d4fe24343c21f3ea25ec12d68b8050c4523f425efb7c67d7c25/cache.sc",
+        "status": "ok",
+        "units_in_layout": 3506
+      },
+      "id": "original/scalar",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "scalar"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:c9b74df4166e2b283aaae0449f45ec808d894535083a8685cc6f60b96c1d211e",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.global-region/artifacts/0cd192848dbd76624fb58870ab666fa5a23437632f7456b8339a4b9a5a3669f2",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:6a28aa731aa37e478e707868ec881d45577418e1a7173fdc8affddf01eb23d91",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 365,
+              "outcome": "candidate",
+              "pass": "specialize-edges",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 28,
+              "outcome": "candidate",
+              "pass": "constant-propagation",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 17,
+              "outcome": "candidate",
+              "pass": "branch-folding",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 22,
+              "outcome": "candidate",
+              "pass": "dead-host-ops",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 10,
+              "outcome": "candidate",
+              "pass": "native-scalar-cleanup",
+              "reason": "scalar_fixed_point",
+              "status": "edited"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "no_change",
+              "pass": "region-state-forward",
+              "reason": "no_redundant_store",
+              "status": "no_change"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "no_change",
+              "pass": "region-state-dse",
+              "reason": "no_new_dead_store",
+              "status": "no_change"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:e1e45f3a087c3065ea1332f236ba6a1afb676aae5c4ecd6b217ed588c887dfd2",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.global-region/stdout.json",
+          "stage": "global-region"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 0,
+        "join_coverage": 0.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "reason": "no_matching_entries",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.global-region/artifacts/0cd192848dbd76624fb58870ab666fa5a23437632f7456b8339a4b9a5a3669f2/cache.sc",
+        "status": "not_run",
+        "units_in_layout": 0
+      },
+      "id": "original/global-region",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "global-region"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:c9b74df4166e2b283aaae0449f45ec808d894535083a8685cc6f60b96c1d211e",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "id": "original/b4",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "reason": "Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/scopt', 'b4', 'package', '/home/runner/work/_temp/pye/ordinary/store/snapshots/983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d', '--store', '/home/runner/work/_temp/discovery/registry/original.b4', '--runtime', '/home/runner/work/_temp/discovery/admission-runtime.json', '--enable', 'eliminate-state-sync']' returned non-zero exit status 1.",
+      "recipe": [
+        "b4"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "status": "failed"
+    },
+    {
+      "application": "pye",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "id": "original/b4-coalesce",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "reason": "Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/scopt', 'b4', 'package', '/home/runner/work/_temp/pye/ordinary/store/snapshots/983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d', '--store', '/home/runner/work/_temp/discovery/registry/original.b4-coalesce', '--runtime', '/home/runner/work/_temp/discovery/admission-runtime.json', '--enable', 'eliminate-state-sync', '--coalesce-nops']' returned non-zero exit status 1.",
+      "recipe": [
+        "b4-coalesce"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "status": "failed"
+    },
+    {
+      "application": "pye",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "id": "original/b4-absorb",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "reason": "Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/scopt', 'b4', 'package', '/home/runner/work/_temp/pye/ordinary/store/snapshots/983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d', '--store', '/home/runner/work/_temp/discovery/registry/original.b4-absorb', '--runtime', '/home/runner/work/_temp/discovery/admission-runtime.json', '--enable', 'eliminate-state-sync', '--absorb-nops']' returned non-zero exit status 1.",
+      "recipe": [
+        "b4-absorb"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "status": "failed"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.b3/artifacts/e86f2b4337f2f55b631fd4292ac67477ec2f2e1545b4753050cf608cc7aed03b",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:fbb8b6be0b20d08874905bf184c44debf3ba7d8f565806d3029b50f9fa568139",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 75,
+              "outcome": "candidate",
+              "pass": "specialize-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 9,
+              "outcome": "candidate",
+              "pass": "constant-propagation",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 14,
+              "outcome": "candidate",
+              "pass": "branch-folding",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 17,
+              "outcome": "candidate",
+              "pass": "dead-host-ops",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 382,
+              "outcome": "candidate",
+              "pass": "chain-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 256,
+              "outcome": "candidate",
+              "pass": "chain-static",
+              "reason": "",
+              "status": "edited"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:a5065a56840334dc4aadee3ebfd135caf1fa4208aa1c54257ca28f61701b8201",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.b3/stdout.json",
+          "stage": "b3"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 0,
+        "join_coverage": 0.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "reason": "no_matching_entries",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.b3/artifacts/e86f2b4337f2f55b631fd4292ac67477ec2f2e1545b4753050cf608cc7aed03b/cache.sc",
+        "status": "not_run",
+        "units_in_layout": 0
+      },
+      "id": "original/b3",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "b3"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:c9b74df4166e2b283aaae0449f45ec808d894535083a8685cc6f60b96c1d211e",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.sfb/artifacts/9a41a4002c1a6d0ad3c3c645a2f4b60daba8e217038d9fcdd0f966b9430c0201",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:efbfd7d5152e8a0d82c6e4c1898f71388fa9df97adef587afa6b8f96c63e29eb",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "outcome": "candidate",
+              "pass": "sfb",
+              "units": 3497
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:815ccfe8f5c76b6bfb4cc35051925992e55cf974bd664aaf4494d1964461b4a3",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.sfb/stdout.json",
+          "stage": "sfb"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 3506,
+        "executed": {
+          "bytes_with_struct": 1854144,
+          "code_bytes": 1091708,
+          "lines64_code": 18557,
+          "lines64_with_struct": 30149,
+          "pages4k_code": 575,
+          "pages4k_with_struct": 575,
+          "span_bytes": 2358800,
+          "units": 3498
+        },
+        "hot": {
+          "bytes_with_struct": 186304,
+          "code_bytes": 107552,
+          "entries_covered": 1593882,
+          "fraction": 0.9000574294963992,
+          "lines64_code": 1829,
+          "lines64_with_struct": 3047,
+          "pages4k_code": 155,
+          "pages4k_with_struct": 159,
+          "span_bytes": 2345360,
+          "units": 362
+        },
+        "join_coverage": 1.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.sfb/artifacts/9a41a4002c1a6d0ad3c3c645a2f4b60daba8e217038d9fcdd0f966b9430c0201/cache.sc",
+        "status": "ok",
+        "units_in_layout": 3506
+      },
+      "id": "original/sfb",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "sfb"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:7804a0a783a8eb29942069f628e057caebb1bf4256dc1fee1aa6c48874f9215a",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.sfb.b3/artifacts/f46a8742fa38df61db6f9b96f0b858e8468d7cb2e40ec78b2869aa39c5570d47",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:9b34edcc4e1672beea9b5da5b2f8c46683bf6e43cd5c3b3f45d818969c3b94d9",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "outcome": "candidate",
+              "pass": "sfb",
+              "units": 3497
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:815ccfe8f5c76b6bfb4cc35051925992e55cf974bd664aaf4494d1964461b4a3",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.sfb/stdout.json",
+          "stage": "sfb"
+        },
+        {
+          "effective_passes": [
+            {
+              "n_edits": 75,
+              "outcome": "candidate",
+              "pass": "specialize-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 9,
+              "outcome": "candidate",
+              "pass": "constant-propagation",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 14,
+              "outcome": "candidate",
+              "pass": "branch-folding",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 17,
+              "outcome": "candidate",
+              "pass": "dead-host-ops",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 382,
+              "outcome": "candidate",
+              "pass": "chain-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 256,
+              "outcome": "candidate",
+              "pass": "chain-static",
+              "reason": "",
+              "status": "edited"
+            }
+          ],
+          "input": "sha256:815ccfe8f5c76b6bfb4cc35051925992e55cf974bd664aaf4494d1964461b4a3",
+          "output": "sha256:ecb59a44006d072a15f2aac225c27c52264a023bd67141986aeb3120cede52ba",
+          "params": {},
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.sfb.b3/stdout.json",
+          "stage": "b3"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 0,
+        "join_coverage": 0.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "reason": "no_matching_entries",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.sfb.b3/artifacts/f46a8742fa38df61db6f9b96f0b858e8468d7cb2e40ec78b2869aa39c5570d47/cache.sc",
+        "status": "not_run",
+        "units_in_layout": 0
+      },
+      "id": "original/sfb+b3",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "sfb",
+        "b3"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:c9b74df4166e2b283aaae0449f45ec808d894535083a8685cc6f60b96c1d211e",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "id": "original/b3-ph",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "reason": "pipeline b3-ph not found (looked at /home/runner/work/FastDyn/FastDyn/tools/scopt/pipelines/b3-ph.toml)",
+      "recipe": [
+        "b3-ph"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "status": "failed"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.native-1.general/artifacts/c181541f42c24a04ec8aea91b634b2bb301824dfc3de92e332235f92aa3104bb",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:725f788aca8762b8b98c8cea28bce475a7b9c15c31280526562a2d02e90de790",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "n_edits": 0,
+              "outcome": "no_change",
+              "pass": "host-inline",
+              "reason": "no_eligible_native_calls",
+              "status": "no_change"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "params": {
+            "host-inline": {
+              "allow_faulting": false,
+              "max_sites_per_unit": 1,
+              "mode": "splice"
+            }
+          },
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.native-1/stdout.json",
+          "stage": "native-1"
+        },
+        {
+          "effective_passes": [
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "specialize-returns",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "constant-propagation",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "branch-folding",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "dead-host-ops",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 93,
+              "outcome": "candidate",
+              "pass": "chain-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "chain-static",
+              "reason": "growth_budget",
+              "status": "no_change"
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:95202eb8d184ae01426ec472b791554595eee4dacee93f052d38498fb9ed4737",
+          "params": {
+            "chain-returns": {
+              "max_total_growth_bytes": 8192,
+              "rank_by_net_work": true
+            },
+            "chain-static": {
+              "max_total_growth_bytes": 8192,
+              "rank_by_net_work": true
+            }
+          },
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.native-1.general/stdout.json",
+          "stage": "general"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 0,
+        "join_coverage": 0.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "reason": "no_matching_entries",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.native-1.general/artifacts/c181541f42c24a04ec8aea91b634b2bb301824dfc3de92e332235f92aa3104bb/cache.sc",
+        "status": "not_run",
+        "units_in_layout": 0
+      },
+      "id": "original/native-1+general",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "native-1",
+        "general"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:c9b74df4166e2b283aaae0449f45ec808d894535083a8685cc6f60b96c1d211e",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "artifact": "/home/runner/work/_temp/discovery/registry/original.sfb-hot.general/artifacts/a5bbaef12148bcb49dc79e1e06b0c5b6e21da442643d20a3e1c0496750a3464b",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "deployment_identity": "sha256:28e4a9bd2513ae3cdbe892fde9c6d28e3a53c8e4de5bcec957fd6c5331c07b44",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "generations": [
+        {
+          "effective_passes": [
+            {
+              "outcome": "candidate",
+              "pass": "sfb-hot",
+              "units": 359
+            }
+          ],
+          "input": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+          "output": "sha256:1f58bd1dbe4fbbba480a882cd6a74eb427174df02de202a4e5e62f139a0e264d",
+          "params": {
+            "entry_coverage": 90,
+            "max_growth_bytes": 16384,
+            "max_moved_units": 256
+          },
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.sfb-hot/stdout.json",
+          "stage": "sfb-hot"
+        },
+        {
+          "effective_passes": [
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "specialize-returns",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "constant-propagation",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "branch-folding",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "dead-host-ops",
+              "reason": "ablation_disabled",
+              "status": "policy_disabled"
+            },
+            {
+              "n_edits": 93,
+              "outcome": "candidate",
+              "pass": "chain-returns",
+              "reason": "",
+              "status": "edited"
+            },
+            {
+              "n_edits": 0,
+              "outcome": "skipped_unsupported",
+              "pass": "chain-static",
+              "reason": "growth_budget",
+              "status": "no_change"
+            }
+          ],
+          "input": "sha256:1f58bd1dbe4fbbba480a882cd6a74eb427174df02de202a4e5e62f139a0e264d",
+          "output": "sha256:043d71c0c3cd66bcd33e59b362e7058309c583cbefd702a864be9b6988662247",
+          "params": {
+            "chain-returns": {
+              "max_total_growth_bytes": 8192,
+              "rank_by_net_work": true
+            },
+            "chain-static": {
+              "max_total_growth_bytes": 8192,
+              "rank_by_net_work": true
+            }
+          },
+          "receipt": "/home/runner/work/_temp/discovery/registry/original.sfb-hot.general/stdout.json",
+          "stage": "general"
+        }
+      ],
+      "hot_footprint": {
+        "coverage_target": 0.9,
+        "exact_units": 0,
+        "join_coverage": 0.0,
+        "label": "model (static offsets x profile counts), not measured",
+        "non_exact_units": 0,
+        "phase": "steady",
+        "phase_entries_exact": 1770867,
+        "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+        "profile_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+        "reason": "no_matching_entries",
+        "sc": "/home/runner/work/_temp/discovery/registry/original.sfb-hot.general/artifacts/a5bbaef12148bcb49dc79e1e06b0c5b6e21da442643d20a3e1c0496750a3464b/cache.sc",
+        "status": "not_run",
+        "units_in_layout": 0
+      },
+      "id": "original/sfb-hot+general",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "recipe": [
+        "sfb-hot",
+        "general"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "runtime_identity": "sha256:c9b74df4166e2b283aaae0449f45ec808d894535083a8685cc6f60b96c1d211e",
+      "status": "ready"
+    },
+    {
+      "application": "pye",
+      "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+      "config_sha256": "sha256:d3b2f939488f5446d0222e96955c74308b377cc3d2aa3e13020ac60d69200f53",
+      "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+      "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+      "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+      "id": "original/sfb-hot+b4+b3",
+      "image_variant": "original",
+      "ordinary_snapshot_id": "sha256:983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+      "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+      "profile_id": "sha256:795dcc37c35f9068c90cc2ae4ed732d2becdb2f0364dc753fcc58cb722d8b3ac",
+      "reason": "Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/scopt', 'b4', 'package', '/home/runner/work/_temp/discovery/registry/original.sfb-hot/import/snapshots/1f58bd1dbe4fbbba480a882cd6a74eb427174df02de202a4e5e62f139a0e264d', '--store', '/home/runner/work/_temp/discovery/registry/original.sfb-hot.b4', '--runtime', '/home/runner/work/_temp/discovery/admission-runtime.json', '--enable', 'eliminate-state-sync']' returned non-zero exit status 1.",
+      "recipe": [
+        "sfb-hot",
+        "b4",
+        "b3"
+      ],
+      "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+      "status": "failed"
+    }
+  ],
+  "configuration": "MicroPython-v1.27.0-release-MPS2-AN385-Cortex-M3-queued-UART",
+  "contract": "/home/runner/work/_temp/discovery/contract.json",
+  "contract_sha256": "sha256:5b3cc7a570b7b145b031041ed08d84b98ae59b53445cfd03c68a2f130ac2238b",
+  "objective": {
+    "boundaries": "host monotonic release at the pre-editor UART barrier through receipt of the editor-return marker",
+    "direction": "minimize",
+    "name": "time to edit and return the document",
+    "unit": "ns",
+    "useful_work": "one complete declared document edit, verified against the whole expected UTF-8 document"
+  },
+  "offline_seconds": 1545.759411305,
+  "plan_sha256": "sha256:c9f91895078f4290ea80297e503cee1f34dfaaab3ced14631dc102e46921b1a1",
+  "scenario": "update-package-version",
+  "schema": "trebuchet.registry/1",
+  "state": "completed"
+}

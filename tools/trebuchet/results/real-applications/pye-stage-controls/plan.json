@@ -1,0 +1,80 @@
+{
+ "case": "update-package-version",
+ "role": "training only",
+ "track": "frozen inventory",
+ "arms": {
+  "ordinary": "sha256:8f422a203fa32c6085a313bc512c89f91cf2ac9035f7dce4f76c6be445059a7e",
+  "b4": "sha256:6acb6ecbcbd920050e3e1b123cf79fc9624545b4c3b3e3ea2535b959f095c8c5",
+  "native": "sha256:167fe0d72ffe0e634c51ed4ec75777234805787de29aa332666882ba9d918c5f"
+ },
+ "orders": [
+  [
+   "ordinary",
+   "b4",
+   "native"
+  ],
+  [
+   "ordinary",
+   "native",
+   "b4"
+  ],
+  [
+   "b4",
+   "native",
+   "ordinary"
+  ],
+  [
+   "b4",
+   "ordinary",
+   "native"
+  ],
+  [
+   "b4",
+   "ordinary",
+   "native"
+  ],
+  [
+   "native",
+   "ordinary",
+   "b4"
+  ],
+  [
+   "b4",
+   "native",
+   "ordinary"
+  ],
+  [
+   "ordinary",
+   "native",
+   "b4"
+  ],
+  [
+   "ordinary",
+   "b4",
+   "native"
+  ],
+  [
+   "native",
+   "b4",
+   "ordinary"
+  ],
+  [
+   "native",
+   "ordinary",
+   "b4"
+  ],
+  [
+   "native",
+   "b4",
+   "ordinary"
+  ]
+ ],
+ "warmup_blocks": 1,
+ "seed": 25687,
+ "cpu_affinity": [
+  3
+ ],
+ "primary": "operational_ns",
+ "failure_rule": "stop and preserve all attempted observations",
+ "bootstrap_samples": 2000
+}

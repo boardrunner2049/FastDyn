@@ -1,0 +1,70 @@
+{
+ "application": "pye",
+ "scenario": "update-package-version",
+ "recipes": [
+  "warm",
+  "general",
+  "static",
+  "returns",
+  "dominant",
+  "sfb-hot",
+  "ph",
+  "native-1",
+  "native-2",
+  "scalar",
+  "global-region",
+  "b4",
+  "b4-coalesce",
+  "b4-absorb",
+  "b3",
+  "sfb",
+  "sfb+b3",
+  "b3-ph",
+  "native-1+general",
+  "sfb-hot+general",
+  "sfb-hot+b4+b3"
+ ],
+ "params": {
+  "sfb-hot": {
+   "entry_coverage": 90,
+   "max_moved_units": 256,
+   "max_growth_bytes": 16384
+  },
+  "general": {
+   "chain-returns": {
+    "rank_by_net_work": true,
+    "max_total_growth_bytes": 8192
+   },
+   "chain-static": {
+    "rank_by_net_work": true,
+    "max_total_growth_bytes": 8192
+   }
+  }
+ },
+ "budget": {
+  "candidate_limit": 21,
+  "offline_seconds": 2700
+ },
+ "configuration": "MicroPython-v1.27.0-release-MPS2-AN385-Cortex-M3-queued-UART",
+ "objective": {
+  "name": "time to edit and return the document",
+  "direction": "minimize",
+  "unit": "ns",
+  "useful_work": "one complete declared document edit, verified against the whole expected UTF-8 document",
+  "boundaries": "host monotonic release at the pre-editor UART barrier through receipt of the editor-return marker"
+ },
+ "contract": "/home/runner/work/_temp/discovery/contract.json",
+ "admission": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/admission.json",
+ "images": {
+  "original": {
+   "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+   "config": "/home/runner/work/_temp/pye/ordinary/pye.toml",
+   "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+   "snapshot": "/home/runner/work/_temp/pye/ordinary/store/snapshots/983c12a5915a09b500843b1b92c1c5a4bb9c15314604644b1a6be09613c4bf0d",
+   "profile": "/home/runner/work/_temp/pye/ordinary/profile/merged.profile.json",
+   "manifest": "/home/runner/work/_temp/pye/ordinary/prep/cache/fw.sc.fastdyn.json",
+   "prep": "/home/runner/work/_temp/pye/ordinary/prep",
+   "admission_runtime": "/home/runner/work/_temp/discovery/admission-runtime.json"
+  }
+ }
+}

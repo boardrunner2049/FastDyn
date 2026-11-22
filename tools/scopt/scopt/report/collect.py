@@ -184,9 +184,12 @@ def sc_metrics(path: str | os.PathLike) -> dict[str, Any]:
 
 def _sc_units_layout(path: str | os.PathLike) -> dict[str, tuple[int, int, int, int]]:
     """UnitId -> (tb_offset, tc_offset, tc_size, end_offset) for the valid slots."""
-    from ..formats.sc_v5 import read_sc
+    from ..formats.sc_v6 import read_sc6
 
-    sc = read_sc(path)
+    cache = read_sc6(path)
+    if not cache.loadable:
+        raise ValueError(f"unloadable cache layout: {cache.problem or cache.sc.header_problems}")
+    sc = cache.sc
     out = {}
     for uid, u in zip(sc.unit_ids(), sc.units()):
         r = u.record

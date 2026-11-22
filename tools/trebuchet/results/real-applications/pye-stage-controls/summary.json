@@ -1,0 +1,104 @@
+{
+ "b4": {
+  "operational_ns": {
+   "ordinary_median": 10659419.0,
+   "candidate_median": 11215782.0,
+   "median_paired_gain": 0.9623013407272769,
+   "bootstrap_95": [
+    0.8515040867272399,
+    1.0073727896643692
+   ]
+  },
+  "qemu_ns": {
+   "ordinary_median": 51252631.0,
+   "candidate_median": 50836531.5,
+   "median_paired_gain": 1.0211343901428949,
+   "bootstrap_95": [
+    0.9924638833065299,
+    1.1017936494763494
+   ]
+  },
+  "process_wall_s": {
+   "ordinary_median": 0.2339063404999706,
+   "candidate_median": 0.23333061650004083,
+   "median_paired_gain": 1.0042878043792056,
+   "bootstrap_95": [
+    0.9916580528984693,
+    1.0186133208678765
+   ]
+  }
+ },
+ "native": {
+  "operational_ns": {
+   "ordinary_median": 10659419.0,
+   "candidate_median": 10786888.0,
+   "median_paired_gain": 1.0257413778991906,
+   "bootstrap_95": [
+    0.8102369025198765,
+    1.0543634187328599
+   ]
+  },
+  "qemu_ns": {
+   "ordinary_median": 51252631.0,
+   "candidate_median": 50448412.0,
+   "median_paired_gain": 1.0459852149146043,
+   "bootstrap_95": [
+    0.8806160153050437,
+    1.1192244169188783
+   ]
+  },
+  "process_wall_s": {
+   "ordinary_median": 0.2339063404999706,
+   "candidate_median": 0.233242453999992,
+   "median_paired_gain": 0.9996466982980252,
+   "bootstrap_95": [
+    0.9690990052927928,
+    1.0162572509095975
+   ]
+  }
+ },
+ "late_translations": {
+  "ordinary": [
+   2,
+   5,
+   4,
+   3,
+   2,
+   4,
+   0,
+   4,
+   4,
+   2,
+   0,
+   6
+  ],
+  "b4": [
+   2,
+   0,
+   6,
+   0,
+   4,
+   2,
+   6,
+   4,
+   4,
+   4,
+   2,
+   4
+  ],
+  "native": [
+   4,
+   4,
+   2,
+   2,
+   8,
+   0,
+   4,
+   2,
+   3,
+   4,
+   2,
+   6
+  ]
+ }
+}
