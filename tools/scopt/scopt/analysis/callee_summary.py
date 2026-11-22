@@ -201,7 +201,7 @@ def build_callee_summaries(units: Sequence[Any], edges: ReturnEdges, *, snapshot
     return out
 
 
-def guarded_static_summaries(rows, edges, local_of, *, offset: int | None):
+def guarded_static_summaries(rows, edges, local_of, *, offset: int | None, max_hops: int = 1):
     """Propose r0 == 0 at B→C from a certified A→B fact and a preserving B.
 
     The original A→B identity motivates the candidate. B can be entered from
@@ -212,18 +212,38 @@ def guarded_static_summaries(rows, edges, local_of, *, offset: int | None):
         return rows
     admitted = {(e.uid, e.exit_id): e for e in edges.exits if e.admitted
                 and e.exit_class == "static" and e.tail_off is not None}
+    # Propagate candidate evidence across at most three preserving tails. Only
+    # rows from an earlier round can seed the next. The value at a public
+    # intermediate is conditional; no general entry gets a precondition.
+    if not 1 <= max_hops <= 3:
+        raise ValueError("max_hops must be 1..3")
+    for _ in range(max_hops):
+        updated = _extend_guarded_static(rows, admitted, local_of, offset)
+        if all(before is after for before, after in zip(rows, updated)):
+            break
+        rows = updated
+    return rows
+
+
+def _extend_guarded_static(rows, admitted, local_of, offset):
     predecessors = {}
     for row in rows:
         edge = admitted.get((row["return_unit"], row["exit_id"]))
         if edge is None:
             continue
         for fact in row["facts"]:
-            if (fact["field"], fact["value"], fact["status"]) != ("r0", "0x0", "certified"):
+            if fact["field"] != "r0" or fact["value"] != "0x0":
+                continue
+            origin = row.get("x_guarded_origin")
+            if fact["status"] != "certified" and not (
+                    fact["status"] == "guarded" and fact["source"] == "guard" and origin
+                    and fact["cert_hash"] == sha256_id(canonical_json(origin))):
                 continue
             for target in edge.candidates:
                 if (target.admitted and target.vaddr == edge.static_dest
                         and target.dst is not None and target.dst != edge.uid):
-                    predecessors.setdefault(target.dst, []).append((row, fact, target.count))
+                    weight = min(target.count, origin["writer_tb_edge_count"]) if origin else target.count
+                    predecessors.setdefault(target.dst, []).append((row, fact, weight))
     out = []
     r0_bytes = frozenset(range(offset, offset + 4))
     for row in rows:
@@ -231,7 +251,7 @@ def guarded_static_summaries(rows, edges, local_of, *, offset: int | None):
         edge = admitted.get((uid, exit_id))
         origin = predecessors.get(uid)
         if edge is None or not origin or edge.insn is None or any(
-                f["status"] == "certified" and f["field"] == "r0" for f in row["facts"]):
+                f["status"] in ("certified", "guarded") and f["field"] == "r0" for f in row["facts"]):
             out.append(row)
             continue
         summary = local_of(uid)
@@ -245,6 +265,9 @@ def guarded_static_summaries(rows, edges, local_of, *, offset: int | None):
                  "writer_fact": fact["fact_id"], "writer_row": source["row_hash"],
                  "preserver_summary": summary.result_hash, "at": edge.tail_off,
                  "effect_table": summary.value.effect_id, "writer_tb_edge_count": weight}
+        if source.get("x_guarded_origin"):
+            # Include the preceding conditional premise and its own source hashes.
+            proof["writer_guarded_origin"] = source["x_guarded_origin"]
         id_ = fact_id(uid, row["deps"]["unit"]["content_hash"], exit_id, "r0", 0,
                       ((edge.tail_off, edge.insn),))
         claim = {"fact_id": id_, "field": "r0", "value": "0x0", "source": "guard",

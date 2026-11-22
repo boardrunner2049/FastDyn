@@ -54,6 +54,7 @@ class BranchFolding:
             return PassResult(Outcome.SKIPPED_UNKNOWN, "validation_inconclusive",
                               f"variant analyses not available: {hc.reasons}")
         refused: Counter[str] = Counter()
+        refusal_sites = {}
         out = []
         for i, taken in sorted(hc.decided.items()):
             o = h.ops[i]
@@ -63,6 +64,9 @@ class BranchFolding:
             f = fold_jcc(old, taken)
             if f is None:
                 refused["no_same_length_encoding"] += 1
+                if ctx.params.get("record_encoding_sites"):
+                    pred, slot = vv.plan.pred
+                    refusal_sites[f"encoding_site|{pred}|{slot}|{vv.src.uid}|{o.off}|{old.hex()}"] = 1
                 continue
             new, tmpl = f
             out.append(Patch(vv.variant_id, o.off, old, new, tmpl,
@@ -81,6 +85,7 @@ class BranchFolding:
         for p in out:
             edits.pure_rewrite(p, dependency_additions=deps)
         stats = {"decided_branches": len(out), "removed_work": len(out) * vv.weight}
+        stats.update(refusal_sites)
         if out:
             return PassResult(Outcome.CANDIDATE, "", f"{len(out)} branches folded",
                               affected=(vv.src.uid,), stats=stats)

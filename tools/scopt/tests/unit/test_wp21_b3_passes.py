@@ -598,3 +598,102 @@ def test_b2_manager_still_refuses_b3_kinds():
     for p in c.passes:
         assert p.outcome is Outcome.SKIPPED_UNSUPPORTED, (p.name, p.reason)
         assert p.reason in ("capability_not_enabled", "region_scope_not_enabled")
+
+
+def _fold_zero_load(load, reg, live_flags):
+    op = SimpleNamespace(off=0, end=len(load), size=len(load), block="insn", log=None)
+    hostops = SimpleNamespace(ops=[op])
+    liveness = SimpleNamespace(live_out=[live_flags])
+    constants = SimpleNamespace(ok=True, foldable={0: ("CF", 0, reg)})
+    vv = SimpleNamespace(variant_id="sha256:" + "ab" * 32, src=SimpleNamespace(uid="source"),
+                         code=load, factrefs=(fake_factref("CF"),), weight=1,
+                         analyses=lambda: (hostops, None, liveness, constants))
+    return run_region(ConstantPropagation, vv)
+
+
+@pytest.mark.parametrize(("encoding", "reg", "expected"), [
+    ("8b4500", "eax", "31c090"),
+    ("448b4d00", "r9d", "4531c990"),
+])
+def test_zero_load_short_encoding(encoding, reg, expected):
+    load = bytes.fromhex(encoding)
+    res, patches = _fold_zero_load(load, reg, {"ZF"})
+    assert res.reason == "no_same_length_encoding" and not patches
+    res, (patch,) = _fold_zero_load(load, reg, set())
+    assert res.outcome == Outcome.CANDIDATE
+    assert patch.template_id == "cp_xor_zero" and patch.new_bytes.hex() == expected
+
+
+@pytest.mark.parametrize(("family", "reg"), [("rax", "eax"), ("r9", "r9d")])
+def test_zero_load_with_live_flags_symbolic(family, reg):
+    from scopt.validate_sym import check_equiv, patched
+    from scopt.validate_sym.mutants import MINI_LAYOUT, OFF_CF, OFF_R, SynthContract, SynthUnit
+
+    unit = SynthUnit("synth:zero-load-with-live-flags")
+    unit.prefix()
+    unit.a.cmp_env_imm(OFF_R[2], 1)
+    off, size = unit.rec("load", lambda: unit.a.mov_r_env(family, OFF_CF))
+    unit.a.mov_env_r(OFF_R[1], family)
+    unit.a.jcc("ne", "nz")
+    unit.goto_tb(0, 0x2000)
+    unit.a.label("nz")
+    unit.goto_tb(1, 0x2004)
+    program = unit.build()
+    res, (patch,) = _fold_zero_load(program.code[off:off + size], reg, {"ZF"})
+    assert res.outcome == Outcome.CANDIDATE and patch.template_id == "cp_mov_imm"
+    contract = SynthContract(True)
+    zero = {(OFF_CF, 4): 0}
+    folded = patched(program, [(off, patch.new_bytes)])
+    assert check_equiv(program, folded, zero, None, contract, layout=MINI_LAYOUT).ok
+    assert check_equiv(program, folded, None, None, contract, layout=MINI_LAYOUT).status == "mismatch"
+    xor = xor_zero(reg)
+    clobbered = patched(program, [(off, xor + nops(size - len(xor)))])
+    assert check_equiv(program, clobbered, zero, None, contract, layout=MINI_LAYOUT).status == "mismatch"
+
+
+@pytest.mark.parametrize(("load_hex", "reg", "family"), [
+    ("8b8510020000", "eax", "rax"), ("448b8d10020000", "r9d", "r9"),
+])
+def test_zero_load_with_live_flags_native(tmp_path, load_hex, reg, family):
+    import ctypes
+    import platform
+    import shutil
+    import subprocess
+
+    if platform.system() != "Linux" or platform.machine() != "x86_64" or not shutil.which("cc"):
+        pytest.skip("requires x86-64 Linux with a C toolchain")
+    load = bytes.fromhex(load_hex)
+    _, (patch,) = _fold_zero_load(load, reg, {"CF", "ZF", "OF"})
+    functions = []
+    for name, body in (("original", load), ("folded", patch.new_bytes)):
+        functions.append(f"""
+            .globl {name}
+        {name}:
+            push %rbp
+            mov %rdi, %rbp
+            mov $-1, %{family}
+            cmp $1, %esi
+            .byte {','.join(str(byte) for byte in body)}
+            pushfq
+            pop %rcx
+            mov %rcx, (%rdx)
+            mov %{family}, %rax
+            pop %rbp
+            ret
+        """)
+    library = tmp_path / "zero.so"
+    subprocess.run(["cc", "-shared", "-x", "assembler", "-o", str(library), "-"],
+                   input="\n".join(functions) + '\n.section .note.GNU-stack,"",@progbits\n',
+                   text=True, check=True)
+    dll = ctypes.CDLL(str(library))
+    word = ctypes.c_uint64
+    env = ctypes.create_string_buffer(0x214)
+    for value in (0, 1, 2, 0x10, 0x80000000, 0xffffffff):
+        flags = []
+        for fn in (dll.original, dll.folded):
+            fn.argtypes = (ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(word))
+            fn.restype = word
+            out = word()
+            assert fn(env, value, ctypes.byref(out)) == 0  # includes cleared upper 32 bits
+            flags.append(out.value & 0x8d5)  # OF SF ZF AF PF CF
+        assert flags[0] == flags[1]

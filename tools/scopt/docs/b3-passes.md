@@ -10,7 +10,7 @@ end. Plan: `docs/design/IMPLEMENTATION-PLAN-B3B4.md` `## WP21`.
 | # | Pass | Scope | Edits | Reads |
 |---|---|---|---|---|
 | 1 | `specialize-returns@1` | snapshot | CLONE C->C', REDIRECT_EXIT (SPEC), ADD_ENTRY, ATTACH_FACT | `return-edges`, certified CalleeSummary facts, `hconst`, profile (steady) |
-| 2 | `constant-propagation@1` | region (variant) | PURE_REWRITE `cp_xor_zero`, `cp_mov_imm` | `hconst`, `hostops`, `hlive` (EFLAGS dead) |
+| 2 | `constant-propagation@1` | region (variant) | PURE_REWRITE `cp_xor_zero`, `cp_mov_imm` | `hconst`, `hostops`, `hlive` (XOR requires dead flags, MOV preserves flags) |
 | 3 | `branch-folding@1` | region | PURE_REWRITE `bf_jcc_to_jmp`, `bf_jcc_to_nop` | `hconst`, `hostops`, `hcfg` |
 | 4 | `dead-host-ops@1` | region | PURE_REWRITE `dho_nop` | `hostops`, `hcfg`, `hconst`, `hlive` |
 | 5 | `chain-returns@1` | snapshot | REDIRECT_EXIT (GENERAL) on return exits | `return-edges`, profile |
@@ -89,7 +89,7 @@ citable and no guard can be emitted (`guard_layout_unbound`).
 | Pass | Codes it reports (most frequent becomes the pass reason when nothing is proposed) |
 |---|---|
 | specialize-returns | the exit's §3.1 code, `fact_not_constant` (or the summary row's first refusal), `target_not_profiled`, `fact_unused`, `not_profitable`, `unit_not_relocatable`, `slot_budget`, `context_budget`, `growth_budget` |
-| constant-propagation | `no_same_length_encoding`, `flags_live`, `not_profitable` |
+| constant-propagation | `no_same_length_encoding` (including live flags when the zero-immediate MOV will not fit), `not_profitable` |
 | branch-folding | `fact_unused` (no decided branch), `no_same_length_encoding`, `not_profitable` |
 | dead-host-ops | `flags_live`, `not_profitable` |
 | chain-returns / chain-static | the exit's §3.1 code, `no_free_slot`, `unit_not_relocatable`, `continuation_key_mismatch`, `not_profitable`, `slot_budget` (256 units) |

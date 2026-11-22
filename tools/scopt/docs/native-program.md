@@ -101,6 +101,21 @@ For the x86 TCG differential checker add `--selftest /path/to/current-hostsym-qe
 
 On the bundled FreeRTOS example, `configs/minimal.toml` changes the LED-flash task argument to 3 and prints the value before ending at scheduler startup. `--pipeline local-scalar --enable local-scalar-cleanup` checks ordinary entries under that public entry contract. `--pipeline native-program --enable local-scalar-cleanup` also runs this cleanup on the generation consumed by whole-program planning. A pass that yields an unchanged cache image is marked explicitly by the prefix benchmark.
 
+Ordinary `local-scalar-cleanup` refreshes host operations, the control-flow graph, and
+liveness after each accepted rewrite. `max_rounds` and `max_patches` bound the work per
+unit (both default to 64, with `max_rounds` following a supplied `max_patches`). Its
+receipt counts analysis rounds and reports each unit’s stopping condition. A re-import of
+an accepted ordinary-cleanup artifact gives a subsequent static-edge pass fresh source
+identities when the two passes would otherwise compete for a changed unit.
+
+For `specialize-edges`, `max_preserving_hops` sets how many consecutive static exits may
+carry evidence for a guarded `r0 == 0` private entry. The default is one. Values two and
+three require a certified writer and a full four-byte preservation summary at every
+intermediate tail. The receipt links the source rows and effect-table identities. Edge
+counts rank candidate paths and bound their possible activity. The final guard compares
+the actual register value and branches to the existing fallback on a mismatch. Ordinary
+entries retain their existing preconditions.
+
 ## Pass ledger
 
 | Family | Existing capability and gap | Implementation and method | Check and measurement |
@@ -129,3 +144,9 @@ The source interval, artifact/pass outcomes, allocated and logical cache sizes, 
 The runtime retains entry checks, guest PC and interrupt accounting, memory access, callbacks and fallback dispatch. Reaching all TBs in a timing run is a warm-cache check. The complete producer establishes only the declared immutable-byte and translation-context domain. Reachability still includes public entries, interrupt roots and conservative unknown transfers. The state pass does not sink an observable store across a fault. General memory PRE, arbitrary native helper frames, physical register allocation, vectorization, and deletion of independently enterable TBs need stronger contracts. A symbolic timeout, refused binding, failed oracle, or unsupported native instruction interface is recorded separately from an applied transformation.
 
 The composed cache benchmarks use partial-mode entry policy. Complete-mode evidence is tied to its producer capture. The coverage fixture separately qualifies and times a guarded specialization in both modes using its coverage-aware runtime. Details and the replay command are in `fixtures/translation-coverage/README.md`.
+
+## Caller store deletion after native materialization
+
+B4 can delete a dead caller store from a reimported TB that contains certified integer helper splices. The replacement uses the existing same-width NOP encoding. The linker reserves the complete emitted splice, including its padding, any widened branch and its padding, and the eight-byte retired helper pool slot. Each output capture must have a matching bound source SCM. Store liveness and HostSym equivalence still apply to the modified TB.
+
+The regression in `tests/unit/test_native_caller_rewrite.py` constructs an ELF-bound synthetic caller, materializes its splice, then deletes two stores in successive generations. It relocates and reimports both outputs, checks the original helper certificate, and exercises refusal for protected bytes, missing metadata, a changed ELF offset, and a live store. Cloning, edits within the fragment, and cross-boundary rewrites need separate correspondence proofs. This regression supplies functional evidence only.

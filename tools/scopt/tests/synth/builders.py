@@ -550,7 +550,8 @@ def simple_tb(tb_offset: int, *, key: TBKey = DEFAULT_KEY, vaddr: int | None = N
               code_address: int = DEFAULT_CODE_ADDRESS, tb_size: int = DEFAULT_TB_SIZE,
               icache_linesize: int = DEFAULT_ICACHE_LINESIZE,
               tb_ret_off: int = SYNTH_TB_RET_OFF,
-              target_page_bits: int = DEFAULT_TARGET_PAGE_BITS) -> SynthUnit:
+              target_page_bits: int = DEFAULT_TARGET_PAGE_BITS, icount_entry: bool = False,
+              body_prefix: bytes = b"") -> SynthUnit:
     """A two-insn TB shaped like QEMU's x86-64 output for a Thumb block ending in exit_tb.
 
     Layout (offsets from tc)::
@@ -581,11 +582,18 @@ def simple_tb(tb_offset: int, *, key: TBKey = DEFAULT_KEY, vaddr: int | None = N
         return (target - (base + next_ip_off)).to_bytes(4, "little", signed=True)
 
     jl_at = None
+    if icount_entry:
+        if not irq_check:
+            raise ValueError("icount entry requires IRQ checks")
+        key = replace(key, cflags=key.cflags | 0x2000)
     if irq_check:
-        code += bytes.fromhex("8b45f0" "85c0")
+        code += bytes.fromhex("8b45f8 83c0fe 85c0" if icount_entry else "8b45f0 85c0")
         jl_at = len(code)
         code += b"\x0f\x8c" + b"\0\0\0\0"  # patched below
+    if icount_entry:
+        code += bytes.fromhex("668945f8")
     insn0_start = len(code)
+    code += body_prefix
     code += bytes.fromhex("c7453c") + (vaddr & 0xFFFFFFFF).to_bytes(4, "little")
     insn0_end = len(code)
 

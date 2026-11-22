@@ -2253,6 +2253,17 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
         nonlocal npat, need_d2, need_d3
         if not patches:
             return
+        if u.native_fragments:
+            from .splice_layout import caller_patch_problem, integer_certificate_ranges
+
+            try:
+                protected = integer_certificate_ranges(u)
+                for patch in patches:
+                    problem = caller_patch_problem(u, patch, protected)
+                    if problem:
+                        bad15.append(f"{who} @{patch.host_off}: {problem}")
+            except ValueError as exc:
+                bad15.append(f"{who}: {exc}")
         h = build_hostops(u, layout, ca)
         blocks = h.blocks
         pair_anchors = None
@@ -2517,6 +2528,10 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
         budget = int(growth_fraction * hot_set_bytes)
     if budget is not None and spec_stub + var_bytes > budget:
         bad21.append(f"growth_budget: {spec_stub + var_bytes} > {budget} bytes")
+    total_budget = getattr(plan, "max_total_growth_bytes", None)
+    if total_budget is not None and stub_bytes + var_bytes > total_budget:
+        bad21.append(f"growth_budget: all guard stubs and variants {stub_bytes + var_bytes} "
+                     f"> {total_budget} bytes")
     v.add("V21", "budgets", not bad21,
           f"stub bytes {stub_bytes} (SPEC exits {spec_stub}), variant bytes {var_bytes}, "
           f"variants {sum(per_c.values())} "
@@ -2526,7 +2541,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
           (bad21[0].split(":")[0] if bad21 else None), stub_bytes=stub_bytes,
           spec_stub_bytes=spec_stub, variant_bytes=var_bytes,
           pass_byte_delta=dict(passes_byte_delta or {}), hot_set_bytes=hot_set_bytes,
-          max_code_growth_bytes=budget)
+          max_code_growth_bytes=budget, max_total_growth_bytes=total_budget)
 
     # ---- V23 observation contract ------------------------------------------------------------------
     bad23 = []

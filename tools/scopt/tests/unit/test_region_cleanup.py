@@ -202,3 +202,33 @@ def test_scalar_cleanup_reanalyzes_the_next_variant_generation(params, rounds, o
     if rounds > 1:
         assert analyzed[1][8:10] != analyzed[0][8:10]
         assert analyzed[1][12:14] == analyzed[0][12:14]
+
+
+@pytest.mark.parametrize(("params", "rewrites", "rounds"), [
+    ({}, 2, 3), ({"max_rounds": 1}, 1, 1), ({"max_patches": 0}, 0, 0),
+])
+def test_ordinary_scalar_refreshes_analyses_and_applies_to_public_code(tmp_path, params,
+                                                                      rewrites, rounds):
+    from scopt.manager import PassManager
+    from scopt.manager_b3 import B3Env
+    from tests.synth.builders import simple_units
+    from tests.unit.test_wp10_link import make_snapshot, pipeline
+
+    # Fold the second MOVZX first. Once it stops writing EAX the initial MOV
+    # dominates the last copy with the same input version.
+    body = bytes.fromhex("0fb6c1 89c3 0fb6c1 89c3")
+    snap = make_snapshot(tmp_path, simple_units(1, body_prefix=body))
+    snap = replace(snap, runtime={**snap.runtime, "qemu_sha256":
+                                  "sha256:56d8bfb32c91c970fe0a16237b962c02791ce0a7fcc52bf6246343fbef430d90"})
+    name = "local-scalar-cleanup"
+    recipe = pipeline((name, params), caps=("PURE_REWRITE",))
+    candidate = PassManager(snap, recipe, b3=B3Env(), enable=(name,)).execute()
+    report = candidate.outcome(name)
+    assert report.n_edits == rewrites, report.to_json()
+    assert report.stats["analysis_rounds"] == rounds
+    assert not candidate.b3_state.variants
+    unit, = snap.units()
+    if rewrites:
+        patches = [p for _, p in candidate.b3_state.rewrites[unit.uid]]
+        assert [p.host_off for p in patches] == [unit.insn0_start + off for off in (5, 8)[:rewrites]]
+        assert unit.code[unit.insn0_start:unit.insn0_start + len(body)] == body

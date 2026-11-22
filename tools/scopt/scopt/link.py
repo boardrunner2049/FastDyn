@@ -1167,6 +1167,17 @@ def _protected(u: TBUnit) -> list[tuple[int, int]]:
 
 def rewrite_unit(u: TBUnit, patches: Sequence[Any]) -> TBUnit:
     """``u`` with same-length patches applied in place (offsets unchanged)."""
+    if u.native_fragments or u.splice_applied:
+        from .splice_layout import caller_patch_problem, integer_certificate_ranges
+
+        try:
+            protected = integer_certificate_ranges(u)
+        except ValueError as exc:
+            raise LinkError("native_layout_unsupported", str(exc), u.uid) from exc
+        for patch in patches:
+            problem = caller_patch_problem(u, patch, protected)
+            if problem:
+                raise LinkError("native_caller_rewrite", problem, u.uid)
     code = apply_pure_rewrite(u.code, patches, forbid=_protected(u), uid=u.uid)
     tag = {"rewritten_from": u.content_hash,
            "patches": [[p.host_off, bytes(p.old_bytes).hex(), bytes(p.new_bytes).hex()]
@@ -1249,6 +1260,8 @@ class B3Plan:
     max_variants_per_c: int = 2
     max_variants: int = 64
     max_code_growth_bytes: int | None = None
+    max_total_growth_bytes: int | None = None
+    order_private_by_predecessor: bool = False
 
     @property
     def empty(self) -> bool:
@@ -1354,11 +1367,11 @@ class NativeLinkerV2:
         plan, h = self.plan, self.header
         ca = h.code_address
         units = list(self.snap.units())
-        edited = set(plan.rewrites) | {v.src_uid for v in plan.variants}
+        cloned = {v.src_uid for v in plan.variants}
         for unit in units:
-            if unit.native_fragments and (not unit.splice_applied or unit.uid in edited):
+            if unit.native_fragments and (not unit.splice_applied or unit.uid in cloned):
                 return self._fail(unit.uid, "native_layout_unsupported",
-                                  "rewriting or cloning a native certificate requires a new proof")
+                                  "native islands and cloning a native certificate require a new proof")
         by_uid = {u.uid: u for u in units}
         for uid in list(plan.grow) + list(plan.rewrites) + \
                 [v.src_uid for v in plan.variants] + [v.pred_uid for v in plan.variants]:
@@ -1404,7 +1417,10 @@ class NativeLinkerV2:
         if len(plan.variants) > plan.max_variants:
             return self._fail(plan.variants[0].src_uid, R2.CONTEXT_BUDGET,
                               f"{len(plan.variants)} variants > {plan.max_variants}")
-        for i, vs in enumerate(plan.variants):
+        ordered_specs = plan.variants
+        if plan.order_private_by_predecessor:
+            ordered_specs = sorted(ordered_specs, key=lambda vs: (out_tb[vs.pred_uid], vs.slot_n, vs.variant_id()))
+        for i, vs in enumerate(ordered_specs):
             per_c[vs.src_uid] += 1
             if per_c[vs.src_uid] > plan.max_variants_per_c:
                 return self._fail(vs.src_uid, R2.CONTEXT_BUDGET,
@@ -1496,6 +1512,13 @@ class NativeLinkerV2:
         if self.derive_captures:
             jr = self.join_result if self.join_result is not None else capture_join(self.snap)
             self.join_result = jr
+            for uid in plan.rewrites:
+                unit = by_uid[uid]
+                if unit.splice_applied:
+                    binding = jr.slots.get(unit.slot) if jr is not None else None
+                    if not (binding and binding.bound and
+                            binding.chunk.native_fragments == unit.native_fragments):
+                        return self._fail(uid, "native_metadata_missing", "no matching bound splice capture")
             files, names = derive_scm_v2(jr, res, self.snap)
             res.derived_scms = tuple(files)
             res.capture_sources = tuple(names)

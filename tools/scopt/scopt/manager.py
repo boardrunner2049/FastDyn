@@ -711,7 +711,14 @@ class PassManager:
                 costs = calibration_params(b3.calibration)
                 self._b3_costs = {spec: {key: costs[key] for key in _B3_PASS_COSTS[spec] if key in costs}
                                   for spec in calibrated}
-            self.b3ctx = B3Ctx(b3, store)
+            preserving_hops = 1
+            for entry in self.pipeline.passes:
+                if entry.name == "specialize-edges" and (entry.name, entry.version) in active:
+                    edge_params = {**entry.params, **self.params.get(entry.name, {})}
+                    preserving_hops = edge_params.get("max_preserving_hops", 1)
+                    if type(preserving_hops) is not int or not 1 <= preserving_hops <= 3:
+                        raise PipelineError("specialize-edges.max_preserving_hops must be 1..3")
+            self.b3ctx = B3Ctx(b3, store, max_preserving_hops=preserving_hops)
             self.b3_state = B3State()
 
     # ------------------------------------------------------------------
