@@ -1,0 +1,86 @@
+{
+  "verified_utc": "2026-11-22T07:12:32.541304+00:00",
+  "repository": "boardrunner2049/FastDyn",
+  "runs": [
+    {
+      "run": 44994207982,
+      "http_status": 404
+    },
+    {
+      "run": 44994347276,
+      "http_status": 404
+    },
+    {
+      "run": 44994383883,
+      "http_status": 404
+    },
+    {
+      "run": 44994531126,
+      "http_status": 404
+    },
+    {
+      "run": 44994637766,
+      "http_status": 404
+    },
+    {
+      "run": 44995090950,
+      "http_status": 404
+    },
+    {
+      "run": 44995135735,
+      "http_status": 404
+    },
+    {
+      "run": 44995147052,
+      "http_status": 404
+    },
+    {
+      "run": 44995171443,
+      "http_status": 404
+    },
+    {
+      "run": 44995243391,
+      "http_status": 404
+    },
+    {
+      "run": 44995291852,
+      "http_status": 404
+    },
+    {
+      "run": 44995359989,
+      "http_status": 404
+    },
+    {
+      "run": 44995413417,
+      "http_status": 404
+    },
+    {
+      "run": 44995970987,
+      "http_status": 404
+    },
+    {
+      "run": 44996041360,
+      "http_status": 404
+    },
+    {
+      "run": 44996094997,
+      "http_status": 404
+    },
+    {
+      "run": 44996130654,
+      "http_status": 404
+    },
+    {
+      "run": 44996606690,
+      "http_status": 404
+    },
+    {
+      "run": 44996734243,
+      "http_status": 404
+    }
+  ],
+  "remaining_hosted_branches": [],
+  "remaining_recent_hosted_runs": [],
+  "previous_receipt": "hosted-cleanup.json",
+  "total_verified_across_receipts": 45
+}
