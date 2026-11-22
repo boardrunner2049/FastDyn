@@ -1,0 +1,237 @@
+{
+  "reserved_flash": [
+    134283264,
+    134348800
+  ],
+  "new_functions": [
+    [
+      "delayf",
+      134283264,
+      48
+    ]
+  ],
+  "deployed_bank_sha256": "b18a7bff9058d9ec891658981a4f61da9b5d8815642b681d8914e5a18cffeb5e",
+  "input_elf_sha256": "3aa65e553ef86a34767bc6595c94f319fda99421d695deae30844c35cdb1cf4b",
+  "candidate_elf_sha256": "8de6ed2c004a4fb332c4b17fe0942bdf653753cf35179dd81ddd32923023ab3a",
+  "loaded_bytes": 35632,
+  "original_loaded_bytes": 35584,
+  "relocated_tb_entries": 16577657,
+  "relocated_pcs": {
+    "0x8010000": 4140400,
+    "0x8010006": 4140400,
+    "0x801000a": 4140400,
+    "0x801000e": 998,
+    "0x8010012": 998,
+    "0x8010018": 998,
+    "0x801001a": 998,
+    "0x801001c": 998,
+    "0x801001e": 4140400,
+    "0x8010004": 2809,
+    "0x8010002": 2751,
+    "0x8010008": 2736,
+    "0x801000c": 2770,
+    "0x8010014": 1
+  },
+  "tb_profile_sha256": "0b6859b9e8b8aad7415cb50c6c16e3fb884a2b472e3e4810adcf9cbbed91955f",
+  "cold": {
+    "verdict": "PASS",
+    "checks": {
+      "all_430_command_edges_and_widths": true,
+      "regulator_and_conversions": true,
+      "no_watchdog_reset": true,
+      "neutral_before_ramp": true,
+      "forward_six_step_order": true,
+      "loaded_six_step_order": true,
+      "reverse_six_step_order": true,
+      "all_kiss_crc": true,
+      "complete_uart_dma": true,
+      "supply_and_temperature": true,
+      "forward_catalog_equilibrium": true,
+      "forward_independent_telemetry_rpm": true,
+      "loaded_catalog_equilibrium": true,
+      "loaded_independent_telemetry_rpm": true,
+      "reverse_catalog_equilibrium": true,
+      "reverse_independent_telemetry_rpm": true,
+      "load_response": true,
+      "brake_precedes_reverse": true,
+      "neutral_between_brake_and_reverse": true,
+      "completed_at_rest": true
+    },
+    "phase_events": {
+      "forward": 136,
+      "loaded": 82,
+      "reverse": 115
+    },
+    "metrics": {
+      "forward": {
+        "median_rpm": 2726.795,
+        "catalog_equilibrium_rpm": 2801.72,
+        "median_kiss_erpm": 2700.0,
+        "duty": 0.20772
+      },
+      "loaded": {
+        "median_rpm": 1414.81,
+        "catalog_equilibrium_rpm": 1438.5,
+        "median_kiss_erpm": 1400.0,
+        "duty": 0.20772
+      },
+      "reverse": {
+        "median_rpm": -1857.3,
+        "catalog_equilibrium_rpm": -1911.65,
+        "median_kiss_erpm": 1800,
+        "duty": 0.14173
+      }
+    },
+    "kiss_packets": 255,
+    "adc_scans": 8080,
+    "command": [
+      "/workspace/trebuchet-work/escape32/board-motor/qemu-system-arm",
+      "-M",
+      "escape1-g071",
+      "-kernel",
+      "/workspace/trebuchet-work/escape32/training/candidate-legal/cold/application-flash.bin",
+      "-serial",
+      "null",
+      "-serial",
+      "file:/workspace/trebuchet-work/escape32/training/candidate-legal/cold/kiss.bin",
+      "-display",
+      "none",
+      "-monitor",
+      "none",
+      "-no-reboot",
+      "-icount",
+      "shift=4,align=off,sleep=off",
+      "-d",
+      "page",
+      "-D",
+      "/workspace/trebuchet-work/escape32/training/candidate-legal/cold/board.trace"
+    ],
+    "input_sha256": "b18a7bff9058d9ec891658981a4f61da9b5d8815642b681d8914e5a18cffeb5e",
+    "configuration": {
+      "damp": {
+        "offset_in_configuration": 21,
+        "from": 1,
+        "to": 0
+      },
+      "throt_mode": {
+        "offset_in_configuration": 36,
+        "from": 0,
+        "to": 2
+      },
+      "telem_mode": {
+        "offset_in_configuration": 55,
+        "from": 0,
+        "to": 1
+      }
+    },
+    "deployed_sha256": "d0c802acadf7dd5787969811d1dcd082178551b18fac50b7b6582ba8d765be62",
+    "executable_flash_sha256": "64bf4b6948d0de3650db18de1dd47f20da66222d833888efa81c774006b00f08",
+    "qemu_sha256": "28bf272b7a82b7d79a734f82ab64d43f09d992aa539e90cb7b5f611e29a09c09",
+    "trace_sha256": "ede3dfc059dd869c16ae2ab6a96fcd5c527410eba03459d9456f59c47029a857",
+    "kiss_sha256": "25b002eba12ade2b2fa161e0400ea77d586a72f52419177e5f94f19d63d3ff51"
+  },
+  "instrumented": {
+    "verdict": "PASS",
+    "checks": {
+      "all_430_command_edges_and_widths": true,
+      "regulator_and_conversions": true,
+      "no_watchdog_reset": true,
+      "neutral_before_ramp": true,
+      "forward_six_step_order": true,
+      "loaded_six_step_order": true,
+      "reverse_six_step_order": true,
+      "all_kiss_crc": true,
+      "complete_uart_dma": true,
+      "supply_and_temperature": true,
+      "forward_catalog_equilibrium": true,
+      "forward_independent_telemetry_rpm": true,
+      "loaded_catalog_equilibrium": true,
+      "loaded_independent_telemetry_rpm": true,
+      "reverse_catalog_equilibrium": true,
+      "reverse_independent_telemetry_rpm": true,
+      "load_response": true,
+      "brake_precedes_reverse": true,
+      "neutral_between_brake_and_reverse": true,
+      "completed_at_rest": true
+    },
+    "phase_events": {
+      "forward": 136,
+      "loaded": 82,
+      "reverse": 115
+    },
+    "metrics": {
+      "forward": {
+        "median_rpm": 2726.795,
+        "catalog_equilibrium_rpm": 2801.72,
+        "median_kiss_erpm": 2700.0,
+        "duty": 0.20772
+      },
+      "loaded": {
+        "median_rpm": 1414.81,
+        "catalog_equilibrium_rpm": 1438.5,
+        "median_kiss_erpm": 1400.0,
+        "duty": 0.20772
+      },
+      "reverse": {
+        "median_rpm": -1857.3,
+        "catalog_equilibrium_rpm": -1911.65,
+        "median_kiss_erpm": 1800,
+        "duty": 0.14173
+      }
+    },
+    "kiss_packets": 255,
+    "adc_scans": 8080,
+    "command": [
+      "/workspace/trebuchet-work/escape32/board-motor/qemu-system-arm",
+      "-M",
+      "escape1-g071",
+      "-kernel",
+      "/workspace/trebuchet-work/escape32/training/candidate-legal/diagnostic/application-flash.bin",
+      "-serial",
+      "null",
+      "-serial",
+      "file:/workspace/trebuchet-work/escape32/training/candidate-legal/diagnostic/kiss.bin",
+      "-display",
+      "none",
+      "-monitor",
+      "none",
+      "-no-reboot",
+      "-icount",
+      "shift=4,align=off,sleep=off",
+      "-d",
+      "page",
+      "-D",
+      "/workspace/trebuchet-work/escape32/training/candidate-legal/diagnostic/board.trace",
+      "-plugin",
+      "/workspace/trebuchet-work/escape32/training/tbprof.so,out=/workspace/trebuchet-work/escape32/training/candidate-legal/diagnostic/session.tbprof"
+    ],
+    "input_sha256": "b18a7bff9058d9ec891658981a4f61da9b5d8815642b681d8914e5a18cffeb5e",
+    "configuration": {
+      "damp": {
+        "offset_in_configuration": 21,
+        "from": 1,
+        "to": 0
+      },
+      "throt_mode": {
+        "offset_in_configuration": 36,
+        "from": 0,
+        "to": 2
+      },
+      "telem_mode": {
+        "offset_in_configuration": 55,
+        "from": 0,
+        "to": 1
+      }
+    },
+    "deployed_sha256": "d0c802acadf7dd5787969811d1dcd082178551b18fac50b7b6582ba8d765be62",
+    "executable_flash_sha256": "64bf4b6948d0de3650db18de1dd47f20da66222d833888efa81c774006b00f08",
+    "qemu_sha256": "28bf272b7a82b7d79a734f82ab64d43f09d992aa539e90cb7b5f611e29a09c09",
+    "trace_sha256": "ede3dfc059dd869c16ae2ab6a96fcd5c527410eba03459d9456f59c47029a857",
+    "kiss_sha256": "25b002eba12ade2b2fa161e0400ea77d586a72f52419177e5f94f19d63d3ff51",
+    "training_profile_sha256": "0b6859b9e8b8aad7415cb50c6c16e3fb884a2b472e3e4810adcf9cbbed91955f",
+    "training_plugin_sha256": "37f13cec5c2df2d994b41ed02a3402bbac6199be7dbdc6a1e2a47967c7fb9b93"
+  },
+  "wire_equal_to_ordinary": true,
+  "reloadable_flash_sha256": "d0c802acadf7dd5787969811d1dcd082178551b18fac50b7b6582ba8d765be62",
+  "metadata_scope": "Executable qualification. Native side reports orphan nonallocated debug relocations in the initial stripped ELF; debug-preserving twin changes metadata only."
+}
