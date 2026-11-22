@@ -1,0 +1,48 @@
+{
+  "scope": "isolated decoded physical TB only",
+  "semantics_sha256": "e6ce32e945fe69c46882b90fef14c84951696a9e14566be333594372e5c3fd59",
+  "instruction": {
+    "offset": 144,
+    "bytes": "0fb6df",
+    "mnemonic": "movzx",
+    "operands": "ebx, bh"
+  },
+  "snapshot_id": "sha256:ad9d968d4dc52ee16595256218e9be446a52f3865dc00542e99c0fe2ddafc0c1",
+  "archive": {
+    "mode": "archived_ordinary",
+    "units_checked": 3834,
+    "units_with_different_host_annotations": 1596
+  },
+  "unit": "tb:607159ac1695f640757962753fa2a1ce#0",
+  "old_code_sha256": "14f869fb9a8d89d5b3f3ad8e5674c1572ad117d91f8e3b0ef5b7e623d2273514",
+  "new_code_sha256": "9e57f439f0dd5625f95bfa7fe647613ff35f7975374c8bb56d8cb788461822e0",
+  "patches": [
+    {
+      "op": 5,
+      "off": 18,
+      "size": 4,
+      "field": "neg.can_do_io",
+      "cls": "D2",
+      "origin": "cdio_prefix",
+      "insn": null,
+      "block": "prefix",
+      "old": "c645fc00",
+      "text": "mov byte ptr [rbp - 4], 0"
+    }
+  ],
+  "verdict": {
+    "status": "inconclusive",
+    "reason": "validation_inconclusive",
+    "detail": "unsupported: N:register:bh@0x90, O:register:bh@0x90",
+    "o_paths": 2,
+    "n_paths": 2
+  },
+  "low_byte_mutant": {
+    "status": "inconclusive",
+    "reason": "validation_inconclusive",
+    "detail": "unsupported: O:register:bh@0x90",
+    "o_paths": 2,
+    "n_paths": 2
+  },
+  "check_seconds": 0.0021929719996478525
+}

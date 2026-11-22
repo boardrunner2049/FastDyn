@@ -1,0 +1,46 @@
+{
+ "state": "failed",
+ "images": {
+  "original": {
+   "status": "prepared",
+   "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+   "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+   "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+   "snapshot": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/890c76d97c8aa3bf3d13365aa8ddb436aee3e6ad5a966442d97c00dc4e70e332",
+   "prep": "/home/runner/work/_temp/pye/campaign/original/prep",
+   "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+   "manifest": "/home/runner/work/_temp/pye/campaign/original/prep/cache/fw.sc.fastdyn.json",
+   "admission_runtime": "/home/runner/work/_temp/pye/campaign/original/admission-runtime.json"
+  },
+  "firmbolt": {
+   "status": "failed",
+   "error": "ordinary replay or exact training profile failed: {'warm': \"Command '['/home/runner/work/FastDyn/FastDyn/scopt-env/bin/python', '/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/fastdyn_runner.py', 'warm', '--work', '/home/runner/work/_temp/pye/product', '--run', '/home/runner/work/_temp/pye/campaign/firmbolt', '--qemu', '/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm', '--plugin', '/home/runner/work/_temp/pye/plugin-release/libfastdyn.so', '--elf', '/home/runner/work/_temp/pye/campaign/firmbolt-guest/firmware.elf', '--case', 'update-package-version', '--snapshot', '/home/runner/work/_temp/pye/campaign/firmbolt/store/snapshots/cfcf6a9a6199eb94d648ce1be9531d1acff8f1180caab2661c9defee6c257d12', '--out', '/home/runner/work/_temp/pye/campaign/firmbolt/warm']' returned non-zero exit status 1.\"}"
+  }
+ },
+ "policy": {
+  "path": "/home/runner/work/FastDyn/FastDyn/tools/trebuchet/applications/pye/campaign-policy.json",
+  "sha256": "sha256:6384240ea733b3826fca2500a8ad8f58904bb012d72f566e1a3f4bccddfb0399"
+ },
+ "timing_cpu": 3,
+ "errors": {
+  "pre-change incumbent": "pre-change recipes did not all establish a materialized deployment; see pre-change registry"
+ },
+ "qemu": {
+  "path": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "sha256": "sha256:37f2c1807f99cc5d740f00af7d2ef468a02d30e6a3bb91ab77b76bda6849e30a"
+ },
+ "plugin": {
+  "path": "/home/runner/work/_temp/pye/plugin-release/libfastdyn.so",
+  "sha256": "sha256:7376649e5a274a2dbab35d3d59c98467b0976ee2928c1ab1bbc04e37797764e6"
+ },
+ "host": [
+  "Linux",
+  "ip-10-0-135-83",
+  "7.0.0-1014-aws",
+  "#14~24.04.1-Ubuntu SMP PREEMPT Fri Sep 18 21:24:59 UTC 2026",
+  "x86_64"
+ ],
+ "phase": "selection",
+ "error": "invalid warm launch: /home/runner/work/_temp/pye/campaign/selection/trial-5",
+ "campaign_wall_seconds": 1096.730773541
+}

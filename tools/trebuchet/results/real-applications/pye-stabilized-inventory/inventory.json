@@ -1,0 +1,288 @@
+{
+  "inventories": {
+    "original": {
+      "consecutive_stable": 0,
+      "max_runs": 56,
+      "stable_sweeps_required": 2,
+      "stopping_reason": "cap",
+      "sweep_size": 7,
+      "sweeps": [
+        {
+          "appended_per_input": [
+            3504,
+            49,
+            43,
+            41,
+            89,
+            17,
+            6
+          ],
+          "first_run": 0,
+          "last_run": 6,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            1,
+            8,
+            10,
+            10,
+            38,
+            10,
+            7
+          ],
+          "first_run": 7,
+          "last_run": 13,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            4,
+            7,
+            14,
+            5,
+            35,
+            11,
+            6
+          ],
+          "first_run": 14,
+          "last_run": 20,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            2,
+            11,
+            20,
+            7,
+            28,
+            6,
+            5
+          ],
+          "first_run": 21,
+          "last_run": 27,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            0,
+            2,
+            9,
+            4,
+            32,
+            10,
+            7
+          ],
+          "first_run": 28,
+          "last_run": 34,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            3,
+            4,
+            14,
+            2,
+            32,
+            4,
+            7
+          ],
+          "first_run": 35,
+          "last_run": 41,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            7,
+            8,
+            4,
+            2,
+            28,
+            6,
+            6
+          ],
+          "first_run": 42,
+          "last_run": 48,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            2,
+            4,
+            10,
+            4,
+            26,
+            9,
+            8
+          ],
+          "first_run": 49,
+          "last_run": 55,
+          "stable": false
+        }
+      ]
+    },
+    "firmbolt": {
+      "consecutive_stable": 0,
+      "max_runs": 56,
+      "stable_sweeps_required": 2,
+      "stopping_reason": "cap",
+      "sweep_size": 7,
+      "sweeps": [
+        {
+          "appended_per_input": [
+            3504,
+            48,
+            53,
+            37,
+            101,
+            9,
+            9
+          ],
+          "first_run": 0,
+          "last_run": 6,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            2,
+            10,
+            16,
+            10,
+            48,
+            8,
+            5
+          ],
+          "first_run": 7,
+          "last_run": 13,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            2,
+            2,
+            11,
+            8,
+            39,
+            6,
+            5
+          ],
+          "first_run": 14,
+          "last_run": 20,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            2,
+            6,
+            8,
+            4,
+            27,
+            8,
+            6
+          ],
+          "first_run": 21,
+          "last_run": 27,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            2,
+            6,
+            14,
+            4,
+            39,
+            4,
+            6
+          ],
+          "first_run": 28,
+          "last_run": 34,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            2,
+            6,
+            18,
+            4,
+            32,
+            6,
+            9
+          ],
+          "first_run": 35,
+          "last_run": 41,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            2,
+            3,
+            9,
+            2,
+            36,
+            8,
+            8
+          ],
+          "first_run": 42,
+          "last_run": 48,
+          "stable": false
+        },
+        {
+          "appended_per_input": [
+            2,
+            4,
+            16,
+            2,
+            24,
+            2,
+            0
+          ],
+          "first_run": 49,
+          "last_run": 55,
+          "stable": false
+        }
+      ]
+    }
+  },
+  "trials": [
+    {
+      "trial": 1,
+      "verdict": "PASS",
+      "editor": "PASS",
+      "added": 0,
+      "used": 4248,
+      "exit_code": 0
+    },
+    {
+      "trial": 2,
+      "verdict": "PASS",
+      "editor": "PASS",
+      "added": 6,
+      "used": 4248,
+      "exit_code": 0
+    },
+    {
+      "trial": 3,
+      "verdict": "PASS",
+      "editor": "PASS",
+      "added": 6,
+      "used": 4248,
+      "exit_code": 0
+    },
+    {
+      "trial": 4,
+      "verdict": "PASS",
+      "editor": "PASS",
+      "added": 2,
+      "used": 4248,
+      "exit_code": 0
+    },
+    {
+      "trial": 5,
+      "verdict": "PASS",
+      "editor": "PASS",
+      "added": 4,
+      "used": 4248,
+      "exit_code": 0
+    }
+  ]
+}

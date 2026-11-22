@@ -1,0 +1,137 @@
+{
+ "schema": "trebuchet.joint-selection/1",
+ "state": "failed",
+ "objective": {
+  "name": "time to edit and return the document",
+  "direction": "minimize",
+  "unit": "ns",
+  "useful_work": "one complete declared document edit, verified against the whole expected UTF-8 document",
+  "boundaries": "host monotonic release at the pre-editor UART barrier through receipt of the editor-return marker"
+ },
+ "ranking": {
+  "original/sfb": {
+   "rejected": "invalid warm launch: /home/runner/work/_temp/pye/campaign/selection/trial-2"
+  },
+  "original/b3": {
+   "rejected": "invalid warm launch: /home/runner/work/_temp/pye/campaign/selection/trial-3"
+  },
+  "original/sfb+b3": {
+   "rejected": "invalid warm launch: /home/runner/work/_temp/pye/campaign/selection/trial-4"
+  }
+ },
+ "selected": null,
+ "promoted": null,
+ "fallback": {
+  "id": "original/warm",
+  "application": "pye",
+  "image_variant": "original",
+  "recipe": [],
+  "contract_sha256": "sha256:11e7b1c520d0f114b621715355e3ef1c24cb5291739e950c1b5a7c2ed28ff4cf",
+  "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+  "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+  "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+  "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+  "profile_id": "sha256:a94b80e9910ce54944f92e48f4887c4a260b4cf4897d5b2fdc17ec5d920dc15e",
+  "ordinary_snapshot_id": "sha256:890c76d97c8aa3bf3d13365aa8ddb436aee3e6ad5a966442d97c00dc4e70e332",
+  "artifact": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/890c76d97c8aa3bf3d13365aa8ddb436aee3e6ad5a966442d97c00dc4e70e332",
+  "generations": [],
+  "runtime_identity": "sha256:cd2c66c8c2f933ebc27b396d504a45ad67d4234987606423365dc4031c6bc47e",
+  "deployment_identity": "sha256:dbea145301f2481e3f61b9bd0f751f3802adac638724f47ff8041b2c60ec99fc",
+  "status": "ready",
+  "hot_footprint": {
+   "label": "model (static offsets x profile counts), not measured",
+   "profile_id": "sha256:a94b80e9910ce54944f92e48f4887c4a260b4cf4897d5b2fdc17ec5d920dc15e",
+   "profile_snapshot_id": "sha256:890c76d97c8aa3bf3d13365aa8ddb436aee3e6ad5a966442d97c00dc4e70e332",
+   "sc": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/890c76d97c8aa3bf3d13365aa8ddb436aee3e6ad5a966442d97c00dc4e70e332/cache.sc",
+   "phase": "steady",
+   "coverage_target": 0.9,
+   "exact_units": 4248,
+   "non_exact_units": 0,
+   "phase_entries_exact": 1860624,
+   "join_coverage": 1.0,
+   "units_in_layout": 4248,
+   "hot": {
+    "units": 341,
+    "code_bytes": 95180,
+    "bytes_with_struct": 169344,
+    "lines64_code": 1638,
+    "pages4k_code": 112,
+    "lines64_with_struct": 2769,
+    "pages4k_with_struct": 115,
+    "span_bytes": 1810336,
+    "entries_covered": 1674952,
+    "fraction": 0.9002098220811943
+   },
+   "executed": {
+    "units": 3502,
+    "code_bytes": 1036436,
+    "bytes_with_struct": 1799600,
+    "lines64_code": 17781,
+    "pages4k_code": 462,
+    "lines64_with_struct": 29403,
+    "pages4k_with_struct": 463,
+    "span_bytes": 2056656
+   },
+   "status": "ok"
+  }
+ },
+ "ranking_winner": {
+  "id": "original/warm",
+  "application": "pye",
+  "image_variant": "original",
+  "recipe": [],
+  "contract_sha256": "sha256:11e7b1c520d0f114b621715355e3ef1c24cb5291739e950c1b5a7c2ed28ff4cf",
+  "firmware": "/home/runner/work/_temp/pye/product/micropython/ports/qemu/build-MPS2_AN385/firmware.elf",
+  "config": "/home/runner/work/_temp/pye/campaign/original/pye.toml",
+  "runtime": "/home/runner/work/FastDyn/FastDyn/third_party/common/qemu/build/qemu-system-arm",
+  "profile": "/home/runner/work/_temp/pye/campaign/original/profile/merged.profile.json",
+  "firmware_sha256": "sha256:e5b58cf9c0c21b39b18286adaffbe05aedd284f6e1abb283de7e45af3a008b77",
+  "config_sha256": "sha256:da3116ff76936b5301a26b58b93adcd1bdadfb0fbbb95ca0a92f8ac769c867f5",
+  "profile_id": "sha256:a94b80e9910ce54944f92e48f4887c4a260b4cf4897d5b2fdc17ec5d920dc15e",
+  "ordinary_snapshot_id": "sha256:890c76d97c8aa3bf3d13365aa8ddb436aee3e6ad5a966442d97c00dc4e70e332",
+  "artifact": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/890c76d97c8aa3bf3d13365aa8ddb436aee3e6ad5a966442d97c00dc4e70e332",
+  "generations": [],
+  "runtime_identity": "sha256:cd2c66c8c2f933ebc27b396d504a45ad67d4234987606423365dc4031c6bc47e",
+  "deployment_identity": "sha256:dbea145301f2481e3f61b9bd0f751f3802adac638724f47ff8041b2c60ec99fc",
+  "status": "ready",
+  "hot_footprint": {
+   "label": "model (static offsets x profile counts), not measured",
+   "profile_id": "sha256:a94b80e9910ce54944f92e48f4887c4a260b4cf4897d5b2fdc17ec5d920dc15e",
+   "profile_snapshot_id": "sha256:890c76d97c8aa3bf3d13365aa8ddb436aee3e6ad5a966442d97c00dc4e70e332",
+   "sc": "/home/runner/work/_temp/pye/campaign/original/store/snapshots/890c76d97c8aa3bf3d13365aa8ddb436aee3e6ad5a966442d97c00dc4e70e332/cache.sc",
+   "phase": "steady",
+   "coverage_target": 0.9,
+   "exact_units": 4248,
+   "non_exact_units": 0,
+   "phase_entries_exact": 1860624,
+   "join_coverage": 1.0,
+   "units_in_layout": 4248,
+   "hot": {
+    "units": 341,
+    "code_bytes": 95180,
+    "bytes_with_struct": 169344,
+    "lines64_code": 1638,
+    "pages4k_code": 112,
+    "lines64_with_struct": 2769,
+    "pages4k_with_struct": 115,
+    "span_bytes": 1810336,
+    "entries_covered": 1674952,
+    "fraction": 0.9002098220811943
+   },
+   "executed": {
+    "units": 3502,
+    "code_bytes": 1036436,
+    "bytes_with_struct": 1799600,
+    "lines64_code": 17781,
+    "pages4k_code": 462,
+    "lines64_with_struct": 29403,
+    "pages4k_with_struct": 463,
+    "span_bytes": 2056656
+   },
+   "status": "ok"
+  }
+ },
+ "error": "invalid warm launch: /home/runner/work/_temp/pye/campaign/selection/trial-5"
+}
