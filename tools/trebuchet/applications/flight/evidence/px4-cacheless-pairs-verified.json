@@ -1,0 +1,55 @@
+{
+  "checked_raw_missions": 24,
+  "excluded": [
+    {
+      "group": "pair-05",
+      "image": "firmbolt",
+      "error": "missing telemetry for arming, attitude, or landing",
+      "independent_oracle_error": "missing telemetry for arming, attitude, or landing"
+    },
+    {
+      "group": "pair-06",
+      "image": "firmbolt",
+      "error": "missing telemetry for arming, attitude, or landing",
+      "independent_oracle_error": "missing telemetry for arming, attitude, or landing"
+    }
+  ],
+  "all_passed": false,
+  "hosted_run": 44984317720,
+  "hosted_timing_commit": "b6b34290afb8c585abd4f47806d80d2be81f0106",
+  "setup_predecessor": {
+    "run": 44983848313,
+    "completed_measurements": 0,
+    "error": "Optional cgroup-v2 path absent on hosted runner. Host metadata collection fixed without changing benchmark policy."
+  },
+  "raw_archive_sha256": "caeff44c665170ea2b5b36aec7aebaa1a477c0718457f712ae681ac05d8fc2a8",
+  "artifact_zip_sha256": "55e2e579c031f6df1b0684ec33bfa5db525e6698b14986ec3d691de153ac90ee",
+  "remote_cleanup": {
+    "timing_branch_absent": true,
+    "setup_run_404": true,
+    "timing_run_404": true
+  },
+  "failure_recheck_details": [
+    {
+      "group": "pair-05",
+      "positions": 225,
+      "attitudes": 249,
+      "heartbeats": 62,
+      "armed_heartbeats": 54,
+      "trailing_heartbeats_all_armed": true,
+      "console_land_and_disarm": true,
+      "retained_disarmed_heartbeat_after_arming": false
+    },
+    {
+      "group": "pair-06",
+      "positions": 225,
+      "attitudes": 250,
+      "heartbeats": 63,
+      "armed_heartbeats": 54,
+      "trailing_heartbeats_all_armed": true,
+      "console_land_and_disarm": true,
+      "retained_disarmed_heartbeat_after_arming": false
+    }
+  ],
+  "interpretation": "Both warmups and 22/24 measured missions passed. The preregistered all-pairs oracle gate failed. No paired estimate or confidence interval is admitted."
+}

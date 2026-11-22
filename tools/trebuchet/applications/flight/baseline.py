@@ -167,6 +167,13 @@ def run(args, receipt):
         launcher = ['sh', '-c', 'exec mavproxy.py --logfile="$FASTDYN_WORK_DIR/mav.tlog" "$@"',
                     'copter-mavproxy', '--cmd=set flushlogs True']
         config = replace_one(config, '"mavproxy.py",', ", ".join(map(json.dumps, launcher)) + ",")
+    if args.px4_tlog == "flush-each-packet-v2":
+        # The helper can receive the disarm heartbeat and stop FastDyn before
+        # MAVProxy's periodic flush. Keep the historical protocol selectable.
+        config = replace_one(config, '"px4-mavproxy",',
+                             '"px4-mavproxy", "--cmd=set flushlogs True",')
+    if args.family == "px4":
+        receipt["runtime"]["px4_tlog_contract"] = args.px4_tlog
     runtime = work / "runtime.toml"
     runtime.write_text(config)
     receipt["runtime"]["launch_config"] = digest(runtime)
@@ -320,6 +327,8 @@ def main():
     parser.add_argument("--candidate-layout", type=Path, help="linker-resolved layout report for --candidate-elf")
     parser.add_argument("--training-profiler", type=Path, help="run a diagnostic mission with a FirmBOLT TB profiler plugin")
     parser.add_argument("--timeout", type=float, default=420)
+    parser.add_argument("--px4-tlog", choices=("buffered-v1", "flush-each-packet-v2"), default="buffered-v1",
+                        help="PX4 telemetry recorder contract (default reproduces the original timing campaign)")
     parser.add_argument("--measure-cpu", action="store_true", help="collect QEMU CPU through 45 simulated seconds under fixed ASLR")
     parser.add_argument("--ordinary-warm", action="store_true", help="qualify cache capture and replay after cold success")
     parser.add_argument("--warm-attempts", type=int, default=2, metavar="1..16",
@@ -330,6 +339,8 @@ def main():
     if bool(args.candidate_elf) != bool(args.candidate_layout) or (args.candidate_elf and
                                                                   (not args.release_pair or args.family != "px4")):
         parser.error("candidate-elf and candidate-layout require together a PX4 release pair")
+    if args.px4_tlog != "buffered-v1" and args.family != "px4":
+        parser.error("px4-tlog applies only to the PX4 slice")
     if args.measure_cpu and (args.step != "run" or args.training_profiler or args.ordinary_warm or args.frozen_preparation):
         parser.error("measure-cpu requires an uninstrumented single cacheless mission")
     if args.training_profiler and (args.step != "run" or args.ordinary_warm or args.frozen_preparation):

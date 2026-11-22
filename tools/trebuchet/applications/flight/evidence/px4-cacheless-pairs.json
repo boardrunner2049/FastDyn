@@ -1,0 +1,236 @@
+{
+  "policy_sha256": "63aea493651a467cc801c7b0f64c14d3333c46a85ab5185d3dce29483050f293",
+  "trials": [
+    {
+      "group": "warmup",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "5534d2abe8681d9deb981bdbcfcc7f9fc70a7e9ecb18aefcce6c141913805530",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.947707966,
+      "full_fastdyn_wall_seconds": 45.41376420400002
+    },
+    {
+      "group": "warmup",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "b1c5af221f20b8bc509dce42b4939cc7249c6e49a426e0fb4ccddb9ef53d9e45",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 23.839547824,
+      "full_fastdyn_wall_seconds": 47.223202377999996
+    },
+    {
+      "group": "pair-01",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "e18f41e97296c37c2f77aaf9e93021b3082dcccc35163220e7d47b8073330c88",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.956348722,
+      "full_fastdyn_wall_seconds": 44.96123599500004
+    },
+    {
+      "group": "pair-01",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "fa7243751e8f094e8775429cb1c14235fdbd47dbcc26ff3cd0c82d960e4e32cd",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 24.089628973,
+      "full_fastdyn_wall_seconds": 45.01321791800001
+    },
+    {
+      "group": "pair-02",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "f01ffaf7fa67e1d7e6f0c3e8f2f50f854487c61151cabbb032ce524b1c9ecca9",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 24.245605899,
+      "full_fastdyn_wall_seconds": 46.21050689399999
+    },
+    {
+      "group": "pair-02",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "96d863cf71fc2abb44444559876d8d20cfc7ca74ed06dd2769e7c556e454fe4b",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.77828569,
+      "full_fastdyn_wall_seconds": 44.00273357799995
+    },
+    {
+      "group": "pair-03",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "86517bac9a1f2b5b3b4713bdb7e06252ec6c9926d6457ee65cabab6437cc2b5f",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.812393601,
+      "full_fastdyn_wall_seconds": 43.36188604999995
+    },
+    {
+      "group": "pair-03",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "afe73f2120799a40040dbdb54e45409b462e8a46c38e348e68a38854417b1d24",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 23.935006656,
+      "full_fastdyn_wall_seconds": 44.156532249000065
+    },
+    {
+      "group": "pair-04",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "c32892efb8fe82dde10943d2f9205e8063246331b8f1fd057704dbae80c1bd66",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 24.040737139999997,
+      "full_fastdyn_wall_seconds": 46.26132687800009
+    },
+    {
+      "group": "pair-04",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "fb67a0c6962f546e97061a9e6b095d2bf6a26d509f151d9c5affc6ca4b055d09",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.781041446,
+      "full_fastdyn_wall_seconds": 43.959143539000024
+    },
+    {
+      "group": "pair-05",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "a8a119f4d35be3734bf5552ce65e4021c47fa45ab5625710d4083fb65019ba8c",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.841033319999998,
+      "full_fastdyn_wall_seconds": 43.55633193100016
+    },
+    {
+      "group": "pair-05",
+      "image": "firmbolt",
+      "passed": false,
+      "receipt_sha256": "cfc40ba22d24f29b3c45b17dc9ee7bf2d410846da40bf3e297e32a81fbf0e512",
+      "error": "missing telemetry for arming, attitude, or landing"
+    },
+    {
+      "group": "pair-06",
+      "image": "firmbolt",
+      "passed": false,
+      "receipt_sha256": "9681d520e9fd974a586a59bb667e82db2c012a8cbe5c7d5282d36d9c99c3c0d8",
+      "error": "missing telemetry for arming, attitude, or landing"
+    },
+    {
+      "group": "pair-06",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "073f56460c2feefb89a36f7307ff7899152f52830b9b86036e6fbc394e70af89",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.983794618,
+      "full_fastdyn_wall_seconds": 42.16016633199979
+    },
+    {
+      "group": "pair-07",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "c544d134168cf2c6baf114d493763959a2f16f0753ccd22972e752bdac81b15b",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.814850301,
+      "full_fastdyn_wall_seconds": 44.16092678599989
+    },
+    {
+      "group": "pair-07",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "ad957a5fda3b4d3957f3a1d4631a9567e93072d2428d1bd440776cf1e330b2be",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 23.999812802,
+      "full_fastdyn_wall_seconds": 47.36779310200018
+    },
+    {
+      "group": "pair-08",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "9e8a958a49d0c14f01bee36e18fb3a4c4cdf712806a843aec073cb0e67b1b70c",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 23.871377151,
+      "full_fastdyn_wall_seconds": 45.365646523999885
+    },
+    {
+      "group": "pair-08",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "850511d5925b841cb04f3086e3fe1a01fe7b6f6262db0e0a89437e68e874b9b0",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.861814480000003,
+      "full_fastdyn_wall_seconds": 44.36063147899995
+    },
+    {
+      "group": "pair-09",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "1f0b03ee10c4677866b331f884f020071f3b86c9ef18061a9bc583d109c1be5c",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.840603672,
+      "full_fastdyn_wall_seconds": 44.813051262000045
+    },
+    {
+      "group": "pair-09",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "604b1b765b6884291bc7605c70c1763c25899e6909e492bf9f6e3acab9eb4785",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 24.030065613,
+      "full_fastdyn_wall_seconds": 43.959971003999954
+    },
+    {
+      "group": "pair-10",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "a9db2ada5be8e3ebe4be51baa499e1b4d110a1410b2eb2528d9d0ba23620f0b0",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 23.970742833,
+      "full_fastdyn_wall_seconds": 44.16909294199991
+    },
+    {
+      "group": "pair-10",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "638565fa0e409a0ec219ece84cc4666fa3b5947a11aed433b5f819a5d23ff709",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.912855549,
+      "full_fastdyn_wall_seconds": 43.557195546
+    },
+    {
+      "group": "pair-11",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "a1f26b36aa1ab44668675846acd1f581822e87947e98bbfcad152d2f64b17756",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.74789996,
+      "full_fastdyn_wall_seconds": 44.81349662000002
+    },
+    {
+      "group": "pair-11",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "2f39712ba70b4cbf6c3f14c4029408b861bfe408ac00f1b4c67bd75b60cf2fad",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 24.046676948,
+      "full_fastdyn_wall_seconds": 44.366103030000204
+    },
+    {
+      "group": "pair-12",
+      "image": "firmbolt",
+      "passed": true,
+      "receipt_sha256": "4ded858685f579e4c46f59169f55b9f87461098fe52be83d415d16abca565cc3",
+      "cpu_progress_end_s": 45.000189664,
+      "process_cpu_seconds_at_45s": 24.130618368,
+      "full_fastdyn_wall_seconds": 44.16886377600008
+    },
+    {
+      "group": "pair-12",
+      "image": "original",
+      "passed": true,
+      "receipt_sha256": "f37b43e7fe0808118660d04e2af7e538945bb0b16daa2e4f72bcda9a527c1110",
+      "cpu_progress_end_s": 45.00044576,
+      "process_cpu_seconds_at_45s": 23.960825273,
+      "full_fastdyn_wall_seconds": 45.00834356099995
+    }
+  ],
+  "all_passed": false
+}

@@ -1,0 +1,99 @@
+{
+  "runs": [
+    {
+      "id": 44981821643,
+      "head": "1f1ca4cdf4583f4fbc1a9dbbbd2bdf1eb02d0fbe",
+      "artifact_ids": [
+        14737664568,
+        14737988574
+      ],
+      "outcomes": [
+        "CubeBlack configure failed on missing lwIP submodule",
+        "PX4 built, initial strict symbol comparison and hosted hook dependencies failed"
+      ]
+    },
+    {
+      "id": 44982186276,
+      "head": "d0a8ca87e96eb5374c20da88466a7e5fd9e82b1e",
+      "artifact_ids": [
+        14738183530,
+        14738059237,
+        14738054135
+      ],
+      "outcomes": [
+        "CubeBlack built, strict loaded-byte comparison failed"
+      ]
+    },
+    {
+      "id": 44982282860,
+      "head": "2e2e12f4e13629841bdf6eb8df0dec985cdf2292",
+      "artifact_ids": [
+        14738675484,
+        14738108110,
+        14737824360
+      ],
+      "outcomes": [
+        "PX4 original build archive split into 3 independently downloaded artifacts"
+      ]
+    }
+  ],
+  "verified_artifacts": [
+    {
+      "id": 14738675484,
+      "name": "px4-relocs",
+      "sha256": "dc0cfb1f7c661f30554a947d198fabfc48a86775340b438028c3b7c9e9f9430e",
+      "bytes": 22598999
+    },
+    {
+      "id": 14738108110,
+      "name": "px4-normal",
+      "sha256": "3fb61935131384c493dbffbe45102958ca63c6d74ad4a67772a8e02ca3db5ffd",
+      "bytes": 18595445
+    },
+    {
+      "id": 14737824360,
+      "name": "px4-evidence",
+      "sha256": "e4fe94cf24c88d291067f0b40db94d0b9c025237d108d4b322c438e6877912a3",
+      "bytes": 33548
+    },
+    {
+      "id": 14738183530,
+      "name": "flight-release-ardupilot",
+      "sha256": "c41407c1d6f556428a039235cb2df42733ece1a602e8ee35af324df773431d74",
+      "bytes": 26844
+    },
+    {
+      "id": 14738059237,
+      "name": "flight-release-ardupilot-normal",
+      "sha256": "09eb04bdc652b62c7c1ea4f87d4f458bfb1aea7a274983c3db873a6b6473e51a",
+      "bytes": 23556063
+    },
+    {
+      "id": 14738054135,
+      "name": "flight-release-ardupilot-relocs",
+      "sha256": "a9a061ffeb97211e984d1e01d53f6a035184d263fe8878784d112db3354869f1",
+      "bytes": 28214517
+    },
+    {
+      "id": 14737664568,
+      "name": "flight-release-ardupilot",
+      "sha256": "f279da5259b5a2fdb9cad182b92d6145cfd4d978f73fe78a532f92dd643961d9",
+      "bytes": 5478
+    }
+  ],
+  "remote_cleanup": {
+    "release_branch_absent": true,
+    "run_get_404": [
+      44981821643,
+      44982186276,
+      44982282860
+    ]
+  },
+  "upstream_transfer": {
+    "id": 14737988574,
+    "name": "flight-release-px4",
+    "sha256": "2a77e3de093a54a87bc18095bebc891e5e932e11740a4afbf4187f5b270432f7",
+    "bytes": 41227948,
+    "local_elf_verification": "Normal and retained binaries individually matched their build-receipt SHA-256 values after the 3-part transfer."
+  }
+}

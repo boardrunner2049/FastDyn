@@ -1,0 +1,107 @@
+{
+  "profile_validated": true,
+  "operational_baseline": true,
+  "transformed_deployment": false,
+  "ordinary_warm": false,
+  "state": "complete",
+  "family": "px4",
+  "scenario": "klaf-takeoff-three-waypoints-land",
+  "role": "qualification",
+  "source_revision": "d6f12ad1c4f70ad3230afd7d86e971421e02fef4",
+  "inputs": {
+    "elf": "1bcb49a3337553e58f37d1d84fe4d3596a6ddcec822edb112832492c971a1255",
+    "config": "6213b8fd898cc9616c5d70143a9a2e610c52a3a599a4e335c858b2adab5a02d6",
+    "params": "4da4c949772703acd09e4849c82b6684623afbdd32929da6f9c9e2653d6d8a88",
+    "profile": "abe3ee14eccb670de3d655ad4e1209e35cbea5c36768aa7e24430b390b07d5eb",
+    "mission": "2a9c6acec3fa0bd5c21310ca2378f8642fbd02321201752037d60dd676505cb6",
+    "shipped_reference_elf": "e6ed5d1860c61febecf520a3809741bbcfb4dcc14294338dc570f16ca07fc010",
+    "parent_elf": "54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347"
+  },
+  "fastdyn_revision": "da21754d74a7e957ddcba4d470921a5f63af9ed5",
+  "release_pair": {
+    "normal_sha256": "8e2027528faaf4a89c54e5a5b7568275ac401b958d38d83d915a8714727e1b79",
+    "comparison_sha256": "681f139da08dafe8103710b004092b40cdd9023fefd36f9b3f91914bd0480d44"
+  },
+  "candidate": {
+    "layout_sha256": "24f58bb123b605296acd25fe4594c597ed33970da1f35908c246e2b911624685",
+    "placement": {
+      "original_sha256": "54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347",
+      "candidate_sha256": "1bcb49a3337553e58f37d1d84fe4d3596a6ddcec822edb112832492c971a1255",
+      "flash_start": 134348800,
+      "flash_end": 136314880,
+      "new_loads": [
+        {
+          "start": 136275968,
+          "end": 136276124,
+          "within_free_flash": true
+        }
+      ],
+      "original_load_placements_preserved": true,
+      "sixteen_core_vector_words_identical": true,
+      "hook_files_identical": {
+        "virtuals.txt": true,
+        "modifiers.txt": true
+      },
+      "hook_pc_count": 28,
+      "changed_first_four_hook_bytes": [],
+      "admissible": true
+    },
+    "moves": [
+      {
+        "name": "memset",
+        "source": 134358566,
+        "start": 136275970,
+        "end": 136276122
+      }
+    ]
+  },
+  "hook_files": {
+    "firmware.sha256": "385cfd15aa54934ec067d05d6555ff45700cb4097f4548366a0fc59980267702",
+    "modifiers.txt": "2d95477e5b8456e0fc0cfd63b10a745563f358350c241e08a1327cbfee8426b0",
+    "symbols.txt": "a05f3a21c503abc22211533125955b4efd0fc9ba569db225b07d3400fd05a2a7",
+    "virtuals.txt": "fd7a1e011807e0c6c3ef50e23760a76ca4bb821c54c13d64aa4965cc33d73299"
+  },
+  "elf_metadata": {
+    "machine": "EM_ARM",
+    "class": 32,
+    "hard_float_abi": true,
+    "has_symbols": true,
+    "has_dwarf": true,
+    "code_relocation_sections": [
+      ".rel.text"
+    ]
+  },
+  "simulation_dependencies": {
+    "third_party/common/qemu": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+    "third_party/common/rumoca": "f7ff9ddd283d67c5eda27daf409af7108d7fb108",
+    "third_party/common/modelica_models": "c6cf47f5cbd0bb4dc77d16d19a685e534487d0da",
+    "third_party/courbet_deps/mavlink_headers": "d1beb068135e069d3fe28a53fc171700a632e06a",
+    "third_party/courbet_deps/fire_modelica_models": "73a110b1767182205e82bb99a1e4ec4dc9e78d45",
+    "out/toolchains/ModelicaStandardLibrary": "6626538a236a34a390655b55d5e8c906bfe31772"
+  },
+  "runtime": {
+    "plugin": "3f4b498f7622a65e26b4c340df91287ef945e2d7e60f5e14ec4e81772c5a8e0a",
+    "qemu": "fa405951545dfeee0c0140a3f89d6a4777752f28d17c215b3d50cbc5da75d51b",
+    "plant": "dd55143ca3ff2698a1fe0eeab752c206f2e956ac4d449d3032063e8a63761587",
+    "px4_tlog_contract": "flush-each-packet-v2",
+    "launch_config": "6a2e7dfbf0885cdb4643223c919b109db6cd31bf915e9d8f4d5449066bd693f9",
+    "plant_library": "8bccc6dce6d39685498bf5131d380d67b04fa5f75fa6e19a687402e9f2f16cd0",
+    "plant_description": "200a5dde1dda76243fabce9614bebb29f97d0bddbed97a0148ad58dd6372177b"
+  },
+  "cold": {
+    "returncode": 0,
+    "oracle": {
+      "plant_samples": 568,
+      "plant_elapsed_s": 70.879,
+      "telemetry_positions": 241,
+      "telemetry_attitudes": 265,
+      "waypoints_checked_per_track": 4,
+      "disarmed_after_arming": true
+    },
+    "raw_outputs": {
+      "console.log": "8573aff60bcc30c7d4a120fa5f2d1c7d8a5effb250e4547ee88e3106fbb58253",
+      "plant.csv": "3198892927557f205e889b3e45be7ad737ad61b7bd68b9ad6eb0b571a8b7db01",
+      "run/mav.tlog": "f464f1e1bc5c883a27ae585d33b76eefd8ddad6a9310002b8ffee052adf62d10"
+    }
+  }
+}
