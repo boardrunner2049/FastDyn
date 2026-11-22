@@ -95,3 +95,34 @@ To reproduce an operational check on the pair, use `baseline.py run px4 /new/mis
 During the local plant build, the pinned Rumoca Cargo build script regenerated two parser sources. The generated files matched Cargo's staging outputs byte for byte and were restored after compiling the compiler. The operational receipts record the resulting plant and native library SHA-256 values.
 
 The CubeBlack release build reproduced the published 4.6.2 firmware's executable and application data bytes using the official compiler. Both comparisons (official to rebuilt, rebuilt to retained) have the same placement and six changed flash-mapped bytes in ELF header fields `e_shoff`, `e_shnum` and `e_shstrndx`. The retained sibling has 63,063 code relocations and five additional local aliases. The strict full-load comparison and the original SHA-pinned absolute-address hook validator both reject admission of this pair. [ELF and hook comparison](evidence/ardupilot-release-comparison.json) · [All differing loader-visible bytes](evidence/ardupilot-release-load-delta.json) · [Build provenance](evidence/ardupilot-release-provenance.tar.gz)
+
+## PX4 guest optimization diagnostics
+
+The release-pair training mission ran on the original FMI configuration, with a TB profiler that flushes FirmBOLT's existing counters at QEMU exit. Both independent tracks passed, including landing and disarm. The resulting profile converted to 77,268 pre-aggregated records. Profile collection used the same qualification mission and provides no held-out timing result.
+
+The FMUv6C linker allocates application flash at `0x08020000..0x08200000`. The first 1 KiB-aligned address after the original physical flash payload is `0x081f6800`. Every one of the 88 `R_ARM_TARGET1` relocations writes a Thumb function's absolute symbol value to an entry in the constructor table. The image-wide recipe with this relocation contract stopped at a failed CBZ/CBNZ legalization in `Commander::run`. A second recipe selected `memset` from the real training profile. The debug-preserving output passed the original hook generator. All sixteen core exception vectors, 28 hook-site instruction prefixes, modifiers and virtuals matched. Its 154-byte new code section fit, but the emitted executable load segment also contained six bytes of padding and an extra 1,921,856-byte copy of the original text. Loading that artifact would exceed the board's flash limit. [Initial guest qualification](evidence/px4-release-guest.json) · [Original profile, oracle, validated relocations and optimizer logs](evidence/px4-release-guest-profile.tar.gz)
+
+The private optimizer stays in its separately installed checkout. For a reproduction, build the public mission-exit wrapper against that checkout's profiler and the headers of the QEMU binary used by FastDyn. From the FastDyn root, with absolute paths in `FIRMBOLT_REPO`, `PAIR`, `PLUGIN` and the new `OUT` directory:
+
+```bash
+mkdir "$OUT"
+flight=tools/trebuchet/applications/flight
+profiler="$FIRMBOLT_REPO/tools/emulator-profile"
+cc -shared -fPIC -O2 "-DFIRMBOLT_TBPROF_SOURCE=\"$profiler/firmbolt_tbprof.c\"" \
+  -Ithird_party/common/qemu/include/qemu -Ithird_party/common/qemu/include \
+  $(pkg-config --cflags glib-2.0) "$flight/release/training-profiler.c" -o "$OUT/profile.so"
+fastdyn-env/bin/python "$flight/baseline.py" run px4 "$OUT/train" --release-pair "$PAIR" \
+  --plugin "$PLUGIN" --training-profiler "$OUT/profile.so"
+"$FIRMBOLT_REPO/.venv/bin/python" "$profiler/tbprof2bolt.py" "$OUT/train/session.tbprof" "$OUT/train.preagg"
+fastdyn-env/bin/python "$flight/release/px4_target1.py" "$PAIR/relocs.elf" > "$OUT/target1.json" &&
+  "$FIRMBOLT_REPO/.venv/bin/python" -m firmbolt --cpu cortex-m7 --emulator-profile "$OUT/train.preagg" \
+    --new-code-address 0x081f6800 --report "$OUT/result.json" "$PAIR/relocs.elf" -o "$OUT/firmware.elf" \
+    -- --firmbolt-arm-target1=abs --funcs-no-regex=memset --update-debug-sections
+fastdyn-env/bin/python "$flight/baseline.py" run px4 "$OUT/candidate" --release-pair "$PAIR" \
+  --candidate-elf "$OUT/firmware.elf" --candidate-layout "$OUT/result.json.layout.json" --plugin "$PLUGIN"
+fastdyn-env/bin/python "$flight/baseline.py" run px4 "$OUT/candidate-trace" --release-pair "$PAIR" \
+  --candidate-elf "$OUT/firmware.elf" --candidate-layout "$OUT/result.json.layout.json" \
+  --plugin "$PLUGIN" --training-profiler "$OUT/profile.so"
+```
+
+FirmBOLT commit `3b3f1165d1433f981a5be01ff920248273528ce0` corrected the extra segment extent. The new executable load uses 156 bytes. Every original loaded byte outside the verified Thumb entry redirect stayed identical. The adapter checked the final layout's linked instruction bytes and the branch target. The uninstrumented mission completed both tracks with 577 independent plant observations, 245 telemetry positions, 268 attitudes and disarm. In a separate successful mission, the training plugin counted 24,538,539 executions across 51 distinct TB starts in the moved code. Both operational runs used the exact same candidate SHA-256, `1bcb49a3337553e58f37d1d84fe4d3596a6ddcec822edb112832492c971a1255`. [Cold transformed mission](evidence/px4-transformed-cold.json) · [Executed transformed PCs](evidence/px4-transformed-execution.json) · [Raw observations](evidence/px4-transformed-raw.tar.gz)

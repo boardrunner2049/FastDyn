@@ -1,0 +1,149 @@
+{
+  "previous_elf_sha256": "ed1f9d64eb590ae30dc836c23c6f34dd1708cac36152ed0cccb34a975b0ee6a6",
+  "candidate_elf_sha256": "d44bdef3cb0a95e947214de1fd3cad3366a1b3b0d9001048ecabde940066cfcc",
+  "entry": "0x8020000",
+  "allocatable_sections": {
+    ".bolt.org.text": [
+      134348800,
+      "SHT_PROGBITS",
+      1921856,
+      6,
+      "4845d21651f9c24637435580b4c9c1e3af48d531a19715b876187b14f85ff04a"
+    ],
+    ".init_section": [
+      136270656,
+      "SHT_INIT_ARRAY",
+      352,
+      3,
+      "4b65a9a5da61525bba41c679f2abc2ff7b8dd94fb80113ed85ca7cf714ded685"
+    ],
+    ".ARM.exidx": [
+      136271008,
+      "SHT_ARM_EXIDX",
+      8,
+      130,
+      "4b1be688a7eba1e4f7cd0aceaf3caf25a9559bb99bc8b8bb16dd942ebb34376b"
+    ],
+    ".data": [
+      603979776,
+      "SHT_PROGBITS",
+      4080,
+      3,
+      "b658f4f3ec6c221647418a8f6108bc4b35a90633d6fc5126c6a24defd2eb22e0"
+    ],
+    ".text": [
+      136275968,
+      "SHT_PROGBITS",
+      154,
+      6,
+      "e7103bf2ee3f74b7029dd832faa1b6e03987850853a4a152bdadb2ea4deadcc7"
+    ],
+    ".bss": [
+      603983872,
+      "SHT_NOBITS",
+      57868,
+      3,
+      "1a114359a727fd4e58854560bcbf225d030b3a4b28800f12f6e7eb5e194e0afa"
+    ]
+  },
+  "relocation_sections": {
+    ".rel.text": [
+      ".bolt.org.text",
+      ".symtab",
+      73993,
+      "79c07191361867c2c9a1dea371c636a19102b666287fe6d9aba69cf0e952583f"
+    ],
+    ".rel.init_section": [
+      ".init_section",
+      ".symtab",
+      88,
+      "22a8d2763104579406c8bc61bdd1808b4288c4985e670b462e99bd9c5f483904"
+    ],
+    ".rel.ARM.exidx": [
+      ".ARM.exidx",
+      ".symtab",
+      1,
+      "4bc4a6d17715d70cceb9fd7505430e7f05f37fab003d27ca486f5859c394a1ce"
+    ],
+    ".rel.data": [
+      ".data",
+      ".symtab",
+      118,
+      "9d9e2accf126425bd46562679af2a6a20bc683dd30ebbe1eec5b845b71306662"
+    ],
+    ".rel.debug_info": [
+      ".debug_info",
+      ".symtab",
+      2041844,
+      "3ad0ae164c52aa32067dfc8b401723da11679bd7a7df66985f79065010de607f"
+    ],
+    ".rel.debug_line": [
+      ".debug_line",
+      ".symtab",
+      15338,
+      "0c58813f9902d97cc234094c594c20382fca52e06fad1360659d62390d34354e"
+    ],
+    ".rel.debug_aranges": [
+      ".debug_aranges",
+      ".symtab",
+      16886,
+      "ac948fd21ccace797df3c793d68bdd73558c76da4fe41dcfaf388054844e0e02"
+    ],
+    ".rel.debug_loclists": [
+      ".debug_loclists",
+      ".symtab",
+      170032,
+      "2abc86d554a52f44cccbb0a066dcb2fa7f4422c175815cee8db313ceeddf0369"
+    ],
+    ".rel.debug_rnglists": [
+      ".debug_rnglists",
+      ".symtab",
+      47014,
+      "992a604927c705c7e2f341235cd0f408599d859e546fd39357febeae12cbea8b"
+    ],
+    ".rel.debug_frame": [
+      ".debug_frame",
+      ".symtab",
+      31012,
+      "f0b8c0c47403ebb83200e39c10491e1c71f9c05c2660e13e4ea0fc8edb608f76"
+    ]
+  },
+  "loads": [
+    {
+      "vaddr": "0x8020000",
+      "paddr": "0x8020000",
+      "old_filesz": 1922216,
+      "filesz": 1922216,
+      "old_memsz": 1922216,
+      "memsz": 1922216,
+      "retained_sha256": "300f7a48ed4adbc5cd46484f25f1c55062988dc461616f011e84810bba1320d7"
+    },
+    {
+      "vaddr": "0x24000000",
+      "paddr": "0x81f54a8",
+      "old_filesz": 4080,
+      "filesz": 4080,
+      "old_memsz": 4080,
+      "memsz": 4080,
+      "retained_sha256": "b658f4f3ec6c221647418a8f6108bc4b35a90633d6fc5126c6a24defd2eb22e0"
+    },
+    {
+      "vaddr": "0x24001000",
+      "paddr": "0x81f6498",
+      "old_filesz": 0,
+      "filesz": 0,
+      "old_memsz": 57868,
+      "memsz": 57868,
+      "retained_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "vaddr": "0x81f6800",
+      "paddr": "0x81f6800",
+      "old_filesz": 1922016,
+      "filesz": 156,
+      "old_memsz": 1922016,
+      "memsz": 156,
+      "retained_sha256": "251235fd447bc738b98edeea61fb7edb59d72bf8377c1db9b4d848597e656e40"
+    }
+  ]
+}

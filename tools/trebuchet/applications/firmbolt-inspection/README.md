@@ -51,6 +51,19 @@ The full profiled recipe retained 60 address-stable input functions and kept six
 
 The canonical corrected ELF SHA-256 is `d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016`. Its two PT_LOAD payloads, addresses, lengths and flags match the earlier qualified ELF `caab33a72ffc62ce66712d653ab31f13b3b920ad9640cd05caa23a568aee28eb` byte for byte. The earlier `.rel.text` header incorrectly named moved `.text` as its target. In the corrected image all 10,988 relocation sites fall inside the section identified by `sh_info`, `.bolt.org.text`.
 
+## Bounded native layout follow-up
+
+The private FirmBOLT follow-up commit `3b3f1165d1433f981a5be01ff920248273528ce0` corrected allocation of the original ARM text section during detached firmware relocation. JITLink needs the section's ID to resolve its fixups. The code allocator also used that ID as evidence of a new code allocation and copied the input section behind the moved function. The native writer now maps that input-backed section at its input address. An ABS32 section relocation at a sized data object immediately after a Thumb function also required correction. In MicroPython the reference at 0x2d6e4 must contain the data address 0x1bdb0.
+
+| Training image | Moved function | New flash address | Previous extra PT_LOAD | Corrected extra PT_LOAD |
+| --- | --- | ---: | ---: | ---: |
+| MicroPython/Pye MPS2 | `strncmp` | 0x80000 | 198,184 B | 68 B (66 B code) |
+| PX4 FMU v6x | `memset` | 0x081f6800 | 1,922,016 B | 156 B (154 B code) |
+
+The native replay retained every allocated section, symbol/string table, static relocation payload, DWARF section and retained load byte from each previous candidate. The shorter PX4 range ends at 0x081f689c inside board flash. The two-byte tails in the new loads are zero alignment padding. These are separately built training candidates. The frozen Pye runtime matrix uses the earlier ELF. The executed bounded Pye image passed the complete editor oracle on stock and patched QEMU, with 72,796 entries across 14 distinct relocated TB start PCs. PX4 passed its uninstrumented mission and disarmed. The archived native replays and the corresponding executed images differ only in their unallocated tool note, which contains output paths. [Pye layout evidence](pye-bounded-load.json) · [PX4 layout evidence](px4-bounded-load.json)
+
+Use `python check_load_layout.py PREVIOUS_ELF CANDIDATE_ELF` with pyelftools and Python 3.10 or newer to repeat both coverage checks. The final native binary SHA-256 is `39d570481b98887dfef7437ad795c3a9b2c145f8e7c1794640c9ba8ee250dadf`. The private overlay SHA-256 is `8ef629c94de5c85b48a8863596126bee7c396e8c7b15475d5eb9e6b5a547be44`.
+
 ## Reproduce the inspection
 
 Install pyelftools and provide the GNU ARM disassembler. From this directory, pass any number of named ELFs. For matched profile counts, supply the directory containing `result.json` and `session.tbprof` from the Pye training runner.

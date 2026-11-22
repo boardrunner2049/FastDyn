@@ -1,0 +1,87 @@
+{
+  "previous_elf_sha256": "d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
+  "candidate_elf_sha256": "d74f49b689fc0fe45f65fef9d4ec9fde7c2e391d404f817a6fc154a2903a00ea",
+  "entry": "0x0",
+  "allocatable_sections": {
+    ".bolt.org.text": [
+      0,
+      "SHT_PROGBITS",
+      198116,
+      6,
+      "699005c7d23684cc4f5ffce4cd3a22c5922543fc1497cada451b90d79dca32a4"
+    ],
+    ".data": [
+      198116,
+      "SHT_PROGBITS",
+      16,
+      3,
+      "2dd2d31474bfa6e6592e99286f52378fd37b14cf5de92bd11d6d974d857aecbe"
+    ],
+    ".bss": [
+      198132,
+      "SHT_NOBITS",
+      144160,
+      3,
+      "c9aa0575de96711aaeb271da181c0de287dbd74daec6e7d47731ff3cecf4e816"
+    ],
+    ".text": [
+      524288,
+      "SHT_PROGBITS",
+      66,
+      6,
+      "f1ff53ae05a054ad93cfa50848a3fc15afa58cd4682fd0f8513791c85dbd572a"
+    ]
+  },
+  "relocation_sections": {
+    ".rel.text": [
+      ".bolt.org.text",
+      ".symtab",
+      10988,
+      "281f656418637d78010fedfa388b02effa9008a67c67c053e60395fd246f4bc2"
+    ],
+    ".rel.debug_line": [
+      "",
+      ".symtab",
+      40,
+      "ba6e3b6259bd5641dfab103c6b2d88ac5c2c263bb041f8b9b6c8f73d9fd326be"
+    ],
+    ".rel.debug_info": [
+      "",
+      ".symtab",
+      156,
+      "03ea74509b801d0ada89c5aad41aa5a2bc7f9cb612bc5f408a24b9e86af68a48"
+    ],
+    ".rel.debug_aranges": [
+      "",
+      ".symtab",
+      16,
+      "c93ca17c964a9e796e148c42e9862fc929f12be353592a6e637fecf352b3f872"
+    ],
+    ".rel.debug_frame": [
+      "",
+      ".symtab",
+      42,
+      "3dee637fbc17915074798c5b90be0125a82abf9dae4fd75c6dc8af0770cf0348"
+    ]
+  },
+  "loads": [
+    {
+      "vaddr": "0x0",
+      "paddr": "0x0",
+      "old_filesz": 198132,
+      "filesz": 198132,
+      "old_memsz": 342292,
+      "memsz": 342292,
+      "retained_sha256": "5295d62d1eb31ac36e32640c367af32e1aee6dca80ccc993383b63f9e0ec8795"
+    },
+    {
+      "vaddr": "0x80000",
+      "paddr": "0x80000",
+      "old_filesz": 198184,
+      "filesz": 68,
+      "old_memsz": 198184,
+      "memsz": 68,
+      "retained_sha256": "6d381ccaaf3c6addd4eb46074e89c56307fe9c69535ed4c0f4ef40979975e1ef"
+    }
+  ]
+}

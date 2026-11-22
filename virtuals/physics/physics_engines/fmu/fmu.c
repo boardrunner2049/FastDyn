@@ -112,6 +112,7 @@ typedef struct {
     bool pwm_dirty;
     bool initialized;
     FILE *plant_trace;
+    FILE *cpu_marks;
     double next_trace_s;
     fmu_value_refs_t vr;
 } fmu_state_t;
@@ -167,6 +168,15 @@ static bool env_flag_enabled(const char *name)
            strcmp(raw, "false") != 0 &&
            strcmp(raw, "off") != 0 &&
            strcmp(raw, "no") != 0;
+}
+
+/* Record process CPU at two FMI boundaries, without changing solver steps. */
+static bool record_cpu_mark(void)
+{
+    struct timespec cpu;
+    return clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu) == 0 &&
+           fprintf(fmu_state.cpu_marks, "%.9f,%lld.%09ld\n",
+                   fmu_state.time_s, (long long)cpu.tv_sec, cpu.tv_nsec) > 0;
 }
 
 static double wall_time_s(void)
@@ -502,6 +512,14 @@ static int fmu_backend_init(void)
 
     fmu_state.time_s = 0.0;
     fmu_state.initialized = true;
+    const char *cpu_path = getenv("FASTDYN_FMU_CPU_MARKS");
+    if (cpu_path && *cpu_path) {
+        fmu_state.cpu_marks = fopen(cpu_path, "wx");
+        if (!fmu_state.cpu_marks || !record_cpu_mark()) {
+            perror("opening or writing FASTDYN_FMU_CPU_MARKS");
+            goto fail;
+        }
+    }
     const char *trace_path = getenv("FASTDYN_FMU_PLANT_TRACE");
     if (trace_path && *trace_path) {
         fmu_state.plant_trace = fopen(trace_path, "wx");
@@ -530,6 +548,10 @@ fail:
 
 static void fmu_backend_shutdown(void)
 {
+    if (fmu_state.cpu_marks) {
+        fclose(fmu_state.cpu_marks);
+        fmu_state.cpu_marks = NULL;
+    }
     if (fmu_state.plant_trace) {
         fclose(fmu_state.plant_trace);
         fmu_state.plant_trace = NULL;
@@ -684,6 +706,13 @@ static int fmu_advance_simulation(double run_until_time)
             return 0;
         }
         fmu_state.time_s = last_successful > fmu_state.time_s ? last_successful : fmu_state.time_s + h;
+        if (fmu_state.cpu_marks && fmu_state.time_s + 1.0e-9 >= 45.0) {
+            if (!record_cpu_mark()) {
+                return 0;
+            }
+            fclose(fmu_state.cpu_marks);
+            fmu_state.cpu_marks = NULL;
+        }
         if (event_needed || early_return) {
             break;
         }

@@ -44,5 +44,11 @@
     "canonical_pye_elf_sha256": "d38a3d05a53b079e3821f311da97e7ade10a586f5adbc11747f9f0cd64aee016",
     "evidence": "../../applications/firmbolt-inspection/native-checks.json",
     "canonical_qualification": "../../applications/pye/qualification/firmbolt-canonical/identity.json"
+  },
+  "firmbolt_bounded_emitter": {
+    "commit": "3b3f1165d1433f981a5be01ff920248273528ce0",
+    "patch_sha256": "8ef629c94de5c85b48a8863596126bee7c396e8c7b15475d5eb9e6b5a547be44",
+    "scope": "Training-derived bounded load segments. The pinned main Pye comparison retains its predeclared ELF.",
+    "evidence": "../../applications/firmbolt-inspection/README.md"
   }
 }

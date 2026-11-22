@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import time
 
 from oracle import validate
 from elftools.elf.elffile import ELFFile
@@ -268,8 +269,11 @@ def run(args, receipt):
 def launch(args, manifest, mission, work, runtime, env, no_aslr=False):
     work.mkdir()
     env = dict(env, FASTDYN_FMU_PLANT_TRACE=str(work / "plant.csv"))
-    prefix = ["setarch", "x86_64", "-R"] if no_aslr else []
+    if args.measure_cpu:
+        env["FASTDYN_FMU_CPU_MARKS"] = str(work / "cpu-marks.csv")
+    prefix = ["setarch", "x86_64", "-R"] if no_aslr or args.measure_cpu else []
     with (work / "console.log").open("x") as log:
+        started = time.monotonic()
         process = subprocess.Popen([*prefix, str(ROOT / "fastdyn-env/bin/fastdyn"), "run", "-c", str(runtime),
                                     "--no-build-fmu", "-o", str(work / "run")], env=env, cwd=ROOT,
                                    start_new_session=True, stdout=log, stderr=subprocess.STDOUT)
@@ -283,6 +287,7 @@ def launch(args, manifest, mission, work, runtime, env, no_aslr=False):
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
             raise
+    wall = time.monotonic() - started
     if rc:
         raise ValueError(f"{work.name}: mission process exited {rc}")
     tlog = work / "run/mav.tlog"
@@ -290,7 +295,18 @@ def launch(args, manifest, mission, work, runtime, env, no_aslr=False):
                       (work / "console.log").read_text(errors="replace"))
     outputs = {str(p.relative_to(work)): digest(p)
                for p in (work / "console.log", work / "plant.csv", tlog)}
-    return {"returncode": rc, "oracle": result, "raw_outputs": outputs}
+    outcome = {"returncode": rc, "oracle": result, "raw_outputs": outputs}
+    if args.measure_cpu:
+        marks = work / "cpu-marks.csv"
+        rows = [[float(v) for v in line.split(",")] for line in marks.read_text().splitlines()]
+        if (len(rows) != 2 or rows[0][0] != 0.0 or not 44.999999 <= rows[1][0] <= 45.002001
+                or rows[1][1] <= rows[0][1]):
+            raise ValueError(f"invalid FMI CPU measurement {rows}")
+        outcome["process_cpu_seconds_at_45s"] = rows[1][1] - rows[0][1]
+        outcome["cpu_progress_end_s"] = rows[1][0]
+        outcome["full_fastdyn_wall_seconds"] = wall
+        outputs[marks.name] = digest(marks)
+    return outcome
 
 
 def main():
@@ -304,6 +320,7 @@ def main():
     parser.add_argument("--candidate-layout", type=Path, help="linker-resolved layout report for --candidate-elf")
     parser.add_argument("--training-profiler", type=Path, help="run a diagnostic mission with a FirmBOLT TB profiler plugin")
     parser.add_argument("--timeout", type=float, default=420)
+    parser.add_argument("--measure-cpu", action="store_true", help="collect QEMU CPU through 45 simulated seconds under fixed ASLR")
     parser.add_argument("--ordinary-warm", action="store_true", help="qualify cache capture and replay after cold success")
     parser.add_argument("--warm-attempts", type=int, default=2, metavar="1..16",
                         help="maximum checked replays after population (default 2)")
@@ -313,6 +330,8 @@ def main():
     if bool(args.candidate_elf) != bool(args.candidate_layout) or (args.candidate_elf and
                                                                   (not args.release_pair or args.family != "px4")):
         parser.error("candidate-elf and candidate-layout require together a PX4 release pair")
+    if args.measure_cpu and (args.step != "run" or args.training_profiler or args.ordinary_warm or args.frozen_preparation):
+        parser.error("measure-cpu requires an uninstrumented single cacheless mission")
     if args.training_profiler and (args.step != "run" or args.ordinary_warm or args.frozen_preparation):
         parser.error("training-profiler requires a single uncached diagnostic run")
     if not 1 <= args.warm_attempts <= 16:

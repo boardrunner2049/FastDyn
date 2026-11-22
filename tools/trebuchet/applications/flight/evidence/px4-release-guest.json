@@ -1,0 +1,89 @@
+{
+  "source_firmware_sha256": "54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347",
+  "role": "qualification and training, same scenario",
+  "firmbolt_revision": "e4e505a0b76a44c5ac854815b2469a672c1e3e04",
+  "firmbolt_native_sha256": "296a4683f651480506284025558abe99d88e0ba1718a1a24971d076388b7a1b0",
+  "profile_oracle": {
+    "plant_samples": 540,
+    "plant_elapsed_s": 67.375,
+    "telemetry_positions": 226,
+    "telemetry_attitudes": 245,
+    "waypoints_checked_per_track": 4,
+    "disarmed_after_arming": true
+  },
+  "profile_sha256": "b0213914fa528a214f88cfc52557bcb7de63f4a3a4234d1415c8bae279b76bcd",
+  "preaggregated_sha256": "adcaf0c63dd3ff7395dd047be7c68584f0752c28e7a60a8725a8fcb726397237",
+  "emulator_profile_conversion": "77268 records {'indirect': 225574553, 'direct': 539202347, 'dropped-exc-entry': 2800529, 'dropped-preempted': 1667795, 'dropped-exc-return': 1403320, 'fallthrough': 111423945}",
+  "new_code_address": "0x081f6800",
+  "application_flash": [
+    "0x08020000",
+    "0x08200000"
+  ],
+  "absolute_thumb_constructor_relocations_verified": 88,
+  "attempts": [
+    {
+      "recipe": "full Cortex-M7 emulator profile",
+      "exit_code": 1,
+      "result": "R_ARM_TARGET1 requires board-specific verification."
+    },
+    {
+      "recipe": "full Cortex-M7 emulator profile, checked TARGET1=abs",
+      "exit_code": 1,
+      "result": "CBZ/CBNZ legalization did not converge in Commander::run; no candidate ELF."
+    },
+    {
+      "recipe": "memset with checked TARGET1=abs",
+      "exit_code": 0,
+      "result": "candidate emitted; exceeds flash and lacks required DWARF ABI types"
+    },
+    {
+      "recipe": "memset with checked TARGET1=abs and updated DWARF",
+      "exit_code": 0,
+      "placement": {
+        "original_sha256": "54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347",
+        "candidate_sha256": "ed1f9d64eb590ae30dc836c23c6f34dd1708cac36152ed0cccb34a975b0ee6a6",
+        "flash_start": 134348800,
+        "flash_end": 136314880,
+        "new_loads": [
+          {
+            "start": 136275968,
+            "end": 138197984,
+            "within_free_flash": false
+          }
+        ],
+        "original_load_placements_preserved": true,
+        "sixteen_core_vector_words_identical": true,
+        "hook_files_identical": {
+          "virtuals.txt": true,
+          "modifiers.txt": true
+        },
+        "hook_pc_count": 28,
+        "changed_first_four_hook_bytes": [],
+        "admissible": false
+      },
+      "result": "hook generator passed; raw new PT_LOAD exceeds board flash"
+    }
+  ],
+  "raw_new_segment": {
+    "start": "0x081f6800",
+    "end_exclusive": "0x083cbbe0",
+    "new_text_section_bytes": 154,
+    "following_zero_padding_bytes": 6,
+    "following_exact_duplicate_input_text_bytes": 1921856
+  },
+  "deployed": false,
+  "timed": false,
+  "scope": "Initial pre-fix emitter experiments. The later bounded emitter has separate operational receipts.",
+  "bounded_emitter_followup": {
+    "private_firmbolt_commit": "3b3f1165d1433f981a5be01ff920248273528ce0",
+    "patch_sha256": "8ef629c94de5c85b48a8863596126bee7c396e8c7b15475d5eb9e6b5a547be44",
+    "emitter_sha256_used_for_tested_candidate": "bf18e3efc1dac403fd8e0d580fc4af144b7f4a984867d03549624ec055f732b7",
+    "tested_candidate_sha256": "1bcb49a3337553e58f37d1d84fe4d3596a6ddcec822edb112832492c971a1255",
+    "independent_clean_rebuild_emitter_sha256": "39d570481b98887dfef7437ad795c3a9b2c145f8e7c1794640c9ba8ee250dadf",
+    "independent_clean_rebuild_candidate_sha256": "d44bdef3cb0a95e947214de1fd3cad3366a1b3b0d9001048ecabde940066cfcc",
+    "rebuilt_payload_placement_and_bytes_identical": true,
+    "different_section": ".note.bolt_info",
+    "diagnostic_cold_receipt": "px4-transformed-cold.json",
+    "diagnostic_execution_receipt": "px4-transformed-execution.json"
+  }
+}

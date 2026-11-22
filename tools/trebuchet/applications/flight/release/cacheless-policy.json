@@ -1,0 +1,20 @@
+{
+  "experiment": "PX4 FMUv6C v1.17.0 KLAF cacheless guest-only diagnostic",
+  "guest_sha256": {
+    "original": "54909874cc7e26746d19d0a398bb8bd9143c251c06ed02175b4ed85a7310c347",
+    "firmbolt": "1bcb49a3337553e58f37d1d84fe4d3596a6ddcec822edb112832492c971a1255"
+  },
+  "warmups": ["original", "firmbolt"],
+  "pair_orders": ["AB", "BA", "AB", "BA", "AB", "BA", "AB", "BA", "AB", "BA", "AB", "BA"],
+  "A": "original",
+  "B": "firmbolt",
+  "independent_jobs": 1,
+  "timeout_job_minutes": 100,
+  "timeout_each_mission_seconds": 180,
+  "primary": "QEMU process CPU seconds between FMI initialization at zero and the first solver step at or above 45 simulated seconds, maximum overshoot 2 ms",
+  "secondary": "Full FastDyn process lifetime wall seconds including initialization, mission and shutdown, excluding adapter validation",
+  "oracle": "Both firmware and FMI waypoint tracks, estimator, actuator/attitude telemetry, landing and disarm",
+  "estimator": "Median original/firmbolt ratio over complete pairs, two-sided percentile bootstrap 95% interval at the complete-pair level, 20000 draws, seed 2601",
+  "failure_policy": "Run each scheduled mission once. Preserve every failure. Report complete-pair interval only if all 12 pairs and both warmups pass.",
+  "scope": "Guest-only cacheless diagnostic on the qualification mission previously used to profile the recipe. No tuning, selection or independent final-performance claim."
+}
