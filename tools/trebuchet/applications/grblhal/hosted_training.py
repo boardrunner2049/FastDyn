@@ -62,12 +62,14 @@ def main():
                 break
         state = deployed_state(cache, str(cache) + ".fastdyn.json")
         write(out / (name + "-frozen.json"), state)
+        clone(cache, out / (name + "-frozen.sc"))
+        shutil.copyfile(str(cache) + ".fastdyn.json", out / (name + "-frozen.manifest.json"))
     for index, pair in enumerate((("normal", "candidate"), ("candidate", "normal"), ("normal", "candidate"))):
         for name in pair:
-            source = out / (name + ".sc")
-            cache = out / (name + "-private.sc")
+            source = out / (name + "-frozen.sc")
+            cache = out / (name + ".sc")
             clone(source, cache)
-            shutil.copyfile(str(source) + ".fastdyn.json", str(cache) + ".fastdyn.json")
+            shutil.copyfile(out / (name + "-frozen.manifest.json"), str(cache) + ".fastdyn.json")
             execute(name, f"pair{index}", cache, {})
             cache.unlink()
     paired = [r for r in observations if r["phase"].startswith("pair")]

@@ -1,0 +1,97 @@
+{
+  "scope": "training only, modeled BTT device, GPIO observer active",
+  "preparations": [
+    {
+      "image": "normal",
+      "phase": "prepare0",
+      "wall_ms": 29186.875797,
+      "appended": null
+    },
+    {
+      "image": "normal",
+      "phase": "prepare1",
+      "wall_ms": 29129.587138,
+      "appended": 177
+    },
+    {
+      "image": "normal",
+      "phase": "prepare2",
+      "wall_ms": 28941.412832,
+      "appended": 154
+    },
+    {
+      "image": "normal",
+      "phase": "prepare3",
+      "wall_ms": 28937.094647,
+      "appended": 111
+    },
+    {
+      "image": "candidate",
+      "phase": "prepare0",
+      "wall_ms": 29079.006458,
+      "appended": null
+    },
+    {
+      "image": "candidate",
+      "phase": "prepare1",
+      "wall_ms": 29062.521173,
+      "appended": 166
+    },
+    {
+      "image": "candidate",
+      "phase": "prepare2",
+      "wall_ms": 28955.818177,
+      "appended": 128
+    },
+    {
+      "image": "candidate",
+      "phase": "prepare3",
+      "wall_ms": 29310.070794,
+      "appended": 69
+    }
+  ],
+  "paired_runs": [
+    {
+      "image": "normal",
+      "phase": "pair0",
+      "wall_ms": 28892.390565,
+      "appended": 85
+    },
+    {
+      "image": "candidate",
+      "phase": "pair0",
+      "wall_ms": 28906.432937,
+      "appended": 93
+    },
+    {
+      "image": "candidate",
+      "phase": "pair1",
+      "wall_ms": 28991.570901,
+      "appended": 70
+    },
+    {
+      "image": "normal",
+      "phase": "pair1",
+      "wall_ms": 28890.940003,
+      "appended": 64
+    },
+    {
+      "image": "normal",
+      "phase": "pair2",
+      "wall_ms": 28819.100061,
+      "appended": 74
+    },
+    {
+      "image": "candidate",
+      "phase": "pair2",
+      "wall_ms": 28923.914421,
+      "appended": 82
+    }
+  ],
+  "primary_metric": "job_wall_ns",
+  "frozen_records": {
+    "normal": 5797,
+    "candidate": 5750
+  },
+  "fully_warm": false
+}

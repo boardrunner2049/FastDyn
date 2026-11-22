@@ -1,0 +1,9 @@
+{
+  "id": 44996041360,
+  "head_sha": "a610682089ab1efbbfffa57e83f29bdab0d5d24e",
+  "conclusion": "success",
+  "status": "completed",
+  "created_at": "2026-11-22T06:57:40Z",
+  "updated_at": "2026-11-22T07:09:10Z",
+  "artifact_zip_sha256": "5da78601318dd308c695e16bac4a8438314b341192a6e0c2a9574e96d92ac24c"
+}

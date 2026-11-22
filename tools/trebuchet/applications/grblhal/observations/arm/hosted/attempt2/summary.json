@@ -1,0 +1,134 @@
+{
+  "role": "training only",
+  "metric": "host monotonic time from first drawing line to Idle response",
+  "budget": "up to four preparations per image, then three pairs AB/BA/AB",
+  "runs": [
+    {
+      "image": "normal",
+      "phase": "prepare0",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 29186875797
+    },
+    {
+      "image": "normal",
+      "phase": "prepare1",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 29129587138,
+      "proof": "PASS",
+      "appended": 177
+    },
+    {
+      "image": "normal",
+      "phase": "prepare2",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 28941412832,
+      "proof": "PASS",
+      "appended": 154
+    },
+    {
+      "image": "normal",
+      "phase": "prepare3",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 28937094647,
+      "proof": "PASS",
+      "appended": 111
+    },
+    {
+      "image": "candidate",
+      "phase": "prepare0",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 29079006458
+    },
+    {
+      "image": "candidate",
+      "phase": "prepare1",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 29062521173,
+      "proof": "PASS",
+      "appended": 166
+    },
+    {
+      "image": "candidate",
+      "phase": "prepare2",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 28955818177,
+      "proof": "PASS",
+      "appended": 128
+    },
+    {
+      "image": "candidate",
+      "phase": "prepare3",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 29310070794,
+      "proof": "PASS",
+      "appended": 69
+    },
+    {
+      "image": "normal",
+      "phase": "pair0",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 28892390565,
+      "proof": "PASS",
+      "appended": 85
+    },
+    {
+      "image": "candidate",
+      "phase": "pair0",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 28906432937,
+      "proof": "PASS",
+      "appended": 93
+    },
+    {
+      "image": "candidate",
+      "phase": "pair1",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 28991570901,
+      "proof": "PASS",
+      "appended": 70
+    },
+    {
+      "image": "normal",
+      "phase": "pair1",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 28890940003,
+      "proof": "PASS",
+      "appended": 64
+    },
+    {
+      "image": "normal",
+      "phase": "pair2",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 28819100061,
+      "proof": "PASS",
+      "appended": 74
+    },
+    {
+      "image": "candidate",
+      "phase": "pair2",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 28923914421,
+      "proof": "PASS",
+      "appended": 82
+    }
+  ],
+  "fully_warm_training_comparison": false,
+  "images": {
+    "normal": "ef84509e4bbf2f0b40238cc01eb6e30e8895b671ead19de45e84475eadef364b",
+    "candidate": "d0fc2c326e27caa1c09f3ba149a1caa4c14fe8f2a8b31c6b249a633e6db649dd"
+  }
+}

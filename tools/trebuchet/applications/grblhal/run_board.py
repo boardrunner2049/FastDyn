@@ -76,7 +76,14 @@ def run(qemu, image, job, out, timeout, profile_plugin=None, fastdyn_plugin=None
                "protocol": "UART1 line/ack, final dwell then idle position and drained pins",
                "accepted_commands": 0}
     with tempfile.TemporaryDirectory() as temp, (out / "serial.txt").open("wb") as log, (out / "stderr.txt").open("wb") as err:
-        path = Path(temp) / "qmp"
+        if cache:
+            # The TOML itself enters FastDyn's cache fingerprint. Every private
+            # deployment of one frozen image must use the same QMP endpoint.
+            token = hashlib.sha256(os.fsencode(cache.resolve())).hexdigest()[:20]
+            path = Path(tempfile.gettempdir()) / f"grbl-{token}.qmp"
+            require(not path.exists(), f"QMP endpoint already in use: {path}")
+        else:
+            path = Path(temp) / "qmp"
         args = [str(qemu), "-M", "btt-skr-e3-v2,memory-backend=ram0", "-cpu", "cortex-m3",
                 "-object", "memory-backend-ram,id=ram0,size=48K", "-m", "48K",
                 "-global", "cortexm-soc.ram_baseaddr0=0x20000000", "-global", "armv7m.init-nsvtor=0x08007000",

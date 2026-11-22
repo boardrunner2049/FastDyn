@@ -1,0 +1,10 @@
+{
+  "id": 44995413417,
+  "head_sha": "27e072fa145a3e2b9c459d74858c5c5757cdca4a",
+  "conclusion": "failure",
+  "status": "completed",
+  "created_at": "2026-11-22T06:48:54Z",
+  "updated_at": "2026-11-22T06:56:26Z",
+  "artifact_zip_sha256": "0c2cd3ea54f175e0fd0b17a35b00f02ed8ebdd6784bfa863bcdafc74ee1ee0ef",
+  "reason": "The random QMP socket path changed the FastDyn configuration-file hash. The frontend unlinked and replaced the ordinary cache before the second launch."
+}

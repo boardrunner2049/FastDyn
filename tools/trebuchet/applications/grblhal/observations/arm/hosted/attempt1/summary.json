@@ -1,0 +1,23 @@
+{
+  "role": "training only",
+  "metric": "host monotonic time from first drawing line to Idle response",
+  "budget": "up to four preparations per image, then three pairs AB/BA/AB",
+  "runs": [
+    {
+      "image": "normal",
+      "phase": "prepare0",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 59696405553
+    },
+    {
+      "image": "normal",
+      "phase": "prepare1",
+      "exit": 0,
+      "state": "passed",
+      "job_wall_ns": 59754496971,
+      "proof": "INVALID_artifact_not_used",
+      "appended": null
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "application": "grblHAL",
+  "family": "CNC motion control",
+  "status": "admitted",
+  "role": "training qualification only",
+  "scope": "BTT SKR Mini E3 v2, normally closed inputs at rest, historical STM32F1xx driver 127db7f9, USART1 drawing sender, TIM2-driven GPIO step edges with physical motor-enable and direction checks.",
+  "case": "DrawBot OSHW logo",
+  "upstream_pins": "manifest.json",
+  "reproduction": "README.md",
+  "oracle": "run_board.py",
+  "normal": "observations/arm/normal/receipt.json",
+  "candidate": "observations/arm/candidate/receipt.json",
+  "transformed_reach": "observations/arm/optimizer/layout-check.json",
+  "negative_controls": "observations/arm/pin-negative-tests.txt",
+  "stock_e1f8388": "Firmware-side precise bus fault at SRAM address 0x2000c008. Retained as an independent failed admission.",
+  "held_out_performance": "unmeasured",
+  "hosted_ordinary_and_guest": "observations/arm/hosted/attempt2/audit.json",
+  "fully_warm": false,
+  "fully_warm_reason": "Every privately deployed training run required 64\u201393 additional translations. All protected prefix and full GPIO/UART checks passed."
+}

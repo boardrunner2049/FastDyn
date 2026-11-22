@@ -1,0 +1,19 @@
+{
+  "branch": "trebuchet/hosted-cnc-admission",
+  "remaining_branch_refs": 0,
+  "remaining_branch_runs": [],
+  "deleted": [
+    {
+      "run": 44995413417,
+      "artifact": 14743743654,
+      "run_lookup": "HTTP/2.0 404 Not Found",
+      "artifact_lookup": "HTTP/2.0 404 Not Found"
+    },
+    {
+      "run": 44996041360,
+      "artifact": 14743079721,
+      "run_lookup": "HTTP/2.0 404 Not Found",
+      "artifact_lookup": "HTTP/2.0 404 Not Found"
+    }
+  ]
+}

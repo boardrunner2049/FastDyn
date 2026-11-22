@@ -1,6 +1,6 @@
 {
   "family": "grblHAL",
-  "admitted": false,
+  "admitted": true,
   "role": "hardware qualification and independent application oracle",
   "driver": {
     "url": "https://github.com/grblHAL/STM32F1xx",
@@ -55,5 +55,6 @@
     "training_only": true,
     "observations": "observations/arm",
     "source_fix_flash_sha256": "204664c72ed4eed41e194479be7232c8400b98c0ab9f7d733b0619d154869190"
-  }
+  },
+  "admission_scope": "Historical BTT release on the specified modeled board and drawing, training qualification only. See admission.json."
 }

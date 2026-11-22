@@ -1,0 +1,40 @@
+{
+  "verdict": "INVALID_artifact_not_used",
+  "checks": [
+    {
+      "check": "sc_exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "header",
+      "ok": false,
+      "detail": "record_count 5375 < deployed 5384"
+    },
+    {
+      "check": "records",
+      "ok": false,
+      "detail": "record bytes [0,5384) differ from the deployed ones"
+    },
+    {
+      "check": "inode",
+      "ok": false,
+      "detail": "the .sc was replaced (unlinked and recreated) during the run"
+    },
+    {
+      "check": "manifest",
+      "ok": false,
+      "detail": "fingerprint 5b557e1504eb949ca0be8c5389e19fa28bfc8cd1a2fa824f705c07583251a2ff -> a767579f08c3fc586c695cabb65dfd0f7c0679e28d77632927c90891402543eb"
+    }
+  ],
+  "failed": [
+    "header",
+    "records",
+    "inode",
+    "manifest"
+  ],
+  "n": 5384,
+  "appended": null,
+  "record_count_after": 5375,
+  "file_version": 5
+}

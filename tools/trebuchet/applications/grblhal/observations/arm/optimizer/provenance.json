@@ -1,0 +1,12 @@
+{
+  "firmbolt_commit": "fcf5e971be47b3ae3406b9639c51a7bac23e8946",
+  "bolt_binary_sha256": "39d570481b98887dfef7437ad795c3a9b2c145f8e7c1794640c9ba8ee250dadf",
+  "reported_bolt_version": "7864c0736a8a09670dfbfc513f1e9649799f2486",
+  "upstream_tbprof_source_sha256": "66d68a2766b3d4774b4b01639fa45a39b38627fe8d7f9f44b54602662ca5c34b",
+  "profile_to_bolt_source_sha256": "672a0278a4f309b06c0d6775fea4723744a48298f9b10b819f37b3590c2a8603",
+  "source_profile_sha256": "590cb230660285d4e67e7faffbfb11adc65725a675576408630317f88a3a9122",
+  "preaggregated_input_sha256": "2a7a44428e40a67d58a0af44c638524ada67f753bee2e8ec7f1aa08bcea9d268",
+  "qemu_source": "957530a637cf5e4ca38df4f7aec3f967031bd0e5",
+  "target": "STM32F103RC Cortex-M3, historical unmodified source with upstream boards library dependency",
+  "candidate_sha256": "d0fc2c326e27caa1c09f3ba149a1caa4c14fe8f2a8b31c6b249a633e6db649dd"
+}

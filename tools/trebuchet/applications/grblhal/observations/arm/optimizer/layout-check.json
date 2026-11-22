@@ -6,6 +6,7 @@
   "initial_sp": "0x2000c000",
   "reset_pc": "0x802968d",
   "moved_start": "0x8038000",
+  "decoded_veneer": "b.w #0x8038000",
   "original_start": "0x8007ca4",
   "moved_bytes": 360,
   "original_text_changed_bytes": 3,
