@@ -1,0 +1,50 @@
+{
+  "schema": "scopt.sealed-whopr-timing/1",
+  "artifact_id": "sha256:588b78bae828fd22a4faede3af932c8679e0dfc913d305e13c486b3fa5d7b84f",
+  "artifact_assurance": "compiler-produced/user-vouched",
+  "audited": false,
+  "pairs": 6,
+  "seed": 1464356688,
+  "cpu": 2,
+  "host": {
+    "node": "e5-cse-359-01",
+    "platform": "Linux-6.17.0-1033-oem-x86_64-with-glibc2.39"
+  },
+  "cache_sha256": {
+    "baseline": "sha256:c6d2c1712c2cae77057e5cb368217d25d1d2d90ec2d2d091c9a19e821ea2fd49",
+    "whopr7": "sha256:097e4103d01147a05d4ea6e52d6e730114556955ce780a46bca2f56e4c33351f"
+  },
+  "cache_unchanged": true,
+  "median_native_ns": {
+    "baseline": 1132067185.5,
+    "whopr7": 1238645745.5
+  },
+  "paired_speedups_baseline_over_whopr7": [
+    0.8606952349569974,
+    0.9687625535142156,
+    0.9146532945281132,
+    0.913905644542406,
+    0.923034874892409,
+    0.8925947455037944
+  ],
+  "median_paired_speedup": 0.9142794695352596,
+  "bootstrap_95": [
+    0.8766449902303959,
+    0.9458987142033123
+  ],
+  "blocks_native_ns": [
+    {"block": 1, "order": ["baseline", "whopr7"], "baseline": 1080583470, "whopr7": 1255477463},
+    {"block": 2, "order": ["baseline", "whopr7"], "baseline": 1168370516, "whopr7": 1206044259},
+    {"block": 3, "order": ["whopr7", "baseline"], "baseline": 1146698685, "whopr7": 1253697649},
+    {"block": 4, "order": ["baseline", "whopr7"], "baseline": 1117435686, "whopr7": 1222703561},
+    {"block": 5, "order": ["whopr7", "baseline"], "baseline": 1173840689, "whopr7": 1271718676},
+    {"block": 6, "order": ["baseline", "whopr7"], "baseline": 1092173434, "whopr7": 1223593842}
+  ],
+  "registers": [
+    "0x149fdedb", "0x0000762e", "0x0000762e", "0x00000000",
+    "0x000008ce", "0x00000268", "0x00000b7c", "0x00013772",
+    "0x00000206", "0x00000594", "0x00001c54", "0x0001c3d9",
+    "0xa90de5ea", "0x818c6122", "0x76686865", "0xdcf2a3bf"
+  ],
+  "decision": "measured regression; do not select exhaustive all-helper configuration 7 for this workload"
+}

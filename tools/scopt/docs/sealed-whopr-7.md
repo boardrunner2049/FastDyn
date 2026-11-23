@@ -93,6 +93,38 @@ pending QEMU sites. The later firmware-region stage emitted 62 regions and separ
 reported 198 pending/refused firmware-call opportunities. Those firmware-region
 refusals do not reduce the complete QEMU-helper count above.
 
+### Current all-helper runtime result
+
+Six randomized paired blocks compared the exact artifact above with the matched trusted
+sealed baseline. Cache production, deployment, Python startup, and the 569.08-second
+compile were outside the firmware timing window. Both arms used the same populated input
+RAM. All 16 reported registers matched in every run, and neither cache hash changed.
+
+| measurement | trusted sealed baseline | all-helper configuration 7 |
+| --- | ---: | ---: |
+| median native firmware window | 1132.067 ms | 1238.646 ms |
+| cache SHA-256 | `c6d2c171...ea2fd49` | `097e4103...c33351f` |
+
+The median paired baseline/configuration-7 ratio was **0.914279x**, with a paired
+bootstrap 95% interval of **0.876645-0.945899x**. Thus the exhaustive all-helper
+artifact is a supported **measured regression**, about 9.4% slower than its matched
+baseline; it must not be selected for this workload. The raw block values are in
+[`sealed-whopr-7-current-results.json`](sealed-whopr-7-current-results.json).
+
+The current seven-number dashboard retains rows 1-6 from their original campaigns and
+uses the new valid all-helper measurement for row 7. Cross-campaign subtraction is not
+an attribution test; the fresh paired comparison above is authoritative for rows 6-7.
+
+| # | configuration | firmware-window median |
+| ---: | --- | ---: |
+| 1 | stock QEMU, O0 | 1102.650 ms |
+| 2 | FastDyn, O0 | 1334.988 ms |
+| 3 | FastDyn + FirmBOLT | 1319.501 ms |
+| 4 | ordinary warm cache | 1242.790 ms |
+| 5 | normal scopt | 1100.832 ms |
+| 6 | trusted sealed cache | 1042.037 ms |
+| 7 | trusted sealed WHOPR, all captured QEMU helpers | **1238.646 ms** |
+
 Exact-PC import validates the recorded PC instead of pinning every non-PCREL
 TB.  The optimizer models QEMU's newest-record selection for duplicate exact
 keys.  Unique one-instruction exhaustive records remain valid public fallback
@@ -180,10 +212,8 @@ the embedded regions execute and remove enough dispatch to help; container
 lookup/activation overhead consumes part of the isolated gain in the net
 baseline comparison.
 
-For continuity, the seven-number dashboard is below.  Rows 1-6 retain their
-previous published medians; row 7 is this campaign.  Because row 6's retained
-absolute value came from an earlier block, the fresh paired 6-to-7 comparison
-above—not subtraction between cross-campaign medians—is the attribution test.
+For historical continuity, the old seven-number dashboard is below. Row 7 in this
+table is the firmware-region-only predecessor, not the current all-helper artifact.
 
 | # | configuration | firmware-window median |
 | ---: | --- | ---: |
@@ -193,7 +223,7 @@ above—not subtraction between cross-campaign medians—is the attribution test
 | 4 | ordinary warm cache | 1242.790 ms |
 | 5 | normal scopt | 1100.832 ms |
 | 6 | trusted sealed cache | 1042.037 ms |
-| 7 | trusted sealed WHOPR | 1063.933 ms |
+| 7 | trusted sealed WHOPR, firmware regions only | 1063.933 ms |
 
 ## Limits
 
