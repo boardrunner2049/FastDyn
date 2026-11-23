@@ -19,7 +19,14 @@ and [trusted PGO pipeline](../../docs/sealed-whopr-7.md).
 | 6 | Trusted sealed public cache of the FirmBOLT guest |
 | 7 | Same trusted sealed capture with automatic hot-loop PGO |
 
-![Median firmware time in milliseconds for all seven configurations on six packet streams and two CLI sessions. Normal scopt was faster than ordinary warm on every input. Trusted PGO had mixed results against trusted sealed replay.](seven-configurations.png)
+![Firmware execution time by application. Each application has seven bars on one millisecond axis. Normal scopt had the lowest average time for the FreeRTOS packet parser, and trusted PGO had the lowest for FreeRTOS+CLI.](seven-configurations.png)
+
+Each bar is the arithmetic mean of the input medians for that application.
+The packet parser ran six streams. The three `heldout` streams emphasized
+key/value operations, text, and malformed packets. The three `final` streams
+emphasized sensor data and longer binary payloads. These names come from the
+original evaluation splits. All six contributed equally to the packet-parser
+group. The CLI group gives equal weight to the mixed-command and help-heavy sessions.
 
 Record the firmware work window in a fresh process for every arm. Build,
 capture, profile, optimize, compile launches and stage inputs before scoring.
