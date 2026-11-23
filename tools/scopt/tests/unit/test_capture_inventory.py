@@ -19,7 +19,7 @@ def test_complete_consecutive_inventory_sweeps(tmp_path, monkeypatch, deltas, ex
     cache = out / "fw.sc"
     fake = SimpleNamespace(cache=cache, manifest=None)
     monkeypatch.setattr(capture, "create_run_dir", lambda *args, **kwargs: fake)
-    monkeypatch.setattr(capture, "read_sc", lambda p: SimpleNamespace(
+    monkeypatch.setattr(capture, "read_sc", lambda p, **_kw: SimpleNamespace(
         header=SimpleNamespace(record_count=int(p.read_text())), valid_slots=range(int(p.read_text()))))
     calls = []
 

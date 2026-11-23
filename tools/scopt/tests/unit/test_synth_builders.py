@@ -61,7 +61,7 @@ def test_build_sc_layout_and_records(tmp_path):
     data = B.build_sc(units, path=str(p))
     assert p.read_bytes() == data
     h = ScHeader.from_bytes(data)
-    assert h.checksum_ok and h.magic == L.SC_MAGIC and h.version == 5 and h.record_count == 4
+    assert h.checksum_ok and h.magic == L.SC_MAGIC and h.version == 7 and h.record_count == 4
     assert h.code_address == B.DEFAULT_CODE_ADDRESS and h.tb_size == 152
     assert len(data) == L.SC_CODE_OFFSET + h.code_size + 4 * 104
     prev_end = 0

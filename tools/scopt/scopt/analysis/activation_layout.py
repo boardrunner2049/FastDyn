@@ -355,7 +355,7 @@ def _bind(snapshot, qemu: Path, config: Path, receipt: Path, protocol: Path,
     _require(cache_sha == control["warm_cache_sha256"], "training snapshot cache bytes changed")
     proof = raw["proof"]
     _require(raw["exact_guest_oracle"] is True and proof["verdict"] == "PASS"
-             and proof["file_version"] == 5 and proof["appended"] == 0
+             and proof["file_version"] == 7 and proof["appended"] == 0
              and proof["n"] == proof["record_count_after"] == snapshot.header.record_count,
              "training trace must preserve the original cache and exact guest output")
     args = raw["argv"]

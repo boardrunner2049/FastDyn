@@ -121,14 +121,14 @@ def bound_launch(tmp_path):
                "purpose": "untimed training only, outer dispatch/link-write trace",
                "frozen": frozen, "input_bank": str(bank), "expected_guest": str(expected)}
     raw = {k: control[k] for k in ("qemu_sha256", "plugin_sha256", "ordinary_warm")}
-    raw.update(proof={"verdict": "PASS", "file_version": 5, "appended": 0, "n": 2, "record_count_after": 2},
+    raw.update(proof={"verdict": "PASS", "file_version": 7, "appended": 0, "n": 2, "record_count_after": 2},
                exact_guest_oracle=True, trace=str(trace), trace_sha256=file_sha256(trace),
                input={"input": {"path": str(bank), "sha256": file_sha256(bank)}},
                argv=[str(qemu), "-accel", f"tcg,supercache={cache}", "-plugin",
                      f"{plugin},virtual={virtuals}", "-d", "exec", "-D", str(trace)])
     runtime = {k: control[k] for k in ("qemu_sha256", "plugin_sha256")}
     runtime |= {"supercache_flat": False, "runtime_identity_id": "sha256:" + "1" * 64}
-    source = SimpleNamespace(header=SimpleNamespace(version=5, record_count=2), runtime=runtime,
+    source = SimpleNamespace(header=SimpleNamespace(version=7, reserved=0, record_count=2), runtime=runtime,
                              path=snapshot, snapshot_id="sha256:" + "2" * 64)
     receipt = write("trace.json", json.dumps(raw))
     protocol = write("protocol.json", json.dumps(control))

@@ -108,7 +108,8 @@ share = false
 
     monkeypatch.setattr(prepare, "launch", cold)
     monkeypatch.setattr(prepare, "read_sc",
-                        lambda _: SimpleNamespace(header=SimpleNamespace(record_count=1), valid_slots=[0]))
+                        lambda _, **_kw: SimpleNamespace(
+                            header=SimpleNamespace(record_count=1), valid_slots=[0]))
     monkeypatch.setattr(deploy, "oracle", oracle)
     with TemporaryDirectory(dir=root) as mount:
         monkeypatch.setenv("SCOPT_RAM_ROOT", mount)

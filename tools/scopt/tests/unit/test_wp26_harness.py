@@ -782,7 +782,7 @@ echo "alias nz=00000000"
 def _small_sc(path: Path) -> Path:
     from scopt.formats.sc_v5 import ScHeader
 
-    h = ScHeader(b"QSCACHE1", 5, 80, 1 << 16, 0x7fff6c000000, 0, 0, 0, 4096, 10, 152, 0, 0)
+    h = ScHeader(b"QSCACHE1", 7, 80, 1 << 16, 0x7fff6c000000, 0, 0, 0, 4096, 10, 152, 0, 0)
     path.write_bytes(h.with_checksum().to_bytes())
     return path
 

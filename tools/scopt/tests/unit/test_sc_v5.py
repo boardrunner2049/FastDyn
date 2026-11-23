@@ -348,7 +348,7 @@ CODE_SIZE = 0x4000
 
 
 def _hdr(**kw) -> ScHeader:
-    base = dict(magic=b"QSCACHE1", version=5, header_size=80, code_size=CODE_SIZE,
+    base = dict(magic=b"QSCACHE1", version=7, header_size=80, code_size=CODE_SIZE,
                 code_address=0x7FFF_6C00_0000, prologue_end=0x2D, record_count=0,
                 runtime_signature=0x1234, host_page_size=4096, target_page_bits=10,
                 tb_size=152, reserved=0, checksum=0)

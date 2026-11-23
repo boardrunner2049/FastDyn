@@ -52,21 +52,21 @@ def _info(side: dict, codes: dict | None):
 
 
 def test_static_not_applicable_rules():
-    v5 = {"loader_requirement": A.LOADER_V5}
+    canonical = {"loader_requirement": A.LOADER_V7}
     move_only = {f"V{i}": "pass" for i in range(1, 10)}
-    assert static_not_applicable(_info(v5, move_only)) is None
-    assert static_not_applicable(_info(v5, {**move_only, "V10": "pass"})) is None
-    assert static_not_applicable(_info(v5, None)) is None  # V1-V9 then reports it
+    assert static_not_applicable(_info(canonical, move_only)) is None
+    assert static_not_applicable(_info(canonical, {**move_only, "V10": "pass"})) is None
+    assert static_not_applicable(_info(canonical, None)) is None  # V1-V9 then reports it
     b4 = {**move_only, "V12": "pass", "V20": "pass"}
-    assert "V12" in static_not_applicable(_info(v5, b4))
+    assert "V12" in static_not_applicable(_info(canonical, b4))
     sfb = {"SFB1": "pass", "SFB2": "pass"}
-    assert "SFB1" in static_not_applicable(_info(v5, sfb))
+    assert "SFB1" in static_not_applicable(_info(canonical, sfb))
     # the icount-entry packager writes rows without a "codes" summary
-    rows_only = A.ArtifactInfo(Path("/nonexistent"), None, v5, None, None,
+    rows_only = A.ArtifactInfo(Path("/nonexistent"), None, canonical, None, None,
                                {"rows": [{"code": "SFB1", "result": "pass"}]}, [])
     assert "SFB1" in static_not_applicable(rows_only)
-    assert "v5 only" in static_not_applicable(_info({"loader_requirement": "qemu-sc-v6"},
-                                                    move_only))
+    assert "canonical public-only v7" in static_not_applicable(
+        _info({"loader_requirement": "qemu-sc-v6"}, move_only))
 
 
 def test_static_validate_refuses_b3_b4_artifacts(tmp_path):
@@ -95,7 +95,7 @@ def test_static_validate_refuses_b3_b4_artifacts(tmp_path):
     side["loader_requirement"] = "qemu-sc-v6"
     (art / A.SIDECAR).write_text(json.dumps(side))
     r = CliRunner().invoke(cli, ["validate", str(art), "--snapshot", snap.path])
-    assert r.exit_code == 2 and "v5 only" in r.output
+    assert r.exit_code == 2 and "canonical public-only v7" in r.output
 
 
 @pytest.fixture

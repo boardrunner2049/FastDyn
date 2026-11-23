@@ -83,7 +83,7 @@ def provenance():
     prologue = bytes.fromhex(
         '55534154415541564157488bef4881c478fbffffffe633c04881c488040000c5f877415f415e415d415c5b5dc3'
     )
-    header = ScHeader(SC_MAGIC,5,80,0x10000,CA,len(prologue),1,0x51,4096,10,152,0,0)
+    header = ScHeader(SC_MAGIC,7,80,0x10000,CA,len(prologue),1,0x51,4096,10,152,0,0)
     snapshot = SimpleNamespace(header=header,snapshot_id='baseline',runtime={
         'qemu_sha256':RUNTIME,'prologue_sha256':sha(prologue),'runtime_signature':'0x51',
         'prologue_end':'0x2d','code_address':hex(CA),'code_size':'0x10000',
@@ -102,7 +102,7 @@ def transform(unit, chunk, extra=(), selected=(0,)):
     return retire(unit,chunk,selected,CA,EPILOGUE,RETURN,targets((unit,*extra),CA))
 
 
-def test_genuine_retirement_has_truthful_v5_and_scm(ordinary,provenance):
+def test_genuine_retirement_has_truthful_v7_and_scm(ordinary,provenance):
     unit,chunk = ordinary
     snapshot,info = provenance
     assert capture(snapshot,captured(info)) == (EPILOGUE,RETURN)

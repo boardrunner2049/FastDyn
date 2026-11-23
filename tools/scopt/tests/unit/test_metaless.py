@@ -58,7 +58,7 @@ def synth_sc(tmp_path):
     rec = ScRecord(tb, tc + len(body), tc, len(code), 0, 0x800400, 0x28080010,
                    0xFFFFFFFFFFFFFFFF, 0, 0x110, 0xFF020000, 2, 1, (0xFFFF, 0xFFFF),
                    (0x0C, 0xFFFF), 0, SC_RECORD_COMMIT).with_checksum()
-    hdr = ScHeader(SC_MAGIC, 5, 80, 0x10000, CA, 0x2D, 1, 0, 4096, 10, 152, 0, 0)
+    hdr = ScHeader(SC_MAGIC, 7, 80, 0x10000, CA, 0x2D, 1, 0, 4096, 10, 152, 0, 0)
     p = tmp_path / "synth.sc"
     write_sc(p, hdr, [(rec, body)], fsync=False)
     return p

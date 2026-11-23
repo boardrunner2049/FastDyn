@@ -12,7 +12,8 @@ HINT = b"FD_SC_RESTORE_HINTS 1 0x10 0x20 1\n0x40 0xa\n"
 
 
 def cache(record_checksum_ok=True):
-    header = SimpleNamespace(version=5, checksum_ok=True, runtime_signature=16, checksum=32,
+    header = SimpleNamespace(version=7, reserved=0, checksum_ok=True,
+                             runtime_signature=16, checksum=32,
                              record_count=1)
     record = SimpleNamespace(tb_offset=64, checksum=10, checksum_ok=record_checksum_ok)
     return SimpleNamespace(loadable=True, header=header, skipped=[], count=1, valid_slots=(0,),
