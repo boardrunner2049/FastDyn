@@ -1101,6 +1101,74 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
     }
 }
 
+/*
+ * A restored SuperCache TB already contains the host instrumentation emitted
+ * by its original translation.  Replaying vcpu_tb_trans() is needed only when
+ * the callback has live, translation-time work for this exact guest span.
+ *
+ * Keep this predicate deliberately mechanical and fail closed.  The tables it
+ * reads are append-only after plugin setup (rules and updates publish their
+ * counts/heads before translated execution starts).  A true result therefore
+ * means that vcpu_tb_trans() would only enumerate the instructions: it would
+ * neither register a callback nor invoke a translation hook.  QEMU still
+ * performs its executable-page probes when it omits the replay.
+ */
+static bool vcpu_tb_restore_omittable(uint64_t pc, uint32_t guest_size)
+{
+    uint64_t end = pc + guest_size;
+
+    if (!guest_size || end < pc || (runtime && !init) ||
+        g_tb_trans_hook_count || coverage || twintrace_mode != TT_OFF) {
+        return false;
+    }
+
+#define IN_RESTORED_SPAN(address) \
+    ((uint64_t)(address) >= pc && (uint64_t)(address) < end)
+
+    /* The magic instruction always installs an inline callback and returns. */
+    if (IN_RESTORED_SPAN(UINT64_C(0x20800050))) {
+        return false;
+    }
+    for (size_t i = 0; i < rules_count; i++) {
+        if (IN_RESTORED_SPAN(rules[i].address)) {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < update_entry_count; i++) {
+        if (IN_RESTORED_SPAN(update_entries[i].update_point)) {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < num_tuples; i++) {
+        if (IN_RESTORED_SPAN(address_tuples[i].target)) {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < listCount; i++) {
+        for (size_t j = 0; j < addressLists[i].count; j++) {
+            if (IN_RESTORED_SPAN(addressLists[i].entries[j].address)) {
+                return false;
+            }
+        }
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (IN_RESTORED_SPAN(accesses[i].pc)) {
+            return false;
+        }
+    }
+    if (instruction_fragment_count) {
+        for (size_t i = 0; i < FRAGMENT_PC_SLOTS; i++) {
+            if (instruction_fragment_pcs[i].occupied &&
+                IN_RESTORED_SPAN(instruction_fragment_pcs[i].pc)) {
+                return false;
+            }
+        }
+    }
+
+#undef IN_RESTORED_SPAN
+    return true;
+}
+
 #include <stdio.h>      // for printf, fopen, fwrite, etc.
 #include <stdlib.h>     // for malloc, realloc, free, exit, abort
 #include <string.h>     // for memcpy
@@ -1577,7 +1645,8 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
 		utils_die("Runtime plugin post-device initialization failed");
 	}
 
-    qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
+    qemu_plugin_register_vcpu_tb_trans_cb_with_restore_check(
+        id, vcpu_tb_trans, vcpu_tb_restore_omittable);
     qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
     #if ENABLE_LIBPY
         if (python_vm_setup() != 0) {
