@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from scopt.formats.sc_v5 import ScHeader
 from scopt.ids import artifact_id
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -34,7 +35,14 @@ def _w(p: Path, data: bytes) -> Path:
     return p
 
 
+def _canonical_cache(payload: bytes) -> bytes:
+    header = ScHeader(b"QSCACHE1", 7, 80, 1 << 16, 0x7fff6c000000, 0, 0, 0,
+                      4096, 10, 152, 0, 0).with_checksum()
+    return header.to_bytes() + payload
+
+
 def _artifact(root: Path, payload: bytes) -> tuple[Path, str]:
+    payload = _canonical_cache(payload)
     man = f"{payload.hex()}  cache.sc\n".encode()
     aid = artifact_id(man)
     d = root / "artifacts" / aid.split(":", 1)[1]
@@ -52,7 +60,7 @@ def camp(tmp_path: Path) -> dict:
     base.write_text('[Machine]\nsupercache = "cache/x.sc"\nsupercache_flat = false\n'
                     f'[CPU]\n[[CPU.cpu0]]\nbinary = "{fw}"\n')
     snap = tmp_path / "store/snapshots/s1"
-    _w(snap / "cache.sc", b"warm")
+    _w(snap / "cache.sc", _canonical_cache(b"warm"))
     _w(snap / "snapshot.json", b"{}")
     prof = tmp_path / "store/profiles/p1/profile.json"
     prof.parent.mkdir(parents=True)

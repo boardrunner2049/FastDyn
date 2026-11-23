@@ -36,6 +36,13 @@ LOGS = DATA / "logs"
 FIXTURE = (fastdyn_root() / "fixtures/b3")
 
 
+def _canonical_cache(features: int = 0) -> bytes:
+    from scopt.formats.sc_v5 import ScHeader
+
+    return ScHeader(b"QSCACHE1", 7, 80, 1 << 16, 0x7fff6c000000, 0, 0, 0,
+                    4096, 10, 152, features, 0).with_checksum().to_bytes()
+
+
 def _log(name: str) -> str:
     return (LOGS / name).read_text()
 
@@ -927,20 +934,15 @@ def test_prepare_direct_plumbing(tmp_path, monkeypatch):
     assert e.value.code == "run_dir_not_fresh"
 
 
-def test_proof_v6_checks_need_the_ext_table_bit(tmp_path):
-    """A version-6 header with EXT_TABLE clear is a v5 file with its version
-    field changed (B1-9): the proof keeps the v5 check list for it."""
+def test_proof_rejects_legacy_top_level_version(tmp_path):
     from scopt.formats.sc_v5 import ScHeader
     from scopt.run.proof import deployed_state
 
     h = ScHeader(b"QSCACHE1", 6, 80, 1 << 16, 0x7fff6c000000, 0, 0, 0, 4096, 10, 152, 0, 0)
     p = tmp_path / "a.sc"
     p.write_bytes(h.with_checksum().to_bytes())
-    st = deployed_state(p, None)
-    assert "ext_sha256" not in st and st["file_version"] == 6
-    p.write_bytes(h.replace(reserved=1).with_checksum().to_bytes())
-    st = deployed_state(p, None)
-    assert st["ext_sha256"].startswith("sha256:") and st["ext_artifact_id8"] == "00" * 8
+    with pytest.raises(ValueError, match="legacy cache version 6"):
+        deployed_state(p, None)
 
 
 # ---------------------------------------------------------------------------
@@ -1162,7 +1164,7 @@ def test_dynamic_oracles_incomplete_when_a_requested_oracle_is_not_run(tmp_path,
     _fake_runs(monkeypatch, stats=None)
     art = tmp_path / "art"
     art.mkdir()
-    (art / "cache.sc").write_bytes(b"")
+    (art / "cache.sc").write_bytes(_canonical_cache())
     base = tmp_path / "base"
     base.mkdir()
     cfg = tmp_path / "c.toml"
@@ -1327,7 +1329,7 @@ def test_dynamic_oracles_negative_control_o4_mode(tmp_path, monkeypatch):
     art, base = tmp_path / "art", tmp_path / "base"
     art.mkdir()
     base.mkdir()
-    (art / "cache.sc").write_bytes(b"")
+    (art / "cache.sc").write_bytes(_canonical_cache())
     cfg = tmp_path / "c.toml"
     cfg.write_text("x = 1\n")
     good = {"verdict": "PASS", "exit_code": 0, "guest_norm": ["Reg 0:0x00500000",
@@ -1377,9 +1379,9 @@ def test_dynamic_oracles_negative_control_o4_mode(tmp_path, monkeypatch):
                           quiet=True)
 
 
-def test_dynamic_oracles_refuses_v6_on_a_qemu_that_cannot_load_it(tmp_path, monkeypatch):
-    """Blocking review issue (part 2): a v6 artifact run on a v5-only binary
-    is refused before any launch (every v6 run there would be
+def test_dynamic_oracles_refuses_semantic_v7_on_incapable_qemu(tmp_path, monkeypatch):
+    """A semantic-v7 artifact on an incapable binary is refused before launch
+    (every run there would be
     INVALID_artifact_not_used)."""
     import hashlib
 
@@ -1389,7 +1391,7 @@ def test_dynamic_oracles_refuses_v6_on_a_qemu_that_cannot_load_it(tmp_path, monk
     art, base = tmp_path / "art", tmp_path / "base"
     art.mkdir()
     base.mkdir()
-    (art / "cache.sc").write_bytes(b"SCACHE\0\0" + (6).to_bytes(4, "little") + b"\0" * 64)
+    (art / "cache.sc").write_bytes(_canonical_cache((1 << 31) | 1))
     cfg = tmp_path / "c.toml"
     cfg.write_text("x = 1\n")
     exe = tmp_path / "qemu-v5only"
@@ -1406,14 +1408,14 @@ def test_dynamic_oracles_refuses_v6_on_a_qemu_that_cannot_load_it(tmp_path, monk
     with pytest.raises(O.OracleRefused) as e:
         O.dynamic_oracles(art, [cfg], tmp_path / "o", oracles=["O1"], baseline=base,
                           qemu=exe, quiet=True)
-    assert e.value.code == "v6_loader_required" and launched == []
+    assert e.value.code == "semantic_loader_required" and launched == []
     load_commands()
     res = CliRunner().invoke(cli, ["validate", str(art), "--dynamic", "--oracles", "O1",
                                    "-c", str(cfg), "--out", str(tmp_path / "o2"),
                                    "--baseline", str(base), "--qemu", str(exe),
                                    "--negative-control"])
-    assert res.exit_code == 2 and "v6_loader_required" in res.output, res.output
-    # control: the same binary declared v6-capable runs
+    assert res.exit_code == 2 and "semantic_loader_required" in res.output, res.output
+    # control: the same binary declared semantic-v7-capable runs
     monkeypatch.setenv("SCOPT_V6_EXES", sha)
     _fake_runs(monkeypatch)
     doc = O.dynamic_oracles(art, [cfg], tmp_path / "o3", oracles=["O1"], baseline=base,

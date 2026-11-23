@@ -121,7 +121,8 @@ def bound_launch(tmp_path):
                "purpose": "untimed training only, outer dispatch/link-write trace",
                "frozen": frozen, "input_bank": str(bank), "expected_guest": str(expected)}
     raw = {k: control[k] for k in ("qemu_sha256", "plugin_sha256", "ordinary_warm")}
-    raw.update(proof={"verdict": "PASS", "file_version": 7, "appended": 0, "n": 2, "record_count_after": 2},
+    raw.update(proof={"verdict": "PASS", "file_version": 7, "v7_kind": "public",
+                      "appended": 0, "n": 2, "record_count_after": 2},
                exact_guest_oracle=True, trace=str(trace), trace_sha256=file_sha256(trace),
                input={"input": {"path": str(bank), "sha256": file_sha256(bank)}},
                argv=[str(qemu), "-accel", f"tcg,supercache={cache}", "-plugin",
