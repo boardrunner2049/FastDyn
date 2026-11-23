@@ -19,6 +19,8 @@ and [trusted PGO pipeline](../../docs/sealed-whopr-7.md).
 | 6 | Trusted sealed public cache of the FirmBOLT guest |
 | 7 | Same trusted sealed capture with automatic hot-loop PGO |
 
+![Median firmware time in milliseconds for all seven configurations on six packet streams and two CLI sessions. Normal scopt was faster than ordinary warm on every input. Trusted PGO had mixed results against trusted sealed replay.](seven-configurations.png)
+
 Record the firmware work window in a fresh process for every arm. Build,
 capture, profile, optimize, compile launches and stage inputs before scoring.
 Stock uses the unmodified MPS2 board model and a start breakpoint plus
