@@ -26,7 +26,7 @@ from keystone import KS_ARCH_X86, KS_MODE_64, Ks, KsError
 
 from ..analysis.hostops import reg_family
 from ..decode.x86 import decoder, sweep, tiles
-from ..model.native import (HELPER_GRAPH_KIND, InlineCall, NativeFrameBody,
+from ..model.native import (HELPER_GRAPH_KIND, HelperCallLowering, InlineCall, NativeFrameBody,
                             NativeSplice)
 from ..model.unit import TBUnit
 from .native_inline import NativeInlineError, _require, _verify_bound_site
@@ -41,6 +41,14 @@ _ASSEMBLER = Ks(KS_ARCH_X86, KS_MODE_64)
 _ENDBR64 = bytes.fromhex("f30f1efa")
 _SUB_RSP_8 = bytes.fromhex("4883ec08")
 _ADD_RSP_8 = bytes.fromhex("4883c408")
+_PAST_RED_ZONE = bytes.fromhex("488d642480")       # lea rsp,[rsp-128]
+_RESTORE_RED_ZONE = bytes.fromhex("488da42480000000")  # lea rsp,[rsp+128]
+# Indirect transfers use a literal embedded in an unreachable MOVABS so the
+# complete host span still tiles as instructions. Neither transfer clobbers a
+# register. The absolute target always occupies precisely eight bytes.
+_ABS_JUMP = bytes.fromhex("ff2502000000 49bb")
+_ABS_CALL = bytes.fromhex("eb0a 49bb")
+_CALL_LITERAL = bytes.fromhex("ff15f2ffffff")
 
 
 def _signed(value: int, width: int) -> bytes:
@@ -87,17 +95,17 @@ def _absolute_rip(insn, target_abs: int) -> bytes:
     if insn.is_jump:
         _require(insn.rip_mem is not None and insn.rip_mem.size == 8,
                  "helper_graph_rip_operand", "indirect tail jump is not a qword pointer")
-        # Restore the scratch register and RSP while transferring to the loaded
-        # target. PUSH/MOV/XCHG/RET do not modify arithmetic flags.
-        return (_asm(f"push {scratch}") + _asm(f"mov {scratch}, {target_abs:#x}")
+        # Save below the entire SysV red zone. RET 128 consumes the target and
+        # releases the reservation as a single instruction, with flags intact.
+        return (_PAST_RED_ZONE + _asm(f"push {scratch}") + _asm(f"mov {scratch}, {target_abs:#x}")
                 + _asm(f"mov {scratch}, qword ptr [{scratch}]")
-                + _asm(f"xchg {scratch}, qword ptr [rsp]") + b"\xc3")
+                + _asm(f"xchg {scratch}, qword ptr [rsp]") + b"\xc2\x80\x00")
     replaced, count = _RIP_OPERAND.subn(f"[{scratch}]", insn.op_str)
     _require(count == 1, "helper_graph_rip_operand",
              f"expected one RIP operand in {insn.text()}")
     operation = f"{insn.mnemonic} {replaced}"
-    return (_asm(f"push {scratch}") + _asm(f"mov {scratch}, {target_abs:#x}")
-            + _asm(operation) + _asm(f"pop {scratch}"))
+    return (_PAST_RED_ZONE + _asm(f"push {scratch}") + _asm(f"mov {scratch}, {target_abs:#x}")
+            + _asm(operation) + _asm(f"pop {scratch}") + _RESTORE_RED_ZONE)
 
 
 def _direct_template(insn) -> bytes:
@@ -137,9 +145,8 @@ def _root_wrapper_plan(elf_address: int, code: bytes):
     Two compiler-emitted shapes are admitted.  A tail wrapper performs only
     register preparation followed by one external direct JMP.  A call wrapper
     has the exact SUB RSP,8 / direct CALL / ADD RSP,8 alignment pair and one
-    final RET.  Removing the outer TCG CALL makes the caller's pre-call stack
-    alignment the alignment needed by the retained inner call, so the pair is
-    removed together.  No general stack-frame rewrite is attempted here.
+    final RET. The call-wrapper form uses the ordinary graph emitter so that
+    the callee sees its actual incoming stack arguments and flags.
     """
     insns = sweep(code, elf_address)
     if not insns or not tiles(insns, elf_address, elf_address + len(code)):
@@ -148,6 +155,14 @@ def _root_wrapper_plan(elf_address: int, code: bytes):
                   if insn.raw != _ENDBR64 and insn.mnemonic != "nop"]
     if not meaningful:
         return None
+    # A wrapper transfers to a separate body. Keep edges into the root in
+    # the normal graph linker, including recursive edges. Capstone exposes
+    # some relative opcodes (e.g. LOOP) outside the jump group.
+    for insn in meaningful:
+        if insn.branch_target is not None and (
+                elf_address <= insn.branch_target < elf_address + len(code)
+                or not (insn.is_call or insn.is_jump)):
+            return None
 
     last = meaningful[-1]
     if (last.mnemonic == "jmp" and last.branch_target is not None
@@ -173,8 +188,7 @@ def _root_wrapper_plan(elf_address: int, code: bytes):
     if any(_observes_rsp(insn) for insn in meaningful
            if insn.address not in removed and insn is not calls[0]):
         return None
-    body = tuple(insn for insn in meaningful if insn.address not in removed)
-    return "call", body, calls[0].branch_target, calls[0].address
+    return "call", (), calls[0].branch_target, calls[0].address
 
 
 def root_wrapper_refusal(elf_address: int, code: bytes) -> tuple[str, str] | None:
@@ -193,16 +207,19 @@ def _root_wrapper_fallthrough_code(elf_address: int, target_abs: int,
     plan = _root_wrapper_plan(elf_address, graph[0].code)
     if plan is None:
         return None
-    _, body, callee_elf, call_address = plan
-    inner = _asm(f"mov r11, {target_abs + callee_elf - elf_address:#x}") + _asm("call r11")
+    kind, body, callee_elf, _ = plan
+    if kind != "tail":
+        # Removing the alignment pair changes the inner callee's stack by
+        # 16 bytes, even when its flags are dead inside the wrapper.
+        return None
     code = bytearray()
     for insn in body:
-        if call_address is not None and insn.address == call_address:
-            code.extend(inner)
+        if insn.rip_target is not None:
+            code.extend(_absolute_rip(insn, target_abs + insn.rip_target - elf_address))
         else:
             code.extend(insn.raw)
-    if call_address is None:
-        code.extend(inner)
+    target = target_abs + callee_elf - elf_address
+    code.extend(_ABS_CALL + target.to_bytes(8, "little") + _CALL_LITERAL)
     padding = (call_size - len(code)) % 8
     code.extend(_PADDING[padding])
     return bytes(code)
@@ -221,14 +238,23 @@ def _leaf_fallthrough_code(call_size: int,
     """
     if len(graph) != 1:
         return None
-    body = graph[0]
+    return _closed_fallthrough_code(call_size, graph[0], {})
+
+
+def _closed_fallthrough_code(call_size: int | None, body: NativeFrameBody,
+                             substitutions: dict[int, bytes]) -> bytes | None:
+    """Emit a closed body with proved stack-independent replacements for direct calls."""
     instructions = sweep(body.code, body.address)
     if (not instructions or not tiles(instructions, body.address, body.address + len(body.code))
             or instructions[-1].raw != b"\xc3"):
         return None
     by_address = {insn.address: insn for insn in instructions}
     for insn in instructions:
-        if insn.is_call or insn.rip_target is not None:
+        if insn.is_call:
+            if insn.raw[:1] != b"\xe8" or len(insn.raw) != 5 or insn.branch_target not in substitutions:
+                return None
+            continue
+        if insn.rip_target is not None or (insn.branch_target is not None and not insn.is_jump):
             return None
         if insn.is_ret:
             if insn.raw != b"\xc3":
@@ -286,11 +312,13 @@ def _leaf_fallthrough_code(call_size: int,
             plans[insn.address] = ("return", encoded, None)
         elif insn.is_jump:
             plans[insn.address] = ("direct", _direct_template(insn), insn.branch_target)
+        elif insn.is_call:
+            plans[insn.address] = ("bytes", substitutions[insn.branch_target], None)
         else:
             plans[insn.address] = ("bytes", insn.raw, None)
         cursor += len(plans[insn.address][1])
 
-    padding = (call_size - cursor) % 8
+    padding = 0 if call_size is None else (call_size - cursor) % 8
     continuation = cursor + padding
     code = bytearray()
     for insn in instructions:
@@ -308,15 +336,21 @@ def _leaf_fallthrough_code(call_size: int,
     return bytes(code)
 
 
-@lru_cache(maxsize=64)
 def _build_code(elf_address: int, callee_code: bytes, target_abs: int,
                 call_size: int, graph: tuple[NativeFrameBody, ...]) -> bytes:
+    return _compile_graph(elf_address, target_abs, call_size, graph)[0]
+
+
+@lru_cache(maxsize=64)
+def _compile_graph(elf_address: int, target_abs: int,
+                   call_size: int, graph: tuple[NativeFrameBody, ...]):
     wrapper = _root_wrapper_fallthrough_code(elf_address, target_abs, call_size, graph)
     if wrapper is not None:
-        return wrapper
+        tail = _root_wrapper_plan(elf_address, graph[0].code)[0] == "tail"
+        return wrapper, HelperCallLowering("shared-wrapper", 1, 0, int(not tail), int(tail))
     leaf = _leaf_fallthrough_code(call_size, graph)
     if leaf is not None:
-        return leaf
+        return leaf, HelperCallLowering("fallthrough", 1, 0, 0)
     decoded = {}
     ranges = []
     for body in graph:
@@ -369,10 +403,9 @@ def _build_code(elf_address: int, callee_code: bytes, target_abs: int,
             source_to_output[insn.address] = cursor
             cursor += len(plans[insn.address][1])
     stubs = {}
-    stub_bytes = _asm("mov r11, 0x1122334455667788") + _asm("jmp r11")
     for target in sorted(external_direct):
         stubs[target] = cursor
-        cursor += len(stub_bytes)
+        cursor += len(_ABS_JUMP) + 8
 
     code = bytearray(_LEA_R11_RIP + bytes(4) + _PUSH_R11)
     for body in ordered:
@@ -384,8 +417,7 @@ def _build_code(elf_address: int, callee_code: bytes, target_abs: int,
     for target in sorted(external_direct):
         _require(len(code) == stubs[target], "helper_graph_correspondence",
                  "external thunk layout is inconsistent")
-        code.extend(_asm(f"mov r11, {bias + target:#x}"))
-        code.extend(_asm("jmp r11"))
+        code.extend(_ABS_JUMP + (bias + target).to_bytes(8, "little"))
 
     for body in ordered:
         for insn in decoded[body.address]:
@@ -413,10 +445,12 @@ def _build_code(elf_address: int, callee_code: bytes, target_abs: int,
     continuation = len(code)
     code[3:7] = _signed(continuation - 7, 4)
 
-    return bytes(code)
+    retained = sum(insn.is_call for insns in decoded.values() for insn in insns)
+    return bytes(code), HelperCallLowering("synthetic-return", len(graph), 0, retained)
 
 
-def _build(request: InlineCall, graph: tuple[NativeFrameBody, ...]) -> NativeSplice:
+def _build(request: InlineCall, graph: tuple[NativeFrameBody, ...], *,
+           selected_root: bool = False) -> NativeSplice:
     _require(bool(graph) and graph[0] == NativeFrameBody(request.elf_address,
                                                         request.callee_code),
              "helper_graph_origin", "graph root differs from the captured helper")
@@ -425,22 +459,31 @@ def _build(request: InlineCall, graph: tuple[NativeFrameBody, ...]) -> NativeSpl
     _require(request.continuation_off == request.call_off + len(request.call_bytes)
              and len(request.call_bytes) in (5, 6),
              "helper_graph_origin", "expected one captured x86-64 helper CALL")
-    code = _build_code(request.elf_address, request.callee_code, request.target_abs,
-                       len(request.call_bytes), graph)
+    if selected_root:
+        from .selected_helper import lower_selected_root
+
+        code, children, lowering = lower_selected_root(graph[0], graph[1:], request.target_abs,
+                                                       len(request.call_bytes))
+    else:
+        code, lowering = _compile_graph(request.elf_address, request.target_abs,
+                                        len(request.call_bytes), graph)
+        children = graph[1:]
 
     return NativeSplice(request.call_off, b"", code, HELPER_GRAPH_KIND,
-                        depth=0, frame_chain=graph[1:])
+                        depth=0, frame_chain=children, selected_root=selected_root,
+                        call_lowering=lowering)
 
 
 def prepare_helper_graph_splice(unit: TBUnit, request: InlineCall, code_address: int,
-                                graph: tuple[NativeFrameBody, ...]) -> NativeSplice:
+                                graph: tuple[NativeFrameBody, ...], *,
+                                selected_root: bool = False) -> NativeSplice:
     _verify_bound_site(unit, request, code_address, required_flags=None, allow_ldst=True)
     base = code_address + unit.tc_offset
     from ..decode.x86 import sweep
 
     code_end = unit.pool_start if unit.pool_start is not None else unit.ldst_end
     callers = sweep(unit.code[:code_end], base)
-    splice = _build(request, graph)
+    splice = _build(request, graph, selected_root=selected_root)
     _verify_span(unit, request, splice, base, callers, allow_ldst=True)
     return splice
 
@@ -450,7 +493,7 @@ def verify_helper_graph_splice_body(request: InlineCall) -> None:
     _require(splice is not None and splice.kind == HELPER_GRAPH_KIND,
              "helper_graph_correspondence", "trusted helper graph record required")
     expected = _build(request, (NativeFrameBody(request.elf_address, request.callee_code),
-                                *splice.frame_chain))
+                                *splice.frame_chain), selected_root=splice.selected_root)
     _require(expected == replace(splice, branches=()), "helper_graph_correspondence",
              "helper graph bytes, source bodies, or relocations differ")
 
@@ -461,6 +504,7 @@ def verify_helper_graph_splice(unit: TBUnit, request: InlineCall, code_address: 
              "helper_graph_correspondence", "trusted helper graph record required")
     expected = prepare_helper_graph_splice(
         unit, request, code_address,
-        (NativeFrameBody(request.elf_address, request.callee_code), *splice.frame_chain))
+        (NativeFrameBody(request.elf_address, request.callee_code), *splice.frame_chain),
+        selected_root=splice.selected_root)
     _require(expected == replace(splice, branches=()), "helper_graph_correspondence",
              "helper graph differs from the frozen source and original call site")

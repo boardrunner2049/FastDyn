@@ -63,7 +63,7 @@ def archive_function_footprints(snap, exe, calls):
     """Costs from hash-matched archived QEMU bytes. Never issue splice certificates."""
     import io
     from elftools.elf.elffile import ELFFile
-    from scopt.analysis.native_callees import _verified_captures
+    from scopt.analysis.native_callees import _snapshot_captures
     from scopt.decode.symbols import read_elf
     from scopt.decode.x86 import sweep
     from scopt.importer.classify import HostContext
@@ -79,7 +79,7 @@ def archive_function_footprints(snap, exe, calls):
         raise ValueError("archived function disassembly requires x86-64 QEMU")
     source.seek(0)
     image = read_elf(source, str(exe))
-    joined, ids = _verified_captures(snap)
+    joined, ids = _snapshot_captures(snap, authenticate=True)
     by_uid = {u.uid: joined.slots[u.slot].source for u in snap.units()
               if u.slot in joined.slots and joined.slots[u.slot].bound}
     contexts, addresses = {}, {}

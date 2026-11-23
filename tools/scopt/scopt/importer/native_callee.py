@@ -94,7 +94,7 @@ class NativeCalleeResolver:
     def __init__(self, context: HostContext, run_info: RunInfo,
                  runtime: Mapping[str, Any], capture_id: str,
                  images: dict[str, _NativeImage] | None = None, *,
-                 trust_files: bool = False):
+                 trust_files: bool = False, immediate_helpers: bool = False):
         self._context = context
         self._run_info = run_info
         self._runtime = runtime
@@ -102,7 +102,9 @@ class NativeCalleeResolver:
         self._images = {} if images is None else images
         self._frame_chains = {}
         self._helper_graphs = {}
+        self._incomplete_graphs = {}
         self._trust_files = trust_files
+        self._immediate_helpers = immediate_helpers
 
     def _trusted_image(self, mapping: MapEntry) -> tuple[str, _NativeImage]:
         """Open a user-vouched compiler input without authenticating it.
@@ -176,6 +178,8 @@ class NativeCalleeResolver:
         from ..decode.x86 import sweep, tiles
 
         key = (mapping.path, bias, address)
+        if key in self._incomplete_graphs:
+            raise CalleeResolutionError("helper_graph_incomplete", self._incomplete_graphs[key])
         if key in self._helper_graphs:
             return self._helper_graphs[key]
         bodies = {address: NativeFrameBody(address, code)}
@@ -185,8 +189,9 @@ class NativeCalleeResolver:
             body = bodies[current]
             insns = sweep(body.code, body.address)
             if not insns or not tiles(insns, body.address, body.address + len(body.code)):
-                self._helper_graphs[key] = ()
-                return ()
+                detail = f"helper graph rooted at {address:#x}: cannot decode body {body.address:#x}"
+                self._incomplete_graphs[key] = detail
+                raise CalleeResolutionError("helper_graph_incomplete", detail)
             for insn in insns:
                 target = insn.branch_target
                 if target is None or body.address <= target < body.address + len(body.code):
@@ -199,9 +204,13 @@ class NativeCalleeResolver:
                     continue
                 child = self._text_bytes(image, mapping, bias, target, symbol.size)
                 if child is None:
-                    continue
+                    detail = (f"helper graph rooted at {address:#x}: cannot read target {target:#x} "
+                              f"from edge {insn.address:#x}")
+                    self._incomplete_graphs[key] = detail
+                    raise CalleeResolutionError("helper_graph_incomplete", detail)
                 bodies[target] = NativeFrameBody(target, child)
-                pending.append(target)
+                if not self._immediate_helpers:
+                    pending.append(target)
         graph = tuple(bodies[entry] for entry in sorted(bodies) if entry != address)
         self._helper_graphs[key] = graph
         return graph

@@ -23,6 +23,7 @@ def build_firmware_region(snapshot: Any, image: Any, calls: FirmwareCalls,
                           units: tuple[Any, ...] | None = None,
                           by_uid: dict[str, Any] | None = None,
                           compatibility: dict[tuple[int, int, int, int], str] | None = None,
+                          expand_nested: bool = True,
                           ) -> FirmwareRegionPlan:
     """Expand one eligible call through captured acyclic callees to a fixed point.
 
@@ -102,6 +103,14 @@ def build_firmware_region(snapshot: Any, image: Any, calls: FirmwareCalls,
                                                     None, nested.target_vaddr,
                                                     refusal_reason=reason))
                     pending.append({"callsite_id": nested.callsite_id, "reason": reason})
+                    continue
+                if not expand_nested:
+                    # Original translated call effects have already executed.
+                    # The original exit can dispatch to the public callee,
+                    # whose return resumes at the ordinary guest continuation.
+                    edges.append(FirmwareRegionEdge(source_member, exit_.id, "side_exit",
+                                                    None, nested.target_vaddr,
+                                                    refusal_reason="nested_call_kept_public"))
                     continue
                 nested_uid = nested.callee_candidates[0]
                 semantic = nested_uid, by_uid[nested_uid].key

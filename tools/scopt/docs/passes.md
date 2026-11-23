@@ -229,6 +229,24 @@ steady evidence.
 
 ## `firmware-inline@1`
 
+The `hot-loop-firmware-inline` pipeline selects verified guest call instructions
+inside cycles on the observed TB graph. It requires 1,000 observed transfers to
+the verified callee on the training input by default (`min_call_count`). It embeds
+one callee layer. Nested guest calls keep their public exit. Loop iterations reuse
+the emitted body. The guest ELF remains the input image.
+
+```sh
+scopt optimize "$SNAP" --pipeline hot-loop-firmware-inline --pgo-launch "$BASE/launch.json" \
+  --elf "$ELF" --runtime-identity "$RUNTIME_JSON" --v7-exe "$QEMU_SHA256_ID" --store "$OUT"
+```
+
+The safe region backend requires a bound environment layout for that QEMU build.
+Inspect the pass outcome and embedded-site count in the receipt. A published
+identity artifact can also result from a skipped pass.
+
+The [FreeRTOS hot-loop experiment](../experiments/hot-loop-inline/README.md)
+includes paired guest and helper timings, activation evidence and raw results.
+
 Builds a call-site-specific private executable region from captured QEMU translations.
 Calls are discovered only from verified Thumb `BL` instructions joined to capture exit
 metadata. The emitted v7 region contains a private caller copy, the captured callee CFG,
@@ -342,6 +360,33 @@ contract, commands, measurements and remaining indirect-transfer lookups.
 
 ## `host-inline@1`
 
+The `hot-loop-inline` pipeline counts native QEMU helper invocations during an
+ordinary fixed-input training replay and selects the sites inside observed guest
+cycles. Supply the compiled training launch once. Scopt generates the call-site
+counts, the TB-edge profile and the optimized artifact.
+
+```sh
+scopt optimize "$SNAP" --pipeline hot-loop-inline --pgo-launch "$BASE/launch.json" --store "$OUT"
+```
+
+The experimental policy requires 1,000 actual calls per training run
+(`host-inline.min_site_calls` in the params JSON). This threshold is tunable.
+The compiler folds eligible roots and immediate leaf callees. Set
+`include_hot_shared_wrappers=true` to additionally test wrappers that keep a
+call to shared QEMU code. Each emitted site's `call_lowering` receipt
+identifies the transfers retained, eliminated or introduced.
+
+Both pipelines accept an existing phase-specific `--profile` for the observed
+edges. With automatic edge collection, QEMU's unmarked phase zero covers the
+whole run. The helper counters always cover the full training replay. A cycle in
+this profile can span an interprocedural path. A bounded training scenario for
+a long-running task must stop after a defined amount of work. On Linux x86-64,
+the collector uses a fixed-address sealed cache, a private copy of each declared RAM
+bank and GDB to read the counts at process exit. The compiled launch can declare
+`helper_pgo_oracle.output_pattern` and `completion_pattern` to match guest
+output and the harness completion marker. The default matches the register
+transcript and firmware BENCH marker.
+
 Inlines certified native helper bodies or splices them into translated blocks. Modes
 cover bounded recursive depth, partial-site publication, exception-capable helpers,
 compact frames, and native unsigned-division lowering. The pass preserves the host ABI,
@@ -361,9 +406,9 @@ stack alignment, guest-state effects, fault paths, and recovery metadata.
   `trusted_root_wrapper_only=true` is a separate runtime-profitability experiment:
   it admits tiny captured QEMU ABI wrappers, removes the outer indirect TCG helper
   call, and leaves the shared slow-path body shared. Exact tail wrappers become one
-  internal call followed by the translated continuation. Exact `sub rsp,8` / call /
-  `add rsp,8` wrappers lose that redundant alignment pair when the outer call is
-  removed. General stack frames, open control flow, and non-wrapper roots are refused.
+  call to the shared body followed by the translated continuation. Wrappers
+  with stack frames require the frame-preserving path. Their alignment
+  arithmetic can affect flags and the location of stack arguments.
   Profile ranking requires an exact call count. A TB-entry count qualifies only when
   the call is conservatively on every path through the TB; out-of-line load/store
   slow paths never qualify. `trusted_allow_tb_entry_proxy=true` explicitly restores

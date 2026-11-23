@@ -78,7 +78,7 @@ import tempfile
 import time
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -391,12 +391,12 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
     spliced = {}
     errors = []
     stores = {}
-    prepared_base = None
+    prepared_by_scope = {}
     code_address = snapshot.header.code_address
 
     @cache
-    def pre_chain_input_id(bridge_sha256):
-        return stores[bridge_sha256][1].pre_chain_input_id()
+    def pre_chain_input_id(store_key):
+        return stores[store_key][1].pre_chain_input_id()
 
     for lu in extended:
         original = snapshot.unit(lu.uid)
@@ -421,23 +421,28 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                     verify_udiv_variant(original, call, code_address)
                 elif not framed and not helper_graph:
                     verify_site(original, call, code_address)
-                if call.bridge_sha256 not in stores:
+                immediate = bool(helper_graph and call.splice.selected_root)
+                store_key = (call.bridge_sha256, helper_graph, immediate)
+                if store_key not in stores:
                     from .passes.host_inline import (BACKEND_REVISION, BRIDGE_VERSION,
                                                       POLICY_VERSION)
 
-                    if prepared_base is None:
-                        prepared_base = prepare_native_images(
+                    scope_key = (helper_graph, immediate)
+                    if scope_key not in prepared_by_scope:
+                        prepared_by_scope[scope_key] = prepare_native_images(
                             snapshot, backend_revision=BACKEND_REVISION,
                             bridge_version=BRIDGE_VERSION, policy_version=POLICY_VERSION,
-                            bridge_sha256=None)
-                    native = bind_native_image_bridge(prepared_base, call.bridge_sha256)
+                            bridge_sha256=None, trust_files=helper_graph, immediate_helpers=immediate,
+                            authenticate_trusted=helper_graph)
+                    native = bind_native_image_bridge(prepared_by_scope[scope_key], call.bridge_sha256)
                     analysis = AnalysisStore(snapshot, external_inputs={"native-images": native})
                     layout = analysis.get("envlayout", ScopeRef("snapshot", snapshot.snapshot_id)).value
                     if not layout["bound"] and not helper_graph:
                         raise ValueError("native validation needs the exact QEMU EnvLayout")
-                    stores[call.bridge_sha256] = (analysis, native.value)
-                analysis, _ = stores[call.bridge_sha256]
-                rows = analysis.get("native-callees", ScopeRef("unit", lu.uid)).value
+                    stores[store_key] = (analysis, native.value)
+                analysis, _ = stores[store_key]
+                rows = analysis.get("native-callees", ScopeRef("unit", lu.uid),
+                                    min_version=2 if helper_graph else 1).value
                 certified = next((row for row in rows if row.call.host_off == call.call_off), None)
                 if (certified is None or certified.callee is None or
                         certified.call.guest_pcs != call.guest_pcs or
@@ -452,14 +457,18 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                 if certified.input_id != call.native_input_id:
                     # An older integer certificate may share its manifest with a
                     # plugin binding for which a frame chain is now discoverable.
-                    if ((framed and call.splice.frame_chain)
-                            or call.native_input_id != pre_chain_input_id(call.bridge_sha256)):
+                    if (helper_graph or (framed and call.splice.frame_chain)
+                            or call.native_input_id != pre_chain_input_id(store_key)):
                         raise ValueError("native input digest does not match the bound images")
                 if helper_graph:
                     from .validate_sym.native_helper_graph import verify_helper_graph_splice
 
                     verify_helper_graph_splice(original, call, code_address)
-                    if (call.splice.frame_chain != certified.callee.frame_chain
+                    expected_chain = certified.callee.frame_chain
+                    if immediate:
+                        from .validate_sym.selected_helper import selected_frame_chain
+                        expected_chain = selected_frame_chain(call, expected_chain)
+                    if (call.splice.frame_chain != expected_chain
                             or certified.callee.role != "qemu"
                             or certified.callee.abi != "sysv-amd64"):
                         raise ValueError("trusted helper graph differs from the captured QEMU image")
@@ -1250,6 +1259,8 @@ class ValidateAndPackage:
                                      "helper_id": call.helper_id, "symbol": call.symbol,
                                      "target": hex(call.target_abs), "graph": graph_id,
                                      "emitted_bytes": len(call.splice.code)})
+                if call.splice.call_lowering is not None:
+                    inline_sites[-1]["call_lowering"] = asdict(call.splice.call_lowering)
         host_record = next((record for record in c.passes
                             if record.name == "host-inline"
                             and record.params.get("trusted_all_helpers")), None)

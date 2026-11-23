@@ -1,3 +1,6 @@
+import ctypes
+import mmap
+import platform
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -137,13 +140,13 @@ def test_root_tail_wrapper_calls_shared_body_then_falls_through():
 
     instructions = sweep(splice.code, 0)
     assert root_wrapper_refusal(0x1000, root) is None
-    assert not any(insn.is_ret or insn.mnemonic == "jmp" for insn in instructions)
+    assert not any(insn.is_ret for insn in instructions)
     assert sum(insn.is_call for insn in instructions) == 1
     assert bytes.fromhex("4881efc02b0000") in splice.code
     assert (request.target_abs + 0x100).to_bytes(8, "little") in splice.code
 
 
-def test_root_aligned_call_wrapper_drops_outer_stack_pair():
+def test_root_aligned_call_wrapper_preserves_inner_stack_and_flags():
     # endbr64; sub rsp,8; sub rdi,0x2bc0; call 0x1100; add rsp,8;
     # movzx eax,ax; ret
     root = bytes.fromhex(
@@ -152,11 +155,11 @@ def test_root_aligned_call_wrapper_drops_outer_stack_pair():
     splice = _build(request, (NativeFrameBody(0x1000, root),))
 
     assert root_wrapper_refusal(0x1000, root) is None
-    assert bytes.fromhex("4883ec08") not in splice.code
-    assert bytes.fromhex("4883c408") not in splice.code
+    assert bytes.fromhex("4883ec08") in splice.code
+    assert bytes.fromhex("4883c408") in splice.code
     instructions = sweep(splice.code, 0)
     assert sum(insn.is_call for insn in instructions) == 1
-    assert not any(insn.is_ret for insn in instructions)
+    assert any(insn.is_ret for insn in instructions)
     assert bytes.fromhex("0fb7c0") in splice.code
 
 
@@ -165,6 +168,52 @@ def test_root_wrapper_rejects_general_stack_frame():
     refusal = root_wrapper_refusal(0x1000, root)
     assert refusal is not None
     assert refusal[0] == "not_root_wrapper"
+
+
+@pytest.mark.skipif(platform.system() != "Linux" or platform.machine() != "x86_64",
+                    reason="executes native SysV x86-64 code")
+@pytest.mark.parametrize(("source", "child", "expected", "wrapper"), [
+    # lea rax,[rip+disp32]; jmp child. The address must still name the source data.
+    ("488d0539000000 e9f4000000", "c3", "data_address", True),
+    # sub rsp,8; call child; add rsp,8; sete al; ret. ADD clears the child's ZF.
+    ("4883ec08 e8f7000000 4883c408 0f94c0 c3", "31c0 c3", 0, True),
+    # The ADD flags also matter when SUB's flags were killed before the call.
+    ("4883ec08 39c0 e8f5000000 4883c408 0f94c0 c3", "31c0 c3", 0, True),
+    # The inner callee observes an outgoing stack argument.
+    ("4883ec08 e8f7000000 4883c408 c3", "488b442418 c3", 42, True),
+    # A private inner target consumes the wrapper's R11.
+    ("41bb2a000000 e9f5000000", "4c89d8 c3", 42, True),
+    ("4883ec08 41bb2a000000 e8f1000000 4883c408 c3", "4c89d8 c3", 42, True),
+    # mov [rsp-8],42; mov eax,[rip+disp32]; mov rax,[rsp-8]; ret
+    ("48c74424f82a000000 8b0531000000 488b4424f8 c3", "c3", 42, False),
+    # The indirect tail transfer must preserve the red-zone value and original RSP.
+    ("48c74424f82a000000 ff2531000000", "488b4424f8 c3", 42, False),
+])
+def test_native_graph_matches_original_after_relocation(source, child, expected, wrapper):
+    root = bytes.fromhex(source)
+    assert (root_wrapper_refusal(0x1000, root) is None) == wrapper
+    # One page contains both functions, pointer data, the baseline caller, and
+    # the optimized caller. The two callers enter with the same stack alignment.
+    with mmap.mmap(-1, mmap.PAGESIZE, prot=mmap.PROT_READ | mmap.PROT_WRITE) as page:
+        address = ctypes.addressof(ctypes.c_char.from_buffer(page))
+        page[:len(root)] = root
+        page[64:72] = (address + 256).to_bytes(8, "little")
+        child = bytes.fromhex(child)
+        page[256:256 + len(child)] = child
+        request = replace(_request(root), target_abs=address)
+        splice = _build(request, (NativeFrameBody(0x1000, root),))
+        prologue = bytes.fromhex("4883ec18 48c704242a000000 48c744241049000000")
+        epilogue = bytes.fromhex("4883c418 c3")
+        call = b"\xe8" + (-(512 + len(prologue) + 5)).to_bytes(4, "little", signed=True)
+        for offset, body in ((512, call), (1024, splice.code)):
+            caller = prologue + body + epilogue
+            page[offset:offset + len(caller)] = caller
+        libc = ctypes.CDLL(None)
+        assert libc.mprotect(ctypes.c_void_p(address), ctypes.c_size_t(len(page)),
+                             mmap.PROT_READ | mmap.PROT_EXEC) == 0
+        target = address + 64 if expected == "data_address" else expected
+        func = ctypes.CFUNCTYPE(ctypes.c_uint64)
+        assert func(address + 512)() == func(address + 1024)() == target
 
 
 def test_leaf_fallthrough_validator_rebuilds_and_rejects_changed_bytes():
@@ -200,8 +249,8 @@ def test_helper_graph_retains_external_calls_as_exact_relocations():
     assert not splice.relocations
     call = next(insn for insn in sweep(splice.code, 0) if insn.address == 9)
     thunk = call.branch_target
-    assert splice.code[thunk:thunk + 2] == bytes.fromhex("49bb")
-    assert int.from_bytes(splice.code[thunk + 2:thunk + 10], "little") == (
+    assert splice.code[thunk:thunk + 8] == bytes.fromhex("ff2502000000 49bb")
+    assert int.from_bytes(splice.code[thunk + 8:thunk + 16], "little") == (
         request.target_abs - request.elf_address + 0x2000)
 
 

@@ -95,7 +95,8 @@ def _snapshot_captures(snapshot: Any, *, authenticate: bool):
 
 def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_version: int,
                           policy_version: int, bridge_sha256: str | None = None,
-                          trust_files: bool = False) -> AnalysisInput:
+                          trust_files: bool = False, immediate_helpers: bool = False,
+                          authenticate_trusted: bool = False) -> AnalysisInput:
     """Read image and capture files before analysis and freeze the verified function bytes.
 
     Build a fresh input for each optimization invocation. No analysis compute
@@ -120,7 +121,8 @@ def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_versio
         reason, detail = "native_image_unavailable", "snapshot has no stored capture"
     else:
         try:
-            joined, ids = _snapshot_captures(snapshot, authenticate=not trust_files)
+            skip_authentication = trust_files and not authenticate_trusted
+            joined, ids = _snapshot_captures(snapshot, authenticate=not skip_authentication)
             capture_ids = tuple(sorted(ids.values()))
             if not capture_ids:
                 reason, detail = "native_image_unavailable", "snapshot has no stored capture"
@@ -139,7 +141,7 @@ def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_versio
                         context = HostContext.from_capture(cap)
                         resolvers[cap.path] = NativeCalleeResolver(
                             context, cap.run_info, runtime, ids[cap.path], images,
-                            trust_files=trust_files)
+                            trust_files=skip_authentication, immediate_helpers=immediate_helpers)
                     resolver = resolvers[cap.path]
                     for helper in unit.bindings.helpers:
                         key = unit.uid, helper.id
@@ -171,7 +173,10 @@ def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_versio
                                    MappingProxyType(bindings), trust_files, reason, detail,
                                    MappingProxyType(site_bindings),
                                    MappingProxyType(address_bindings))
-    digest = value_digest([NATIVE_IMAGES, MANIFEST_VERSION, manifest])
+    disclosure = [NATIVE_IMAGES, MANIFEST_VERSION, manifest]
+    if immediate_helpers:
+        disclosure.append("immediate-helpers")
+    digest = value_digest(disclosure)
     return AnalysisInput(digest, manifest)
 
 
@@ -227,7 +232,8 @@ def _compute(ctx: Any, scope: ScopeRef, host_version: int = 2
                 if row is None and manifest.trust_files:
                     site_target = manifest.site_bindings.get((call.uid, call.host_off))
                     row = manifest.address_bindings.get(site_target)
-                    if row is not None and (row.callee is None or
+                    if row is not None and (site_target != call.target_abs or
+                                            row.callee is not None and
                                             row.callee.runtime_address != call.target_abs):
                         row = None
                 if row is None or (row.helper != actual and

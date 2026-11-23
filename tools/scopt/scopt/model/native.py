@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..canon import canonical_json, sha256_id
@@ -115,6 +115,17 @@ class NativeFrameBody:
 
 
 @dataclass(frozen=True, slots=True)
+class HelperCallLowering:
+    """Static machine-code counts collected by the emitter for the compile receipt."""
+
+    root_transfer: str
+    copied_body_instances: int
+    nested_calls_eliminated: int
+    nested_calls_retained: int
+    wrapper_calls_introduced: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class NativeSplice:
     """Fall-through replacement of a native call and any rewritten argument setup."""
 
@@ -127,6 +138,9 @@ class NativeSplice:
     compact_frame: bool = False
     branches: tuple[NativeBranchRelaxation, ...] = ()
     frame_chain: tuple[NativeFrameBody, ...] = ()
+    # Explicit for deterministic emission, round trips and independent audit.
+    selected_root: bool = False
+    call_lowering: HelperCallLowering | None = field(default=None, compare=False)
 
     @property
     def physical_start(self) -> int:
@@ -162,6 +176,8 @@ class NativeSplice:
             doc["branches"] = [row.to_json() for row in self.branches]
         if self.frame_chain:
             doc["frame_chain"] = [body.to_json() for body in self.frame_chain]
+        if self.selected_root:
+            doc["selected_root"] = True
         return doc
 
 
@@ -233,7 +249,11 @@ class InlineCall:
             tuple(NativeBranchRelaxation(row["source_off"], bytes.fromhex(row["source_bytes"]))
                   for row in splice_doc.get("branches", ())),
             tuple(NativeFrameBody(row["address"], bytes.fromhex(row["code"]))
-                  for row in splice_doc.get("frame_chain", ())))
+                  for row in splice_doc.get("frame_chain", ())),
+            splice_doc.get("selected_root", False))
+        if splice is not None and (type(splice.selected_root) is not bool
+                                   or splice.selected_root and splice.kind != HELPER_GRAPH_KIND):
+            raise ValueError("invalid selected_root lowering")
         result = cls(data["target"], data["unit_hash"], data["call_off"],
                      bytes.fromhex(data["call_bytes"]), data["continuation_off"],
                      data["helper_id"], data["target_abs"], data["pool_slot_off"],

@@ -1,0 +1,728 @@
+{
+  "experiment_id": "A28-A29-hot-loop-freeRTOS-compute",
+  "firmware": "FreeRTOS compute O0-fb RTOSDemo.out",
+  "guest_image": "sha256:708d3da907bf058bcb6933bf36fc63806b3c7e2ce7b0b5b4a64368cf73ce5002",
+  "snapshot": "sha256:adc9c820fdb4819960b7b3c24a53389337046a2635eaa6489d8a6bd2c0754d94",
+  "fastdyn_checkout_before_edits": "c44739043560e578d3671d7e25a3d202c47e0c7d",
+  "qemu_checkout": "86f583abc6d18f28c668a362a17f7ddf3e80c2c8",
+  "runtime": {
+    "qemu_sha256": "sha256:ab3fcecd62055ffa54424e605375d6edc0d9576858bb23ff298c6558f7f9a63c",
+    "plugin_sha256": "sha256:15ed0f8d8fbbbcb3a5d1167c31e3dbe107147a4b2018a51eab32b8f8aca191e6",
+    "normalized_config_sha256": "sha256:736b18021457837873c40b32bc81ddb03ce827285ccc3b024311686a903fb323",
+    "runtime_identity_id": "sha256:c4cfa92603a2a71d39042c4e935a16189392b0fce69ff69537b7362e3c69c3ce",
+    "code_address": "0x7fff6c000000",
+    "target_page_bits": 10
+  },
+  "input_banks": {
+    "ram0.ram": "2daeb1f36095b44b318410b3f4e8b5d989dcc7bb023d1426c492dab0a3053e74",
+    "input.ram": "933a1ccdf9c6784f96793b5fd8508f38d7bc4f60659d989105f9645188057d03"
+  },
+  "training": {
+    "site_count": 22025,
+    "sites_reached": 729,
+    "site_calls": 17811707,
+    "launch_sha256": "b203fdde4847748d9cf17f03ddd0456daf4b228aeabc807c21bd071d2ddac34e"
+  },
+  "holdout": "same fixed workload, development only",
+  "timing": "Native [BENCH][fw] elapsed_ns, one fresh QEMU per arm, randomized order within block",
+  "experiments": {
+    "guest_12": {
+      "pairs": 8,
+      "cpu": 4,
+      "seed": 127903,
+      "bootstrap_95": [
+        0.1591511842507007,
+        0.1677746870414778
+      ],
+      "median_paired_speedup": 0.16238029400134907,
+      "profile_ids": [
+        "sha256:1401b4a1783a6d8f776897115f0f22d42296f0a2c8eef71bd31c1d2b0e0b4044"
+      ],
+      "stats": {
+        "actual_expansion_depth": 1.0,
+        "deps_added": 203,
+        "discovered": 169.0,
+        "edits:EMIT_FIRMWARE_REGION": 12,
+        "embedded": 12.0,
+        "guarded_exits_total": 0,
+        "origins": 203,
+        "pending": 1.0,
+        "refused:fallback_only_not_optimizer_root": 1.0,
+        "variants_total": 0,
+        "whopr_partitions": 0.0
+      },
+      "pass_name": "firmware-inline",
+      "pass_outcome": "candidate",
+      "artifact": "sha256:d386d3ead98fb5425d1a8e9d784e3751b0771fff3be5926739ff49868796ff1b",
+      "ordinary_cache": "sha256:6eb1d216f7b4cf04d30b543afecb1606f07045bf8a1d4bfcd4e640a18c41e769",
+      "candidate_cache": "sha256:9a4bf35d3d0b063be1f7bea498befec3d616337c9e5dfb2b45160599745a28dd",
+      "observations_columns": [
+        "block",
+        "arm_in_recorded_order",
+        "native_ns",
+        "process_wall_ns"
+      ],
+      "observations": [
+        [
+          1,
+          "candidate",
+          6716506713,
+          7452130446
+        ],
+        [
+          1,
+          "ordinary",
+          1103800894,
+          1256566320
+        ],
+        [
+          2,
+          "ordinary",
+          1136980308,
+          1274262102
+        ],
+        [
+          2,
+          "candidate",
+          6677286836,
+          7302595400
+        ],
+        [
+          3,
+          "ordinary",
+          1079242647,
+          1145096717
+        ],
+        [
+          3,
+          "candidate",
+          6734104339,
+          7505567181
+        ],
+        [
+          4,
+          "candidate",
+          6601089053,
+          7319303500
+        ],
+        [
+          4,
+          "ordinary",
+          1107495650,
+          1177666922
+        ],
+        [
+          5,
+          "candidate",
+          6615432860,
+          7221571130
+        ],
+        [
+          5,
+          "ordinary",
+          1052853974,
+          1150987830
+        ],
+        [
+          6,
+          "ordinary",
+          1069848078,
+          1123281347
+        ],
+        [
+          6,
+          "candidate",
+          6726006345,
+          7325337241
+        ],
+        [
+          7,
+          "ordinary",
+          1100295889,
+          1224141908
+        ],
+        [
+          7,
+          "candidate",
+          6750030724,
+          7358651894
+        ],
+        [
+          8,
+          "candidate",
+          6690515761,
+          7283921291
+        ],
+        [
+          8,
+          "ordinary",
+          1082221243,
+          1126756993
+        ]
+      ],
+      "activation": {
+        "schema": "qemu-sc-v7-stats@1",
+        "loaded": true,
+        "mode": "safe",
+        "experiment": {
+          "source_index": false,
+          "linear_source_scan": false,
+          "trusted_set": false,
+          "no_tree": false,
+          "incoming_chain": false,
+          "disable_chaining": false,
+          "no_regions": false
+        },
+        "file_version": 7,
+        "artifact_id8": "eb4076af3b8d523b",
+        "regions_loaded": 12,
+        "members_loaded": 450,
+        "region_entries": 7639,
+        "region_activations": 12,
+        "member_descriptors_instantiated": 450,
+        "members_registered": 12,
+        "members_activated": 12,
+        "internal_edges_admitted": 826564,
+        "dependency_refusals": 0,
+        "dependency_invalidations": 0,
+        "mapping_invalidations": 0,
+        "member_callback_replays": 0,
+        "member_callback_omissions": 450,
+        "member_callbacks_executed": 0,
+        "guest_hash_checks": 450,
+        "trusted_region_activations": 0,
+        "trusted_entry_descriptors_instantiated": 0,
+        "trusted_guest_hash_checks": 0,
+        "trusted_member_shadow_descriptors_instantiated": 0,
+        "trusted_callback_replays": 0,
+        "trusted_callbacks_executed": 0,
+        "artifact_hash_validations": 1,
+        "trusted_artifact_hash_validations": 0,
+        "try_region_calls": 9081,
+        "region_comparisons": 78410,
+        "trusted_tb_calls": 0,
+        "trusted_tb_comparisons": 0,
+        "trusted_tree_insertions": 0,
+        "chain_attempts": 1315,
+        "chain_allowed": 1315,
+        "chain_installs": 1315,
+        "chain_installs_trusted_destination": 0,
+        "chain_skipped_global": 0,
+        "chain_skipped_trusted_source": 0,
+        "chain_skipped_trusted_destination": 0,
+        "benchmark_region_entries": 0,
+        "benchmark_region_activations": 0,
+        "benchmark_tree_insertions": 0,
+        "search_data_hits": 450
+      }
+    },
+    "guest_1": {
+      "pairs": 6,
+      "cpu": 4,
+      "seed": 127904,
+      "bootstrap_95": [
+        0.9580420717848567,
+        1.0491051195847745
+      ],
+      "median_paired_speedup": 1.0243533745301514,
+      "profile_ids": [
+        "sha256:1401b4a1783a6d8f776897115f0f22d42296f0a2c8eef71bd31c1d2b0e0b4044"
+      ],
+      "stats": {
+        "actual_expansion_depth": 1.0,
+        "deps_added": 9,
+        "discovered": 169.0,
+        "edits:EMIT_FIRMWARE_REGION": 1,
+        "embedded": 1.0,
+        "guarded_exits_total": 0,
+        "origins": 9,
+        "pending": 0.0,
+        "variants_total": 0,
+        "whopr_partitions": 0.0
+      },
+      "pass_name": "firmware-inline",
+      "pass_outcome": "candidate",
+      "artifact": "sha256:7aeb3774bae44d0f8bc6f7f9c86122991539ecee06125a43d1ade36f1df4fea6",
+      "ordinary_cache": "sha256:6eb1d216f7b4cf04d30b543afecb1606f07045bf8a1d4bfcd4e640a18c41e769",
+      "candidate_cache": "sha256:79bc631657c0c563029e7ad8c8104571e29905faa537b61b35f6ea27aeddd610",
+      "observations_columns": [
+        "block",
+        "arm_in_recorded_order",
+        "native_ns",
+        "process_wall_ns"
+      ],
+      "observations": [
+        [
+          1,
+          "ordinary",
+          1088943627,
+          1169362020
+        ],
+        [
+          1,
+          "candidate",
+          1190317954,
+          1293282302
+        ],
+        [
+          2,
+          "candidate",
+          1145874786,
+          1259870472
+        ],
+        [
+          2,
+          "ordinary",
+          1207794645,
+          1265024579
+        ],
+        [
+          3,
+          "candidate",
+          1134512244,
+          1234801906
+        ],
+        [
+          3,
+          "ordinary",
+          1135930269,
+          1189502330
+        ],
+        [
+          4,
+          "ordinary",
+          1115262634,
+          1169339962
+        ],
+        [
+          4,
+          "candidate",
+          1098612086,
+          1200646991
+        ],
+        [
+          5,
+          "candidate",
+          1105979692,
+          1206069118
+        ],
+        [
+          5,
+          "ordinary",
+          1143086156,
+          1197497909
+        ],
+        [
+          6,
+          "ordinary",
+          1148790025,
+          1205893251
+        ],
+        [
+          6,
+          "candidate",
+          1100191229,
+          1201698401
+        ]
+      ],
+      "activation": {
+        "schema": "qemu-sc-v7-stats@1",
+        "loaded": true,
+        "mode": "safe",
+        "experiment": {
+          "source_index": false,
+          "linear_source_scan": false,
+          "trusted_set": false,
+          "no_tree": false,
+          "incoming_chain": false,
+          "disable_chaining": false,
+          "no_regions": false
+        },
+        "file_version": 7,
+        "artifact_id8": "975713c9051d6dc9",
+        "regions_loaded": 1,
+        "members_loaded": 9,
+        "region_entries": 1,
+        "region_activations": 1,
+        "member_descriptors_instantiated": 9,
+        "members_registered": 1,
+        "members_activated": 1,
+        "internal_edges_admitted": 12,
+        "dependency_refusals": 0,
+        "dependency_invalidations": 0,
+        "mapping_invalidations": 0,
+        "member_callback_replays": 0,
+        "member_callback_omissions": 9,
+        "member_callbacks_executed": 0,
+        "guest_hash_checks": 9,
+        "trusted_region_activations": 0,
+        "trusted_entry_descriptors_instantiated": 0,
+        "trusted_guest_hash_checks": 0,
+        "trusted_member_shadow_descriptors_instantiated": 0,
+        "trusted_callback_replays": 0,
+        "trusted_callbacks_executed": 0,
+        "artifact_hash_validations": 1,
+        "trusted_artifact_hash_validations": 0,
+        "try_region_calls": 1456,
+        "region_comparisons": 1456,
+        "trusted_tb_calls": 0,
+        "trusted_tb_comparisons": 0,
+        "trusted_tree_insertions": 0,
+        "chain_attempts": 1307,
+        "chain_allowed": 1307,
+        "chain_installs": 1307,
+        "chain_installs_trusted_destination": 0,
+        "chain_skipped_global": 0,
+        "chain_skipped_trusted_source": 0,
+        "chain_skipped_trusted_destination": 0,
+        "benchmark_region_entries": 0,
+        "benchmark_region_activations": 0,
+        "benchmark_tree_insertions": 0,
+        "search_data_hits": 9
+      }
+    },
+    "helper_1": {
+      "pairs": 8,
+      "cpu": 2,
+      "seed": 5449,
+      "bootstrap_95": [
+        0.952776121615666,
+        1.0090175744546457
+      ],
+      "median_paired_speedup": 0.9736972213487425,
+      "profile_ids": [
+        "sha256:4826b395d78eda1cac8639d28bfa50a43e45c7ad505865c3da9c31c80073120b"
+      ],
+      "stats": {
+        "emitted_growth_bytes": 120,
+        "growth_policy_unbounded": 1,
+        "loop_units": 640,
+        "selected_site_calls": 5264,
+        "selected_tb_entries_proxy": 0,
+        "site_policy_unbounded": 1,
+        "sites:applied": 1,
+        "sites:below_min_site_calls": 1997,
+        "sites:outside_observed_loop": 19896,
+        "sites:selected_root_unsupported": 128,
+        "sites:shared_wrapper_retains_call": 3,
+        "sites_applied": 1,
+        "sites_seen": 22025
+      },
+      "pass_name": "host-inline",
+      "pass_outcome": "candidate",
+      "artifact": "sha256:8437b8d76ec1bd5f8a673bae88ef280afcd50ca11f126b0dfbc98fe665d91440",
+      "ordinary_cache": "sha256:6eb1d216f7b4cf04d30b543afecb1606f07045bf8a1d4bfcd4e640a18c41e769",
+      "candidate_cache": "sha256:f85780ca4b277b5b72bd4951d5081c11c2190baaa5cd1d2e516bedb6ad5e58a2",
+      "observations_columns": [
+        "block",
+        "arm_in_recorded_order",
+        "native_ns",
+        "process_wall_ns"
+      ],
+      "observations": [
+        [
+          1,
+          "ordinary",
+          1159843677,
+          1232366802
+        ],
+        [
+          1,
+          "candidate",
+          1149478172,
+          1212822215
+        ],
+        [
+          2,
+          "candidate",
+          1140328635,
+          1195122083
+        ],
+        [
+          2,
+          "ordinary",
+          1106151222,
+          1149706539
+        ],
+        [
+          3,
+          "ordinary",
+          1201187959,
+          1247169755
+        ],
+        [
+          3,
+          "candidate",
+          1197598195,
+          1242169930
+        ],
+        [
+          4,
+          "candidate",
+          1152543415,
+          1196417887
+        ],
+        [
+          4,
+          "ordinary",
+          1086542334,
+          1128141926
+        ],
+        [
+          5,
+          "candidate",
+          1225673417,
+          1269387419
+        ],
+        [
+          5,
+          "ordinary",
+          1175863926,
+          1221770130
+        ],
+        [
+          6,
+          "candidate",
+          1108405068,
+          1149994599
+        ],
+        [
+          6,
+          "ordinary",
+          1083317416,
+          1128115839
+        ],
+        [
+          7,
+          "ordinary",
+          1118526639,
+          1174626649
+        ],
+        [
+          7,
+          "candidate",
+          1173965860,
+          1216615889
+        ],
+        [
+          8,
+          "ordinary",
+          1194035399,
+          1240434400
+        ],
+        [
+          8,
+          "candidate",
+          1106959916,
+          1151184024
+        ]
+      ]
+    },
+    "helper_4": {
+      "pairs": 8,
+      "cpu": 2,
+      "seed": 5448,
+      "bootstrap_95": [
+        0.9639308818998462,
+        1.0421804982156249
+      ],
+      "median_paired_speedup": 0.9770250417829316,
+      "profile_ids": [
+        "sha256:5f180bc895cb0f7d5575c57f8b646d0d56f3979d4bd4aeff05567458c8a08ab1"
+      ],
+      "stats": {
+        "emitted_growth_bytes": 192,
+        "growth_policy_unbounded": 1,
+        "loop_units": 640,
+        "selected_site_calls": 48230,
+        "selected_tb_entries_proxy": 0,
+        "site_policy_unbounded": 1,
+        "sites:applied": 4,
+        "sites:below_min_site_calls": 1997,
+        "sites:outside_observed_loop": 19896,
+        "sites:selected_root_unsupported": 128,
+        "sites_applied": 4,
+        "sites_seen": 22025
+      },
+      "pass_name": "host-inline",
+      "pass_outcome": "candidate",
+      "artifact": "sha256:31f3320f305f96692d3ea20f74b78eb24d15c9ed24827ea0c8fc39aef678bd2f",
+      "ordinary_cache": "sha256:6eb1d216f7b4cf04d30b543afecb1606f07045bf8a1d4bfcd4e640a18c41e769",
+      "candidate_cache": "sha256:9b0e479242ff8605f7e5a5628b5568901fa7a6e6e3ae31cc5c519d7678200464",
+      "observations_columns": [
+        "block",
+        "arm_in_recorded_order",
+        "native_ns",
+        "process_wall_ns"
+      ],
+      "observations": [
+        [
+          1,
+          "candidate",
+          1191957444,
+          1249031578
+        ],
+        [
+          1,
+          "ordinary",
+          1091007617,
+          1147890870
+        ],
+        [
+          2,
+          "candidate",
+          1072675951,
+          1126279965
+        ],
+        [
+          2,
+          "ordinary",
+          1092821574,
+          1156862363
+        ],
+        [
+          3,
+          "ordinary",
+          1160580336,
+          1220036469
+        ],
+        [
+          3,
+          "candidate",
+          1068515156,
+          1127654205
+        ],
+        [
+          4,
+          "ordinary",
+          1141649578,
+          1467338297
+        ],
+        [
+          4,
+          "candidate",
+          1165452954,
+          1230034200
+        ],
+        [
+          5,
+          "candidate",
+          1149567419,
+          1218710604
+        ],
+        [
+          5,
+          "ordinary",
+          1108103536,
+          1175383903
+        ],
+        [
+          6,
+          "ordinary",
+          1057584951,
+          1118855840
+        ],
+        [
+          6,
+          "candidate",
+          1093052895,
+          1227294608
+        ],
+        [
+          7,
+          "ordinary",
+          1138940670,
+          1212144605
+        ],
+        [
+          7,
+          "candidate",
+          1092843967,
+          1158076340
+        ],
+        [
+          8,
+          "candidate",
+          1079609729,
+          1140671162
+        ],
+        [
+          8,
+          "ordinary",
+          1052051854,
+          1108080792
+        ]
+      ]
+    }
+  },
+  "registers": [
+    "0x149fdedb",
+    "0x0000762e",
+    "0x0000762e",
+    "0x00000000",
+    "0x000008ce",
+    "0x00000268",
+    "0x00000b7c",
+    "0x00013772",
+    "0x00000206",
+    "0x00000594",
+    "0x00001c54",
+    "0x0001c3d9",
+    "0xa90de5ea",
+    "0x818c6122",
+    "0x76686865",
+    "0xdcf2a3bf"
+  ],
+  "host": {
+    "affinity": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "node": "e5-cse-359-01",
+    "platform": "Linux-6.17.0-1033-oem-x86_64-with-glibc2.39"
+  },
+  "region_disabled_control": {
+    "same_cache_as": "guest_12",
+    "native_ns": 1064621149
+  },
+  "external_worker_pc_samples": {
+    "enabled": {
+      "samples": 327,
+      "in_sc7_source_index": 265
+    },
+    "disabled": {
+      "samples": 53,
+      "in_sc7_source_index": 0
+    }
+  }
+}

@@ -1,0 +1,10 @@
+schema = "scopt.pipeline"
+version = 1
+name = "hot-loop-firmware-inline"
+description = "Embed verified firmware calls with repeated observed transfers from loop TBs."
+allowed_capabilities = ["EMIT_FIRMWARE_REGION"]
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "hot-loop", phase = "steady", min_call_count = 1000 }

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from scopt.analysis.api import ScopeRef
 from scopt.analysis.hostops import OpKind
-from scopt.analysis.native_callees import NATIVE_IMAGES, _verified_captures, prepare_native_images
+from scopt.analysis.native_callees import NATIVE_IMAGES, _snapshot_captures, prepare_native_images
 from scopt.analysis.store import AnalysisStore
 from scopt.canon import sha256_id
 from scopt.commands.host_calls import _calls, _inventory, _public_row
@@ -236,7 +236,7 @@ def physical_bodies(snap, units):
         f6 = read_sc6(Path(snap.path) / "cache.sc")
         if not f6.loadable:
             raise ValueError("unloadable canonical semantic snapshot")
-        joined, _ = _verified_captures(snap)
+        joined, _ = _snapshot_captures(snap, authenticate=True)
         for v in import_variants(f6, list(units.values()), joined.captures):
             if not v["ok"]:
                 raise ValueError(f"variant verification failed: {v['problems']}")

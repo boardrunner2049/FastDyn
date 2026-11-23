@@ -81,15 +81,18 @@ def test_validate_experiment_requires_exact_runtime_flags(tmp_path):
         _M.validate_experiment(arm, {"experiment": flags})
 
 
-def test_validate_experiment_knows_trusted_source_index_default(tmp_path):
+@pytest.mark.parametrize("mode", ["safe", "trusted"])
+@pytest.mark.parametrize("linear", [False, True])
+def test_validate_experiment_checks_source_index_policy(tmp_path, mode, linear):
+    tokens = {"no-tree", "linear-source-scan"} if linear else {"no-tree"}
     arm = _M.Arm("candidate", _artifact(tmp_path, "candidate"), env={
-        "QEMU_SC_V7_EXPERIMENT": "no-tree",
+        "QEMU_SC_V7_EXPERIMENT": ",".join(sorted(tokens)),
     })
-    flags = {field: token == "no-tree"
+    flags = {field: token in tokens
              for token, field in _M._EXPERIMENT_KEYS.items()}
-    flags["source_index"] = True
-    _M.validate_experiment(arm, {
-        "loaded": True,
-        "mode": "trusted",
-        "experiment": flags,
-    })
+    flags["source_index"] = not linear
+    stats = {"loaded": True, "mode": mode, "experiment": flags}
+    _M.validate_experiment(arm, stats)
+    flags["source_index"] = linear
+    with pytest.raises(RuntimeError):
+        _M.validate_experiment(arm, stats)

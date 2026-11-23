@@ -386,8 +386,16 @@ def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping
         except CalleeResolutionError as e:
             return f"{e.reason}: {e}"
         expected_role = "plugin" if framed else "qemu"
-        if (framed or helper_graph) and req.splice.frame_chain != function.frame_chain:
-            return "nested frame bodies differ from the bound executable"
+        if framed or helper_graph:
+            expected_chain = function.frame_chain
+            if helper_graph and req.splice.selected_root:
+                from ..validate_sym.selected_helper import selected_frame_chain
+                try:
+                    expected_chain = selected_frame_chain(req, expected_chain)
+                except ValueError as exc:
+                    return f"unsupported selected root in captured executable: {exc}"
+            if req.splice.frame_chain != expected_chain:
+                return "nested frame bodies differ from the bound executable"
         if (function.role != expected_role
                 or (is_udiv and (function.symbol != req.symbol or function.abi != "sysv-amd64"))
                 or (not framed and not helper_graph and not is_udiv

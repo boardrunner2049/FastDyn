@@ -23,6 +23,7 @@ from scopt.formats.sc_v5 import ScFormatError, ScHeader
 from scopt.link import (FirmwareMemberLink, FirmwareRegionLink, relocate_unit,
                         retarget_private_descriptor_refs, round_up,
                         trusted_firmware_edge_problem, trusted_firmware_entry_problem)
+from scopt.passes.firmware_inline import _hot_loop_calls
 from scopt.validate import trusted_v7_capable_exes, v7_capable_exes
 
 from ..synth.builders import SynthUnit
@@ -89,7 +90,29 @@ def test_discovers_guest_call_and_builds_private_region():
     assert plan.members[1].inline_context == (call.callsite_id,)
 
 
-def test_missing_nested_capture_keeps_outer_region_with_side_exit():
+def test_guest_hot_loop_counts_actual_verified_slot_and_excludes_interrupted_transfers():
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    src, dst = call.source_uid, call.callee_candidates[0]
+
+    def edge(src, dst, kind, count, flags=(), status="exact"):
+        return dict(src=src, dst=dst, kind=kind, count=count, flags=flags, status=status)
+
+    rows = [edge(src, dst, "chain0", 1001), edge(dst, src, "lookup_hit", 1001),
+            edge(src, dst, "chain1", 5000), edge(src, dst, "chain0", 80, ("irq",)),
+            edge(src, dst, "chain0", 4000, status="lower_bound")]
+    profile = SimpleNamespace(edges=lambda phase: rows)
+    kept, residual, counts = _hot_loop_calls(snapshot, [call], profile, "steady", 1000)
+    assert kept == [call] and not residual and counts[call.callsite_id] == 1001
+    kept, residual, _ = _hot_loop_calls(snapshot, [call], profile, "steady", 1002)
+    assert not kept and residual[0]["reason"] == "below_min_call_count"
+    rows.pop(1)
+    kept, residual, _ = _hot_loop_calls(snapshot, [call], profile, "steady", 2)
+    assert not kept and residual[0]["reason"] == "outside_observed_loop"
+
+
+@pytest.mark.parametrize("capture_nested", [False, True])
+def test_nested_capture_policy_keeps_outer_region_with_side_exit(capture_nested):
     key = TBKey(0x1000, None, 0x110, 0x800400, 0xff020000)
     root_call = bytes.fromhex("00f07ef8")       # 0x1000 -> 0x1100
     nested_call = bytes.fromhex("00f07ef8")     # 0x1100 -> 0x1200
@@ -106,23 +129,38 @@ def test_missing_nested_capture_keeps_outer_region_with_side_exit():
                                                     0, 0, 0, 0),),
                         "static_exits": (ScmStaticExit(0, 1, 0, 0x1200),)}),
     ]
+    if capture_nested:
+        units.extend([
+            SynthUnit(key, 0x400, b"\x90", guest_bytes=b"\x00\xbf", vaddr=0x1104),
+            SynthUnit(key, 0x500, b"\xff\xe0", guest_bytes=b"\x70\x47", vaddr=0x1200,
+                      meta={"sites": (ScmSite(0, 0, 0, Encoding.NONE, SiteKind.GOTO_PTR,
+                                              0, 0, 0, 0),)}),
+        ])
     snapshot = fake_snapshot(units)
     snapshot._units = tuple(replace(u, origin="elf_verified") for u in snapshot.units())
     snapshot._by_uid = {u.uid: u for u in snapshot._units}
-    image_bytes = bytearray(0x104)
+    image_bytes = bytearray(0x202 if capture_nested else 0x104)
     image_bytes[0:4] = root_call
     image_bytes[4:6] = b"\x00\xbf"
     image_bytes[0x100:0x104] = nested_call
+    if capture_nested:
+        image_bytes[0x104:0x106] = b"\x00\xbf"
+        image_bytes[0x200:0x202] = b"\x70\x47"
     image = GuestImage("synthetic", "sha256:" + "2" * 64,
                        ((0x1000, bytes(image_bytes)),), ((0x1000, 0x1204),), (), ())
 
     calls = discover_firmware_calls(snapshot, image)
     root = next(call for call in calls.calls if call.insn_vaddr == 0x1000)
-    plan = build_firmware_region(snapshot, image, calls, root)
+    plan = build_firmware_region(snapshot, image, calls, root, expand_nested=not capture_nested)
     assert plan.complete
-    assert any(row["reason"] == "missing_callee_capture" for row in plan.pending)
-    assert any(edge.kind == "side_exit" and
-               edge.refusal_reason == "missing_callee_capture" for edge in plan.edges)
+    reason = "nested_call_kept_public" if capture_nested else "missing_callee_capture"
+    assert any(edge.kind == "side_exit" and edge.refusal_reason == reason for edge in plan.edges)
+    if capture_nested:
+        nested = next(call for call in calls.calls if call.insn_vaddr == 0x1100)
+        assert nested.eligible
+        assert nested.callee_candidates[0] not in plan.source_uids
+    else:
+        assert any(row["reason"] == "missing_callee_capture" for row in plan.pending)
 
 
 @pytest.mark.parametrize(("encoding", "width", "field", "initial"), [

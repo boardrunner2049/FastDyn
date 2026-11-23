@@ -53,6 +53,12 @@ _DEFAULTS = {
     # path.  Keep proxy ranking available for reproducing old experiments, but
     # require callers to opt into that weaker evidence.
     "trusted_allow_tb_entry_proxy": False,
+    "trusted_selected_root": False,
+    "hot_loop_only": False,
+    "include_hot_shared_wrappers": False,
+    "min_site_calls": 2,
+    "site_profile_path": "",
+    "site_profile_sha256": "",
 }
 _LIMITS = {
     "max_callee_bytes": 1024,
@@ -242,6 +248,20 @@ class HostInline:
         if mode == "invalid":
             return PassResult(Outcome.FAILED, "invalid_params", f"mode must be one of {', '.join(_MODES)}")
         trusted_all = params.get("trusted_all_helpers", False)
+        selected_root = params.get("trusted_selected_root", False)
+        if (type(selected_root) is not bool or selected_root and (
+                not trusted_all or params.get("trusted_root_wrapper_only", False))):
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "trusted_selected_root requires trusted_all_helpers and "
+                              "is exclusive with trusted_root_wrapper_only")
+        if params.get("hot_loop_only") and not (
+                trusted_all and params.get("trusted_selected_root")
+                and params.get("trusted_rank_by") == "frequency"
+                and not params.get("trusted_allow_tb_entry_proxy")):
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "hot loops require trusted frequency-ranked selected roots")
+        if type(params.get("min_site_calls", 2)) is not int or params.get("min_site_calls", 2) < 1:
+            return PassResult(Outcome.FAILED, "invalid_params", "min_site_calls must be positive")
         trusted_graph_limit = params.get("trusted_max_source_graph_bytes", 0)
         if type(trusted_graph_limit) is not int or trusted_graph_limit < 0:
             return PassResult(Outcome.FAILED, "invalid_params",
@@ -365,7 +385,8 @@ class HostInline:
         prepared = prepare_native_images(
             view.working_set.base, backend_revision=BACKEND_REVISION,
             bridge_version=BRIDGE_VERSION, policy_version=POLICY_VERSION,
-            bridge_sha256=bridge_id, trust_files=trusted_all)
+            bridge_sha256=bridge_id, trust_files=trusted_all,
+            immediate_helpers=params.get("trusted_selected_root", False))
         ctx.store.set_input(NATIVE_IMAGES, prepared)
 
         profile = ctx.profile(params["phase"])
@@ -373,6 +394,20 @@ class HostInline:
         trusted_rank = params.get("trusted_rank_by", "all")
         trusted_runtime_policy = (trusted_rank != "all"
                                   or params.get("trusted_min_tb_entries", 0) > 0)
+        site_counts = None
+        loop_units = set()
+        if params.get("hot_loop_only"):
+            from ..analysis.helper_hot_loop import exact_loop_profile, load_site_counts, observed_loop_units
+
+            if not exact_loop_profile(profile, ctx.snapshot_id, params["phase"]):
+                return PassResult(Outcome.FAILED, "profile_required",
+                                  "hot-loop selection requires exact edges from a reached phase of this snapshot")
+            try:
+                site_counts = load_site_counts(params["site_profile_path"], view.working_set.base,
+                                               params["site_profile_sha256"])
+            except (OSError, KeyError, TypeError, ValueError) as error:
+                return PassResult(Outcome.FAILED, "invalid_helper_profile", str(error))
+            loop_units = observed_loop_units(profile.edges(params["phase"]))
         if trusted_runtime_policy and profile is None:
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "profile_required",
                               "trusted runtime ranking requires the requested profile phase")
@@ -392,7 +427,8 @@ class HostInline:
             stats[f"sites:{reason}"] += 1
             diagnostics.append({"unit": call.uid, "call_off": call.host_off,
                                 "symbol": call.symbol, "outcome": reason,
-                                "detail": detail, "tb_entries_proxy": entries})
+                                "detail": detail,
+                                ("site_calls" if site_counts is not None else "tb_entries_proxy"): entries})
 
         for unit in view.units():
             _remaining(deadline)
@@ -404,10 +440,18 @@ class HostInline:
                                   min_version=2 if trusted_all else 1)
             unit_facts[unit.uid] = result
             count = None if profile is None else profile.count(unit.uid, params["phase"])
-            entries = None if count is None or not count.known else count.value
+            tb_entries = None if count is None or not count.known else count.value
             for binding in result.value:
                 stats["sites_seen"] += 1
                 call, callee = binding.call, binding.callee
+                entries = tb_entries
+                if site_counts is not None:
+                    entries = site_counts.get((unit.uid, call.host_off))
+                    if unit.uid not in loop_units or entries is None or entries < params["min_site_calls"]:
+                        reason = ("outside_observed_loop" if unit.uid not in loop_units else
+                                  "unknown_site_count" if entries is None else "below_min_site_calls")
+                        report(binding, reason, entries=entries)
+                        continue
                 if params.get("udiv_only") and call.helper_name != "udiv":
                     continue
                 if binding.reason is not None or callee is None:
@@ -421,7 +465,7 @@ class HostInline:
                     report(binding, *refusal, entries=entries)
                 elif refusal := self._policy_refusal(binding, params):
                     report(binding, *refusal, entries=entries)
-                elif (trusted_runtime_policy
+                elif (trusted_runtime_policy and site_counts is None
                       and not params.get("trusted_allow_tb_entry_proxy", False)
                       and not self._tb_entries_are_call_count(
                           unit, binding, view.header.code_address)):
@@ -429,7 +473,7 @@ class HostInline:
                            "TB entries do not equal executions of this conditional/slow-path site",
                            entries=entries)
                 elif (params.get("trusted_min_tb_entries", 0)
-                      and (entries is None or entries < params["trusted_min_tb_entries"])):
+                      and (tb_entries is None or tb_entries < params["trusted_min_tb_entries"])):
                     report(binding, "below_trusted_runtime_policy", entries=entries)
                 elif not unbounded_growth and callee.size > params["max_callee_bytes"]:
                     report(binding, "callee_size_budget", entries=entries)
@@ -466,7 +510,8 @@ class HostInline:
                 continue
             trusted_total = params.get("trusted_max_total_growth", 0)
             trusted_remaining = trusted_total - stats["emitted_growth_bytes"]
-            if trusted_total and candidate.source_graph_bytes > trusted_remaining:
+            if (site_counts is None and trusted_total
+                    and candidate.source_graph_bytes > trusted_remaining):
                 report(binding, "growth_budget", entries=entries)
                 continue
             try:
@@ -503,24 +548,29 @@ class HostInline:
             except NativeInlineError as e:
                 report(binding, e.reason, str(e), entries)
                 continue
-            if growth_room is not None and req.growth > growth_room:
-                report(binding, "growth_budget", entries=entries)
-                continue
             old_growth = growth[call.uid]
             new_growth = sum(row.growth for row in requests)
+            if growth_room is not None and new_growth - old_growth > growth_room:
+                report(binding, "growth_budget", entries=entries)
+                continue
             growth[call.uid] = new_growth
             by_unit[call.uid] += 1
             selected[call.uid] = list(requests)
             stats["sites_applied"] += 1
             stats["emitted_growth_bytes"] += new_growth - old_growth
-            stats["selected_tb_entries_proxy"] += entries or 0
+            stats["selected_site_calls" if site_counts is not None
+                  else "selected_tb_entries_proxy"] += entries or 0
             report(binding, "applied", req.certificate_id, entries)
 
         ranking = "static"
         if has_profile:
             ranking = ("tb_entry_proxy" if params.get("trusted_allow_tb_entry_proxy", False)
                        or not trusted_runtime_policy else "exact_call_count")
+        if site_counts is not None:
+            ranking = "measured_site_calls_in_observed_loops"
+            stats["loop_units"] = len(loop_units)
         detail = json.dumps({"native_images_id": prepared.input_id,
+                             "site_profile_sha256": params.get("site_profile_sha256") or None,
                              "ranking": ranking,
                              "sites": diagnostics}, sort_keys=True)
         if not selected:

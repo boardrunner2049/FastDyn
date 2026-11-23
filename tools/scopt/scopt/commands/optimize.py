@@ -139,6 +139,49 @@ def _inline_pipeline(pipeline, enable, only):
     return load_pipeline(pipeline, inline_options=options), enable, only
 
 
+def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers):
+    import shutil
+    import subprocess
+    import tempfile
+    from ..canon import sha256_id
+    from ..formats.profile_v1 import ProfileView, ingest, write_profile
+    from ..run.helper_pgo import collect, collect_edges
+
+    store = Path(store).resolve()
+    store.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="helper-pgo-", dir=store))
+    if launch is None:
+        if not prep:
+            raise click.UsageError("hot-loop-inline needs a training --helper-pgo-launch or --prep")
+        launch = Path(prep) / "launch.json"
+        if not launch.is_file():
+            config = Path(prep) / "run.toml"
+            fastdyn = shutil.which("fastdyn")
+            if not config.is_file() or not fastdyn:
+                raise click.UsageError("provide --helper-pgo-launch or a prep/run.toml and fastdyn on PATH")
+            command = [fastdyn, "compile-launch", "-c", str(config), "-o", str(work / "baseline")]
+            status = subprocess.run(command, stdout=sys.stderr).returncode
+            if status:
+                raise ValueError(f"training launch compilation exited {status}")
+            launch = work / "baseline" / "launch.json"
+    source = Path(snap.path)
+    counts = work / "calls.json"
+    edges = None if views else work / "training.qprof"
+    if helpers:
+        collect(source, Path(launch), counts, edge_profile_path=edges)
+        options.update(site_profile_path=str(counts), site_profile_sha256=sha256_id(counts.read_bytes()))
+    elif edges:
+        collect_edges(source, Path(launch), edges)
+    if edges:
+        meta = json.loads((source / "snapshot.json").read_bytes())
+        profile = ingest(edges, source / "cache.sc", source, bundle_id=meta["bundle_id"],
+                         contract_id=meta["contract_id"], runtime_identity=snap.runtime)
+        write_profile(work / "training-profile.json", profile)
+        views.append(ProfileView.open(profile, snap))
+        # An unmarked replay occupies QEMU's phase zero, named "boot", through exit.
+        options.setdefault("phase", "boot")
+
+
 def _select_output(doc, original_snapshot, cases_path, out, timing=None):
     doc["warm_baseline"] = str(original_snapshot) if original_snapshot is not None else None
     doc["warm_baseline_sha256"] = (timing or {}).get("expected_warm_sha256")
@@ -171,6 +214,8 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
               help="Store: artifacts/ and rejections/ are written here.")
 @click.option("--profile", "profiles", multiple=True, type=click.Path(exists=True),
               help="Profile v1 file (profile.json); repeatable.")
+@click.option("--pgo-launch", "--helper-pgo-launch", "helper_pgo_launch", type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="Ordinary compiled training launch.json for automatic hot-loop profiling.")
 @click.option("--disable", multiple=True, help="Ablation: skip this pass (repeatable).")
 @click.option("--enable", multiple=True,
               help="Opt a pipeline pass back in (repeatable). Accepts host-inline=<options>.")
@@ -212,7 +257,8 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, params_file, b3_mode,
                  ri_file, v6_exes, v7_exes, trusted_v7_exes, selftest_file, prep, elf, as_json,
                  select_with=None, selection_out=None,
-                 qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=()):
+                 qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=(),
+                 helper_pgo_launch=None):
     """Run PIPELINE on SNAPSHOT, link, check loadability, and publish the artifact.
 
     SNAPSHOT is a store snapshot directory or a SnapshotId in --store. Exit
@@ -253,6 +299,23 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         pl.validate_pass_options(enable, disable, only)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
+    for hot in pl.passes:
+        policy = {**hot.params, **(params or {}).get(hot.name, {})}
+        helpers = hot.name == "host-inline" and policy.get("hot_loop_only")
+        firmware = hot.name == "firmware-inline" and policy.get("mode") == "hot-loop"
+        if not (helpers or firmware) or hot.name in disable or only not in (None, hot.name):
+            continue
+        if notes:
+            raise click.UsageError("; ".join(notes))
+        if firmware and views:
+            continue
+        params = dict(params or {})
+        overrides = dict(params.get(hot.name, {}))
+        try:
+            _automatic_loop_pgo(snap, store, helper_pgo_launch, prep, views, overrides, helpers=helpers)
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise click.ClickException(f"training replay failed: {exc}") from exc
+        params[hot.name] = overrides
     native_stage = None
     from ..manager import HOST_INLINE_ALIASES
     native_names = {"host-inline", *HOST_INLINE_ALIASES}

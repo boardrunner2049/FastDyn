@@ -44,8 +44,7 @@ class HostInlineGraph(HostInlineSplice):
         limit = params.get("trusted_max_source_graph_bytes", 0)
         if not limit:
             return None
-        callee = binding.callee
-        source_bytes = len(callee.code) + sum(len(body.code) for body in callee.frame_chain)
+        source_bytes = self._source_graph_bytes(binding, params)
         if source_bytes > limit:
             return ("helper_graph_size_policy",
                     f"captured source graph is {source_bytes} bytes; policy limit is {limit}")
@@ -53,6 +52,12 @@ class HostInlineGraph(HostInlineSplice):
 
     def _source_graph_bytes(self, binding: NativeCallBinding,
                             params: Mapping[str, Any]) -> int:
+        if params.get("trusted_selected_root", False):
+            from ..validate_sym.selected_helper import direct_children
+
+            root = NativeFrameBody(binding.callee.elf_address, binding.callee.code)
+            children = direct_children(root, tuple(binding.callee.frame_chain))
+            return len(root.code) + sum(len(body.code) for body in children)
         if params.get("trusted_root_wrapper_only", False):
             return len(binding.callee.code)
         return super()._source_graph_bytes(binding, params)
@@ -65,9 +70,19 @@ class HostInlineGraph(HostInlineSplice):
 
         callee = binding.callee
         graph = (NativeFrameBody(callee.elf_address, callee.code),)
-        if not params.get("trusted_root_wrapper_only", False):
+        selected_root = params.get("trusted_selected_root", False)
+        if selected_root:
+            from ..validate_sym.selected_helper import direct_children
+
+            graph += direct_children(graph[0], tuple(callee.frame_chain))
+        elif not params.get("trusted_root_wrapper_only", False):
             graph += tuple(callee.frame_chain)
         request = replace(request, fragment=NativeFragment(b"", (), ()),
                           tcg_typemask=callee.tcg_typemask)
-        body = prepare_helper_graph_splice(unit, request, code_address, graph)
+        body = prepare_helper_graph_splice(unit, request, code_address, graph,
+                                           selected_root=selected_root)
+        if (params.get("hot_loop_only") and not params.get("include_hot_shared_wrappers")
+                and body.call_lowering.root_transfer == "shared-wrapper"):
+            raise NativeInlineError("shared_wrapper_retains_call",
+                                    "selected hot wrapper still calls the shared QEMU body")
         return prepare_splice_layout(unit, replace(request, splice=body), code_address)

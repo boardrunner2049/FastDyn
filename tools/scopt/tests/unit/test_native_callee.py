@@ -88,6 +88,22 @@ def test_native_callee_refuses_changed_content_even_with_same_stat(native_so, tm
     assert "digest" in str(ex.value)
 
 
+@pytest.mark.parametrize("child", [b"\x0f", None])
+def test_incomplete_nested_graph_cannot_be_mistaken_for_a_leaf(monkeypatch, child):
+    resolver = NativeCalleeResolver(None, None, {}, "capture")
+    image = SimpleNamespace(symbols=SimpleNamespace(
+        lookup=lambda addr: ("child", 0),
+        bounded_function=lambda name, addr: SimpleNamespace(size=1)))
+    mapping = SimpleNamespace(path="qemu")
+    monkeypatch.setattr(resolver, "_text_bytes", lambda *args: child)
+    root = bytes.fromhex("e8fb000000 c3")   # 0x1000 -> 0x1100
+    for _ in range(2):                      # including cached failure
+        with pytest.raises(CalleeResolutionError) as exc:
+            resolver._helper_graph(image, mapping, 0, 0x1000, root)
+        assert exc.value.reason == "helper_graph_incomplete"
+        assert "0x1100" in str(exc.value)
+
+
 @pytest.mark.parametrize(("change", "reason"), [
     ("bad_symbol", "ambiguous_bounds"), ("changed_binding", "call_binding_unknown"),
     ("wrong_mapping", "native_image_mismatch"), ("uncovered_file", "native_image_unavailable"),

@@ -105,3 +105,11 @@ The native-versus-native and native-plus-SFB comparisons are hypotheses for
 performance improvement. Reserve final scenarios and report measured outcomes,
 including regressions, before promoting a default. These configuration examples
 do not contain timing observations or assert a speedup.
+
+The `hot-loop-inline` recipe profiles helper call instructions and
+`hot-loop-firmware-inline` selects guest calls in observed loops. Set
+`images.<variant>.training_launch` to that image's ordinary fixed-input
+`launch.json` to use the existing direct launcher. The helper stage can also
+compile a training launcher from the prepared run configuration using
+`fastdyn compile-launch` on PATH. See the scopt pass catalog for contracts
+and thresholds.

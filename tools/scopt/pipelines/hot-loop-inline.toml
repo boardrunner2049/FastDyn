@@ -1,0 +1,10 @@
+schema = "scopt.pipeline"
+version = 1
+name = "hot-loop-inline"
+description = "Select helper calls by measured executions inside observed guest cycles."
+allowed_capabilities = ["INLINE_CALL"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, trusted_rank_by = "frequency", trusted_selected_root = true, hot_loop_only = true, min_site_calls = 1000 }

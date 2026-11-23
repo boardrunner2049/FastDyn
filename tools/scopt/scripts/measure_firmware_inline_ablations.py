@@ -133,7 +133,7 @@ def validate_experiment(arm: Arm, stats: dict[str, Any]) -> None:
         raise RuntimeError(f"diagnostic {arm.name}: unknown requested tokens {sorted(unknown)}")
     have = stats.get("experiment")
     expected = {field: token in tokens for token, field in _EXPERIMENT_KEYS.items()}
-    if (stats.get("loaded") is True and stats.get("mode") == "trusted" and
+    if (stats.get("loaded") is True and stats.get("mode") in {"safe", "trusted"} and
             "linear-source-scan" not in tokens):
         expected["source_index"] = True
     if have != expected:
