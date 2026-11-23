@@ -1,0 +1,57 @@
+{
+  "schema": "scopt.firmware-inline-evaluation/1",
+  "date": "2026-11-22",
+  "fastdyn_commit": "63174f3",
+  "qemu_commit": "e7533a3abf8577468196c2ccd1b84508dc41d105",
+  "qemu_sha256": "sha256:5f0f2f59d1ae840a1a25cb2896645c8c7f7b6227a5c544dda9c4b925b3dd5cf9",
+  "application": "tests/sample_binaries/RTOS/RTOSDemo.axf",
+  "application_sha256": "sha256:53ca19e3ae4927d4a81d95420c57567484ca2a3375f0757ac0fd8ec7db4f0a04",
+  "snapshot_id": "sha256:79443ee2ebca351bd4778d1204db46c4ebf41bc644df1db94eb6c74a266ffe2d",
+  "artifact_id": "sha256:a1c6fb7130d5c7a20b5b1c19930c6b34689c03224503de7cdf9835e4be099607",
+  "loaded_artifact_id8": "1898798b0f3ebda5",
+  "activation": {
+    "discovered": 30,
+    "embedded": 27,
+    "pending": 4,
+    "actual_expansion_depth": 5,
+    "regions_loaded": 27,
+    "members_loaded": 164,
+    "region_entries": 18,
+    "members_activated": 118,
+    "internal_edges_admitted": 95,
+    "dependency_refusals": 0,
+    "dependency_invalidations": 0,
+    "search_data_hits": 1,
+    "appended_translations": 0
+  },
+  "size": {
+    "regions": 27,
+    "members": 164,
+    "internal_edges_total": 131,
+    "copied_source_native_bytes": 63524,
+    "private_native_bytes": 71064,
+    "guard_growth_bytes": 7540,
+    "region_footprint_bytes": 102100
+  },
+  "measurement": {
+    "pairs": 12,
+    "seed": 98912,
+    "cpu_affinity": [0],
+    "native_ns": {
+      "ordinary_warm": [190970, 181856, 194017, 194727, 212735, 193207, 224079, 192822, 198641, 190702, 192786, 201258],
+      "current_scopt": [204261, 323570, 201119, 175508, 190471, 195171, 192065, 192175, 198290, 194725, 196282, 192237],
+      "firmware_inline": [361347, 360024, 364132, 361359, 353562, 346925, 351056, 366246, 348466, 345911, 351242, 348240]
+    },
+    "median_speedup": {
+      "current_scopt_vs_ordinary_warm": 0.995853582115229,
+      "firmware_inline_vs_ordinary_warm": 0.5500865497382268,
+      "firmware_inline_vs_current_scopt": 0.555573561923268
+    },
+    "bootstrap_95": {
+      "current_scopt_vs_ordinary_warm": [0.9720138340173403, 1.0782157149965297],
+      "firmware_inline_vs_ordinary_warm": [0.5306576432957109, 0.5739865753865095],
+      "firmware_inline_vs_current_scopt": [0.5429133345071826, 0.5641052041642776]
+    }
+  },
+  "decision": "measured_regression_disable_by_default"
+}

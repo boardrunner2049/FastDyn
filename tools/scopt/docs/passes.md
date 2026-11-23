@@ -234,8 +234,10 @@ translation context, and fall back to the original lookup path on mismatch.
   nested acyclic `init -> clocks` call creates a deeper inline context. The public init
   TB remains available for unrelated callers.
 - Evidence: correctness fixtures cover verified direct-call discovery and private-region
-  construction. No real-application timing result has yet established a speedup; code
-  growth or fewer dispatches alone is not performance evidence.
+  construction. On the bounded FreeRTOS boot workload, 12 pinned paired blocks measured
+  0.550x `[0.531, 0.574]` versus ordinary warm execution: a clear regression. The loader
+  activated 118 private members; eager activation and 7,540 bytes of guard/fallback growth
+  dominate this roughly 0.2 ms window. See `docs/firmware-inline-evaluation.md`.
 - Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,
   `scopt/analysis/firmware_regions.py`, `scopt/formats/sc_v7.py`, and the v7 loader in
   `third_party/common/qemu/tcg/supercache.c`.
