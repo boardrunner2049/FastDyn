@@ -1,0 +1,80 @@
+{
+  "schema": "scopt.firmware-inline-trusted-evaluation/1",
+  "date": "2026-11-22",
+  "fastdyn_commit": "8735fcb4e46f973899b89753fa45eab45822a8b2",
+  "qemu_commit": "c0720a2a3a6d3b8b8486eb7e25a871585c9fa48c",
+  "qemu_sha256": "sha256:250efeccfd6ace72fd3d15eb41b8343469cf1ea1320f2c73764831f462770126",
+  "application": "tests/sample_binaries/RTOS/RTOSDemo.axf",
+  "application_sha256": "sha256:53ca19e3ae4927d4a81d95420c57567484ca2a3375f0757ac0fd8ec7db4f0a04",
+  "snapshot_id": "sha256:98a7ebe275ba1a07c198acbb74565351e441735cff65b0a3a8f6cae161df8e41",
+  "safe_artifact_id": "sha256:3d548015fa2123f8cf989cf69dc39d4ceaa8470909eedb59bed1cd878a5743ac",
+  "trusted_artifact_id": "sha256:7983b82b8c084653546fbfb86d6456931fca852c7cef0397ebfe1f4b274ee879",
+  "loaded_artifact_id8": "188300033a6496d1",
+  "contract": {
+    "trust": "user",
+    "interrupts": "disabled",
+    "icount": "ignored",
+    "entry_prefix_bytes_skipped": 15,
+    "runtime_hash_validation": false,
+    "runtime_fault_recovery": false,
+    "mapping_invalidation": false,
+    "unexpected_control_context_fallback": false
+  },
+  "activation": {
+    "discovered": 30,
+    "embedded": 27,
+    "pending": 4,
+    "actual_expansion_depth": 5,
+    "regions_loaded": 27,
+    "members_loaded": 164,
+    "region_activations": 18,
+    "trusted_entry_descriptors_instantiated": 18,
+    "member_shadow_descriptors_instantiated": 0,
+    "member_callback_replays": 0,
+    "guest_hash_checks": 0,
+    "artifact_hash_validations": 0,
+    "search_data_hits": 0,
+    "appended_translations": 0
+  },
+  "size": {
+    "safe_region_footprint_bytes": 102100,
+    "trusted_region_footprint_bytes": 67844,
+    "safe_native_bytes": 71064,
+    "trusted_native_bytes": 63524,
+    "regions": 27,
+    "members": 164,
+    "internal_edges": 131
+  },
+  "measurement": {
+    "pairs": 12,
+    "seed": 98912,
+    "cpu_affinity": [0],
+    "native_ns": {
+      "ordinary_warm": [194200, 195380, 201966, 307669, 193468, 193201, 226056, 203268, 194425, 200601, 191316, 196090],
+      "safe_firmware_inline": [262369, 261118, 263185, 282206, 462141, 275129, 262423, 267849, 262304, 284895, 266692, 262032],
+      "trusted_firmware_inline": [257523, 255428, 256257, 253785, 256105, 254579, 254185, 256455, 261925, 258121, 253236, 284360]
+    },
+    "median_native_ns": {
+      "ordinary_warm": 195735.0,
+      "safe_firmware_inline": 264938.5,
+      "trusted_firmware_inline": 256181.0
+    },
+    "median_speedup": {
+      "safe_vs_ordinary_warm": 0.7447320999477913,
+      "trusted_vs_ordinary_warm": 0.7619080708156103,
+      "trusted_vs_safe": 1.0384191563564587
+    },
+    "bootstrap_95": {
+      "safe_vs_ordinary_warm": [0.7107447108114684, 0.7631410144565376],
+      "trusted_vs_ordinary_warm": [0.7547659665110715, 0.7903726802307072],
+      "trusted_vs_safe": [1.0205470364284261, 1.0922240258840086]
+    }
+  },
+  "invalid_revisions": [
+    "trusted v3 loader initially treated omitted recovery data as safe-v2 data",
+    "trusted loader initially rejected ordinary internal loops",
+    "entry +11 retained can_do_io=0 and forced normal CPACR MMIO through recovery",
+    "shared-descriptor relocation initially changed ordinary exit indexes 0/1 to requested-exit index 3"
+  ],
+  "decision": "retain_opt_in_trusted_mode_safe_default_unchanged"
+}

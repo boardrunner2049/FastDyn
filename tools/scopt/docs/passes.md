@@ -221,10 +221,13 @@ translation context, and fall back to the original lookup path on mismatch.
   `trust="safe", interrupts="preserved", icount="preserved"`. Trusted mode is accepted
   only for an icount-off capture whose every member has the exact 11-byte non-icount IRQ
   poll followed by the captured four-byte `can_do_io` store. Internal edges skip the
-  complete 15-byte prefix so MMIO cannot observe a stale false value; the root still
-  executes it. Trusted v7 uses one descriptor per region, no member search
+  complete 15-byte prefix so MMIO cannot observe a stale false value; trusted root
+  entries skip the same prefix. Trusted v7 uses one descriptor per region, no member search
   data or live fault/plugin recovery, no guest-code dependency checks, and a distinct
-  loader capability. It is therefore suitable only when the user accepts those losses.
+  loader capability. It also replaces admitted captured lookup tails directly instead of
+  emitting the safe mode's return-context guards; an unexpected return/context is therefore
+  outside the trusted contract. It is suitable only when the user verifies immutable code,
+  mappings, and admitted control contexts and accepts fatal recovery for a real fault.
 - Example:
 
   ```sh
@@ -260,7 +263,9 @@ translation context, and fall back to the original lookup path on mismatch.
   loading registered 18 entries for 118 member descriptors, and the live restore proof
   omitted 116 inert callback replays. That improved the corrected candidate from about
   327 us to 265 us, but eager exhaustive setup and 7,540 bytes of guard/fallback growth
-  still dominate this roughly 0.2 ms window. See `docs/firmware-inline-evaluation.md`.
+  still dominate this roughly 0.2 ms window. The explicit trusted mode subsequently measured
+  1.038x `[1.021, 1.092]` versus safe firmware-inline, but remained slower than ordinary warm
+  execution at 0.762x `[0.755, 0.790]`. See `docs/firmware-inline-evaluation.md`.
 - Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,
   `scopt/analysis/firmware_regions.py`, `scopt/formats/sc_v7.py`, and the v7 loader in
   `third_party/common/qemu/tcg/supercache.c`.

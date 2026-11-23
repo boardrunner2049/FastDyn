@@ -2,7 +2,9 @@
 
 `firmware-inline@1` is active and behavior-correct on the bounded FreeRTOS
 `RTOSDemo.axf` boot workload, but its exhaustive policy is a measured regression
-for that workload.  It remains opt-in.
+for that workload. The later explicit trusted mode removes the requested runtime
+bookkeeping and is 1.038x faster than safe firmware-inline, but it is still only
+0.762x as fast as ordinary warm execution. Both modes remain opt-in.
 
 The exact run used FastDyn `dedef1a`, QEMU `3927bf2`, QEMU executable SHA-256
 `e34cdf7c...a284ba1`, and firmware SHA-256 `53ca19e3...4f0a04`.  The v7 loader
@@ -88,6 +90,51 @@ about 265 us to 308 us (0.634x versus ordinary warm), so it was rejected and
 removed.  This result does not establish a steady-state regression because the
 firmware stops at scheduler entry and has no repeated steady measurement
 window.
+
+## Trusted no-bookkeeping result
+
+The trusted run used FastDyn `8735fcb`, QEMU `c0720a2`, QEMU executable
+SHA-256 `250efecc...770126`, snapshot `98a7ebe2...df8e41`, safe artifact
+`3d548015...5743ac`, and trusted artifact `7983b82b...ee879`. Its explicit
+control was:
+
+```json
+{"firmware-inline":{"mode":"exhaustive","trust":"user",
+ "interrupts":"disabled","icount":"ignored"}}
+```
+
+It skips the complete 15-byte translated-entry prefix, uses one descriptor per
+region, preserves residual exit indexes 0/1/3, and performs no member-descriptor
+construction, callback replay, guest/artifact hashing, member recovery lookup,
+or mapping invalidation. Normal MMIO remains executable because the skipped
+prefix does not clear `can_do_io`. A real fault or recovery request inside a
+trusted region terminates with exit 125 and is resolved after the run with
+`scopt firmware-region recover`. Trusted mode also assumes the admitted captured
+return contexts; safe mode retains the guard and fallback.
+
+The diagnostic run loaded artifact id `188300033a6496d1`, appended zero
+translations, and reproduced the normalized UART output. It activated 18 of 27
+regions, instantiated 18 region descriptors and zero member descriptors, and
+reported zero runtime hash validations, callback replays, and recovery lookups.
+Region footprint fell from 102,100 to 67,844 bytes; copied native code fell from
+71,064 to 63,524 bytes because trusted mode does not materialize safe return
+guards.
+
+Twelve fresh-process randomized paired blocks pinned to CPU 0 measured:
+
+| Configuration | Median native time | Speed versus ordinary warm | Paired bootstrap 95% interval |
+| --- | ---: | ---: | ---: |
+| ordinary warm | 195.735 us | 1.000x | -- |
+| safe firmware-inline | 264.939 us | 0.745x | 0.711-0.763x |
+| trusted firmware-inline | 256.181 us | 0.762x | 0.755-0.790x |
+
+Trusted versus safe firmware-inline is **1.038x** with interval
+**[1.021, 1.092]**. This establishes that the removed bookkeeping was costly,
+but it was not the root cause of the whole regression: even after removing it,
+the exhaustive embedded regions remained about 31% slower in native time than
+ordinary warm execution on this boot-only workload. The raw samples and failed
+intermediate revisions are in
+`fixtures/firmware-inline/trusted-measurement.json`.
 
 The machine-readable raw samples and identities are in
 `fixtures/firmware-inline/measurement.json`.
