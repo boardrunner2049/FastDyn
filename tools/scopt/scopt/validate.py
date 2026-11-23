@@ -1580,6 +1580,14 @@ def v7_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
     return frozenset(out)
 
 
+def trusted_v7_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
+    """Explicit executable identities for the unsafe trusted v7 contract."""
+    out = {x.removeprefix("sha256:") for x in extra if x}
+    out |= {x.strip().removeprefix("sha256:") for x in
+            os.environ.get("SCOPT_V7_TRUSTED_EXES", "").split(",") if x.strip()}
+    return frozenset(out)
+
+
 def _ri_exe(ri: Mapping[str, Any] | None) -> str | None:
     if not ri:
         return None
@@ -1709,10 +1717,11 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
                          sidecar: Mapping[str, Any] | None = None,
                          runtime: Mapping[str, Any] | None = None,
                          v7_exes: Iterable[str] = (),
+                         trusted_v7_exes: Iterable[str] = (),
                          skip_reimport: bool = False) -> tuple[Validation, Any]:
     """Structural, recovery and reimport checks for firmware-region artifacts."""
-    from .formats.sc_v7 import (LOADER_V7, build_directory, decode_directory, read_sc7,
-                                sc7_snapshot_id)
+    from .formats.sc_v7 import (build_directory, decode_directory, loader_requirement,
+                                read_sc7, sc7_snapshot_id)
 
     v = Validation()
     path = Path(art_dir) / "cache.sc"
@@ -1725,6 +1734,7 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
     v.add("V1", "firmware_directory", True,
           f"{directory.n_regions} regions, {directory.n_members} members, "
           f"{directory.n_edges} internal edges")
+    trusted = directory.trusted
     v.add("V1", "version", out.header.version == 7 and out.header.reserved == 1,
           f"version={out.header.version} features={out.header.reserved:#x}")
     public_ok = (out.record_bytes == tuple(u.record for u in link.units) and
@@ -1748,7 +1758,8 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
             for exit_id, field, target in member.patched_edges:
                 disp = int.from_bytes(member.code[field:field + 4], "little", signed=True)
                 actual = member.tc_offset + field + 4 + disp
-                expected = region.members[target].tc_offset
+                expected = region.members[target].tc_offset + (
+                    region.trusted_entry_offset if region.trusted else 0)
                 if actual != expected:
                     bad_edges.append(f"{member.source_uid}/{exit_id}: {actual:#x}!={expected:#x}")
             unit = member.effective_unit
@@ -1757,7 +1768,8 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
             for site in unit.sites:
                 if site.kind != SiteKind.MOVI_EXIT_TB_PTR:
                     continue
-                expected = snapshot.header.code_address + member.tb_offset + site.aux
+                expected = (snapshot.header.code_address + member.tb_offset +
+                            (3 if region.trusted else site.aux))
                 if site.enc == Encoding.RIPREL32 and site.width == 4:
                     disp = int.from_bytes(member.code[site.field_off:site.field_off + 4],
                                           "little", signed=True)
@@ -1778,7 +1790,8 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
           f"{directory.n_edges} internal transfers target private members"
           if not bad_edges else _few(bad_edges))
     v.add("V4", "private_descriptor_refs", not bad_descriptors,
-          "every EXIT_TB result names its actual private member descriptor"
+          ("every EXIT_TB result names the shared no-chain descriptor" if trusted else
+           "every EXIT_TB result names its actual private member descriptor")
           if not bad_descriptors else _few(bad_descriptors))
     by_uid = {u.uid: u for u in snapshot.units()}
     bad_origin = [m.source_uid for m in linked_members
@@ -1786,12 +1799,32 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
                   by_uid[m.source_uid].content_hash != m.source_hash or
                   m.effective_unit is None or
                   m.effective_unit.key != by_uid[m.source_uid].key]
+    if trusted and linked_members and linked_members[0].effective_unit is not None:
+        from .link import trusted_firmware_entry_problem
+
+        entry_key = linked_members[0].effective_unit.key
+        entry_context = (entry_key.flags, entry_key.cs_base, entry_key.cflags)
+        bad_origin += [m.source_uid for m in linked_members
+                       if m.effective_unit is not None and
+                       (m.effective_unit.key.flags, m.effective_unit.key.cs_base,
+                        m.effective_unit.key.cflags) != entry_context]
+        bad_origin += [f"{m.source_uid}:{trusted_firmware_entry_problem(m.effective_unit)}"
+                       for m in linked_members if m.effective_unit is not None and
+                       trusted_firmware_entry_problem(m.effective_unit) is not None]
+        from .formats.enums import RunInfoFlag
+
+        if snapshot.run_info is None or snapshot.run_info.flags & RunInfoFlag.ICOUNT_ENABLED:
+            bad_origin.append("trusted_icount_active")
     v.add("V5", "source_identity", not bad_origin,
           "every private member binds its exact source content hash and full key"
           if not bad_origin else _few(bad_origin))
     bad_recovery = []
     recovered = 0
     for member in linked_members:
+        if trusted:
+            if member.search:
+                bad_recovery.append(f"{member.source_uid}: trusted member has search data")
+            continue
         unit = member.effective_unit
         if unit is None:
             bad_recovery.append(f"{member.source_uid}: missing effective unit")
@@ -1807,13 +1840,17 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
             if got is None or got[0] != point.insn or tuple(got[1]) != tuple(point.words):
                 bad_recovery.append(f"{member.source_uid}/{point.id}")
     v.add("V6", "private_recovery", not bad_recovery,
-          f"{recovered} recovery points preserved" if not bad_recovery else _few(bad_recovery))
+          ("trusted contract deliberately omits live recovery metadata" if trusted else
+           f"{recovered} recovery points preserved")
+          if not bad_recovery else _few(bad_recovery))
     lr = None if sidecar is None else sidecar.get("loader_requirement")
-    v.add("V7", "loader_requirement", lr == LOADER_V7,
-          f"{lr} (expected {LOADER_V7})")
+    required_loader = loader_requirement(directory)
+    v.add("V7", "loader_requirement", lr == required_loader,
+          f"{lr} (expected {required_loader})")
     ri = runtime if runtime is not None else snapshot.runtime
     exe = _ri_exe(ri)
-    caps = v7_capable_exes(v7_exes)
+    caps = (trusted_v7_capable_exes(trusted_v7_exes) if trusted else
+            v7_capable_exes(v7_exes))
     v.add("V7", "v7_capable_runtime", exe is not None and exe in caps,
           f"RuntimeIdentity exe {exe} {'is' if exe in caps else 'is not'} a v7-capable "
           f"firmware-region binary ({len(caps)} known)", "v7_runtime_required")
@@ -1850,6 +1887,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
                 plan: Any = None, sidecar: Mapping[str, Any] | None = None,
                 layout: Any = None, v6_exes: Iterable[str] = (),
                 v7_exes: Iterable[str] = (),
+                trusted_v7_exes: Iterable[str] = (),
                 runtime: Mapping[str, Any] | None = None, scparse: Any = None,
                 sc6parse: Any = None, regions: Sequence[Mapping[str, Any]] | None = None,
                 hot_set_bytes: int | None = None, growth_fraction: float = 0.10,
@@ -1886,6 +1924,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
     if getattr(link, "version", 5) == 7:
         return validate_firmware_v7(snapshot, link, art_dir, sidecar=sidecar,
                                     runtime=runtime, v7_exes=v7_exes,
+                                    trusted_v7_exes=trusted_v7_exes,
                                     skip_reimport=skip_reimport)
     from .formats.envlayout_v1 import find_envlayout
     from .formats.sc_v6 import (KIND_SPEC, LOADER_V6, read_sc6, sc6_snapshot_id,
@@ -2840,7 +2879,7 @@ def relocate_unit_body(u: Any, new_tb: int) -> bytes:
     return relocate_unit(u, new_tb).body
 
 
-__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "v7_capable_exes", "stub_rows", "relocate_unit_body",
+__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "v7_capable_exes", "trusted_v7_capable_exes", "stub_rows", "relocate_unit_body",
             "multi_tb_rows"]
 
 
@@ -3052,6 +3091,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
                pipeline: Sequence[Mapping[str, Any]] | None = None,
                profile_ids: Sequence[Mapping[str, Any]] = (), layout: Any = None,
                v6_exes: Iterable[str] = (), v7_exes: Iterable[str] = (),
+               trusted_v7_exes: Iterable[str] = (),
                runtime: Mapping[str, Any] | None = None,
                scparse: Any = None, sc6parse: Any = None, allow_uncertified: bool = False,
                ledger_rows: Iterable[LedgerRow] = (),
@@ -3078,7 +3118,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     ``sidecar_extra`` adds ``x_`` keys to the sidecar (the manager's B3 report)."""
     from .formats.envlayout_v1 import find_envlayout
     from .formats.sc_v6 import LOADER_V6, ScExtRefused
-    from .formats.sc_v7 import LOADER_V7
+    from .formats.sc_v7 import LOADER_V7, LOADER_V7_TRUSTED
     from .link import NativeLinkerV2
 
     if vkw.get("skip_reimport"):
@@ -3095,7 +3135,8 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     try:
         off = GuardOffsets.from_layout(layout)
     except GuardError as e:
-        if plan.grow or plan.firmware_regions:
+        safe_firmware = any(not region.trusted for region in plan.firmware_regions)
+        if plan.grow or safe_firmware:
             return _reject_b3(store, candidate_id, f"{e.reason}", led, None, None)
         off = GuardOffsets()
     link = NativeLinkerV2(snapshot, plan, offsets=off, placement=placement).link()
@@ -3139,7 +3180,9 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             "pinned": [{"unit": u, "reasons": list(reasons)} for u, reasons in placement.pinned()]
             if placement is not None else [],
             "validation_sha256": "sha256:" + "0" * 64, "tool_versions": A.tool_versions(),
-            "loader_requirement": (LOADER_V7 if link.version == 7 else
+            "loader_requirement": ((LOADER_V7_TRUSTED
+                                    if link.firmware_regions[0].trusted else LOADER_V7)
+                                   if link.version == 7 else
                                    LOADER_V6 if link.version == 6 else A.LOADER_V5),
             "x_candidate_id": candidate_id,
             "x_b3": {"grown": sorted(link.grown), "rewritten": sorted(link.rewritten),
@@ -3158,7 +3201,9 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
                 raise ValueError(f"sidecar_extra key {k!r} must start with 'x_'")
             sidecar[k] = x
         val, res = validate_b3(snapshot, link, stage, plan=plan, sidecar=sidecar, layout=layout,
-                               v6_exes=v6_exes, v7_exes=v7_exes, runtime=ri, scparse=scparse,
+                               v6_exes=v6_exes, v7_exes=v7_exes,
+                               trusted_v7_exes=trusted_v7_exes,
+                               runtime=ri, scparse=scparse,
                                sc6parse=sc6parse, **vkw)
         if not val.accepted:
             return _reject_b3(store, candidate_id, val.first_reason() or "validation", led,

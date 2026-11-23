@@ -124,6 +124,8 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
               help="--b3: extra v6-capable exe sha256 (V7; default: runs/wp22/gate-binary.json).")
 @click.option("--v7-exe", "v7_exes", multiple=True,
               help="--b3: firmware-region-v7-capable exe sha256 (repeatable; no v6 inheritance).")
+@click.option("--v7-trusted-exe", "trusted_v7_exes", multiple=True,
+              help="--b3: trusted firmware-region-v7 exe sha256 (distinct unsafe ABI).")
 @click.option("--selftest", "selftest_file", type=click.Path(dir_okay=False),
               help="--b3: hostsym V18 self-test document (run and written when stale/absent).")
 @click.option("--prep", type=click.Path(exists=True, file_okay=False),
@@ -141,7 +143,7 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @selection_timing_options
 @click.option("--json", "as_json", is_flag=True)
 def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, params_file, b3_mode,
-                 ri_file, v6_exes, v7_exes, selftest_file, prep, elf, as_json,
+                 ri_file, v6_exes, v7_exes, trusted_v7_exes, selftest_file, prep, elf, as_json,
                  select_with=None, selection_out=None,
                  qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=()):
     """Run PIPELINE on SNAPSHOT, link, validate (V1-V9) and publish the artifact.
@@ -225,7 +227,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         raise click.UsageError("native_combination_unsupported: native islands need a standalone pipeline")
     if b3_mode or (pl.allowed_capabilities & B3_EDIT_KINDS):
         _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
-                     v6_exes, v7_exes,
+                     v6_exes, v7_exes, trusted_v7_exes,
                      selftest_file, prep, elf, as_json, native_stage=native_stage,
                      selection=(original_snapshot, select_with, selection_out, timing), enable=enable)
         return
@@ -268,7 +270,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
 
 
 def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
-                 v6_exes, v7_exes,
+                 v6_exes, v7_exes, trusted_v7_exes,
                  selftest_file, prep, elf, as_json, native_stage=None, selection=None, enable=()):
     from ..analysis.b3_inputs import resolve_for_snapshot
     from ..manager import PipelineError
@@ -284,6 +286,7 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
         Path(store).mkdir(parents=True, exist_ok=True)
         selftest_file = str(Path(store) / "hostsym_selftest.json")
     env = B3Env(runtime=ri, v6_exes=tuple(v6_exes), v7_exes=tuple(v7_exes),
+                trusted_v7_exes=tuple(trusted_v7_exes),
                 selftest=load_or_run(selftest_file))
     try:
         r = optimize_b3(snap, pl, store, env=env, profiles=views, params=params,

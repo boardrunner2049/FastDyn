@@ -20,17 +20,25 @@ from .layouts import SC_CODE_OFFSET
 from .sc_v5 import ScFormatError, ScHeader, ScRecord, read_sc, write_sc
 
 __all__ = ["SC7_VERSION", "SC7_MAGIC", "SC7_DIRECTORY_VERSION",
-           "SC7_REGION_COMPOSITE", "Sc7Directory", "directory_size",
+           "SC7_TRUSTED_DIRECTORY_VERSION", "SC7_REGION_COMPOSITE",
+           "SC7_REGION_TRUSTED", "SC7_EDGE_TRUSTED_SKIP_POLL",
+           "SC7_TRUSTED_ENTRY_OFFSET", "Sc7Directory",
+           "directory_size", "loader_requirement",
            "build_directory", "write_sc7", "read_sc7", "decode_directory",
-           "sc7_snapshot_id", "LOADER_V7"]
+           "sc7_snapshot_id", "LOADER_V7", "LOADER_V7_TRUSTED"]
 
 SC7_VERSION = 7
 SC7_OFFSET = 0x100
 SC7_MAGIC = b"QSC7FWRG"
 SC7_FEATURE_FIRMWARE_REGIONS = 1
 SC7_DIRECTORY_VERSION = 2
+SC7_TRUSTED_DIRECTORY_VERSION = 3
 SC7_REGION_COMPOSITE = 1
+SC7_REGION_TRUSTED = 2
+SC7_EDGE_TRUSTED_SKIP_POLL = 1
+SC7_TRUSTED_ENTRY_OFFSET = 11
 LOADER_V7 = "qemu-sc-v7-composite-firmware-regions"
+LOADER_V7_TRUSTED = "qemu-sc-v7-trusted-firmware-regions"
 
 _HEADER = struct.Struct("<8sIIIIIIQQQ8sQ8s")
 _REGION = struct.Struct("<8s8sIIIIQQQII")
@@ -48,6 +56,15 @@ class Sc7Directory:
     n_members: int
     n_edges: int
     artifact_id8: bytes
+    directory_version: int = SC7_DIRECTORY_VERSION
+
+    @property
+    def trusted(self) -> bool:
+        return self.directory_version == SC7_TRUSTED_DIRECTORY_VERSION
+
+
+def loader_requirement(directory: Sc7Directory) -> str:
+    return LOADER_V7_TRUSTED if directory.trusted else LOADER_V7
 
 
 def directory_size(regions: Sequence[Any]) -> int:
@@ -64,13 +81,20 @@ def _id8(value: str) -> bytes:
         return hashlib.sha256(value.encode()).digest()[:8]
 
 
-def _artifact_id8(table: bytes, payloads: Sequence[tuple[bytes, bytes, bytes]]) -> bytes:
-    return hashlib.sha256(b"scopt.sc7/2" + table + b"".join(
+def _artifact_id8(table: bytes, payloads: Sequence[tuple[bytes, bytes, bytes]],
+                  directory_version: int) -> bytes:
+    return hashlib.sha256(f"scopt.sc7/{directory_version}".encode() + table + b"".join(
         hashlib.sha256(descriptor + code + search).digest()
         for descriptor, code, search in payloads)).digest()[:8]
 
 
 def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
+    trust_modes = {bool(region.trusted) for region in link.firmware_regions}
+    if len(trust_modes) != 1:
+        raise ScFormatError("v7 artifact cannot mix safe and trusted firmware regions")
+    trusted = trust_modes == {True}
+    directory_version = (SC7_TRUSTED_DIRECTORY_VERSION if trusted else
+                         SC7_DIRECTORY_VERSION)
     region_rows = bytearray()
     member_rows = bytearray()
     edge_rows = bytearray()
@@ -84,20 +108,24 @@ def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
         code_end = next_code + sum(len(m.code) for m in region.members)
         next_search = code_end
         for mi, member in enumerate(region.members):
+            expected_descriptor = region.start_offset if trusted else next_descriptor
             if (len(member.descriptor) != descriptor_size or
-                    member.tb_offset != next_descriptor):
+                    member.tb_offset != expected_descriptor):
                 raise ScFormatError(f"firmware region {ri} member {mi}: descriptors are "
                                     "not contiguous in member order")
             if member.tc_offset != next_code:
                 raise ScFormatError(f"firmware region {ri} member {mi}: code is not "
                                     "contiguous in member order")
-            if member.search_offset != next_search:
+            expected_search = code_end if trusted else next_search
+            if member.search_offset != expected_search:
                 raise ScFormatError(f"firmware region {ri} member {mi}: search data is not "
                                     "contiguous and out of line")
-            next_descriptor += descriptor_size
+            if not trusted:
+                next_descriptor += descriptor_size
             next_code += len(member.code)
             next_search += len(member.search)
-        if (not descriptor_size or next_descriptor > region.members[0].tc_offset or
+        descriptor_end = region.start_offset + descriptor_size if trusted else next_descriptor
+        if (not descriptor_size or descriptor_end > region.members[0].tc_offset or
                 region.end_offset != next_search):
             raise ScFormatError(f"firmware region {ri}: invalid composite geometry")
         region_member_base = first_member
@@ -113,7 +141,7 @@ def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
             _id8(region.region_id), _id8(region.callsite_id), region.entry_member,
             region_member_base, len(region.members), region_edge_base,
             entry_source_tb, region.start_offset, region.end_offset,
-            n_edges, SC7_REGION_COMPOSITE)
+            n_edges, SC7_REGION_COMPOSITE | (SC7_REGION_TRUSTED if trusted else 0))
         for local_member, member in enumerate(region.members):
             if len(member.code) != member.tc_size or len(member.search) != member.search_size:
                 raise ScFormatError(f"firmware region {ri} member {local_member}: "
@@ -138,8 +166,10 @@ def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
                     raise ScFormatError(f"firmware region {ri} member {local_member}: edge "
                                         f"field {field:#x} is outside the code")
                 kind = 1
+                edge_flags = SC7_EDGE_TRUSTED_SKIP_POLL if trusted else 0
                 edge_rows += _EDGE.pack(ri, global_source, region_member_base + target,
-                                        field, kind, 0, 0, 0, fnv1a64(exit_id.encode()))
+                                        field, kind, edge_flags, 0, 0,
+                                        fnv1a64(exit_id.encode()))
             first_member += 1
         first_edge += n_edges
     table = bytes(region_rows + member_rows + edge_rows)
@@ -148,16 +178,17 @@ def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
                             f"{link.firmware_table_size}")
     payloads = [(m.descriptor, m.code, m.search)
                 for r in link.firmware_regions for m in r.members]
-    aid = _artifact_id8(table, payloads)
+    aid = _artifact_id8(table, payloads, directory_version)
     max_end = link.firmware_table_offset + len(table)
-    prefix = _HEADER.pack(SC7_MAGIC, SC7_DIRECTORY_VERSION, _HEADER.size,
+    prefix = _HEADER.pack(SC7_MAGIC, directory_version, _HEADER.size,
                           len(link.firmware_regions),
                           first_member, first_edge, _REGION.size, link.firmware_table_offset,
                           len(table), max_end, aid, 0, b"\0" * 8)
     checksum = fnv1a64(table, fnv1a64(prefix[:64]))
     header = prefix[:64] + struct.pack("<Q", checksum) + prefix[72:]
     return Sc7Directory(header, table, link.firmware_table_offset, max_end,
-                        len(link.firmware_regions), first_member, first_edge, aid)
+                        len(link.firmware_regions), first_member, first_edge, aid,
+                        directory_version)
 
 
 def write_sc7(path: str | os.PathLike, header: ScHeader, units: Iterable,
@@ -168,11 +199,12 @@ def write_sc7(path: str | os.PathLike, header: ScHeader, units: Iterable,
     extra = [(SC7_OFFSET, directory.header),
              (SC_CODE_OFFSET + directory.table_offset, directory.table)]
     for region in link.firmware_regions:
-        for member in region.members:
+        for mi, member in enumerate(region.members):
             if (len(member.descriptor) != header.tb_size or
                     member.descriptor != b"\0" * header.tb_size):
                 raise ScFormatError("private firmware descriptor must be canonical zero bytes")
-            extra.append((SC_CODE_OFFSET + member.tb_offset, member.descriptor))
+            if not directory.trusted or mi == 0:
+                extra.append((SC_CODE_OFFSET + member.tb_offset, member.descriptor))
             extra.append((SC_CODE_OFFSET + member.tc_offset, member.code))
             extra.append((SC_CODE_OFFSET + member.search_offset, member.search))
     hdr = header.replace(version=SC7_VERSION, reserved=SC7_FEATURE_FIRMWARE_REGIONS)
@@ -184,9 +216,11 @@ def write_sc7(path: str | os.PathLike, header: ScHeader, units: Iterable,
         arena_spans.append((directory.table_offset, directory.max_end, "firmware directory"))
         for ri, region in enumerate(link.firmware_regions):
             for mi, member in enumerate(region.members):
+                if not directory.trusted or mi == 0:
+                    arena_spans.append(
+                        (member.tb_offset, member.tb_offset + len(member.descriptor),
+                         f"region {ri} member {mi} descriptor"))
                 arena_spans.extend((
-                    (member.tb_offset, member.tb_offset + len(member.descriptor),
-                     f"region {ri} member {mi} descriptor"),
                     (member.tc_offset, member.tc_offset + len(member.code),
                      f"region {ri} member {mi} code"),
                     (member.search_offset, member.search_offset + len(member.search),
@@ -224,7 +258,8 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
             raise ScFormatError("truncated v7 directory header")
         magic, version, size, nr, nm, ne, rsz, off, n, max_end, aid, checksum, reserved = \
             _HEADER.unpack(raw)
-        if (magic != SC7_MAGIC or version != SC7_DIRECTORY_VERSION or
+        if (magic != SC7_MAGIC or
+                version not in (SC7_DIRECTORY_VERSION, SC7_TRUSTED_DIRECTORY_VERSION) or
                 size != _HEADER.size or rsz != _REGION.size):
             raise ScFormatError("invalid v7 directory header")
         expected_size = nr * _REGION.size + nm * _MEMBER.size + ne * _EDGE.size
@@ -237,7 +272,7 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
         table = stream.read(n)
     if len(table) != n or fnv1a64(table, fnv1a64(raw[:64])) != checksum:
         raise ScFormatError("v7 directory checksum mismatch")
-    directory = Sc7Directory(raw, table, off, max_end, nr, nm, ne, aid)
+    directory = Sc7Directory(raw, table, off, max_end, nr, nm, ne, aid, version)
     rows = decode_directory(directory)
     by_tb = {sc.records[i].tb_offset: sc.records[i] for i in sc.valid_slots}
     public_spans = [(r.tb_offset, r.end_offset, f"public record {i}")
@@ -246,7 +281,9 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
     expected_member = expected_edge = 0
     region_spans: list[tuple[int, int, str]] = []
     for i, region in enumerate(rows["regions"]):
-        if (region["flags"] != SC7_REGION_COMPOSITE or
+        expected_region_flags = SC7_REGION_COMPOSITE | (
+            SC7_REGION_TRUSTED if directory.trusted else 0)
+        if (region["flags"] != expected_region_flags or
                 region["first_member"] != expected_member or
                 region["first_edge"] != expected_edge or not region["n_members"] or
                 region["entry_member"] >= region["n_members"] or
@@ -271,7 +308,8 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
             source = by_tb.get(member["source_tb_offset"])
             if source is None:
                 raise ScFormatError(f"v7 member {i}: unknown source record")
-            search_size = source.end_offset - source.tc_offset - source.tc_size
+            search_size = (0 if directory.trusted else
+                           source.end_offset - source.tc_offset - source.tc_size)
             region_index = member["region_index"]
             if region_index >= nr or member["flags"]:
                 raise ScFormatError(f"v7 member {i}: invalid region or flags")
@@ -288,8 +326,11 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
                     or not region["start_offset"] <= member["search_offset"] <= search_end
                     or search_end > region["end_offset"]):
                 raise ScFormatError(f"v7 member {i}: invalid code/search bounds")
+            region_first = region["first_member"]
+            if not directory.trusted or i == region_first:
+                private_spans.append(
+                    (member["tb_offset"], descriptor_end, f"member {i} descriptor"))
             private_spans.extend((
-                (member["tb_offset"], descriptor_end, f"member {i} descriptor"),
                 (member["tc_offset"], code_end, f"member {i} code"),
                 (member["search_offset"], search_end, f"member {i} search"),
             ))
@@ -315,17 +356,24 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
         next_search = code_end
         for member in members:
             source = by_tb[member["source_tb_offset"]]
-            search_size = source.end_offset - source.tc_offset - source.tc_size
-            if (member["tb_offset"] != next_descriptor or
+            search_size = (0 if directory.trusted else
+                           source.end_offset - source.tc_offset - source.tc_size)
+            expected_descriptor = region["start_offset"] if directory.trusted \
+                else next_descriptor
+            if (member["tb_offset"] != expected_descriptor or
                     member["tc_offset"] != next_code):
                 raise ScFormatError(f"v7 region {i}: non-contiguous composite members")
-            if member["search_offset"] != next_search:
+            expected_search = code_end if directory.trusted else next_search
+            if member["search_offset"] != expected_search:
                 raise ScFormatError(f"v7 region {i}: search data is not contiguous and "
                                     "out of line")
-            next_descriptor += sc.header.tb_size
+            if not directory.trusted:
+                next_descriptor += sc.header.tb_size
             next_code += member["tc_size"]
             next_search += search_size
-        if (region["entry_member"] != 0 or next_descriptor > code_start or
+        descriptor_end = (region["start_offset"] + sc.header.tb_size
+                          if directory.trusted else next_descriptor)
+        if (region["entry_member"] != 0 or descriptor_end > code_start or
                 next_code != code_end or next_search != region["end_offset"]):
             raise ScFormatError(f"v7 region {i}: invalid composite geometry")
     occupied = sorted(public_spans + private_spans +
@@ -335,7 +383,9 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
             raise ScFormatError(f"v7 layout overlap: {al} and {cl}")
     for i, edge in enumerate(rows["edges"]):
         ri = edge["region_index"]
-        if ri >= nr or edge["kind"] != 1 or edge["flags"] or edge["reserved"]:
+        expected_edge_flags = SC7_EDGE_TRUSTED_SKIP_POLL if directory.trusted else 0
+        if (ri >= nr or edge["kind"] != 1 or edge["flags"] != expected_edge_flags or
+                edge["reserved"]):
             raise ScFormatError(f"v7 edge {i}: invalid kind, flags, or region")
         region = rows["regions"][ri]
         if not region["first_edge"] <= i < region["first_edge"] + region["n_edges"]:
@@ -350,9 +400,18 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
             raise ScFormatError(f"v7 edge {i}: field outside source code")
         code = payloads[edge["source_member"]][1]
         disp = int.from_bytes(code[field:field + 4], "little", signed=True)
-        if source["tc_offset"] + field + 4 + disp != target["tc_offset"]:
+        target_entry = target["tc_offset"] + (
+            SC7_TRUSTED_ENTRY_OFFSET if directory.trusted else 0)
+        if source["tc_offset"] + field + 4 + disp != target_entry:
             raise ScFormatError(f"v7 edge {i}: rel32 target mismatch")
-    if aid == b"\0" * 8 or aid != _artifact_id8(table, payloads):
+        if directory.trusted:
+            target_code = payloads[edge["target_member"]][1]
+            if (len(target_code) < 15 or target_code[:5] != bytes.fromhex("8b5df885db") or
+                    target_code[5:7] != b"\x0f\x8c" or
+                    target_code[11:15] not in
+                    (bytes.fromhex("c645fc00"), bytes.fromhex("c645fc01"))):
+                raise ScFormatError(f"v7 edge {i}: trusted target prefix is not proven")
+    if aid == b"\0" * 8 or aid != _artifact_id8(table, payloads, version):
         raise ScFormatError("v7 directory artifact identity mismatch")
     return directory
 
@@ -413,17 +472,22 @@ def decode_directory(directory: Sc7Directory) -> dict[str, Any]:
             "tc_offset": tc_offset, "tc_size": tc_size,
             "search_start": tc_offset + tc_size,
             "search_end": region["end_offset"],
+            "trusted": directory.trusted,
+            "member_recovery": not directory.trusted,
         }
     return {"artifact_id8": directory.artifact_id8.hex(), "regions": regions,
             "members": members, "edges": edges, "origins": origins,
-            "max_end": directory.max_end}
+            "max_end": directory.max_end,
+            "directory_version": directory.directory_version,
+            "trusted": directory.trusted}
 
 
 def sc7_snapshot_id(path: str | os.PathLike) -> str:
     """Identity of the records, directory and every private member byte."""
     sc = read_sc(path, versions=(SC7_VERSION,))
     directory = read_sc7(path)
-    digest = hashlib.sha256(b"scopt.snapshot_id.v7/2")
+    digest = hashlib.sha256(
+        f"scopt.snapshot_id.v7/{directory.directory_version}".encode())
     digest.update(sc.snapshot_id().encode())
     digest.update(directory.header)
     digest.update(directory.table)
@@ -432,7 +496,8 @@ def sc7_snapshot_id(path: str | os.PathLike) -> str:
     with open(path, "rb") as stream:
         for member in rows["members"]:
             source = by_tb[member["source_tb_offset"]]
-            search_size = source.end_offset - source.tc_offset - source.tc_size
+            search_size = (0 if directory.trusted else
+                           source.end_offset - source.tc_offset - source.tc_size)
             stream.seek(SC_CODE_OFFSET + member["tc_offset"])
             code = stream.read(member["tc_size"])
             stream.seek(SC_CODE_OFFSET + member["search_offset"])

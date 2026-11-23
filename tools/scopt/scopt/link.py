@@ -275,7 +275,9 @@ def _branch_disp(start: int, end: int, uid: str) -> bytes:
 
 def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
                                      tc_offset: int, tb_offset: int,
-                                     code_address: int) -> tuple[tuple[int, int], ...]:
+                                     code_address: int,
+                                     forced_exit_index: int | None = None
+                                     ) -> tuple[tuple[int, int], ...]:
     """Bind EXIT_TB results in a private copy to its real descriptor.
 
     Ordinary whole-TB relocation preserves ``tc_offset - tb_offset``.  A
@@ -291,7 +293,8 @@ def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
         if site.aux < 0 or site.aux >= len(source.record):
             raise LinkError("firmware_region_descriptor_ref",
                             f"{source.uid}: descriptor addend {site.aux:#x}", source.uid)
-        target = code_address + tb_offset + site.aux
+        addend = site.aux if forced_exit_index is None else forced_exit_index
+        target = code_address + tb_offset + addend
         field = site.field_off
         if site.enc == Encoding.RIPREL32 and site.width == 4:
             if field < 0 or field + 4 > len(code):
@@ -312,6 +315,26 @@ def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
                             f"{source.uid}: unsupported {site.enc.name}/{site.width}", source.uid)
         patched.append((field, site.width))
     return tuple(patched)
+
+
+CF_USE_ICOUNT = 0x00002000
+TRUSTED_ENTRY_OFFSET = 11
+TRUSTED_INSN0_START = 15
+TB_EXIT_IDXMAX = 3
+
+
+def trusted_firmware_entry_problem(u: TBUnit) -> str | None:
+    """Why ``u`` cannot be entered after its exact non-icount IRQ poll."""
+    if u.key.cflags & CF_USE_ICOUNT:
+        return "icount_cflags"
+    code = u.code
+    if u.insn0_start != TRUSTED_INSN0_START or len(code) < TRUSTED_INSN0_START:
+        return f"insn0_start={u.insn0_start}"
+    if (code[:5] != bytes.fromhex("8b5df885db") or code[5:7] != b"\x0f\x8c" or
+            code[TRUSTED_ENTRY_OFFSET:TRUSTED_INSN0_START] not in
+            (bytes.fromhex("c645fc00"), bytes.fromhex("c645fc01"))):
+        return "trusted_irq_prefix_shape"
+    return None
 
 
 def transplant_native(u: TBUnit, *, code_address: int) -> TBUnit:
@@ -843,6 +866,7 @@ __all__ += [
     "apply_pure_rewrite", "rewrite_unit", "VariantSpec", "B3Plan", "VariantLink",
     "LinkResultV2", "NativeLinkerV2", "R2", "exit_class_of", "variant_key", "free_slots",
     "derive_scm_v2", "tb_ret_abs_of",
+    "trusted_firmware_entry_problem", "TRUSTED_ENTRY_OFFSET", "TB_EXIT_IDXMAX",
 ]
 
 
@@ -1362,6 +1386,8 @@ class FirmwareRegionLink:
     source_units: tuple[str, ...]
     start_offset: int
     end_offset: int
+    trusted: bool = False
+    trusted_entry_offset: int = 0
 
     @property
     def emitted_size(self) -> int:
@@ -1402,6 +1428,8 @@ class LinkResultV2(LinkResult):
                  firmware_regions=[{"region_id": r.region_id,
                                     "callsite_id": r.callsite_id,
                                     "members": len(r.members),
+                                    "trusted": r.trusted,
+                                    "trusted_entry_offset": r.trusted_entry_offset,
                                     "emitted_size": r.emitted_size,
                                     "source_identities": [m.source_hash
                                                           for m in r.members],
@@ -1435,6 +1463,23 @@ class NativeLinkerV2:
         """Build private member preimages, retaining guarded lookup fallbacks."""
         from .formats.region_v1 import unit_exits
 
+        if region.trusted:
+            out = [by_uid[member.source_uid] for member in region.members]
+            for source in out:
+                problem = trusted_firmware_entry_problem(source)
+                if problem is not None:
+                    raise LinkError("firmware_region_trusted_prefix",
+                                    f"{source.uid}: {problem}", source.uid)
+                lo = self.header.code_address + source.tb_offset
+                hi = lo + self.header.tb_size
+                bad_refs = [fixup for fixup in source.reloc.fixups
+                            if fixup.target_abs is not None and lo <= fixup.target_abs < hi and
+                            fixup.site_kind != int(SiteKind.MOVI_EXIT_TB_PTR)]
+                if bad_refs:
+                    raise LinkError("firmware_region_trusted_descriptor_ref",
+                                    f"{source.uid}: unclassified descriptor reference",
+                                    source.uid)
+            return out
         if self.tb_ret_abs is None:
             raise LinkError("firmware_region_no_tb_ret", "no tb_ret_addr", region.region_id)
         out: list[TBUnit] = []
@@ -1494,7 +1539,8 @@ class NativeLinkerV2:
             start = round_up(cursor, TB_ALIGN)
             effective = self._firmware_member_units(plan, by_uid)
             descriptor_start = start
-            code_start = round_up(descriptor_start + len(effective) * self.header.tb_size, 16)
+            descriptor_count = 1 if plan.trusted else len(effective)
+            code_start = round_up(descriptor_start + descriptor_count * self.header.tb_size, 16)
             # Keep every executable member span contiguous.  Recovery tables
             # live after the complete code span and the v7 loader binds each
             # private TB to its explicit search_offset.  Interleaving search
@@ -1506,18 +1552,23 @@ class NativeLinkerV2:
                 tc_offsets.append(at)
                 at += source.tc_size
             search_offsets: list[int] = []
-            for source in effective:
-                search_offsets.append(at)
-                at += len(source.search)
+            if plan.trusted:
+                search_offsets = [at] * len(effective)
+            else:
+                for source in effective:
+                    search_offsets.append(at)
+                    at += len(source.search)
             member_links: list[FirmwareMemberLink] = []
             for i, (member, source) in enumerate(zip(plan.members, effective)):
                 fake_tb = tc_offsets[i] - (source.tc_offset - source.tb_offset)
                 relocated = relocate_unit(source, fake_tb)
                 code = bytearray(relocated.body[:source.tc_size])
+                member_tb = descriptor_start if plan.trusted else \
+                    descriptor_start + i * self.header.tb_size
                 retarget_private_descriptor_refs(
                     code, source, tc_offset=tc_offsets[i],
-                    tb_offset=descriptor_start + i * self.header.tb_size,
-                    code_address=ca)
+                    tb_offset=member_tb, code_address=ca,
+                    forced_exit_index=TB_EXIT_IDXMAX if plan.trusted else None)
                 exits = {x.id: x for x in unit_exits(source)}
                 guards = guarded_exit_rows(source)
                 patched: list[tuple[str, int, int]] = []
@@ -1528,6 +1579,14 @@ class NativeLinkerV2:
                     field = None
                     if exit_ is not None and exit_.insn_offset is not None:
                         field = exit_.insn_offset
+                    if field is None and plan.trusted and exit_ is not None and \
+                            exit_.kind.value == "goto_ptr":
+                        tails = [tail for tail in lookup_tails(source)
+                                 if tail.insn_idx == exit_.insn]
+                        if len(tails) == 1:
+                            tail = tails[0]
+                            code[tail.off:tail.end] = b"\xe9\0\0\0\0" + b"\x90" * 6
+                            field = tail.off + 1
                     if field is None:
                         matches = [off for off, row in guards.items()
                                    if int(row["target_vaddr"], 16) == edge.guest_target]
@@ -1536,7 +1595,8 @@ class NativeLinkerV2:
                     if field is None or field < 1 or field + 4 > len(code):
                         raise LinkError("firmware_region_exit_shape",
                                         f"{source.uid}/{edge.exit_id}: no rel32 field", source.uid)
-                    target = tc_offsets[edge.target_member]
+                    target = tc_offsets[edge.target_member] + (
+                        plan.trusted_entry_offset if plan.trusted else 0)
                     disp = target - (tc_offsets[i] + field + 4)
                     if not int32_ok(disp):
                         raise LinkError(R.REL32_RANGE,
@@ -1545,14 +1605,17 @@ class NativeLinkerV2:
                     patched.append((edge.exit_id, field, edge.target_member))
                 member_links.append(FirmwareMemberLink(
                     member.source_uid, member.inline_context,
-                    descriptor_start + i * self.header.tb_size, tc_offsets[i], len(code),
-                    search_offsets[i], len(source.search), b"\0" * self.header.tb_size,
-                    bytes(code), source.search, member.source_hash, source.vaddrs[0],
+                    member_tb, tc_offsets[i], len(code), search_offsets[i],
+                    0 if plan.trusted else len(source.search),
+                    b"\0" * self.header.tb_size, bytes(code),
+                    b"" if plan.trusted else source.search,
+                    member.source_hash, source.vaddrs[0],
                     tuple(patched), source))
             end = at
             linked.append(FirmwareRegionLink(
                 plan.region_id, plan.callsite.callsite_id, plan.entry_member,
-                tuple(member_links), plan.source_uids, start, end))
+                tuple(member_links), plan.source_uids, start, end,
+                plan.trusted, plan.trusted_entry_offset))
             cursor = end
         return tuple(linked), cursor
 

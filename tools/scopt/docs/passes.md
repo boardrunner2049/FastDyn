@@ -216,6 +216,14 @@ translation context, and fall back to the original lookup path on mismatch.
   depth, fixed-point iterations, and pass wall time are explicitly unbounded (`None`).
   The physical TCG arena remains a real resource; exhaustion rejects an incomplete
   artifact and records pending work.
+- Unsafe trusted control is explicit and all-or-nothing:
+  `trust="user", interrupts="disabled", icount="ignored"`. The default remains
+  `trust="safe", interrupts="preserved", icount="preserved"`. Trusted mode is accepted
+  only for an icount-off capture whose every member has the exact 11-byte non-icount IRQ
+  poll followed by the captured `can_do_io` store. Internal edges skip only that poll;
+  the root still executes it. Trusted v7 uses one descriptor per region, no member search
+  data or live fault/plugin recovery, no guest-code dependency checks, and a distinct
+  loader capability. It is therefore suitable only when the user accepts those losses.
 - Example:
 
   ```sh
@@ -223,6 +231,18 @@ translation context, and fall back to the original lookup path on mismatch.
   scopt optimize "$SNAP" --pipeline firmware-inline --elf firmware.elf \
     --runtime-identity runtime_identity.json --v7-exe "$QEMU_SHA" \
     --store "$OUT" --json
+  ```
+
+  Trusted example (params JSON plus the separately admitted loader):
+
+  ```sh
+  printf '%s\n' '{"firmware-inline":{"mode":"exhaustive","trust":"user",' \
+    '"interrupts":"disabled","icount":"ignored"}}' > trusted.json
+  scopt optimize "$SNAP" --pipeline firmware-inline --params trusted.json \
+    --elf firmware.elf --runtime-identity runtime_identity.json \
+    --v7-trusted-exe "$QEMU_SHA" --store "$OUT" --json
+  scopt firmware-region recover --artifact "$OUT/artifacts/$ARTIFACT" \
+    --host-pc 0xHOST_PC --json
   ```
 
 - Artifact/receipt: `fastdyn.firmware_region_plan@1` records source content hashes,

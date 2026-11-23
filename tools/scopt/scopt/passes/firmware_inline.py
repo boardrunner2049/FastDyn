@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import replace
 from typing import Any, ClassVar
 
 from ..analysis.api import ScopeRef
@@ -29,20 +30,38 @@ class FirmwareInline:
                         max_region_members=None, max_context_versions=None,
                         max_units=None),
         invalidates=frozenset({"code", "meta", "layout"}),
-        params_schema={"mode": str},
+        params_schema={"mode": str, "trust": str, "interrupts": str, "icount": str},
     )
 
     def run(self, view: Any, ctx: Any, edits: Any) -> PassResult:
         if ctx.b3 is None:
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "capability_not_enabled",
                               "firmware-inline requires the region-capable B3 packager")
-        if not ctx.b3.layout_bound or ctx.b3.offsets is None:
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "guard_layout_unbound",
-                              ctx.b3.layout_reason or "")
         mode = ctx.params.get("mode", "exhaustive")
         if mode != "exhaustive":
             return PassResult(Outcome.FAILED, "invalid_params",
                               "firmware-inline mode must be 'exhaustive'")
+        trust = ctx.params.get("trust", "safe")
+        interrupts = ctx.params.get("interrupts", "preserved")
+        icount = ctx.params.get("icount", "preserved")
+        trusted = trust == "user"
+        if trusted:
+            if (interrupts, icount) != ("disabled", "ignored"):
+                return PassResult(
+                    Outcome.FAILED, "invalid_trusted_contract",
+                    "trust=user requires interrupts=disabled and icount=ignored")
+            from ..formats.enums import RunInfoFlag
+
+            ri = ctx.b3.snapshot.run_info
+            if ri is None or ri.flags & RunInfoFlag.ICOUNT_ENABLED:
+                return PassResult(Outcome.FAILED, "trusted_icount_active",
+                                  "trusted firmware-inline requires captured icount=off")
+        elif (trust, interrupts, icount) != ("safe", "preserved", "preserved"):
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "safe mode requires preserved interrupts and icount")
+        if not trusted and (not ctx.b3.layout_bound or ctx.b3.offsets is None):
+            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "guard_layout_unbound",
+                              ctx.b3.layout_reason or "")
         sid = ScopeRef("snapshot", ctx.snapshot_id)
         discovered = ctx.analysis("firmware-calls", sid).value
         image = guest_image_for(ctx.b3.snapshot, ctx.bundle)
@@ -61,6 +80,23 @@ class FirmwareInline:
         for call in discovered.calls:
             ctx.budget()
             plan = build_firmware_region(ctx.b3.snapshot, image, discovered, call)
+            if trusted and plan.complete:
+                from ..link import TRUSTED_ENTRY_OFFSET, trusted_firmware_entry_problem
+
+                entry = ctx.b3.snapshot.unit(plan.members[plan.entry_member].source_uid)
+                entry_context = (entry.key.flags, entry.key.cs_base, entry.key.cflags)
+                for member in plan.members:
+                    unit = ctx.b3.snapshot.unit(member.source_uid)
+                    problem = trusted_firmware_entry_problem(unit)
+                    if problem is not None:
+                        return PassResult(Outcome.FAILED, "trusted_prefix_unproven",
+                                          f"{unit.uid}: {problem}")
+                    context = (unit.key.flags, unit.key.cs_base, unit.key.cflags)
+                    if context != entry_context:
+                        return PassResult(Outcome.FAILED, "trusted_context_mismatch",
+                                          f"{unit.uid}: {context} != {entry_context}")
+                plan = replace(plan, trusted=True,
+                               trusted_entry_offset=TRUSTED_ENTRY_OFFSET)
             max_depth = max(max_depth, max((len(m.inline_context) for m in plan.members), default=0))
             for row in plan.pending:
                 reason = str(row.get("reason", "incomplete"))
@@ -72,7 +108,9 @@ class FirmwareInline:
             embedded.append({"callsite_id": call.callsite_id,
                              "region_id": plan.region_id,
                              "source_uids": list(plan.source_uids),
-                             "members": len(plan.members)})
+                             "members": len(plan.members),
+                             "trusted": plan.trusted,
+                             "trusted_entry_offset": plan.trusted_entry_offset})
             residual.extend({"callsite_id": call.callsite_id,
                              "source_member": edge.source_member,
                              "exit_id": edge.exit_id,
@@ -100,7 +138,9 @@ class FirmwareInline:
                                          for k in sorted(source_identities)],
                    "actual_expansion_depth": max_depth,
                    "emitted_size": None, "loaded_artifact_id": None,
-                   "policy": {"mode": "exhaustive", "max_hotness": None,
+                   "policy": {"mode": "exhaustive", "trust": trust,
+                              "interrupts": interrupts, "icount": icount,
+                              "max_hotness": None,
                               "max_growth": None, "max_sites": None,
                               "max_members": None, "max_depth": None,
                               "max_iterations": None, "max_wall_s": None}}

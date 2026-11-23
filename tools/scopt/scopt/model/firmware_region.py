@@ -121,6 +121,8 @@ class FirmwareRegionPlan:
     entry_member: int
     pending: tuple[Mapping[str, Any], ...] = ()
     complete: bool = True
+    trusted: bool = False
+    trusted_entry_offset: int = 0
 
     def __post_init__(self) -> None:
         if not self.members or not 0 <= self.entry_member < len(self.members):
@@ -133,6 +135,8 @@ class FirmwareRegionPlan:
                 raise ValueError("firmware region edge has an invalid source")
             if edge.target_member is not None and not 0 <= edge.target_member < len(self.members):
                 raise ValueError("firmware region edge has an invalid target")
+        if self.trusted_entry_offset < 0 or (not self.trusted and self.trusted_entry_offset):
+            raise ValueError("invalid trusted firmware-region entry offset")
         # ``complete`` means the emitted subgraph is safe to materialize.  It
         # may still contain an explicit ordinary-lookup side exit for pending
         # nested work (for example, a call whose callee was not captured).
@@ -151,7 +155,9 @@ class FirmwareRegionPlan:
                "members": [m.to_json() for m in self.members],
                "edges": [e.to_json() for e in self.edges],
                "entry_member": self.entry_member,
-               "pending": [dict(x) for x in self.pending], "complete": self.complete}
+               "pending": [dict(x) for x in self.pending], "complete": self.complete,
+               "trusted": self.trusted,
+               "trusted_entry_offset": self.trusted_entry_offset}
         if include_id:
             row["region_id"] = self.region_id
         return row

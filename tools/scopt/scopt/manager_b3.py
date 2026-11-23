@@ -113,6 +113,7 @@ class B3Env:
     runtime: Mapping[str, Any] | None = None
     v6_exes: tuple[str, ...] = ()
     v7_exes: tuple[str, ...] = ()
+    trusted_v7_exes: tuple[str, ...] = ()
     selftest: Mapping[str, Any] | None = None
     calibration: Mapping[str, float] | None = None
     certify: bool = True
@@ -1039,6 +1040,7 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
                      placement=cand.working_set if cand.has_layout_changes else None,
                      pipeline=cand.pipeline_provenance(), profile_ids=cand.profile_rows(),
                      runtime=env.runtime, v6_exes=env.v6_exes, v7_exes=env.v7_exes,
+                     trusted_v7_exes=env.trusted_v7_exes,
                      summaries=rows, hostsym=hs,
                      hot_set_bytes=hot, passes_byte_delta=m.pass_bytes,
                      ledger_rows=led.rows,

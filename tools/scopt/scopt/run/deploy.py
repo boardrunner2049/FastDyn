@@ -259,11 +259,13 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
     info["tags"] = artifact_tags(art["path"])  # a bare .sc too (its dir marker, sidecar)
     id8 = _ext_id8_of(art["sc"]) if header.version == 6 else None
     firmware_id8 = None
+    firmware_directory = None
     if header.version == 7:
         try:
             from ..formats.sc_v7 import read_sc7
 
-            firmware_id8 = read_sc7(art["sc"]).artifact_id8.hex()
+            firmware_directory = read_sc7(art["sc"])
+            firmware_id8 = firmware_directory.artifact_id8.hex()
         except (OSError, ValueError):
             reasons.append("firmware_region_directory_invalid")
     info["ext_artifact_id8"] = id8
@@ -279,13 +281,14 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
     if isinstance(side, dict):
         from ..formats.artifact import LOADER_V5
         from ..formats.sc_v6 import LOADER_V6
-        from ..formats.sc_v7 import LOADER_V7
+        from ..formats.sc_v7 import loader_requirement
 
         lr = side.get("loader_requirement")
         info["loader_requirement"] = lr
-        want_lr = (LOADER_V7 if header.version == 7 else
+        want_lr = (loader_requirement(firmware_directory) if firmware_directory is not None else
+                   None if header.version == 7 else
                    LOADER_V6 if header.version == 6 else LOADER_V5)
-        if lr is not None and lr != want_lr:
+        if want_lr is not None and lr is not None and lr != want_lr:
             reasons.append("loader_requirement_mismatch")
         if header.version == 6:
             sid8 = side.get("x_ext_artifact_id8")

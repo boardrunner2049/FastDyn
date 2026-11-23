@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from click.testing import CliRunner
 
 from scopt.analysis.firmware_calls import discover_firmware_calls
 from scopt.analysis.firmware_regions import build_firmware_region
@@ -14,12 +16,14 @@ from scopt.decode.thumb_sem import decode_at, direct_call_target
 from scopt.formats.enums import Encoding, SiteKind
 from scopt.formats.scm_v1 import ScmSite, ScmStaticExit
 from scopt.ids import TBKey
-from scopt.formats.sc_v7 import (build_directory, decode_directory, directory_size, read_sc7,
+from scopt.formats.sc_v7 import (LOADER_V7_TRUSTED, build_directory, decode_directory,
+                                 directory_size, loader_requirement, read_sc7,
                                  sc7_snapshot_id, write_sc7)
 from scopt.formats.sc_v5 import ScFormatError, ScHeader
 from scopt.link import (FirmwareMemberLink, FirmwareRegionLink, relocate_unit,
-                        retarget_private_descriptor_refs, round_up)
-from scopt.validate import v7_capable_exes
+                        retarget_private_descriptor_refs, round_up,
+                        trusted_firmware_entry_problem)
+from scopt.validate import trusted_v7_capable_exes, v7_capable_exes
 
 from ..synth.builders import SynthUnit
 from ..synth.fake_snapshot import fake_snapshot
@@ -132,6 +136,31 @@ def test_private_exit_tb_pointer_targets_real_descriptor(encoding, width, field,
         assert int.from_bytes(code[field:field + width], "little") == target
 
 
+def test_trusted_exit_tb_pointer_forces_shared_no_chain_descriptor():
+    site = ScmSite(2, 0, 8, Encoding.IMM64, SiteKind.MOVI_EXIT_TB_PTR,
+                   0, 0, 0, 0)
+    source = SimpleNamespace(uid="trusted-member", record=b"\0" * 152, sites=(site,))
+    code = bytearray(bytes.fromhex("48b80000000000000000"))
+    retarget_private_descriptor_refs(
+        code, source, tc_offset=0x3000, tb_offset=0x1800,
+        code_address=0x7fff_0000_0000, forced_exit_index=3)
+    assert int.from_bytes(code[2:10], "little") == 0x7fff_0000_1803
+
+
+def test_trusted_prefix_requires_exact_non_icount_poll_and_can_do_io_store():
+    code = bytes.fromhex("8b5df885db0f8c01020304c645fc01") + b"\x90"
+    unit = SimpleNamespace(code=code, insn0_start=15,
+                           key=SimpleNamespace(cflags=0))
+    assert trusted_firmware_entry_problem(unit) is None
+    assert trusted_firmware_entry_problem(
+        SimpleNamespace(code=code, insn0_start=15,
+                        key=SimpleNamespace(cflags=0x2000))) == "icount_cflags"
+    assert trusted_firmware_entry_problem(
+        SimpleNamespace(code=code[:11] + bytes.fromhex("c645fc02") + code[15:],
+                        insn0_start=15,
+                        key=SimpleNamespace(cflags=0))) == "trusted_irq_prefix_shape"
+
+
 def test_v7_export_and_reimport_directory(tmp_path):
     snapshot, _image = _snapshot()
     source = snapshot.units()[0]
@@ -160,6 +189,7 @@ def test_v7_export_and_reimport_directory(tmp_path):
         "descriptor_offset": start, "tc_offset": tc, "tc_size": source.tc_size,
         "search_start": tc + source.tc_size,
         "search_end": region.end_offset,
+        "trusted": False, "member_recovery": True,
     }
 
 
@@ -201,6 +231,57 @@ def test_v7_writes_out_of_line_search_and_tracks_copy_origins(tmp_path):
         assert stream.read(len(source.search)) == source.search
         assert decoded["regions"][0]["composite"]["tc_size"] == 2 * source.tc_size
     assert sc7_snapshot_id(path) == sc7_snapshot_id(path)
+
+
+def test_v7_trusted_uses_one_descriptor_no_search_and_skip_poll_edges(tmp_path):
+    snapshot, _image = _snapshot()
+    source = snapshot.units()[0]
+    public = relocate_unit(source, source.tb_offset)
+    prefix = bytes.fromhex("8b5df885db0f8c00000000c645fc00")
+    code0 = bytearray(prefix + b"\xe9\0\0\0\0")
+    code1 = prefix + b"\x90"
+    start = round_up(max(u.end_offset for u in snapshot.units()), 64)
+    tc0 = round_up(start + snapshot.header.tb_size, 16)
+    tc1 = tc0 + len(code0)
+    end = tc1 + len(code1)
+    field = len(prefix) + 1
+    code0[field:field + 4] = (tc1 + 11 - (tc0 + field + 4)).to_bytes(
+        4, "little", signed=True)
+    descriptor = b"\0" * snapshot.header.tb_size
+    first = FirmwareMemberLink(
+        source.uid, ("root",), start, tc0, len(code0), end, 0, descriptor,
+        bytes(code0), b"", source.content_hash, source.vaddrs[0], (("x0", field, 1),),
+        source)
+    second = FirmwareMemberLink(
+        source.uid, ("callee",), start, tc1, len(code1), end, 0, descriptor,
+        code1, b"", source.content_hash, source.vaddrs[0], (), source)
+    region = FirmwareRegionLink("sha256:" + "c" * 64, "sha256:" + "d" * 64,
+                                0, (first, second), (source.uid,), start, end, True, 11)
+    link = SimpleNamespace(units=(public,), firmware_regions=(region,),
+                           firmware_table_offset=round_up(end, 8))
+    link.firmware_table_size = directory_size(link.firmware_regions)
+    path = tmp_path / "trusted.sc"
+    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
+    directory = read_sc7(path)
+    decoded = decode_directory(directory)
+    assert directory.directory_version == 3 and directory.trusted
+    assert loader_requirement(directory) == LOADER_V7_TRUSTED
+    assert decoded["regions"][0]["flags"] == 3
+    assert decoded["regions"][0]["composite"] == {
+        "descriptor_offset": start, "tc_offset": tc0,
+        "tc_size": len(code0) + len(code1), "search_start": end,
+        "search_end": end, "trusted": True, "member_recovery": False}
+    assert {m["tb_offset"] for m in decoded["members"]} == {start}
+    assert {m["search_offset"] for m in decoded["members"]} == {end}
+    assert decoded["edges"][0]["flags"] == 1
+    from scopt.commands.firmware_region import recover
+
+    result = CliRunner().invoke(
+        recover, ["--artifact", str(path), "--native-offset", hex(tc1 + 12), "--json"])
+    assert result.exit_code == 0, result.output
+    recovered = json.loads(result.output)
+    assert (recovered["member_index"], recovered["source_offset"], recovered["trusted"]) == \
+        (1, 12, True)
 
 
 def test_v7_edge_targets_use_region_member_base():
@@ -348,3 +429,7 @@ def test_v7_loader_capability_is_explicit_and_distinct_from_v6(monkeypatch):
                        f"sha256:{'bb' * 32},{'cc' * 32}")
     assert v7_capable_exes(("sha256:" + "dd" * 32,)) == frozenset({
         "bb" * 32, "cc" * 32, "dd" * 32})
+    monkeypatch.delenv("SCOPT_V7_TRUSTED_EXES", raising=False)
+    assert not trusted_v7_capable_exes()
+    monkeypatch.setenv("SCOPT_V7_TRUSTED_EXES", "ff" * 32)
+    assert trusted_v7_capable_exes() == frozenset({"ff" * 32})
