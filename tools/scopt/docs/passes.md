@@ -275,9 +275,17 @@ translation context, and fall back to the original lookup path on mismatch.
   0.9574x `[0.950, 0.980]`. This is not an upstream stock-QEMU comparison. See
   `docs/firmware-inline-evaluation.md` and
   `fixtures/firmware-inline/regression-ablations.json`.
+
 - Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,
   `scopt/analysis/firmware_regions.py`, `scopt/formats/sc_v7.py`, and the v7 loader in
   `third_party/common/qemu/tcg/supercache.c`.
+
+Whole-firmware translation coverage and the unsafe fail-closed runtime mode
+are separate from this pass.  `firmware-inline` constructs call-site-specific
+private regions; sealed coverage guarantees that declared firmware entries
+already have captured native translations.  See
+[`sealed-firmware.md`](sealed-firmware.md) for the producer, verifier, trust
+contract, commands, measurements and remaining indirect-transfer lookups.
 
 ## `host-inline@1`
 

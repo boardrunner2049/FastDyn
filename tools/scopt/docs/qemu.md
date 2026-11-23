@@ -27,6 +27,13 @@ use canonical v7.
 | `a0681a6ac3` | accel/tcg: supercache exact software profile | `QEMU_SC_PROFILE=/abs/run.qprof` (+ `QEMU_SC_PROFILE_PHASES=name@0xVADDR,...`): run a warm cache with chaining disabled at run time only, count every TB entry and the edge into it, write `.qprof` v1 at exit | `scopt profile run` |
 | `934890ed51` | tcg/supercache: .sc v6 loader | load and arm the `.sc` v6 extension table (variants, guarded slots, SPEC links); disarm on TLB flush, breakpoints, single-step and plugin changes; `QEMU_SC_V6_STATS=/abs/file` counters. v5 files take the unchanged path; this binary still writes v5 | B3 artifacts, the v6 dynamic oracles |
 | `ff8ec2f` through `2de4376` | firmware-region v7 loader | validate, load, invalidate and index safe/trusted private firmware regions | `firmware-inline` artifacts |
+
+The `treb-wip` runtime also supports `QEMU_SC_SEALED=1` for a verified
+whole-firmware cache.  Production uses `QEMU_SCOPT_SEALED_RANGES` and
+`QEMU_SCOPT_SEALED_TRACE`; replay uses a direct exact-PC index and fails on a
+missing key instead of invoking the JIT.  This opt-in contract removes guest
+hash validation, per-TB interrupt polls and in-QEMU fault recovery.  Full
+commands and limitations are in [`sealed-firmware.md`](sealed-firmware.md).
 | `bd331f8` | tcg: make v7 the canonical supercache format | write and load public-only and semantic-extension artifacts under the single top-level v7 format | every newly captured or published cache |
 
 The current submodule pin is `bd331f89c3`. It includes the earlier restore and FastDyn
