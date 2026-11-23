@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
+from typing import Any
 
 from ..analysis.native_callees import NativeCallBinding
 from ..model.native import InlineCall, NativeFragment, NativeFrameBody
@@ -31,6 +33,30 @@ class HostInlineGraph(HostInlineSplice):
     def _uses_leaf_fragment(self, binding: NativeCallBinding) -> bool:
         return False
 
+    def _policy_refusal(self, binding: NativeCallBinding,
+                        params: Mapping[str, Any]) -> tuple[str, str] | None:
+        if params.get("trusted_root_wrapper_only", False):
+            from ..validate_sym.native_helper_graph import root_wrapper_refusal
+
+            if refusal := root_wrapper_refusal(binding.callee.elf_address,
+                                                binding.callee.code):
+                return refusal
+        limit = params.get("trusted_max_source_graph_bytes", 0)
+        if not limit:
+            return None
+        callee = binding.callee
+        source_bytes = len(callee.code) + sum(len(body.code) for body in callee.frame_chain)
+        if source_bytes > limit:
+            return ("helper_graph_size_policy",
+                    f"captured source graph is {source_bytes} bytes; policy limit is {limit}")
+        return None
+
+    def _source_graph_bytes(self, binding: NativeCallBinding,
+                            params: Mapping[str, Any]) -> int:
+        if params.get("trusted_root_wrapper_only", False):
+            return len(binding.callee.code)
+        return super()._source_graph_bytes(binding, params)
+
     def _prepare_request(self, unit, request: InlineCall, code_address: int,
                          binding: NativeCallBinding, params,
                          growth_room: int | None) -> InlineCall:
@@ -38,7 +64,9 @@ class HostInlineGraph(HostInlineSplice):
         from ..validate_sym.native_helper_graph import prepare_helper_graph_splice
 
         callee = binding.callee
-        graph = (NativeFrameBody(callee.elf_address, callee.code), *callee.frame_chain)
+        graph = (NativeFrameBody(callee.elf_address, callee.code),)
+        if not params.get("trusted_root_wrapper_only", False):
+            graph += tuple(callee.frame_chain)
         request = replace(request, fragment=NativeFragment(b"", (), ()),
                           tcg_typemask=callee.tcg_typemask)
         body = prepare_helper_graph_splice(unit, request, code_address, graph)

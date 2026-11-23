@@ -350,7 +350,24 @@ stack alignment, guest-state effects, fault paths, and recovery metadata.
 - Requires a bound environment layout and certified native callees.
 - Controls include `mode`, `bridge`, phase, callee/CFG/site/growth/time limits,
   `max_inline_depth`, `allow_partial`, `compact_frame`, `allow_faulting`, UDIV mode,
-  and the explicit `trusted_all_helpers` policy used only by configuration 7.
+  and the explicit `trusted_all_helpers` policy used only by configuration 7. Trusted
+  graph experiments may set `trusted_max_source_graph_bytes` to a positive byte bound;
+  zero is explicitly unbounded. The bound charges every captured function body in the
+  finite direct-call graph before any per-site copy is emitted. With an exact profile,
+  `trusted_rank_by="frequency-density"` ranks sites by TB-entry weight divided by
+  complete source-graph bytes; `trusted_min_tb_entries` rejects unexecuted/low-weight
+  sites and `trusted_max_total_growth` admits the ranked prefix under an actual emitted
+  byte budget. Their zero/default values preserve configuration 7's exhaustive policy.
+  `trusted_root_wrapper_only=true` is a separate runtime-profitability experiment:
+  it admits tiny captured QEMU ABI wrappers, removes the outer indirect TCG helper
+  call, and leaves the shared slow-path body shared. Exact tail wrappers become one
+  internal call followed by the translated continuation. Exact `sub rsp,8` / call /
+  `add rsp,8` wrappers lose that redundant alignment pair when the outer call is
+  removed. General stack frames, open control flow, and non-wrapper roots are refused.
+  Profile ranking requires an exact call count. A TB-entry count qualifies only when
+  the call is conservatively on every path through the TB; out-of-line load/store
+  slow paths never qualify. `trusted_allow_tb_entry_proxy=true` explicitly restores
+  the weaker historical proxy for reproduction, and receipts label it as such.
 - Configuration 7's `trusted_all_helpers=true` is different from the ordinary
   certified maximal mode. It needs no LLVM bridge, follows exact QEMU direct-call
   edges to a fixed point, copies recursive SCCs once, and has no depth, size, site,
@@ -366,6 +383,11 @@ stack alignment, guest-state effects, fault paths, and recovery metadata.
   aggressive experiment is `--pipeline host-inline=maximal --only host-inline`.
 - Evidence: 0.998x on the combined fixture; a separate active RBIT workload measured
   1.138x with interval [1.089, 1.204]. Treat that as workload-specific.
+  On the sealed FreeRTOS compute workload, the exhaustive trusted graph policy was
+  0.720x baseline after 1.18 GiB growth. Runtime-weighted sweeps found no retained
+  winner: four true-fallthrough leaves measured 1.003x [0.971, 1.030], and the
+  single hottest root wrapper confirmed at 0.996x [0.961, 1.022]. See
+  `experiments/helper-inline-sweetspot/README.md`.
 - Source: `scopt/passes/host_inline.py`; details: `docs/host-inline.md`,
   `docs/host-inline-splice.md`, `docs/host-inline-extreme.md`,
   `docs/host-inline-maximal.md`, `docs/native-program.md`.

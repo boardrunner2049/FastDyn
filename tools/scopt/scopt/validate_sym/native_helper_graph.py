@@ -6,10 +6,13 @@ copied body.  Cycles therefore remain cycles instead of being expanded by a
 depth counter.  Indirect edges and direct edges outside the captured QEMU image
 remain ordinary external transfers and are reported by the pass receipt.
 
-Replacing the outer CALL with LEA/PUSH plus the copied root preserves the
-ordinary SysV return-stack shape without a depth limit.  Configuration 7's
-trusted contract excludes CET shadow-stack enforcement, asynchronous unwind,
-and live fault recovery for these private copies.
+A stack-independent leaf root uses the smaller true fallthrough form: the CALL
+and final RET are both removed, earlier RETs become jumps to the continuation,
+and internal branches are relocated.  Every other graph replaces the outer
+CALL with LEA/PUSH plus the copied root, preserving the ordinary SysV
+return-stack shape without a depth limit.  Configuration 7's trusted contract
+excludes CET shadow-stack enforcement, asynchronous unwind, and live fault
+recovery for these private copies.
 """
 
 from __future__ import annotations
@@ -35,6 +38,9 @@ _SCRATCH = ("r11", "r10", "r9", "r8", "rcx", "rdx", "rsi", "rdi",
             "rax", "rbx", "r12", "r13", "r14", "r15", "rbp")
 _RIP_OPERAND = re.compile(r"\[[^\]]*\brip\b[^\]]*\]")
 _ASSEMBLER = Ks(KS_ARCH_X86, KS_MODE_64)
+_ENDBR64 = bytes.fromhex("f30f1efa")
+_SUB_RSP_8 = bytes.fromhex("4883ec08")
+_ADD_RSP_8 = bytes.fromhex("4883c408")
 
 
 def _signed(value: int, width: int) -> bytes:
@@ -115,9 +121,202 @@ def _direct_template(insn) -> bytes:
     return bytes((0x0f, 0x80 | condition)) + bytes(4)
 
 
+def _observes_rsp(insn) -> bool:
+    decoded = tuple(decoder().disasm(insn.raw, insn.address))
+    if len(decoded) != 1:
+        return True
+    reads, writes = decoded[0].regs_access()
+    return any((family := reg_family(decoded[0].reg_name(reg))) is not None
+               and family[0] == "rsp" for reg in (*reads, *writes))
+
+
+@lru_cache(maxsize=256)
+def _root_wrapper_plan(elf_address: int, code: bytes):
+    """Recognize QEMU's tiny ABI wrappers without following their callees.
+
+    Two compiler-emitted shapes are admitted.  A tail wrapper performs only
+    register preparation followed by one external direct JMP.  A call wrapper
+    has the exact SUB RSP,8 / direct CALL / ADD RSP,8 alignment pair and one
+    final RET.  Removing the outer TCG CALL makes the caller's pre-call stack
+    alignment the alignment needed by the retained inner call, so the pair is
+    removed together.  No general stack-frame rewrite is attempted here.
+    """
+    insns = sweep(code, elf_address)
+    if not insns or not tiles(insns, elf_address, elf_address + len(code)):
+        return None
+    meaningful = [insn for insn in insns
+                  if insn.raw != _ENDBR64 and insn.mnemonic != "nop"]
+    if not meaningful:
+        return None
+
+    last = meaningful[-1]
+    if (last.mnemonic == "jmp" and last.branch_target is not None
+            and not any(insn.is_call or insn.is_ret or insn.is_jump
+                        for insn in meaningful[:-1])
+            and not any(_observes_rsp(insn) for insn in meaningful[:-1])):
+        return "tail", tuple(meaningful[:-1]), last.branch_target, None
+
+    calls = [insn for insn in meaningful if insn.is_call]
+    if (meaningful[0].raw != _SUB_RSP_8 or last.raw != b"\xc3"
+            or len(calls) != 1 or calls[0].branch_target is None):
+        return None
+    call_index = meaningful.index(calls[0])
+    if (call_index + 1 >= len(meaningful)
+            or meaningful[call_index + 1].raw != _ADD_RSP_8):
+        return None
+    control = [insn for insn in meaningful
+               if insn.is_call or insn.is_jump or insn.is_ret]
+    if control != [calls[0], last]:
+        return None
+    removed = {meaningful[0].address, meaningful[call_index + 1].address,
+               last.address}
+    if any(_observes_rsp(insn) for insn in meaningful
+           if insn.address not in removed and insn is not calls[0]):
+        return None
+    body = tuple(insn for insn in meaningful if insn.address not in removed)
+    return "call", body, calls[0].branch_target, calls[0].address
+
+
+def root_wrapper_refusal(elf_address: int, code: bytes) -> tuple[str, str] | None:
+    """Explain whether the root-only runtime-profitability policy can apply."""
+    if _root_wrapper_plan(elf_address, code) is None:
+        return ("not_root_wrapper",
+                "root is not a stack-independent tail wrapper or exact aligned call wrapper")
+    return None
+
+
+def _root_wrapper_fallthrough_code(elf_address: int, target_abs: int,
+                                   call_size: int,
+                                   graph: tuple[NativeFrameBody, ...]) -> bytes | None:
+    if len(graph) != 1:
+        return None
+    plan = _root_wrapper_plan(elf_address, graph[0].code)
+    if plan is None:
+        return None
+    _, body, callee_elf, call_address = plan
+    inner = _asm(f"mov r11, {target_abs + callee_elf - elf_address:#x}") + _asm("call r11")
+    code = bytearray()
+    for insn in body:
+        if call_address is not None and insn.address == call_address:
+            code.extend(inner)
+        else:
+            code.extend(insn.raw)
+    if call_address is None:
+        code.extend(inner)
+    padding = (call_size - len(code)) % 8
+    code.extend(_PADDING[padding])
+    return bytes(code)
+
+
+@lru_cache(maxsize=256)
+def _leaf_fallthrough_code(call_size: int,
+                           graph: tuple[NativeFrameBody, ...]) -> bytes | None:
+    """Return a stack-neutral trusted leaf, or ``None`` for graph lowering.
+
+    Ordinary environment loads/stores are allowed by the user-vouched helper
+    contract.  What matters for deleting the CALL's return slot is that no
+    non-RET instruction can observe RSP, no nested call exists, and control is
+    a closed direct CFG.  Early RETs become direct jumps; the last reachable
+    plain RET is the physical final instruction and becomes fallthrough.
+    """
+    if len(graph) != 1:
+        return None
+    body = graph[0]
+    instructions = sweep(body.code, body.address)
+    if (not instructions or not tiles(instructions, body.address, body.address + len(body.code))
+            or instructions[-1].raw != b"\xc3"):
+        return None
+    by_address = {insn.address: insn for insn in instructions}
+    for insn in instructions:
+        if insn.is_call or insn.rip_target is not None:
+            return None
+        if insn.is_ret:
+            if insn.raw != b"\xc3":
+                return None
+            continue
+        decoded = tuple(decoder().disasm(insn.raw, insn.address))
+        if len(decoded) != 1:
+            return None
+        reads, writes = decoded[0].regs_access()
+        if any((reg_family(decoded[0].reg_name(reg)) or (None,))[0] == "rsp"
+               for reg in (*reads, *writes)):
+            return None
+        if insn.is_jump:
+            if insn.branch_target not in by_address:
+                return None
+            try:
+                _direct_template(insn)
+            except NativeInlineError:
+                return None
+
+    # Prove the direct CFG is closed. Compilers may leave alignment NOPs after
+    # an early RET and branch over them to another return block; those bytes
+    # are harmless to retain but no other unreachable instruction is admitted.
+    reached = set()
+    pending = [instructions[0].address]
+    while pending:
+        address = pending.pop()
+        if address in reached:
+            continue
+        insn = by_address.get(address)
+        if insn is None:
+            return None
+        reached.add(address)
+        if insn.is_ret:
+            continue
+        if insn.is_jump:
+            pending.append(insn.branch_target)
+            if insn.mnemonic != "jmp":
+                pending.append(insn.end)
+        else:
+            pending.append(insn.end)
+    unreachable = set(by_address) - reached
+    if (instructions[-1].address not in reached
+            or any(by_address[address].mnemonic != "nop" for address in unreachable)):
+        return None
+
+    final_ret = instructions[-1].address
+    plans = {}
+    source_to_output = {}
+    cursor = 0
+    for insn in instructions:
+        source_to_output[insn.address] = cursor
+        if insn.is_ret:
+            encoded = b"" if insn.address == final_ret else b"\xe9" + bytes(4)
+            plans[insn.address] = ("return", encoded, None)
+        elif insn.is_jump:
+            plans[insn.address] = ("direct", _direct_template(insn), insn.branch_target)
+        else:
+            plans[insn.address] = ("bytes", insn.raw, None)
+        cursor += len(plans[insn.address][1])
+
+    padding = (call_size - cursor) % 8
+    continuation = cursor + padding
+    code = bytearray()
+    for insn in instructions:
+        kind, encoded, target = plans[insn.address]
+        off = len(code)
+        code.extend(encoded)
+        if kind == "return" and encoded:
+            code[off + 1:off + 5] = _signed(continuation - (off + 5), 4)
+        elif kind == "direct":
+            destination = source_to_output[target]
+            field = off + (1 if code[off] == 0xe9 else 2)
+            size = 5 if code[off] == 0xe9 else 6
+            code[field:field + 4] = _signed(destination - (off + size), 4)
+    code.extend(_PADDING[padding])
+    return bytes(code)
+
+
 @lru_cache(maxsize=64)
 def _build_code(elf_address: int, callee_code: bytes, target_abs: int,
                 call_size: int, graph: tuple[NativeFrameBody, ...]) -> bytes:
+    wrapper = _root_wrapper_fallthrough_code(elf_address, target_abs, call_size, graph)
+    if wrapper is not None:
+        return wrapper
+    leaf = _leaf_fallthrough_code(call_size, graph)
+    if leaf is not None:
+        return leaf
     decoded = {}
     ranges = []
     for body in graph:

@@ -1,0 +1,9 @@
+{
+  "host-inline": {
+    "trusted_root_wrapper_only": true,
+    "trusted_allow_tb_entry_proxy": true,
+    "trusted_rank_by": "frequency",
+    "trusted_min_tb_entries": 14000000,
+    "trusted_max_total_growth": 1048576
+  }
+}

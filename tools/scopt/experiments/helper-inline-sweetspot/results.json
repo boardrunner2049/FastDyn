@@ -1,0 +1,19 @@
+{
+  "schema": "scopt.helper-inline-sweetspot/1",
+  "snapshot_id": "sha256:adc9c820fdb4819960b7b3c24a53389337046a2635eaa6489d8a6bd2c0754d94",
+  "profile_id": "sha256:812aab8ae1663c7963d23a88455e08d5049a9460fb1f58bea6214155fb60639c",
+  "baseline_cache_sha256": "sha256:6eb1d216f7b4cf04d30b543afecb1606f07045bf8a1d4bfcd4e640a18c41e769",
+  "decision": "retain_no_helper_transplant",
+  "results": [
+    {"policy":"exhaustive_graph","sites":21977,"growth_bytes":1179601718,"paired_speedup":0.720162,"ci95":[0.700361,0.838369],"outcome":"regression"},
+    {"policy":"frequency_density_64k","sites":13,"growth_bytes":64632,"paired_speedup":1.00833,"ci95":[0.97897,1.03317],"outcome":"neutral"},
+    {"policy":"frequency_density_256k","sites":23,"growth_bytes":261600,"paired_speedup":0.94994,"ci95":[0.93407,0.98050],"outcome":"regression"},
+    {"policy":"frequency_density_1m","sites":37,"growth_bytes":1045712,"paired_speedup":0.95596,"ci95":[0.92428,0.97164],"outcome":"regression"},
+    {"policy":"frequency_1m","sites":32,"growth_bytes":1048464,"paired_speedup":1.00195,"ci95":[0.98366,1.03180],"outcome":"neutral"},
+    {"policy":"true_leaf_fallthrough","sites":4,"growth_bytes":480,"selected_tb_entries_proxy":56254,"artifact_cache_sha256":"sha256:3711693b29b63522c09aa82df2f9a029a2f712c938866fc003af92d5acd68f50","pairs":12,"paired_speedup":1.0030999837603585,"ci95":[0.9707846675233704,1.0296735922956792],"raw":"/tmp/treb-helper-sweetspot/paired12-hot-leaf-fallthrough-pristine/results.json","outcome":"neutral"},
+    {"policy":"root_wrapper_min_1m_proxy","sites":84,"growth_bytes":1912,"selected_tb_entries_proxy":376406590,"artifact_cache_sha256":"sha256:e9273036c457543812127e110ae34a68945843ff48024a11c7cdce4c824cea24","pairs":12,"paired_speedup":0.9792927798599845,"ci95":[0.9532694944720668,1.000043094834413],"raw":"/tmp/treb-helper-sweetspot/paired12-runtime-wrappers/results.json","outcome":"neutral_regression_boundary"},
+    {"policy":"root_wrapper_min_14m_proxy","sites":11,"growth_bytes":248,"selected_tb_entries_proxy":171618910,"pairs":12,"paired_speedup":0.95337,"ci95":[0.91625,1.03853],"raw":"/tmp/treb-helper-sweetspot/paired12-runtime-wrappers-14m/results.json","outcome":"neutral"},
+    {"policy":"root_wrapper_min_28m_proxy_initial","sites":1,"growth_bytes":24,"selected_tb_entries_proxy":28603226,"artifact_cache_sha256":"sha256:b42cc606f55ae44c11cdadf492eab373fb5f2aaea4a675baa39bc4d154e1a046","pairs":12,"paired_speedup":1.009120,"ci95":[0.994766,1.060876],"raw":"/tmp/treb-helper-sweetspot/paired12-runtime-wrappers-28m/results.json","outcome":"neutral"},
+    {"policy":"root_wrapper_min_28m_proxy_confirmation","sites":1,"growth_bytes":24,"selected_tb_entries_proxy":28603226,"artifact_cache_sha256":"sha256:b42cc606f55ae44c11cdadf492eab373fb5f2aaea4a675baa39bc4d154e1a046","pairs":24,"paired_speedup":0.9956229718778129,"ci95":[0.9607738358064404,1.0216499350812558],"raw":"/tmp/treb-helper-sweetspot/paired24-runtime-wrappers-28m-confirm/results.json","outcome":"neutral"}
+  ]
+}

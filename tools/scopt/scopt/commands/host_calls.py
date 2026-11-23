@@ -41,6 +41,13 @@ def _calls(snap, store, profile, phase):
             callee = None if binding.callee is None else asdict(binding.callee)
             if callee is not None:
                 del callee["code"]
+                # Trusted whole-graph discovery carries complete nested bodies.
+                # A census needs their identities and sizes, not raw bytes (which
+                # are not JSON serializable and would make reports enormous).
+                callee["frame_chain"] = [
+                    {"address": body.address, "size": len(body.code)}
+                    for body in binding.callee.frame_chain
+                ]
                 callee["code_ranges"] = binding.callee.code_ranges
             counts[binding.reason or "image_bound"] += 1
             rows.append({"call": call, "callee": callee, "reason": binding.reason,
@@ -351,11 +358,13 @@ def _coverage(baseline, current, *, artifact_checked=False, native_checked=False
 @click.option("--bridge", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--bridge-version", default=1, type=click.IntRange(min=1), show_default=True)
 @click.option("--policy-version", default=1, type=click.IntRange(min=1), show_default=True)
+@click.option("--trust-files", is_flag=True,
+              help="Trust captured QEMU/helper identities and include slow-path graph bindings.")
 @click.option("--coverage", is_flag=True, help="Report the strict annotated call-site denominator.")
 @click.option("--artifact", type=click.Path(exists=True, file_okay=False, path_type=Path),
               help="Compare a published artifact against SNAPSHOT with --coverage.")
 def host_calls(snapshot, profile, phase, out, backend_revision, bridge, bridge_version,
-               policy_version, coverage, artifact) -> None:
+               policy_version, trust_files, coverage, artifact) -> None:
     """Report captured callsites, verified native functions and refusal reasons."""
     if artifact is not None and not coverage:
         raise click.UsageError("--artifact requires --coverage")
@@ -365,7 +374,8 @@ def host_calls(snapshot, profile, phase, out, backend_revision, bridge, bridge_v
         bridge_sha = None if bridge is None else sha256_id(bridge.read_bytes())
         prepared = prepare_native_images(
             snap, backend_revision=backend_revision, bridge_version=bridge_version,
-            policy_version=policy_version, bridge_sha256=bridge_sha)
+            policy_version=policy_version, bridge_sha256=bridge_sha,
+            trust_files=trust_files)
         store = AnalysisStore(snap, external_inputs={NATIVE_IMAGES: prepared})
         rows, counts = _calls(snap, store, view, phase)
         if coverage:

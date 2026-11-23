@@ -1,0 +1,10 @@
+schema = "scopt.pipeline"
+version = 1
+name = "trusted-helper-inline"
+description = "User-vouched captured QEMU helper transplant; exhaustive by default, with explicit profile and root-wrapper experiment controls."
+allowed_capabilities = ["INLINE_CALL"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, allow_partial = true }

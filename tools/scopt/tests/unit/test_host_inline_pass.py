@@ -152,6 +152,34 @@ def test_register_only_tcg_argument_types(typemask, admitted):
     assert supports_tcg_integer_abi(typemask) is admitted
 
 
+@pytest.mark.parametrize(("prefix", "exact"), [
+    (b"", True),
+    (bytes.fromhex("90"), True),
+    (bytes.fromhex("7401 90"), True),  # both paths converge at the call
+    (bytes.fromhex("75fe"), False),    # backward edge changes prefix count
+    (bytes.fromhex("e800000000"), False),  # earlier helper may not return
+    (bytes.fromhex("c3"), False),
+])
+def test_tb_entry_is_call_count_only_for_must_execute_site(prefix, exact):
+    call = bytes.fromhex("e800000000")
+    unit = SimpleNamespace(code=prefix + call, tc_offset=0, pool_start=None,
+                           ldst_end=len(prefix) + len(call))
+    binding = SimpleNamespace(call=SimpleNamespace(call_class="pure",
+                                                   host_off=len(prefix)))
+
+    assert host_inline.HostInline._tb_entries_are_call_count(
+        unit, binding, 0x1000) is exact
+
+
+def test_slow_path_tb_entries_are_never_call_counts():
+    call = bytes.fromhex("e800000000")
+    unit = SimpleNamespace(code=call, tc_offset=0, pool_start=None,
+                           ldst_end=len(call))
+    binding = SimpleNamespace(call=SimpleNamespace(call_class="ldst_slow", host_off=0))
+
+    assert not host_inline.HostInline._tb_entries_are_call_count(unit, binding, 0x1000)
+
+
 
 def test_host_inline_refuses_stale_envlayout(world):
     snap, registry = world

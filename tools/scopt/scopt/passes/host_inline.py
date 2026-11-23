@@ -36,6 +36,23 @@ _DEFAULTS = {
     "static_max_callee_bytes": 64,
     "min_tb_entries": 1,
     "trusted_all_helpers": False,
+    # Zero keeps configuration 7's exhaustive policy unbounded.  A positive
+    # value is an explicit experiment that admits only trusted helper graphs
+    # whose complete captured source bodies fit in this many bytes.
+    "trusted_max_source_graph_bytes": 0,
+    # Profile-ranked trusted experiments.  Configuration 7 leaves these at
+    # their explicit unbounded/all-sites defaults.
+    "trusted_rank_by": "all",
+    "trusted_min_tb_entries": 0,
+    "trusted_max_total_growth": 0,
+    # Inline only an eligible captured root wrapper and leave its shared
+    # direct callee external.  This is a profitability policy, not the
+    # exhaustive configuration-7 contract.
+    "trusted_root_wrapper_only": False,
+    # A TB-entry count is an exact site count only when the site is on every
+    # path.  Keep proxy ranking available for reproducing old experiments, but
+    # require callers to opt into that weaker evidence.
+    "trusted_allow_tb_entry_proxy": False,
 }
 _LIMITS = {
     "max_callee_bytes": 1024,
@@ -72,6 +89,7 @@ class _Candidate:
     binding: NativeCallBinding
     unit_slot: int
     entries: int | None
+    source_graph_bytes: int
 
 
 def _remaining(deadline: float) -> float:
@@ -161,6 +179,50 @@ class HostInline:
             return "unsupported_recovery", ""
         return None
 
+    def _policy_refusal(self, binding: NativeCallBinding,
+                        params: Mapping[str, Any]) -> tuple[str, str] | None:
+        """Return an optional profitability-policy refusal after semantic checks."""
+        return None
+
+    def _source_graph_bytes(self, binding: NativeCallBinding,
+                            params: Mapping[str, Any]) -> int:
+        callee = binding.callee
+        return len(callee.code) + sum(
+            len(body.code) for body in getattr(callee, "frame_chain", ()))
+
+    @staticmethod
+    def _tb_entries_are_call_count(unit, binding: NativeCallBinding,
+                                   code_address: int) -> bool:
+        """Conservatively prove that every ordinary TB entry reaches the call."""
+        if binding.call.call_class == "ldst_slow":
+            return False
+        from ..decode.x86 import sweep, tiles
+
+        base = code_address + unit.tc_offset
+        code_end = unit.pool_start if unit.pool_start is not None else unit.ldst_end
+        instructions = sweep(unit.code[:code_end], base)
+        if not tiles(instructions, base, base + code_end):
+            return False
+        call_off = binding.call.host_off
+        for insn in instructions:
+            off = insn.address - base
+            if off >= call_off:
+                break
+            # A preceding native call can exit through QEMU's longjmp paths,
+            # and a backward edge can execute an arbitrary prefix count.  In
+            # either case one TB entry is not a proved execution of this site.
+            if insn.is_call or insn.is_ret:
+                return False
+            if insn.is_jump:
+                target = insn.branch_target
+                if target is None:
+                    return False
+                target_off = target - base
+                if (target <= insn.address or target_off > call_off
+                        or not 0 <= target_off < code_end):
+                    return False
+        return True
+
     def _ranking_priority(self, binding: NativeCallBinding) -> int:
         return 0
 
@@ -180,6 +242,38 @@ class HostInline:
         if mode == "invalid":
             return PassResult(Outcome.FAILED, "invalid_params", f"mode must be one of {', '.join(_MODES)}")
         trusted_all = params.get("trusted_all_helpers", False)
+        trusted_graph_limit = params.get("trusted_max_source_graph_bytes", 0)
+        if type(trusted_graph_limit) is not int or trusted_graph_limit < 0:
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "trusted_max_source_graph_bytes must be a nonnegative integer")
+        if trusted_graph_limit and not trusted_all:
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "trusted_max_source_graph_bytes requires trusted_all_helpers=true")
+        trusted_rank = params.get("trusted_rank_by", "all")
+        if trusted_rank not in ("all", "frequency", "frequency-density"):
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "trusted_rank_by must be all, frequency, or frequency-density")
+        for key in ("trusted_min_tb_entries", "trusted_max_total_growth"):
+            value = params.get(key, 0)
+            if type(value) is not int or value < 0:
+                return PassResult(Outcome.FAILED, "invalid_params",
+                                  f"{key} must be a nonnegative integer")
+            if value and not trusted_all:
+                return PassResult(Outcome.FAILED, "invalid_params",
+                                  f"{key} requires trusted_all_helpers=true")
+        if trusted_rank != "all" and not trusted_all:
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "trusted_rank_by requires trusted_all_helpers=true")
+        if (type(params.get("trusted_root_wrapper_only", False)) is not bool
+                or params.get("trusted_root_wrapper_only", False) and not trusted_all):
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "trusted_root_wrapper_only must be boolean and requires "
+                              "trusted_all_helpers=true")
+        if (type(params.get("trusted_allow_tb_entry_proxy", False)) is not bool
+                or params.get("trusted_allow_tb_entry_proxy", False) and not trusted_all):
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "trusted_allow_tb_entry_proxy must be boolean and requires "
+                              "trusted_all_helpers=true")
         if trusted_all and mode != "maximal":
             return PassResult(Outcome.FAILED, "invalid_params",
                               "trusted_all_helpers requires mode='maximal'")
@@ -276,13 +370,21 @@ class HostInline:
 
         profile = ctx.profile(params["phase"])
         has_profile = profile is not None or ctx.profile(None) is not None
+        trusted_rank = params.get("trusted_rank_by", "all")
+        trusted_runtime_policy = (trusted_rank != "all"
+                                  or params.get("trusted_min_tb_entries", 0) > 0)
+        if trusted_runtime_policy and profile is None:
+            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "profile_required",
+                              "trusted runtime ranking requires the requested profile phase")
         candidates = []
         unit_facts = {}
         stats = Counter({"sites_seen": 0, "sites_applied": 0, "emitted_growth_bytes": 0,
                          "selected_tb_entries_proxy": 0})
-        if unbounded_growth:
+        if unbounded_growth and not params.get("trusted_max_total_growth", 0):
             stats["growth_policy_unbounded"] = 1
             stats["site_policy_unbounded"] = 1
+        elif params.get("trusted_max_total_growth", 0):
+            stats["trusted_growth_budget_bytes"] = params["trusted_max_total_growth"]
         diagnostics = []
 
         def report(binding, reason, detail="", entries=None):
@@ -317,6 +419,18 @@ class HostInline:
                     report(binding, "pinned_unit", entries=entries)
                 elif refusal := self._binding_refusal(binding):
                     report(binding, *refusal, entries=entries)
+                elif refusal := self._policy_refusal(binding, params):
+                    report(binding, *refusal, entries=entries)
+                elif (trusted_runtime_policy
+                      and not params.get("trusted_allow_tb_entry_proxy", False)
+                      and not self._tb_entries_are_call_count(
+                          unit, binding, view.header.code_address)):
+                    report(binding, "call_count_not_exact",
+                           "TB entries do not equal executions of this conditional/slow-path site",
+                           entries=entries)
+                elif (params.get("trusted_min_tb_entries", 0)
+                      and (entries is None or entries < params["trusted_min_tb_entries"])):
+                    report(binding, "below_trusted_runtime_policy", entries=entries)
                 elif not unbounded_growth and callee.size > params["max_callee_bytes"]:
                     report(binding, "callee_size_budget", entries=entries)
                 elif not self.consider_cold and has_profile and (
@@ -325,11 +439,19 @@ class HostInline:
                 elif not self.consider_cold and not has_profile and callee.size > params["static_max_callee_bytes"]:
                     report(binding, "static_callee_size_budget")
                 else:
-                    candidates.append(_Candidate(binding, unit.slot, entries))
+                    source_graph_bytes = self._source_graph_bytes(binding, params)
+                    candidates.append(_Candidate(binding, unit.slot, entries,
+                                                 source_graph_bytes))
 
         # Steady TB entries are a ranking proxy, not a dynamic count of calls.
-        candidates.sort(key=lambda c: (-(c.entries or 0), self._ranking_priority(c.binding),
-                                       c.binding.callee.size, c.unit_slot, c.binding.call.host_off))
+        if trusted_rank == "frequency-density":
+            candidates.sort(key=lambda c: (-(c.entries or 0) / max(1, c.source_graph_bytes),
+                                           -(c.entries or 0), c.source_graph_bytes,
+                                           c.unit_slot, c.binding.call.host_off))
+        else:
+            candidates.sort(key=lambda c: (-(c.entries or 0), self._ranking_priority(c.binding),
+                                           c.binding.callee.size, c.unit_slot,
+                                           c.binding.call.host_off))
         by_unit, growth = Counter(), Counter()
         selected, fragments = {}, {}
         for candidate in candidates:
@@ -341,6 +463,11 @@ class HostInline:
             if (not unbounded_growth and stats["sites_applied"] >= params["max_sites"]
                     or unit_site_limit is not None and by_unit[call.uid] >= unit_site_limit):
                 report(binding, "site_budget", entries=entries)
+                continue
+            trusted_total = params.get("trusted_max_total_growth", 0)
+            trusted_remaining = trusted_total - stats["emitted_growth_bytes"]
+            if trusted_total and candidate.source_graph_bytes > trusted_remaining:
+                report(binding, "growth_budget", entries=entries)
                 continue
             try:
                 if self._uses_leaf_fragment(binding):
@@ -360,9 +487,12 @@ class HostInline:
                     image_offset=callee.image_offset, symbol=callee.symbol,
                     callee_code=callee.code, native_input_id=prepared.input_id, fragment=frag,
                     bridge_sha256=bridge_id)
-                growth_room = (None if unbounded_growth else min(
-                    params["max_growth_per_unit"] - growth[call.uid],
-                    params["max_total_growth"] - stats["emitted_growth_bytes"]))
+                if trusted_total:
+                    growth_room = trusted_remaining
+                else:
+                    growth_room = (None if unbounded_growth else min(
+                        params["max_growth_per_unit"] - growth[call.uid],
+                        params["max_total_growth"] - stats["emitted_growth_bytes"]))
                 req = self._prepare_request(unit, req, view.header.code_address, binding, params, growth_room)
                 requests = (req,)
                 if req.splice is not None and (earlier := selected.get(call.uid)):
@@ -386,8 +516,12 @@ class HostInline:
             stats["selected_tb_entries_proxy"] += entries or 0
             report(binding, "applied", req.certificate_id, entries)
 
+        ranking = "static"
+        if has_profile:
+            ranking = ("tb_entry_proxy" if params.get("trusted_allow_tb_entry_proxy", False)
+                       or not trusted_runtime_policy else "exact_call_count")
         detail = json.dumps({"native_images_id": prepared.input_id,
-                             "ranking": "tb_entry_proxy" if has_profile else "static",
+                             "ranking": ranking,
                              "sites": diagnostics}, sort_keys=True)
         if not selected:
             return PassResult(Outcome.NO_CHANGE, "no_eligible_native_calls", detail, stats=stats)
