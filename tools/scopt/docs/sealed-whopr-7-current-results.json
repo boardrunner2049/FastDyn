@@ -46,5 +46,34 @@
     "0x00000206", "0x00000594", "0x00001c54", "0x0001c3d9",
     "0xa90de5ea", "0x818c6122", "0x76686865", "0xdcf2a3bf"
   ],
+  "helper_only_ablation": {
+    "median_native_ns": {
+      "baseline": 1105459679.5,
+      "helper_only": 1518736423.5
+    },
+    "paired_speedups_baseline_over_helper_only": [
+      0.7611710429828692,
+      0.7223073427756626,
+      0.7180170590871278,
+      0.6935793009861543,
+      0.7071418155906088,
+      0.9155672040645148
+    ],
+    "median_paired_speedup": 0.7201622009313952,
+    "bootstrap_95": [0.7003605582883816, 0.838369123523692],
+    "embedded_sites": 21977,
+    "affected_tbs": 16303,
+    "copied_bytes": 1179601718,
+    "net_growth_bytes": 1179469856,
+    "median_copied_bytes_per_site": 55934,
+    "dominant_sites": {
+      "helper_ldul_mmu": 11314,
+      "helper_stl_mmu": 5566,
+      "helper_lookup_tb_ptr": 1750
+    },
+    "baseline_public_native_bytes": 5144523,
+    "helper_only_public_native_bytes": 1184614379,
+    "decision": "helper graph transplant is the primary cause of the regression"
+  },
   "decision": "measured regression; do not select exhaustive all-helper configuration 7 for this workload"
 }

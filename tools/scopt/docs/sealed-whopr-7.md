@@ -111,6 +111,40 @@ artifact is a supported **measured regression**, about 9.4% slower than its matc
 baseline; it must not be selected for this workload. The raw block values are in
 [`sealed-whopr-7-current-results.json`](sealed-whopr-7-current-results.json).
 
+The isolated helper-only ablation establishes the primary cause. After explicit
+warmups, its median was 1518.736 ms versus 1105.460 ms for the matched baseline;
+the median paired baseline/helper ratio was **0.720162x** with interval
+**0.700361-0.838369x**. The helper stage alone therefore takes about 38.9% longer
+when the paired ratio is inverted. It contains no firmware regions, so region
+activation and lookup cannot cause that isolated loss.
+
+This “inlining” copied 1,179,601,718 bytes at 21,977 sites (1,179,469,856 bytes of
+net growth), with a median **55,934 copied bytes per site**. The public native code
+grew from 5,144,523 bytes to 1,184,614,379 bytes. MMU graphs account for 90.6% of
+the copied bytes: `helper_ldul_mmu` alone was cloned at 11,314 sites and
+`helper_stl_mmu` at 5,566 sites. These are complete transitive slow/fault/device
+graphs, not small leaf bodies, and no context simplification removes their unused
+paths after copying.
+
+The entry lowering also does not preserve the original hardware call/return pair.
+For an inspected MMU site, the original six-byte `call qword ptr [rip+0xb]` became
+`lea r11,[rip+continuation]; push r11; <55 KiB copied graph>`. The copied root still
+returns with `ret`, but the synthetic `push` does not enter a return address in the
+x86 return-stack predictor as a `call` would. Out-of-arena RIP references and external
+edges additionally use register-save/mov/jump thunks. Hardware cache/TLB/branch-miss
+counters were unavailable on this host, so their individual shares are not claimed;
+the measured helper-only ablation and 230x executable expansion establish the policy
+failure without that attribution.
+
+Firmware-region activation is a secondary cost in the combined artifact, not the
+primary cause. A same-artifact eight-pair diagnostic compared the default runtime with
+`QEMU_SC_V7_EXPERIMENT=no-regions`: no-regions had a 1221.744 ms median versus
+1293.337 ms default, with paired no-regions/default ratio **0.935331** and interval
+**0.832489-0.965306**. All register transcripts matched. Diagnostic counters showed
+54 region activations overall and three inside the benchmark window. Thus the active
+regions add about 6.9% here, while the much larger independently measured loss already
+exists in the helper-only artifact.
+
 The current seven-number dashboard retains rows 1-6 from their original campaigns and
 uses the new valid all-helper measurement for row 7. Cross-campaign subtraction is not
 an attribution test; the fresh paired comparison above is authoritative for rows 6-7.
