@@ -29,6 +29,7 @@ from scopt.run.launcher import create_run_dir, launch
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _EXPERIMENT_KEYS = {
     "source-index": "source_index",
+    "linear-source-scan": "linear_source_scan",
     "trusted-set": "trusted_set",
     "no-tree": "no_tree",
     "incoming-chain": "incoming_chain",
@@ -132,6 +133,9 @@ def validate_experiment(arm: Arm, stats: dict[str, Any]) -> None:
         raise RuntimeError(f"diagnostic {arm.name}: unknown requested tokens {sorted(unknown)}")
     have = stats.get("experiment")
     expected = {field: token in tokens for token, field in _EXPERIMENT_KEYS.items()}
+    if (stats.get("loaded") is True and stats.get("mode") == "trusted" and
+            "linear-source-scan" not in tokens):
+        expected["source_index"] = True
     if have != expected:
         raise RuntimeError(f"diagnostic {arm.name}: runtime experiment flags "
                            f"{have!r} != {expected!r}")

@@ -30,3 +30,8 @@ SCOPT_ENVLAYOUT_PATH="$ENVLAYOUT_DIR" PYTHONPATH=tools/scopt \
 The workflow then requires v7 export/reimport identity and a warm replay with
 zero appended translations.  This fixture is semantic and activation evidence,
 not a real-application performance result.
+
+`regression-ablations.json` records the real FreeRTOS boot workload that exposed
+and confirmed the nested source-to-region lookup regression.  It contains the
+raw per-process native timings, paired bootstrap intervals, artifact identities,
+and diagnostic counters for both the faulty and corrected QEMU implementations.

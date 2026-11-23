@@ -1,0 +1,83 @@
+{
+  "schema": "scopt.firmware-inline-regression-ablations/1",
+  "application": {
+    "name": "FreeRTOS RTOSDemo.axf",
+    "firmware_sha256": "sha256:53ca19e3ae4927d4a81d95420c57567484ca2a3375f0757ac0fd8ec7db4f0a04",
+    "window": "main benchmark_start to vTaskStartScheduler benchmark_end"
+  },
+  "host": {
+    "node": "e5-cse-359-01",
+    "cpu": 0,
+    "kernel": "Linux 6.17.0-1033-oem",
+    "paired_blocks": 12
+  },
+  "root_cause": {
+    "summary": "sc7_try_region scanned every region and called the linear sc7_source_index cache-record scan for every candidate",
+    "ordinary_cache_difference": "v5 does not call sc7_try_region",
+    "fix": "build a first-match source_region map once at trusted-v7 load",
+    "qemu_fix_commit": "2de43765afb53e083b75d158d2a3310009c2a98e"
+  },
+  "causal_campaign": {
+    "seed": 98912,
+    "qemu_sha256": "sha256:0a1c895e01b0de2730319c42fb20a280f89bdcd70cdd552f0ce535a51cc5ecf5",
+    "warm_cache_sha256": "sha256:8845bd517d8388b9a4aed57c280ebca5e9b2198b6b065055ac6e0b610eb1f027",
+    "trusted_cache_sha256": "sha256:996a35359503ddec9e922dee4437203070a6f0e06396dbca94c0484d90da6dd2",
+    "median_native_ns": {
+      "warm": 202133.0,
+      "warm_nochain": 210786.5,
+      "trusted_no_regions": 205931.0,
+      "trusted_current": 322182.0,
+      "trusted_source_index": 177362.5,
+      "trusted_marker": 328276.5,
+      "trusted_no_tree": 321647.0,
+      "trusted_incoming": 314000.0,
+      "trusted_all": 172734.0
+    },
+    "paired": {
+      "warm_nochain_vs_warm": {"median_speedup": 0.959588411386725, "bootstrap_95": [0.9369974914359679, 0.9705288209460495]},
+      "trusted_no_regions_vs_warm": {"median_speedup": 0.9764794117638647, "bootstrap_95": [0.9608896824282069, 0.9980386509055952]},
+      "trusted_current_vs_no_regions": {"median_speedup": 0.6401216369827905, "bootstrap_95": [0.6319877346898328, 0.6467396402187324]},
+      "trusted_source_index_vs_current": {"median_speedup": 1.8215718533959753, "bootstrap_95": [1.7962112962068237, 1.8288770270656982]},
+      "trusted_marker_vs_current": {"median_speedup": 0.9795238636599819, "bootstrap_95": [0.9695147398644706, 0.9936905917779274]},
+      "trusted_no_tree_vs_current": {"median_speedup": 1.0016531241740612, "bootstrap_95": [0.9689203692428177, 1.0112158379638507]},
+      "trusted_incoming_vs_current": {"median_speedup": 1.0229928185774486, "bootstrap_95": [1.0070867382674755, 1.0325304967848443]},
+      "trusted_all_vs_current": {"median_speedup": 1.8595716700130838, "bootstrap_95": [1.8544957159289535, 1.8721100592675266]},
+      "trusted_all_vs_warm": {"median_speedup": 1.1684941966738256, "bootstrap_95": [1.1445815145761338, 1.188504256210205]}
+    },
+    "diagnostic": {
+      "trusted_current": {"try_region_calls": 126, "region_comparisons": 3039, "benchmark_region_entries": 26, "benchmark_region_activations": 16, "internal_edges_admitted": 157},
+      "trusted_source_index": {"try_region_calls": 126, "region_comparisons": 28, "benchmark_region_entries": 26, "benchmark_region_activations": 16, "internal_edges_admitted": 157}
+    }
+  },
+  "fixed_confirmation": {
+    "seed": 98913,
+    "qemu_sha256": "sha256:97880d4735315be1fc102485db9c9253d09a6b49d42339e8051ff48d411ee68d",
+    "qemu_commit": "2de43765afb53e083b75d158d2a3310009c2a98e",
+    "warm_cache_sha256": "sha256:38259eca6f4db2090350b3a6e39ee65ca631f13d154d796112bc39006eec326d",
+    "trusted_cache_sha256": "sha256:8cd087ea2dd672a0e234e90aecb61b8063dba09a1310015046b9411f7368f839",
+    "artifact_id": "sha256:88ffd23e797a52b36976432e739b029fd165d836a0ee556d66fd17ff85709003",
+    "native_ns": {
+      "warm": [194903, 203065, 202023, 206462, 195718, 197644, 194629, 197158, 206306, 198530, 197876, 195295],
+      "trusted_fixed": [170104, 170236, 187174, 173120, 168421, 182030, 174056, 171521, 171544, 170372, 168062, 170278],
+      "trusted_linear": [261247, 266914, 262954, 258424, 262958, 267943, 263982, 260066, 266608, 269821, 261374, 258285],
+      "trusted_no_regions": [203436, 201191, 199410, 202062, 204482, 204949, 201840, 200250, 203613, 203922, 205963, 199734]
+    },
+    "median_native_ns": {
+      "warm": 197760.0,
+      "trusted_fixed": 170946.5,
+      "trusted_linear": 262956.0,
+      "trusted_no_regions": 202749.0
+    },
+    "paired": {
+      "trusted_fixed_vs_warm": {"median_speedup": 1.155772283170169, "bootstrap_95": [1.1319924373268029, 1.1849967745405154]},
+      "trusted_linear_vs_fixed": {"median_speedup": 0.6551936289073401, "bootstrap_95": [0.6417403216838106, 0.6647177774067191]},
+      "trusted_linear_vs_warm": {"median_speedup": 0.7565914383365997, "bootstrap_95": [0.7409641312167856, 0.7645353922143842]},
+      "trusted_no_regions_vs_warm": {"median_speedup": 0.9756669794046725, "bootstrap_95": [0.9625046741196213, 1.0112090938733649]},
+      "trusted_fixed_vs_no_regions": {"median_speedup": 1.1774117534378643, "bootstrap_95": [1.1634028111355497, 1.196436370973374]}
+    },
+    "diagnostic": {
+      "trusted_fixed": {"try_region_calls": 126, "region_comparisons": 28, "benchmark_region_entries": 26, "benchmark_region_activations": 16, "internal_edges_admitted": 157, "appended_translations": 0},
+      "trusted_linear": {"try_region_calls": 126, "region_comparisons": 2978, "benchmark_region_entries": 26, "benchmark_region_activations": 16, "internal_edges_admitted": 157, "appended_translations": 0}
+    }
+  }
+}

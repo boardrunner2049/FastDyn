@@ -79,3 +79,17 @@ def test_validate_experiment_requires_exact_runtime_flags(tmp_path):
     flags["no_tree"] = False
     with pytest.raises(RuntimeError):
         _M.validate_experiment(arm, {"experiment": flags})
+
+
+def test_validate_experiment_knows_trusted_source_index_default(tmp_path):
+    arm = _M.Arm("candidate", _artifact(tmp_path, "candidate"), env={
+        "QEMU_SC_V7_EXPERIMENT": "no-tree",
+    })
+    flags = {field: token == "no-tree"
+             for token, field in _M._EXPERIMENT_KEYS.items()}
+    flags["source_index"] = True
+    _M.validate_experiment(arm, {
+        "loaded": True,
+        "mode": "trusted",
+        "experiment": flags,
+    })

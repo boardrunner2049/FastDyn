@@ -253,19 +253,22 @@ translation context, and fall back to the original lookup path on mismatch.
   full TB keys, call-site IDs, inline contexts, members, internal/side-exit edges and
   pending work. The v7 directory is arena-resident, so it does not inherit v6's fixed
   64 KiB extension-table limit. Reimport retains `firmware-regions.jsonl`.
+- Trusted runtime entry uses a load-time first-match index from public source TB to
+  private region. `QEMU_SC_V7_EXPERIMENT=linear-source-scan` is a diagnostic ablation
+  that reproduces the rejected nested linear lookup; it is not a production policy.
 - Example shape: `boot -> init -> continuation` becomes private members for boot, init,
   and continuation. A loop within init remains a backedge between private members; a
   nested acyclic `init -> clocks` call creates a deeper inline context. The public init
   TB remains available for unrelated callers.
 - Evidence: correctness fixtures cover verified direct-call discovery and private-region
-  construction. On the bounded FreeRTOS boot workload, 12 pinned paired blocks measured
-  0.747x `[0.733, 0.761]` versus ordinary warm execution: a clear regression. Composite
-  loading registered 18 entries for 118 member descriptors, and the live restore proof
-  omitted 116 inert callback replays. That improved the corrected candidate from about
-  327 us to 265 us, but eager exhaustive setup and 7,540 bytes of guard/fallback growth
-  still dominate this roughly 0.2 ms window. The explicit trusted mode subsequently measured
-  1.038x `[1.021, 1.092]` versus safe firmware-inline, but remained slower than ordinary warm
-  execution at 0.762x `[0.755, 0.790]`. See `docs/firmware-inline-evaluation.md`.
+  construction. Safe mode measured 0.747x `[0.733, 0.761]` versus ordinary warm on the
+  bounded FreeRTOS boot workload. The first trusted runtime measured 0.762x
+  `[0.755, 0.790]`; a causal ablation then found a nested region/source linear lookup.
+  The corrected indexed runtime measured **1.156x** `[1.132, 1.185]` versus ordinary
+  warm across 12 fresh-process paired blocks. Re-enabling only the old lookup on the
+  same binary and artifact reproduced 0.757x `[0.741, 0.765]`. See
+  `docs/firmware-inline-evaluation.md` and
+  `fixtures/firmware-inline/regression-ablations.json`.
 - Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,
   `scopt/analysis/firmware_regions.py`, `scopt/formats/sc_v7.py`, and the v7 loader in
   `third_party/common/qemu/tcg/supercache.c`.

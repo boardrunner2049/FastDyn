@@ -1,10 +1,11 @@
 # Firmware-inline evaluation
 
 `firmware-inline@1` is active and behavior-correct on the bounded FreeRTOS
-`RTOSDemo.axf` boot workload, but its exhaustive policy is a measured regression
-for that workload. The later explicit trusted mode removes the requested runtime
-bookkeeping and is 1.038x faster than safe firmware-inline, but it is still only
-0.762x as fast as ordinary warm execution. Both modes remain opt-in.
+`RTOSDemo.axf` boot workload.  Its first trusted implementation regressed to
+0.757x ordinary warm speed because region activation performed a nested linear
+lookup.  Indexing source TBs fixes that runtime defect: the corrected trusted
+implementation measures **1.156x** ordinary warm speed with a paired bootstrap
+95% interval of **[1.132, 1.185]**.  Trusted mode remains explicit and opt-in.
 
 The exact run used FastDyn `dedef1a`, QEMU `3927bf2`, QEMU executable SHA-256
 `e34cdf7c...a284ba1`, and firmware SHA-256 `53ca19e3...4f0a04`.  The v7 loader
@@ -80,16 +81,11 @@ fell from about 327 us to 265 us and relative performance improved from 0.586x
 to 0.747x.  This removes the specific redundant post-JIT callback work, but not
 the regression.
 
-The exhaustive implementation still validates and constructs all 118 member
-descriptors before entering their 18 regions and adds 7,540 native bytes of
-guards/fallbacks.  On this roughly 0.2 ms workload, those one-time costs
-dominate; ordinary QEMU already chains many public TB edges, so removing the
-remaining dispatches does not repay the setup.  A source-dependency cache was
-also tested: it removed 40 repeated hashes but regressed candidate time from
-about 265 us to 308 us (0.634x versus ordinary warm), so it was rejected and
-removed.  This result does not establish a steady-state regression because the
-firmware stops at scheduler entry and has no repeated steady measurement
-window.
+That result established a regression but its initial diagnosis was incomplete.
+The safe implementation did construct member descriptors, but trusted mode
+removed that work and still regressed.  The later controlled runtime ablations
+below identify the remaining dominant cost as source-to-region lookup, not
+descriptor construction or the copied native code.
 
 ## Trusted no-bookkeeping result
 
@@ -130,14 +126,69 @@ Twelve fresh-process randomized paired blocks pinned to CPU 0 measured:
 
 Trusted versus safe firmware-inline is **1.038x** with interval
 **[1.021, 1.092]**. This establishes that the removed bookkeeping was costly,
-but it was not the root cause of the whole regression: even after removing it,
-the exhaustive embedded regions remained about 31% slower in native time than
-ordinary warm execution on this boot-only workload. The raw samples and failed
+but it was not the root cause of the whole regression.  This was the observation
+that motivated the causal ablations below.  The raw samples and failed
 intermediate revisions are in
 `fixtures/firmware-inline/trusted-measurement.json`.
 
+## Regression root cause and corrected result
+
+The trusted loader originally found a private region by scanning all 27 region
+records.  Each candidate comparison called `sc7_source_index()`, which itself
+linearly scanned all 163 public cache records.  In other words, a runtime entry
+lookup accidentally nested the region scan with the cache-record scan.  An
+ordinary v5 cache never enters `sc7_try_region()` and therefore never pays this
+cost; it performs its normal key lookup and installs ordinary QEMU chains.
+
+The first 12-block causal campaign used QEMU executable SHA-256
+`0a1c895e...ecf5` and the same trusted v7 artifact in every trusted arm.  Each
+block randomized ten fresh processes on CPU 0.  Diagnostic counters were kept
+out of scored launches.
+
+| Runtime arm | Median native time | Change versus trusted-current |
+| --- | ---: | ---: |
+| ordinary warm | 202.133 us | -- |
+| trusted-current (linear source lookup) | 322.182 us | 1.000x |
+| source index only | 177.363 us | **1.822x** `[1.796, 1.829]` |
+| trusted-TB hash set only | 328.277 us | 0.980x `[0.970, 0.994]` |
+| omit private tree insertion only | 321.647 us | 1.002x `[0.969, 1.011]` |
+| allow incoming public chain only | 314.000 us | 1.023x `[1.007, 1.033]` |
+| all four changes | 172.734 us | 1.860x `[1.854, 1.872]` |
+
+Disabling all chaining on the ordinary cache cost only about 4% (0.960x warm,
+`[0.937, 0.971]`), an upper bound on the private-region chaining loss.  Loading
+the trusted v7 container while disabling regions measured 205.931 us, near the
+202.133 us warm control.  Neither effect can explain the original 322.182 us
+time.  The source index alone can: it changed 3,039 region comparisons to 28 in
+the diagnostic run while preserving the same 18 activated regions and 157
+admitted internal edges.
+
+The fix constructs `source_region[public_source_index]` once while loading a
+trusted artifact and retains the first region for a source, matching the old
+first-match behavior.  `linear-source-scan` remains only as a reproduction
+ablation.  A fresh matching capture and artifact on corrected QEMU
+`2de43765afb5`, executable SHA-256 `97880d47...ee68d`, produced this independent
+12-block confirmation:
+
+| Configuration | Median native time | Paired result |
+| --- | ---: | ---: |
+| ordinary warm | 197.760 us | 1.000x |
+| corrected trusted firmware-inline | **170.947 us** | **1.156x** `[1.132, 1.185]` versus warm |
+| old linear lookup ablation | 262.956 us | 0.757x `[0.741, 0.765]` versus warm |
+| trusted container, regions disabled | 202.749 us | 0.976x `[0.963, 1.011]` versus warm |
+
+Corrected firmware-inline is also 1.177x `[1.163, 1.196]` faster than the same
+trusted container with regions disabled.  Its diagnostic launch made 126 region
+lookup attempts and only 28 indexed comparisons; the linear reproduction made
+the same 126 attempts but 2,978 outer region comparisons.  Both executed 26
+region entries, activated 16 regions inside the measured window, admitted 157
+internal edges, reproduced normalized UART output, and appended zero
+translations.  This isolates the prior regression to the lookup implementation
+rather than changed firmware behavior or inactive inlining.
+
 The machine-readable raw samples and identities are in
-`fixtures/firmware-inline/measurement.json`.
+`fixtures/firmware-inline/measurement.json`; the regression ablations and fixed
+confirmation are in `fixtures/firmware-inline/regression-ablations.json`.
 
 ## Reproduction skeleton
 
