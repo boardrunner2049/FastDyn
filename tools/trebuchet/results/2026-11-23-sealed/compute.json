@@ -1,0 +1,52 @@
+{
+  "schema": "trebuchet.sealed_runtime_result/1",
+  "date": "2026-11-23",
+  "application": "FreeRTOS compute O0-fb",
+  "qemu_revision": "86f583abc6d18f28c668a362a17f7ddf3e80c2c8",
+  "firmware_sha256": "708d3da907bf058bcb6933bf36fc63806b3c7e2ce7b0b5b4a64368cf73ce5002",
+  "qemu_sha256": "ab3fcecd62055ffa54424e605375d6edc0d9576858bb23ff298c6558f7f9a63c",
+  "cache_sha256_before": "6eb1d216f7b4cf04d30b543afecb1606f07045bf8a1d4bfcd4e640a18c41e769",
+  "cache_sha256_after": "6eb1d216f7b4cf04d30b543afecb1606f07045bf8a1d4bfcd4e640a18c41e769",
+  "coverage": {
+    "executable_ranges": ["0x0-0x5db0", "0x10000-0x1c1c8"],
+    "halfword_entries": 36796,
+    "multi_instruction_hot_records": 1293,
+    "total_records": 38252
+  },
+  "measurement": {
+    "boundary": "[BENCH][fw] elapsed_ns",
+    "setup_included": false,
+    "python_in_timed_path": false,
+    "cpu_affinity": 2,
+    "paired_process_blocks": 6,
+    "order": ["ordinary,sealed", "sealed,ordinary", "ordinary,sealed", "sealed,ordinary", "ordinary,sealed", "sealed,ordinary"]
+  },
+  "blocks": [
+    {"block": 1, "ordinary_ns": 1077001694, "sealed_ns": 1043170047},
+    {"block": 2, "ordinary_ns": 1095365950, "sealed_ns": 1040171644},
+    {"block": 3, "ordinary_ns": 1118117141, "sealed_ns": 1046238627},
+    {"block": 4, "ordinary_ns": 1069556119, "sealed_ns": 1030506996},
+    {"block": 5, "ordinary_ns": 1131855493, "sealed_ns": 1063000429},
+    {"block": 6, "ordinary_ns": 1050605106, "sealed_ns": 1040904851}
+  ],
+  "summary": {
+    "ordinary_median_ns": 1086183822,
+    "sealed_median_ns": 1042037449,
+    "median_paired_speedup": 1.0454779041473388,
+    "paired_bootstrap_95_percentile_interval": [1.0208753173191698, 1.0667380467082352],
+    "median_delta_ns": 47121714.5
+  },
+  "correctness": {
+    "reported_registers_match": true,
+    "cache_unchanged": true,
+    "jit_fallback": false,
+    "interrupt_poll_at_tb_entry": true,
+    "fault_recovery": false
+  },
+  "diagnosis": {
+    "prior_regression": "two unsuccessful getenv scans in every execution-loop iteration",
+    "fix": "cache sealed producer environment settings on first use",
+    "guest_page_rejections_observed": 0,
+    "guest_hash_rejections_observed": 0
+  }
+}

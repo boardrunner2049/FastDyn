@@ -8,13 +8,19 @@ TBs.  Replay prefers the hot duplicate and retains the one-instruction record
 as exhaustive fallback coverage.
 
 The loader uses an exact-PC direct index.  A missing translation key is fatal;
-sealed replay never compiles a replacement TB or appends to the cache.  The
-loader also omits the generic per-TB interrupt poll, guest-byte hash check and
-QEMU in-TB fault-recovery contract.  It preserves target-specific TB-start
-operations such as ARM IT-state updates.  For multi-instruction hot TBs it
-forces `can_do_io=true`, so a fault or MMIO access that required rewind is not
-recoverable.  The user must verify immutable firmware and acceptable device,
-fault and interrupt behavior externally.
+sealed replay never compiles a replacement TB or appends to the cache.  It
+omits the guest-byte hash check and QEMU in-TB fault-recovery contract while
+retaining the normal per-TB interrupt poll by default.  The producer encodes
+`can_do_io=true` in captured multi-instruction TBs, so replay does not mutate
+every executable page and an access that required rewind is not recoverable.
+Target-specific TB-start operations such as ARM IT-state updates remain.
+The user must verify immutable firmware and acceptable device and fault
+behavior externally.
+
+`QEMU_SC_SEALED_SKIP_IRQ=1` is the separate unsafe interrupt-poll ablation.  It
+requires `QEMU_SC_SEALED=1` and replaces the verified 11-byte entry poll with
+two architectural NOPs without moving the native entry address.  Use it only
+when the firmware contract explicitly excludes interrupt delivery.
 
 ## Produce and verify
 
@@ -50,25 +56,55 @@ launch compilation are setup costs and must not be included in warm runtime.
 
 The real FreeRTOS compute firmware had two executable ranges, `0x0-0x5db0`
 and `0x10000-0x1c1c8`, containing 36,796 halfword entry positions.  The
-verified cache contained all 36,796 exhaustive fallback entries, 1,314
-multi-instruction hot records and 38,297 records total.  Replay produced the
+verified cache contained all 36,796 exhaustive fallback entries, 1,293
+multi-instruction hot records and 38,252 records total.  Replay produced the
 same sixteen reported registers and left the cache SHA-256 unchanged.
 
-Three alternating Python-free process blocks measured:
+Six alternating Python-free process blocks were pinned to CPU 2.  Each cell is
+only the firmware `[BENCH][fw]` window; cache production, verification, launch
+compilation and process setup are excluded.
 
 | block | ordinary warm firmware time | sealed firmware time |
 | ---: | ---: | ---: |
-| 1 | 1.380841 s | 1.375849 s |
-| 2 | 1.474994 s | 1.312220 s |
-| 3 | 1.394446 s | 1.414818 s |
-| median | **1.394446 s** | **1.375849 s** |
+| 1 | 1.077002 s | 1.043170 s |
+| 2 | 1.095366 s | 1.040172 s |
+| 3 | 1.118117 s | 1.046239 s |
+| 4 | 1.069556 s | 1.030507 s |
+| 5 | 1.131855 s | 1.063000 s |
+| 6 | 1.050605 s | 1.040905 s |
+| median | **1.086184 s** | **1.042037 s** |
 
-The median ratio is 1.0135x in favor of sealed mode.  Three blocks are a smoke
-measurement, not enough evidence for a default performance claim.  A first
-version that replayed only one-instruction coverage records took 1.881734 s.
-The regression was caused by fragmenting hot translations into one TB per
-guest instruction; retaining ordinary hot TBs reduced dynamic chain installs
-from 10,299 to 1,342 in diagnostic runs.
+The median paired speedup is **1.0455x**; the paired-bootstrap 95% percentile
+interval is **1.0209-1.0667x**.  All six pairs favored sealed replay.  The
+cache SHA-256 was `6eb1d216...c41e769` before and after the campaign.
+
+The earlier ~1.44 s sealed regression was a runtime bug, not an inherent cache
+cost.  `scopt_sealed_pretranslate()` fetched two producer environment variables
+with `getenv()` on every execution-loop iteration.  Producer/control runs found
+those variables quickly; replay did two full unsuccessful environment scans.
+Caching the configuration on the first call removed that hot-loop work.  A
+separate same-artifact diagnostic found no guest-page or byte-hash rejection.
+
+A first version that replayed only one-instruction coverage records took
+1.881734 s.  That independent regression came from fragmenting hot translations
+into one TB per guest instruction.  Retaining ordinary hot TBs reduced dynamic
+chain installs from 10,299 to about 1,340 in diagnostic runs.
+
+## Whole-program optimization direction
+
+Sealed firmware permits a WHOPR-style optimizer structure, but exhaustive
+coverage records and optimization roots must be distinct.  The current cache
+contains one-instruction fallback entries for every Thumb halfword; treating
+all of them as ordinary roots made the existing whole-snapshot B3 validation
+fail with `V6:unwind`.
+
+The next implementation step is a global discovery phase over verified guest
+calls and translation keys, SCC decomposition to retain recursive edges, and
+partitioned local optimization of acyclic regions.  A final global link phase
+can then assign variable-size private regions, relocate branches and recovery
+metadata, and keep exact-index side exits for dynamic or unsupported targets.
+This is the appropriate place to expand `firmware-inline` to a fixed point;
+coverage alone is not permission to infer a control-flow edge.
 
 ## Remaining limitations
 
@@ -81,9 +117,10 @@ from 10,299 to 1,342 in diagnostic runs.
   index.  Eliminating those lookups requires a separately validated whole-CFG
   private region; coverage alone cannot turn an indirect target into a known
   edge.
-- The mode intentionally does not support QEMU fault recovery, icount, guest
-  code mutation, or per-TB interrupt polling.  Use ordinary SuperCache when
-  those contracts matter.
+- The mode intentionally does not support QEMU fault recovery, icount, or guest
+  code mutation.  Interrupt polling remains enabled unless the explicit unsafe
+  `QEMU_SC_SEALED_SKIP_IRQ=1` option is used.  Use ordinary SuperCache when the
+  omitted contracts matter.
 - The cache is sparse and has a large logical size because it retains the
   existing executable arena layout.  Allocated disk bytes are much smaller;
   compacting this representation is independent of runtime semantics.
