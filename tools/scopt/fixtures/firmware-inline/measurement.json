@@ -1,14 +1,14 @@
 {
   "schema": "scopt.firmware-inline-evaluation/1",
   "date": "2026-11-22",
-  "fastdyn_commit": "63174f3",
-  "qemu_commit": "e7533a3abf8577468196c2ccd1b84508dc41d105",
-  "qemu_sha256": "sha256:5f0f2f59d1ae840a1a25cb2896645c8c7f7b6227a5c544dda9c4b925b3dd5cf9",
+  "fastdyn_commit": "dedef1a66e30e3843f22457e5ce1ba84c3e0f669",
+  "qemu_commit": "3927bf2bf588d21b14e7fc9ba1ce6b80625651f4",
+  "qemu_sha256": "sha256:e34cdf7ccfd7ac17721e06937f7f253ba58f650654a22f7729bcc4001a284ba1",
   "application": "tests/sample_binaries/RTOS/RTOSDemo.axf",
   "application_sha256": "sha256:53ca19e3ae4927d4a81d95420c57567484ca2a3375f0757ac0fd8ec7db4f0a04",
-  "snapshot_id": "sha256:79443ee2ebca351bd4778d1204db46c4ebf41bc644df1db94eb6c74a266ffe2d",
-  "artifact_id": "sha256:a1c6fb7130d5c7a20b5b1c19930c6b34689c03224503de7cdf9835e4be099607",
-  "loaded_artifact_id8": "1898798b0f3ebda5",
+  "snapshot_id": "sha256:a054bd14dbb46c8e6071a58cb20c39911261a2073e5562882ec0e42cdecedcfc",
+  "artifact_id": "sha256:bee2c62ac4d6a709fb52fdce6d4fed2f2029798e167dbf440f7c5a4e7a82e01a",
+  "loaded_artifact_id8": "98d429cdc7827bce",
   "activation": {
     "discovered": 30,
     "embedded": 27,
@@ -17,11 +17,16 @@
     "regions_loaded": 27,
     "members_loaded": 164,
     "region_entries": 18,
-    "members_activated": 118,
+    "member_descriptors_instantiated": 118,
+    "members_registered": 18,
+    "members_activated": 18,
     "internal_edges_admitted": 95,
     "dependency_refusals": 0,
     "dependency_invalidations": 0,
-    "search_data_hits": 1,
+    "member_callback_replays": 2,
+    "member_callback_omissions": 116,
+    "member_callbacks_executed": 2,
+    "search_data_hits": 119,
     "appended_translations": 0
   },
   "size": {
@@ -38,20 +43,42 @@
     "seed": 98912,
     "cpu_affinity": [0],
     "native_ns": {
-      "ordinary_warm": [190970, 181856, 194017, 194727, 212735, 193207, 224079, 192822, 198641, 190702, 192786, 201258],
-      "current_scopt": [204261, 323570, 201119, 175508, 190471, 195171, 192065, 192175, 198290, 194725, 196282, 192237],
-      "firmware_inline": [361347, 360024, 364132, 361359, 353562, 346925, 351056, 366246, 348466, 345911, 351242, 348240]
+      "ordinary_warm": [200849, 202050, 196949, 197817, 200578, 201181, 203929, 196410, 209256, 196617, 199461, 196196],
+      "current_scopt": [208992, 194196, 201134, 216676, 198424, 202232, 199498, 200753, 195360, 198993, 199827, 199356],
+      "firmware_inline": [271048, 264202, 270581, 306622, 263714, 264300, 270913, 270698, 263299, 265487, 263146, 265453]
     },
     "median_speedup": {
-      "current_scopt_vs_ordinary_warm": 0.995853582115229,
-      "firmware_inline_vs_ordinary_warm": 0.5500865497382268,
-      "firmware_inline_vs_current_scopt": 0.555573561923268
+      "current_scopt_vs_ordinary_warm": 0.991431440019852,
+      "firmware_inline_vs_ordinary_warm": 0.7468780822417189,
+      "firmware_inline_vs_current_scopt": 0.7464403530602183
     },
     "bootstrap_95": {
-      "current_scopt_vs_ordinary_warm": [0.9720138340173403, 1.0782157149965297],
-      "firmware_inline_vs_ordinary_warm": [0.5306576432957109, 0.5739865753865095],
-      "firmware_inline_vs_current_scopt": [0.5429133345071826, 0.5641052041642776]
+      "current_scopt_vs_ordinary_warm": [0.9787797130708131, 1.0165331453241433],
+      "firmware_inline_vs_ordinary_warm": [0.7334866431253735, 0.7608866916876962],
+      "firmware_inline_vs_current_scopt": [0.7390019059092738, 0.7558990536959346]
     }
   },
+  "implementation_progression": {
+    "correct_composite_before_restore_proof": {
+      "median_firmware_inline_ns": 326710,
+      "median_speedup_vs_ordinary_warm": 0.586227
+    },
+    "restore_proof": {
+      "median_firmware_inline_ns": 265470,
+      "median_speedup_vs_ordinary_warm": 0.7468780822417189,
+      "callback_replays_removed": 116
+    }
+  },
+  "rejected_variants": [
+    {
+      "name": "source_dependency_cache",
+      "mechanism": "reuse successful source-TB guest hashes across admitted regions",
+      "hashes_removed": 40,
+      "median_firmware_inline_ns": 307744,
+      "median_speedup_vs_ordinary_warm": 0.6340997426800813,
+      "bootstrap_95": [0.6189532133608343, 0.639368662543008],
+      "decision": "measured_regression_removed"
+    }
+  ],
   "decision": "measured_regression_disable_by_default"
 }

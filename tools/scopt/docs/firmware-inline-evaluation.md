@@ -4,9 +4,9 @@
 `RTOSDemo.axf` boot workload, but its exhaustive policy is a measured regression
 for that workload.  It remains opt-in.
 
-The exact run used FastDyn `63174f3`, QEMU `e7533a3`, QEMU executable SHA-256
-`5f0f2f59...dd5cf9`, and firmware SHA-256 `53ca19e3...4f0a04`.  The v7 loader
-accepted artifact id `1898798b0f3ebda5`; replay appended zero translations and
+The exact run used FastDyn `dedef1a`, QEMU `3927bf2`, QEMU executable SHA-256
+`e34cdf7c...a284ba1`, and firmware SHA-256 `53ca19e3...4f0a04`.  The v7 loader
+accepted artifact id `98d429cdc7827bce`; replay appended zero translations and
 the v7 export/reimport/load proof passed.
 
 ## Activation and size
@@ -15,7 +15,9 @@ The pass discovered 30 verified Thumb call sites, emitted 27 regions at maximum
 acyclic expansion depth 5, and reported four pending sites (one missing callee
 capture and three missing continuation captures).  The artifact has 164 private
 members and 131 internal edges.  During the measured run, 18 region entries
-activated 118 private members and admitted 95 internal edges.
+instantiated 118 member descriptors, registered only the 18 composite entries,
+and admitted 95 internal edges.  Exact member recovery used the copied search
+streams 119 times.
 
 Private native code is 71,064 bytes versus 63,524 bytes for the copied source
 TB bodies.  The 7,540-byte difference is return-context guards and ordinary
@@ -61,20 +63,31 @@ window is the firmware's bounded boot-to-scheduler interval:
 
 | Candidate | Median speed versus ordinary warm | Paired bootstrap 95% interval |
 | --- | ---: | ---: |
-| current scopt | 0.996x | 0.972-1.078x |
-| firmware-inline | 0.550x | 0.531-0.574x |
+| current scopt | 0.991x | 0.979-1.017x |
+| firmware-inline | 0.747x | 0.733-0.761x |
 
-Against current scopt directly, firmware-inline measured 0.556x
-`[0.543, 0.564]`.  This is a regression, not an inconclusive result.
+Against current scopt directly, firmware-inline measured 0.746x
+`[0.739, 0.756]`.  This is a regression, not an inconclusive result.
 
-The mechanism did run: 18 private entries and 118 copied members activated.
-The exhaustive implementation eagerly validates, constructs, registers, and
-rehydrates every member of an entered region.  It also adds 7,540 native bytes
-of guards/fallbacks.  On this roughly 0.2 ms workload, those one-time costs
+The mechanism did run.  Composite registration reduced QEMU's host-PC tree
+insertions from 118 member TBs to 18 entry TBs.  A live, fail-closed FastDyn
+predicate then proved 116 of the 118 translation-callback replays inert; only
+two instrumented members replayed and produced two callbacks.  Relative to the
+correct composite implementation before that predicate, median candidate time
+fell from about 327 us to 265 us and relative performance improved from 0.586x
+to 0.747x.  This removes the specific redundant post-JIT callback work, but not
+the regression.
+
+The exhaustive implementation still validates and constructs all 118 member
+descriptors before entering their 18 regions and adds 7,540 native bytes of
+guards/fallbacks.  On this roughly 0.2 ms workload, those one-time costs
 dominate; ordinary QEMU already chains many public TB edges, so removing the
-remaining dispatches does not repay the setup.  This result does not establish
-a steady-state regression because the firmware stops at scheduler entry and
-has no repeated steady measurement window.
+remaining dispatches does not repay the setup.  A source-dependency cache was
+also tested: it removed 40 repeated hashes but regressed candidate time from
+about 265 us to 308 us (0.634x versus ordinary warm), so it was rejected and
+removed.  This result does not establish a steady-state regression because the
+firmware stops at scheduler entry and has no repeated steady measurement
+window.
 
 The machine-readable raw samples and identities are in
 `fixtures/firmware-inline/measurement.json`.
@@ -104,9 +117,9 @@ taskset -c 0 env PYTHONPATH=tools/scopt \
 
 ## Remaining limitations
 
-The current policy is exhaustive only; it does not yet provide lazy member
-activation or a conditional selection policy.  The real-application result is
-boot-only, not steady-state.  Structural loader mutation checks, local semantic
+The current policy is exhaustive only; it does not yet provide lazy descriptor
+construction or a conditional selection policy.  The real-application result
+is boot-only, not steady-state.  Structural loader mutation checks, local semantic
 fixtures, export/reimport identity, exact output replay, and code-dependency
 tracking are covered; destructive runtime tests for every MMIO, interrupt,
 fault, callback, and invalidation combination remain bounded rather than a

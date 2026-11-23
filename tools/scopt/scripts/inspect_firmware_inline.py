@@ -31,7 +31,7 @@ def main() -> None:
             (args.artifact / "firmware-regions.jsonl").read_text().splitlines()]
     if not rows:
         parser.error("artifact has no firmware regions")
-    matches = rows if args.region_id is None else [
+    matches = rows[:1] if args.region_id is None else [
         row for row in rows if row["region_id8"].startswith(args.region_id)]
     if len(matches) != 1:
         parser.error(f"region selector matched {len(matches)} rows")

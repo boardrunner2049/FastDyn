@@ -235,9 +235,11 @@ translation context, and fall back to the original lookup path on mismatch.
   TB remains available for unrelated callers.
 - Evidence: correctness fixtures cover verified direct-call discovery and private-region
   construction. On the bounded FreeRTOS boot workload, 12 pinned paired blocks measured
-  0.550x `[0.531, 0.574]` versus ordinary warm execution: a clear regression. The loader
-  activated 118 private members; eager activation and 7,540 bytes of guard/fallback growth
-  dominate this roughly 0.2 ms window. See `docs/firmware-inline-evaluation.md`.
+  0.747x `[0.733, 0.761]` versus ordinary warm execution: a clear regression. Composite
+  loading registered 18 entries for 118 member descriptors, and the live restore proof
+  omitted 116 inert callback replays. That improved the corrected candidate from about
+  327 us to 265 us, but eager exhaustive setup and 7,540 bytes of guard/fallback growth
+  still dominate this roughly 0.2 ms window. See `docs/firmware-inline-evaluation.md`.
 - Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,
   `scopt/analysis/firmware_regions.py`, `scopt/formats/sc_v7.py`, and the v7 loader in
   `third_party/common/qemu/tcg/supercache.c`.
