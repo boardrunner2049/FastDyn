@@ -386,7 +386,9 @@ stack alignment, guest-state effects, fault paths, and recovery metadata.
   On the sealed FreeRTOS compute workload, the exhaustive trusted graph policy was
   0.720x baseline after 1.18 GiB growth. Runtime-weighted sweeps found no retained
   winner: four true-fallthrough leaves measured 1.003x [0.971, 1.030], and the
-  single hottest root wrapper confirmed at 0.996x [0.961, 1.022]. See
+  wrapper selected by the highest TB-entry count measured 0.996x [0.961, 1.022].
+  A hardware breakpoint at this wrapper call counted zero executions in two
+  sealed baseline replays. See
   `experiments/helper-inline-sweetspot/README.md`.
 - Source: `scopt/passes/host_inline.py`; details: `docs/host-inline.md`,
   `docs/host-inline-splice.md`, `docs/host-inline-extreme.md`,

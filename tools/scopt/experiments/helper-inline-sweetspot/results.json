@@ -3,7 +3,18 @@
   "snapshot_id": "sha256:adc9c820fdb4819960b7b3c24a53389337046a2635eaa6489d8a6bd2c0754d94",
   "profile_id": "sha256:812aab8ae1663c7963d23a88455e08d5049a9460fb1f58bea6214155fb60639c",
   "baseline_cache_sha256": "sha256:6eb1d216f7b4cf04d30b543afecb1606f07045bf8a1d4bfcd4e640a18c41e769",
-  "decision": "retain_no_helper_transplant",
+  "decision": "retain_baseline_among_tested_policies",
+  "baseline_site_counter": {
+    "driver": "count_sites.py",
+    "scope": "whole sealed baseline process, one original call instruction per process, two diagnostic replays per site, CPU 2, all 16 reference register values matched",
+    "sites": [
+      {"unit":"tb:45e54ee6b517c4fc6bacb844c75a3b14#0","offset":192,"symbol":"helper_lduw_mmu","whole_run_calls":[0,0]},
+      {"unit":"tb:1c48856906cee1419854e1800d1da16f#0","offset":564,"symbol":"helper_shl_cc","whole_run_calls":[152,136]},
+      {"unit":"tb:bb5cd5c8cc1ba72000c9456cba3b8dd9#0","offset":564,"symbol":"helper_shl_cc","whole_run_calls":[8840,12381]},
+      {"unit":"tb:1c33d89ea73248ebda747169c9a43dfe#0","offset":564,"symbol":"helper_shl_cc","whole_run_calls":[34038,34038]},
+      {"unit":"tb:19f559bc7f57c82d3c5c59154a67121b#0","offset":250,"symbol":"helper_shr_cc","whole_run_calls":[5264,5264]}
+    ]
+  },
   "results": [
     {"policy":"exhaustive_graph","sites":21977,"growth_bytes":1179601718,"paired_speedup":0.720162,"ci95":[0.700361,0.838369],"outcome":"regression"},
     {"policy":"frequency_density_64k","sites":13,"growth_bytes":64632,"paired_speedup":1.00833,"ci95":[0.97897,1.03317],"outcome":"neutral"},

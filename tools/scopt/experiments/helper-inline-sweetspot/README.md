@@ -8,11 +8,11 @@ The scored interval is the firmware `[BENCH][fw]` interval, not compilation or l
 
 ## Result
 
-The measured sweet spot for the current transplant mechanism is **no helper
-transplant**. The most selective candidate (one site, 24 bytes growth) did not
-confirm its initial 1.009x point estimate: an independent 24-pair confirmation was
-0.996x with a 95% paired-bootstrap interval of [0.961, 1.022]. The exact-artifact
-four-site leaf-fallthrough candidate was also neutral at 1.003x [0.971, 1.030].
+Keep the baseline for this workload pending a confirmed improvement. An independent
+24-pair confirmation of the one-site wrapper was 0.996x [0.961, 1.022].
+The site-count diagnostic below explains why this comparison supplies no evidence
+about the cost of executing the wrapper. The four-site shift-helper comparison
+measured 1.003x [0.971, 1.030]. This interval admits a small application speedup.
 
 | policy | sites | net growth | paired speedup | 95% interval | disposition |
 | --- | ---: | ---: | ---: | ---: | --- |
@@ -24,7 +24,7 @@ four-site leaf-fallthrough candidate was also neutral at 1.003x [0.971, 1.030].
 | true leaf fallthrough | 4 | 480 B | 1.003x | [0.971, 1.030] | neutral |
 | root wrappers, >=1M proxy | 84 | 1,912 B | 0.979x | [0.953, 1.000] | reject/neutral boundary |
 | root wrappers, >=14M proxy | 11 | 248 B | 0.953x | [0.916, 1.039] | neutral, bad point estimate |
-| root wrapper, >=28M proxy, confirmation | 1 | 24 B | 0.996x | [0.961, 1.022] | neutral |
+| root wrapper, >=28M proxy, confirmation | 1 | 24 B | 0.996x | [0.961, 1.022] | artifact timed, call inactive on diagnostic replays |
 
 `speedup = baseline time / candidate time`; values below one are regressions.
 All scored runs produced the same 16-register transcript and retained their sealed
@@ -44,10 +44,8 @@ The lowering costs also matter:
 
 * Exhaustive graph transplantation copied roughly 45 KiB of transitive MMU code per
   site and created a 1.18 GiB working-set expansion.
-* Root-wrapper lowering avoids that expansion, but an arena-to-PIE call requires
-  `movabs` plus an indirect call, and the 16-31-byte wrapper leads into a roughly
-  300-instruction slow path. Removing its outer call is negligible, while changing a
-  hot TB's placement and call encoding can cost more.
+* Root-wrapper lowering retains a call to the shared slow path. The one-site arm
+  also changes the layout of its containing TB. Its timing cannot isolate layout cost.
 * The four admitted shift leaves really contain no `CALL`, `PUSH`, or `RET` after
   lowering, but their combined TB-entry proxy is only 56,254 per run. That saving is
   below the noise floor of a one-second application run.
@@ -58,6 +56,27 @@ same-size partial-evaluation design for the must-execute `v7m_msr` plus
 and remove the identity rebuild without moving the TB. See
 `docs/design/helper-inlining-design.md`. That is a distinct transformation and is not
 claimed as completed here.
+
+## Original call-site counts
+
+On the ordinary sealed cache, the block ranked at 28,603,226 steady entries
+reached its public entry in both diagnostic runs. The hardware execution
+breakpoint on its `helper_lduw_mmu` instruction counted **0 and 0** calls over
+the entire runs. The four shift sites counted 152/136, 8,840/12,381,
+34,038/34,038 and 5,264/5,264. Each pair represents two fresh processes
+probing one instruction. Debugger stops can perturb interrupt timing. All ten
+runs reproduced the 16 reference register outputs. Timings above come from
+separate uninstrumented processes.
+
+To repeat, pass the ordinary launch manifest and the candidate compile receipt.
+The probe verifies the live call target at the first observed TB entry. Run this
+command once per candidate receipt.
+
+```sh
+taskset -c 2 python3 tools/scopt/experiments/helper-inline-sweetspot/count_sites.py \
+  "$SNAPSHOT" "$BASELINE/launch.json" "$CANDIDATE/compile-receipt.json" \
+  "$PAIRED_RUN/results.json" --repeat 2
+```
 
 ## Reproduction
 
