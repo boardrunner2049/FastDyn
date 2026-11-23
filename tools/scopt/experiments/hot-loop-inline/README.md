@@ -19,7 +19,7 @@ and [trusted PGO pipeline](../../docs/sealed-whopr-7.md).
 | 6 | Trusted sealed public cache of the FirmBOLT guest |
 | 7 | Same trusted sealed capture with automatic hot-loop PGO |
 
-![Firmware execution time by application. Each application has seven bars on one millisecond axis. Normal scopt had the lowest average time for the FreeRTOS packet parser, and trusted PGO had the lowest for FreeRTOS+CLI.](seven-configurations.png)
+![Seven configurations per application on independent axes. The FreeRTOS packet parser spans 0–1,600 ms and FreeRTOS+CLI spans 0–80 ms. Normal scopt had the lowest average time for the packet parser, and trusted PGO had the lowest for the CLI.](seven-configurations.png)
 
 Each bar is the arithmetic mean of the input medians for that application.
 The packet parser ran six streams. The three `heldout` streams emphasized
