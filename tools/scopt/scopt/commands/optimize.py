@@ -116,14 +116,17 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
               help='JSON file {"<pass>": {<param>: <value>}} overlaid on the pipeline params.')
 @click.option("--b3", "b3_mode", is_flag=True,
               help="B3/B4 mode (design §3.4-3.9, WP21): enable CLONE/REDIRECT_EXIT/ADD_ENTRY/"
-                   "ATTACH_FACT/PURE_REWRITE and region-scope passes; package as .sc v6 with "
+                   "ATTACH_FACT/PURE_REWRITE and region-scope passes; package a canonical v7 "
+                   "semantic artifact with "
                    "hostsym certification (implied by a pipeline that allows a B3 kind).")
 @click.option("--runtime-identity", "ri_file", type=click.Path(exists=True, dir_okay=False),
               help="--b3: RuntimeIdentity the artifact targets (default: the snapshot's).")
 @click.option("--v6-exe", "v6_exes", multiple=True,
-              help="--b3: extra v6-capable exe sha256 (V7; default: runs/wp22/gate-binary.json).")
+              help="--b3: extra semantic-extension-capable exe sha256 (legacy option spelling; "
+                   "all published artifacts are v7).")
 @click.option("--v7-exe", "v7_exes", multiple=True,
-              help="--b3: firmware-region-v7-capable exe sha256 (repeatable; no v6 inheritance).")
+              help="--b3: firmware-region-v7-capable exe sha256 (repeatable; separate from the "
+                   "semantic-extension capability).")
 @click.option("--v7-trusted-exe", "trusted_v7_exes", multiple=True,
               help="--b3: trusted firmware-region-v7 exe sha256 (distinct unsafe ABI).")
 @click.option("--selftest", "selftest_file", type=click.Path(dir_okay=False),
@@ -378,11 +381,11 @@ def validate_cmd(artifact, snapshot, dynamic, configs, out_dir, reps, qemu, base
     """Re-validate a published ARTIFACT (V1-V9, MANIFEST), or with --dynamic run V10.
 
     With --dynamic --oracles O1,O2b,... the B3/B4 dynamic oracles (design §9.4)
-    run instead, for v5 and v6 artifacts (scopt.run.oracles.dynamic_oracles);
+    run instead, for canonical v7 artifacts (scopt.run.oracles.dynamic_oracles);
     their verdict is pass, fail or incomplete (a requested oracle not run).
     With --negative-control the verdict is O4's (pass = mutant detected).
     Exit status 0 when every check passes, 1 otherwise (incomplete included),
-    2 when refused (a v6 artifact on a QEMU that cannot load v6; without
+    2 when refused (an artifact on a QEMU lacking its required v7 features; without
     --dynamic, an artifact the static V1-V9 check does not apply to: B3, B4
     and icount-entry artifacts, which `scopt publish` re-checks).
     """

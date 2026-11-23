@@ -137,8 +137,8 @@ The trusted loader originally found a private region by scanning all 27 region
 records.  Each candidate comparison called `sc7_source_index()`, which itself
 linearly scanned all 163 public cache records.  In other words, a runtime entry
 lookup accidentally nested the region scan with the cache-record scan.  An
-ordinary v5 cache never enters `sc7_try_region()` and therefore never pays this
-cost; it performs its normal key lookup and installs ordinary QEMU chains.
+legacy ordinary-cache path never entered `sc7_try_region()` and therefore never
+paid this cost; it performs its normal key lookup and installs ordinary QEMU chains.
 
 The first 12-block causal campaign used QEMU executable SHA-256
 `0a1c895e...ecf5` and the same trusted v7 artifact in every trusted arm.  Each
@@ -197,15 +197,21 @@ the v7 artifact proof and appended zero translations, and guest output was uncha
 
 | Configuration | BENCH median | Full-process median |
 | --- | ---: | ---: |
-| uncached FastDyn | 1,113.5 us | 0.2746 s |
-| corrected trusted firmware-inline | 171.0 us | 0.2802 s |
+| uncached FastDyn | 1,121.8 us | 0.2767 s |
+| corrected trusted firmware-inline | 178.8 us | 0.2956 s |
 
-The trusted cache ran the measured guest window **6.5168x faster** than uncached
-FastDyn, with paired bootstrap 95% interval **[6.479, 6.573]** and wins in all 30
+The trusted cache ran the measured guest window **6.2874x faster** than uncached
+FastDyn, with paired bootstrap 95% interval **[6.191, 6.334]** and wins in all 30
 pairs.  The full FastDyn-plus-QEMU process did not improve: its paired speedup was
-**0.9574x** `[0.950, 0.980]`, because this approximately 171 us boot window is dwarfed
+**0.9530x** `[0.934, 0.976]`, because this approximately 179 us boot window is dwarfed
 by frontend, deployment and process-start overhead.  Child CPU time was 0.9892x
-`[0.984, 1.009]`, not a supported difference.
+`[0.975, 1.004]`, not a supported difference.  These figures were recaptured after
+the loader switched to canonical v7-only publication (QEMU sha256
+`8d130b5b32fa116f099ca428a5dcc76b8ef9592c5f557e28934aa03e97844eac`).
+
+Against the canonical ordinary warm cache, a second 30-pair campaign measured
+201.6 us versus 175.1 us: **1.1540x** `[1.147, 1.163]` for trusted firmware-inline.
+Its full-process speedup was 0.9933x `[0.971, 1.023]`, an unsupported difference.
 
 The paired campaign is reproduced with the ordinary timing harness; `CONFIG` is the
 matching capture's FastDyn TOML and `TRUSTED_ARTIFACT` is the published artifact
@@ -228,9 +234,9 @@ workload and marker symbols.  A future upstream-QEMU arm may provide contextual
 performance, but it must be labelled separately and cannot establish the incremental
 firmware-inline effect.
 
-The machine-readable raw samples and identities are in
-`fixtures/firmware-inline/measurement.json`; the regression ablations and fixed
-confirmation are in `fixtures/firmware-inline/regression-ablations.json`.
+The canonical-v7 raw BENCH samples and identities are in
+`fixtures/firmware-inline/canonical-v7-measurement.json`; the earlier progression is
+in `measurement.json`, and regression ablations are in `regression-ablations.json`.
 
 ## Reproduction skeleton
 

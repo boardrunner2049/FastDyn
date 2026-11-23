@@ -82,7 +82,7 @@ def diag_probes_cmd(sc, as_json):
 @click.option("--addr", "addrs", multiple=True, help="Host address (hex) to count; repeatable.")
 @click.option("--probe", "probes", multiple=True,
               help="A label from `scopt diag probes` of the deployed artifact; repeatable.")
-@click.option("--all-probes", is_flag=True, help="Every probe of the deployed v6 artifact.")
+@click.option("--all-probes", is_flag=True, help="Every probe of the deployed v7 artifact.")
 @click.option("--v6-stats", is_flag=True, help="Also collect QEMU_SC_V6_STATS.")
 @click.option("--timeout", "timeout_s", type=float, default=600.0, show_default=True)
 @click.option("--json", "as_json", is_flag=True)

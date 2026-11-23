@@ -18,10 +18,10 @@ from __future__ import annotations
 import struct
 
 # --------------------------------------------------------------------------
-# .sc v5 (qemu tcg/supercache.c)
+# Canonical .sc v7 public-record layout (qemu tcg/supercache.c)
 # --------------------------------------------------------------------------
 SC_MAGIC = b"QSCACHE1"
-SC_VERSION = 5
+SC_VERSION = 7
 SC_CODE_OFFSET = 0x10000  # SUPERCACHE_CODE_OFFSET (64 KiB)
 SC_RECORD_COMMIT = 0x53435231  # "1RCS"
 

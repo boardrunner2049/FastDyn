@@ -1,4 +1,4 @@
-"""``scopt sc``: inspect ``.sc`` v5 files and make identity copies (WP1)."""
+"""``scopt sc``: inspect canonical ``.sc`` v7 files and make identity copies."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def register(group: click.Group) -> None:
 
 @click.group()
 def sc() -> None:
-    """``.sc`` v5 snapshot files."""
+    """Canonical ``.sc`` v7 snapshot files."""
 
 
 def _hex(v: int) -> str:

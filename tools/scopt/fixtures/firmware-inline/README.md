@@ -35,3 +35,6 @@ not a real-application performance result.
 and confirmed the nested source-to-region lookup regression.  It contains the
 raw per-process native timings, paired bootstrap intervals, artifact identities,
 and diagnostic counters for both the faulty and corrected QEMU implementations.
+`canonical-v7-measurement.json` records the final v7-only recapture and the raw
+30-pair BENCH samples for uncached versus trusted and ordinary warm versus
+trusted execution.

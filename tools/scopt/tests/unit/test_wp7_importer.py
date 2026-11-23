@@ -169,21 +169,18 @@ def test_header_checksum_rejects(tmp_path):
 
 
 def test_version_rejects(tmp_path):
-    _pair(tmp_path / "p", rich_units(1), sc_header={"version": 7})
+    _pair(tmp_path / "p", rich_units(1), sc_header={"version": 5})
     with pytest.raises(ImportRejected) as e:
         _imp(tmp_path / "p")
     assert e.value.reason == "version"
 
 
-def test_v6_without_extension_rejects(tmp_path):
-    """A version-6 header (WP18: .sc v6) without a valid extension table is
-    refused like the qint-v6 loader refuses it (feature EXT_TABLE clear). The
-    stable reason stays B1-9's "version"."""
+def test_obsolete_v6_rejects(tmp_path):
+    """The unreleased v6 container is rejected; recapture as canonical v7."""
     _pair(tmp_path / "p", rich_units(1), sc_header={"version": 6})
     with pytest.raises(ImportRejected) as e:
         _imp(tmp_path / "p")
     assert e.value.reason == "version"
-    assert "EXT_TABLE" in e.value.detail
 
 
 def test_truncated_record_array(tmp_path):
