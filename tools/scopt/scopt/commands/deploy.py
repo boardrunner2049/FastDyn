@@ -150,8 +150,10 @@ def rundir_oracle(run_dir, timeout_s):
                    "(launch resets every RAM bank, so a file put there by hand is lost).")
 @click.option("--input-bank", default="input", show_default=True,
               help="Id of the file-backed memory bank that receives --inputs.")
+@click.option("--v7-stats", is_flag=True,
+              help="Collect QEMU_SC_V7_STATS=<run-dir>/v7-stats.json (diagnostic run).")
 @click.option("--json", "as_json", is_flag=True)
-def rundir_launch(run_dir, timeout_s, reference_norm, input_file, input_bank, as_json):
+def rundir_launch(run_dir, timeout_s, reference_norm, input_file, input_bank, v7_stats, as_json):
     """Run FastDyn once in RUN_DIR, then the post-run proof; writes run.json.
 
     Exit status 0 only when the verdict is PASS (or NOT_PROVED for an
@@ -161,12 +163,35 @@ def rundir_launch(run_dir, timeout_s, reference_norm, input_file, input_bank, as
     from ..run.launcher import RunDir, RunDirError, launch
 
     inputs = {input_bank: input_file} if input_file else None
+    stats_path = Path(run_dir).resolve() / "v7-stats.json"
+    extra_env = {"QEMU_SC_V7_STATS": str(stats_path)} if v7_stats else None
     try:
         doc = launch(RunDir.open(run_dir), timeout_s=timeout_s, reference_norm=reference_norm,
-                     inputs=inputs)
+                     inputs=inputs, extra_env=extra_env)
     except RunDirError as e:
         click.echo(f"refused: {e}", err=True)
         sys.exit(2)
+    if v7_stats:
+        try:
+            stats = json.loads(stats_path.read_text())
+        except (OSError, ValueError) as exc:
+            stats = {"schema": None, "problems": [f"v7 stats unreadable: {exc}"]}
+        if stats.get("schema") != "qemu-sc-v7-stats@1":
+            stats.setdefault("problems", []).append(
+                "schema is not qemu-sc-v7-stats@1")
+        expected = None
+        try:
+            deployed = json.loads((Path(run_dir) / "deploy.json").read_text())
+            expected = (deployed.get("state") or {}).get("firmware_artifact_id8")
+        except (OSError, ValueError):
+            pass
+        identity_ok = (stats.get("loaded") is True and expected is not None and
+                       stats.get("artifact_id8") == expected)
+        if not identity_ok:
+            stats.setdefault("problems", []).append(
+                f"loaded artifact id {stats.get('artifact_id8')!r} != deployed {expected!r}")
+        stats["loaded_artifact_identity_ok"] = identity_ok
+        doc["v7_stats"] = stats
     ref_equal = (doc.get("reference_norm") or {}).get("equal")
     _emit(doc, as_json, {
         "verdict": doc["verdict"], "exit_code": doc["exit_code"], "appended": doc["appended"],
@@ -176,6 +201,9 @@ def rundir_launch(run_dir, timeout_s, reference_norm, input_file, input_bank, as
     ok = doc["verdict"] in ("PASS", "NOT_PROVED")
     if reference_norm is not None and ref_equal is not True:
         click.echo("output differs from --reference-norm", err=True)
+        ok = False
+    if v7_stats and not doc["v7_stats"]["loaded_artifact_identity_ok"]:
+        click.echo("v7 loaded artifact identity was not proved", err=True)
         ok = False
     sys.exit(0 if ok else 1)
 

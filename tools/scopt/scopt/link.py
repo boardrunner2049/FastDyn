@@ -65,6 +65,7 @@ from __future__ import annotations
 
 import json
 import os
+import struct
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -1262,10 +1263,11 @@ class B3Plan:
     max_code_growth_bytes: int | None = None
     max_total_growth_bytes: int | None = None
     order_private_by_predecessor: bool = False
+    firmware_regions: tuple[Any, ...] = ()
 
     @property
     def empty(self) -> bool:
-        return not (self.grow or self.variants or self.rewrites)
+        return not (self.grow or self.variants or self.rewrites or self.firmware_regions)
 
 
 @dataclass(frozen=True)
@@ -1290,6 +1292,41 @@ class VariantLink:
         return self.body[:self.tc_size]
 
 
+@dataclass(frozen=True)
+class FirmwareMemberLink:
+    """One private source-TB copy in a variable-size firmware region."""
+
+    source_uid: str
+    inline_context: tuple[str, ...]
+    tb_offset: int
+    tc_offset: int
+    tc_size: int
+    search_offset: int
+    search_size: int
+    descriptor: bytes
+    code: bytes
+    search: bytes
+    source_hash: str
+    guest_vaddr: int
+    patched_edges: tuple[tuple[str, int, int], ...] = ()
+    effective_unit: TBUnit | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class FirmwareRegionLink:
+    region_id: str
+    callsite_id: str
+    entry_member: int
+    members: tuple[FirmwareMemberLink, ...]
+    source_units: tuple[str, ...]
+    start_offset: int
+    end_offset: int
+
+    @property
+    def emitted_size(self) -> int:
+        return self.end_offset - self.start_offset
+
+
 @dataclass
 class LinkResultV2(LinkResult):
     version: int = 5
@@ -1298,11 +1335,16 @@ class LinkResultV2(LinkResult):
     grown: Mapping[str, GrownUnit] = field(default_factory=dict)
     rewritten: Mapping[str, tuple[Any, ...]] = field(default_factory=dict)
     effective: Mapping[str, TBUnit] = field(default_factory=dict)  # uid -> unit before placement
+    firmware_regions: tuple[FirmwareRegionLink, ...] = ()
+    firmware_table_offset: int = 0
+    firmware_table_size: int = 0
 
     @property
     def max_end(self) -> int:  # type: ignore[override]
         vm = max((v.end_offset for v in self.variants), default=0)
-        return max(super().max_end, vm)
+        rm = max((r.end_offset for r in self.firmware_regions), default=0)
+        tm = self.firmware_table_offset + self.firmware_table_size
+        return max(super().max_end, vm, rm, tm)
 
     def to_json(self) -> dict[str, Any]:
         d = super().to_json()
@@ -1315,7 +1357,16 @@ class LinkResultV2(LinkResult):
                  ext=None if self.ext is None else {
                      "n_variants": len(self.ext.variants), "n_slots": len(self.ext.slots),
                      "n_links": len(self.ext.links),
-                     "artifact_id8": bytes(self.ext.artifact_id8).hex()})
+                     "artifact_id8": bytes(self.ext.artifact_id8).hex()},
+                 firmware_regions=[{"region_id": r.region_id,
+                                    "callsite_id": r.callsite_id,
+                                    "members": len(r.members),
+                                    "emitted_size": r.emitted_size,
+                                    "source_identities": [m.source_hash
+                                                          for m in r.members],
+                                    "inline_contexts": [list(m.inline_context)
+                                                        for m in r.members]}
+                                   for r in self.firmware_regions])
         return d
 
 
@@ -1338,6 +1389,127 @@ class NativeLinkerV2:
 
     def _fail(self, uid: str, reason: str, detail: str = "") -> LinkResultV2:
         return LinkResultV2(False, self.header, (), (LinkFailure(uid, reason, detail),))
+
+    def _firmware_member_units(self, region: Any, by_uid: Mapping[str, TBUnit]) -> list[TBUnit]:
+        """Build private member preimages, retaining guarded lookup fallbacks."""
+        from .formats.region_v1 import unit_exits
+
+        if self.tb_ret_abs is None:
+            raise LinkError("firmware_region_no_tb_ret", "no tb_ret_addr", region.region_id)
+        out: list[TBUnit] = []
+        by_source: dict[int, list[Any]] = {}
+        for edge in region.edges:
+            if edge.target_member is not None:
+                by_source.setdefault(edge.source_member, []).append(edge)
+        for i, member in enumerate(region.members):
+            source = by_uid[member.source_uid]
+            exits = {x.id: x for x in unit_exits(source)}
+            specs: list[GuardedExitSpec] = []
+            used_tails: set[int] = set()
+            free = iter(free_slots(source))
+            tails = tuple(lookup_tails(source))
+            for edge in by_source.get(i, ()):
+                exit_ = exits.get(edge.exit_id)
+                if exit_ is None or exit_.kind.value != "goto_ptr":
+                    continue
+                tail = next((t for t in tails if t.insn_idx == exit_.insn), None)
+                if tail is None:
+                    raise LinkError("firmware_region_exit_shape",
+                                    f"{source.uid}/{edge.exit_id}: no lookup tail", source.uid)
+                if tail.off in used_tails:
+                    raise LinkError("firmware_region_exit_shape",
+                                    f"{source.uid}: two internal targets on one tail", source.uid)
+                try:
+                    slot = next(free)
+                except StopIteration:
+                    raise LinkError("firmware_region_slot_representation",
+                                    f"{source.uid}: private guard slots exhausted", source.uid)
+                target = region.members[edge.target_member]
+                key = by_uid[target.source_uid].key
+                specs.append(GuardedExitSpec(
+                    tail.off, "return" if edge.kind == "return" else "static",
+                    # A firmware-region edge is an unregistered private jump.
+                    # GENERAL supplies a guard-and-fallback slot whose rel32
+                    # field we patch to the copied destination; SPEC is a v6
+                    # public variant contract and requires loader registration.
+                    (GuardTarget(int(edge.guest_target), slot, "GENERAL"),),
+                    key.flags, key.cs_base))
+                used_tails.add(tail.off)
+            if specs:
+                source = grow_unit(source, specs, code_address=self.header.code_address,
+                                   tb_ret_abs=self.tb_ret_abs, offsets=self.offsets,
+                                   register=False).unit
+            out.append(source)
+        return out
+
+    def _link_firmware_regions(self, cursor: int, by_uid: Mapping[str, TBUnit]
+                               ) -> tuple[tuple[FirmwareRegionLink, ...], int]:
+        """Lay out private descriptors, contiguous code and out-of-line recovery data."""
+        from .formats.region_v1 import guarded_exit_rows, unit_exits
+
+        linked: list[FirmwareRegionLink] = []
+        ca = self.header.code_address
+        for plan in self.plan.firmware_regions:
+            start = round_up(cursor, TB_ALIGN)
+            effective = self._firmware_member_units(plan, by_uid)
+            descriptor_start = start
+            code_start = round_up(descriptor_start + len(effective) * self.header.tb_size, 16)
+            # Keep every executable member span contiguous.  Recovery tables
+            # live after the complete code span and the v7 loader binds each
+            # private TB to its explicit search_offset.  Interleaving search
+            # bytes here would turn a legal fall-through into execution of
+            # metadata and would defeat the defining property of this pass.
+            tc_offsets: list[int] = []
+            at = code_start
+            for source in effective:
+                tc_offsets.append(at)
+                at += source.tc_size
+            search_offsets: list[int] = []
+            for source in effective:
+                search_offsets.append(at)
+                at += len(source.search)
+            member_links: list[FirmwareMemberLink] = []
+            for i, (member, source) in enumerate(zip(plan.members, effective)):
+                fake_tb = tc_offsets[i] - (source.tc_offset - source.tb_offset)
+                relocated = relocate_unit(source, fake_tb)
+                code = bytearray(relocated.body[:source.tc_size])
+                exits = {x.id: x for x in unit_exits(source)}
+                guards = guarded_exit_rows(source)
+                patched: list[tuple[str, int, int]] = []
+                for edge in plan.edges:
+                    if edge.source_member != i or edge.target_member is None:
+                        continue
+                    exit_ = exits.get(edge.exit_id)
+                    field = None
+                    if exit_ is not None and exit_.insn_offset is not None:
+                        field = exit_.insn_offset
+                    if field is None:
+                        matches = [off for off, row in guards.items()
+                                   if int(row["target_vaddr"], 16) == edge.guest_target]
+                        if len(matches) == 1:
+                            field = matches[0]
+                    if field is None or field < 1 or field + 4 > len(code):
+                        raise LinkError("firmware_region_exit_shape",
+                                        f"{source.uid}/{edge.exit_id}: no rel32 field", source.uid)
+                    target = tc_offsets[edge.target_member]
+                    disp = target - (tc_offsets[i] + field + 4)
+                    if not int32_ok(disp):
+                        raise LinkError(R.REL32_RANGE,
+                                        f"firmware edge {source.uid}+{field:#x}", source.uid)
+                    struct.pack_into("<i", code, field, disp)
+                    patched.append((edge.exit_id, field, edge.target_member))
+                member_links.append(FirmwareMemberLink(
+                    member.source_uid, member.inline_context,
+                    descriptor_start + i * self.header.tb_size, tc_offsets[i], len(code),
+                    search_offsets[i], len(source.search), b"\0" * self.header.tb_size,
+                    bytes(code), source.search, member.source_hash, source.vaddrs[0],
+                    tuple(patched), source))
+            end = at
+            linked.append(FirmwareRegionLink(
+                plan.region_id, plan.callsite.callsite_id, plan.entry_member,
+                tuple(member_links), plan.source_uids, start, end))
+            cursor = end
+        return tuple(linked), cursor
 
     def effective_units(self, units: Iterable[TBUnit]) -> tuple[dict[str, TBUnit],
                                                                 dict[str, GrownUnit]]:
@@ -1367,6 +1539,10 @@ class NativeLinkerV2:
         plan, h = self.plan, self.header
         ca = h.code_address
         units = list(self.snap.units())
+        if plan.firmware_regions and (plan.grow or plan.variants or plan.rewrites
+                                      or self.placement is not None):
+            return self._fail("", "firmware_region_terminal_stage",
+                              "firmware-inline must be the terminal isolated stage")
         cloned = {v.src_uid for v in plan.variants}
         for unit in units:
             if unit.native_fragments and (not unit.splice_applied or unit.uid in cloned):
@@ -1456,7 +1632,27 @@ class NativeLinkerV2:
                                       bytes(body), tuple(vs.patches), vl.patched,
                                       tuple(vs.facts)))
             cursor = rec.end_offset
+        # -- variable-size firmware regions ------------------------------------
+        firmware_links: tuple[FirmwareRegionLink, ...] = ()
+        if plan.firmware_regions:
+            try:
+                firmware_links, cursor = self._link_firmware_regions(cursor, by_uid)
+            except LinkError as e:
+                return self._fail(e.uid or "", e.reason, e.detail)
+            from .formats.sc_v7 import directory_size
+
+            table_offset = round_up(cursor, 8)
+            table_size = directory_size(firmware_links)
+            cursor = table_offset + table_size
+        else:
+            table_offset = table_size = 0
         if cursor >= limit:
+            if firmware_links:
+                pending = [r.region_id for r in firmware_links]
+                return self._fail(
+                    "", "firmware_region_arena_exhausted",
+                    canonical_json({"required_end": cursor, "arena_limit": limit,
+                                    "pending_regions": pending}).decode())
             return self._fail(units[-1].uid, R.OUT_OF_RANGE, f"end {cursor:#x} >= {limit:#x}")
         # -- ext table -----------------------------------------------------------
         by_link = {lu.uid: lu for lu in links}
@@ -1505,10 +1701,13 @@ class NativeLinkerV2:
         if v6:
             ext = ExtTable(tuple(variants), tuple(slots), tuple(lks))
             ext = replace(ext, artifact_id8=_artifact_id8(ext, links, vlinks))
-        res = LinkResultV2(True, h, tuple(links), version=6 if v6 else 5, ext=ext,
+        version = 7 if firmware_links else (6 if v6 else 5)
+        res = LinkResultV2(True, h, tuple(links), version=version, ext=ext,
                            variants=tuple(vlinks), grown=grown,
                            rewritten={k: tuple(v) for k, v in plan.rewrites.items()},
-                           effective=eff)
+                           effective=eff, firmware_regions=firmware_links,
+                           firmware_table_offset=table_offset,
+                           firmware_table_size=table_size)
         if self.derive_captures:
             jr = self.join_result if self.join_result is not None else capture_join(self.snap)
             self.join_result = jr

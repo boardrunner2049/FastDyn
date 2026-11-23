@@ -100,7 +100,9 @@ class B3Env:
     """External inputs of a B3/B4 run (all optional; missing inputs fail closed).
 
     ``layout``: EnvLayout of the snapshot's exe (default: the store's ``envlayout@1``).
-    ``runtime``/``v6_exes``: the RuntimeIdentity the artifact targets (V7/V20).
+    ``runtime``/``v6_exes``/``v7_exes``: the RuntimeIdentity the artifact targets
+    (V7/V20).  V7 admission is separate because its loader contract is not a
+    compatible extension of v6.
     ``selftest``: the V18 hostsym self-test document. ``calibration``: optional §10.3
     costs overriding workspace calibration. Pipeline and caller pass parameters
     take precedence. ``certify``: run WP19's V14
@@ -110,6 +112,7 @@ class B3Env:
     layout: Any = None
     runtime: Mapping[str, Any] | None = None
     v6_exes: tuple[str, ...] = ()
+    v7_exes: tuple[str, ...] = ()
     selftest: Mapping[str, Any] | None = None
     calibration: Mapping[str, float] | None = None
     certify: bool = True
@@ -293,6 +296,7 @@ class B3State:
         default_factory=lambda: MappingProxyType({}))
     unit_code: Mapping[str, bytes] = field(default_factory=lambda: MappingProxyType({}))
     facts: Mapping[str, tuple[FactRef, ...]] = field(default_factory=lambda: MappingProxyType({}))
+    firmware_regions: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
 
     max_code_growth_bytes: int | None = None
     max_variants_per_c: int = 2
@@ -301,7 +305,7 @@ class B3State:
     # -- queries --------------------------------------------------------------
     @property
     def empty(self) -> bool:
-        return not (self.exits or self.variants or self.rewrites)
+        return not (self.exits or self.variants or self.rewrites or self.firmware_regions)
 
     def grown_uids(self) -> frozenset[str]:
         return frozenset(u for u, _ in self.exits)
@@ -351,12 +355,35 @@ class B3State:
         rewrites = {k: tuple(v) for k, v in self.rewrites.items()}
         unit_code = dict(self.unit_code)
         facts = {k: tuple(v) for k, v in self.facts.items()}
+        firmware_regions = dict(self.firmware_regions)
         by_kind: dict[EditKind, list[Any]] = {}
         for e in edits:
             by_kind.setdefault(e.kind, []).append(e)
 
         def refuse(code: str, detail: str = "") -> tuple[None, B3Refusal]:
             return None, B3Refusal(code, detail)
+
+        # ---- EMIT_FIRMWARE_REGION ---------------------------------------------
+        for e in by_kind.get(EditKind.EMIT_FIRMWARE_REGION, ()):
+            plan = e.payload
+            if plan.region_id in firmware_regions:
+                return refuse("edit_precondition", f"region {plan.region_id} emitted twice")
+            if not plan.complete:
+                return refuse("firmware_region_incomplete",
+                              f"{plan.region_id}: {len(plan.pending)} pending item(s)")
+            for m in plan.members:
+                unit = units.get(m.source_uid)
+                if unit is None:
+                    return refuse("unknown_unit", m.source_uid)
+                if unit.content_hash != m.source_hash or unit.key != m.source_key:
+                    return refuse("stale_fact", f"firmware member {m.source_uid} changed")
+                if unit.meta_status != "ok":
+                    return refuse("no_meta", m.source_uid)
+                if not unit.reloc.relocatable:
+                    return refuse("unit_not_relocatable", m.source_uid)
+                if unit.origin != "elf_verified":
+                    return refuse("ram_resident", m.source_uid)
+            firmware_regions[plan.region_id] = plan
 
         clones = {e.payload.variant_id: e.payload for e in by_kind.get(EditKind.CLONE, ())}
         entries: dict[str, SpecEntry] = {}
@@ -579,7 +606,7 @@ class B3State:
                     variants[vid2] = replace(v2, code=bytes(vc))
         new_state = B3State(MappingProxyType(exits), MappingProxyType(variants),
                             MappingProxyType(rewrites), MappingProxyType(unit_code),
-                            MappingProxyType(facts),
+                            MappingProxyType(facts), MappingProxyType(firmware_regions),
                             max_growth if clones else self.max_code_growth_bytes,
                             max_per_c if clones else self.max_variants_per_c,
                             max_variants if clones else self.max_variants)
@@ -825,6 +852,7 @@ class Materialized:
     variant_ids: dict[str, str]  # clone id -> final variant id
     pass_bytes: dict[str, int]  # per-pass byte delta (bytes changed by its patches)
     composed: dict[str, list[Patch]]
+    firmware_regions: tuple[Any, ...] = ()
 
 
 def _compose(src_code: bytes, final: bytes, h: Any, history: Sequence[tuple[str, Patch]],
@@ -918,11 +946,14 @@ def materialize(state: B3State, b3: B3Ctx, *, register_slots: bool = True) -> Ma
     regions = [{"kind": "ADD_REGION", "r": v.pred[0], "slot": v.pred[1],
                 "variant": final_ids[vid], "c": v.src_uid}
                for vid, v in sorted(keep.items(), key=lambda kv: kv[1].pred)]
+    firmware_regions = tuple(state.firmware_regions[k] for k in sorted(state.firmware_regions))
     plan = B3Plan(grow={u: tuple(xs) for u, xs in grow.items()}, variants=tuple(vspecs),
                   rewrites=rewrites, register_slots=register_slots,
                   max_code_growth_bytes=state.max_code_growth_bytes,
-                  max_variants_per_c=state.max_variants_per_c, max_variants=state.max_variants)
-    return Materialized(plan, downgraded, regions, final_ids, dict(pass_bytes), composed)
+                  max_variants_per_c=state.max_variants_per_c, max_variants=state.max_variants,
+                  firmware_regions=firmware_regions)
+    return Materialized(plan, downgraded, regions, final_ids, dict(pass_bytes), composed,
+                        firmware_regions)
 
 
 # ---------------------------------------------------------------------------
@@ -1007,7 +1038,8 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
     res = package_b3(snapshot, m.plan, store, candidate_id=cid,
                      placement=cand.working_set if cand.has_layout_changes else None,
                      pipeline=cand.pipeline_provenance(), profile_ids=cand.profile_rows(),
-                     runtime=env.runtime, v6_exes=env.v6_exes, summaries=rows, hostsym=hs,
+                     runtime=env.runtime, v6_exes=env.v6_exes, v7_exes=env.v7_exes,
+                     summaries=rows, hostsym=hs,
                      hot_set_bytes=hot, passes_byte_delta=m.pass_bytes,
                      ledger_rows=led.rows,
                      sidecar_extra={"x_b3_manager": b3_report(cand, m)})
@@ -1030,5 +1062,6 @@ def b3_report(cand: Any, m: Materialized) -> dict[str, Any]:
             "stats": {k: v for k, v in p.stats.items()}})
     return {"passes": passes, "downgraded": m.downgraded, "regions": m.regions,
             "variant_ids": m.variant_ids,
+            "firmware_regions": [p.to_json() for p in m.firmware_regions],
             "digest": "sha256:" + hashlib.sha256(repr(sorted(m.variant_ids.items()))
                                                  .encode()).hexdigest()}

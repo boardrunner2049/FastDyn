@@ -41,12 +41,13 @@ class EditKind(Enum):
     ATTACH_FACT = 16
     INLINE_CALL = 17
     RETIRE_DIRECT_EXIT = 18
+    EMIT_FIRMWARE_REGION = 19
 
 
 B2_EDIT_KINDS = frozenset({EditKind.ANNOTATE, EditKind.PIN, EditKind.LAYOUT_ORDER, EditKind.PLACE})
 B3_EDIT_KINDS = frozenset({EditKind.CLONE, EditKind.REDIRECT_EXIT, EditKind.ADD_ENTRY,
                           EditKind.PURE_REWRITE, EditKind.ADD_REGION, EditKind.ADD_RECOVERY,
-                          EditKind.ATTACH_FACT})
+                          EditKind.ATTACH_FACT, EditKind.EMIT_FIRMWARE_REGION})
 NATIVE_EDIT_KINDS = frozenset({EditKind.INLINE_CALL, EditKind.RETIRE_DIRECT_EXIT})
 
 LayoutSection = Literal["hot", "warm", "unknown", "boot", "cold"]
@@ -54,10 +55,10 @@ LayoutSection = Literal["hot", "warm", "unknown", "boot", "cold"]
 
 @dataclass(frozen=True)
 class Budgets:
-    max_wall_s: float = 60.0
-    max_code_growth_bytes: int = 0
-    max_region_members: int = 1
-    max_context_versions: int = 0
+    max_wall_s: float | None = 60.0
+    max_code_growth_bytes: int | None = 0
+    max_region_members: int | None = 1
+    max_context_versions: int | None = 0
     max_units: int | None = None
 
 
@@ -164,6 +165,7 @@ class ProposalBuilderAPI(Protocol):
     def add_region(self, *args: Any, **kwargs: Any) -> None: ...
     def add_recovery(self, *args: Any, **kwargs: Any) -> None: ...
     def inline_call(self, payload: InlineCall) -> None: ...
+    def emit_firmware_region(self, payload: Any) -> None: ...
     def attach_fact(self, *args: Any, **kwargs: Any) -> None: ...
 
 
@@ -376,6 +378,12 @@ PAYLOAD_KINDS = {
     EditKind.ATTACH_FACT: FactRef,
     EditKind.PURE_REWRITE: Patch,
 }
+
+# Kept here to make capability validation use the same typed-payload table as
+# every B3 edit, without introducing a dependency from the model back to passes.
+from ..model.firmware_region import FirmwareRegionPlan as _FirmwareRegionPlan
+
+PAYLOAD_KINDS[EditKind.EMIT_FIRMWARE_REGION] = _FirmwareRegionPlan
 
 
 class B3Reason:

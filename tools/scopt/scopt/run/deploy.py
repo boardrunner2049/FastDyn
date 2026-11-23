@@ -258,7 +258,16 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
                               test_policies=test_policies)
     info["tags"] = artifact_tags(art["path"])  # a bare .sc too (its dir marker, sidecar)
     id8 = _ext_id8_of(art["sc"]) if header.version == 6 else None
+    firmware_id8 = None
+    if header.version == 7:
+        try:
+            from ..formats.sc_v7 import read_sc7
+
+            firmware_id8 = read_sc7(art["sc"]).artifact_id8.hex()
+        except (OSError, ValueError):
+            reasons.append("firmware_region_directory_invalid")
     info["ext_artifact_id8"] = id8
+    info["firmware_artifact_id8"] = firmware_id8
     side = None
     if art["kind"] == "artifact_dir":
         sp = Path(art["path"]) / "cache.sc.scopt.json"
@@ -270,10 +279,12 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
     if isinstance(side, dict):
         from ..formats.artifact import LOADER_V5
         from ..formats.sc_v6 import LOADER_V6
+        from ..formats.sc_v7 import LOADER_V7
 
         lr = side.get("loader_requirement")
         info["loader_requirement"] = lr
-        want_lr = LOADER_V6 if header.version == 6 else LOADER_V5
+        want_lr = (LOADER_V7 if header.version == 7 else
+                   LOADER_V6 if header.version == 6 else LOADER_V5)
         if lr is not None and lr != want_lr:
             reasons.append("loader_requirement_mismatch")
         if header.version == 6:
@@ -283,6 +294,13 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
                 reasons.append("ext_artifact_id_missing")
             elif sid8 != id8:
                 reasons.append("ext_artifact_id_mismatch")
+        elif header.version == 7:
+            sid8 = side.get("x_firmware_artifact_id8")
+            info["sidecar_firmware_artifact_id8"] = sid8
+            if sid8 is None:
+                reasons.append("firmware_artifact_id_missing")
+            elif sid8 != firmware_id8:
+                reasons.append("firmware_artifact_id_mismatch")
     return reasons, info
 
 

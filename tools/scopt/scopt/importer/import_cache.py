@@ -59,7 +59,7 @@ from ..decode.x86 import DecodeMemo
 from ..formats import bundle_v1 as _bv1
 from ..formats import schemas
 from ..formats.region_v1 import build_region
-from ..formats.sc_v5 import ScFile, read_sc, sha256_sparse, sparse_copy
+from ..formats.sc_v5 import ScFile, ScFormatError, read_sc, sha256_sparse, sparse_copy
 from ..ids import bundle_id as _bundle_id
 from ..ids import tb_uid, unit_ids
 from ..model.cache_snapshot import CacheSnapshot, snapshot_dir_name
@@ -287,6 +287,7 @@ class ImportResult:
     # .sc v6 (B3, WP18): the extension table and the re-imported variants
     ext: Any = None  # scopt.formats.sc_v6.ExtTable (v6 files only)
     variants: list[dict[str, Any]] = field(default_factory=list)
+    firmware_regions: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def used_scm_paths(self) -> list[str]:
@@ -422,8 +423,9 @@ class ImportCache:
         manifest = json.loads(man_bytes) if man_bytes is not None else None
         bchk = check_bundle(self.bundle, manifest, files=self.verify_files)
         with _ShLock(self.sc_path):
-            sc = read_sc(self.sc_path, versions=(5, 6))
+            sc = read_sc(self.sc_path, versions=(5, 6, 7))
             f6 = None
+            f7 = None
             if sc.loadable and sc.header.version == 6:
                 from ..formats.sc_v6 import read_sc6
 
@@ -436,6 +438,14 @@ class ImportCache:
                     code = "version" if f6.problem[0] == "ext_table_clear" else "sc6_extension"
                     raise ImportRejected(code, f"{f6.problem[0]}: {f6.problem[1]}")
                 sc = f6.sc
+            elif sc.loadable and sc.header.version == 7:
+                from ..formats.sc_v7 import read_sc7
+
+                try:
+                    f7 = read_sc7(self.sc_path)
+                except ScFormatError as exc:
+                    code = "version" if sc.header.reserved != 1 else "sc7_extension"
+                    raise ImportRejected(code, str(exc)) from exc
             j = join(sc, self.scm_paths)
         rchk = None
         for f in (j.captures or (None,)):
@@ -460,7 +470,11 @@ class ImportCache:
         uids = unit_ids(u.record.tb_uid for u in units_in)
         checks: dict[int, UnitCheck] = {}
         units: list[TBUnit] = []
-        if f6 is not None:
+        if f7 is not None:
+            from ..formats.sc_v7 import sc7_snapshot_id
+
+            sid = sc7_snapshot_id(self.sc_path)
+        elif f6 is not None:
             from ..formats.sc_v6 import sc6_snapshot_id
 
             sid = sc6_snapshot_id(f6)
@@ -554,6 +568,20 @@ class ImportCache:
                 helper_returns={c.ref: c.host_return_offset for c in uc.recovery_checks
                                 if c.source == "helper_call"} if uc else None))
         first_ri = next((f.run_info for f in j.captures if f.run_info is not None), None)
+        firmware_regions = []
+        if f7 is not None:
+            from ..formats.sc_v7 import decode_directory
+
+            directory = decode_directory(f7)
+            firmware_regions = [
+                {**row,
+                 "members": directory["members"][row["first_member"]:
+                                                    row["first_member"] + row["n_members"]],
+                 "origins": directory["origins"][row["first_member"]:
+                                                     row["first_member"] + row["n_members"]],
+                 "edges": directory["edges"][row["first_edge"]:
+                                                row["first_edge"] + row["n_edges"]]}
+                for row in directory["regions"]]
         snap = CacheSnapshot(
             snapshot_id=sid, header=sc.header, header_bytes=sc.header_bytes, _units=tuple(units),
             runtime=self.runtime_identity, bundle=self.bundle,
@@ -561,13 +589,16 @@ class ImportCache:
                                                           for f in j.captures),
             run_info=first_ri,
             regions={r_["members"][0]["unit"]: r_ for r_ in regions},
-            details={u.uid: checks[u.slot] for u in units if u.slot in checks})
+            details={u.uid: checks[u.slot] for u in units if u.slot in checks},
+            firmware_regions=tuple(firmware_regions))
         res = ImportResult(snap, j, checks, {}, regions, self.sc_path, self.scm_paths, manifest,
                            man_bytes, self.bundle, self.runtime_identity)
         res.identity_checks = {"bundle": bchk, "runtime_identity": rchk}
         if f6 is not None:
             res.ext = f6.ext
             res.variants = import_variants(f6, units, j.captures)
+        if f7 is not None:
+            res.firmware_regions = firmware_regions
         res.summary = _summary(res, fw_path if firmware else None, plugin)
         return res
 
@@ -882,11 +913,16 @@ def write_store(res: ImportResult, store: str | os.PathLike,
         with _ShLock(res.sc_path):
             sparse_copy(res.sc_path, tmp / "cache.sc")
         os.chmod(tmp / "cache.sc", 0o444)
-        from ..formats.sc_v6 import read_sc6, sc6_snapshot_id
-
-        cp6 = read_sc6(tmp / "cache.sc")
-        cp = cp6.sc
-        if sc6_snapshot_id(cp6) != res.snapshot.snapshot_id or \
+        cp = read_sc(tmp / "cache.sc", versions=(5, 6, 7))
+        if cp.header.version == 7:
+            from ..formats.sc_v7 import sc7_snapshot_id
+            copied_sid = sc7_snapshot_id(tmp / "cache.sc")
+        else:
+            from ..formats.sc_v6 import read_sc6, sc6_snapshot_id
+            cp6 = read_sc6(tmp / "cache.sc")
+            cp = cp6.sc
+            copied_sid = sc6_snapshot_id(cp6)
+        if copied_sid != res.snapshot.snapshot_id or \
                 cp.record_bytes != res.join.sc.record_bytes:  # pragma: no cover
             raise ImportRejected("store_copy", "cache.sc copy differs from the imported file")
         caps = []
@@ -909,6 +945,8 @@ def write_store(res: ImportResult, store: str | os.PathLike,
         summary["options"] = dict(summary["options"])
         _write(tmp / "snapshot.json", canonical_json(summary) + b"\n")
         _write(tmp / "units.jsonl", canonical_jsonl(res.regions))
+        if res.firmware_regions:
+            _write(tmp / "firmware-regions.jsonl", canonical_jsonl(res.firmware_regions))
         (tmp / "code").mkdir()
         code_files = []
         for u in res.snapshot.units():
@@ -973,6 +1011,12 @@ def open_snapshot(path: str | os.PathLike) -> CacheSnapshot:
     if canonical_jsonl(res.regions) != (d / "units.jsonl").read_bytes():
         raise ImportRejected("store_mismatch",
                              "units.jsonl differs on re-open (external ELF files changed?)")
+    firmware_path = d / "firmware-regions.jsonl"
+    expected_firmware = canonical_jsonl(res.firmware_regions)
+    if bool(res.firmware_regions) != firmware_path.is_file() or \
+            (firmware_path.is_file() and expected_firmware != firmware_path.read_bytes()):
+        raise ImportRejected("store_mismatch",
+                             "firmware-regions.jsonl differs on re-open")
     object.__setattr__(res.snapshot, "path", str(d))
     return res.snapshot
 

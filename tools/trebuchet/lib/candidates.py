@@ -26,6 +26,7 @@ from scopt.run.pass_policy import PolicyMismatch, check_requested, policy_argume
 B3 = "b3"
 CHAINS = ("chain-static", "chain-returns")
 PIPELINES = {
+    "firmware-inline": "firmware-inline",
     "b3-ph": "b3-ph", "b3-llvm": "b3-llvm", "llvm": "b2-llvm-layout", "page-local": "b2-page-local", "b3": B3, "static": B3, "returns": B3, "general": B3,
     "dominant": "dominant-return", "ph": "b2-layout", "slide": "b2-arena-slide",
     "pc": "exit-pc-fold", "native": "host-inline-splice",

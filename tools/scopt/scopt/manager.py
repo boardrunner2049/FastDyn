@@ -445,7 +445,7 @@ class ManagedPassContext:
     """Concrete ``PassContext`` (§5.4) given to a pass by the manager."""
 
     def __init__(self, *, descriptor: PassDescriptor, view: WorkingSetView, store: AnalysisStore,
-                 params: Mapping[str, Any], profiles: Sequence[Any], deadline: float,
+                 params: Mapping[str, Any], profiles: Sequence[Any], deadline: float | None,
                  logger: logging.Logger | logging.LoggerAdapter):
         self.descriptor = descriptor
         self.view = view
@@ -494,7 +494,7 @@ class ManagedPassContext:
         return p
 
     def budget(self) -> None:
-        if time.monotonic() > self.deadline:
+        if self.deadline is not None and time.monotonic() > self.deadline:
             raise BudgetExceeded(f"pass {self.descriptor.name}: max_wall_s="
                                  f"{self.descriptor.budgets.max_wall_s} exceeded")
 
@@ -830,8 +830,9 @@ class PassManager:
 
         logger = logging.LoggerAdapter(logging.getLogger(f"scopt.pass.{d.name}"), {})
         t0 = time.monotonic()
+        deadline = None if d.budgets.max_wall_s is None else t0 + d.budgets.max_wall_s
         ctx = ManagedPassContext(descriptor=d, view=view, store=self.store, params=params,
-                                 profiles=self.profiles, deadline=t0 + d.budgets.max_wall_s,
+                                 profiles=self.profiles, deadline=deadline,
                                  logger=logger)
         ctx.b3 = self.b3ctx
         ctx.b3_state = self.b3_state
@@ -851,7 +852,7 @@ class PassManager:
                 run = _Run(Outcome.FAILED, capability_reason(v), str(v),
                            traceback=run.traceback)
         elif run.outcome not in (Outcome.FAILED, Outcome.BUDGET_EXHAUSTED):
-            if dur > d.budgets.max_wall_s:
+            if d.budgets.max_wall_s is not None and dur > d.budgets.max_wall_s:
                 run = _Run(Outcome.BUDGET_EXHAUSTED, Reason.BUDGET_EXHAUSTED,
                            f"ran {dur:.3f}s > max_wall_s={d.budgets.max_wall_s}")
             elif run.outcome is not Outcome.CANDIDATE and len(builder):
@@ -1167,7 +1168,7 @@ class PassManager:
                                                 f"{ws.layout_owner(u)!r}; pinning it needs "
                                                 "overrides={'layout'}")
                 pinned_here.add(u)
-        if inline_growth > b.max_code_growth_bytes:
+        if b.max_code_growth_bytes is not None and inline_growth > b.max_code_growth_bytes:
             return (Outcome.BUDGET_EXHAUSTED, Reason.BUDGET_EXHAUSTED,
                     f"native growth {inline_growth} > {b.max_code_growth_bytes}")
         return None

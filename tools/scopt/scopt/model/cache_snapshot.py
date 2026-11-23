@@ -59,6 +59,7 @@ class CacheSnapshot:
     run_info: Any = None  # scopt.formats.scm_v1.RunInfo of the first capture
     regions: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     details: Mapping[str, Any] = field(default_factory=dict)  # uid -> UnitCheck (importer)
+    firmware_regions: tuple[Mapping[str, Any], ...] = ()
     path: str | None = None  # store directory, when loaded from / written to a store
     _by_uid: Mapping[str, TBUnit] = field(default_factory=dict, repr=False)
     _by_key: Mapping[TBKey, tuple[TBUnit, ...]] = field(default_factory=dict, repr=False)
@@ -75,6 +76,8 @@ class CacheSnapshot:
                            MappingProxyType({k: tuple(v) for k, v in by_key.items()}))
         object.__setattr__(self, "regions", MappingProxyType(dict(self.regions)))
         object.__setattr__(self, "details", MappingProxyType(dict(self.details)))
+        object.__setattr__(self, "firmware_regions",
+                           tuple(MappingProxyType(dict(x)) for x in self.firmware_regions))
 
     # -- SnapshotView ------------------------------------------------------------
     def units(self) -> tuple[TBUnit, ...]:

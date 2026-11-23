@@ -204,6 +204,7 @@ class ExitKind(StrEnum):
 class LoaderRequirement(StrEnum):
     SC_V5_UNMODIFIED = "qemu-sc-v5-unmodified"
     SC_V6 = "qemu-sc-v6"
+    SC_V7_FIRMWARE_REGIONS = "qemu-sc-v7-firmware-regions"
 
 
 __all__ = [

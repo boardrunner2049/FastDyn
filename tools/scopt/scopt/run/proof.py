@@ -62,6 +62,7 @@ EXT_END = SC_CODE_OFFSET
 #: offset of ``artifact_id8`` in the ext header (file offset 0x130)
 EXT_ID8_OFFSET = EXT_BEGIN + 48
 SC6_VERSION = 6
+SC7_VERSION = 7
 
 __all__ = ["deployed_state", "prove", "prove_run", "deploy_refusal", "VERDICT_PASS",
            "VERDICT_INVALID", "ext_state", "EXT_BEGIN", "EXT_END"]
@@ -147,6 +148,12 @@ def deployed_state(sc_path: str | os.PathLike,
     }
     if ext is not None:
         out.update(ext)
+    if h.version == SC7_VERSION:
+        from ..formats.sc_v7 import read_sc7, sc7_snapshot_id
+
+        directory = read_sc7(sc_path)
+        out.update(firmware_artifact_id8=directory.artifact_id8.hex(),
+                   firmware_snapshot_id=sc7_snapshot_id(sc_path))
     return out
 
 
@@ -204,6 +211,30 @@ def prove(state: dict[str, Any]) -> dict[str, Any]:
                 oke = es["ext_sha256"] == state["ext_sha256"]
                 add("ext", oke, "" if oke else
                     "extension bytes [0x100, 0x10000) changed during the run")
+            if state.get("firmware_snapshot_id") is not None:
+                if post is None:
+                    add("v7_header", False, "no header after the run")
+                    add("firmware_regions", False, "no v7 artifact after the run")
+                else:
+                    okv = post.version == SC7_VERSION and post.reserved == dep.reserved
+                    add("v7_header", okv, "" if okv else
+                        f"version {dep.version} -> {post.version}, feature_flags "
+                        f"{dep.reserved:#x} -> {post.reserved:#x}")
+                    try:
+                        from ..formats.sc_v7 import read_sc7, sc7_snapshot_id
+
+                        directory = read_sc7(sc)
+                        sid = sc7_snapshot_id(sc)
+                        okr = (directory.artifact_id8.hex() ==
+                               state.get("firmware_artifact_id8") and
+                               sid == state["firmware_snapshot_id"])
+                        detail = "" if okr else (
+                            f"artifact {state.get('firmware_artifact_id8')} -> "
+                            f"{directory.artifact_id8.hex()}, snapshot "
+                            f"{state['firmware_snapshot_id']} -> {sid}")
+                    except (OSError, ValueError) as exc:
+                        okr, detail = False, f"v7 directory/body validation failed: {exc}"
+                    add("firmware_regions", okr, detail)
         finally:
             os.close(fd)
     m0 = state.get("manifest")
@@ -242,6 +273,8 @@ def frozen_append_counts(run):
     required = {"sc_exists", "header", "records", "inode", "manifest"}
     if proof.get("file_version") == 6:
         required.update(("v6_header", "ext"))
+    elif proof.get("file_version") == 7:
+        required.update(("v7_header", "firmware_regions"))
     if not required <= names or any(c.get("ok") is not True for c in checks):
         raise ValueError("frozen deployment has incomplete cache identity checks")
     initial, after, appended = proof.get("n"), proof.get("record_count_after"), run.get("appended")

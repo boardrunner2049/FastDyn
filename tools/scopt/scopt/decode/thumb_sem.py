@@ -34,7 +34,7 @@ from functools import lru_cache
 import capstone
 from capstone import arm as A
 
-__all__ = ["GInsn", "decode_unit", "decode_at", "decode_one", "imm_defs", "classify_last", "ItState",
+__all__ = ["GInsn", "decode_unit", "decode_at", "decode_one", "direct_call_target", "imm_defs", "classify_last", "ItState",
            "FACT_FIELDS", "ENV_OF_FIELD", "FIELD_OF_ENV", "thumb_expand_imm", "RETURN_CLASSES",
            "is_return_insn"]
 
@@ -151,6 +151,25 @@ def decode_one(code: bytes, vaddr: int) -> GInsn | None:
     for ci in _md().disasm(code[:4], vaddr, count=1):
         return _ginsn(ci, code[:ci.size], 0, None)
     return None
+
+
+def direct_call_target(g: GInsn) -> int | None:
+    """Return the absolute Thumb target of a verified direct ``BL``.
+
+    This deliberately re-decodes the captured guest bytes.  Native x86 calls
+    and helper ids are not evidence of a firmware call.  Immediate ``BLX`` is
+    excluded for now because it changes instruction-set state and therefore
+    needs a separate entry contract.
+    """
+    if g.mnemonic.split(".", 1)[0] != "bl":
+        return None
+    insns = list(_md().disasm(g.raw, g.vaddr, count=1))
+    if len(insns) != 1 or insns[0].size != g.size or len(insns[0].operands) != 1:
+        return None
+    operand = insns[0].operands[0]
+    if operand.type != A.ARM_OP_IMM:
+        return None
+    return int(operand.imm) & ~1
 
 
 def decode_at(code: bytes, vaddr: int, *, words1: Sequence[int | None] | None = None,

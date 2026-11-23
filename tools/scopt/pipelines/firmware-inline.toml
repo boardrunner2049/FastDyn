@@ -1,0 +1,10 @@
+schema = "scopt.pipeline"
+version = 1
+name = "firmware-inline"
+description = "Exhaustive private executable regions for verified firmware calls."
+allowed_capabilities = ["EMIT_FIRMWARE_REGION"]
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "exhaustive" }

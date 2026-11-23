@@ -1566,6 +1566,20 @@ def v6_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
     return frozenset(out)
 
 
+def v7_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
+    """Exe sha256s (hex, no prefix) whose loader implements firmware-region v7.
+
+    V7 changes recovery lookup and executable-region loading, so a v6-capable
+    binary is deliberately not admitted implicitly.  Until a frozen gate
+    binary is recorded, callers must pass an explicit digest or set
+    ``SCOPT_V7_EXES`` (comma separated).
+    """
+    out = {x.removeprefix("sha256:") for x in extra if x}
+    out |= {x.strip().removeprefix("sha256:") for x in
+            os.environ.get("SCOPT_V7_EXES", "").split(",") if x.strip()}
+    return frozenset(out)
+
+
 def _ri_exe(ri: Mapping[str, Any] | None) -> str | None:
     if not ri:
         return None
@@ -1691,9 +1705,121 @@ def _b4_pair_problems(unit: Any, hostops: Any, patch: Any, contract: Any,
     return problems
 
 
+def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
+                         sidecar: Mapping[str, Any] | None = None,
+                         runtime: Mapping[str, Any] | None = None,
+                         v7_exes: Iterable[str] = (),
+                         skip_reimport: bool = False) -> tuple[Validation, Any]:
+    """Structural, recovery and reimport checks for firmware-region artifacts."""
+    from .formats.sc_v7 import (LOADER_V7, build_directory, decode_directory, read_sc7,
+                                sc7_snapshot_id)
+
+    v = Validation()
+    path = Path(art_dir) / "cache.sc"
+    try:
+        directory = read_sc7(path)
+        out = read_sc(path, versions=(7,))
+    except (OSError, ScFormatError, ValueError) as exc:
+        v.add("V1", "firmware_directory", False, str(exc), "sc7_directory")
+        return v, None
+    v.add("V1", "firmware_directory", True,
+          f"{directory.n_regions} regions, {directory.n_members} members, "
+          f"{directory.n_edges} internal edges")
+    v.add("V1", "version", out.header.version == 7 and out.header.reserved == 1,
+          f"version={out.header.version} features={out.header.reserved:#x}")
+    public_ok = (out.record_bytes == tuple(u.record for u in link.units) and
+                 [u.body for u in out.units()] == [u.body for u in link.units])
+    v.add("V1", "public_records", public_ok,
+          "public records and independently reachable TB bytes preserved")
+    linked_members = [m for r in link.firmware_regions for m in r.members]
+    v.add("V1", "member_count", len(linked_members) == directory.n_members,
+          f"linked {len(linked_members)}, directory {directory.n_members}")
+    expected_directory = build_directory(link, {u.uid: u.new_tb_offset for u in link.units})
+    directory_matches = directory == expected_directory
+    v.add("V1", "firmware_directory_matches_link", directory_matches,
+          "directory header, arrays, hashes and artifact identity match the linked plan"
+          if directory_matches else "directory differs from the linked plan")
+    bad_edges = []
+    for region in link.firmware_regions:
+        for member in region.members:
+            for exit_id, field, target in member.patched_edges:
+                disp = int.from_bytes(member.code[field:field + 4], "little", signed=True)
+                actual = member.tc_offset + field + 4 + disp
+                expected = region.members[target].tc_offset
+                if actual != expected:
+                    bad_edges.append(f"{member.source_uid}/{exit_id}: {actual:#x}!={expected:#x}")
+    v.add("V4", "internal_edges", not bad_edges,
+          f"{directory.n_edges} internal transfers target private members"
+          if not bad_edges else _few(bad_edges))
+    by_uid = {u.uid: u for u in snapshot.units()}
+    bad_origin = [m.source_uid for m in linked_members
+                  if m.source_uid not in by_uid or
+                  by_uid[m.source_uid].content_hash != m.source_hash or
+                  m.effective_unit is None or
+                  m.effective_unit.key != by_uid[m.source_uid].key]
+    v.add("V5", "source_identity", not bad_origin,
+          "every private member binds its exact source content hash and full key"
+          if not bad_origin else _few(bad_origin))
+    bad_recovery = []
+    recovered = 0
+    for member in linked_members:
+        unit = member.effective_unit
+        if unit is None:
+            bad_recovery.append(f"{member.source_uid}: missing effective unit")
+            continue
+        try:
+            search = decode_search(member.search, unit.icount, is_pcrel(unit.key.cflags))
+        except ValueError as exc:
+            bad_recovery.append(f"{member.source_uid}: {exc}")
+            continue
+        for point in unit.recovery:
+            recovered += 1
+            got = unwind(search, point.host_return_offset)
+            if got is None or got[0] != point.insn or tuple(got[1]) != tuple(point.words):
+                bad_recovery.append(f"{member.source_uid}/{point.id}")
+    v.add("V6", "private_recovery", not bad_recovery,
+          f"{recovered} recovery points preserved" if not bad_recovery else _few(bad_recovery))
+    lr = None if sidecar is None else sidecar.get("loader_requirement")
+    v.add("V7", "loader_requirement", lr == LOADER_V7,
+          f"{lr} (expected {LOADER_V7})")
+    ri = runtime if runtime is not None else snapshot.runtime
+    exe = _ri_exe(ri)
+    caps = v7_capable_exes(v7_exes)
+    v.add("V7", "v7_capable_runtime", exe is not None and exe in caps,
+          f"RuntimeIdentity exe {exe} {'is' if exe in caps else 'is not'} a v7-capable "
+          f"firmware-region binary ({len(caps)} known)", "v7_runtime_required")
+    result = None
+    if not skip_reimport:
+        try:
+            result = reimport(art_dir, snapshot)
+            decoded = decode_directory(directory)
+            expected_regions = [
+                {**row,
+                 "members": decoded["members"][row["first_member"]:
+                                                   row["first_member"] + row["n_members"]],
+                 "origins": decoded["origins"][row["first_member"]:
+                                                   row["first_member"] + row["n_members"]],
+                 "edges": decoded["edges"][row["first_edge"]:
+                                             row["first_edge"] + row["n_edges"]]}
+                for row in decoded["regions"]]
+            ok = (result.snapshot.snapshot_id == sc7_snapshot_id(path) and
+                  list(result.snapshot.firmware_regions) == expected_regions)
+            v.add("V8", "reimport", ok,
+                  f"snapshot {result.snapshot.snapshot_id}; "
+                  f"{len(result.snapshot.firmware_regions)} firmware regions")
+        except Exception as exc:  # noqa: BLE001 - validation records importer refusal
+            v.add("V8", "reimport", False, str(exc), "reimport_failed")
+    else:
+        v.add("V8", "reimport", None, "explicitly skipped")
+    v.add("V24", "firmware_region_contract", not bad_edges and not bad_origin and not bad_recovery,
+          "copied members, guarded fallbacks, internal targets and recovery validated")
+    return v, result
+
+
 def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
                 plan: Any = None, sidecar: Mapping[str, Any] | None = None,
                 layout: Any = None, v6_exes: Iterable[str] = (),
+                v7_exes: Iterable[str] = (),
                 runtime: Mapping[str, Any] | None = None, scparse: Any = None,
                 sc6parse: Any = None, regions: Sequence[Mapping[str, Any]] | None = None,
                 hot_set_bytes: int | None = None, growth_fraction: float = 0.10,
@@ -1727,6 +1853,10 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
     (:func:`scopt.validate_sym.link_check.hostsym_inputs`), which runs the
     kernel on this ``link``; :func:`package_b3` passes it through.
     """
+    if getattr(link, "version", 5) == 7:
+        return validate_firmware_v7(snapshot, link, art_dir, sidecar=sidecar,
+                                    runtime=runtime, v7_exes=v7_exes,
+                                    skip_reimport=skip_reimport)
     from .formats.envlayout_v1 import find_envlayout
     from .formats.sc_v6 import (KIND_SPEC, LOADER_V6, read_sc6, sc6_snapshot_id,
                                 sc6parse_compare)
@@ -2680,7 +2810,7 @@ def relocate_unit_body(u: Any, new_tb: int) -> bytes:
     return relocate_unit(u, new_tb).body
 
 
-__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "stub_rows", "relocate_unit_body",
+__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "v7_capable_exes", "stub_rows", "relocate_unit_body",
             "multi_tb_rows"]
 
 
@@ -2696,7 +2826,11 @@ def write_b3_files(stage: str | os.PathLike, snapshot: Any, link: Any) -> None:
     st = Path(stage)
     st.mkdir(parents=True, exist_ok=True)
     parts = [(u.record, u.body) for u in link.units]
-    if getattr(link, "version", 5) == 6:
+    if getattr(link, "version", 5) == 7:
+        from .formats.sc_v7 import write_sc7
+
+        write_sc7(st / "cache.sc", snapshot.header, parts, link)
+    elif getattr(link, "version", 5) == 6:
         write_sc6(st / "cache.sc", snapshot.header, parts, link.ext,
                   [x.body for x in link.variants], rewritten=bool(link.grown or link.rewritten))
     else:
@@ -2887,7 +3021,8 @@ def certification_problems(sidecar: Mapping[str, Any], validation: Mapping[str, 
 def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_id: str,
                pipeline: Sequence[Mapping[str, Any]] | None = None,
                profile_ids: Sequence[Mapping[str, Any]] = (), layout: Any = None,
-               v6_exes: Iterable[str] = (), runtime: Mapping[str, Any] | None = None,
+               v6_exes: Iterable[str] = (), v7_exes: Iterable[str] = (),
+               runtime: Mapping[str, Any] | None = None,
                scparse: Any = None, sc6parse: Any = None, allow_uncertified: bool = False,
                ledger_rows: Iterable[LedgerRow] = (),
                sidecar_extra: Mapping[str, Any] | None = None,
@@ -2913,6 +3048,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     ``sidecar_extra`` adds ``x_`` keys to the sidecar (the manager's B3 report)."""
     from .formats.envlayout_v1 import find_envlayout
     from .formats.sc_v6 import LOADER_V6, ScExtRefused
+    from .formats.sc_v7 import LOADER_V7
     from .link import NativeLinkerV2
 
     if vkw.get("skip_reimport"):
@@ -2929,7 +3065,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     try:
         off = GuardOffsets.from_layout(layout)
     except GuardError as e:
-        if plan.grow:
+        if plan.grow or plan.firmware_regions:
             return _reject_b3(store, candidate_id, f"{e.reason}", led, None, None)
         off = GuardOffsets()
     link = NativeLinkerV2(snapshot, plan, offsets=off, placement=placement).link()
@@ -2947,9 +3083,14 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             return _reject_b3(store, candidate_id, "write_sc", led, link, None, str(e))
         if ri is not None and runtime is not None:
             A.write_json_file(stage / "runtime_identity.json", ri)
-        from .formats.sc_v6 import read_sc6, sc6_snapshot_id
+        if link.version == 7:
+            from .formats.sc_v7 import sc7_snapshot_id
 
-        out_sid = sc6_snapshot_id(read_sc6(stage / "cache.sc"))
+            out_sid = sc7_snapshot_id(stage / "cache.sc")
+        else:
+            from .formats.sc_v6 import read_sc6, sc6_snapshot_id
+
+            out_sid = sc6_snapshot_id(read_sc6(stage / "cache.sc"))
         if pipeline is None:
             pdoc = {"grow": sorted(plan.grow), "variants": len(plan.variants),
                     "rewrites": sorted(plan.rewrites)}
@@ -2968,26 +3109,34 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             "pinned": [{"unit": u, "reasons": list(reasons)} for u, reasons in placement.pinned()]
             if placement is not None else [],
             "validation_sha256": "sha256:" + "0" * 64, "tool_versions": A.tool_versions(),
-            "loader_requirement": LOADER_V6 if link.version == 6 else A.LOADER_V5,
+            "loader_requirement": (LOADER_V7 if link.version == 7 else
+                                   LOADER_V6 if link.version == 6 else A.LOADER_V5),
             "x_candidate_id": candidate_id,
             "x_b3": {"grown": sorted(link.grown), "rewritten": sorted(link.rewritten),
-                     "variants": [x.key for x in link.variants]},
+                     "variants": [x.key for x in link.variants],
+                     "firmware_regions": [r.region_id for r in link.firmware_regions]},
         }
         if link.ext is not None:
             sidecar["x_ext_artifact_id8"] = bytes(link.ext.artifact_id8).hex()
+        if link.version == 7:
+            from .formats.sc_v7 import read_sc7
+
+            sidecar["x_firmware_artifact_id8"] = \
+                read_sc7(stage / "cache.sc").artifact_id8.hex()
         for k, x in (sidecar_extra or {}).items():
             if not k.startswith("x_"):
                 raise ValueError(f"sidecar_extra key {k!r} must start with 'x_'")
             sidecar[k] = x
         val, res = validate_b3(snapshot, link, stage, plan=plan, sidecar=sidecar, layout=layout,
-                               v6_exes=v6_exes, runtime=ri, scparse=scparse,
+                               v6_exes=v6_exes, v7_exes=v7_exes, runtime=ri, scparse=scparse,
                                sc6parse=sc6parse, **vkw)
         if not val.accepted:
             return _reject_b3(store, candidate_id, val.first_reason() or "validation", led,
                               link, val)
         if res is None:  # cannot happen when V8 passed; fail closed anyway
             return _reject_b3(store, candidate_id, "reimport_failed", led, link, val)
-        unc = uncertified_rows(val, link, plan) if not plan.empty else []
+        unc = ([]) if link.version == 7 else (
+            uncertified_rows(val, link, plan) if not plan.empty else [])
         if unc and not allow_uncertified:
             return _reject_b3(store, candidate_id, "certification_not_run", led, link, val,
                               f"edited artifact without {', '.join(unc)}")
@@ -3006,8 +3155,11 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
         sidecar["validation_sha256"] = sha256_id(vb)
         A.write_json_file(stage / A.SIDECAR, sidecar)
         (stage / A.REGIONS).write_bytes(b"".join(canonical_json(r) + b"\n" for r in regions))
+        if link.version == 7:
+            (stage / "firmware-regions.jsonl").write_bytes(
+                b"".join(canonical_json(r) + b"\n" for r in res.firmware_regions))
         A.write_json_file(stage / A.PROFILES, {"profiles": list(profile_ids)})
-        led.emit("artifact", candidate_id, "accepted", "pass", "V1-V23 (static)",
+        led.emit("artifact", candidate_id, "accepted", "pass", "V1-V24 (static)",
                  sidecar["validation_sha256"])
         led.write(stage / A.LEDGER)
         aid, final, st = A.publish(stage, store)

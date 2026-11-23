@@ -13,9 +13,9 @@ export FASTDYN_ROOT="$repo" SCOPT_FASTDYN_SRC="$repo"
 export SCOPT_RUNTIME_QEMU="${SCOPT_RUNTIME_QEMU:-$repo/third_party/common/qemu/build/qemu-system-arm}"
 export SCOPT_V6_EXES=$(sha256sum "$SCOPT_RUNTIME_QEMU" | cut -d' ' -f1)
 : "${SCOPT_HOST_INLINE_BRIDGE:?set to the built scopt-native executable}"
-read_json() { python -c 'import sys,json;print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
+read_json() { python3 -c 'import sys,json;print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
 snap=$(read_json "$W/baseline.json" snapshot)
-ram_root=$(python - "$W" <<'PYRAM'
+ram_root=$(python3 - "$W" <<'PYRAM'
 import json
 import os
 from pathlib import Path
@@ -43,7 +43,7 @@ case $arm in
 esac
 # Every stage of the arm is requested explicitly: opt-in passes do not run by being named
 # in a pipeline, and an arm whose stages were skipped by policy would measure nothing.
-policy_args=$(python - "$pipeline" <<'PYPOLICY'
+policy_args=$(python3 - "$pipeline" <<'PYPOLICY'
 import sys
 from scopt.manager import load_pipeline
 from scopt.run.pass_policy import policy_arguments
@@ -56,8 +56,8 @@ if [[ -n $policy_args ]]; then
     mapfile -t policy <<< "$policy_args"
     extra+=("${policy[@]}")
 fi
-python "$(dirname "$0")/measure_command.py" "$D/offline.json" scopt optimize "$snap" --pipeline "$pipeline" --profile "$W/profile/merged.profile.json" --store "$D" "${extra[@]}" --json >"$D/result.json"
-python - "$D/result.json" "$D/effective.json" "$pipeline" <<'PYCHECK'
+python3 "$(dirname "$0")/measure_command.py" "$D/offline.json" scopt optimize "$snap" --pipeline "$pipeline" --profile "$W/profile/merged.profile.json" --store "$D" "${extra[@]}" --json >"$D/result.json"
+python3 - "$D/result.json" "$D/effective.json" "$pipeline" <<'PYCHECK'
 import json, sys
 from scopt.manager import load_pipeline
 from scopt.run.pass_policy import check_requested

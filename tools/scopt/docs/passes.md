@@ -63,6 +63,7 @@ activation evidence. A published candidate is not by itself evidence of a speedu
 | `dead-host-ops` | `b3` | on | NOP host operations proved dead. |
 | `eliminate-state-sync` | `b4` | opt-in | Remove or coalesce redundant guest-state synchronization. |
 | `fold-exit-pc-update` | `exit-pc-fold` | on | Fuse a proved ARM-PC update at a translation-block exit. |
+| `firmware-inline` | `firmware-inline` | on | Embed verified firmware callees and continuations in private executable regions. |
 | `host-inline` | `host-inline` | on | Inline or splice certified native helper code. |
 | `hotcold-partition` | `b2-layout` | on | Classify blocks by profiled execution phase. |
 | `icount-entry-sfb` | `tcg-entry-sfb` | on | Rewrite the TCG icount-entry shape. |
@@ -196,6 +197,48 @@ steady evidence.
 - Example: `--pipeline exit-pc-fold --only fold-exit-pc-update`.
 - Evidence: two recorded selections were 0.999x and 0.996x: neutral/slightly slower.
 - Source: `scopt/passes/pc_update.py`; related workflow: `docs/workflow.md`.
+
+## `firmware-inline@1`
+
+Builds a call-site-specific private executable region from captured QEMU translations.
+Calls are discovered only from verified Thumb `BL` instructions joined to capture exit
+metadata. The emitted v7 region contains a private caller copy, the captured callee CFG,
+and the caller continuation. Static internal transfers are retargeted to private members;
+returns retain their guest LR/SP and memory effects, verify the resulting PC and full
+translation context, and fall back to the original lookup path on mismatch.
+
+- Requires the exact firmware ELF, complete relocation/correspondence metadata, a bound
+  environment layout, and the region-capable v7 QEMU loader. Public TB records remain
+  independently available. Missing capture, ambiguous keys, handler/exception returns,
+  and recursive call edges are retained and reported rather than assumed impossible.
+- Control: `mode`, currently exactly `exhaustive`. In this mode hotness, profile share,
+  callee/caller size, region growth, site count, copy count, member count, expansion
+  depth, fixed-point iterations, and pass wall time are explicitly unbounded (`None`).
+  The physical TCG arena remains a real resource; exhaustion rejects an incomplete
+  artifact and records pending work.
+- Example:
+
+  ```sh
+  QEMU_SHA=$(sha256sum "$QEMU" | cut -d' ' -f1)
+  scopt optimize "$SNAP" --pipeline firmware-inline --elf firmware.elf \
+    --runtime-identity runtime_identity.json --v7-exe "$QEMU_SHA" \
+    --store "$OUT" --json
+  ```
+
+- Artifact/receipt: `fastdyn.firmware_region_plan@1` records source content hashes,
+  full TB keys, call-site IDs, inline contexts, members, internal/side-exit edges and
+  pending work. The v7 directory is arena-resident, so it does not inherit v6's fixed
+  64 KiB extension-table limit. Reimport retains `firmware-regions.jsonl`.
+- Example shape: `boot -> init -> continuation` becomes private members for boot, init,
+  and continuation. A loop within init remains a backedge between private members; a
+  nested acyclic `init -> clocks` call creates a deeper inline context. The public init
+  TB remains available for unrelated callers.
+- Evidence: correctness fixtures cover verified direct-call discovery and private-region
+  construction. No real-application timing result has yet established a speedup; code
+  growth or fewer dispatches alone is not performance evidence.
+- Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,
+  `scopt/analysis/firmware_regions.py`, `scopt/formats/sc_v7.py`, and the v7 loader in
+  `third_party/common/qemu/tcg/supercache.c`.
 
 ## `host-inline@1`
 

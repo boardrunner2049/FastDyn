@@ -398,6 +398,18 @@ class ProposalBuilder:
         e = self._record(EditKind.INLINE_CALL, {"payload": payload.to_json()}, (payload.target,))
         self._edits[-1] = replace(e, payload=payload)
 
+    def emit_firmware_region(self, payload: Any) -> None:
+        """Propose a typed multi-source firmware executable region."""
+        from .model.firmware_region import FirmwareRegionPlan
+
+        if not isinstance(payload, FirmwareRegionPlan):
+            raise EditPreconditionError(
+                "EMIT_FIRMWARE_REGION requires a FirmwareRegionPlan payload")
+        self._b3(EditKind.EMIT_FIRMWARE_REGION, payload, payload.source_uids,
+                 dependency_additions=tuple(
+                     {"unit": m.source_uid, "content_hash": m.source_hash,
+                      "key": m.to_json()["source_key"]} for m in payload.members))
+
     # -- B3/B4 edits (typed payloads of design §3.7; enabled only by a B3 manager) --
     def _b3(self, kind: EditKind, payload: Any, uids: tuple[str, ...], *,
             reads: Iterable[Any] = (), cites: Iterable[AnalysisResult] = (),
