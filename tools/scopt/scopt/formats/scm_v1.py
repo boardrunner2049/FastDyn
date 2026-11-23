@@ -46,6 +46,7 @@ from __future__ import annotations
 import json
 import os
 import struct
+import zlib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
@@ -83,6 +84,36 @@ _CHDR = L.SCM_CHUNK_HEADER
 _LDST_RAW = struct.Struct("<2IIIIIIB3s")
 assert _LDST_RAW.size == L.SCM_LDST.size
 _TIER1_TYPES = frozenset({int(ChunkType.OPS), int(ChunkType.PLUGIN_CBS)})
+_NATIVE_ZLIB = b"NZ1\0"
+
+
+def _encode_native_metadata(requests: tuple[InlineCall, ...]) -> bytes:
+    """Canonical, bounded native certificate payload.
+
+    Helper-graph certificates contain exact source and emitted bytes.  Keeping
+    those bytes as JSON hex at every physical call-site made exhaustive mode's
+    derived capture hundreds of megabytes and forced the pure-Python framing
+    checksum to revisit all of it.  Compression changes only the SCM proof
+    representation; cache.sc still contains one physical copy per admitted
+    site.
+    """
+    raw = canonical_json([call.to_json() for call in requests])
+    if len(raw) > L.SCM_TB_NATIVE_MAX:
+        raise ScmEncodeError("native metadata expands past the canonical bound")
+    return _NATIVE_ZLIB + zlib.compress(raw, level=1)
+
+
+def _decode_native_metadata(blob: bytes) -> bytes:
+    if not blob.startswith(_NATIVE_ZLIB):
+        raise ValueError("native metadata is not canonical NZ1")
+    stream = zlib.decompressobj()
+    raw = stream.decompress(blob[len(_NATIVE_ZLIB):], L.SCM_TB_NATIVE_MAX + 1)
+    if (len(raw) > L.SCM_TB_NATIVE_MAX or stream.unconsumed_tail
+            or stream.unused_data or not stream.eof):
+        raise ValueError("native metadata compression is invalid or oversized")
+    if _NATIVE_ZLIB + zlib.compress(raw, level=1) != blob:
+        raise ValueError("native metadata compression is non-canonical")
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +475,9 @@ def _splice_metadata_matches(req: InlineCall, start: int, size: int,
         return False
     if type(splice.compact_frame) is not bool or (splice.compact_frame and splice.kind != "frame"):
         return False
-    if splice.frame_chain and (splice.kind != "frame" or any(not body.code for body in splice.frame_chain)):
+    from ..model.native import HELPER_GRAPH_KIND
+    if splice.frame_chain and (splice.kind not in ("frame", HELPER_GRAPH_KIND)
+                               or any(not body.code for body in splice.frame_chain)):
         return False
     from ..model.native import FULL_UDIV_KINDS, UDIV_KINDS, UDIV_TYPEMASK
 
@@ -454,6 +487,22 @@ def _splice_metadata_matches(req: InlineCall, start: int, size: int,
                 and req.pool_slot_off is not None and len(req.call_bytes) == 6
                 and req.call_bytes[:2] == b"\xff\x15"
                 and (splice.kind in FULL_UDIV_KINDS or splice.code.endswith(req.call_bytes)))
+    if splice.kind == HELPER_GRAPH_KIND:
+        # ``start`` is the physical offset after all earlier variable-size
+        # splices in this TB.  It is intentionally not equal to the captured
+        # ``call_off`` after the first growing splice.  The common checks above
+        # already prove that a graph splice starts at its own call site.
+        if (splice.depth != 0 or splice.prefix
+                or req.pool_slot_off is None and len(req.call_bytes) != 5
+                or req.pool_slot_off is not None and len(req.call_bytes) != 6):
+            return False
+        end = 0
+        for r in splice.relocations:
+            if (not end <= r.field_off < r.field_off + 4 <= r.next_off <= len(splice.code)
+                    or splice.code[r.field_off:r.field_off + 4] != b"\0" * 4):
+                return False
+            end = r.field_off + 4
+        return True
     if splice.kind != "frame":
         return splice.kind == "integer" and splice.depth == 1 and not splice.relocations
     # Older certificates use an image-pinned one- or two-body expansion.
@@ -569,7 +618,7 @@ class TbChunk:
                 raise ScmEncodeError(f"tb_chunk_v{version}_native_data")
             if not _native_metadata_matches(version, start, self.code_size, self.native_fragments):
                 raise ScmEncodeError(f"tb_chunk_v{version}_native_layout")
-            native = canonical_json([call.to_json() for call in self.native_fragments])
+            native = _encode_native_metadata(self.native_fragments)
             if len(native) > L.SCM_TB_NATIVE_MAX:
                 raise ScmEncodeError(f"tb_chunk_v{version}_native_size")
             reserved = len(native) << 32 | start
@@ -609,10 +658,11 @@ class TbChunk:
                     or ver == L.SCM_TB_CHUNK_VERSION_3 and start == 0):
                 raise ScmDecodeError(f"tb_chunk_v{ver}_native_layout")
             pad = _check_len(p, need + length, "tb")
-            raw = bytes(p[need:need + length])
+            blob = bytes(p[need:need + length])
             from ..model.native import InlineCall
 
             try:
+                raw = _decode_native_metadata(blob)
                 doc = json.loads(raw)
                 if not isinstance(doc, list) or not doc:
                     raise ValueError("inline call list is empty or malformed")
@@ -623,7 +673,8 @@ class TbChunk:
                     raise ValueError("native metadata does not match the span")
                 if canonical_json([call.to_json() for call in native]) != raw:
                     raise ValueError("non-canonical inline call metadata")
-            except (ValueError, TypeError, AttributeError, KeyError, OverflowError, RecursionError) as e:
+            except (ValueError, TypeError, AttributeError, KeyError, OverflowError,
+                    RecursionError, zlib.error) as e:
                 raise ScmDecodeError(f"tb_chunk_v{ver}_native_data:{e}") from e
             reserved &= 0xFFFF_FFFF  # Keep the modeled geometry independent of encoded length.
         else:

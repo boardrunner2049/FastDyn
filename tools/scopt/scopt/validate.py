@@ -1,11 +1,10 @@
-"""ValidateAndPackage: V1-V9 static checks, packaging and V10 (design §4.6, §5.6 step 6, §5.8). WP10.
+"""Compiler packaging plus optional V1-V24/V10 audit machinery.
 
 :class:`ValidateAndPackage` takes a :class:`~scopt.manager.Candidate`, links it
 (:class:`~scopt.link.NativeLinker`), writes the artifact files into a staging
-directory under ``store/artifacts/``, runs every static check on the written
-files and either publishes the directory atomically
-(:func:`scopt.formats.artifact.publish`) or writes
-``store/rejections/<candidate>.json`` and publishes nothing.
+directory under ``store/artifacts/``, performs linker/readback invariants, and
+publishes it atomically.  It does not run the proof-oriented validators below;
+those are invoked explicitly by ``scopt audit``.
 :func:`optimize` runs the PassManager first.
 
 Every check is one row of ``validation.json``::
@@ -72,6 +71,7 @@ from __future__ import annotations
 import json
 import os
 import pickle
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -378,11 +378,11 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
     if not extended:
         return {}, {}
     from .analysis.api import ScopeRef
-    from .analysis.native_callees import prepare_native_images
+    from .analysis.native_callees import bind_native_image_bridge, prepare_native_images
     from .analysis.store import AnalysisStore
     from .importer.join import ImportRejected
     from .link import LinkError, relocate_unit
-    from .model.native import UDIV_KINDS, supports_tcg_integer_abi
+    from .model.native import HELPER_GRAPH_KIND, UDIV_KINDS, supports_tcg_integer_abi
     from .splice_layout import materialize_splices, verify_relaxed_branches
     from .validate_sym.native_inline import NativeInlineError, verify_fragment, verify_site
     from .validate_sym.program import certified_native_calls, program_of, world_of
@@ -391,6 +391,7 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
     spliced = {}
     errors = []
     stores = {}
+    prepared_base = None
     code_address = snapshot.header.code_address
 
     @cache
@@ -412,22 +413,27 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                     raise ValueError("inline requests overlap or are out of order")
                 last = call.continuation_off
                 framed = call.splice is not None and call.splice.kind == "frame"
+                helper_graph = call.splice is not None and call.splice.kind == HELPER_GRAPH_KIND
                 is_udiv = call.splice is not None and call.splice.kind in UDIV_KINDS
                 if is_udiv:
                     from .validate_sym.native_udiv import verify_udiv_variant
 
                     verify_udiv_variant(original, call, code_address)
-                elif not framed:
+                elif not framed and not helper_graph:
                     verify_site(original, call, code_address)
-                if not call.bridge_sha256:
-                    raise ValueError("native bridge digest is missing")
                 if call.bridge_sha256 not in stores:
-                    native = prepare_native_images(
-                        snapshot, backend_revision="58df0ef89dd64126512e4ee27b4ac3fd8ddf6247",
-                        bridge_version=1, policy_version=1, bridge_sha256=call.bridge_sha256)
+                    from .passes.host_inline import (BACKEND_REVISION, BRIDGE_VERSION,
+                                                      POLICY_VERSION)
+
+                    if prepared_base is None:
+                        prepared_base = prepare_native_images(
+                            snapshot, backend_revision=BACKEND_REVISION,
+                            bridge_version=BRIDGE_VERSION, policy_version=POLICY_VERSION,
+                            bridge_sha256=None)
+                    native = bind_native_image_bridge(prepared_base, call.bridge_sha256)
                     analysis = AnalysisStore(snapshot, external_inputs={"native-images": native})
                     layout = analysis.get("envlayout", ScopeRef("snapshot", snapshot.snapshot_id)).value
-                    if not layout["bound"]:
+                    if not layout["bound"] and not helper_graph:
                         raise ValueError("native validation needs the exact QEMU EnvLayout")
                     stores[call.bridge_sha256] = (analysis, native.value)
                 analysis, _ = stores[call.bridge_sha256]
@@ -449,7 +455,15 @@ def _native_projection(snapshot: Any, link: LinkResult, validation: Validation
                     if ((framed and call.splice.frame_chain)
                             or call.native_input_id != pre_chain_input_id(call.bridge_sha256)):
                         raise ValueError("native input digest does not match the bound images")
-                if framed:
+                if helper_graph:
+                    from .validate_sym.native_helper_graph import verify_helper_graph_splice
+
+                    verify_helper_graph_splice(original, call, code_address)
+                    if (call.splice.frame_chain != certified.callee.frame_chain
+                            or certified.callee.role != "qemu"
+                            or certified.callee.abi != "sysv-amd64"):
+                        raise ValueError("trusted helper graph differs from the captured QEMU image")
+                elif framed:
                     if call.splice.frame_chain != certified.callee.frame_chain:
                         raise ValueError("nested frame bodies differ from the bound executable")
                     if (certified.callee.role != "plugin" or certified.callee.abi != "sysv-amd64" or
@@ -887,7 +901,7 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
         v.add("V8", "sidecar_complete", not comp, _few(comp) or
               "ids, move map, pinned units and pipeline rows present and consistent")
     v.add("V8", "manifest", None, "MANIFEST.sha256 covers validation.json; it is verified at "
-          "publish (before the rename) and by `scopt validate`")
+          "publish (before the rename) and by `scopt audit`")
 
     # ---- V9 identity --------------------------------------------------------
     out_sha = sha256_sparse(out_path)
@@ -950,6 +964,7 @@ class PackageResult:
     output_snapshot_id: str | None = None
     ledger: tuple[LedgerRow, ...] = ()
     candidate: Any = field(default=None, repr=False)
+    output_snapshot: Any = field(default=None, repr=False)
 
     @property
     def published(self) -> bool:
@@ -970,6 +985,30 @@ def _pinned_rows(candidate: Any, link: LinkResult) -> list[dict[str, Any]]:
         rows.setdefault(f.uid, []).append(f"failed:{f.reason}")
     order = {u.uid: i for i, u in enumerate(candidate.working_set.units())}
     return [{"unit": k, "reasons": v} for k, v in sorted(rows.items(), key=lambda kv: order[kv[0]])]
+
+
+def _compiler_snapshot(snapshot: Any, link: LinkResult, header: Any, snapshot_id: str,
+                       path: str | os.PathLike) -> Any:
+    """In-memory output model for a following compiler stage; no reimport."""
+    from .formats.sc_v5 import ScRecord
+    from .model.cache_snapshot import CacheSnapshot
+
+    units = []
+    for linked in link.units:
+        source = linked.native_unit or snapshot.unit(linked.uid)
+        record = ScRecord.from_bytes(linked.record)
+        code = linked.body[:record.tc_size]
+        search = linked.body[record.tc_size:record.end_offset - record.tc_offset]
+        units.append(replace(
+            source, slot=linked.slot, record=linked.record, tb_offset=record.tb_offset,
+            tc_offset=record.tc_offset, tc_size=record.tc_size, end_offset=record.end_offset,
+            code=code, search=search,
+            content_hash=sha256_id(linked.record + code + search)))
+    return CacheSnapshot(
+        snapshot_id, header, header.to_bytes(), tuple(units), runtime=snapshot.runtime,
+        bundle=snapshot.bundle, capture_level=snapshot.capture_level,
+        run_info=snapshot.run_info, regions=snapshot.regions, details=snapshot.details,
+        firmware_regions=getattr(snapshot, "firmware_regions", ()), path=os.fspath(path))
 
 
 class Inspection:
@@ -1104,7 +1143,11 @@ class ValidateAndPackage:
         if ordinary is not None and ordinary.outcome not in (Outcome.CANDIDATE, Outcome.NO_CHANGE):
             if ordinary.reason not in {R.ABLATION_DISABLED, "ablation_only", R.DISABLED_BY_DEFAULT}:
                 return self._reject(ordinary.reason)
-        link = NativeLinker(c, join_result=self.join_result).link()
+        # Derived capture/recovery metadata is an audit product, not a loader
+        # input.  The compiler consumes the already-imported IR and links the
+        # executable image directly.
+        link = NativeLinker(c, join_result=self.join_result,
+                            derive_captures=False).link()
         if not link.ok:
             f = link.failures[0]
             failed = {x.uid for x in link.failures}
@@ -1151,10 +1194,11 @@ class ValidateAndPackage:
         self.ledger.emit("artifact", c.candidate_id, "compiled", "pass",
                          f"{sum(1 for u in link.units if u.moved)} moved")
         out = read_sc(stage / "cache.sc", versions=(7,))
+        out_sid = out.snapshot_id()
         pinned = _pinned_rows(c, link)
         sidecar: dict[str, Any] = {
             "schema": "fastdyn.artifact_sidecar", "version": 1,
-            "input_snapshot_id": snap.snapshot_id, "output_snapshot_id": out.snapshot_id(),
+            "input_snapshot_id": snap.snapshot_id, "output_snapshot_id": out_sid,
             "bundle_id": None if snap.bundle is None else snap.bundle.get("bundle_id"),
             "runtime_identity_id": None if snap.runtime is None else
             snap.runtime.get("runtime_identity_id"),
@@ -1176,32 +1220,103 @@ class ValidateAndPackage:
             except Exception as e:  # noqa: BLE001 - a report model never fails packaging
                 sidecar["x_locality"] = {"status": "not_run", "phase": _layout_phase(c),
                                          "reason": f"error:{type(e).__name__}: {e}"[:300]}
-        val, res = validate_static(snap, link, stage, sidecar=sidecar, expected_pinned=pinned,
-                                   expected_passes=len(c.passes), scparse=self.scparse)
-        if not val.accepted:
-            return self._reject(val.first_reason() or "validation", link=link, validation=val)
-        vdoc = val.to_json(candidate_id=c.candidate_id, input_snapshot_id=snap.snapshot_id,
-                           output_snapshot_id=val.data.get("output_snapshot_id"))
-        vbytes = A.write_json_file(stage / A.VALIDATION, vdoc)
-        sidecar["validation_sha256"] = sha256_id(vbytes)
+        # Compiler publication deliberately stops at linker/readback invariants.
+        # Source authentication, semantic correspondence, reimport, recovery,
+        # disassembly and provenance checks belong to ``scopt audit``.
+        expected_records = [unit.record for unit in link.units]
+        expected_bodies = [unit.body for unit in link.units]
+        compiler_ok = (out.loadable and not out.skipped
+                       and len(out.valid_slots) == len(link.units)
+                       and [out.record_bytes[i] for i in out.valid_slots] == expected_records
+                       and [out.bodies[i] for i in out.valid_slots] == expected_bodies)
+        if not compiler_ok:
+            self.ledger.emit("artifact", c.candidate_id, "compiled", "fail",
+                             "output_format_or_linker_mismatch")
+            return self._reject("output_format_or_linker_mismatch", link=link)
+        graph_table = {}
+        inline_sites = []
+        for linked in link.units:
+            for call in linked.native_fragments:
+                if call.splice is None:
+                    continue
+                bodies = [(call.elf_address, call.callee_code),
+                          *((body.address, body.code) for body in call.splice.frame_chain)]
+                graph_doc = [{"address": hex(address), "bytes": len(body)}
+                             for address, body in bodies]
+                graph_id = sha256_id(canonical_json({"image": call.image_id,
+                                                     "functions": graph_doc}))
+                graph_table.setdefault(graph_id, graph_doc)
+                inline_sites.append({"unit": linked.uid, "call_off": call.call_off,
+                                     "helper_id": call.helper_id, "symbol": call.symbol,
+                                     "target": hex(call.target_abs), "graph": graph_id,
+                                     "emitted_bytes": len(call.splice.code)})
+        host_record = next((record for record in c.passes
+                            if record.name == "host-inline"
+                            and record.params.get("trusted_all_helpers")), None)
+        discovered = len(inline_sites)
+        residual_sites = []
+        refusal_reasons = {}
+        if host_record is not None:
+            discovered = int(host_record.stats.get("sites_seen", discovered))
+            try:
+                host_detail = json.loads(host_record.detail)
+                residual_sites = [row for row in host_detail.get("sites", ())
+                                  if row.get("outcome") != "applied"]
+            except (TypeError, ValueError, AttributeError):
+                residual_sites = []
+            refusal_reasons = dict(Counter(
+                str(row.get("outcome", "unknown")) for row in residual_sites))
+        receipt = {
+            "schema": "scopt.compile-receipt", "version": 1,
+            "assurance": "compiler-produced/user-vouched", "audited": False,
+            "input_snapshot_id": snap.snapshot_id, "output_snapshot_id": out_sid,
+            "candidate_id": c.candidate_id, "units": len(link.units),
+            "moved_units": sum(1 for unit in link.units if unit.moved),
+            "checks": ["format", "version", "bounds", "overlap", "branch_ranges",
+                       "relocation_encoding", "continuations", "linker_readback"],
+            "helper_inline": {
+                "discovered": discovered,
+                "embedded": len(inline_sites),
+                "residual": len(residual_sites),
+                "pending": 0,
+                "sites": inline_sites,
+                "residual_sites": residual_sites,
+                "refusal_reasons": refusal_reasons,
+                # Each source graph is named once. Sites refer to its ID; they
+                # do not duplicate the source-body certificate.
+                "graphs": graph_table,
+            },
+            "audit_command": "scopt audit <artifact> --snapshot <input-snapshot>",
+        }
+        receipt_bytes = A.write_json_file(stage / "compile-receipt.json", receipt)
+        sidecar["validation_sha256"] = sha256_id(receipt_bytes)
+        sidecar["x_assurance"] = receipt["assurance"]
+        sidecar["x_audited"] = False
+        sidecar["x_receipt"] = "compile-receipt.json"
         errs = A.sidecar_errors(sidecar)
-        if errs:  # pragma: no cover - validated above with the placeholder
-            return self._reject("V8:sidecar_schema", link=link, validation=val)
+        if errs:
+            return self._reject("sidecar_schema", link=link,
+                                extra={"detail": "; ".join(errs[:5])})
         A.write_json_file(stage / A.SIDECAR, sidecar)
-        (stage / A.REGIONS).write_bytes(b"".join(canonical_json(r) + b"\n" for r in res.regions))
-        accepted = self.ledger.emit("artifact", c.candidate_id, "accepted", "pass", "V1-V9",
-                                    sidecar["validation_sha256"])
+        self.ledger.emit("artifact", c.candidate_id, "accepted", "pass",
+                         "compiler-produced/user-vouched", sidecar["validation_sha256"])
         self.ledger.write(stage / A.LEDGER)
         try:
-            aid, final, st = A.publish(stage, self.store,
-                                       known={"cache.sc": val.data["out_sha256"]})
+            aid, final, st = A.publish(stage, self.store)
         except A.ArtifactError as e:
-            return self._reject(f"V8:{e.code}", link=link, validation=val,
-                                extra={"detail": e.detail}, supersedes=accepted)
+            return self._reject(f"publish:{e.code}", link=link,
+                                extra={"detail": e.detail})
+        # The following in-process compiler stage consumes the transformed IR
+        # directly but still resolves immutable guest inputs from the original
+        # snapshot directory.  Pointing it at the just-emitted artifact would
+        # incorrectly require a self-reimport manifest/capture set.
+        compiled = _compiler_snapshot(snap, link, out.header, out_sid,
+                                      getattr(snap, "path", None) or final)
         return PackageResult("published", c.candidate_id, None, aid, str(final), st,
-                             validation=val, link=link,
-                             output_snapshot_id=val.data.get("output_snapshot_id"),
-                             ledger=self.ledger.rows, candidate=c)
+                             validation=None, link=link,
+                             output_snapshot_id=out_sid,
+                             ledger=self.ledger.rows, candidate=c,
+                             output_snapshot=compiled)
 
 
 def optimize(snapshot: Any, pipeline: Any, store: str | os.PathLike, *,
@@ -1233,7 +1348,7 @@ def _layout_phase(candidate: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# re-validation of a published artifact (`scopt validate A`)
+# optional re-validation of a published artifact (`scopt audit A`)
 # ---------------------------------------------------------------------------
 
 def artifact_link(snapshot: Any, art_dir: str | os.PathLike) -> LinkResult:
@@ -1293,11 +1408,16 @@ def static_not_applicable(info: Any) -> str | None:
     fix by its SFB1-SFB9 rows. For those, V2 ("unmoved unit changed") would
     reject every edit. They are re-checked by ``scopt publish``
     (:func:`certification_problems`, manifest, stored validation, output
-    SnapshotId) and by ``scopt validate --dynamic``."""
+    SnapshotId) and by ``scopt audit --dynamic``."""
     side = info.sidecar or {}
     if side.get("loader_requirement") not in (None, A.LOADER_V7):
         return (f"loader_requirement {side.get('loader_requirement')!r}: static "
                 "re-validation accepts canonical public-only v7")
+    b3 = side.get("x_b3") or {}
+    if (b3.get("grown") or b3.get("rewritten") or b3.get("variants")
+            or b3.get("firmware_regions")):
+        return ("compiler-produced semantic regions require the specialized B3/firmware "
+                "auditor; the move-only V1-V9 auditor would misclassify emitted code")
     val = info.validation or {}
     codes = set(val.get("codes") or {})
     codes |= {r.get("code") for r in val.get("rows") or () if isinstance(r, Mapping)}
@@ -1321,19 +1441,47 @@ def static_not_applicable(info: Any) -> str | None:
 
 def validate_artifact(art_dir: str | os.PathLike, snapshot: Any, *,
                       scparse: str | os.PathLike | None = None) -> dict[str, Any]:
-    """Re-run V1-V9 on a published artifact against its input snapshot, verify
-    MANIFEST.sha256, that the directory name is the ArtifactId the manifest
-    gives, and the sidecar's ``validation_sha256``, and compare with the stored
-    ``validation.json`` verdicts. Read-only."""
+    """Explicitly re-run V1-V9 against a published artifact.
+
+    Compiler-produced artifacts intentionally contain neither a derived capture
+    nor ``validation.json``.  The auditor rebuilds that evidence in a temporary
+    directory from the trusted compiler input and discards it afterwards.  An
+    older audited artifact can still carry its stored verdict, in which case we
+    compare the new verdict with it.  The published artifact is always read-only.
+    """
     info = A.read_artifact(art_dir)
     probs = A.verify_manifest(art_dir)
     if info.input_snapshot_id != snapshot.snapshot_id:
         raise ValueError(f"artifact input {info.input_snapshot_id} != snapshot "
                          f"{snapshot.snapshot_id}")
-    link = artifact_link(snapshot, art_dir)
-    vb = (Path(art_dir) / A.VALIDATION).read_bytes()
-    val, _ = validate_static(snapshot, link, art_dir, sidecar=info.sidecar,
-                             expected_pinned=info.sidecar.get("pinned"), scparse=scparse)
+    from .link import capture_join, derive_scm
+
+    root = Path(art_dir)
+    initial_link = artifact_link(snapshot, root)
+    with tempfile.TemporaryDirectory(prefix="scopt-audit-") as td:
+        audit_root = Path(td)
+        # Do not materialize the potentially multi-gigabyte cache in Python.
+        # A hard link is safe because the auditor and importer are read-only;
+        # cross-device temporary directories fall back to a streamed copy.
+        try:
+            os.link(root / "cache.sc", audit_root / "cache.sc")
+        except OSError:
+            shutil.copyfile(root / "cache.sc", audit_root / "cache.sc")
+        for name in ("bundle.json", "runtime_identity.json", A.SIDECAR):
+            src = root / name
+            if src.is_file():
+                shutil.copyfile(src, audit_root / name)
+        derived, _source_names = derive_scm(
+            capture_join(snapshot), initial_link.by_uid(), snapshot)
+        for name, body in derived:
+            (audit_root / name).write_bytes(body)
+
+        # Rebuild the link after adding the derived capture so splice metadata
+        # participates in the optional proof-oriented checks.
+        link = artifact_link(snapshot, audit_root)
+        val, _ = validate_static(snapshot, link, audit_root, sidecar=info.sidecar,
+                                 expected_pinned=info.sidecar.get("pinned"),
+                                 scparse=scparse)
     val.rows = [r for r in val.rows if not (r["code"] == "V8" and r["check"] == "manifest")]
     val.add("V8", "manifest", not probs, _few(probs) or "MANIFEST.sha256 verifies")
     # The directory is named by its ArtifactId (§4.1, §4.6): a renamed or copied
@@ -1343,11 +1491,21 @@ def validate_artifact(art_dir: str | os.PathLike, snapshot: Any, *,
     val.add("V8", "artifact_dir_name", want is not None and name == want,
             f"directory {name} {'==' if name == want else '!='} ArtifactId hex {want} "
             "(sha256 of MANIFEST.sha256)", "artifact_dir_name")
-    val.add("V8", "validation_sha256", info.sidecar.get("validation_sha256") == sha256_id(vb),
-            "sidecar validation_sha256 matches validation.json")
+    validation_path = root / A.VALIDATION
+    receipt_path = root / str(info.sidecar.get("x_receipt", "compile-receipt.json"))
+    if validation_path.is_file():
+        evidence_path = validation_path
+        evidence_kind = "validation.json"
+    else:
+        evidence_path = receipt_path
+        evidence_kind = "compiler receipt"
+    evidence = evidence_path.read_bytes() if evidence_path.is_file() else b""
+    val.add("V8", "evidence_sha256",
+            bool(evidence) and info.sidecar.get("validation_sha256") == sha256_id(evidence),
+            f"sidecar validation_sha256 matches {evidence_kind}")
     stored = (info.validation or {}).get("codes", {})
     now = val.codes()
-    same = bool(stored) and stored == now
+    same = stored == now if stored else None
     return {"artifact_id": info.artifact_id, "artifact_dir": str(art_dir),
             "input_snapshot_id": info.input_snapshot_id,
             "output_snapshot_id": info.output_snapshot_id,
@@ -3117,10 +3275,15 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
                scparse: Any = None, sc6parse: Any = None, allow_uncertified: bool = False,
                ledger_rows: Iterable[LedgerRow] = (),
                sidecar_extra: Mapping[str, Any] | None = None,
-               placement: Any = None,
+               placement: Any = None, compile_only: bool = True,
                **vkw: Any) -> B3PackageResult:
-    """Link ``plan`` (NativeLinker v2), write, validate (:func:`validate_b3`) and
+    """Link ``plan`` (NativeLinker v2), check compiler/linker invariants and
     publish into ``store`` or write ``store/rejections/<candidate>.json``.
+
+    Normal callers use ``compile_only=True`` and do not derive captures,
+    reimport output, construct HostSym proofs, or invoke :func:`validate_b3`.
+    ``compile_only=False`` is retained only for the explicit legacy audit/test
+    machinery while specialized artifact audit reconstruction is implemented.
 
     ``pipeline`` are the sidecar pipeline rows (default: one row describing the
     plan). The sidecar's ``loader_requirement`` is ``qemu-sc-v7``;
@@ -3142,7 +3305,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     from .formats.sc_v7 import LOADER_V7, LOADER_V7_TRUSTED
     from .link import NativeLinkerV2
 
-    if vkw.get("skip_reimport"):
+    if not compile_only and vkw.get("skip_reimport"):
         # V8/V19 and the regions need the re-import; packaging never skips it
         raise ValueError("package_b3 always re-imports the artifact; skip_reimport is a "
                          "validate_b3-only test option")
@@ -3160,7 +3323,8 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
         if plan.grow or safe_firmware:
             return _reject_b3(store, candidate_id, f"{e.reason}", led, None, None)
         off = GuardOffsets()
-    link = NativeLinkerV2(snapshot, plan, offsets=off, placement=placement).link()
+    link = NativeLinkerV2(snapshot, plan, offsets=off, placement=placement,
+                          derive_captures=not compile_only).link()
     if not link.ok:
         f = link.failures[0]
         led.emit("artifact", candidate_id, "compiled", "fail", f.reason, f.uid)
@@ -3215,6 +3379,46 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             if not k.startswith("x_"):
                 raise ValueError(f"sidecar_extra key {k!r} must start with 'x_'")
             sidecar[k] = x
+        if compile_only:
+            public = read_sc(stage / "cache.sc", versions=(7,))
+            compiler_ok = (public.loadable and not public.skipped
+                           and len(public.valid_slots) == len(link.units)
+                           and [public.record_bytes[i] for i in public.valid_slots]
+                           == [unit.record for unit in link.units]
+                           and [public.bodies[i] for i in public.valid_slots]
+                           == [unit.body for unit in link.units])
+            if not compiler_ok:
+                return _reject_b3(store, candidate_id,
+                                  "failed:output_format_or_linker_mismatch", led, link, None)
+            receipt = {
+                "schema": "scopt.compile-receipt", "version": 1,
+                "assurance": "compiler-produced/user-vouched", "audited": False,
+                "input_snapshot_id": snapshot.snapshot_id,
+                "output_snapshot_id": out_sid, "candidate_id": candidate_id,
+                "units": len(link.units), "variants": len(link.variants),
+                "firmware_regions": len(link.firmware_regions),
+                "checks": ["format", "version", "bounds", "overlap", "branch_ranges",
+                           "relocation_encoding", "continuations", "linker_readback"],
+                "audit_command": "scopt audit <artifact> --snapshot <input-snapshot>",
+            }
+            receipt_bytes = A.write_json_file(stage / "compile-receipt.json", receipt)
+            sidecar["validation_sha256"] = sha256_id(receipt_bytes)
+            sidecar["x_assurance"] = receipt["assurance"]
+            sidecar["x_audited"] = False
+            sidecar["x_receipt"] = "compile-receipt.json"
+            A.write_json_file(stage / A.SIDECAR, sidecar)
+            A.write_json_file(stage / A.PROFILES, {"profiles": list(profile_ids)})
+            led.emit("artifact", candidate_id, "accepted", "pass",
+                     "compiler-produced/user-vouched", sidecar["validation_sha256"])
+            led.write(stage / A.LEDGER)
+            try:
+                aid, final, status = A.publish(stage, store)
+            except A.ArtifactError as exc:
+                return _reject_b3(store, candidate_id, f"publish:{exc.code}", led, link,
+                                  None, exc.detail)
+            return B3PackageResult("published", candidate_id, None, aid, str(final),
+                                   validation=None, link=link, reimport=None,
+                                   publish_status=status)
         val, res = validate_b3(snapshot, link, stage, plan=plan, sidecar=sidecar, layout=layout,
                                v6_exes=v6_exes, v7_exes=v7_exes,
                                trusted_v7_exes=trusted_v7_exes,

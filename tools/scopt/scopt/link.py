@@ -625,22 +625,23 @@ class NativeLinker:
         header = self.header
         growing = [u for u in units if u.native_fragments and u.inline_start is None
                    and not u.splice_applied]
-        if ((header.version, header.reserved) != (7, 0) or not self.derive_captures
+        if ((header.version, header.reserved) != (7, 0)
                 or any(u.stub_start is not None for u in units)):
             fail = LinkFailure(growing[0].uid, "native_layout_unsupported",
-                               "native growth requires canonical public v7 and derived capture")
+                               "native growth requires canonical public v7")
             return LinkResult(False, header, failures=(fail,))
         modes = {request.splice is not None for u in growing for request in u.native_fragments}
         if len(modes) > 1:
             fail = LinkFailure(growing[0].uid, "native_layout_unsupported",
                                "splice and island growth need separate pipelines")
             return LinkResult(False, header, failures=(fail,))
-        join = self._join()
-        bound = set(join.bound()) if join is not None else set()
-        for unit in growing:
-            if unit.slot not in bound:
-                fail = LinkFailure(unit.uid, "native_metadata_missing", "no bound source capture")
-                return LinkResult(False, header, failures=(fail,))
+        join = self._join() if self.derive_captures else None
+        if self.derive_captures:
+            bound = set(join.bound()) if join is not None else set()
+            for unit in growing:
+                if unit.slot not in bound:
+                    fail = LinkFailure(unit.uid, "native_metadata_missing", "no bound source capture")
+                    return LinkResult(False, header, failures=(fail,))
         cursor = max((u.end_offset for u in units), default=header.prologue_end)
         links = []
         try:
@@ -651,8 +652,9 @@ class NativeLinker:
                         from .validate_sym.native_inline import NativeInlineError
 
                         try:
-                            materialized = materialize_splices(self.base.unit(u.uid),
-                                                               u.native_fragments, header.code_address)
+                            materialized = materialize_splices(
+                                self.base.unit(u.uid), u.native_fragments,
+                                header.code_address, trust_internal_graphs=True)
                         except NativeInlineError as exc:
                             raise LinkError(exc.reason, str(exc), u.uid) from exc
                     else:
@@ -666,7 +668,8 @@ class NativeLinker:
                     link = relocate_unit(u, u.tb_offset)
                 links.append(replace(link, slot=slot, input_slot=u.slot))
             result = LinkResult(True, header, tuple(links))
-            files, names = derive_scm(join, result.by_uid(), self.base)
+            files, names = (derive_scm(join, result.by_uid(), self.base)
+                            if self.derive_captures else ([], []))
         except LinkError as e:
             return LinkResult(False, header, failures=(LinkFailure(e.uid, e.reason, e.detail),))
         except S.ScmEncodeError as e:

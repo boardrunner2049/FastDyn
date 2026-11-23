@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from scopt.analysis.api import AnalysisSpec, ScopeRef
-from scopt.analysis.native_callees import prepare_native_images
+from scopt.analysis.native_callees import bind_native_image_bridge, prepare_native_images
 from scopt.analysis.registry import AnalysisRegistry
 from scopt.analysis.store import AnalysisInput, AnalysisStore, UndeclaredInput
 from scopt.canon import sha256_id
@@ -146,6 +146,19 @@ def test_prepare_input_changes_when_policy_or_backend_changes():
     b = prepare_native_images(snap, backend_revision="test-b", bridge_version=1, policy_version=1)
     c = prepare_native_images(snap, backend_revision="test-a", bridge_version=1, policy_version=2)
     assert len({a.input_id, b.input_id, c.input_id}) == 3
+
+
+def test_bridge_rebinding_reuses_bindings_and_reproduces_direct_manifest():
+    snap = fake_snapshot(1)
+    bridge = sha256_id(b"bridge")
+    base = prepare_native_images(snap, backend_revision="test", bridge_version=1,
+                                 policy_version=1)
+    rebound = bind_native_image_bridge(base, bridge)
+    direct = prepare_native_images(snap, backend_revision="test", bridge_version=1,
+                                   policy_version=1, bridge_sha256=bridge)
+
+    assert rebound == direct
+    assert rebound.value.bindings is base.value.bindings
 
 
 def test_pre_chain_input_preserves_capture_and_bridge_identity(native_so):

@@ -48,7 +48,36 @@ supplies the starting values; the JSON values override them:
 
 Pass that file as `--params params.json`. Always inspect the JSON receipt: requested,
 enabled, executed, affected units, reason, statistics, and final artifact hash are the
-activation evidence. A published candidate is not by itself evidence of a speedup.
+activation evidence. A published candidate is not by itself evidence of a speedup or
+an independent semantic proof.
+
+## Artifact assurance: optimize, load, audit
+
+The three commands deliberately answer different questions:
+
+- `scopt optimize` is the compiler/linker path. It runs the selected passes, resolves
+  relocations and continuations, checks format/version/bounds/overlap/branch-range
+  invariants, and reads the emitted records and bodies back against the linker output.
+  It does not automatically perform the expensive reimport, source-correspondence,
+  recovery, disassembly, provenance, HostSym, or mutation-proof work. Its
+  `compile-receipt.json` and sidecar therefore say
+  `assurance="compiler-produced/user-vouched"` and `audited=false`.
+  Imported snapshots persist a versioned `compiler-ir.v1`; optimization loads that
+  frozen IR directly. Legacy snapshot stores are migrated once through the audited
+  importer instead of repeating capture cross-checks on every compilation.
+- `scopt load ARTIFACT` is the minimal deployment preflight. It checks canonical-v7
+  header and record loadability, basic bounds, and—when supplied—compatibility with a
+  `RuntimeIdentity`. It reports the sidecar assurance fields but does not upgrade them
+  and does not prove that a transformation preserved behavior.
+- `scopt audit ARTIFACT --snapshot SNAPSHOT` is the optional, deliberately expensive
+  proof path. Static audit reruns the applicable reimport, correspondence, recovery,
+  disassembly, provenance, and symbolic checks. `scopt audit --dynamic` adds held-out
+  execution/oracle evidence. An audit can refuse when its proof inputs or a validator
+  for that artifact shape are unavailable; that is different from a loader refusal.
+
+This separation keeps normal compilation usable for large experiments without
+mislabeling compiler checks as independent proof. Performance claims still require a
+loaded-artifact identity, behavior checks, and the declared paired timing protocol.
 
 ## Pass summary
 
@@ -320,7 +349,18 @@ stack alignment, guest-state effects, fault paths, and recovery metadata.
 
 - Requires a bound environment layout and certified native callees.
 - Controls include `mode`, `bridge`, phase, callee/CFG/site/growth/time limits,
-  `max_inline_depth`, `allow_partial`, `compact_frame`, `allow_faulting`, and UDIV mode.
+  `max_inline_depth`, `allow_partial`, `compact_frame`, `allow_faulting`, UDIV mode,
+  and the explicit `trusted_all_helpers` policy used only by configuration 7.
+- Configuration 7's `trusted_all_helpers=true` is different from the ordinary
+  certified maximal mode. It needs no LLVM bridge, follows exact QEMU direct-call
+  edges to a fixed point, copies recursive SCCs once, and has no depth, size, site,
+  growth, or pass-wall-time profitability bound. Indirect and out-of-image edges
+  remain residual and are reported. This is explicitly a user-vouched policy, not a
+  claim that every transplanted helper received the normal per-helper certification.
+  Its trusted ABI excludes CET shadow stacks, asynchronous unwind, and live in-copy
+  fault recovery. “Unbounded” means no optimizer policy cap; finite address space,
+  memory, and representation limits can still refuse or leave explicitly reported
+  pending work.
 - Examples: `--pipeline host-inline --only host-inline`; or
   `--pipeline host-inline=extreme,faulting,4-level --only host-inline`. The explicit
   aggressive experiment is `--pipeline host-inline=maximal --only host-inline`.

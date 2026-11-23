@@ -1,8 +1,13 @@
 schema = "scopt.pipeline"
 version = 1
 name = "sealed-whopr-7"
-description = "Configuration 7: GCC-style WPA/LTRANS planning for trusted sealed firmware regions."
-allowed_capabilities = ["EMIT_FIRMWARE_REGION"]
+description = "Configuration 7: unbounded trusted helper graphs plus GCC-style WPA/LTRANS sealed firmware regions."
+allowed_capabilities = ["INLINE_CALL", "EMIT_FIRMWARE_REGION"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, allow_partial = true }
 
 [[pass]]
 name = "firmware-inline"

@@ -42,17 +42,17 @@ def test_native_capture_preserves_span_origin_and_exact_bytes():
     assert new.encode() == old.encode()
 
 
-def test_native_capture_rejects_bad_geometry_and_corrupted_source_hash():
+def test_native_capture_rejects_bad_geometry_and_corrupted_certificate():
     chunk = _chunk()
     with pytest.raises(S.ScmEncodeError, match="native_layout"):
         replace(chunk, reserved=chunk.code_size).encode()
     with pytest.raises(S.ScmEncodeError, match="native_layout"):
         replace(chunk, native_fragments=()).encode()
-    payload = chunk.encode()
-    callee_hash = chunk.native_fragments[0].callee_hash.encode()
-    assert payload.count(callee_hash) == 1
+    payload = bytearray(chunk.encode())
+    marker = payload.index(b"NZ1\0")
+    payload[marker + 8] ^= 0x80
     with pytest.raises(S.ScmDecodeError, match="native_data"):
-        S.TbChunk.decode(payload.replace(callee_hash, b"sha256:" + b"0" * 64))
+        S.TbChunk.decode(bytes(payload))
 
 
 @pytest.mark.parametrize("indirect", [False, True])

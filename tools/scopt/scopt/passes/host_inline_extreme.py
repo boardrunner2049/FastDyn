@@ -22,7 +22,7 @@ _DEFAULT_INLINE_DEPTH = 1
 class _StagedSplices:
     requests: list[InlineCall] = field(default_factory=list)
 
-    def inline_call(self, request: InlineCall) -> None:
+    def inline_call(self, request: InlineCall, **_evidence) -> None:
         self.requests.append(request)
 
 

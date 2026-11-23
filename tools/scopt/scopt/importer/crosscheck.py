@@ -365,8 +365,47 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
              "search_mismatch")
 
     # -- step 4: linear sweep ------------------------------------------------------
-    xs = sweep(code, tc_abs, tc_abs + pool_end, memo=decode_memo) if order else []
-    tiled = order and tiles(xs, tc_abs, tc_abs + pool_end)
+    # A v4 native splice carries an exact, independently verified executable
+    # body.  Do not linearly decode that private body again as if it were TCG
+    # output: exhaustive helper graphs can contain tens of thousands of host
+    # instructions, and the generic sweep's results are discarded below.
+    # Sweep the surviving caller segments and let _native_splice_error verify
+    # every omitted span against its typed certificate.
+    native_spans = []
+    if order and splice_start is not None:
+        try:
+            from ..splice_layout import splice_group_offsets
+
+            native_offsets = splice_group_offsets(chunk.native_fragments)
+            native_spans = [(native_offsets(req.splice.start_off),
+                             native_offsets(req.splice.start_off) + len(req.splice.code))
+                            for req in chunk.native_fragments]
+            if (any(not 0 <= lo < hi <= pool_end for lo, hi in native_spans)
+                    or any(a1 > b0 for (_a0, a1), (b0, _b1)
+                           in zip(native_spans, native_spans[1:]))):
+                raise ValueError("native splice spans overlap or leave the executable range")
+        except ValueError:
+            native_spans = []
+            order = False
+
+    if order and native_spans:
+        xs = []
+        tiled = True
+        cursor = 0
+        for lo, hi in native_spans:
+            if cursor < lo:
+                part = sweep(code[cursor:lo], tc_abs + cursor, tc_abs + lo, memo=decode_memo)
+                xs.extend(part)
+                tiled = tiled and tiles(part, tc_abs + cursor, tc_abs + lo)
+            cursor = hi
+        if cursor < pool_end:
+            part = sweep(code[cursor:pool_end], tc_abs + cursor, tc_abs + pool_end,
+                         memo=decode_memo)
+            xs.extend(part)
+            tiled = tiled and tiles(part, tc_abs + cursor, tc_abs + pool_end)
+    else:
+        xs = sweep(code, tc_abs, tc_abs + pool_end, memo=decode_memo) if order else []
+        tiled = order and tiles(xs, tc_abs, tc_abs + pool_end)
     xs_stub = []
     if order and ss is not None:
         xs_stub = sweep(code[ss:], tc_abs + ss, tc_abs + r.tc_size, memo=decode_memo)
@@ -383,10 +422,12 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
                  (f" + [{inline_start}, {r.tc_size})" if inline_start is not None else "") + " does not tile",
                  f"decode_failed@0x{first_bad:x}")
     else:
+        skipped = sum(hi - lo for lo, hi in native_spans)
         uc.check("decode", True, f"{len(xs) + len(xs_stub) + len(xs_native)} host insns tile "
                  f"[0, {pool_end})" +
                  (f" and the guard stubs [{ss}, {r.tc_size})" if ss is not None else "") +
-                 (f" and the native islands [{inline_start}, {r.tc_size})" if inline_start is not None else ""))
+                 (f" and the native islands [{inline_start}, {r.tc_size})" if inline_start is not None else "") +
+                 (f"; {skipped} certified splice bytes checked separately" if skipped else ""))
     if inline_start is not None:
         error = _native_span_error(code, chunk, ctx, tc_abs, xs, pbits) if tiled else "invalid code span"
         uc.check("native_islands", error is None, error or "checked native island correspondence",
@@ -560,16 +601,20 @@ def _native_single_splice_error(code, chunk, ctx, tc_abs, physical, page_bits, r
     by_off = {insn.address - tc_abs: insn for insn in physical}
     try:
         expected = _relocated_splice_code(splice, tc_abs)
+        entry = decode_one(code[start:end], tc_abs + start)
         boundaries = [value for guest in chunk.insns for value in (guest.host_start, guest.host_end)]
         boundaries.extend(mark.host_off for mark in chunk.opmarks)
         boundaries.extend((chunk.insn0_start, chunk.body_end, chunk.ldst_end))
         boundaries.extend(off for row in chunk.ldst for off in
                           (*row.jcc_field, row.slow_start, row.slow_end, row.raddr_off))
-        verify_relaxed_branches(req, code, tc_abs, chunk.sites, physical, boundaries)
+        verify_relaxed_branches(chunk.native_fragments, code, tc_abs, chunk.sites,
+                                physical, boundaries)
     except ValueError as error:
         return str(error)
     if (not chunk.insn0_start <= start <= end <= chunk.body_end
-            or start not in by_off or end not in by_off or code[start:end] != expected):
+            or entry is None or entry.bad or entry.address != tc_abs + start
+            or end != chunk.pool_start_or_none and end not in by_off
+            or code[start:end] != expected):
         return "native splice bytes or instruction boundaries differ"
     call = decode_one(req.call_bytes, tc_abs + req.call_off)
     if call is None or not call.is_call or call.size != len(req.call_bytes):
@@ -638,7 +683,12 @@ def _native_single_splice_error(code, chunk, ctx, tc_abs, physical, page_bits, r
                 insn is None or insn.branch_target != start_abs):
             return "outside captured data reference observes the native splice entry"
     try:
-        if splice.kind == "frame":
+        from ..model.native import HELPER_GRAPH_KIND
+        if splice.kind == HELPER_GRAPH_KIND:
+            from ..validate_sym.native_helper_graph import verify_helper_graph_splice_body
+
+            verify_helper_graph_splice_body(req)
+        elif splice.kind == "frame":
             from ..validate_sym.native_virtual import verify_virtual_splice_body
 
             verify_virtual_splice_body(req)

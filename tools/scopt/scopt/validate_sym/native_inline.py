@@ -164,7 +164,7 @@ def verify_site(unit: TBUnit, request: InlineCall, code_address: int) -> None:
 
 
 def _verify_bound_site(unit: TBUnit, request: InlineCall, code_address: int, *,
-                       required_flags: int) -> None:
+                       required_flags: int | None, allow_ldst: bool = False) -> None:
     """Verify the original TCG call and the private return-slot obligations.
 
     Assumes the admitted x86-64 SysV QEMU TCG frame and no observation of dead
@@ -179,11 +179,20 @@ def _verify_bound_site(unit: TBUnit, request: InlineCall, code_address: int, *,
              is_sha256_id(request.image_id) and is_sha256_id(request.native_input_id),
              "stale_inline_call", "original unit hash or call bytes differ")
     binding = next((h for h in unit.bindings.helpers if h.id == request.helper_id), None)
-    site = [s for s in unit.sites if s.kind is SiteKind.HELPER_CALL and s.insn_off == start]
-    _require(binding is not None and binding.name is not None and binding.flags & 0xf == required_flags and
+    helper_sites = [s for s in unit.sites
+                    if s.kind is SiteKind.HELPER_CALL and s.insn_off == start]
+    ldst_sites = [s for s in unit.sites
+                  if s.kind is SiteKind.LDST_HELPER_CALL and s.insn_off == start]
+    bound = (binding is not None and binding.name is not None and
+             (required_flags is None or binding.flags & 0xf == required_flags) and
              binding.func == request.target_abs and binding.symbol == request.symbol and
-             len(site) == 1 and site[0].aux == binding.id and site[0].value == binding.func,
+             len(helper_sites) == 1 and helper_sites[0].aux == binding.id and
+             helper_sites[0].value == binding.func)
+    trusted_ldst = (allow_ldst and len(ldst_sites) == 1 and
+                    ldst_sites[0].value == request.target_abs)
+    _require(bound or trusted_ldst,
              "unsupported_recovery", "call lacks the expected TCG helper binding or flags")
+    site = helper_sites if bound else ldst_sites
     base = code_address + unit.tc_offset
     code_end = unit.pool_start if unit.pool_start is not None else unit.ldst_end
     callers = sweep(unit.code[:code_end], base)

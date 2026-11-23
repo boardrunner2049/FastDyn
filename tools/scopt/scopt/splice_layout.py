@@ -62,19 +62,20 @@ class SpliceGroupOffsets:
 
 
 def splice_group_offsets(requests: tuple[InlineCall, ...]) -> SpliceGroupOffsets:
-    if not 1 <= len(requests) <= MAX_INTEGER_SPLICES:
+    if not requests:
         raise NativeInlineError("splice_site_budget", "invalid number of splices for one TB")
     if len({(req.target, req.unit_hash, req.native_input_id, req.bridge_sha256)
             for req in requests}) != 1:
         raise NativeInlineError("splice_group_provenance", "splice certificates have different inputs")
     spans = []
     previous_end = 0
+    branch_sources = set()
     for request in requests:
         span = splice_offsets(request)
         splice = request.splice
-        if len(requests) > 1 and (splice.kind != "integer" or splice.branches or splice.relocations):
-            raise NativeInlineError("splice_group_unsupported",
-                                    "multiple sites require integer splices without branch widening")
+        if any(row.source_off in branch_sources for row in splice.branches):
+            raise NativeInlineError("splice_group_unsupported", "duplicate widened branch witness")
+        branch_sources.update(row.source_off for row in splice.branches)
         if not previous_end <= span.start < span.end or span.growth < 0 or span.growth % 8:
             raise NativeInlineError("splice_group_geometry",
                                     "splice spans overlap, differ in order, or have unaligned growth")
@@ -132,19 +133,20 @@ def _address(mu, tc: int, size: int, value: int) -> int:
     return tc + mu(value - tc) if tc <= value < tc + size else value
 
 
-def _required_relaxations(unit, request, tc, instructions):
+def _required_relaxations(unit, requests, tc, instructions):
     """Find the first fixed point of required widens in original host order."""
-    splice = request.splice
-    mu = replace(splice_offsets(request), branches=())
+    bare = tuple(replace(request, splice=replace(request.splice, branches=()))
+                 for request in requests)
+    mu = splice_group_offsets(bare)
     candidates = [insn for insn in instructions if insn.imm_size == 1
                   and insn.branch_target is not None
-                  and not mu.start <= insn.address - tc < mu.end]
+                  and not mu.contains(insn.address - tc)]
     selected = {}
     starts = {insn.address for insn in instructions}
     sites = {}
     for site in unit.sites:
         sites.setdefault(site.insn_off, []).append(site)
-    for _ in range(MAX_BRANCH_RELAXATIONS + 1):
+    while True:
         new = []
         for insn in candidates:
             off = insn.address - tc
@@ -157,7 +159,7 @@ def _required_relaxations(unit, request, tc, instructions):
             raw = unit.code[off:off + insn.size]
             matches = sites.get(off, ())
             site = matches[0] if len(matches) == 1 else None
-            if (splice.kind != "integer" or len(raw) != 2
+            if (len(raw) != 2
                     or not (raw[0] == 0xeb or 0x70 <= raw[0] <= 0x7f)
                     or target not in starts or site is None or site.field_off != off + 1
                     or site.width != 1 or site.enc != Encoding.REL8
@@ -167,12 +169,12 @@ def _required_relaxations(unit, request, tc, instructions):
                                         f"short branch at {off:#x} cannot be widened")
             new.append(NativeBranchRelaxation(off, raw))
         if not new:
-            return mu.branches
+            return tuple(selected[off] for off in sorted(selected))
         selected.update((row.source_off, row) for row in new)
-        if len(selected) > MAX_BRANCH_RELAXATIONS:
-            break
-        mu = replace(mu, branches=tuple(selected[off] for off in sorted(selected)))
-    raise NativeInlineError("splice_branch_budget", "too many short branches need widening")
+        witnesses = tuple(selected[off] for off in sorted(selected))
+        first, *rest = bare
+        first = replace(first, splice=replace(first.splice, branches=witnesses))
+        mu = splice_group_offsets((first, *rest))
 
 
 def _signed(value: int, width: int) -> bytes:
@@ -184,11 +186,12 @@ def _signed(value: int, width: int) -> bytes:
 
 
 def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address: int, *,
-                   prepare: bool = False) -> TBUnit:
+                   prepare: bool = False, trust_internal_graphs: bool = False) -> TBUnit:
     """Move every surviving TCG offset and preserve the original search words."""
     from .validate_sym.native_splice import verify_splice
     from .validate_sym.native_virtual import verify_virtual_splice
-    from .model.native import GUARDED_UDIV_KINDS, UDIV_KINDS
+    from .model.native import GUARDED_UDIV_KINDS, HELPER_GRAPH_KIND, UDIV_KINDS
+    from .validate_sym.native_helper_graph import verify_helper_graph_splice
     from .validate_sym.native_udiv import verify_udiv_variant
 
     if (unit.splice_applied or unit.inline_start is not None or unit.stub_start is not None
@@ -201,7 +204,10 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
             verify = verify_udiv_variant
         elif request.splice.kind == "frame":
             verify = verify_virtual_splice
-        verify(unit, request, code_address)
+        elif request.splice.kind == HELPER_GRAPH_KIND and not trust_internal_graphs:
+            verify = verify_helper_graph_splice
+        if request.splice.kind != HELPER_GRAPH_KIND or not trust_internal_graphs:
+            verify(unit, request, code_address)
     tc = code_address + unit.tc_offset
     pool_start = unit.pool_start
     exec_end = unit.ldst_end if pool_start is None else pool_start
@@ -209,17 +215,17 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
     if not tiles(insns, tc, tc + exec_end):
         raise NativeInlineError("splice_decode", "original TCG code does not tile")
 
-    branches = ()
-    if len(requests) == 1:
-        request, = requests
-        splice = request.splice
-        branches = _required_relaxations(unit, request, tc, insns)
-        if prepare:
-            splice = replace(splice, branches=branches)
-            requests = (replace(request, splice=splice),)
-            mu = splice_group_offsets(requests)
-        elif branches != splice.branches:
-            raise NativeInlineError("splice_branch_correspondence", "widened branches differ from the source")
+    branches = _required_relaxations(unit, requests, tc, insns)
+    recorded = tuple(row for request in requests for row in request.splice.branches)
+    if prepare:
+        first, *rest = requests
+        first = replace(first, splice=replace(first.splice, branches=branches))
+        rest = [replace(request, splice=replace(request.splice, branches=())) for request in rest]
+        requests = (first, *rest)
+        mu = splice_group_offsets(requests)
+    elif branches != recorded:
+        raise NativeInlineError("splice_branch_correspondence",
+                                "widened branches differ from the source displacement")
     widened = {row.source_off: row for row in branches}
     pieces = [(request.splice.start_off, request.continuation_off, request.splice.code)
               for request in requests]
@@ -260,14 +266,20 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
     drop_sites, drop_fields, drop_marks = set(), set(), set()
     fallback_sites, fallback_fields, fallback_marks = {}, {}, {}
     for request in requests:
-        chosen = [s for s in unit.sites if s.kind is SiteKind.HELPER_CALL and s.insn_off == request.call_off]
+        trusted_graph = request.splice.kind == HELPER_GRAPH_KIND
+        chosen = [s for s in unit.sites
+                  if s.insn_off == request.call_off and
+                  (s.kind is SiteKind.HELPER_CALL or
+                   trusted_graph and s.kind is SiteKind.LDST_HELPER_CALL)]
         if len(chosen) != 1:
             raise NativeInlineError("splice_call_binding", "expected one original helper site per splice")
         call, = chosen
         old_marks = [m for m in unit.opmarks if m.kind is OpMarkKind.CALL and m.host_off <= call.insn_off]
         mark = max(old_marks, key=lambda m: m.host_off, default=None)
-        if (mark is None or mark.helper_id != request.helper_id or mark.insn_idx != call.insn_idx
-                or mark in drop_marks or call.field_off in drop_fields):
+        ldst = call.kind is SiteKind.LDST_HELPER_CALL
+        if ((not ldst and (mark is None or mark.helper_id != request.helper_id
+                          or mark.insn_idx != call.insn_idx or mark in drop_marks))
+                or call.field_off in drop_fields):
             raise NativeInlineError("splice_call_binding", "helper provenance has no distinct CALL opmark")
         if request.splice.kind in GUARDED_UDIV_KINDS:
             fallback = mu(request.continuation_off) - len(request.call_bytes)
@@ -277,7 +289,8 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
             continue
         drop_sites.add(call)
         drop_fields.add(call.field_off)
-        drop_marks.add(mark)
+        if mark is not None and not ldst:
+            drop_marks.add(mark)
 
     fixups = []
     for f in unit.reloc.fixups:
@@ -383,7 +396,7 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
         bounds = [value for item in remapped_insns for value in (item.host_start, item.host_end)]
         bounds.extend(mark.host_off for mark in marks)
         bounds.extend(point.host_return_offset for point in recovery)
-        verify_relaxed_branches(requests[0], code, tc, sites, sweep(code[:mu(exec_end)], tc), bounds)
+        verify_relaxed_branches(requests, code, tc, sites, sweep(code[:mu(exec_end)], tc), bounds)
     return replace(unit, record=raw_record, code=code, search=search, tc_size=len(code),
                    end_offset=end_offset, insn0_start=mu(unit.insn0_start), body_end=mu(unit.body_end),
                    ldst_end=mu(unit.ldst_end), pool_start=None if pool_start is None else mu(pool_start),
@@ -400,9 +413,11 @@ def materialize_splice(unit: TBUnit, request: InlineCall, code_address: int) -> 
     return materialize_splices(unit, (request,), code_address)
 
 
-def materialize_splices(unit: TBUnit, requests: tuple[InlineCall, ...], code_address: int) -> TBUnit:
+def materialize_splices(unit: TBUnit, requests: tuple[InlineCall, ...], code_address: int, *,
+                        trust_internal_graphs: bool = False) -> TBUnit:
     try:
-        return _native_layout(unit, requests, code_address)
+        return _native_layout(unit, requests, code_address,
+                              trust_internal_graphs=trust_internal_graphs)
     except (OverflowError, ValueError) as exc:
         if isinstance(exc, NativeInlineError):
             raise
@@ -411,14 +426,23 @@ def materialize_splices(unit: TBUnit, requests: tuple[InlineCall, ...], code_add
 
 def verify_relaxed_branches(request, code, tc, sites, physical, boundaries=()):
     """Verify the near instructions and their inert padding against the certificate."""
-    splice = request.splice
-    if not splice.branches:
+    requests = request if isinstance(request, tuple) else (request,)
+    branches = tuple(row for req in requests for row in req.splice.branches)
+    if not branches:
         return
-    if not splice.valid_branch_spans(request.continuation_off, len(code) - request.growth):
-        raise NativeInlineError("splice_branch_correspondence", "invalid widened branch geometry")
-    mu = splice_offsets(request)
+    mu = splice_group_offsets(requests)
+    original_size = len(code) - sum(req.growth for req in requests)
+    previous_end = 0
+    for row in branches:
+        if (not previous_end <= row.source_off <= original_size - 2
+                or len(row.source_bytes) != 2
+                or not (row.source_bytes[0] == 0xeb or 0x70 <= row.source_bytes[0] <= 0x7f)
+                or mu.contains(row.source_off) or not 0 <= row.target_off < original_size
+                or mu.contains(row.target_off)):
+            raise NativeInlineError("splice_branch_correspondence", "invalid widened branch geometry")
+        previous_end = row.source_off + 2
     by_off = {insn.address - tc: insn for insn in physical}
-    for row in splice.branches:
+    for row in branches:
         off = mu(row.source_off)
         target = mu(row.target_off)
         after = mu(row.source_off + 2)
@@ -458,7 +482,26 @@ def verify_relaxed_branches(request, code, tc, sites, physical, boundaries=()):
 
 def prepare_splice_layout(unit: TBUnit, request: InlineCall, code_address: int) -> InlineCall:
     try:
-        return _native_layout(unit, (request,), code_address, prepare=True).native_fragments[0]
+        from .model.native import HELPER_GRAPH_KIND
+
+        return _native_layout(
+            unit, (request,), code_address, prepare=True,
+            trust_internal_graphs=request.splice.kind == HELPER_GRAPH_KIND).native_fragments[0]
+    except (OverflowError, ValueError) as exc:
+        if isinstance(exc, NativeInlineError):
+            raise
+        raise NativeInlineError("splice_metadata_range", str(exc)) from exc
+
+
+def prepare_splices_layout(unit: TBUnit, requests: tuple[InlineCall, ...],
+                           code_address: int) -> tuple[InlineCall, ...]:
+    """Prepare the fixed-point caller layout for an arbitrary site count."""
+    try:
+        from .model.native import HELPER_GRAPH_KIND
+
+        trusted = all(request.splice.kind == HELPER_GRAPH_KIND for request in requests)
+        return _native_layout(unit, requests, code_address, prepare=True,
+                              trust_internal_graphs=trusted).native_fragments
     except (OverflowError, ValueError) as exc:
         if isinstance(exc, NativeInlineError):
             raise

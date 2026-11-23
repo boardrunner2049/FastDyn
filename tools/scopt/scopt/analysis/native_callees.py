@@ -52,8 +52,11 @@ class NativeImageManifest:
     policy_version: int
     bridge_sha256: str | None
     bindings: Mapping[tuple[str, int], _ImageBinding]
+    trust_files: bool = False
     reason: str | None = None
     detail: str = ""
+    site_bindings: Mapping[tuple[str, int], int] = MappingProxyType({})
+    address_bindings: Mapping[int, _ImageBinding] = MappingProxyType({})
 
     def pre_chain_input_id(self) -> str:
         """Reproduce the native input digest used before nested frame witnesses."""
@@ -68,8 +71,8 @@ class NativeImageManifest:
         return value_digest([NATIVE_IMAGES, MANIFEST_VERSION, replace(self, bindings=bindings)])
 
 
-def _verified_captures(snapshot: Any):
-    """Hash and parse the very same bytes referenced by the snapshot manifest."""
+def _snapshot_captures(snapshot: Any, *, authenticate: bool):
+    """Parse stored captures, optionally authenticating their content identity."""
     d = Path(snapshot.path)
     meta = json.loads((d / "snapshot.json").read_bytes())
     if meta["snapshot_id"] != snapshot.snapshot_id:
@@ -81,8 +84,8 @@ def _verified_captures(snapshot: Any):
             raise ValueError("invalid capture path or missing content identity")
         p = d / name
         data = p.read_bytes()
-        capture_id = sha256_id(data)
-        if capture_id != expected[name]:
+        capture_id = sha256_id(data) if authenticate else expected[name]
+        if authenticate and capture_id != expected[name]:
             raise ValueError(f"{name}: stored capture digest differs")
         capture = parse_scm(data, path=str(p))
         ids[str(p)] = capture_id
@@ -91,7 +94,8 @@ def _verified_captures(snapshot: Any):
 
 
 def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_version: int,
-                          policy_version: int, bridge_sha256: str | None = None) -> AnalysisInput:
+                          policy_version: int, bridge_sha256: str | None = None,
+                          trust_files: bool = False) -> AnalysisInput:
     """Read image and capture files before analysis and freeze the verified function bytes.
 
     Build a fresh input for each optimization invocation. No analysis compute
@@ -104,6 +108,8 @@ def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_versio
     if bridge_sha256 is not None and not is_sha256_id(bridge_sha256):
         raise ValueError("invalid native bridge SHA-256 id")
     bindings: dict[tuple[str, int], _ImageBinding] = {}
+    site_bindings: dict[tuple[str, int], int] = {}
+    address_bindings: dict[int, _ImageBinding] = {}
     capture_ids: tuple[str, ...] = ()
     reason, detail = None, ""
     runtime = snapshot.runtime
@@ -114,7 +120,7 @@ def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_versio
         reason, detail = "native_image_unavailable", "snapshot has no stored capture"
     else:
         try:
-            joined, ids = _verified_captures(snapshot)
+            joined, ids = _snapshot_captures(snapshot, authenticate=not trust_files)
             capture_ids = tuple(sorted(ids.values()))
             if not capture_ids:
                 reason, detail = "native_image_unavailable", "snapshot has no stored capture"
@@ -122,7 +128,8 @@ def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_versio
                 resolvers = {}
                 images = {}
                 for unit in snapshot.units():
-                    if not unit.bindings.helpers:
+                    if not unit.bindings.helpers and not (trust_files and any(
+                            site.kind.name == "LDST_HELPER_CALL" for site in unit.sites)):
                         continue
                     slot = joined.slots.get(unit.slot)
                     cap = slot.source if slot is not None and slot.bound else None
@@ -131,7 +138,8 @@ def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_versio
                     if cap.path not in resolvers:
                         context = HostContext.from_capture(cap)
                         resolvers[cap.path] = NativeCalleeResolver(
-                            context, cap.run_info, runtime, ids[cap.path], images)
+                            context, cap.run_info, runtime, ids[cap.path], images,
+                            trust_files=trust_files)
                     resolver = resolvers[cap.path]
                     for helper in unit.bindings.helpers:
                         key = unit.uid, helper.id
@@ -139,23 +147,70 @@ def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_versio
                             bindings[key] = _ImageBinding(helper, resolver.resolve(helper))
                         except CalleeResolutionError as error:
                             bindings[key] = _ImageBinding(helper, None, error.reason, str(error))
+                    if trust_files:
+                        from ..formats.enums import SiteKind
+
+                        for site in unit.sites:
+                            if site.kind is not SiteKind.LDST_HELPER_CALL:
+                                continue
+                            helper = HelperBinding(site.aux, None, None, None, 0, site.value)
+                            key = unit.uid, site.insn_off
+                            site_bindings[key] = site.value
+                            if site.value not in address_bindings:
+                                try:
+                                    address_bindings[site.value] = _ImageBinding(
+                                        helper, resolver.resolve_address(site.value))
+                                except CalleeResolutionError as error:
+                                    address_bindings[site.value] = _ImageBinding(
+                                        helper, None, error.reason, str(error))
         except (OSError, ValueError, KeyError, ImportRejected) as error:
             bindings.clear()
             reason, detail = "native_image_mismatch", str(error)
     manifest = NativeImageManifest(snapshot.snapshot_id, runtime_id, capture_ids, backend_revision,
                                    bridge_version, policy_version, bridge_sha256,
-                                   MappingProxyType(bindings), reason, detail)
-    return AnalysisInput(value_digest([NATIVE_IMAGES, MANIFEST_VERSION, manifest]), manifest)
+                                   MappingProxyType(bindings), trust_files, reason, detail,
+                                   MappingProxyType(site_bindings),
+                                   MappingProxyType(address_bindings))
+    digest = value_digest([NATIVE_IMAGES, MANIFEST_VERSION, manifest])
+    return AnalysisInput(digest, manifest)
 
 
-def _compute(ctx: Any, scope: ScopeRef) -> tuple[NativeCallBinding, ...]:
-    calls = ctx.analysis("host-calls", scope, min_version=1).value
+def bind_native_image_bridge(prepared: AnalysisInput, bridge_sha256: str | None) -> AnalysisInput:
+    """Derive a bridge-specific manifest without rebuilding source bindings.
+
+    The bridge is an offline code-generator identity.  It does not affect the
+    captured QEMU image, MAPS binding, helper bytes, symbols, or discovered
+    direct-call graph.  Validation may therefore prepare those immutable facts
+    once, then reproduce each historical certificate's exact input id by
+    changing only the manifest's bridge field.
+    """
+    if bridge_sha256 is not None and not is_sha256_id(bridge_sha256):
+        raise ValueError("invalid native bridge SHA-256 id")
+    manifest = prepared.value
+    if not isinstance(manifest, NativeImageManifest):
+        raise TypeError("native image bridge binding requires a prepared manifest")
+    if manifest.bridge_sha256 == bridge_sha256:
+        return prepared
+    rebound = replace(manifest, bridge_sha256=bridge_sha256)
+    return AnalysisInput(value_digest([NATIVE_IMAGES, MANIFEST_VERSION, rebound]), rebound)
+
+
+def _compute(ctx: Any, scope: ScopeRef, host_version: int = 2
+             ) -> tuple[NativeCallBinding, ...]:
+    calls = ctx.analysis("host-calls", scope, min_version=host_version).value
     prepared = ctx.external_input(NATIVE_IMAGES)
     manifest = None if prepared is None else prepared.value
     input_id = None if prepared is None else prepared.input_id
     out = []
     for call in calls:
         callee, reason, detail = None, call.reason, ""
+        trusted_slow = (isinstance(manifest, NativeImageManifest) and manifest.trust_files
+                        and reason == "unsupported_recovery")
+        # Trusted whole-cache compilation deliberately admits captured slow
+        # helper calls without reconstructing fault/recovery proofs.  The call
+        # encoding and target binding remain linker inputs.
+        if trusted_slow:
+            reason = None
         if reason is None:
             if not isinstance(manifest, NativeImageManifest):
                 reason, detail = "native_image_unavailable", "native image input was not prepared"
@@ -164,10 +219,19 @@ def _compute(ctx: Any, scope: ScopeRef) -> tuple[NativeCallBinding, ...]:
             elif manifest.reason is not None:
                 reason, detail = manifest.reason, manifest.detail
             else:
-                row = manifest.bindings.get((call.uid, call.helper_id))
+                row = (None if trusted_slow else
+                       manifest.bindings.get((call.uid, call.helper_id)))
                 actual = HelperBinding(call.helper_id, call.helper_name, call.module, call.symbol,
                                        call.helper_flags, call.target_abs)
-                if row is None or row.helper != actual:
+                site_target = None
+                if row is None and manifest.trust_files:
+                    site_target = manifest.site_bindings.get((call.uid, call.host_off))
+                    row = manifest.address_bindings.get(site_target)
+                    if row is not None and (row.callee is None or
+                                            row.callee.runtime_address != call.target_abs):
+                        row = None
+                if row is None or (row.helper != actual and
+                                   site_target is None):
                     reason, detail = "call_binding_unknown", "no matching prepared helper binding"
                 else:
                     callee, reason, detail = row.callee, row.reason, row.detail
@@ -176,6 +240,10 @@ def _compute(ctx: Any, scope: ScopeRef) -> tuple[NativeCallBinding, ...]:
     return tuple(out)
 
 
-ANALYSES = (AnalysisSpec(name="native-callees", version=1, scope="unit",
-                         requires=(("host-calls", 1),), inputs=frozenset({f"external:{NATIVE_IMAGES}"}),
-                         compute=_compute, result_schema=tuple),)
+_NATIVE_CALLEES_V1 = AnalysisSpec(
+    name="native-callees", version=1, scope="unit", requires=(("host-calls", 1),),
+    inputs=frozenset({f"external:{NATIVE_IMAGES}"}),
+    compute=lambda ctx, scope: _compute(ctx, scope, 1), result_schema=tuple)
+ANALYSES = (_NATIVE_CALLEES_V1,
+            replace(_NATIVE_CALLEES_V1, version=2, requires=(("host-calls", 2),),
+                    compute=_compute))

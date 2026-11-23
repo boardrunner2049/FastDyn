@@ -435,4 +435,5 @@ def package_b4(snapshot: Any, prop: B4Proposal, store: Any, *, candidate_id: str
                  "duration_s": 0.0, "x_classes": prop.by_class()}]
     return package_b3(snapshot, plan, store, candidate_id=candidate_id, pipeline=pipeline,
                       layout=layout, runtime=runtime, v6_exes=v6_exes, hostsym=hs,
-                      need_d2=prop.need_d2(), need_d3=prop.need_d3(), **kw)
+                      need_d2=prop.need_d2(), need_d3=prop.need_d3(),
+                      compile_only=True, **kw)

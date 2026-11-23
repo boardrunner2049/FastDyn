@@ -58,6 +58,13 @@ class _FramedNativeCallee(NativeCallee):
     frame_chain: tuple[NativeFrameBody, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _GraphNativeCallee(NativeCallee):
+    """A finite, capture-bound QEMU direct-call graph (root excluded)."""
+
+    frame_chain: tuple[NativeFrameBody, ...] = ()
+
+
 class CalleeResolutionError(ValueError):
     def __init__(self, reason: str, detail: str):
         self.reason = reason
@@ -86,13 +93,118 @@ class NativeCalleeResolver:
 
     def __init__(self, context: HostContext, run_info: RunInfo,
                  runtime: Mapping[str, Any], capture_id: str,
-                 images: dict[str, _NativeImage] | None = None):
+                 images: dict[str, _NativeImage] | None = None, *,
+                 trust_files: bool = False):
         self._context = context
         self._run_info = run_info
         self._runtime = runtime
         self._capture_id = capture_id
         self._images = {} if images is None else images
         self._frame_chains = {}
+        self._helper_graphs = {}
+        self._trust_files = trust_files
+
+    def _trusted_image(self, mapping: MapEntry) -> tuple[str, _NativeImage]:
+        """Open a user-vouched compiler input without authenticating it.
+
+        The ELF is still parsed because symbol bounds and segment offsets are
+        linker inputs.  Digest/stat/MAPS correspondence belongs to ``audit``.
+        """
+        for role, stat_key in (("qemu", "qemu_exe_stat"), ("plugin", "plugin_stat")):
+            recorded = self._runtime.get(stat_key)
+            if isinstance(recorded, Mapping) and recorded.get("path") == mapping.path:
+                break
+        else:
+            raise CalleeResolutionError("native_image_unavailable",
+                                        "mapped image is absent from RuntimeIdentity")
+        image = self._images.get(mapping.path)
+        if image is not None:
+            return role, image
+        digest = self._runtime.get(f"{role}_sha256")
+        if not is_sha256_id(digest):
+            # A trusted compile still needs a stable source label.  This hashes
+            # only the selected image when the importer supplied no identity.
+            digest = sha256_id(mapping.path.encode())
+        try:
+            with open(mapping.path, "rb") as source:
+                data = source.read()
+            stream = io.BytesIO(data)
+            elf = ELFFile(stream)
+            if (elf.elfclass != 64 or not elf.little_endian
+                    or elf["e_machine"] != "EM_X86_64"
+                    or elf["e_type"] not in ("ET_DYN", "ET_EXEC")):
+                raise CalleeResolutionError("unsupported_isa",
+                                            "expected an x86-64 ELF executable")
+            build_ids = {note["n_desc"] for seg in elf.iter_segments()
+                         if seg["p_type"] == "PT_NOTE" for note in seg.iter_notes()
+                         if note["n_type"] == "NT_GNU_BUILD_ID"
+                         and note["n_name"] == "GNU"}
+            stream.seek(0)
+            image = _NativeImage(read_elf(stream, mapping.path), data,
+                                 next(iter(build_ids), None), digest)
+        except OSError as exc:
+            raise CalleeResolutionError("native_image_unavailable",
+                                        f"image unavailable: {mapping.path}") from exc
+        except ELFError as exc:
+            raise CalleeResolutionError("native_image_unavailable",
+                                        "image is not a readable ELF") from exc
+        self._images[mapping.path] = image
+        return role, image
+
+    def _text_bytes(self, image, mapping, bias, va, size):
+        seg = image.symbols.segment_for(va)
+        m = self._context.maps.find(bias + va)
+        if (seg is None or seg.flags & 3 != 1 or va + size > seg.vaddr + seg.filesz
+                or m is None or not m.executable or m.perms[1:2] == "w"
+                or (m.path, m.dev, m.inode) != (mapping.path, mapping.dev, mapping.inode)
+                or bias + va + size > m.end):
+            return None
+        off = seg.offset + va - seg.vaddr
+        if (off != m.offset + bias + va - m.start or off + size > len(image.bytes)
+                or any(row.path == m.path and row.perms[1:2] == "w"
+                       and max(row.offset, off) < min(row.offset + row.end - row.start, off + size)
+                       for row in self._context.maps)):
+            return None
+        return image.bytes[off:off + size]
+
+    def _helper_graph(self, image, mapping, bias, address, code):
+        """Reach a fixed point over exact same-image direct function edges.
+
+        Each entry is copied once.  Backedges and recursive SCCs are therefore
+        represented finitely and keep their original CALL/JMP semantics.
+        """
+        from ..decode.x86 import sweep, tiles
+
+        key = (mapping.path, bias, address)
+        if key in self._helper_graphs:
+            return self._helper_graphs[key]
+        bodies = {address: NativeFrameBody(address, code)}
+        pending = [address]
+        while pending:
+            current = pending.pop()
+            body = bodies[current]
+            insns = sweep(body.code, body.address)
+            if not insns or not tiles(insns, body.address, body.address + len(body.code)):
+                self._helper_graphs[key] = ()
+                return ()
+            for insn in insns:
+                target = insn.branch_target
+                if target is None or body.address <= target < body.address + len(body.code):
+                    continue
+                label = image.symbols.lookup(target)
+                if label is None or label[1] != 0:
+                    continue
+                symbol = image.symbols.bounded_function(label[0], target)
+                if symbol is None or target in bodies:
+                    continue
+                child = self._text_bytes(image, mapping, bias, target, symbol.size)
+                if child is None:
+                    continue
+                bodies[target] = NativeFrameBody(target, child)
+                pending.append(target)
+        graph = tuple(bodies[entry] for entry in sorted(bodies) if entry != address)
+        self._helper_graphs[key] = graph
+        return graph
 
     def _frame_chain(self, image, mapping, bias, address, code):
         from ..validate_sym.frame_chain import discover_chain
@@ -106,20 +218,7 @@ class NativeCalleeResolver:
         maps = self._context.maps
 
         def text_bytes(va, size):
-            seg = image.symbols.segment_for(va)
-            m = maps.find(bias + va)
-            if (seg is None or seg.flags & 3 != 1 or va + size > seg.vaddr + seg.filesz
-                    or m is None or not m.executable or m.perms[1:2] == "w"
-                    or (m.path, m.dev, m.inode) != (mapping.path, mapping.dev, mapping.inode)
-                    or bias + va + size > m.end):
-                return None
-            off = seg.offset + va - seg.vaddr
-            if (off != m.offset + bias + va - m.start or off + size > len(image.bytes)
-                    or any(row.path == m.path and row.perms[1:2] == "w"
-                           and max(row.offset, off) < min(row.offset + row.end - row.start, off + size)
-                           for row in maps)):
-                return None
-            return image.bytes[off:off + size]
+            return self._text_bytes(image, mapping, bias, va, size)
 
         def writable_object(va, size):
             seg = image.symbols.segment_for(va)
@@ -162,6 +261,8 @@ class NativeCalleeResolver:
         return role, digest, identity
 
     def _verified_image(self, mapping: MapEntry) -> tuple[str, _NativeImage]:
+        if self._trust_files:
+            return self._trusted_image(mapping)
         role, digest, identity = self._verify_binding(mapping)
         image = self._images.get(mapping.path)
         if image is not None:
@@ -243,9 +344,34 @@ class NativeCalleeResolver:
             raise CalleeResolutionError("native_image_mismatch", "target mapping permits executable writes")
         if binding.module is not None and binding.module != os.path.basename(mapping.path):
             raise CalleeResolutionError("native_image_mismatch", "module differs from capture MAPS")
+        return self._resolve_target(mapping, address, symbol, recorded.typemask,
+                                    recorded.tcg_flags)
+
+    def resolve_address(self, address: int) -> NativeCallee:
+        """Resolve a trusted captured direct call without a HELPER record.
+
+        QEMU memory slow paths are recorded as ``LDST_HELPER_CALL`` sites and
+        carry an exact native target but no helper ID/name tuple.
+        """
+        mapping = self._context.maps.find(address)
+        if mapping is None or not mapping.executable or not mapping.path.startswith("/"):
+            raise CalleeResolutionError("native_image_unavailable",
+                                        "target lacks a file-backed text mapping")
         role, image = self._verified_image(mapping)
+        bias = self._context.maps.load_bias(mapping.path, image.symbols)
+        label = None if bias is None else image.symbols.lookup(address - bias)
+        if label is None or label[1] != 0:
+            raise CalleeResolutionError("ambiguous_bounds",
+                                        "target has no exact function symbol")
+        return self._resolve_target(mapping, address, label[0], 0, 0,
+                                    prepared=(role, image, bias))
+
+    def _resolve_target(self, mapping: MapEntry, address: int, symbol: str,
+                        typemask: int, flags: int, *, prepared=None) -> NativeCallee:
+        role, image = prepared[:2] if prepared is not None else self._verified_image(mapping)
         elf, data = image.symbols, image.bytes
-        bias = maps.load_bias(mapping.path, elf)
+        maps = self._context.maps
+        bias = prepared[2] if prepared is not None else maps.load_bias(mapping.path, elf)
         entry = None if bias is None else elf.bounded_function(symbol, address - bias)
         if entry is None:
             raise CalleeResolutionError("ambiguous_bounds", "target has no unique sized function range")
@@ -264,11 +390,12 @@ class NativeCalleeResolver:
             raise CalleeResolutionError("native_image_mismatch", "function has a writable file alias")
         code = data[file_offset:file_offset + entry.size]
         chain = self._frame_chain(image, mapping, bias, entry.value, code) if (
-            role == "plugin" and recorded.tcg_flags == 0 and recorded.typemask == 400
-        ) else ()
-        callee_class = _FramedNativeCallee if chain else NativeCallee
+            role == "plugin" and flags == 0 and typemask == 400
+        ) else self._helper_graph(image, mapping, bias, entry.value, code) if role == "qemu" else ()
+        callee_class = (_FramedNativeCallee if role == "plugin" and chain else
+                        _GraphNativeCallee if role == "qemu" else NativeCallee)
         return callee_class(
             image.digest, mapping.path, symbol, address, entry.value, file_offset, entry.size,
             sha256_id(code), image.build_id, role, bias, mapping, "x86-64", "sysv-amd64",
-            self._run_info.cpuinfo, recorded.typemask, self._runtime["runtime_identity_id"],
+            self._run_info.cpuinfo, typemask, self._runtime["runtime_identity_id"],
             self._capture_id, code, **({"frame_chain": chain} if chain else {}))

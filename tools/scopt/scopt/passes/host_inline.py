@@ -22,9 +22,7 @@ from .base import BudgetExceeded, Budgets, EditKind, Outcome, PassDescriptor, Pa
 
 BACKEND_REVISION = "58df0ef89dd64126512e4ee27b4ac3fd8ddf6247"
 BRIDGE_VERSION = 1
-POLICY_VERSION = 3
-_UNBOUNDED_GROWTH = (1 << 63) - 1
-
+POLICY_VERSION = 4
 _DEFAULTS = {
     "bridge": "",
     "phase": "steady",
@@ -37,6 +35,7 @@ _DEFAULTS = {
     "max_wall_s": 60,
     "static_max_callee_bytes": 64,
     "min_tb_entries": 1,
+    "trusted_all_helpers": False,
 }
 _LIMITS = {
     "max_callee_bytes": 1024,
@@ -141,7 +140,9 @@ class HostInline:
         name="host-inline", version=1, unit_scope="snapshot",
         requires=(("envlayout", 1), ("native-callees", 1)),
         capabilities=frozenset({EditKind.INLINE_CALL}),
-        budgets=Budgets(max_wall_s=60, max_code_growth_bytes=_UNBOUNDED_GROWTH),
+        # Bounded modes impose their own max_wall_s parameter.  Maximal's
+        # trusted graph policy intentionally has no inherited pass deadline.
+        budgets=Budgets(max_wall_s=None, max_code_growth_bytes=None),
         invalidates=frozenset({"code", "meta", "layout"}),
         params_schema={**_COMMON_SCHEMA, **_EXTREME_SCHEMA, "mode": str, "allow_faulting": bool,
                        "udiv_mode": str, "udiv_only": bool},
@@ -167,7 +168,8 @@ class HostInline:
         return True
 
     def _prepare_request(self, unit, request: InlineCall, code_address: int,
-                         binding: NativeCallBinding, params, growth_room: int) -> InlineCall:
+                         binding: NativeCallBinding, params,
+                         growth_room: int | None) -> InlineCall:
         verify_site(unit, request, code_address)
         verify_fragment(request)
         return request
@@ -177,6 +179,14 @@ class HostInline:
         mode = host_inline_mode(params)
         if mode == "invalid":
             return PassResult(Outcome.FAILED, "invalid_params", f"mode must be one of {', '.join(_MODES)}")
+        trusted_all = params.get("trusted_all_helpers", False)
+        if trusted_all and mode != "maximal":
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "trusted_all_helpers requires mode='maximal'")
+        if trusted_all:
+            from .host_inline_graph import HostInlineGraph
+
+            return HostInlineGraph().run(view, ctx, edits)
         depth = params.get("max_inline_depth", 1)
         if type(depth) is not int or depth < 1:
             return PassResult(Outcome.FAILED, "invalid_params", "max_inline_depth must be a positive integer")
@@ -222,42 +232,52 @@ class HostInline:
     def _run_candidates(self, view, ctx, edits) -> PassResult:
         params = {**self.default_params, "max_sites_per_unit": self.default_sites_per_unit, **ctx.params}
         unbounded_growth = host_inline_mode(params) == "maximal"
-        for key, limit in _LIMITS.items():
-            minimum = 1 if key in ("max_cfg_insns", "max_wall_s") else 0
-            if not minimum <= params[key] <= limit:
-                return PassResult(Outcome.FAILED, "invalid_params",
-                                  f"{key} must be in [{minimum}, {limit}]")
-        unit_site_limit = min(params["max_sites_per_unit"], self.max_sites_per_unit)
-        deadline = min(ctx.deadline, time.monotonic() + params["max_wall_s"])
+        if not unbounded_growth:
+            for key, limit in _LIMITS.items():
+                minimum = 1 if key in ("max_cfg_insns", "max_wall_s") else 0
+                if not minimum <= params[key] <= limit:
+                    return PassResult(Outcome.FAILED, "invalid_params",
+                                      f"{key} must be in [{minimum}, {limit}]")
+        unit_site_limit = None if unbounded_growth else min(
+            params["max_sites_per_unit"], self.max_sites_per_unit)
+        outer_deadline = float("inf") if ctx.deadline is None else ctx.deadline
+        deadline = outer_deadline if unbounded_growth else min(
+            outer_deadline, time.monotonic() + params["max_wall_s"])
         if (view.header.version, view.header.reserved) != (7, 0) or \
                 (ctx.runtime or {}).get("supercache_flat") is not False:
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "native_runtime_unsupported",
                               "requires a non-flat x86-64 canonical public v7 runtime")
         layout = ctx.analysis("envlayout", ScopeRef("snapshot", ctx.snapshot_id)).value
-        if not layout["bound"]:
+        if not layout["bound"] and not params.get("trusted_all_helpers", False):
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "guard_layout_unbound",
                               "native inlining requires an EnvLayout bound to the QEMU image")
-        bridge_path = params["bridge"] or os.environ.get("SCOPT_HOST_INLINE_BRIDGE")
-        if not bridge_path:
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "native_bridge_unavailable",
-                              "configure the checked offline bridge with SCOPT_HOST_INLINE_BRIDGE")
-        try:
-            bridge = Path(bridge_path).resolve(strict=True)
-            bridge_id = sha256_id(bridge.read_bytes())
-            if _bridge_call([str(bridge), "--version"], deadline).strip() != (
-                    b"scopt-native bridge 1 (LLVM/BOLT 20.1.2)"):
-                return PassResult(Outcome.SKIPPED_UNSUPPORTED, "native_bridge_mismatch",
-                                  "requires bridge 1 built with pinned LLVM/BOLT 20.1.2")
-        except (OSError, NativeInlineError) as e:
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "native_bridge_unavailable", str(e))
+        trusted_all = params.get("trusted_all_helpers", False)
+        bridge = None
+        bridge_id = None
+        if not trusted_all:
+            bridge_path = params["bridge"] or os.environ.get("SCOPT_HOST_INLINE_BRIDGE")
+            if not bridge_path:
+                return PassResult(Outcome.SKIPPED_UNSUPPORTED, "native_bridge_unavailable",
+                                  "configure the checked offline bridge with SCOPT_HOST_INLINE_BRIDGE")
+            try:
+                bridge = Path(bridge_path).resolve(strict=True)
+                bridge_id = sha256_id(bridge.read_bytes())
+                if _bridge_call([str(bridge), "--version"], deadline).strip() != (
+                        b"scopt-native bridge 1 (LLVM/BOLT 20.1.2)"):
+                    return PassResult(Outcome.SKIPPED_UNSUPPORTED, "native_bridge_mismatch",
+                                      "requires bridge 1 built with pinned LLVM/BOLT 20.1.2")
+            except (OSError, NativeInlineError) as e:
+                return PassResult(Outcome.SKIPPED_UNSUPPORTED, "native_bridge_unavailable", str(e))
         prepared = prepare_native_images(
             view.working_set.base, backend_revision=BACKEND_REVISION,
-            bridge_version=BRIDGE_VERSION, policy_version=POLICY_VERSION, bridge_sha256=bridge_id)
+            bridge_version=BRIDGE_VERSION, policy_version=POLICY_VERSION,
+            bridge_sha256=bridge_id, trust_files=trusted_all)
         ctx.store.set_input(NATIVE_IMAGES, prepared)
 
         profile = ctx.profile(params["phase"])
         has_profile = profile is not None or ctx.profile(None) is not None
         candidates = []
+        unit_facts = {}
         stats = Counter({"sites_seen": 0, "sites_applied": 0, "emitted_growth_bytes": 0,
                          "selected_tb_entries_proxy": 0})
         if unbounded_growth:
@@ -278,7 +298,9 @@ class HostInline:
                 stats["units_without_udiv"] += 1
                 continue
             scope = ScopeRef("unit", unit.uid)
-            result = ctx.analysis("native-callees", scope)
+            result = ctx.analysis("native-callees", scope,
+                                  min_version=2 if trusted_all else 1)
+            unit_facts[unit.uid] = result
             count = None if profile is None else profile.count(unit.uid, params["phase"])
             entries = None if count is None or not count.known else count.value
             for binding in result.value:
@@ -295,7 +317,7 @@ class HostInline:
                     report(binding, "pinned_unit", entries=entries)
                 elif refusal := self._binding_refusal(binding):
                     report(binding, *refusal, entries=entries)
-                elif callee.size > params["max_callee_bytes"]:
+                elif not unbounded_growth and callee.size > params["max_callee_bytes"]:
                     report(binding, "callee_size_budget", entries=entries)
                 elif not self.consider_cold and has_profile and (
                         entries is None or entries < params["min_tb_entries"]):
@@ -317,7 +339,7 @@ class HostInline:
             entries = candidate.entries
             unit = view.unit(call.uid)
             if (not unbounded_growth and stats["sites_applied"] >= params["max_sites"]
-                    or by_unit[call.uid] >= unit_site_limit):
+                    or unit_site_limit is not None and by_unit[call.uid] >= unit_site_limit):
                 report(binding, "site_budget", entries=entries)
                 continue
             try:
@@ -338,29 +360,29 @@ class HostInline:
                     image_offset=callee.image_offset, symbol=callee.symbol,
                     callee_code=callee.code, native_input_id=prepared.input_id, fragment=frag,
                     bridge_sha256=bridge_id)
-                growth_room = (_UNBOUNDED_GROWTH if unbounded_growth else min(
+                growth_room = (None if unbounded_growth else min(
                     params["max_growth_per_unit"] - growth[call.uid],
                     params["max_total_growth"] - stats["emitted_growth_bytes"]))
                 req = self._prepare_request(unit, req, view.header.code_address, binding, params, growth_room)
+                requests = (req,)
                 if req.splice is not None and (earlier := selected.get(call.uid)):
-                    from ..splice_layout import materialize_splices
+                    from ..splice_layout import prepare_splices_layout
 
                     requests = tuple(sorted((*earlier, req), key=lambda row: row.call_off))
-                    materialize_splices(unit, requests, view.header.code_address)
+                    requests = prepare_splices_layout(unit, requests, view.header.code_address)
             except NativeInlineError as e:
                 report(binding, e.reason, str(e), entries)
                 continue
-            if req.growth > growth_room:
+            if growth_room is not None and req.growth > growth_room:
                 report(binding, "growth_budget", entries=entries)
                 continue
-            if call.uid not in selected:
-                ctx.fact("native-callees", ScopeRef("unit", call.uid))
-            edits.inline_call(req)
-            growth[call.uid] += req.growth
+            old_growth = growth[call.uid]
+            new_growth = sum(row.growth for row in requests)
+            growth[call.uid] = new_growth
             by_unit[call.uid] += 1
-            selected.setdefault(call.uid, []).append(req)
+            selected[call.uid] = list(requests)
             stats["sites_applied"] += 1
-            stats["emitted_growth_bytes"] += req.growth
+            stats["emitted_growth_bytes"] += new_growth - old_growth
             stats["selected_tb_entries_proxy"] += entries or 0
             report(binding, "applied", req.certificate_id, entries)
 
@@ -369,6 +391,10 @@ class HostInline:
                              "sites": diagnostics}, sort_keys=True)
         if not selected:
             return PassResult(Outcome.NO_CHANGE, "no_eligible_native_calls", detail, stats=stats)
+        for uid in sorted(selected):
+            for request in selected[uid]:
+                fact = unit_facts[uid]
+                edits.inline_call(request, reads=(fact,), cites=(fact,), isolated_context=True)
         return PassResult(Outcome.CANDIDATE, self.success_reason, detail,
                           affected=tuple(sorted(selected)), stats=stats)
 
@@ -432,7 +458,8 @@ class HostInlineSplice(HostInline):
         return prepare_splice(unit, request, code_address)
 
     def _prepare_request(self, unit, request: InlineCall, code_address: int,
-                         binding: NativeCallBinding, params, growth_room: int) -> InlineCall:
+                         binding: NativeCallBinding, params,
+                         growth_room: int | None) -> InlineCall:
         from ..link import LinkError
         from ..splice_layout import prepare_splice_layout
         from ..validate_sym.native_udiv_full import is_full_udiv_binding

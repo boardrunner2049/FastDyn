@@ -1007,24 +1007,11 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
     m.plan.order_private_by_predecessor = any(
         record.outcome == Outcome.CANDIDATE and record.params.get("order_private_by_predecessor")
         for record in cand.passes)
-    from .analysis.obs_contract import build_contract
-    from .validate_sym.link_check import hostsym_inputs, summary_provenance
-
-    lay_target = None
-    if env.runtime is not None:
-        from .formats.envlayout_v1 import find_envlayout
-
-        lay_target = find_envlayout(env.runtime.get("qemu_sha256"))
-    lay = lay_target or b3.layout
     rows = b3.summaries()
+    # Normal optimization is a compiler/linker operation.  HostSym inputs and
+    # mutation self-tests are constructed by the explicit audit command, not
+    # on the publication critical path.
     hs = None
-    if lay is not None:
-        from .guard import GuardOffsets
-
-        hs = hostsym_inputs(layout=lay, contract=build_contract(lay, env.runtime or
-                                                                snapshot.runtime),
-                            offsets=GuardOffsets.from_layout(lay), selftest=env.selftest,
-                            provenance=summary_provenance(rows))
     hot = hot_set_bytes(pm.store, b3.units())
     cid = candidate_id or cand.candidate_id
     from .ledger import Ledger
@@ -1043,6 +1030,7 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
                      trusted_v7_exes=env.trusted_v7_exes,
                      summaries=rows, hostsym=hs,
                      hot_set_bytes=hot, passes_byte_delta=m.pass_bytes,
+                     compile_only=True,
                      ledger_rows=led.rows,
                      sidecar_extra={"x_b3_manager": b3_report(cand, m)})
     return {"candidate": cand, "materialized": m, "package": res, "path": "b3",

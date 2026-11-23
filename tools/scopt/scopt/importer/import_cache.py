@@ -346,7 +346,8 @@ def _meta_doc(b, uc: UnitCheck | None, reloc: RelocInfo, origin: str, vaddrs: tu
 def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping[str, Any] | None,
                             uid: str, resolvers: dict, images: dict) -> str | None:
     """Check v3/v4 provenance against the captured runtime's exact ELF bytes."""
-    from ..model.native import UDIV_KINDS, UDIV_TYPEMASK, supports_tcg_integer_abi
+    from ..model.native import (HELPER_GRAPH_KIND, UDIV_KINDS, UDIV_TYPEMASK,
+                                supports_tcg_integer_abi)
     from .native_callee import CalleeResolutionError, NativeCalleeResolver
 
     if runtime is None:
@@ -364,6 +365,7 @@ def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping
         if req.target != uid or helper is None or helper.func != req.target_abs:
             return "native fragment does not identify this unit and captured helper"
         framed = req.splice is not None and req.splice.kind == "frame"
+        helper_graph = req.splice is not None and req.splice.kind == HELPER_GRAPH_KIND
         is_udiv = req.splice is not None and req.splice.kind in UDIV_KINDS
         if is_udiv:
             if (helper.name_str != "udiv" or helper.tcg_flags != 1
@@ -372,7 +374,7 @@ def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping
         elif framed:
             if helper.name_str is not None or helper.tcg_flags != 0 or helper.typemask != 400:
                 return "framed native fragment is not a captured FastDyn callback"
-        elif helper.name_str is None or (helper.tcg_flags & 0xF) != 5:
+        elif not helper_graph and (helper.name_str is None or (helper.tcg_flags & 0xF) != 5):
             return "native fragment is not a captured pure QEMU helper"
         target = context.code_target(helper.func)
         if target is None:
@@ -384,11 +386,12 @@ def _native_binding_problem(binding: Any, context: HostContext, runtime: Mapping
         except CalleeResolutionError as e:
             return f"{e.reason}: {e}"
         expected_role = "plugin" if framed else "qemu"
-        if framed and req.splice.frame_chain != function.frame_chain:
+        if (framed or helper_graph) and req.splice.frame_chain != function.frame_chain:
             return "nested frame bodies differ from the bound executable"
         if (function.role != expected_role
                 or (is_udiv and (function.symbol != req.symbol or function.abi != "sysv-amd64"))
-                or (not framed and not is_udiv and not supports_tcg_integer_abi(function.tcg_typemask))
+                or (not framed and not helper_graph and not is_udiv
+                    and not supports_tcg_integer_abi(function.tcg_typemask))
                 or (req.splice is not None and req.tcg_typemask != function.tcg_typemask)
                 or function.code != req.callee_code or function.image_id != req.image_id
                 or function.elf_address != req.elf_address or function.image_offset != req.image_offset):
@@ -954,6 +957,15 @@ def write_store(res: ImportResult, store: str | os.PathLike,
         _write(tmp / "units.jsonl", canonical_jsonl(res.regions))
         if res.firmware_regions:
             _write(tmp / "firmware-regions.jsonl", canonical_jsonl(res.firmware_regions))
+        try:
+            from .compiler_ir import NAME as COMPILER_IR, write_compiler_ir
+
+            write_compiler_ir(tmp / COMPILER_IR, res.snapshot)
+        except ValueError:
+            # Imported artifacts containing historical native certificates are
+            # still auditable; compiler IR v1 intentionally covers pristine
+            # capture inputs first.
+            pass
         (tmp / "code").mkdir()
         code_files = []
         for u in res.snapshot.units():
@@ -1028,8 +1040,29 @@ def open_snapshot(path: str | os.PathLike) -> CacheSnapshot:
     return res.snapshot
 
 
+def open_compiler_snapshot(path: str | os.PathLike) -> CacheSnapshot:
+    """Open trusted importer IR without replaying importer proof checks.
+
+    Old stores are migrated once by the audited opener; subsequent normal
+    optimization invocations consume the frozen internal representation.
+    """
+    from .compiler_ir import NAME as COMPILER_IR, read_compiler_ir, write_compiler_ir
+
+    d = Path(path)
+    frozen = d / COMPILER_IR
+    if frozen.is_file():
+        return read_compiler_ir(frozen)
+    snapshot = open_snapshot(d)
+    try:
+        write_compiler_ir(frozen, snapshot)
+    except (OSError, ValueError):
+        pass
+    return snapshot
+
+
 def is_store_snapshot(path: str | os.PathLike) -> bool:
     return (Path(path) / "snapshot.json").is_file() and (Path(path) / "cache.sc").is_file()
 
 
-__all__ += ["is_store_snapshot", "check_bundle", "check_runtime_identity"]
+__all__ += ["is_store_snapshot", "open_compiler_snapshot", "check_bundle",
+            "check_runtime_identity"]

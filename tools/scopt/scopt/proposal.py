@@ -38,7 +38,7 @@ from .analysis.api import AnalysisResult
 from .canon import canonical_json, sha256_id
 from .canon import _check as _check_json  # canonical-JSON value check
 from .ids import is_unit_id
-from .model.native import UDIV_KINDS, InlineCall
+from .model.native import HELPER_GRAPH_KIND, UDIV_KINDS, InlineCall
 from .model.snapshot import ANNOT_HASH_PREFIX, LAYOUT_HASH_PREFIX, LAYOUT_SECTIONS, deep_freeze
 from .passes.base import B2_EDIT_KINDS, B3_EDIT_KINDS, EditCapabilityError, EditKind, PassDescriptor
 
@@ -375,14 +375,17 @@ class ProposalBuilder:
                          (payload.target, payload.successor))
         self._edits[-1] = replace(e, payload=payload)
 
-    def inline_call(self, payload: InlineCall) -> None:
+    def inline_call(self, payload: InlineCall, *, reads: Iterable[Any] = (),
+                    cites: Iterable[AnalysisResult] = (),
+                    isolated_context: bool = False) -> None:
         """Propose a checked native replacement for a call in the current unit."""
         self._capability(EditKind.INLINE_CALL)
         if not isinstance(payload, InlineCall):
             raise EditPreconditionError("INLINE_CALL requires an InlineCall payload")
         unit = self._unit(payload.target)
         splice = payload.splice
-        custom_body = splice is not None and (splice.kind == "frame" or splice.kind in UDIV_KINDS)
+        custom_body = splice is not None and (
+            splice.kind in ("frame", HELPER_GRAPH_KIND) or splice.kind in UDIV_KINDS)
         if (payload.unit_hash != unit.content_hash or (not custom_body and not payload.fragment.code)
                 or payload.call_off < 0 or payload.continuation_off > unit.ldst_end
                 or payload.continuation_off != payload.call_off + len(payload.call_bytes)
@@ -395,7 +398,14 @@ class ProposalBuilder:
                     or not splice.code or payload.growth < 0 or payload.growth % 8
                     or unit.code[start:payload.call_off] != splice.prefix):
                 raise EditPreconditionError("INLINE_CALL splice does not match the argument setup")
-        e = self._record(EditKind.INLINE_CALL, {"payload": payload.to_json()}, (payload.target,))
+        context = self.ctx
+        if isolated_context:
+            self.ctx = None
+        try:
+            e = self._record(EditKind.INLINE_CALL, {"payload": payload.to_json()},
+                             (payload.target,), reads=reads, cites=cites)
+        finally:
+            self.ctx = context
         self._edits[-1] = replace(e, payload=payload)
 
     def emit_firmware_region(self, payload: Any) -> None:

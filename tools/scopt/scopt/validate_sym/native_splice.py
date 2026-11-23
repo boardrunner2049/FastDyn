@@ -125,14 +125,17 @@ def _references_splice(insn: Insn, first: int, end: int) -> bool:
 
 
 def _verify_span(unit: TBUnit, request: InlineCall, splice: NativeSplice,
-                 base: int, callers: list[Insn]) -> None:
+                 base: int, callers: list[Insn], *, allow_ldst: bool = False) -> None:
     start, end = request.call_off, request.continuation_off
     first = splice.start_off
-    site, = (s for s in unit.sites if s.kind is SiteKind.HELPER_CALL and s.insn_off == start)
-    _require(site.insn_idx is not None and any(
-        insn.index == site.insn_idx and insn.host_start <= first and end <= insn.host_end
-        for insn in unit.insns
-    ), "splice_origin", "argument load and CALL must belong to one captured guest instruction")
+    site, = (s for s in unit.sites if s.insn_off == start and
+             (s.kind is SiteKind.HELPER_CALL or
+              allow_ldst and s.kind is SiteKind.LDST_HELPER_CALL))
+    _require(site.kind is SiteKind.LDST_HELPER_CALL or
+             site.insn_idx is not None and any(
+                 insn.index == site.insn_idx and insn.host_start <= first and end <= insn.host_end
+                 for insn in unit.insns),
+             "splice_origin", "argument load and CALL must belong to one captured guest instruction")
 
     # Old offsets strictly inside the stitched span have no equivalent
     # entry point. The load entry and the continuation retain their meaning.

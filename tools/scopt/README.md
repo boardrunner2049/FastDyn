@@ -3,8 +3,11 @@
 `scopt` is the offline optimizer for FastDyn QEMU supercache (`.sc`) snapshots. It
 imports a cache that FastDyn's QEMU recorded, runs optimization passes over the cached
 host code (profile-guided layout, cross-TB return specialization, state-sync
-elimination), validates the result, and writes an artifact that FastDyn loads as an
-ordinary warm cache.
+elimination), links and checks the compiler output, and writes an artifact that FastDyn
+loads as an ordinary warm cache. `scopt load` performs only the minimal format/runtime
+preflight. Independent reimport, correspondence, recovery, provenance, symbolic, and
+dynamic proof work is opt-in through `scopt audit`; a published artifact is not thereby
+audited.
 
 All newly published artifacts use one canonical top-level format: **SuperCache v7**.
 Public-only, semantic-extension, safe firmware-region and trusted firmware-region
@@ -26,7 +29,8 @@ the pipeline and `--params` changes parameter values. Both respect the defaults.
 - **Getting started** (fresh machine → first optimized artifact): `docs/getting-started.md`
 - **QEMU** (the `scopt` QEMU branch, build options, binding to one executable, EnvLayout,
   helper effect table): `docs/qemu.md`
-- **Workflow** (prepare → optimize → validate/publish → run → report, timing campaigns):
+- **Workflow** (prepare → optimize/publish → load → optional audit → run → report,
+  timing campaigns):
   `docs/workflow.md`
 - **Native whole-program optimization** combines certified helper splices, guarded cross-TB
   specialization, state cleanup and LLVM layout. Select inlining options on one pass, for example

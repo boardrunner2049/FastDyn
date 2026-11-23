@@ -1,4 +1,4 @@
-"""``scopt optimize`` and ``scopt validate`` (WP10, design §5.6-5.8, §5.11)."""
+"""``scopt optimize``, ``scopt load`` and optional ``scopt audit``."""
 
 from __future__ import annotations
 
@@ -13,23 +13,91 @@ from .select_warm import selection_timing_options
 
 def register(group: click.Group) -> None:
     group.add_command(optimize_cmd)
-    group.add_command(validate_cmd)
+    group.add_command(load_cmd)
+    group.add_command(validate_cmd, name="audit")
+    group.add_command(validate_cmd, name="validate")  # deprecated explicit-audit alias
 
 
-def _open_snapshot(spec: str, store: str | None):
-    from ..importer.import_cache import is_store_snapshot, open_snapshot
+@click.command("load")
+@click.argument("artifact", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--runtime-identity", "runtime_file",
+              type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="RuntimeIdentity to check against the cache header.")
+@click.option("--json", "as_json", is_flag=True)
+def load_cmd(artifact: Path, runtime_file: Path | None, as_json: bool) -> None:
+    """Check only loader-required format, bounds, and runtime compatibility."""
+    from ..canon import hexaddr
+    from ..formats.artifact import SIDECAR
+    from ..formats.sc_v5 import read_sc, structural_findings
+
+    cache = artifact / "cache.sc"
+    if not cache.is_file():
+        raise click.ClickException("artifact has no cache.sc")
+    parsed = read_sc(cache, versions=(7,))
+    problems = list(parsed.header_problems)
+    problems.extend(f"slot {row.slot}: {row.reason}" for row in parsed.skipped[:8])
+    problems.extend(f"{row.code}: {row.detail}" for row in
+                    structural_findings(parsed, scan_zeros=False)
+                    if row.code not in parsed.header_problems)
+    runtime = json.loads(runtime_file.read_text()) if runtime_file else None
+    if runtime is not None:
+        for key in ("runtime_signature", "code_address", "code_size", "prologue_end"):
+            expected = runtime.get(key)
+            actual = hexaddr(getattr(parsed.header, key))
+            if expected is not None and expected != actual:
+                problems.append(f"runtime mismatch: {key} {expected} != {actual}")
+        for key in ("tb_size", "host_page_size", "target_page_bits"):
+            expected = runtime.get(key)
+            actual = getattr(parsed.header, key)
+            if expected is not None and expected != actual:
+                problems.append(f"runtime mismatch: {key} {expected} != {actual}")
+    sidecar = None
+    if (artifact / SIDECAR).is_file():
+        sidecar = json.loads((artifact / SIDECAR).read_text())
+    artifact_runtime = None
+    if (artifact / "runtime_identity.json").is_file():
+        artifact_runtime = json.loads((artifact / "runtime_identity.json").read_text())
+    if runtime is not None:
+        if sidecar is not None and sidecar.get("runtime_identity_id") not in (
+                None, runtime.get("runtime_identity_id")):
+            problems.append("runtime mismatch: runtime_identity_id")
+        if artifact_runtime is not None:
+            for key in ("runtime_identity_id", "qemu_sha256", "plugin_sha256",
+                        "normalized_config_sha256", "cpuinfo", "supercache_flat"):
+                expected = runtime.get(key)
+                actual = artifact_runtime.get(key)
+                if expected is not None and actual is not None and expected != actual:
+                    problems.append(f"runtime mismatch: {key} {expected} != {actual}")
+    doc = {"loadable": not problems, "problems": problems,
+           "version": parsed.header.version, "units": len(parsed.valid_slots),
+           "max_end": parsed.max_end,
+           "assurance": None if sidecar is None else sidecar.get("x_assurance"),
+           "audited": None if sidecar is None else sidecar.get("x_audited")}
+    if as_json:
+        click.echo(json.dumps(doc, indent=2, sort_keys=True))
+    else:
+        click.echo(("loadable" if not problems else "REFUSED") +
+                   f": v{doc['version']}, {doc['units']} units, max_end={doc['max_end']:#x}")
+        for problem in problems:
+            click.echo(f"  {problem}", err=True)
+    if problems:
+        raise click.exceptions.Exit(2)
+
+
+def _open_snapshot(spec: str, store: str | None, *, audit: bool = False):
+    from ..importer.import_cache import (is_store_snapshot, open_compiler_snapshot,
+                                        open_snapshot)
 
     p = Path(spec)
     if not is_store_snapshot(p) and store is not None:
         p = Path(store) / "snapshots" / spec.split(":", 1)[-1]
     if not is_store_snapshot(p):
         raise click.UsageError(f"{spec}: not a store snapshot directory (or id in --store)")
-    return open_snapshot(p)
+    return open_snapshot(p) if audit else open_compiler_snapshot(p)
 
 
 def _splice_generation(snap, stage, store, views, params):
-    """Produce and fully reimport the certified native generation consumed by B3."""
-    from ..importer.import_cache import ImportRejected, import_snapshot, open_snapshot
+    """Compile the native prefix and pass its in-memory IR to the next stage."""
     from ..manager import PipelineError
     from ..validate import optimize
 
@@ -39,17 +107,13 @@ def _splice_generation(snap, stage, store, views, params):
     doc["passes"] = [p.to_json() for p in res.candidate.passes]
     if not res.published or any(p["outcome"] == "failed" for p in doc["passes"]):
         raise PipelineError(f"native prefix rejected: {res.reason or doc['passes']}")
-    cache = Path(res.artifact_dir)
-    manifest = Path(snap.path) / "manifest.json"
-    try:
-        result = import_snapshot(sc=str(cache / "cache.sc"), scms=sorted(cache.glob("cache*.scm")),
-                                 manifest=str(manifest) if manifest.is_file() else None,
-                                 bundle=snap.bundle, runtime_identity=snap.runtime, store=intermediate)
-    except ImportRejected as exc:
-        raise PipelineError(f"native generation reimport failed: {exc}") from exc
-    imported = open_snapshot(result.store_dir)
-    return imported, {"snapshot_dir": str(result.store_dir), "input_snapshot": snap.snapshot_id, "output_snapshot": imported.snapshot_id,
-                      "artifact_dir": str(cache), "artifact_id": res.artifact_id,
+    if res.output_snapshot is None:
+        raise PipelineError("native generation did not return compiler IR")
+    compiled = res.output_snapshot
+    return compiled, {"snapshot_dir": None, "input_snapshot": snap.snapshot_id,
+                      "output_snapshot": compiled.snapshot_id,
+                      "artifact_dir": str(res.artifact_dir), "artifact_id": res.artifact_id,
+                      "assurance": "compiler-produced/user-vouched", "audited": False,
                       "passes": doc["passes"], "validation": doc["validation"]}
 
 
@@ -117,8 +181,8 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @click.option("--b3", "b3_mode", is_flag=True,
               help="B3/B4 mode (design §3.4-3.9, WP21): enable CLONE/REDIRECT_EXIT/ADD_ENTRY/"
                    "ATTACH_FACT/PURE_REWRITE and region-scope passes; package a canonical v7 "
-                   "semantic artifact with "
-                   "hostsym certification (implied by a pipeline that allows a B3 kind).")
+                   "semantic artifact using compiler/linker checks only (implied by a pipeline "
+                   "that allows a B3 kind).")
 @click.option("--runtime-identity", "ri_file", type=click.Path(exists=True, dir_okay=False),
               help="--b3: RuntimeIdentity the artifact targets (default: the snapshot's).")
 @click.option("--v6-exe", "v6_exes", multiple=True,
@@ -130,7 +194,7 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @click.option("--v7-trusted-exe", "trusted_v7_exes", multiple=True,
               help="--b3: trusted firmware-region-v7 exe sha256 (distinct unsafe ABI).")
 @click.option("--selftest", "selftest_file", type=click.Path(dir_okay=False),
-              help="--b3: hostsym V18 self-test document (run and written when stale/absent).")
+              help="Deprecated optimize option; proof self-tests belong to explicit scopt audit.")
 @click.option("--prep", type=click.Path(exists=True, file_okay=False),
               help="--b3: scopt prepare dir (patch-plan content for patch-join).")
 @click.option("--elf", type=click.Path(exists=True, dir_okay=False),
@@ -149,7 +213,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                  ri_file, v6_exes, v7_exes, trusted_v7_exes, selftest_file, prep, elf, as_json,
                  select_with=None, selection_out=None,
                  qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=()):
-    """Run PIPELINE on SNAPSHOT, link, validate (V1-V9) and publish the artifact.
+    """Run PIPELINE on SNAPSHOT, link, check loadability, and publish the artifact.
 
     SNAPSHOT is a store snapshot directory or a SnapshotId in --store. Exit
     status 0 when an artifact is published, 2 when the candidate is rejected
@@ -162,14 +226,16 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
     if bool(select_with) != bool(selection_out):
         raise click.UsageError("Use --select-with and --selection-out together.")
     timing = dict(qemu=qemu, pairs=pairs, seed=seed, timeout_s=timeout, alpha=alpha)
-    from ..formats.artifact import ArtifactError
-    from ..importer.warm_origin import ordinary_warm
+    origin = None
+    if warm_baseline or warm_stage or select_with:
+        from ..formats.artifact import ArtifactError
+        from ..importer.warm_origin import ordinary_warm
 
-    try:
-        origin = ordinary_warm(Path(getattr(snap, "path", None) or snapshot),
-                                          baseline=warm_baseline, prep=prep, stages=warm_stage)
-    except (OSError, KeyError, ValueError, ArtifactError) as exc:
-        raise click.UsageError(f"Invalid ordinary warm baseline evidence: {exc}") from exc
+        try:
+            origin = ordinary_warm(Path(getattr(snap, "path", None) or snapshot),
+                                   baseline=warm_baseline, prep=prep, stages=warm_stage)
+        except (OSError, KeyError, ValueError, ArtifactError) as exc:
+            raise click.UsageError(f"Invalid ordinary warm baseline evidence: {exc}") from exc
     original_snapshot = origin.path if origin else None
     if origin:
         timing["expected_warm_sha256"] = origin.cache_sha256
@@ -278,19 +344,15 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
     from ..analysis.b3_inputs import resolve_for_snapshot
     from ..manager import PipelineError
     from ..manager_b3 import B3Env, optimize_b3
-    from ..validate_sym.selftest import load_or_run
 
     try:
         resolve_for_snapshot(snap, elf=elf, prep=prep)
     except Exception as e:  # noqa: BLE001 - a mismatching input is a usage error
         raise click.UsageError(f"{getattr(e, 'code', type(e).__name__)}: {e}") from e
     ri = json.loads(Path(ri_file).read_text()) if ri_file else None
-    if not selftest_file:  # cached per store; rerun when the kernel or capstone changed
-        Path(store).mkdir(parents=True, exist_ok=True)
-        selftest_file = str(Path(store) / "hostsym_selftest.json")
     env = B3Env(runtime=ri, v6_exes=tuple(v6_exes), v7_exes=tuple(v7_exes),
                 trusted_v7_exes=tuple(trusted_v7_exes),
-                selftest=load_or_run(selftest_file))
+                selftest=None)
     try:
         r = optimize_b3(snap, pl, store, env=env, profiles=views, params=params,
                         disable=disable, only=only, enable=enable)
@@ -334,7 +396,7 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
     sys.exit(0 if pk.status == "published" and doc.get("selection_status") != "error" else 2)
 
 
-@click.command("validate")
+@click.command("audit")
 @click.argument("artifact", type=click.Path(exists=True, file_okay=False))
 @click.option("--snapshot", "snapshot", default=None,
               help="Input snapshot directory (default: <store>/snapshots/<input id> next to "
@@ -378,7 +440,7 @@ def validate_cmd(artifact, snapshot, dynamic, configs, out_dir, reps, qemu, base
                  inputs, input_bank, timeout_s, oracles, mode, fixture_expected,
                  fixture_inputs, o3_json, hit_targets, negative_control, test_policies,
                  as_json):
-    """Re-validate a published ARTIFACT (V1-V9, MANIFEST), or with --dynamic run V10.
+    """Explicitly audit a published ARTIFACT, or with --dynamic run V10.
 
     With --dynamic --oracles O1,O2b,... the B3/B4 dynamic oracles (design §9.4)
     run instead, for canonical v7 artifacts (scopt.run.oracles.dynamic_oracles);
@@ -387,7 +449,7 @@ def validate_cmd(artifact, snapshot, dynamic, configs, out_dir, reps, qemu, base
     Exit status 0 when every check passes, 1 otherwise (incomplete included),
     2 when refused (an artifact on a QEMU lacking its required v7 features; without
     --dynamic, an artifact the static V1-V9 check does not apply to: B3, B4
-    and icount-entry artifacts, which `scopt publish` re-checks).
+    and icount-entry artifacts, whose specialized audit inputs are separate).
     """
     from ..formats.artifact import id_hex, read_artifact
     from ..validate import validate_artifact, validate_dynamic
@@ -446,13 +508,14 @@ def validate_cmd(artifact, snapshot, dynamic, configs, out_dir, reps, qemu, base
     info = read_artifact(artifact)
     why = static_not_applicable(info)
     if why is not None:
-        click.echo(f"REFUSED: static_not_applicable: {why}. Re-check this artifact with "
-                   "`scopt publish` and `scopt validate --dynamic`.", err=True)
+        click.echo(f"REFUSED: static_not_applicable: {why}. This legacy static auditor "
+                   "does not reconstruct specialized B3/firmware-region plans; use "
+                   "`scopt audit --dynamic` for runtime differential checks.", err=True)
         sys.exit(2)
     if snapshot is None:
         snapshot = str(Path(artifact).resolve().parent.parent / "snapshots" /
                        id_hex(info.input_snapshot_id))
-    snap = _open_snapshot(snapshot, None)
+    snap = _open_snapshot(snapshot, None, audit=True)
     try:
         doc = validate_artifact(artifact, snap)
     except ScFormatError as e:

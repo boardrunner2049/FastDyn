@@ -1,7 +1,8 @@
 # Configuration 7: sealed WHOPR
 
-Configuration 7 applies a WHOPR-style whole-program pipeline to a trusted,
-sealed SuperCache.  It does not modify the firmware ELF and does not infer
+Configuration 7 first applies an unbounded trusted QEMU-helper graph transplant,
+then applies a WHOPR-style whole-program firmware-region pipeline to the resulting
+sealed SuperCache.  It does not modify the firmware ELF and does not infer guest
 control flow from exhaustive coverage alone.
 
 ## Mapping from GCC WHOPR
@@ -28,10 +29,69 @@ model, or source-language assumptions:
 
 ## Policy and implementation
 
-`pipelines/sealed-whopr-7.toml` enables `firmware-inline` with an explicit
-unbounded exhaustive policy, trusted no-recovery contract, four partitions,
-and four LTRANS workers.  Partition count distributes work; it never limits
-call count, hotness, depth, region size, or total growth.
+`pipelines/sealed-whopr-7.toml` has two ordered stages:
+
+1. `host-inline` with `mode="maximal", trusted_all_helpers=true`. Every captured
+   QEMU helper site is considered, including cold and unknown-profile sites. The
+   resolver follows exact, same-image direct function edges to a fixed point.
+   Each source function is copied once per call site, so recursive SCCs remain
+   recursive calls and do not require an integer depth limit. There is no helper,
+   instruction, site, per-TB, total-growth, or pass-wall-time profitability bound.
+2. `firmware-inline` with an explicit unbounded exhaustive policy, trusted
+   no-recovery contract, four partitions, and four LTRANS workers. Partition
+   count distributes work; it never limits call count, hotness, depth, region
+   size, or total growth.
+
+The helper transplant replaces the outer TCG helper `CALL` with a flag-neutral
+return-address setup and the copied root. Direct edges between copied functions
+are retargeted internally. Direct edges outside the exact QEMU image and indirect
+calls/jumps remain external and are counted as residual transfers; they are not
+misreported as inlined. The trusted contract excludes CET shadow-stack enforcement,
+asynchronous unwind, and live fault recovery inside these private copies.
+
+## Assurance and command contract
+
+Configuration 7 is intentionally **user-vouched**. `trusted_all_helpers=true` asks the
+compiler to transplant the exact captured QEMU helper graph without the ordinary LLVM
+bridge and per-helper certification gate. The compile receipt records
+`assurance="compiler-produced/user-vouched"` and `audited=false`; publication does not
+turn that trust assertion into a proof.
+
+The command boundaries are:
+
+| command | what it establishes | what it does not establish |
+| --- | --- | --- |
+| `scopt optimize` | Pass execution plus linker-internal format, bounds, overlap, branch-range, relocation, continuation, and emitted-byte readback checks. | Reimported source correspondence, recovery/provenance proof, symbolic equivalence, or runtime behavior. |
+| `scopt load` | Minimal canonical-v7 loadability and optional runtime-header compatibility. | Transformation correctness, helper provenance, or an audited status. |
+| `scopt audit` | Optional expensive static proof work; `--dynamic` adds held-out execution and oracle checks. | A universal proof beyond the declared contract and supplied evidence. |
+
+`load` and `audit` are therefore separate gates, not aliases for publication. A loadable
+configuration-7 artifact remains user-vouched until the requested audit completes, and
+an audit may refuse if required proof inputs or support for the artifact shape are
+missing. Timing evidence must additionally bind the exact artifact loaded by the
+runtime.
+
+“Unbounded” means there is no configured depth, helper, instruction, site, growth,
+fixed-point, or pass-wall-time profitability limit. It does not promise infinite host
+resources. Address-space, memory, encoding, or representation exhaustion must be
+reported as pending/refused work; silently truncating the graph is not a complete
+configuration-7 run.
+
+### Current compiler activation result
+
+On the 38,252-unit compute capture, the exhaustive compiler run discovered 22,025
+native call sites. It embedded all 21,977 QEMU-helper sites from 25 distinct finite
+direct-call graphs; the 48 residual sites were FastDyn plugin callbacks and are outside
+the QEMU-helper policy. Native growth was 1,179,469,856 bytes. The two-stage
+compile/link/publish completed in 569.08 seconds with 15.35 GiB peak RSS. This is setup
+cost, not a runtime speed result. The final cache passed `scopt load` with 38,252 units,
+`max_end=1199284522`, and no loader problems. Its assurance remains
+`compiler-produced/user-vouched`, `audited=false`.
+
+The trusted native stage emitted no derived capture and its receipt reports zero
+pending QEMU sites. The later firmware-region stage emitted 62 regions and separately
+reported 198 pending/refused firmware-call opportunities. Those firmware-region
+refusals do not reduce the complete QEMU-helper count above.
 
 Exact-PC import validates the recorded PC instead of pinning every non-PCREL
 TB.  The optimizer models QEMU's newest-record selection for duplicate exact
@@ -39,7 +99,8 @@ keys.  Unique one-instruction exhaustive records remain valid public fallback
 entries but are not optimization roots.  An internal edge may target only the
 entry of the selected captured TB, never an interior instruction.
 
-The real compute cache contained 38,252 public records.  Configuration 7
+The real compute cache contained 38,252 public records.  The original
+firmware-region-only configuration 7
 discovered and emitted 169 call-site regions containing 3,494 copied members,
 3,994 internal transfers and 1,071,165 private bytes.  It reached acyclic
 depth four.  Three calls retained unpatchable native exits; recursive/missing
@@ -57,6 +118,20 @@ PYTHONPATH=tools/scopt scopt-env/bin/scopt optimize "$SNAP" \
   --runtime-identity runtime-identity.json --v7-trusted-exe "$QEMU_SHA" \
   --prep "$SEALED_PREP" --elf RTOSDemo.out --json
 ```
+
+Check the exact published artifact before deployment. The first command is the minimal
+loader/runtime gate; the second is the optional proof path and can be run separately:
+
+```sh
+PYTHONPATH=tools/scopt scopt-env/bin/scopt load "$ARTIFACT" \
+  --runtime-identity runtime-identity.json --json
+PYTHONPATH=tools/scopt scopt-env/bin/scopt audit "$ARTIFACT" \
+  --snapshot "$SNAP" --json
+```
+
+For held-out behavior evidence, use `scopt audit "$ARTIFACT" --dynamic` with the
+matching configuration, inputs, baseline, and output directory. Do not interpret a
+successful `load` as a successful static or dynamic audit.
 
 Deploy and compile the launcher before timing:
 
@@ -77,7 +152,12 @@ creates zero-filled memory rather than restoring a populated input; the
 measurement driver rejects output changes but cannot reconstruct a missing
 input.
 
-## Result
+## Historical firmware-region-only result
+
+The numbers below predate the unbounded helper-graph prefix. They remain the
+baseline for the firmware WHOPR mechanism but are not performance evidence for
+the current two-stage configuration 7. A current result must show the helper
+receipt and loaded artifact identity before it replaces this table.
 
 All twelve scored runs reproduced the same sixteen register values and left
 both caches unchanged.  Only the firmware `[BENCH][fw]` window is reported.
@@ -128,3 +208,6 @@ above—not subtraction between cross-campaign medians—is the attribution test
   the current benefit is work isolation and deterministic scheduling more than
   guaranteed CPU-parallel speedup.  Process workers are a future setup-time
   optimization and do not affect the measured native result.
+- The unbounded helper prefix can be extremely large. This is an explicit policy,
+  not permission to silently truncate it: resource or representation exhaustion
+  makes configuration 7 incomplete and leaves pending/refused sites in the receipt.

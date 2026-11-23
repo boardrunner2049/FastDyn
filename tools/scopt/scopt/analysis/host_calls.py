@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ..decode.x86 import decode_one
@@ -88,7 +88,9 @@ def build_host_calls(unit: TBUnit, hostops: UnitHostOps,
         at_off = sites.get(off, ())
         site = at_off[0] if len(at_off) == 1 else None
         op = ops.get(off)
-        helper_id = site.aux if site is not None and site.kind is SiteKind.HELPER_CALL else None
+        helper_id = (site.aux if site is not None and
+                     site.kind in (SiteKind.HELPER_CALL, SiteKind.LDST_HELPER_CALL)
+                     else None)
         binding = helpers.get(helper_id)
         guest_index = site.insn_idx if site is not None else (op.insn if op else None)
         mark = max((m for m in marks if m.host_off <= off), key=lambda m: m.host_off, default=None)
@@ -142,6 +144,8 @@ def _compute(ctx: Any, scope: ScopeRef) -> tuple[HostCallSite, ...]:
     return build_host_calls(ctx.unit(scope.id), ops, ctx.header.code_address, ctx.header.target_page_bits)
 
 
-ANALYSES = (AnalysisSpec(name="host-calls", version=1, scope="unit", requires=(("hostops", 1),),
-                         inputs=frozenset({"code", "meta"}), compute=_compute,
-                         result_schema=tuple),)
+_HOST_CALLS_V1 = AnalysisSpec(name="host-calls", version=1, scope="unit",
+                              requires=(("hostops", 1),),
+                              inputs=frozenset({"code", "meta"}), compute=_compute,
+                              result_schema=tuple)
+ANALYSES = (_HOST_CALLS_V1, replace(_HOST_CALLS_V1, version=2))

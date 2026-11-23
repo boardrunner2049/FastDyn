@@ -18,6 +18,7 @@ FULL_UDIV_CLEANUP_KIND = "full-udiv-cleanup"
 FULL_UDIV_KINDS = frozenset((FULL_UDIV_KIND, FULL_UDIV_CLEANUP_KIND))
 GUARDED_UDIV_KINDS = frozenset((UDIV_KIND, UDIV_CLEANUP_KIND, UDIV_29_KIND, UDIV_29_INLINE_KIND))
 UDIV_KINDS = GUARDED_UDIV_KINDS | FULL_UDIV_KINDS
+HELPER_GRAPH_KIND = "trusted-helper-graph"
 # QEMU TCG u32 (env, u32, u32) on the admitted x86-64 SysV host.
 UDIV_TYPEMASK = 2 | (6 << 3) | (2 << 6) | (2 << 9)
 
@@ -97,6 +98,8 @@ class NativeBranchRelaxation:
 
 BRANCH_RELAXATION_GROWTH = 8
 MAX_BRANCH_RELAXATIONS = 8
+# Retained as the historical safe-splice policy limit.  The trusted helper-graph
+# path deliberately does not use it: exhaustive means every captured site.
 MAX_INTEGER_SPLICES = 2
 
 
@@ -133,8 +136,6 @@ class NativeSplice:
     def valid_branch_spans(self, continuation: int, original_code_size: int) -> bool:
         if not self.branches:
             return True
-        if self.kind != "integer" or len(self.branches) > MAX_BRANCH_RELAXATIONS:
-            return False
         previous_end = 0
         for row in self.branches:
             off = row.source_off

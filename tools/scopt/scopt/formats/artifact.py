@@ -5,15 +5,16 @@ Layout of a published artifact (``store/artifacts/<hex of ArtifactId>/``)::
     cache.sc                 v5, written sparsely (holes stay holes)
     cache.sc.scopt.json      provenance sidecar (schemas/artifact_sidecar.v1.json);
                              not named *.fastdyn.json, so QEMU and FastDyn ignore it
-    cache.scm                derived capture (cache.<k>.scm when the import used
-                             several captures), re-import closure
-    regions.jsonl            one CacheRegion v1 per unit, final offsets, slot order
+    compile-receipt.json     compiler/linker checks and user-vouched assurance
     bundle.json              ExecutionBundle of the input snapshot
     runtime_identity.json    RuntimeIdentity of the input snapshot
     profiles.json            {"profiles": [{"profile_id", "verdict"}]}
-    validation.json          one row per V1-V9 check
     ledger.jsonl             outcome ledger rows (§5.9)
     MANIFEST.sha256          "<sha256 hex>  <relative path>" per file above, sorted by path
+
+An explicit ``scopt audit`` may additionally produce proof-oriented validation,
+derived-capture, region, recovery, and provenance outputs. Normal compilation
+does not build those files.
 
 * **ArtifactId** = ``sha256:`` + sha256 of the ``MANIFEST.sha256`` bytes (§4.1).
   The manifest lines are in ``sha256sum`` format, so ``sha256sum -c
@@ -295,9 +296,15 @@ def publish(staging: str | os.PathLike, store: str | os.PathLike, *,
         why = _validation_refusal(staging)
         if why is not None:
             raise ArtifactError(*why)
-        mb = manifest_bytes(staging, known=known)
+        # Hash each staged file at most once.  In particular cache.sc may be a
+        # multi-gigabyte sparse arena; manifest construction and immediate
+        # verification must share the same digest rather than rereading it.
+        digests = dict(known or {})
+        for rel in _files(staging):
+            digests.setdefault(rel, sha256_sparse(staging / rel))
+        mb = manifest_bytes(staging, known=digests)
         _write_bytes(staging / MANIFEST, mb)
-        probs = verify_manifest(staging, known=known)
+        probs = verify_manifest(staging, known=digests)
         if probs:
             raise ArtifactError("manifest_verify", "; ".join(probs[:5]))
         aid = _artifact_id(mb)
