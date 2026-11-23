@@ -23,7 +23,7 @@ The steps in short (each is explained below; none may be skipped):
 4. create a Python 3.12 venv and `pip install -e 'tools/scopt[test]'` (`[test]` brings
    pytest) (§4);
 5. bind scopt to your QEMU (§5): write the environment file `~/scopt.env`
-   (`SCOPT_ENVLAYOUT_PATH`, `SCOPT_HELPER_EFFECTS_PATH`, `SCOPT_V6_EXES`,
+   (`SCOPT_ENVLAYOUT_PATH`, `SCOPT_HELPER_EFFECTS_PATH`, loader capability variables,
    `SCOPT_RUNTIME_QEMU`, `SCOPT_RUNTIME_QEMU_SHA256`, `FASTDYN_ROOT`), then run
    `scopt envlayout produce` and **`scopt helper-effects rebind`** (without it every
    helper call is fail-closed and B3/B4 find little to do);
@@ -74,7 +74,7 @@ If your checkout has no `tools/scopt/docs/getting-started.md`, or `scopt helper-
 branch than this page describes; fetch it again.
 
 The submodule is pinned to the `scopt` branch of `boardrunner2049/qemu`: the FastDyn
-SuperCache base with capture, profiling, the v6 loader, restore support and the FastDyn
+SuperCache base with capture, profiling, the canonical v7 loader, restore support and the FastDyn
 runtime optimizations from `main`. `docs/qemu.md` describes the component revisions.
 
 ## 3. Build QEMU and the FastDyn plugin
@@ -93,7 +93,7 @@ already warm; on a new machine the build and the Python installs take longer.
 
 Naming `--qemu-root` is optional on a fresh checkout. It matters when an already built
 `../qemu` sits next to the checkout: without it, setup.sh prefers that older build, and
-it has neither the capture/profile hooks nor the v6 loader.
+it has neither the capture/profile hooks nor the canonical v7 loader.
 
 setup.sh is FastDyn's general setup, so it does more than scopt needs:
 
@@ -200,7 +200,10 @@ export Q=$PWD/third_party/common/qemu/build/qemu-system-arm    # your QEMU
 export QSHA=$(sha256sum third_party/common/qemu/build/qemu-system-arm | cut -d' ' -f1)
 export SCOPT_ENVLAYOUT_PATH=$HOME/scopt-data/envlayouts
 export SCOPT_HELPER_EFFECTS_PATH=$HOME/scopt-data/helper_effects
+# Compatibility-named semantic capability; publication is canonical v7.
 export SCOPT_V6_EXES=\$QSHA
+export SCOPT_V7_COMPOSITE_EXES=\$QSHA
+export SCOPT_V7_TRUSTED_EXES=\$QSHA
 export SCOPT_RUNTIME_QEMU=\$Q SCOPT_RUNTIME_QEMU_SHA256=\$QSHA   # QEMU for commands without --qemu
 export FASTDYN_ROOT=$HOME/scopt-work                           # your workspace (not the checkout)
 EOF
@@ -244,12 +247,14 @@ rebuild of QEMU, write the file again and repeat this section (see §13).
    GitHub. The public commit `934890ed51` has the same tree, and the rebind compares
    file contents, not commits.
 
-3. **v6 loader.** B3 artifacts use the `.sc` v6 format, which only a QEMU with the v6
-   loader reads. scopt treats an executable as v6-capable when its sha256 is in
-   `SCOPT_V6_EXES` (comma separated), is given to `scopt optimize --v6-exe SHA`, or is
-   the gate binary named by the maintainer's record
-   `$FASTDYN_ROOT/runs/wp22/gate-binary.json` (absent on your machine). These sources
-   add up; with the exports above, your build is the v6-capable one.
+3. **Canonical v7 loader.** Every newly published artifact is top-level `.sc` v7.
+   Public-only artifacts have no payload; cross-TB semantic artifacts and firmware
+   regions select mutually exclusive v7 feature payloads. The compatibility names
+   `SCOPT_V6_EXES` and `--v6-exe` still admit the semantic-extension implementation;
+   they do not request or publish a v6 file. Composite and trusted firmware regions
+   use `SCOPT_V7_COMPOSITE_EXES` / `--v7-exe` and
+   `SCOPT_V7_TRUSTED_EXES` / `--v7-trusted-exe`, respectively. All capability checks
+   bind the executable's exact sha256.
 
 `SCOPT_RUNTIME_QEMU` and `SCOPT_RUNTIME_QEMU_SHA256` name the QEMU that a command
 uses when it is given no `--qemu` (the commands below all pass `--qemu "$Q"`). scopt
@@ -267,7 +272,7 @@ The other two locations scopt uses have defaults:
 
   | path under `$FASTDYN_ROOT` | used for | when it is absent |
   |---|---|---|
-  | `runs/wp22/gate-binary.json` | adds the gate binary's sha256 to the v6-capable executables (item 3 above) | only `SCOPT_V6_EXES` and `--v6-exe` count |
+  | `runs/wp22/gate-binary.json` | adds the historical gate binary's sha256 to the semantic-extension capability set (item 3 above) | only `SCOPT_V6_EXES` and `--v6-exe` add that compatibility-named capability |
   | `wt/qemu-int/build/qemu-system-arm` | the default QEMU of a command without `--qemu`, checked against the WP-QINT sha256 `8864c726…` | no default: `runtime_qemu_unavailable` unless `SCOPT_RUNTIME_QEMU` is set |
   | `runs/b3-explore/wp16/calibration.json` (or `$SCOPT_B3_CALIBRATION`) | measured cost constants for the B3 profitability estimate | the built-in constants |
   | `src/qemu/`, `src/fastdyn/` | the B0 reference binaries, used only by B0 comparisons and the import of B0 caches without capture metadata | those commands report the missing file |
@@ -527,19 +532,19 @@ below), so each store holds the artifacts of one kind.
   0 for `published` or `no_change`, 1 otherwise.
 
 ```sh
-# B2: profile-guided hot/cold layout (.sc v5, any loader)
+# B2: profile-guided hot/cold layout (canonical .sc v7, public-only)
 scopt optimize $SNAP --pipeline b2-layout --profile $W/prof/merged.profile.json \
       --store $W/out/layout --json
 
-# B3: cross-TB return specialization, chaining, constant propagation (.sc v6)
+# B3: cross-TB return specialization, chaining, constant propagation (canonical .sc v7)
 scopt optimize $SNAP --pipeline b3 --b3 --runtime-identity $W/runtime_identity.v2.json \
       --prep $W/prep --profile $W/prof/merged.profile.json \
       --selftest $W/hostsym_selftest.json --store $W/out/b3 --json
 
-# B4: state-sync elimination (.sc v5)
+# B4: state-sync elimination (canonical .sc v7)
 scopt b4 package $SNAP --store $W/out/b4 --runtime $W/runtime_identity.v2.json
 
-# icount-entry store forwarding: a fix of baseline TCG code, not an optimizer result (.sc v5)
+# icount-entry store forwarding: a baseline-TCG fix, published as canonical .sc v7
 scopt sfb package $SNAP --store $W/out/sfb
 ```
 
@@ -574,10 +579,10 @@ Which check applies to which artifact:
 
 | artifact | packaged with | static `scopt validate` | `scopt publish` | `--dynamic` (V10) |
 |---|---|---|---|---|
-| B2 layout, identity (`.sc` v5) | V1-V9 | yes | yes | yes |
-| B3 (`.sc` v6) | V1-V23 (hostsym-certified) | refused, exit 2 | yes, re-checks certification coverage | yes |
-| B4 (`.sc` v5) | V1-V23 (hostsym-certified) | refused, exit 2 | yes, re-checks certification coverage | yes |
-| icount-entry fix (`sfb`, `.sc` v5) | SFB1-SFB9 | refused, exit 2 | yes | yes |
+| B2 layout, identity (public-only `.sc` v7) | V1-V9 | yes | yes | yes |
+| B3 (semantic-extension `.sc` v7) | V1-V23 (hostsym-certified) | refused, exit 2 | yes, re-checks certification coverage | yes |
+| B4 (public-only `.sc` v7) | V1-V23 (hostsym-certified) | refused, exit 2 | yes, re-checks certification coverage | yes |
+| icount-entry fix (`sfb`, public-only `.sc` v7) | SFB1-SFB9 | refused, exit 2 | yes | yes |
 
 Static `scopt validate` re-derives a move-only output: V2 requires every unit to be the
 input's bytes, moved. B3, B4 and the icount-entry fix change unit bytes on purpose and
@@ -649,7 +654,7 @@ chmod -R u+w $W && rm -rf $W
 | `guard_layout_unbound` (B3/B4 reject, `envlayout show` exits 2) | no EnvLayout for this executable's sha256. Run `scopt envlayout produce` (step 5) and check `SCOPT_ENVLAYOUT_PATH` and the file name. |
 | B3/B4 produce almost nothing; helpers show as class `global` | no helper effect table for this executable, so every helper is fail-closed. Run `scopt helper-effects rebind` (step 5); `scopt helper-effects show --exe "$Q"` confirms the binding. |
 | `helper-effects rebind` exits 1 (`helper_sources_differ`) | your QEMU's helper sources differ from the reviewed ones. Review the listed files against the table's rows and write a table for your build (`docs/qemu.md`). |
-| `v6_runtime_required` (V7), `v6_loader_required`, or `validate --dynamic` exits 2 on a v6 artifact | the target QEMU is not known to have the v6 loader. Add its sha256 to `SCOPT_V6_EXES` (or pass `--v6-exe`). A QEMU without the loader cannot run B3 artifacts at all. |
+| `v6_runtime_required` (a compatibility reason code), `v6_loader_required`, or `validate --dynamic` exits 2 on a semantic v7 artifact | the target QEMU is not admitted for the semantic-extension feature. Add its sha256 to `SCOPT_V6_EXES` (or pass `--v6-exe`). These legacy names do not mean the published file is v6. |
 | `unsupported_flat` | set `supercache_flat = false`. |
 | QEMU refuses the supercache / ASLR message | launch under `setarch x86_64 -R` (scopt does this for its own runs). |
 | static `scopt validate` exits 2 with `static_not_applicable` | the artifact is a B3, B4 or icount-entry artifact, which the move-only V1-V9 check does not cover (§10). Use `scopt publish` and `scopt validate --dynamic`. |

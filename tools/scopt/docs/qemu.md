@@ -3,8 +3,8 @@
 scopt works on the persistent TCG cache ("supercache", `.sc`) of FastDyn's QEMU fork.
 It needs three things from QEMU that the stock FastDyn fork does not have: a capture of
 the relocation metadata of every cached translation block (`.scm`), an exact software
-profile of a warm run (`.qprof`), and a loader for the `.sc` v6 format that B3 artifacts
-use. They live on the `scopt` branch of `https://github.com/boardrunner2049/qemu.git`,
+profile of a warm run (`.qprof`), and the canonical `.sc` v7 loader used by every newly
+published artifact. They live on the `scopt` branch of `https://github.com/boardrunner2049/qemu.git`,
 which is what this repository's `third_party/common/qemu` submodule is pinned to.
 
 Build steps are in `docs/getting-started.md` §3. This page explains the branch, what
@@ -15,6 +15,10 @@ each part is for, and how scopt's data is tied to one QEMU executable.
 Base: `12f5e68807` "tcg: add persistent supercache support" (branch `fastdyn`), the
 FastDyn QEMU with the supercache backend (`tcg/supercache.c`, `.sc` v5). On top of it:
 
+The version names in the next table describe historical commits. They are accepted
+ancestry, not alternative current publication formats; current capture and publication
+use canonical v7.
+
 | commit | title | what it adds | used by |
 |---|---|---|---|
 | `00c19f7ee0` | fastdyn: plugin icount compat patch | FastDyn's `patches/qemu-fastdyn-plugin-icount.patch` as a commit: virtual-time plugin API (`qemu_plugin_set_budget_exact_stop`, virtual-time budget timers), QOM/QMP additions | FastDyn itself (all runs) |
@@ -22,12 +26,12 @@ FastDyn QEMU with the supercache backend (`tcg/supercache.c`, `.sc` v5). On top 
 | `409e90ca08` | tcg/sc-capture: Tier 0 preparation capture | `QEMU_SC_CAPTURE=/abs/path.scm`: for every TB committed to the `.sc`, record its relocation sites (helper calls, branches, label jumps, exits, pool entries, slow paths), guest exits, code/guest hashes, host maps and RAM blocks, in the chunked `.scm` v1 format; observe only | `scopt prepare`, `scopt import` |
 | `a0681a6ac3` | accel/tcg: supercache exact software profile | `QEMU_SC_PROFILE=/abs/run.qprof` (+ `QEMU_SC_PROFILE_PHASES=name@0xVADDR,...`): run a warm cache with chaining disabled at run time only, count every TB entry and the edge into it, write `.qprof` v1 at exit | `scopt profile run` |
 | `934890ed51` | tcg/supercache: .sc v6 loader | load and arm the `.sc` v6 extension table (variants, guarded slots, SPEC links); disarm on TLB flush, breakpoints, single-step and plugin changes; `QEMU_SC_V6_STATS=/abs/file` counters. v5 files take the unchanged path; this binary still writes v5 | B3 artifacts, the v6 dynamic oracles |
+| `ff8ec2f` through `2de4376` | firmware-region v7 loader | validate, load, invalidate and index safe/trusted private firmware regions | `firmware-inline` artifacts |
+| `bd331f8` | tcg: make v7 the canonical supercache format | write and load public-only and semantic-extension artifacts under the single top-level v7 format | every newly captured or published cache |
 
-The current submodule pin is `957530a637`. It adds restore support in
-`3b29f46b24` and integrates FastDyn `main` revision `c81bbd4`'s ordered QEMU
-patch series in `57e18f0` and `957530a637`. This includes guest instruction
-fragments, MMIO replacements and saved-PC handling, ARM constant-PC chaining,
-and reduced translation overhead. The pinned source is ready to build.
+The current submodule pin is `bd331f89c3`. It includes the earlier restore and FastDyn
+runtime integration, firmware-region loading, and canonical v7 publication. The pinned
+source is ready to build.
 
 The capture and profile modes run only in preparation runs, are mutually exclusive, and
 refuse a flat supercache. Nothing on the normal vCPU path changes when their variables
@@ -91,13 +95,16 @@ data to the sha256 of `qemu-system-arm`:
   helper without a row, or every helper when no table is bound, is "fail closed": it
   may read and write all of env and host memory and fault. Artifacts stay correct, but
   B3/B4 then cannot move or drop state across helper calls.
-- **v6 capability**: B3 artifacts are `.sc` v6 and are admitted only for executables
-  listed in `SCOPT_V6_EXES` (comma separated sha256), given with `--v6-exe`, or the
-  maintainer's frozen gate binary record.
+- **v7 feature capability**: all new artifacts are top-level v7. Public-only artifacts
+  require the canonical loader. Semantic-extension admission still uses the compatibility
+  names `SCOPT_V6_EXES` / `--v6-exe`; composite firmware regions use
+  `SCOPT_V7_COMPOSITE_EXES` / `--v7-exe`, and trusted regions use
+  `SCOPT_V7_TRUSTED_EXES` / `--v7-trusted-exe`. These are feature capability sets,
+  not competing output versions.
 
 Any rebuild (even of the same sources) changes the sha256 and the runtime signature.
 After a rebuild: prepare again (old snapshots and artifacts do not carry over), produce
-the EnvLayout, rebind the helper effect table, and update `SCOPT_V6_EXES`.
+the EnvLayout, rebind the helper effect table, and update the applicable capability sets.
 
 ### Regenerate the EnvLayout
 

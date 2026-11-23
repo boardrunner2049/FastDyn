@@ -266,7 +266,10 @@ translation context, and fall back to the original lookup path on mismatch.
   `[0.755, 0.790]`; a causal ablation then found a nested region/source linear lookup.
   The corrected indexed runtime measured **1.156x** `[1.132, 1.185]` versus ordinary
   warm across 12 fresh-process paired blocks. Re-enabling only the old lookup on the
-  same binary and artifact reproduced 0.757x `[0.741, 0.765]`. See
+  same binary and artifact reproduced 0.757x `[0.741, 0.765]`. Against capability-matched
+  uncached FastDyn, the corrected trusted artifact measured **6.5168x**
+  `[6.479, 6.573]` inside the guest window over 30 pairs, while full-process speed was
+  0.9574x `[0.950, 0.980]`. This is not an upstream stock-QEMU comparison. See
   `docs/firmware-inline-evaluation.md` and
   `fixtures/firmware-inline/regression-ablations.json`.
 - Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,

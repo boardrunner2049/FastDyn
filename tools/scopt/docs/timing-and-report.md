@@ -22,7 +22,7 @@ scopt run --campaign campaigns/X.toml --out W/timing     # frozen campaign file
 | `warm` | the unoptimized warm cache (primary reference), deployed through the WP8 oracle | without `--warm`, one cold run with the campaign QEMU records it first (`frozen/warm.sc`) |
 | `identity`, `layout`, any other name | an artifact dir or `.sc` from `--artifact NAME=PATH`, deployed through the WP8 oracle | an arm named in `--arms` without an artifact becomes a `not_run` row |
 | `layout-no-<pass>` | `--ablation PASS=PATH` (an artifact optimized with `--disable PASS`) | compared with `layout` (its parent) as well as with `warm` |
-| `semantic`, `combined` | never run | always reported `unsupported` (`capability_not_enabled`, B3/B4 need `.sc` v6) |
+| `semantic`, `combined` | never run without an explicit artifact | otherwise reported `unsupported` (`capability_not_enabled`); supplied artifacts use canonical `.sc` v7 |
 
 How a campaign is run:
 

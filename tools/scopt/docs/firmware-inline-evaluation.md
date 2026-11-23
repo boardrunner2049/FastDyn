@@ -186,6 +186,48 @@ internal edges, reproduced normalized UART output, and appended zero
 translations.  This isolates the prior regression to the lookup implementation
 rather than changed firmware behavior or inactive inlining.
 
+## Matched uncached FastDyn comparison
+
+A separate 30-pair campaign compared the corrected trusted artifact with **uncached
+FastDyn**, using the same pinned QEMU, FastDyn plugin, firmware, device configuration,
+virtual benchmark markers and fixed boot workload.  The harness derived the uncached
+configuration by removing only `[Machine].supercache`; each pair used fresh processes
+in randomized order on CPU 0.  All 60 launches were valid, every trusted replay passed
+the v7 artifact proof and appended zero translations, and guest output was unchanged.
+
+| Configuration | BENCH median | Full-process median |
+| --- | ---: | ---: |
+| uncached FastDyn | 1,113.5 us | 0.2746 s |
+| corrected trusted firmware-inline | 171.0 us | 0.2802 s |
+
+The trusted cache ran the measured guest window **6.5168x faster** than uncached
+FastDyn, with paired bootstrap 95% interval **[6.479, 6.573]** and wins in all 30
+pairs.  The full FastDyn-plus-QEMU process did not improve: its paired speedup was
+**0.9574x** `[0.950, 0.980]`, because this approximately 171 us boot window is dwarfed
+by frontend, deployment and process-start overhead.  Child CPU time was 0.9892x
+`[0.984, 1.009]`, not a supported difference.
+
+The paired campaign is reproduced with the ordinary timing harness; `CONFIG` is the
+matching capture's FastDyn TOML and `TRUSTED_ARTIFACT` is the published artifact
+directory, not a bare cache file:
+
+```sh
+QEMU_SHA=$(sha256sum "$QEMU" | cut -d' ' -f1)
+taskset -c 0 env SCOPT_V7_TRUSTED_EXES="$QEMU_SHA" \
+  PYTHONPATH=tools/scopt python3 -m scopt run -c "$CONFIG" \
+    --arms nocache,trusted --artifact trusted="$TRUSTED_ARTIFACT" \
+    --reference nocache --set fixed --qemu "$QEMU" \
+    --reps 30 --seed 98914 --out "$WORK/nocache-vs-trusted-30"
+```
+
+This is the capability-matched baseline for attributing the optimization.  It is **not
+an upstream stock-QEMU comparison**.  Upstream QEMU cannot load the v7 artifact and
+does not share FastDyn's plugin, virtual markers, in-window argument modifier or device
+configuration.  The existing Trebuchet stock runner also targets a different compute
+workload and marker symbols.  A future upstream-QEMU arm may provide contextual
+performance, but it must be labelled separately and cannot establish the incremental
+firmware-inline effect.
+
 The machine-readable raw samples and identities are in
 `fixtures/firmware-inline/measurement.json`; the regression ablations and fixed
 confirmation are in `fixtures/firmware-inline/regression-ablations.json`.

@@ -6,6 +6,12 @@ host code (profile-guided layout, cross-TB return specialization, state-sync
 elimination), validates the result, and writes an artifact that FastDyn loads as an
 ordinary warm cache.
 
+All newly published artifacts use one canonical top-level format: **SuperCache v7**.
+Public-only, semantic-extension, safe firmware-region and trusted firmware-region
+artifacts are v7 feature modes, not separate file versions. Import may accept an older
+captured cache when a compatibility path explicitly supports it, but publication
+canonicalizes the result to v7; do not describe a new artifact as v5 or v6.
+
 ## Pass defaults
 
 Seven registered passes require explicit opt-in for new optimizations, including custom pipelines:
@@ -128,7 +134,7 @@ tests/
 ## QEMU side
 
 scopt needs the QEMU `scopt` branch (`third_party/common/qemu`): FastDyn's supercache
-plus the capture, profile and `.sc` v6 loader commits. `docs/qemu.md` describes each
+plus the capture, profile and canonical `.sc` v7 loader commits. `docs/qemu.md` describes each
 commit, the build options and how scopt's data binds to one QEMU executable.
 
 Build only the target you need: `make qemu-system-arm` (or `ninja qemu-system-arm`). A
