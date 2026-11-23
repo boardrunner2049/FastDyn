@@ -245,7 +245,7 @@ def test_v7_trusted_uses_one_descriptor_no_search_and_skip_poll_edges(tmp_path):
     tc1 = tc0 + len(code0)
     end = tc1 + len(code1)
     field = len(prefix) + 1
-    code0[field:field + 4] = (tc1 + 11 - (tc0 + field + 4)).to_bytes(
+    code0[field:field + 4] = (tc1 + 15 - (tc0 + field + 4)).to_bytes(
         4, "little", signed=True)
     descriptor = b"\0" * snapshot.header.tb_size
     first = FirmwareMemberLink(
@@ -256,7 +256,7 @@ def test_v7_trusted_uses_one_descriptor_no_search_and_skip_poll_edges(tmp_path):
         source.uid, ("callee",), start, tc1, len(code1), end, 0, descriptor,
         code1, b"", source.content_hash, source.vaddrs[0], (), source)
     region = FirmwareRegionLink("sha256:" + "c" * 64, "sha256:" + "d" * 64,
-                                0, (first, second), (source.uid,), start, end, True, 11)
+                                0, (first, second), (source.uid,), start, end, True, 15)
     link = SimpleNamespace(units=(public,), firmware_regions=(region,),
                            firmware_table_offset=round_up(end, 8))
     link.firmware_table_size = directory_size(link.firmware_regions)

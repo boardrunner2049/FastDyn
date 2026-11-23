@@ -318,7 +318,7 @@ def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
 
 
 CF_USE_ICOUNT = 0x00002000
-TRUSTED_ENTRY_OFFSET = 11
+TRUSTED_ENTRY_OFFSET = 15
 TRUSTED_INSN0_START = 15
 TB_EXIT_IDXMAX = 3
 
@@ -331,7 +331,7 @@ def trusted_firmware_entry_problem(u: TBUnit) -> str | None:
     if u.insn0_start != TRUSTED_INSN0_START or len(code) < TRUSTED_INSN0_START:
         return f"insn0_start={u.insn0_start}"
     if (code[:5] != bytes.fromhex("8b5df885db") or code[5:7] != b"\x0f\x8c" or
-            code[TRUSTED_ENTRY_OFFSET:TRUSTED_INSN0_START] not in
+            code[11:TRUSTED_INSN0_START] not in
             (bytes.fromhex("c645fc00"), bytes.fromhex("c645fc01"))):
         return "trusted_irq_prefix_shape"
     return None

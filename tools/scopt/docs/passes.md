@@ -220,8 +220,9 @@ translation context, and fall back to the original lookup path on mismatch.
   `trust="user", interrupts="disabled", icount="ignored"`. The default remains
   `trust="safe", interrupts="preserved", icount="preserved"`. Trusted mode is accepted
   only for an icount-off capture whose every member has the exact 11-byte non-icount IRQ
-  poll followed by the captured `can_do_io` store. Internal edges skip only that poll;
-  the root still executes it. Trusted v7 uses one descriptor per region, no member search
+  poll followed by the captured four-byte `can_do_io` store. Internal edges skip the
+  complete 15-byte prefix so MMIO cannot observe a stale false value; the root still
+  executes it. Trusted v7 uses one descriptor per region, no member search
   data or live fault/plugin recovery, no guest-code dependency checks, and a distinct
   loader capability. It is therefore suitable only when the user accepts those losses.
 - Example:
