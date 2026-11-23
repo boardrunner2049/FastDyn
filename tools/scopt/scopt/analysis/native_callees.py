@@ -87,7 +87,7 @@ def _verified_captures(snapshot: Any):
         capture = parse_scm(data, path=str(p))
         ids[str(p)] = capture_id
         captures.append(capture)
-    return join(read_sc(d / "cache.sc", versions=(5, 6)), captures), ids
+    return join(read_sc(d / "cache.sc", versions=(7,)), captures), ids
 
 
 def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_version: int,

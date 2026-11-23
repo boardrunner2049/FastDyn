@@ -115,8 +115,7 @@ def package_negative(snapshot: Any, plan: Any, out_dir: str | os.PathLike, *, la
     fixture/oracle that must detect it (both recorded in the tag)."""
     from ..formats import artifact as A
     from ..formats.envlayout_v1 import find_envlayout
-    from ..formats.sc_v5 import ScFormatError, read_sc
-    from ..formats.sc_v6 import LOADER_V6, read_sc6, sc6_snapshot_id
+    from ..formats.sc_v5 import ScFormatError
     from ..guard import GuardError, GuardOffsets
     from ..ledger import Ledger
     from ..link import NativeLinkerV2
@@ -158,9 +157,9 @@ def package_negative(snapshot: Any, plan: Any, out_dir: str | os.PathLike, *, la
                               link=link)
     if ri is not None and runtime is not None:
         A.write_json_file(out / "runtime_identity.json", ri)
-    v6 = getattr(link, "version", 5) == 6
-    out_sid = sc6_snapshot_id(read_sc6(out / "cache.sc")) if v6 else \
-        read_sc(out / "cache.sc").snapshot_id()
+    from ..formats.sc_v7 import canonical_snapshot_id
+
+    out_sid = canonical_snapshot_id(out / "cache.sc")
     tag = {"schema": NEGATIVE_SCHEMA, "label": label, "mutant": mutant, "detector": detector,
            "bypass": list(bypass), "byte_mutation": mutate is not None,
            "reimport": "skipped" if vkw.get("skip_reimport") else "run",
@@ -179,7 +178,7 @@ def package_negative(snapshot: Any, plan: Any, out_dir: str | os.PathLike, *, la
             "duration_s": 0.0}],
         "move_map": link.move_map(), "pinned": [],
         "validation_sha256": "sha256:" + "0" * 64, "tool_versions": A.tool_versions(),
-        "loader_requirement": LOADER_V6 if v6 else A.LOADER_V5,
+        "loader_requirement": A.LOADER_V7,
         NEGATIVE_TAG: tag,
     }
     if link.ext is not None:

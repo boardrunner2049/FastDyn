@@ -229,9 +229,10 @@ class HostInline:
                                   f"{key} must be in [{minimum}, {limit}]")
         unit_site_limit = min(params["max_sites_per_unit"], self.max_sites_per_unit)
         deadline = min(ctx.deadline, time.monotonic() + params["max_wall_s"])
-        if view.header.version != 5 or (ctx.runtime or {}).get("supercache_flat") is not False:
+        if (view.header.version, view.header.reserved) != (7, 0) or \
+                (ctx.runtime or {}).get("supercache_flat") is not False:
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "native_runtime_unsupported",
-                              "requires a non-flat x86-64 SuperCache v5 runtime")
+                              "requires a non-flat x86-64 canonical public v7 runtime")
         layout = ctx.analysis("envlayout", ScopeRef("snapshot", ctx.snapshot_id)).value
         if not layout["bound"]:
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "guard_layout_unbound",

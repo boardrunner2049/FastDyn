@@ -48,9 +48,9 @@ def one(rows, description):
 
 
 def check_runtime(snapshot):
-    require(snapshot.header.version == 5 and
+    require((snapshot.header.version, snapshot.header.reserved) == (7, 0) and
             (snapshot.runtime or {}).get("qemu_sha256") == RUNTIME,
-            "ordinary exits require the reviewed x86-64 QEMU v5 runtime")
+            "ordinary exits require the reviewed x86-64 canonical v7 runtime")
 
 
 def capture(snapshot, join):

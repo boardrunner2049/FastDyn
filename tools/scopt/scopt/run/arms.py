@@ -957,7 +957,7 @@ def _record_warm(c: Campaign, arm: ArmSpec, out: Path) -> dict[str, Any]:
                             f"cold seed run exit {doc.get('exit_code')}; see {root}")
     if doc.get("stray_capture_files"):
         raise CampaignError("warm_seed_failed", f"stray capture files in {root}")
-    sc = read_sc(rd.cache)
+    sc = read_sc(rd.cache, versions=(7,))
     if not sc.loadable or not sc.valid_slots:
         raise CampaignError("warm_seed_failed", f"{rd.cache}: no valid records")
     frozen = out / "frozen"

@@ -169,7 +169,8 @@ def _record_eligible(unit, chunk, pcs):
 
 def validate_restore_hints(data, sc):
     """Parse canonical ASCII and verify every nominated offset/checksum tuple."""
-    require(sc.loadable and sc.header.version == 5 and sc.header.checksum_ok,
+    require(sc.loadable and (sc.header.version, sc.header.reserved) == (7, 0) and
+            sc.header.checksum_ok,
             "invalid cache header/checksum")
     require(not sc.skipped and sc.count == sc.header.record_count, "invalid cache record table")
     rows = data.split(b"\n")[:-1]
@@ -237,8 +238,9 @@ def package_restore_hints(snapshot_dir, config, qemu, store):
     manifest_path = directory / "manifest.json"
     runtime_path = directory / "runtime_identity.json"
     frozen = {p: _fingerprint(p) for p in (config, qemu, sc_path, manifest_path, runtime_path)}
-    sc = read_sc(sc_path)
-    require(sc.loadable and sc.header.version == 5, "invalid v5 cache")
+    sc = read_sc(sc_path, versions=(7,))
+    require(sc.loadable and (sc.header.version, sc.header.reserved) == (7, 0),
+            "invalid canonical public v7 cache")
     require(not structural_findings(sc, scan_zeros=False), "cache has invalid header or records")
     snapshot = open_snapshot(directory)
     require(sc.snapshot_id() == snapshot.snapshot_id, "snapshot/cache content identity mismatch")

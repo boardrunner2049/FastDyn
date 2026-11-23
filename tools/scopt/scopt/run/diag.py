@@ -316,11 +316,13 @@ def diag_exec(run_dir: str | os.PathLike, out: str | os.PathLike, *, nochain: bo
     else:
         parsed = {"trace_lines": 0, "tc_counts": collections.Counter(),
                   "entries": collections.Counter(), "links": []}
-    snap = read_sc(sc, versions=(5, 6))
+    snap = read_sc(sc, versions=(7,))
     base = snap.header.code_address
     snap_tc = {base + snap.records[i].tc_offset: i for i in snap.valid_slots}
     variant_tc: dict[int, int] = {}
-    if snap.header.version == 6:
+    from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+
+    if snap.header.version == 7 and snap.header.reserved & SC7_SEMANTIC_MARKER:
         from ..formats.sc_v6 import read_sc6
 
         f6 = read_sc6(sc)

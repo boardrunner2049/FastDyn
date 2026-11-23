@@ -24,8 +24,10 @@ __all__ = ["SC7_VERSION", "SC7_MAGIC", "SC7_DIRECTORY_VERSION",
            "SC7_REGION_TRUSTED", "SC7_EDGE_TRUSTED_SKIP_POLL",
            "SC7_TRUSTED_ENTRY_OFFSET", "Sc7Directory",
            "directory_size", "loader_requirement",
-           "build_directory", "write_sc7", "read_sc7", "decode_directory",
-           "sc7_snapshot_id", "LOADER_V7", "LOADER_V7_TRUSTED"]
+           "build_directory", "write_sc7", "write_sc7_public",
+           "write_sc7_semantic", "read_sc7", "decode_directory",
+           "sc7_snapshot_id", "canonical_snapshot_id", "LOADER_V7_CANONICAL",
+           "LOADER_V7", "LOADER_V7_TRUSTED"]
 
 SC7_VERSION = 7
 SC7_OFFSET = 0x100
@@ -39,6 +41,7 @@ SC7_EDGE_TRUSTED_SKIP_POLL = 1
 SC7_TRUSTED_ENTRY_OFFSET = 15
 LOADER_V7 = "qemu-sc-v7-composite-firmware-regions"
 LOADER_V7_TRUSTED = "qemu-sc-v7-trusted-firmware-regions"
+LOADER_V7_CANONICAL = "qemu-sc-v7"
 
 _HEADER = struct.Struct("<8sIIIIIIQQQ8sQ8s")
 _REGION = struct.Struct("<8s8sIIIIQQQII")
@@ -240,6 +243,54 @@ def write_sc7(path: str | os.PathLike, header: ScHeader, units: Iterable,
         parsed = read_sc7(path)
         if parsed.artifact_id8 != directory.artifact_id8:
             raise ScFormatError("v7 directory artifact identity changed after write")
+    return out
+
+
+def write_sc7_public(path: str | os.PathLike, header: ScHeader, units: Iterable, *,
+                     check: bool = True, fsync: bool = True) -> ScHeader:
+    """Write a canonical public-only scopt artifact (top-level v7, no payload)."""
+    hdr = header.replace(version=SC7_VERSION, reserved=0)
+    return write_sc(path, hdr, units, check=check, fsync=fsync,
+                    versions=(5, 6, SC7_VERSION))
+
+
+def write_sc7_semantic(path: str | os.PathLike, header: ScHeader, units: Iterable,
+                       ext: Any, variant_bodies: Sequence[bytes] = (), *,
+                       rewritten: bool = False, check: bool = True,
+                       fsync: bool = True, host_page_size: int | None = None) -> ScHeader:
+    """Write canonical v7 with the semantic-extension payload at ``0x100``.
+
+    The payload and low feature bits are deliberately byte-compatible with v6;
+    the high marker distinguishes them from firmware-region v7.
+    """
+    from .sc_v6 import (ARRAYS_OFFSET, EXT_OFFSET, KNOWN_FEATURES,
+                        SC7_SEMANTIC_MARKER, ScExtRefused, read_sc6)
+
+    enc = ext.encode()
+    if ARRAYS_OFFSET + len(enc) - 64 > SC_CODE_OFFSET:
+        raise ScExtRefused("ext_table_too_large",
+                           "the extension arrays do not fit before 0x10000")
+    if check and len(variant_bodies) != len(ext.variants):
+        raise ScFormatError(f"{len(variant_bodies)} variant bodies for "
+                            f"{len(ext.variants)} variants")
+    extra = [(EXT_OFFSET, enc)]
+    for variant, body in zip(ext.variants, variant_bodies):
+        if check and len(body) != variant.end_offset - variant.tc_offset:
+            raise ScFormatError(f"variant {variant.variant_id}: body is {len(body)} bytes, "
+                                f"entry says {variant.end_offset - variant.tc_offset}")
+        extra.append((SC_CODE_OFFSET + variant.tc_offset, bytes(body)))
+    features = ext.features(rewritten=rewritten)
+    if features & ~KNOWN_FEATURES:
+        raise ScFormatError(f"unknown semantic extension features 0x{features:x}")
+    hdr = header.replace(version=SC7_VERSION,
+                         reserved=SC7_SEMANTIC_MARKER | features)
+    out = write_sc(path, hdr, units, check=check, fsync=fsync,
+                   versions=(5, 6, SC7_VERSION), extra=extra)
+    if check:
+        parsed = read_sc6(path, host_page_size=host_page_size)
+        if not parsed.is_semantic_v7 or parsed.problem is not None or parsed.sc.skipped:
+            detail = parsed.problem[1] if parsed.problem is not None else "records skipped"
+            raise ScFormatError(f"canonical semantic extension refused: {detail}")
     return out
 
 
@@ -508,3 +559,17 @@ def sc7_snapshot_id(path: str | os.PathLike) -> str:
             digest.update(hashlib.sha256(code).digest())
             digest.update(hashlib.sha256(search).digest())
     return "sha256:" + digest.hexdigest()
+
+
+def canonical_snapshot_id(path: str | os.PathLike) -> str:
+    """Snapshot identity for any canonical top-level v7 subtype."""
+    sc = read_sc(path, versions=(SC7_VERSION,))
+    if sc.header.reserved == 0:
+        return sc.snapshot_id()
+    from .sc_v6 import SC7_SEMANTIC_MARKER, read_sc6, sc6_snapshot_id
+
+    if sc.header.reserved & SC7_SEMANTIC_MARKER:
+        return sc6_snapshot_id(read_sc6(path))
+    if sc.header.reserved == SC7_FEATURE_FIRMWARE_REGIONS:
+        return sc7_snapshot_id(path)
+    raise ScFormatError(f"unknown canonical v7 feature bits 0x{sc.header.reserved:x}")

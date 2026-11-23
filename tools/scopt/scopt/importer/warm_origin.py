@@ -10,7 +10,7 @@ import tempfile
 
 from ..formats.artifact import ArtifactError, MANIFEST, SIDECAR, read_artifact, verify_manifest
 from ..formats.sc_v5 import sha256_sparse
-from ..formats.sc_v6 import read_sc6, sc6_snapshot_id
+from ..formats.sc_v7 import canonical_snapshot_id
 
 
 @dataclass(frozen=True)
@@ -46,7 +46,7 @@ def _prepared(prep, *, strict=False):
 
 def _stage(path):
     artifact = read_artifact(path)
-    if verify_manifest(path) or artifact.output_snapshot_id != sc6_snapshot_id(read_sc6(path / "cache.sc")):
+    if verify_manifest(path) or artifact.output_snapshot_id != canonical_snapshot_id(path / "cache.sc"):
         raise ValueError(f"optimizer stage failed manifest or output-snapshot verification: {path}")
     _hex(artifact.input_snapshot_id)
     return artifact.output_snapshot_id, artifact.input_snapshot_id
@@ -138,7 +138,7 @@ def ordinary_warm(input_path, *, baseline=None, prep=None, stages=()):
             if digests:
                 digest = "sha256:" + sha256_sparse(candidate / "cache.sc")
                 if digest in digests:
-                    if sc6_snapshot_id(read_sc6(candidate / "cache.sc")) != child:
+                    if canonical_snapshot_id(candidate / "cache.sc") != child:
                         raise ValueError("ordinary warm cache snapshot ID disagrees with its recorded capture")
                     found[(child, digest)] = WarmBaseline(candidate, child, digest)
         parents = set(supplied.get(child, ()))

@@ -62,7 +62,7 @@ __all__ = [
     "KIND_GENERAL", "KIND_SPEC", "EXIT_RETURN", "EXIT_STATIC", "EXIT_DIRECT", "VARIANT_FACTS",
     "VariantEntry", "SlotEntry", "LinkEntry", "ExtTable", "Sc6File", "read_sc6", "write_sc6",
     "ext_problem", "sc6parse_compare", "SC6PARSE", "max_ext_entries", "TB_STRUCT_ROUND",
-    "LOADER_V6", "sc6_snapshot_id", "ScExtRefused",
+    "LOADER_V6", "SC7_SEMANTIC_MARKER", "sc6_snapshot_id", "ScExtRefused",
 ]
 
 SC6_VERSION = 6
@@ -84,6 +84,11 @@ NONE16 = 0xFFFF
 TB_STRUCT_ROUND = 64
 #: sidecar ``loader_requirement`` of a v6 artifact (artifact_sidecar.v1 enum)
 LOADER_V6 = "qemu-sc-v6"
+#: Top-level v7 marker for the legacy semantic-extension payload.  The low
+#: bits retain the v6 feature flags, and the payload remains at ``0x100``.
+#: This lets v5/v6 remain compatibility inputs while new scopt publications
+#: have one top-level version.  Firmware v7 uses bit 0 without this marker.
+SC7_SEMANTIC_MARKER = 1 << 31
 
 _EXT_HDR = struct.Struct("<8sIIIIIHHHHIQ8sQ")
 _VARIANT = struct.Struct("<QQQQQQIIQ")
@@ -457,13 +462,22 @@ class Sc6File:
         return self.sc.loadable and self.sc.header.version == SC6_VERSION
 
     @property
+    def is_semantic_v7(self) -> bool:
+        return (self.sc.loadable and self.sc.header.version == 7 and
+                bool(self.sc.header.reserved & SC7_SEMANTIC_MARKER))
+
+    @property
+    def has_ext(self) -> bool:
+        return self.is_v6 or self.is_semantic_v7
+
+    @property
     def loadable(self) -> bool:
         """The v6 loader would run on it (header valid, and no extension problem)."""
         return self.sc.loadable and self.problem is None
 
     @property
     def features(self) -> int:
-        return self.sc.header.reserved if self.is_v6 else 0
+        return (self.sc.header.reserved & KNOWN_FEATURES) if self.has_ext else 0
 
     @property
     def max_end(self) -> int:
@@ -473,7 +487,7 @@ class Sc6File:
 
     def covered_ranges(self) -> list[tuple[int, int]]:
         """File ranges the v6 parts occupy (for the zero-outside check)."""
-        if not self.is_v6 or self.ext is None:
+        if not self.has_ext or self.ext is None:
             return []
         out = [(EXT_OFFSET, EXT_OFFSET + 64),
                (ARRAYS_OFFSET, ARRAYS_OFFSET + len(self.ext.arrays()))]
@@ -498,9 +512,15 @@ def read_sc6(path: str | os.PathLike, *, host_page_size: int | None = None,
              expect: Mapping[str, int] | None = None) -> Sc6File:
     """Read a v5 or v6 ``.sc`` like the ``qint-v6`` loader does."""
     path = os.fspath(path)
-    sc = read_sc(path, expect=expect, versions=(5, SC6_VERSION))
-    if not sc.loadable or sc.header.version != SC6_VERSION:
+    sc = read_sc(path, expect=expect, versions=(5, SC6_VERSION, 7))
+    semantic_v7 = (sc.loadable and sc.header.version == 7 and
+                   bool(sc.header.reserved & SC7_SEMANTIC_MARKER))
+    if not sc.loadable or (sc.header.version != SC6_VERSION and not semantic_v7):
         return Sc6File(sc)
+    ext_header = sc.header
+    if semantic_v7:
+        # The extension rules consume only the legacy low feature bits.
+        ext_header = sc.header.replace(reserved=sc.header.reserved & KNOWN_FEATURES)
     fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
     try:
         def read(off: int, n: int) -> bytes:
@@ -508,7 +528,7 @@ def read_sc6(path: str | os.PathLike, *, host_page_size: int | None = None,
             return b + bytes(n - len(b))
 
         loaded = [sc.records[i] for i in sc.valid_slots]
-        tab, prob = ext_problem(sc.header, loaded, read, host_page_size=host_page_size)
+        tab, prob = ext_problem(ext_header, loaded, read, host_page_size=host_page_size)
         bodies: tuple[bytes, ...] = ()
         if tab is not None and prob is None:
             bodies = tuple(read(SC_CODE_OFFSET + v.tc_offset, v.end_offset - v.tc_offset)
@@ -528,9 +548,11 @@ def sc6_snapshot_id(f: "Sc6File") -> str:
     import hashlib
 
     sc = f.sc
-    if not f.is_v6 or f.ext is None:
+    if not f.has_ext or f.ext is None:
         return sc.snapshot_id()
-    h = hashlib.sha256(b"scopt.snapshot_id.v6/1")
+    domain = b"scopt.snapshot_id.v7-semantic/1" if f.is_semantic_v7 else \
+        b"scopt.snapshot_id.v6/1"
+    h = hashlib.sha256(domain)
     h.update(sc.snapshot_id().encode())
     h.update(f.ext.encode())
     for b in f.variant_bodies:
@@ -620,6 +642,8 @@ def sc6parse_compare(path: str | os.PathLike, f: Sc6File, *,
     if doc.get("loaded") != mine_loaded:
         probs.append(f"loaded records differ ({len(doc.get('loaded', []))} vs {len(mine_loaded)})")
     want_verdict = ("invalid_header" if not f.sc.loadable else "v5" if h.version == 5 else
+                    ("v7_semantic_ok" if f.problem is None else "v7_semantic_die")
+                    if f.is_semantic_v7 else
                     "v6_ok" if f.problem is None else "v6_die")
     if doc.get("verdict") != want_verdict:
         probs.append(f"verdict {doc.get('verdict')} vs {want_verdict}")

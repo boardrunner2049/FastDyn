@@ -423,10 +423,14 @@ class ImportCache:
         manifest = json.loads(man_bytes) if man_bytes is not None else None
         bchk = check_bundle(self.bundle, manifest, files=self.verify_files)
         with _ShLock(self.sc_path):
-            sc = read_sc(self.sc_path, versions=(5, 6, 7))
+            # The unreleased pipeline has one production cache ABI.  Lower-level
+            # v5/v6 codecs remain available to format tests, but imports must be
+            # recaptured as canonical v7 rather than silently mixing ABIs.
+            sc = read_sc(self.sc_path, versions=(7,))
             f6 = None
             f7 = None
-            if sc.loadable and sc.header.version == 6:
+            if sc.loadable and sc.header.version == 7 and \
+                    sc.header.reserved & (1 << 31):
                 from ..formats.sc_v6 import read_sc6
 
                 f6 = read_sc6(self.sc_path)
@@ -438,7 +442,7 @@ class ImportCache:
                     code = "version" if f6.problem[0] == "ext_table_clear" else "sc6_extension"
                     raise ImportRejected(code, f"{f6.problem[0]}: {f6.problem[1]}")
                 sc = f6.sc
-            elif sc.loadable and sc.header.version == 7:
+            elif sc.loadable and sc.header.version == 7 and sc.header.reserved == 1:
                 from ..formats.sc_v7 import read_sc7
 
                 try:
@@ -446,6 +450,9 @@ class ImportCache:
                 except ScFormatError as exc:
                     code = "version" if sc.header.reserved != 1 else "sc7_extension"
                     raise ImportRejected(code, str(exc)) from exc
+            elif sc.loadable and sc.header.version == 7 and sc.header.reserved != 0:
+                raise ImportRejected("version",
+                                     f"unknown v7 feature bits 0x{sc.header.reserved:x}")
             j = join(sc, self.scm_paths)
         rchk = None
         for f in (j.captures or (None,)):
@@ -913,10 +920,10 @@ def write_store(res: ImportResult, store: str | os.PathLike,
         with _ShLock(res.sc_path):
             sparse_copy(res.sc_path, tmp / "cache.sc")
         os.chmod(tmp / "cache.sc", 0o444)
-        cp = read_sc(tmp / "cache.sc", versions=(5, 6, 7))
+        cp = read_sc(tmp / "cache.sc", versions=(7,))
         if cp.header.version == 7:
-            from ..formats.sc_v7 import sc7_snapshot_id
-            copied_sid = sc7_snapshot_id(tmp / "cache.sc")
+            from ..formats.sc_v7 import canonical_snapshot_id
+            copied_sid = canonical_snapshot_id(tmp / "cache.sc")
         else:
             from ..formats.sc_v6 import read_sc6, sc6_snapshot_id
             cp6 = read_sc6(tmp / "cache.sc")

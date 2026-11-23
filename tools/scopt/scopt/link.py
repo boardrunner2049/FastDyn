@@ -599,10 +599,10 @@ class NativeLinker:
         header = self.header
         growing = [u for u in units if u.native_fragments and u.inline_start is None
                    and not u.splice_applied]
-        if (header.version != 5 or not self.derive_captures
+        if ((header.version, header.reserved) != (7, 0) or not self.derive_captures
                 or any(u.stub_start is not None for u in units)):
             fail = LinkFailure(growing[0].uid, "native_layout_unsupported",
-                               "native growth requires unguarded v5 and derived capture")
+                               "native growth requires canonical public v7 and derived capture")
             return LinkResult(False, header, failures=(fail,))
         modes = {request.splice is not None for u in growing for request in u.native_fragments}
         if len(modes) > 1:
@@ -740,7 +740,7 @@ def capture_join(snapshot: Any) -> Any:
     caps = [d / c for c in meta.get("files", {}).get("captures", [])]
     if not caps:
         return None
-    return join(read_sc(d / "cache.sc", versions=(5, 6)), caps)
+    return join(read_sc(d / "cache.sc", versions=(7,)), caps)
 
 
 def _rewrite_tb(tb: S.TbChunk, link: UnitLink, code_address: int) -> S.TbChunk:
@@ -1805,8 +1805,9 @@ class NativeLinkerV2:
         if v6:
             ext = ExtTable(tuple(variants), tuple(slots), tuple(lks))
             ext = replace(ext, artifact_id8=_artifact_id8(ext, links, vlinks))
-        version = 7 if firmware_links else (6 if v6 else 5)
-        res = LinkResultV2(True, h, tuple(links), version=version, ext=ext,
+        # All newly published scopt artifacts use the canonical top-level v7.
+        # ``ext`` and ``firmware_regions`` select its mutually exclusive payload.
+        res = LinkResultV2(True, h, tuple(links), version=7, ext=ext,
                            variants=tuple(vlinks), grown=grown,
                            rewritten={k: tuple(v) for k, v in plan.rewrites.items()},
                            effective=eff, firmware_regions=firmware_links,

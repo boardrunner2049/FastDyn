@@ -129,7 +129,11 @@ def deployed_state(sc_path: str | os.PathLike,
         recs = _read_exact(fd, n * RECORD_SIZE, roff) if n else b""
         # a real v6 file: version 6 with the EXT_TABLE feature bit (a version-6 header
         # without it is a v5 file with its version field changed, B1-9 / WP18 rework 2)
-        ext = ext_state(fd) if h.version == SC6_VERSION and h.reserved & 1 else None
+        from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+
+        ext = ext_state(fd) if ((h.version == SC6_VERSION and h.reserved & 1) or
+                                (h.version == SC7_VERSION and
+                                 h.reserved & SC7_SEMANTIC_MARKER)) else None
     finally:
         os.close(fd)
     out = {
@@ -148,12 +152,14 @@ def deployed_state(sc_path: str | os.PathLike,
     }
     if ext is not None:
         out.update(ext)
-    if h.version == SC7_VERSION:
+    if h.version == SC7_VERSION and h.reserved == 1:
         from ..formats.sc_v7 import read_sc7, sc7_snapshot_id
 
         directory = read_sc7(sc_path)
-        out.update(firmware_artifact_id8=directory.artifact_id8.hex(),
+        out.update(v7_kind="firmware", firmware_artifact_id8=directory.artifact_id8.hex(),
                    firmware_snapshot_id=sc7_snapshot_id(sc_path))
+    elif h.version == SC7_VERSION:
+        out["v7_kind"] = "semantic" if ext is not None else "public"
     return out
 
 
@@ -202,8 +208,10 @@ def prove(state: dict[str, Any]) -> dict[str, Any]:
                 if post is None:
                     add("v6_header", False, "no header after the run")
                 else:
-                    okv = post.version == SC6_VERSION and post.reserved == dep.reserved
-                    add("v6_header", okv, "" if okv else
+                    want_version = SC7_VERSION if dep.version == SC7_VERSION else SC6_VERSION
+                    okv = post.version == want_version and post.reserved == dep.reserved
+                    add("semantic_header" if want_version == SC7_VERSION else "v6_header",
+                        okv, "" if okv else
                         f"version {dep.version} -> {post.version}, feature_flags "
                         f"{dep.reserved:#x} -> {post.reserved:#x} (a v5-only loader "
                         "truncates a v6 file and writes a fresh v5 header)")
@@ -260,6 +268,7 @@ def prove(state: dict[str, Any]) -> dict[str, Any]:
         "appended": (record_count_after - n) if verdict == VERDICT_PASS else None,
         "record_count_after": record_count_after,
         "file_version": state.get("file_version", dep.version),
+        "v7_kind": state.get("v7_kind"),
     }
 
 
@@ -273,8 +282,10 @@ def frozen_append_counts(run):
     required = {"sc_exists", "header", "records", "inode", "manifest"}
     if proof.get("file_version") == 6:
         required.update(("v6_header", "ext"))
-    elif proof.get("file_version") == 7:
+    elif proof.get("file_version") == 7 and proof.get("v7_kind") == "firmware":
         required.update(("v7_header", "firmware_regions"))
+    elif proof.get("file_version") == 7 and proof.get("v7_kind") == "semantic":
+        required.update(("semantic_header", "ext"))
     if not required <= names or any(c.get("ok") is not True for c in checks):
         raise ValueError("frozen deployment has incomplete cache identity checks")
     initial, after, appended = proof.get("n"), proof.get("record_count_after"), run.get("appended")

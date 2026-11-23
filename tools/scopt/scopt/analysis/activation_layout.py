@@ -337,8 +337,9 @@ def _single_arg(args: list[str], names: tuple[str, ...]) -> str:
 def _bind(snapshot, qemu: Path, config: Path, receipt: Path, protocol: Path,
           manifest: dict | None = None):
     raw, control = _json(receipt), _json(protocol)
-    _require(snapshot.header.version == 5 and snapshot.runtime and snapshot.path,
-             "activation layout requires a stored ordinary v5 snapshot")
+    _require((snapshot.header.version, snapshot.header.reserved) == (7, 0) and
+             snapshot.runtime and snapshot.path,
+             "activation layout requires a stored canonical public v7 snapshot")
     runtime = snapshot.runtime
     _require(runtime.get("supercache_flat") is False, "requires non-flat SuperCache")
     sha = file_sha256(qemu)

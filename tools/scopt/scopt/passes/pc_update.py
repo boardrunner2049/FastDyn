@@ -18,9 +18,10 @@ class FoldExitPcUpdate:
         if ctx.b3 is None or not ctx.b3.layout_bound or not layout_matches(ctx.b3.layout):
             return PassResult(Outcome.SKIPPED_UNKNOWN, "unbound_arm_pc")
         base = ctx.b3.snapshot
-        if (base.header.version != 5 or ctx.b3_state.rewrites or ctx.b3_state.exits
+        if ((base.header.version, base.header.reserved) != (7, 0) or
+                ctx.b3_state.rewrites or ctx.b3_state.exits
                 or ctx.b3_state.variants):
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_original_v5_code")
+            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_canonical_public_v7")
         counts, view = phase_profile_counts(ctx, snap, "steady")
         if view is None:
             return PassResult(Outcome.SKIPPED_UNKNOWN, "missing_steady_profile")

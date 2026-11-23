@@ -9,7 +9,8 @@ import click
 
 from ..compact_nops import Ineligible, compact
 from ..formats.profile_v1 import check_flow, read_profile
-from ..formats.sc_v5 import read_sc, write_sc
+from ..formats.sc_v5 import read_sc
+from ..formats.sc_v7 import write_sc7_public
 from ..formats.scm_v1 import encode_scm
 from ..importer.classify import context_for
 from ..importer.crosscheck import crosscheck_unit
@@ -23,7 +24,7 @@ def register(group):
 def generate(snapshot, profile_path, out, *, max_units=1):
     if max_units < 1:
         raise ValueError("max_units must be positive")
-    sc = read_sc(snapshot / "cache.sc")
+    sc = read_sc(snapshot / "cache.sc", versions=(7,))
     if not sc.loadable or sc.problems or sc.skipped:
         raise ValueError("requires a clean ordinary v5 input with all record slots intact")
     meta = json.loads((snapshot / "snapshot.json").read_text())
@@ -96,7 +97,7 @@ def generate(snapshot, profile_path, out, *, max_units=1):
     with tempfile.TemporaryDirectory(dir=out.parent) as temp:
         stage = Path(temp) / "candidate"
         stage.mkdir()
-        write_sc(stage / "cache.sc", sc.header, units)
+        write_sc7_public(stage / "cache.sc", sc.header, units)
         paths = []
         replacements = {id(bindings.slots[i].chunk): chunk for i, chunk in selected.items()}
         for index, file in enumerate(bindings.captures):
@@ -105,7 +106,7 @@ def generate(snapshot, profile_path, out, *, max_units=1):
             dest = stage / ("cache.scm" if index == 0 else f"cache.{index}.scm")
             dest.write_bytes(encode_scm((file.header, rows)))
             paths.append(dest)
-        result = read_sc(stage / "cache.sc")
+        result = read_sc(stage / "cache.sc", versions=(7,))
         rebound = join(result, paths)
         if (result.problems or result.unit_ids() != identifiers
                 or any(not rebound.slots[i].bound or rebound.slots[i].chunk != expected

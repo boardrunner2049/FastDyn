@@ -257,10 +257,19 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
     reasons = deploy_refusals(art["path"], allow_negative_control=allow_negative_control,
                               test_policies=test_policies)
     info["tags"] = artifact_tags(art["path"])  # a bare .sc too (its dir marker, sidecar)
-    id8 = _ext_id8_of(art["sc"]) if header.version == 6 else None
+    from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+
+    if header.version != 7:
+        reasons.append("legacy_cache_version")
+    semantic = header.version == 7 and bool(header.reserved & SC7_SEMANTIC_MARKER)
+    public = header.version == 7 and header.reserved == 0
+    firmware = header.version == 7 and header.reserved == 1
+    if header.version == 7 and not (public or semantic or firmware):
+        reasons.append("unknown_v7_features")
+    id8 = _ext_id8_of(art["sc"]) if semantic else None
     firmware_id8 = None
     firmware_directory = None
-    if header.version == 7:
+    if firmware:
         try:
             from ..formats.sc_v7 import read_sc7
 
@@ -279,25 +288,23 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
             except (OSError, ValueError):
                 side = None
     if isinstance(side, dict):
-        from ..formats.artifact import LOADER_V5
-        from ..formats.sc_v6 import LOADER_V6
+        from ..formats.artifact import LOADER_V7
         from ..formats.sc_v7 import loader_requirement
 
         lr = side.get("loader_requirement")
         info["loader_requirement"] = lr
         want_lr = (loader_requirement(firmware_directory) if firmware_directory is not None else
-                   None if header.version == 7 else
-                   LOADER_V6 if header.version == 6 else LOADER_V5)
+                   LOADER_V7 if public or semantic else None)
         if want_lr is not None and lr is not None and lr != want_lr:
             reasons.append("loader_requirement_mismatch")
-        if header.version == 6:
+        if semantic:
             sid8 = side.get("x_ext_artifact_id8")
             info["sidecar_ext_artifact_id8"] = sid8
             if sid8 is None:
                 reasons.append("ext_artifact_id_missing")
             elif sid8 != id8:
                 reasons.append("ext_artifact_id_mismatch")
-        elif header.version == 7:
+        elif firmware:
             sid8 = side.get("x_firmware_artifact_id8")
             info["sidecar_firmware_artifact_id8"] = sid8
             if sid8 is None:

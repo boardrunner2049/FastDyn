@@ -634,7 +634,7 @@ def validate_sfb(snapshot: Any, link: SfbLink, art_dir: str | os.PathLike, *,
     h = snapshot.header
     ca = h.code_address
     in_units = {u.uid: u for u in snapshot.units()}
-    sc = read_sc(art / "cache.sc", strict=True)
+    sc = read_sc(art / "cache.sc", strict=True, versions=(7,))
     v.add("SFB1", "records", len(sc.valid_slots) == len(in_units),
           f"{len(sc.valid_slots)} valid records of {len(in_units)}")
     if scparse:
@@ -947,7 +947,7 @@ def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
     """Rebuild the annotated units, link, write a v5 artifact, validate (SFB1-SFB9)
     and publish into ``store`` (or write a rejection)."""
     from ..formats import artifact as A
-    from ..formats.sc_v5 import write_sc
+    from ..formats.sc_v7 import write_sc7_public
     from ..ledger import Ledger
 
     ca = snapshot.header.code_address
@@ -980,7 +980,8 @@ def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
         return reject(f"failed:{link.failure[0]}", link.failure[1], link=link)
     stage = A.staging_dir(store)
     try:
-        write_sc(stage / "cache.sc", snapshot.header, [(x.record, x.body) for x in link.units])
+        write_sc7_public(stage / "cache.sc", snapshot.header,
+                         [(x.record, x.body) for x in link.units])
         for name, data in link.derived_scms:
             (stage / name).write_bytes(data)
         if snapshot.bundle is not None:
@@ -1010,7 +1011,7 @@ def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
                 "outcome": prop.result.outcome.value, "reason": prop.result.reason,
                 "affected": sorted(prop.units), "edit_digest": None, "duration_s": 0.0}],
             "move_map": moves, "pinned": [], "validation_sha256": sha256_id(vb),
-            "tool_versions": A.tool_versions(), "loader_requirement": A.LOADER_V5,
+            "tool_versions": A.tool_versions(), "loader_requirement": A.LOADER_V7,
             "x_candidate_id": candidate_id, "x_labels": [LABEL],
             "x_sfb": {"units": len(rebuilt), "moved": len(link.moved),
                       "skips": dict(Counter(prop.skips.values()))}}

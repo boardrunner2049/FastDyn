@@ -570,11 +570,15 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
     t0 = time.monotonic()
 
     # ---- V1 structural ------------------------------------------------------
-    out = read_sc(out_path)
-    hdr_fields = [k for k in h_in.__dataclass_fields__ if k not in ("checksum", "record_count")]
+    out = read_sc(out_path, versions=(7,))
+    hdr_fields = [k for k in h_in.__dataclass_fields__
+                  if k not in ("checksum", "record_count", "version", "reserved")]
     diff = [k for k in hdr_fields if getattr(out.header, k) != getattr(h_in, k)]
     v.add("V1", "header_equal", not diff,
-          "all header fields except checksum/record_count equal" if not diff else _few(diff))
+          "all header fields except checksum/record_count/version/features equal"
+          if not diff else _few(diff))
+    v.add("V1", "canonical_version", out.header.version == 7 and out.header.reserved == 0,
+          f"version={out.header.version} features={out.header.reserved:#x}")
     canonical_in = len(snapshot.units()) == h_in.record_count
     rc_ok = out.header.record_count == len(link.units) and (
         not canonical_in or out.header.record_count == h_in.record_count)
@@ -760,7 +764,7 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
           "bundle.json and runtime_identity.json equal the input's" if not copies
           else _few(copies))
     lr = None if sidecar is None else sidecar.get("loader_requirement")
-    v.add("V7", "loader_requirement", sidecar is None or lr == A.LOADER_V5, str(lr))
+    v.add("V7", "loader_requirement", sidecar is None or lr == "qemu-sc-v7", str(lr))
 
     # ---- V8 provenance ------------------------------------------------------
     out_sid = out.snapshot_id() if out.loadable else None
@@ -898,7 +902,7 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
             v.add("V9", "identity_sha256", False, "input cache.sc not available",
                   "input_unavailable")
         else:
-            sc_in = read_sc(in_path)
+            sc_in = read_sc(in_path, versions=(7,))
             fin = structural_findings(sc_in)
             in_sha = sha256_sparse(in_path)
             v.data["in_sha256"] = in_sha
@@ -1122,7 +1126,10 @@ class ValidateAndPackage:
     def _package(self, stage: Path, snap: Any, link: LinkResult) -> PackageResult:
         c = self.candidate
         try:
-            write_sc(stage / "cache.sc", snap.header, [(u.record, u.body) for u in link.units])
+            from .formats.sc_v7 import write_sc7_public
+
+            write_sc7_public(stage / "cache.sc", snap.header,
+                             [(u.record, u.body) for u in link.units])
         except ScFormatError as e:
             self.ledger.emit("artifact", c.candidate_id, "compiled", "fail", "write_sc")
             return self._reject("write_sc", link=link, extra={"detail": str(e)})
@@ -1143,7 +1150,7 @@ class ValidateAndPackage:
                                  f"delta:{lu.delta}")
         self.ledger.emit("artifact", c.candidate_id, "compiled", "pass",
                          f"{sum(1 for u in link.units if u.moved)} moved")
-        out = read_sc(stage / "cache.sc")
+        out = read_sc(stage / "cache.sc", versions=(7,))
         pinned = _pinned_rows(c, link)
         sidecar: dict[str, Any] = {
             "schema": "fastdyn.artifact_sidecar", "version": 1,
@@ -1154,7 +1161,7 @@ class ValidateAndPackage:
             "profile_ids": c.profile_rows(), "pipeline": c.pipeline_provenance(),
             "move_map": link.move_map(), "pinned": pinned,
             "validation_sha256": "sha256:" + "0" * 64,  # placeholder until validation.json exists
-            "tool_versions": A.tool_versions(), "loader_requirement": A.LOADER_V5,
+            "tool_versions": A.tool_versions(), "loader_requirement": "qemu-sc-v7",
             "x_candidate_id": c.candidate_id, "x_pipeline_name": c.pipeline.name,
             "x_ablation": dict(c.ablation),
             "x_link": {"attempts": link.attempts,
@@ -1236,7 +1243,7 @@ def artifact_link(snapshot: Any, art_dir: str | os.PathLike) -> LinkResult:
     from .ordinary_exit import retired_slots
 
     root = Path(art_dir)
-    out = read_sc(root / "cache.sc")
+    out = read_sc(root / "cache.sc", versions=(7,))
     captures = sorted(root.glob("*.scm"))
     binding = join(out, captures).slots if captures and out.loadable else {}
     if not out.loadable:
@@ -1288,9 +1295,9 @@ def static_not_applicable(info: Any) -> str | None:
     (:func:`certification_problems`, manifest, stored validation, output
     SnapshotId) and by ``scopt validate --dynamic``."""
     side = info.sidecar or {}
-    if side.get("loader_requirement") not in (None, A.LOADER_V5):
+    if side.get("loader_requirement") not in (None, A.LOADER_V7):
         return (f"loader_requirement {side.get('loader_requirement')!r}: static "
-                "re-validation reads .sc v5 only")
+                "re-validation accepts canonical public-only v7")
     val = info.validation or {}
     codes = set(val.get("codes") or {})
     codes |= {r.get("code") for r in val.get("rows") or () if isinstance(r, Mapping)}
@@ -1921,7 +1928,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
     (:func:`scopt.validate_sym.link_check.hostsym_inputs`), which runs the
     kernel on this ``link``; :func:`package_b3` passes it through.
     """
-    if getattr(link, "version", 5) == 7:
+    if getattr(link, "firmware_regions", ()):
         return validate_firmware_v7(snapshot, link, art_dir, sidecar=sidecar,
                                     runtime=runtime, v7_exes=v7_exes,
                                     trusted_v7_exes=trusted_v7_exes,
@@ -1951,16 +1958,18 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
     # ---- V1 structural (v6-aware) -------------------------------------------------
     f6 = read_sc6(out_path)
     out = f6.sc
-    is_v6 = f6.is_v6
-    want_v = 6 if getattr(link, "version", 5) == 6 else 5
+    has_ext = f6.has_ext
+    want_v = 7
     hdr_fields = [k for k in h_in.__dataclass_fields__
                   if k not in ("checksum", "record_count", "version", "reserved")]
     diff = [k for k in hdr_fields if getattr(out.header, k) != getattr(h_in, k)]
     v.add("V1", "header_equal", not diff,
           "header equal except checksum/record_count (and version/feature_flags for v6)"
           if not diff else _few(diff))
-    v.add("V1", "version", out.header.version == want_v and (want_v == 6 or
-                                                            out.header.reserved == h_in.reserved),
+    expected_reserved = ((1 << 31) | (0 if f6.ext is None else f6.ext.features(
+        rewritten=bool(grown or rewritten)))) if getattr(link, "ext", None) is not None else 0
+    v.add("V1", "version", out.header.version == want_v and
+          out.header.reserved == expected_reserved,
           f"version {out.header.version} (expected {want_v}), feature_flags "
           f"{out.header.reserved:#x}")
     v.add("V1", "record_count", out.header.record_count == len(link.units),
@@ -2162,11 +2171,12 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
         v.add("V7", "supercache_flat", ri.get("supercache_flat") is False,
               f"supercache_flat={ri.get('supercache_flat')!r}", "unsupported_flat")
     lr = None if sidecar is None else sidecar.get("loader_requirement")
-    want_lr = LOADER_V6 if is_v6 else A.LOADER_V5
+    from .formats.sc_v7 import LOADER_V7_CANONICAL
+    want_lr = LOADER_V7_CANONICAL
     v.add("V7", "loader_requirement", None if sidecar is None else lr == want_lr,
           f"{lr} (expected {want_lr})" if sidecar is not None
           else f"no sidecar given (checked by package_b3; expected {want_lr})")
-    if is_v6:
+    if has_ext:
         exe = _ri_exe(ri)
         caps = v6_capable_exes(v6_exes)
         v.add("V7", "v6_capable_runtime", exe is not None and exe in caps,
@@ -2227,12 +2237,15 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
 
     # ---- V9 / V9' ---------------------------------------------------------------------------
     no_edit = plan is not None and plan.empty
-    if no_edit and not is_v6:
-        sp = getattr(snapshot, "path", None)
-        ok9 = sp is not None and sha256_sparse(Path(sp) / "cache.sc") == sha256_sparse(out_path)
-        v.add("V9", "identity_sha256", ok9, "identity pipeline: sha256 equal to the input",
-              "identity_sha256_mismatch")
-    elif no_edit and is_v6:
+    if no_edit and not has_ext:
+        same = out.loadable and [out.record_bytes[i] for i in out.valid_slots] == \
+            [u.record for u in snapshot.units()] and \
+            [out.bodies[i] for i in out.valid_slots] == [u.code + u.search
+                                                        for u in snapshot.units()]
+        v.add("V9", "identity_v7", same,
+              "canonical identity: public records and code bytes equal; v7 has no payload",
+              "identity_v7_mismatch")
+    elif no_edit and has_ext:
         same = out.loadable and [out.record_bytes[i] for i in out.valid_slots] == \
             [u.record for u in snapshot.units()] and \
             [out.bodies[i] for i in out.valid_slots] == [u.code + u.search
@@ -2244,7 +2257,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
         v.add("V9", "identity_sha256", None, "not an identity candidate")
 
     # ---- V11 ext table -----------------------------------------------------------------------
-    if is_v6:
+    if has_ext:
         v.add("V11", "ext_rules", f6.problem is None,
               "every §5.3/§5.4 rule (+ WP22 additions) holds offline" if f6.problem is None
               else f"loader would die: {f6.problem[0]}: {f6.problem[1]}",
@@ -2259,7 +2272,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
               (sidecar is None or side_aid == aid),
               f"ext artifact_id8 {aid}; sidecar x_ext_artifact_id8 {side_aid}")
     else:
-        v.add("V11", "ext_rules", None, "v5 artifact: no extension table")
+        v.add("V11", "ext_rules", None, "canonical public-only artifact: no extension table")
 
     # ---- V13 guarded-chain contract (structural) ------------------------------------------------
     off = None
@@ -2888,22 +2901,23 @@ __all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v
 # ---------------------------------------------------------------------------
 
 def write_b3_files(stage: str | os.PathLike, snapshot: Any, link: Any) -> None:
-    """Write ``cache.sc`` (v5 or v6), the derived captures and the identity
+    """Write canonical top-level-v7 ``cache.sc``, derived captures and identity
     files of a :class:`~scopt.link.LinkResultV2` into ``stage``."""
-    from .formats.sc_v6 import write_sc6
+    from .formats.sc_v7 import write_sc7_public, write_sc7_semantic
 
     st = Path(stage)
     st.mkdir(parents=True, exist_ok=True)
     parts = [(u.record, u.body) for u in link.units]
-    if getattr(link, "version", 5) == 7:
+    if getattr(link, "firmware_regions", ()):
         from .formats.sc_v7 import write_sc7
 
         write_sc7(st / "cache.sc", snapshot.header, parts, link)
-    elif getattr(link, "version", 5) == 6:
-        write_sc6(st / "cache.sc", snapshot.header, parts, link.ext,
-                  [x.body for x in link.variants], rewritten=bool(link.grown or link.rewritten))
+    elif getattr(link, "ext", None) is not None:
+        write_sc7_semantic(st / "cache.sc", snapshot.header, parts, link.ext,
+                           [x.body for x in link.variants],
+                           rewritten=bool(link.grown or link.rewritten))
     else:
-        write_sc(st / "cache.sc", snapshot.header, parts)
+        write_sc7_public(st / "cache.sc", snapshot.header, parts)
     for name, data in link.derived_scms:
         (st / name).write_bytes(data)
     if snapshot.bundle is not None:
@@ -3154,14 +3168,9 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             return _reject_b3(store, candidate_id, "write_sc", led, link, None, str(e))
         if ri is not None and runtime is not None:
             A.write_json_file(stage / "runtime_identity.json", ri)
-        if link.version == 7:
-            from .formats.sc_v7 import sc7_snapshot_id
+        from .formats.sc_v7 import canonical_snapshot_id
 
-            out_sid = sc7_snapshot_id(stage / "cache.sc")
-        else:
-            from .formats.sc_v6 import read_sc6, sc6_snapshot_id
-
-            out_sid = sc6_snapshot_id(read_sc6(stage / "cache.sc"))
+        out_sid = canonical_snapshot_id(stage / "cache.sc")
         if pipeline is None:
             pdoc = {"grow": sorted(plan.grow), "variants": len(plan.variants),
                     "rewrites": sorted(plan.rewrites)}
@@ -3182,8 +3191,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             "validation_sha256": "sha256:" + "0" * 64, "tool_versions": A.tool_versions(),
             "loader_requirement": ((LOADER_V7_TRUSTED
                                     if link.firmware_regions[0].trusted else LOADER_V7)
-                                   if link.version == 7 else
-                                   LOADER_V6 if link.version == 6 else A.LOADER_V5),
+                                   if link.firmware_regions else A.LOADER_V7),
             "x_candidate_id": candidate_id,
             "x_b3": {"grown": sorted(link.grown), "rewritten": sorted(link.rewritten),
                      "variants": [x.key for x in link.variants],
@@ -3191,7 +3199,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
         }
         if link.ext is not None:
             sidecar["x_ext_artifact_id8"] = bytes(link.ext.artifact_id8).hex()
-        if link.version == 7:
+        if link.firmware_regions:
             from .formats.sc_v7 import read_sc7
 
             sidecar["x_firmware_artifact_id8"] = \
@@ -3210,7 +3218,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
                               link, val)
         if res is None:  # cannot happen when V8 passed; fail closed anyway
             return _reject_b3(store, candidate_id, "reimport_failed", led, link, val)
-        unc = ([]) if link.version == 7 else (
+        unc = ([]) if link.firmware_regions else (
             uncertified_rows(val, link, plan) if not plan.empty else [])
         if unc and not allow_uncertified:
             return _reject_b3(store, candidate_id, "certification_not_run", led, link, val,
@@ -3230,7 +3238,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
         sidecar["validation_sha256"] = sha256_id(vb)
         A.write_json_file(stage / A.SIDECAR, sidecar)
         (stage / A.REGIONS).write_bytes(b"".join(canonical_json(r) + b"\n" for r in regions))
-        if link.version == 7:
+        if link.firmware_regions:
             (stage / "firmware-regions.jsonl").write_bytes(
                 b"".join(canonical_json(r) + b"\n" for r in res.firmware_regions))
         A.write_json_file(stage / A.PROFILES, {"profiles": list(profile_ids)})
