@@ -32,6 +32,15 @@ def test_layout_runs_after_growth(tmp_path):
     assert names[-1] == "order-cold"
 
 
+def test_firmware_region_candidates_bind_the_matching_loader_capability(tmp_path):
+    image = dict(profile="train", snapshot="ordinary", prep="capture", firmware="guest",
+                 admission_runtime="identity", runtime=__file__)
+    safe, _, _ = optimizer_args("firmware-inline", image, "parent", tmp_path, {}, [])
+    trusted, _, _ = optimizer_args("whopr7", image, "parent", tmp_path, {}, [])
+    assert "--v7-exe" in safe and "--v7-trusted-exe" not in safe
+    assert "--v7-trusted-exe" in trusted and "--v7-exe" not in trusted
+
+
 def test_identity_changes_with_guest_and_restore_metadata(tmp_path):
     for name in ("cache.sc", "bundle.json", "runtime_identity.json", "fw", "cfg", "qemu"):
         (tmp_path / name).write_bytes(name.encode())

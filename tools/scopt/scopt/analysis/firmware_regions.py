@@ -12,21 +12,28 @@ from ..formats.region_v1 import unit_exits
 from ..model.firmware_region import (
     FirmwareCallSite, FirmwareRegionEdge, FirmwareRegionMember, FirmwareRegionPlan,
 )
-from .firmware_calls import FirmwareCalls, compatible_units
+from .firmware_calls import (FirmwareCalls, compatible_units,
+                             firmware_compatibility_index)
 
 __all__ = ["build_firmware_region"]
 
 
 def build_firmware_region(snapshot: Any, image: Any, calls: FirmwareCalls,
-                          root: FirmwareCallSite) -> FirmwareRegionPlan:
+                          root: FirmwareCallSite, *,
+                          units: tuple[Any, ...] | None = None,
+                          by_uid: dict[str, Any] | None = None,
+                          compatibility: dict[tuple[int, int, int, int], str] | None = None,
+                          ) -> FirmwareRegionPlan:
     """Expand one eligible call through captured acyclic callees to a fixed point.
 
     There is deliberately no depth, iteration, member, site, hotness, or growth
     bound.  Ordinary CFG backedges terminate through the visited-member set;
     recursive call edges are retained as side exits.
     """
-    units = tuple(snapshot.units())
-    by_uid = {u.uid: u for u in units}
+    units = tuple(snapshot.units()) if units is None else units
+    by_uid = {u.uid: u for u in units} if by_uid is None else by_uid
+    compatibility = (firmware_compatibility_index(units)
+                     if compatibility is None else compatibility)
     call_by_exit = {(c.source_uid, c.exit_id): c for c in calls.calls}
     members: list[FirmwareRegionMember] = []
     member_index: dict[tuple[str, tuple[str, ...]], int] = {}
@@ -122,7 +129,8 @@ def build_firmware_region(snapshot: Any, image: Any, calls: FirmwareCalls,
                 continue
             target = exit_.static_dest_vaddr
             if target is not None:
-                candidates = compatible_units(units, unit, target)
+                candidates = compatible_units(units, unit, target,
+                                              index=compatibility)
                 if len(candidates) == 1:
                     target_member = member(candidates[0], context, "callee")
                     edges.append(FirmwareRegionEdge(source_member, exit_.id, "branch",

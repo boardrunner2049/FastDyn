@@ -90,21 +90,32 @@ A first version that replayed only one-instruction coverage records took
 into one TB per guest instruction.  Retaining ordinary hot TBs reduced dynamic
 chain installs from 10,299 to about 1,340 in diagnostic runs.
 
-## Whole-program optimization direction
+## Configuration 7: sealed WHOPR
 
-Sealed firmware permits a WHOPR-style optimizer structure, but exhaustive
-coverage records and optimization roots must be distinct.  The current cache
-contains one-instruction fallback entries for every Thumb halfword; treating
-all of them as ordinary roots made the existing whole-snapshot B3 validation
-fail with `V6:unwind`.
+`sealed-whopr-7` implements the whole-program structure without treating the
+exhaustive one-instruction coverage layer as observed control flow.  Its LGEN
+stage summarizes verified hot TBs, WPA constructs the firmware call graph and
+SCCs and creates balanced partitions, and parallel LTRANS jobs construct the
+call-site-specific private regions.  Recursive edges and three native exits
+that could not be patched remain ordinary side exits.
 
-The next implementation step is a global discovery phase over verified guest
-calls and translation keys, SCC decomposition to retain recursive edges, and
-partitioned local optimization of acyclic regions.  A final global link phase
-can then assign variable-size private regions, relocate branches and recovery
-metadata, and keep exact-index side exits for dynamic or unsupported targets.
-This is the appropriate place to expand `firmware-inline` to a fixed point;
-coverage alone is not permission to infer a control-flow edge.
+The FreeRTOS compute artifact embedded 169 regions, 3,494 copied TB members,
+3,994 internal transfers and 1,071,165 private bytes.  Maximum acyclic inline
+depth was four.  Export, reimport, source identity, directory, internal-edge,
+loader-capability and final-byte validation all passed.
+
+Six alternating compiled-launch process pairs on CPU 2 measured a trusted
+sealed baseline median of **1.083271 s** and configuration 7 median of
+**1.063933 s**.  The median paired speedup was **1.0187x**, bootstrap 95%
+interval **1.0046-1.0292x**, with all six pairs favoring configuration 7.
+In a same-artifact control, enabled regions beat `no-regions` by **1.0321x**
+`[1.0096, 1.0654]`; the difference between that mechanism result and the net
+gain is container/activation overhead.  All runs reproduced the sixteen
+reported registers and neither cache changed.  Preparation, optimization,
+deployment, launch compilation, and process setup are outside `[BENCH][fw]`.
+
+Implementation, commands, raw rows and limitations are in
+[`sealed-whopr-7.md`](sealed-whopr-7.md).
 
 ## Remaining limitations
 

@@ -216,6 +216,14 @@ translation context, and fall back to the original lookup path on mismatch.
   depth, fixed-point iterations, and pass wall time are explicitly unbounded (`None`).
   The physical TCG arena remains a real resource; exhaustion rejects an incomplete
   artifact and records pending work.
+- Whole-program control: `planner="whopr"` enables the sealed-firmware LGEN/WPA/LTRANS
+  path. LGEN records a compact per-TB native-size and call summary. WPA constructs the
+  verified firmware call graph, keeps recursive SCCs atomic, and chooses deterministic
+  balanced partitions while preferring cuts with fewer crossing calls. LTRANS constructs
+  independent call-site regions in parallel. `partitions` and `workers` control work
+  distribution only; they are not size, hotness, depth, or growth limits. The public
+  exhaustive fallback TBs remain loadable but are deliberately excluded from optimizer
+  roots unless the training capture observed that exact entry.
 - Unsafe trusted control is explicit and all-or-nothing:
   `trust="user", interrupts="disabled", icount="ignored"`. The default remains
   `trust="safe", interrupts="preserved", icount="preserved"`. Trusted mode is accepted
@@ -252,6 +260,14 @@ translation context, and fall back to the original lookup path on mismatch.
     --host-pc 0xHOST_PC --json
   ```
 
+  Configuration 7 selects the unbounded WHOPR planner directly:
+
+  ```sh
+  scopt optimize "$SNAP" --pipeline sealed-whopr-7 --store "$OUT" --b3 \
+    --prep "$PREP" --elf firmware.elf --runtime-identity runtime_identity.json \
+    --v7-trusted-exe "$QEMU_SHA" --json
+  ```
+
 - Artifact/receipt: `fastdyn.firmware_region_plan@1` records source content hashes,
   full TB keys, call-site IDs, inline contexts, members, internal/side-exit edges and
   pending work. The v7 directory is arena-resident, so it does not inherit v6's fixed
@@ -275,6 +291,14 @@ translation context, and fall back to the original lookup path on mismatch.
   0.9574x `[0.950, 0.980]`. This is not an upstream stock-QEMU comparison. See
   `docs/firmware-inline-evaluation.md` and
   `fixtures/firmware-inline/regression-ablations.json`.
+
+  On the exhaustive FreeRTOS compute cache, configuration 7 discovered and embedded
+  169 call-site regions (3,494 copied TB members and 3,994 internal transfers, maximum
+  acyclic depth four). Six pinned paired blocks measured 1.064 s versus 1.083 s for
+  trusted sealed replay: **1.0187x** `[1.0046, 1.0292]`. Disabling regions in the same
+  artifact measured a **1.0321x** `[1.0096, 1.0654]` benefit for region execution itself;
+  container/activation costs consume part of that gain. Setup and Python frontend time
+  are excluded. See `docs/sealed-whopr-7.md`.
 
 - Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,
   `scopt/analysis/firmware_regions.py`, `scopt/formats/sc_v7.py`, and the v7 loader in

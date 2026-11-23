@@ -283,7 +283,15 @@ def crosscheck_unit(u: ScUnit, chunk: TbChunk, hdr: ScHeader, ctx: HostContext, 
         uc.check("vaddr_word0", insns[0].words[0] == chunk.vaddr & pmask,
                  f"word0 0x{insns[0].words[0]:x} vaddr 0x{chunk.vaddr:x}", "vaddr_mismatch")
     elif not is_pcrel(r.cflags):
-        uc.check("pcrel", False, f"cflags 0x{r.cflags:x} without CF_PCREL", "unsupported_guest")
+        # Whole-firmware sealed captures deliberately use exact-PC keys so
+        # every Thumb halfword has a distinct fail-closed cache entry.  The
+        # absolute PC is carried by both the public record and capture chunk;
+        # validate that identity instead of requiring the ordinary CF_PCREL
+        # page-offset encoding.  Search rows in this mode are independently
+        # decoded with ``pc=r.pc`` below.
+        uc.check("exact_pc", chunk.vaddr == r.pc,
+                 f"capture vaddr 0x{chunk.vaddr:x} record pc 0x{r.pc:x}",
+                 "vaddr_mismatch")
     if uc.meta_status != "ok":
         return uc
 

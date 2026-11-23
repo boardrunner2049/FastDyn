@@ -1,0 +1,78 @@
+{
+  "schema": "trebuchet.sealed_whopr_result/1",
+  "date": "2026-11-23",
+  "experiment_id": "A29-sealed-whopr-7-compute",
+  "opportunity_ids": ["A28", "A29", "A30"],
+  "application": "FreeRTOS compute O0-fb",
+  "pipeline": "sealed-whopr-7",
+  "qemu_revision": "86f583abc6d18f28c668a362a17f7ddf3e80c2c8",
+  "qemu_sha256": "ab3fcecd62055ffa54424e605375d6edc0d9576858bb23ff298c6558f7f9a63c",
+  "firmware_sha256": "708d3da907bf058bcb6933bf36fc63806b3c7e2ce7b0b5b4a64368cf73ce5002",
+  "input_snapshot_id": "sha256:adc9c820fdb4819960b7b3c24a53389337046a2635eaa6489d8a6bd2c0754d94",
+  "output_snapshot_id": "sha256:8dce365b3743dc2f04d74eb3907e3cdf1832ec20cfad9ba5a392edd16d223b49",
+  "candidate_id": "sha256:c01d2cc2c7340c9338c1d92c803ca7c2694c001c7952a5bf5f9a8164baab7e37",
+  "firmware_artifact_id8": "cf85fef7cf76695c",
+  "contract": {
+    "trust": "user",
+    "sealed": true,
+    "guest_code_immutable": true,
+    "fault_recovery": false,
+    "icount": false,
+    "interrupt_poll_at_tb_entry": true
+  },
+  "activation": {
+    "public_records": 38252,
+    "discovered_calls": 169,
+    "embedded_regions": 169,
+    "private_members": 3494,
+    "internal_edges": 3994,
+    "private_bytes": 1071165,
+    "maximum_expansion_depth": 4,
+    "pending": 4,
+    "unpatchable_native_exits": 3,
+    "partitions": 4,
+    "workers": 4,
+    "diagnostic_benchmark_region_entries": 40571,
+    "diagnostic_benchmark_region_activations": 55
+  },
+  "validation": {
+    "verdict": "accepted",
+    "checks": ["V1", "V4", "V5", "V6", "V7", "V8", "V24"],
+    "export_reimport": true,
+    "reported_registers_match": true,
+    "jit_fallback": false,
+    "baseline_cache_unchanged": true,
+    "candidate_cache_unchanged": true
+  },
+  "measurement": {
+    "boundary": "[BENCH][fw] elapsed_ns",
+    "setup_included": false,
+    "python_in_timed_path": false,
+    "host": "Intel Xeon w5-3435X, Linux 6.17.0-1033-oem",
+    "cpu_affinity": 2,
+    "paired_process_blocks": 6,
+    "order": ["baseline,whopr7", "whopr7,baseline", "baseline,whopr7", "whopr7,baseline", "baseline,whopr7", "whopr7,baseline"]
+  },
+  "blocks": [
+    {"block": 1, "baseline_ns": 1106849318, "whopr7_ns": 1074213552, "speedup": 1.030381078268132},
+    {"block": 2, "baseline_ns": 1059691856, "whopr7_ns": 1039873897, "speedup": 1.0190580406500962},
+    {"block": 3, "baseline_ns": 1110859679, "whopr7_ns": 1090809514, "speedup": 1.0183809957125107},
+    {"block": 4, "baseline_ns": 1056277517, "whopr7_ns": 1053651909, "speedup": 1.002491912155782},
+    {"block": 5, "baseline_ns": 1117485638, "whopr7_ns": 1086958246, "speedup": 1.0280851560879551},
+    {"block": 6, "baseline_ns": 1056302613, "whopr7_ns": 1049350256, "speedup": 1.0066253921988846}
+  ],
+  "summary": {
+    "baseline_median_ns": 1083270587,
+    "whopr7_median_ns": 1063932730.5,
+    "median_paired_speedup": 1.0187195181813036,
+    "paired_bootstrap_95_percentile_interval": [1.0045586521773333, 1.0292331171780436]
+  },
+  "same_artifact_ablation": {
+    "control": "QEMU_SC_V7_EXPERIMENT=no-regions",
+    "disabled_median_ns": 1106924059.5,
+    "enabled_median_ns": 1056295922.5,
+    "median_paired_speedup": 1.0320918192864958,
+    "paired_bootstrap_95_percentile_interval": [1.009597019187661, 1.065389301066283]
+  },
+  "decision": "retain as opt-in configuration 7; measured improvement on this application, broader held-out evaluation remains required"
+}

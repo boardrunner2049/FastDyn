@@ -27,6 +27,7 @@ B3 = "b3"
 CHAINS = ("chain-static", "chain-returns")
 PIPELINES = {
     "firmware-inline": "firmware-inline",
+    "whopr7": "sealed-whopr-7",
     "b3-ph": "b3-ph", "b3-llvm": "b3-llvm", "llvm": "b2-llvm-layout", "page-local": "b2-page-local", "b3": B3, "static": B3, "returns": B3, "general": B3,
     "dominant": "dominant-return", "ph": "b2-layout", "slide": "b2-arena-slide",
     "pc": "exit-pc-fold", "native": "host-inline-splice",
@@ -157,6 +158,10 @@ def optimizer_args(stage, image, parent, root, params, ancestry, pipeline_dir=No
             "--profile", image["profile"], "--warm-baseline", image["snapshot"], "--prep", image["prep"],
             "--elf", image["firmware"], "--runtime-identity", image["admission_runtime"],
             "--v6-exe", file_sha256(image["runtime"]), *policy_arguments(names, requested)]
+    if stage == "firmware-inline":
+        args += ["--v7-exe", file_sha256(image["runtime"])]
+    elif stage == "whopr7":
+        args += ["--v7-trusted-exe", file_sha256(image["runtime"])]
     for path in ancestry:
         args += ["--warm-stage", path]
     if params:

@@ -1,0 +1,10 @@
+schema = "scopt.pipeline"
+version = 1
+name = "sealed-whopr-7"
+description = "Configuration 7: GCC-style WPA/LTRANS planning for trusted sealed firmware regions."
+allowed_capabilities = ["EMIT_FIRMWARE_REGION"]
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "exhaustive", trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4 }

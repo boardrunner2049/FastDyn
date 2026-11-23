@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import Any, ClassVar
 
 from ..analysis.api import ScopeRef
 from ..analysis.b3_inputs import guest_image_for
+from ..analysis.firmware_calls import firmware_compatibility_index
 from ..analysis.firmware_regions import build_firmware_region
+from ..analysis.firmware_whopr import balanced_partitions
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
 
 __all__ = ["FirmwareInline", "PASSES"]
@@ -24,13 +27,14 @@ __all__ = ["FirmwareInline", "PASSES"]
 class FirmwareInline:
     descriptor: ClassVar[PassDescriptor] = PassDescriptor(
         name="firmware-inline", version=1, unit_scope="snapshot",
-        requires=(("firmware-calls", 1),),
+        requires=(("firmware-calls", 1), ("firmware-whopr", 1)),
         capabilities=frozenset({EditKind.EMIT_FIRMWARE_REGION}),
         budgets=Budgets(max_wall_s=None, max_code_growth_bytes=None,
                         max_region_members=None, max_context_versions=None,
                         max_units=None),
         invalidates=frozenset({"code", "meta", "layout"}),
-        params_schema={"mode": str, "trust": str, "interrupts": str, "icount": str},
+        params_schema={"mode": str, "trust": str, "interrupts": str, "icount": str,
+                       "planner": str, "partitions": int, "workers": int},
     )
 
     def run(self, view: Any, ctx: Any, edits: Any) -> PassResult:
@@ -64,6 +68,38 @@ class FirmwareInline:
                               ctx.b3.layout_reason or "")
         sid = ScopeRef("snapshot", ctx.snapshot_id)
         discovered = ctx.analysis("firmware-calls", sid).value
+        planner = ctx.params.get("planner", "legacy")
+        if planner not in ("legacy", "whopr"):
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "firmware-inline planner must be 'legacy' or 'whopr'")
+        partition_rows: list[dict[str, Any]] = []
+        planned_calls = list(discovered.calls)
+        workers = 1
+        if planner == "whopr":
+            partitions = ctx.params.get("partitions", 4)
+            workers = ctx.params.get("workers", partitions)
+            if (type(partitions) is not int or partitions < 1 or
+                    type(workers) is not int or workers < 1):
+                return PassResult(Outcome.FAILED, "invalid_params",
+                                  "WHOPR partitions and workers must be positive integers")
+            whopr = ctx.analysis("firmware-whopr", sid).value
+            partition_sccs = balanced_partitions(whopr, partitions)
+            owner = {uid: scc_index for scc_index, scc in enumerate(whopr.sccs)
+                     for uid in scc}
+            partition_of = {scc_index: pi for pi, row in enumerate(partition_sccs)
+                            for scc_index in row}
+            planned_calls.sort(key=lambda call: (
+                partition_of.get(owner.get(call.source_uid, -1), len(partition_sccs)),
+                call.insn_vaddr, call.callsite_id))
+            by_uid = {node.uid: node for node in whopr.nodes}
+            for pi, row in enumerate(partition_sccs):
+                uids = tuple(uid for scc_index in row for uid in whopr.sccs[scc_index])
+                uid_set = set(uids)
+                partition_rows.append({
+                    "partition": pi, "sccs": list(row), "source_uids": list(uids),
+                    "native_bytes": sum(by_uid[uid].native_bytes for uid in uids),
+                    "calls": sum(call.source_uid in uid_set for call in planned_calls),
+                })
         image = guest_image_for(ctx.b3.snapshot, ctx.bundle)
         if image is None:
             return PassResult(Outcome.SKIPPED_UNKNOWN, "guest_image_missing",
@@ -77,9 +113,25 @@ class FirmwareInline:
         for row in pending:
             refused[str(row.get("reason", "incomplete"))] += 1
         max_depth = 0
-        for call in discovered.calls:
+        for _call in planned_calls:
             ctx.budget()
-            plan = build_firmware_region(ctx.b3.snapshot, image, discovered, call)
+        if planner == "whopr" and planned_calls:
+            # LTRANS materialization is pure until edits are admitted below.
+            # executor.map preserves the deterministic WPA order.
+            region_units = tuple(ctx.b3.snapshot.units())
+            region_by_uid = {unit.uid: unit for unit in region_units}
+            compatibility = firmware_compatibility_index(region_units)
+            with ThreadPoolExecutor(max_workers=min(workers, len(planned_calls)),
+                                    thread_name_prefix="scopt-ltrans") as executor:
+                plans = list(executor.map(
+                    lambda call: build_firmware_region(
+                        ctx.b3.snapshot, image, discovered, call,
+                        units=region_units, by_uid=region_by_uid,
+                        compatibility=compatibility), planned_calls))
+        else:
+            plans = [build_firmware_region(ctx.b3.snapshot, image, discovered, call)
+                     for call in planned_calls]
+        for call, plan in zip(planned_calls, plans):
             if trusted and plan.complete:
                 from ..link import (TRUSTED_ENTRY_OFFSET, trusted_firmware_edge_problem,
                                     trusted_firmware_entry_problem)
@@ -162,6 +214,7 @@ class FirmwareInline:
         stats = {"discovered": float(len(discovered.calls)),
                  "embedded": float(len(embedded)), "pending": float(len(pending)),
                  "actual_expansion_depth": float(max_depth),
+                 "whopr_partitions": float(len(partition_rows)),
                  **{f"refused:{k}": float(v) for k, v in sorted(refused.items())}}
         receipt = {"discovered": [call.to_json() for call in discovered.calls],
                    "embedded": embedded, "residual": residual,
@@ -170,8 +223,14 @@ class FirmwareInline:
                                          for k in sorted(source_identities)],
                    "actual_expansion_depth": max_depth,
                    "emitted_size": None, "loaded_artifact_id": None,
+                   "whopr": {"enabled": planner == "whopr",
+                             "stages": ["LGEN", "WPA", "LTRANS"] if planner == "whopr" else [],
+                             "partitions": partition_rows,
+                             "workers": workers,
+                             "virtual_clones": "inline_context"},
                    "policy": {"mode": "exhaustive", "trust": trust,
                               "interrupts": interrupts, "icount": icount,
+                              "planner": planner,
                               "max_hotness": None,
                               "max_growth": None, "max_sites": None,
                               "max_members": None, "max_depth": None,

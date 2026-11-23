@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 from click.testing import CliRunner
 
-from scopt.analysis.firmware_calls import discover_firmware_calls
+from scopt.analysis.firmware_calls import compatible_units, discover_firmware_calls
 from scopt.analysis.firmware_regions import build_firmware_region
 from scopt.decode.guest_symbols import GuestImage
 from scopt.decode.thumb_sem import decode_at, direct_call_target
@@ -34,6 +34,17 @@ def test_direct_call_target_comes_from_thumb_operand():
     assert insn.text == "bl #0x1100"
     assert direct_call_target(insn) == 0x1100
     assert direct_call_target(decode_at(bytes.fromhex("9847"), 0x1000)[0]) is None
+
+
+def test_sealed_compatibility_selects_newest_exact_entry():
+    key = TBKey(0x1000, None, 0x110, 0x800400, 0xff000000)
+    common = {"vaddrs": (0x1000,), "key": key, "meta_status": "ok",
+              "origin": "elf_verified"}
+    fallback = SimpleNamespace(uid="fallback", slot=1, **common)
+    hot = SimpleNamespace(uid="hot", slot=9, **common)
+    interior = SimpleNamespace(uid="interior", slot=10, vaddrs=(0xffe, 0x1000),
+                               key=key, meta_status="ok", origin="elf_verified")
+    assert compatible_units((fallback, hot, interior), fallback, 0x1000) == ("hot",)
 
 
 def _snapshot():
