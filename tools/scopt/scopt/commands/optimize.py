@@ -23,17 +23,20 @@ def register(group: click.Group) -> None:
 @click.option("--runtime-identity", "runtime_file",
               type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help="RuntimeIdentity to check against the cache header.")
+@click.option("--trusted", is_flag=True, help="Trust stored public record checksums.")
 @click.option("--json", "as_json", is_flag=True)
-def load_cmd(artifact: Path, runtime_file: Path | None, as_json: bool) -> None:
+def load_cmd(artifact: Path, runtime_file: Path | None, as_json: bool, trusted: bool) -> None:
     """Check only loader-required format, bounds, and runtime compatibility."""
+    from contextlib import nullcontext
     from ..canon import hexaddr
     from ..formats.artifact import SIDECAR
-    from ..formats.sc_v5 import read_sc, structural_findings
+    from ..formats.sc_v5 import read_sc, structural_findings, trusted_record_input
 
     cache = artifact / "cache.sc"
     if not cache.is_file():
         raise click.ClickException("artifact has no cache.sc")
-    parsed = read_sc(cache, versions=(7,))
+    with trusted_record_input() if trusted else nullcontext():
+        parsed = read_sc(cache, versions=(7,))
     problems = list(parsed.header_problems)
     problems.extend(f"slot {row.slot}: {row.reason}" for row in parsed.skipped[:8])
     problems.extend(f"{row.code}: {row.detail}" for row in
@@ -68,7 +71,7 @@ def load_cmd(artifact: Path, runtime_file: Path | None, as_json: bool) -> None:
                 actual = artifact_runtime.get(key)
                 if expected is not None and actual is not None and expected != actual:
                     problems.append(f"runtime mismatch: {key} {expected} != {actual}")
-    doc = {"loadable": not problems, "problems": problems,
+    doc = {"loadable": not problems, "problems": problems, "user_trusted_input": trusted,
            "version": parsed.header.version, "units": len(parsed.valid_slots),
            "max_end": parsed.max_end,
            "assurance": None if sidecar is None else sidecar.get("x_assurance"),
@@ -117,6 +120,27 @@ def _splice_generation(snap, stage, store, views, params):
                       "passes": doc["passes"], "validation": doc["validation"]}
 
 
+def _helper_prefix_profiles(views, source, compiled):
+    """Carry training counts across this invocation's host-only helper splice."""
+    from ..formats.profile_v1 import ProfileView
+    from ..formats.region_v1 import unit_exits
+
+    if not views:
+        return []
+    if source.unit_ids() != compiled.unit_ids():
+        raise click.UsageError("helper prefix changed the captured unit set or slot order")
+    def transfers(unit):
+        return [(e.id, e.kind, e.slot, e.static_dest_vaddr) for e in unit_exits(unit)]
+
+    for old, new in zip(source.units(), compiled.units(), strict=True):
+        if old.key != new.key or old.vaddrs != new.vaddrs:
+            raise click.UsageError(f"helper prefix changed guest translation identity for {old.uid}")
+        if new.splice_applied and transfers(old) != transfers(new):
+            raise click.UsageError(f"helper prefix changed guest transfers for {old.uid}")
+    return [ProfileView.open(view.profile, compiled, kind="helper_splice",
+                             input_snapshot_ids=(source.snapshot_id,)) for view in views]
+
+
 def _profiles(paths, snap):
     from ..formats.profile_v1 import ProfileIncompatible, ProfileView, read_profile
 
@@ -139,7 +163,13 @@ def _inline_pipeline(pipeline, enable, only):
     return load_pipeline(pipeline, inline_options=options), enable, only
 
 
-def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers):
+def _user_trusted_pipeline(pipeline, params, disable):
+    return any(stage.name == "firmware-inline" and stage.name not in disable
+               and (params or {}).get(stage.name, {}).get("trust", stage.params.get("trust")) == "user"
+               for stage in pipeline.passes)
+
+
+def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, trusted=False):
     import shutil
     import subprocess
     import tempfile
@@ -168,10 +198,10 @@ def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers):
     counts = work / "calls.json"
     edges = None if views else work / "training.qprof"
     if helpers:
-        collect(source, Path(launch), counts, edge_profile_path=edges)
+        collect(source, Path(launch), counts, edge_profile_path=edges, trusted=trusted)
         options.update(site_profile_path=str(counts), site_profile_sha256=sha256_id(counts.read_bytes()))
     elif edges:
-        collect_edges(source, Path(launch), edges)
+        collect_edges(source, Path(launch), edges, trusted=trusted)
     if edges:
         meta = json.loads((source / "snapshot.json").read_bytes())
         profile = ingest(edges, source / "cache.sc", source, bundle_id=meta["bundle_id"],
@@ -212,6 +242,8 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
                    "chain and keeps the proved subset.")
 @click.option("--store", required=True, type=click.Path(file_okay=False),
               help="Store: artifacts/ and rejections/ are written here.")
+@click.option("--trusted", "trust_input", is_flag=True,
+              help="Use trusted-development record reads during compilation and training.")
 @click.option("--profile", "profiles", multiple=True, type=click.Path(exists=True),
               help="Profile v1 file (profile.json); repeatable.")
 @click.option("--pgo-launch", "--helper-pgo-launch", "helper_pgo_launch", type=click.Path(exists=True, dir_okay=False, path_type=Path),
@@ -258,7 +290,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                  ri_file, v6_exes, v7_exes, trusted_v7_exes, selftest_file, prep, elf, as_json,
                  select_with=None, selection_out=None,
                  qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=(),
-                 helper_pgo_launch=None):
+                 helper_pgo_launch=None, trust_input=False):
     """Run PIPELINE on SNAPSHOT, link, check loadability, and publish the artifact.
 
     SNAPSHOT is a store snapshot directory or a SnapshotId in --store. Exit
@@ -266,9 +298,21 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
     (store/rejections/<candidate>.json; nothing published).
     """
     from ..manager import PipelineError
+    from ..passes.base import B3_EDIT_KINDS, NATIVE_EDIT_KINDS, EditKind
     from ..validate import optimize
 
     snap = _open_snapshot(snapshot, store)
+    params = json.loads(Path(params_file).read_text()) if params_file else None
+    try:
+        pl, enable, only = _inline_pipeline(pipeline, enable, only)
+        enable, disable, only, params = pl.resolve_pass_options(enable, disable, only, params)
+        pl.validate_pass_options(enable, disable, only)
+    except PipelineError as e:
+        raise click.UsageError(str(e)) from e
+    trust_input = trust_input or _user_trusted_pipeline(pl, params, disable)
+    if trust_input:
+        from ..formats.sc_v5 import trusted_record_input
+        click.get_current_context().with_resource(trusted_record_input())
     if bool(select_with) != bool(selection_out):
         raise click.UsageError("Use --select-with and --selection-out together.")
     timing = dict(qemu=qemu, pairs=pairs, seed=seed, timeout_s=timeout, alpha=alpha)
@@ -290,15 +334,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                                "and its --prep directory for older imports, and --warm-stage for "
                                "any missing intermediate artifacts.")
     views, notes = _profiles(profiles, snap)
-    params = json.loads(Path(params_file).read_text()) if params_file else None
-    from ..passes.base import B3_EDIT_KINDS, NATIVE_EDIT_KINDS, EditKind
-
-    try:
-        pl, enable, only = _inline_pipeline(pipeline, enable, only)
-        enable, disable, only, params = pl.resolve_pass_options(enable, disable, only, params)
-        pl.validate_pass_options(enable, disable, only)
-    except PipelineError as e:
-        raise click.UsageError(str(e)) from e
+    auto_loop_phase = None
     for hot in pl.passes:
         policy = {**hot.params, **(params or {}).get(hot.name, {})}
         helpers = hot.name == "host-inline" and policy.get("hot_loop_only")
@@ -308,14 +344,23 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         if notes:
             raise click.UsageError("; ".join(notes))
         if firmware and views:
+            if auto_loop_phase is not None:
+                params = dict(params or {})
+                overrides = dict(params.get(hot.name, {}))
+                overrides.setdefault("phase", auto_loop_phase)
+                params[hot.name] = overrides
             continue
         params = dict(params or {})
         overrides = dict(params.get(hot.name, {}))
+        collecting_edges = not views
         try:
-            _automatic_loop_pgo(snap, store, helper_pgo_launch, prep, views, overrides, helpers=helpers)
+            _automatic_loop_pgo(snap, store, helper_pgo_launch, prep, views, overrides,
+                                helpers=helpers, trusted=trust_input)
         except (OSError, ValueError, RuntimeError) as exc:
             raise click.ClickException(f"training replay failed: {exc}") from exc
         params[hot.name] = overrides
+        if collecting_edges:
+            auto_loop_phase = overrides["phase"]
     native_stage = None
     from ..manager import HOST_INLINE_ALIASES
     native_names = {"host-inline", *HOST_INLINE_ALIASES}
@@ -342,11 +387,17 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                     raise click.UsageError("native_combination_unsupported: host-inline island mode "
                                            "requires a standalone pipeline; choose a splice mode for B3")
                 try:
-                    snap, native_stage = _splice_generation(snap, standalone, store, views, stage_params)
+                    source = snap
+                    snap, native_stage = _splice_generation(source, standalone, store, views, stage_params)
                 except PipelineError as exc:
                     raise click.UsageError(str(exc)) from exc
-                views, stage_notes = _profiles(profiles, snap)
-                notes.extend(stage_notes)
+                if any(p.name == "firmware-inline" and
+                       (params or {}).get(p.name, {}).get("mode", p.params.get("mode")) == "hot-loop"
+                       for p in rest):
+                    views = _helper_prefix_profiles(views, source, snap)
+                else:
+                    views, stage_notes = _profiles(profiles, snap)
+                    notes.extend(stage_notes)
             pl = replace(pl, passes=tuple(rest),
                          allowed_capabilities=pl.allowed_capabilities - {EditKind.INLINE_CALL})
             disable = tuple(name for name in disable if name != splice.name)

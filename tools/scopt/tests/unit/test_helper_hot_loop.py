@@ -19,6 +19,11 @@ def test_loop_selection_requires_the_reached_phase_of_the_same_capture():
     assert not exact_loop_profile(view, "other", "boot")
     assert not exact_loop_profile(view, "s", "steady")
     assert not exact_loop_profile(view, "s", "missing")
+    view.target = SimpleNamespace(kind="helper_splice", snapshot_id="next", input_snapshot_ids=("s",))
+    assert exact_loop_profile(view, "next", "boot")
+    assert not exact_loop_profile(view, "unknown", "boot")
+    view.target.kind = "artifact"
+    assert not exact_loop_profile(view, "next", "boot")
     data.collection["overflow"] = True
     assert not exact_loop_profile(view, "s", "boot")
 

@@ -100,7 +100,7 @@ def _diagnostic_cache(snapshot, path):
     return rows, header.code_address + data
 
 
-def _launch(launch, rd, cache, *, qprof=None):
+def _launch(launch, rd, cache, *, qprof=None, trusted=False):
     argv = launch["argv"].copy()
     accel = argv.index("-accel") + 1
     fields = argv[accel].split(",")
@@ -139,6 +139,8 @@ def _launch(launch, rd, cache, *, qprof=None):
            if not k.startswith("QEMU_SC_PROFILE")}
     env.update({"QEMU_SC_SEALED": "1", "FASTDYN_TIMING_FILE": str(rd / "timing.jsonl"),
                 "FASTDYN_WORK_DIR": str(rd)})
+    if trusted:
+        env["QEMU_SC_TRUSTED"] = "1"
     if qprof is not None:
         env["QEMU_SC_PROFILE"] = str(qprof)
     return argv, env, inputs
@@ -254,7 +256,7 @@ def _publish(src, dest):
         tmp.unlink(missing_ok=True)
 
 
-def _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path):
+def _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path, trusted):
     snapshot_path, launch_path = Path(snapshot_path), Path(launch_path)
     launch_bytes, launch, snap = _inputs(snapshot_path, launch_path)
     with tempfile.TemporaryDirectory(prefix="scopt-pgo-") as tmp:
@@ -274,7 +276,7 @@ def _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path
             rd = root / name
             rd.mkdir()
             qprof = root / "control.qprof" if name == "edges" else None
-            argv, env, inputs = _launch(launch, rd, cache, qprof=qprof)
+            argv, env, inputs = _launch(launch, rd, cache, qprof=qprof, trusted=trusted)
             if name != "counted" or not rows:
                 log = _run(["setarch", "x86_64", "-R", *argv], env, launch["cwd"], timeout)
             else:
@@ -327,11 +329,11 @@ printf "SCOPT_INFERIOR_EXIT %d\\n", $_exitcode
         return result
 
 
-def collect(snapshot_path, launch_path, output_path, *, timeout=300, edge_profile_path=None):
+def collect(snapshot_path, launch_path, output_path, *, timeout=300, edge_profile_path=None, trusted=False):
     """Publish exact per-site counts after matching fixed-input replays."""
-    return _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path)
+    return _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path, trusted)
 
 
-def collect_edges(snapshot_path, launch_path, edge_profile_path, *, timeout=300):
+def collect_edges(snapshot_path, launch_path, edge_profile_path, *, timeout=300, trusted=False):
     """Collect the dynamic TB edges only, using the same sealed control and oracle."""
-    _collect(snapshot_path, launch_path, None, timeout, edge_profile_path)
+    _collect(snapshot_path, launch_path, None, timeout, edge_profile_path, trusted)

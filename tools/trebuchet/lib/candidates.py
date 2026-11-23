@@ -28,6 +28,7 @@ CHAINS = ("chain-static", "chain-returns")
 PIPELINES = {
     "firmware-inline": "firmware-inline",
     "whopr7": "sealed-whopr-7",
+    "pgo7": "sealed-pgo-7",
     "hot-loop-inline": "hot-loop-inline",
     "hot-loop-firmware-inline": "hot-loop-firmware-inline",
     "b3-ph": "b3-ph", "b3-llvm": "b3-llvm", "llvm": "b2-llvm-layout", "page-local": "b2-page-local", "b3": B3, "static": B3, "returns": B3, "general": B3,
@@ -162,9 +163,9 @@ def optimizer_args(stage, image, parent, root, params, ancestry, pipeline_dir=No
             "--v6-exe", file_sha256(image["runtime"]), *policy_arguments(names, requested)]
     if stage in ("firmware-inline", "hot-loop-firmware-inline"):
         args += ["--v7-exe", file_sha256(image["runtime"])]
-    elif stage == "whopr7":
+    elif stage in ("whopr7", "pgo7"):
         args += ["--v7-trusted-exe", file_sha256(image["runtime"])]
-    if stage in ("hot-loop-inline", "hot-loop-firmware-inline") and image.get("training_launch"):
+    if stage in ("pgo7", "hot-loop-inline", "hot-loop-firmware-inline") and image.get("training_launch"):
         args += ["--pgo-launch", image["training_launch"]]
     for path in ancestry:
         args += ["--warm-stage", path]

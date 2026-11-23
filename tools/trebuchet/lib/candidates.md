@@ -106,6 +106,9 @@ performance improvement. Reserve final scenarios and report measured outcomes,
 including regressions, before promoting a default. These configuration examples
 do not contain timing observations or assert a speedup.
 
+The `pgo7` recipe combines hot helper and guest call selection with trusted sealed
+firmware regions. The `whopr7` recipe retains exhaustive graph expansion.
+
 The `hot-loop-inline` recipe profiles helper call instructions and
 `hot-loop-firmware-inline` selects guest calls in observed loops. Set
 `images.<variant>.training_launch` to that image's ordinary fixed-input

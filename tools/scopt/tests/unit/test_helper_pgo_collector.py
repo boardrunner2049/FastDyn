@@ -72,3 +72,14 @@ def test_training_launch_isolates_ram_preserving_aliases(tmp_path, monkeypatch):
     assert list(inputs) == [str(source)]
     assert "QEMU_SC_PROFILE" not in env
     assert env["FASTDYN_WORK_DIR"] == str(rd)
+
+
+@pytest.mark.parametrize("trusted", [False, True])
+def test_profile_launch_uses_selected_trust_policy(tmp_path, monkeypatch, trusted):
+    monkeypatch.delenv("QEMU_SC_TRUSTED", raising=False)
+    launch = {"cwd": str(tmp_path), "argv": ["qemu", "-accel", "tcg,supercache=old.sc"],
+              "env_set": {}}
+    for edge_prof in (None, tmp_path / "edges.qprof"):
+        _, env, _ = _launch(launch, tmp_path, tmp_path / "input.sc", qprof=edge_prof, trusted=trusted)
+        assert env["QEMU_SC_SEALED"] == "1"
+        assert env.get("QEMU_SC_TRUSTED") == ("1" if trusted else None)

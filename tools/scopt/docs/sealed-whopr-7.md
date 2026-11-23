@@ -1,9 +1,28 @@
-# Configuration 7: sealed WHOPR
+# Configuration 7: trusted sealed PGO
 
-Configuration 7 first applies an unbounded trusted QEMU-helper graph transplant,
-then applies a WHOPR-style whole-program firmware-region pipeline to the resulting
-sealed SuperCache.  It does not modify the firmware ELF and does not infer guest
-control flow from exhaustive coverage alone.
+The `sealed-pgo-7` pipeline collects fixed-input training data and applies two
+passes. The native pass selects helper instructions inside observed guest cycles
+by their actual call counts. The firmware pass embeds one callee layer at
+verified guest call edges in the same cycles. Both use a tunable minimum of
+1,000 observed calls. The combined compiler preserves the original training
+phase and checks the guest unit identities and transfers across the helper
+splice. A helper count of zero at a frequently entered TB is a valid result.
+
+```sh
+scopt optimize "$SNAP" --pipeline sealed-pgo-7 --pgo-launch "$TRAIN/launch.json" \
+  --elf "$ELF" --runtime-identity "$RUNTIME_JSON" --v7-trusted-exe "$QEMU_SHA256_ID" \
+  --store "$OUT" --json
+QEMU_SC_SEALED=1 QEMU_SC_TRUSTED=1 "$DEPLOYED/run.sh"
+```
+
+The direct launcher must select the emitted cache. The trusted region ABI
+requires icount off and an execution contract that permits omitted internal
+interrupt polls and live recovery. Set `QEMU_SC_V7_STATS` to an absolute path
+in a diagnostic replay for the loaded region ID and activation counts.
+
+The remainder of this document describes the historical exhaustive graph
+experiment, still available as `sealed-whopr-7` and the Trebuchet recipe
+`whopr7`. Choose `pgo7` in current Trebuchet candidate plans.
 
 ## Mapping from GCC WHOPR
 

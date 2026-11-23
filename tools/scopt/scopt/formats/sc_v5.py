@@ -40,6 +40,8 @@ import errno
 import hashlib
 import os
 from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -51,7 +53,7 @@ __all__ = [
     "ScHeader", "ScRecord", "ScFile", "ScUnit", "SkippedRecord", "Finding",
     "ScFormatError", "read_sc", "write_sc", "sparse_copy", "sha256_sparse",
     "structural_findings", "identity_copy", "IdentityResult", "data_extents",
-    "SC_CODE_OFFSET", "SC_MAGIC", "SC_VERSION", "SC_RECORD_COMMIT",
+    "SC_CODE_OFFSET", "SC_MAGIC", "SC_VERSION", "SC_RECORD_COMMIT", "trusted_record_input",
     "HEADER_SIZE", "RECORD_SIZE", "TB_ALIGN",
 ]
 
@@ -61,6 +63,19 @@ TB_ALIGN = 64  # icache line size on the x86-64 host (tb_offset % 64 == 0, §5.8
 
 RUNTIME_FIELDS = ("code_size", "runtime_signature", "host_page_size", "target_page_bits",
                   "tb_size")
+
+
+_SKIP_RECORD_CHECKSUM = ContextVar("scopt_skip_record_checksum", default=False)
+
+
+@contextmanager
+def trusted_record_input():
+    """Accept stored record checksums within this compiler/load operation."""
+    token = _SKIP_RECORD_CHECKSUM.set(True)
+    try:
+        yield
+    finally:
+        _SKIP_RECORD_CHECKSUM.reset(token)
 
 
 class ScFormatError(ValueError):
@@ -238,7 +253,7 @@ class ScRecord:
         """``(reason, detail)`` for the first ``load_records`` check that fails, else None."""
         if self.committed != SC_RECORD_COMMIT:
             return "not_committed", f"committed=0x{self.committed:08x}"
-        if not self.checksum_ok:
+        if not _SKIP_RECORD_CHECKSUM.get() and not self.checksum_ok:
             return "record_checksum", (f"stored=0x{self.checksum:08x} "
                                        f"computed=0x{sc_record_checksum(self.to_bytes()):08x}")
         # supercache.c:409-414, same order; unsigned arithmetic as in C

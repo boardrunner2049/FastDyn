@@ -12,7 +12,7 @@ from scopt import validate as V
 from scopt.canon import hexaddr, sha256_id
 from scopt.cli import cli, load_commands
 from scopt.formats import artifact as A
-from scopt.formats.sc_v5 import read_sc
+from scopt.formats.sc_v5 import read_sc, sparse_copy
 from scopt.importer.compiler_ir import NAME as COMPILER_IR, write_compiler_ir
 from scopt.importer.import_cache import open_compiler_snapshot
 from scopt.model.cache_snapshot import CacheSnapshot
@@ -130,3 +130,30 @@ def test_frozen_compiler_ir_opens_without_reimport(tmp_path, monkeypatch):
     opened = open_compiler_snapshot(store)
     assert opened.snapshot_id == source.snapshot_id
     assert opened.units() == source.units()
+
+
+def test_trusted_load_skips_only_record_checksum_and_restores_default(compiled, tmp_path):
+    _, _, source = compiled
+    artifact = tmp_path / "altered"
+    artifact.mkdir()
+    cache = artifact / "cache.sc"
+    sparse_copy(source / "cache.sc", cache)
+    parsed = read_sc(cache, versions=(7,))
+    rec = parsed.records[0]
+    runner, commands = CliRunner(), load_commands(cli)
+
+    def load(*options):
+        result = runner.invoke(commands, ["load", str(artifact), "--json", *options])
+        return result.exit_code, json.loads(result.output)
+
+    with cache.open("r+b") as stream:
+        stream.seek(parsed.header.records_offset)
+        stream.write(rec.replace(checksum=rec.checksum ^ 1).to_bytes())
+    assert load("--trusted")[1]["loadable"]
+    code, checked = load()
+    assert code == 2 and any("record_checksum" in p for p in checked["problems"])
+    with cache.open("r+b") as stream:
+        stream.seek(parsed.header.records_offset)
+        stream.write(rec.replace(tc_offset=rec.end_offset).to_bytes())
+    code, invalid = load("--trusted")
+    assert code == 2 and any("bounds" in p for p in invalid["problems"])

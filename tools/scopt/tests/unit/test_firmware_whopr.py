@@ -41,3 +41,11 @@ def test_configuration_7_is_explicit_trusted_whopr_pipeline():
         "mode": "exhaustive", "trust": "user", "interrupts": "disabled",
         "icount": "ignored", "planner": "whopr", "partitions": 4, "workers": 4,
     }
+
+def test_sealed_pgo_selects_repeated_observed_calls_for_both_stages():
+    helper, guest = load_pipeline("sealed-pgo-7").passes
+    assert helper.name == "host-inline" and helper.params["hot_loop_only"]
+    assert helper.params["min_site_calls"] == 1000 and helper.params["trusted_selected_root"]
+    assert guest.name == "firmware-inline" and guest.params["mode"] == "hot-loop"
+    assert guest.params["min_call_count"] == 1000 and guest.params["trust"] == "user"
+    assert guest.params["interrupts"] == "disabled" and guest.params["icount"] == "ignored"

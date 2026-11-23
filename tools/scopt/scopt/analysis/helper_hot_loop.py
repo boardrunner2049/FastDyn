@@ -14,7 +14,12 @@ def exact_loop_profile(view, snapshot_id, phase):
         return False
     data = view.profile
     phase_id = data.phase_id(phase)
-    return (data.snapshot_id == snapshot_id and data.complete and data.method == METHOD
+    exact_source = data.snapshot_id == snapshot_id
+    target = getattr(view, "target", None)
+    if target is not None and target.kind == "helper_splice":
+        exact_source = (target.snapshot_id == snapshot_id
+                        and target.input_snapshot_ids == (data.snapshot_id,))
+    return (exact_source and data.complete and data.method == METHOD
             and not data.collection["overflow"] and data.collection["chain_disabled"]
             and phase_id is not None and data.phase_reached(phase_id))
 

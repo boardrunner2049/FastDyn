@@ -1,0 +1,15 @@
+schema = "scopt.pipeline"
+version = 1
+name = "sealed-pgo-7"
+description = "Trusted sealed PGO: inline frequently executed helper calls and firmware calls in observed cycles."
+allowed_capabilities = ["INLINE_CALL", "EMIT_FIRMWARE_REGION"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, trusted_rank_by = "frequency", trusted_selected_root = true, hot_loop_only = true, min_site_calls = 1000 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "hot-loop", phase = "steady", min_call_count = 1000, trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4 }

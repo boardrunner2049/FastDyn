@@ -376,6 +376,8 @@ The compiler folds eligible roots and immediate leaf callees. Set
 call to shared QEMU code. Each emitted site's `call_lowering` receipt
 identifies the transfers retained, eliminated or introduced.
 
+The combined trusted configuration is described in [sealed PGO](sealed-whopr-7.md).
+
 Both pipelines accept an existing phase-specific `--profile` for the observed
 edges. With automatic edge collection, QEMU's unmarked phase zero covers the
 whole run. The helper counters always cover the full training replay. A cycle in

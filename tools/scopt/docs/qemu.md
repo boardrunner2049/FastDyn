@@ -173,3 +173,23 @@ Everything above runs through scopt, which launches FastDyn under `setarch x86_6
 with a scrubbed environment and a fresh run directory. When you run QEMU or FastDyn
 yourself with a supercache, disable ASLR the same way, keep `supercache_flat = false`,
 and use icount `shift = 0` for repeatable runs.
+
+### Trusted development replay
+
+Set `QEMU_SC_TRUSTED=1` on a compiled QEMU launch when the caller vouches for
+the unchanged cache and matching immutable guest image. This skips public
+record checksums, variant/guard hashes, private-code digests, and comparison
+of guest bytes at block admission. Normal warm loading still permits
+translation and appending on a cache miss. Add `QEMU_SC_SEALED=1` for exact
+sealed operation. The region-specific interrupt/recovery contract is encoded
+in the compiled artifact and is separate from this input trust setting.
+
+The loader retains its one-time header and runtime-layout compatibility checks,
+record commitment and bounds checks, region placement and branch target checks,
+and live invalidation checks. `scopt load --trusted` likewise skips the public
+record checksum calculation during offline inspection. Trusted PGO training
+propagates the trust setting to its diagnostic QEMU processes. Table lookups use ordinary indexing hashes.
+Recording fresh translations still writes the standard record format. With
+`QEMU_SC_V7_STATS=/absolute/path.json`, verify `user_trusted_input` and compare
+`public_record_checksum_checks`, `guest_hash_checks`, and
+`artifact_hash_validations` in a separate diagnostic replay.
