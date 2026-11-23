@@ -523,6 +523,7 @@ The principal checked-in evidence summarized here is:
   ablation, identity, and active-fixture comparisons;
 - `docs/review-2026-11-21/README.md` for the FirmBOLT compute B3 and SFB runs;
 - `docs/design/B3-B4-design.md` for the retained B4/SFB report;
-- `docs/selected-warm-benchmark/README.md` for the six-firmware selection campaign; and
+- `docs/selected-warm-benchmark/README.md` for the six-firmware selection campaign;
+- `docs/compiled-launch-benchmark/README.md` for direct-QEMU frontend and cache isolation; and
 - `../trebuchet/experiments/px4_memset_layout/host-experiment-manifest.json` for PX4
   activation and the appended-translation timing blocker.

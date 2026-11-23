@@ -52,6 +52,44 @@ fastdyn run -c configs/target.toml --no-build-fmu
 Use `fastdyn run --help` for every option. `fastdyn help run` provides the
 same primary workflow in the interactive configuration-help menu.
 
+## Compile once, launch QEMU without Python
+
+For short, repeated warm-cache runs, the ordinary command pays for Python
+startup, TOML parsing, preprocessing, stale-process discovery and QEMU
+supervision on every process.  Freeze that work into a launch bundle once:
+
+```bash
+fastdyn compile-launch -c configs/target.toml -o compiled-target --reset-memory
+compiled-target/run.sh
+```
+
+The generated `run.sh` contains no Python invocation.  It resets the bundle's
+private sparse RAM files when requested, removes its stale QMP socket, applies
+the frozen environment, and replaces the shell with the exact QEMU command.
+When the configuration names a SuperCache, it also invokes QEMU through
+`setarch -R`, because the current loader requires fixed addresses.  Extra
+arguments passed to `run.sh` are appended to QEMU's arguments.
+
+Compilation copies writable RAM and SuperCache state into the bundle; it does
+not modify the files named by the source TOML.  `launch.json` records the exact
+argument vector and frozen environment for inspection.  Runtime hashing is
+intentionally absent: prepare a new bundle after changing the firmware,
+runtime, plugin, generated rules, or configuration.  The compilation step
+still applies FastDyn's normal cache/configuration consistency check before it
+emits the script.
+
+This direct mode deliberately rejects configurations that require Python to
+remain alive: helper processes, Python device endpoints, live preprocessing
+callbacks, automatic GDB terminals, perf wrapping, and Python profiling.  Use
+`fastdyn run` for those process graphs.  The direct script also does not scan
+for or kill unrelated QEMU processes; use a unique monitor port/QMP socket or
+manage concurrent launches explicitly.
+
+Compilation cost and cache construction are setup costs, outside repeated
+launch timing.  A direct script removes frontend overhead but does not change
+the native code QEMU executes; use guest markers separately from process-wall
+time when evaluating a SuperCache transformation.
+
 ## Slide: What to inspect after a run
 
 The work directory is the run record. Depending on the configuration, it

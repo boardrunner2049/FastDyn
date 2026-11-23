@@ -134,6 +134,11 @@ features and prints configuration snippets; `fastdyn build-model` compiles C
 device models. Start with [docs/RunningFastDyn.md](docs/RunningFastDyn.md) and
 [docs/BuildingAConfig.md](docs/BuildingAConfig.md).
 
+For repeated short warm-cache launches, `fastdyn compile-launch -c CONFIG -o
+BUNDLE` prepares once and emits `BUNDLE/run.sh`, which directly executes QEMU
+without starting Python on each run.  The supported subset and state-staging
+contract are documented in [Running FastDyn](docs/RunningFastDyn.md#compile-once-launch-qemu-without-python).
+
 - ArduPilot vehicles with FMI v3 physics, MAVCesium, and parallel campaigns
   (`fastdyn swarm`): [docs/FlightControllerSimulation.md](docs/FlightControllerSimulation.md)
 - Five PX4 FMUv6C ARM/NuttX firmware-slicing configurations (v1.13.3-v1.17.0):

@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 # scopt's test environment puts tools/scopt on sys.path, while the launcher is
@@ -17,7 +18,11 @@ from pathlib import Path
 FASTDYN_SOURCE = Path(__file__).resolve().parents[4] / "src"
 sys.path.insert(0, str(FASTDYN_SOURCE))
 
-from fastdyn.compiled_launch import emit_bundle  # noqa: E402
+from fastdyn.compiled_launch import (  # noqa: E402
+    _sparse_copy,
+    _stage_runtime_files,
+    emit_bundle,
+)
 
 
 def _fake_qemu(path: Path) -> Path:
@@ -126,3 +131,80 @@ def test_run_sh_resets_ram_by_sparse_truncate_before_exec(tmp_path):
     assert ram.stat().st_size == len(stale)
     assert ram.read_bytes() == bytes(len(stale))
     assert capture.is_file()  # the fake QEMU ran after the reset completed
+
+
+def test_cached_bundle_records_and_emits_fixed_address_launch(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    out = tmp_path / "bundle"
+
+    emit_bundle(
+        out,
+        ["/opt/qemu with spaces/qemu-system-arm", "-accel", "tcg,supercache=x.sc"],
+        cwd=work,
+        env_set={},
+        disable_aslr=True,
+    )
+
+    manifest = json.loads((out / "launch.json").read_text(encoding="utf-8"))
+    assert manifest["disable_aslr"] is True
+    command = (out / "run.sh").read_text(encoding="utf-8")
+    assert "exec setarch " in command
+    assert " -R '/opt/qemu with spaces/qemu-system-arm'" in command
+
+
+def test_sparse_copy_preserves_bytes_without_mutating_source(tmp_path):
+    source = tmp_path / "source.sc"
+    destination = tmp_path / "bundle" / "cache.sc"
+    size = 8 * 1024 * 1024
+    with source.open("wb") as stream:
+        stream.truncate(size)
+        stream.seek(4096)
+        stream.write(b"first extent")
+        stream.seek(size - 4096)
+        stream.write(b"last extent")
+    before = source.stat()
+
+    _sparse_copy(source, destination)
+
+    assert destination.stat().st_size == size
+    assert destination.read_bytes() == source.read_bytes()
+    after = source.stat()
+    assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
+
+
+def test_runtime_state_is_staged_and_source_cache_is_untouched(tmp_path):
+    source_ram = tmp_path / "source.ram"
+    source_ram.write_bytes(b"RAM state")
+    source_cache = tmp_path / "source.sc"
+    source_cache.write_bytes(b"SCv7 cache")
+    source_manifest = Path(f"{source_cache}.fastdyn.json")
+    source_manifest.write_text('{"fingerprint":"frozen"}\n', encoding="utf-8")
+    before = {
+        path: (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in (source_ram, source_cache, source_manifest)
+    }
+    memory = SimpleNamespace(
+        memory_backend="file",
+        memory_file=str(source_ram),
+        memory_id="main",
+    )
+    machine = SimpleNamespace(
+        memories={"main": memory},
+        qemu_target_opts=SimpleNamespace(supercache=str(source_cache)),
+    )
+    bundle = tmp_path / "bundle"
+
+    assert _stage_runtime_files(machine, bundle) is True
+
+    assert Path(memory.memory_file) == bundle / "ram" / "main.ram"
+    assert Path(memory.memory_file).read_bytes() == b"RAM state"
+    staged_cache = Path(machine.qemu_target_opts.supercache)
+    assert staged_cache == bundle / "cache" / "source.sc"
+    assert staged_cache.read_bytes() == b"SCv7 cache"
+    assert Path(f"{staged_cache}.fastdyn.json").read_text(encoding="utf-8") == (
+        '{"fingerprint":"frozen"}\n'
+    )
+    for path, (contents, mtime_ns) in before.items():
+        assert path.read_bytes() == contents
+        assert path.stat().st_mtime_ns == mtime_ns

@@ -459,6 +459,43 @@ def run(config, map_file, work_dir, svd, persist_work_dir, fmu, no_build_fmu,
         raise SystemExit(130)  # conventional exit status for SIGINT
 
 
+@cli.command(
+    "compile-launch",
+    help="Compile a FastDyn configuration into a shell script that directly execs QEMU.",
+)
+@click.option("-c", "--config", required=True,
+              type=click.Path(resolve_path=True, exists=True, dir_okay=False),
+              help="FastDyn TOML configuration to compile.", metavar="PATH")
+@click.option("-o", "--out", required=True,
+              type=click.Path(resolve_path=True, file_okay=False),
+              help="Fresh output directory for launch.json, assets and run.sh.", metavar="DIR")
+@click.option("-s", "--svd", type=click.Path(resolve_path=True, exists=True), default=None,
+              help="Optional path to an SVD file or directory.", metavar="PATH")
+@click.option("--fmu", default=None, metavar="NAME",
+              help="Override [FMU].active while preparing the bundle.")
+@click.option("--no-build-fmu", is_flag=True, default=False,
+              help="Skip automatic FMU build while preparing the bundle.")
+@click.option("--reset-memory/--preserve-memory", default=None,
+              help="Override [Machine].reset_memory_files for every direct launch.")
+def compile_launch(config, out, svd, fmu, no_build_fmu, reset_memory):
+    """Prepare once with Python; execute OUT/run.sh later without Python."""
+    from .compiled_launch import CompiledLaunchError, compile_config
+
+    try:
+        script = compile_config(
+            config,
+            out,
+            svd=svd,
+            fmu=fmu,
+            build_fmu=not no_build_fmu,
+            reset_memory=reset_memory,
+        )
+    except (CompiledLaunchError, runner.RunError, runtime_config.RuntimeConfigError,
+            VirtualPreparationError, ConfigError, OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(str(script))
+
+
 @cli.command('loop', help='Like run, but restarts automatically: after a clean exit with a fresh work directory, after QEMU exits with an error or a helper process dies with the work directory kept for inspection. Configuration and setup errors stop the loop.')
 @click.option('-c','--config',required = True, type= click.Path(resolve_path=True,exists=True),
                         help='The Path to the config file.',
