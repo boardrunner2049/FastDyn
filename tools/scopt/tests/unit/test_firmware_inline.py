@@ -131,6 +131,13 @@ def test_v7_export_and_reimport_directory(tmp_path):
     assert parsed.n_regions == parsed.n_members == 1
     assert parsed.n_edges == 0
     assert parsed.table_offset == link.firmware_table_offset
+    decoded = decode_directory(parsed)
+    assert decoded["regions"][0]["flags"] == 1
+    assert decoded["regions"][0]["composite"] == {
+        "descriptor_offset": start, "tc_offset": tc, "tc_size": source.tc_size,
+        "search_start": tc + source.tc_size,
+        "search_end": region.end_offset,
+    }
 
 
 def test_v7_writes_out_of_line_search_and_tracks_copy_origins(tmp_path):
@@ -140,7 +147,7 @@ def test_v7_writes_out_of_line_search_and_tracks_copy_origins(tmp_path):
     start = round_up(max(u.end_offset for u in snapshot.units()), 64)
     tc0 = round_up(start + 2 * snapshot.header.tb_size, 16)
     tc1 = tc0 + source.tc_size
-    search0 = tc1 + source.tc_size + 16
+    search0 = tc1 + source.tc_size
     search1 = search0 + len(source.search)
     member0 = FirmwareMemberLink(
         source.uid, ("site-a",), start, tc0, source.tc_size, search0, len(source.search),
@@ -169,9 +176,7 @@ def test_v7_writes_out_of_line_search_and_tracks_copy_origins(tmp_path):
 
         stream.seek(SC_CODE_OFFSET + search0)
         assert stream.read(len(source.search)) == source.search
-        stream.seek(SC_CODE_OFFSET + tc1 + source.tc_size)
-        assert stream.read(search0 - tc1 - source.tc_size) == \
-            b"\0" * (search0 - tc1 - source.tc_size)
+        assert decoded["regions"][0]["composite"]["tc_size"] == 2 * source.tc_size
     assert sc7_snapshot_id(path) == sc7_snapshot_id(path)
 
 
@@ -203,6 +208,42 @@ def test_v7_edge_targets_use_region_member_base():
         "guest_target": 0, "exit_id_fnv64": decoded["edges"][0]["exit_id_fnv64"]}]
 
 
+def test_v7_rejects_noncomposite_member_geometry():
+    snapshot, _image = _snapshot()
+    source = snapshot.units()[0]
+    public = relocate_unit(source, source.tb_offset)
+    start = round_up(max(u.end_offset for u in snapshot.units()), 64)
+    tc = round_up(start + 2 * snapshot.header.tb_size, 16)
+    search = tc + 2 * source.tc_size
+    first = FirmwareMemberLink(
+        source.uid, ("outer",), start, tc, source.tc_size, search, len(source.search),
+        b"\0" * snapshot.header.tb_size, source.code, source.search, source.content_hash,
+        source.vaddrs[0], (), source)
+    second = FirmwareMemberLink(
+        source.uid, ("inner",), start + snapshot.header.tb_size, tc + source.tc_size,
+        source.tc_size, search + len(source.search), len(source.search),
+        b"\0" * snapshot.header.tb_size, source.code, source.search, source.content_hash,
+        source.vaddrs[0], (), source)
+    region = FirmwareRegionLink("sha256:" + "a" * 64, "sha256:" + "b" * 64,
+                                0, (first, second), (source.uid,), start,
+                                second.search_offset + len(source.search))
+
+    def build(candidate):
+        link = SimpleNamespace(units=(public,), firmware_regions=(candidate,),
+                               firmware_table_size=directory_size((candidate,)),
+                               firmware_table_offset=round_up(candidate.end_offset, 8))
+        return build_directory(link, {source.uid: source.tb_offset})
+
+    build(region)
+    with pytest.raises(ScFormatError, match="entry member"):
+        build(replace(region, entry_member=1))
+    with pytest.raises(ScFormatError, match="code is not contiguous"):
+        build(replace(region, members=(first, replace(second, tc_offset=second.tc_offset + 1))))
+    with pytest.raises(ScFormatError, match="search data"):
+        build(replace(region, members=(replace(first, search_offset=first.search_offset + 1),
+                                       second)))
+
+
 def test_v7_rejects_malformed_header_and_directory_counts(tmp_path):
     import scopt.formats.sc_v7 as V7
 
@@ -229,6 +270,17 @@ def test_v7_rejects_malformed_header_and_directory_counts(tmp_path):
         stream.seek(0)
         stream.write(header.replace(reserved=2).with_checksum().to_bytes())
     with pytest.raises(ScFormatError, match="feature bits"):
+        read_sc7(path)
+
+    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
+    with path.open("r+b") as stream:
+        stream.seek(V7.SC7_OFFSET)
+        raw = stream.read(V7._HEADER.size)
+        fields = list(V7._HEADER.unpack(raw))
+        fields[1] = 1  # legacy per-member directory contract
+        stream.seek(V7.SC7_OFFSET)
+        stream.write(V7._HEADER.pack(*fields))
+    with pytest.raises(ScFormatError, match="directory header"):
         read_sc7(path)
 
     write_sc7(path, snapshot.header, ((public.record, public.body),), link)
@@ -266,8 +318,10 @@ def test_decode_directory_rejects_truncated_array():
 
 def test_v7_loader_capability_is_explicit_and_distinct_from_v6(monkeypatch):
     monkeypatch.setenv("SCOPT_V6_EXES", "aa" * 32)
-    monkeypatch.delenv("SCOPT_V7_EXES", raising=False)
+    monkeypatch.setenv("SCOPT_V7_EXES", "ee" * 32)
+    monkeypatch.delenv("SCOPT_V7_COMPOSITE_EXES", raising=False)
     assert not v7_capable_exes()
-    monkeypatch.setenv("SCOPT_V7_EXES", f"sha256:{'bb' * 32},{'cc' * 32}")
+    monkeypatch.setenv("SCOPT_V7_COMPOSITE_EXES",
+                       f"sha256:{'bb' * 32},{'cc' * 32}")
     assert v7_capable_exes(("sha256:" + "dd" * 32,)) == frozenset({
         "bb" * 32, "cc" * 32, "dd" * 32})

@@ -1567,16 +1567,16 @@ def v6_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
 
 
 def v7_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
-    """Exe sha256s (hex, no prefix) whose loader implements firmware-region v7.
+    """Exe sha256s whose loader implements composite firmware-region v7.
 
-    V7 changes recovery lookup and executable-region loading, so a v6-capable
-    binary is deliberately not admitted implicitly.  Until a frozen gate
-    binary is recorded, callers must pass an explicit digest or set
-    ``SCOPT_V7_EXES`` (comma separated).
+    Composite v7 has a distinct directory version and registration/recovery
+    contract.  Neither a v6-capable binary nor a legacy per-member v7 binary
+    is admitted implicitly.  Callers must pass an explicit digest or set
+    ``SCOPT_V7_COMPOSITE_EXES`` (comma separated).
     """
     out = {x.removeprefix("sha256:") for x in extra if x}
     out |= {x.strip().removeprefix("sha256:") for x in
-            os.environ.get("SCOPT_V7_EXES", "").split(",") if x.strip()}
+            os.environ.get("SCOPT_V7_COMPOSITE_EXES", "").split(",") if x.strip()}
     return frozenset(out)
 
 

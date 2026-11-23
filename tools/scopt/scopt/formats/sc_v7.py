@@ -19,7 +19,8 @@ from ..canon import canonical_json, fnv1a64
 from .layouts import SC_CODE_OFFSET
 from .sc_v5 import ScFormatError, ScHeader, ScRecord, read_sc, write_sc
 
-__all__ = ["SC7_VERSION", "SC7_MAGIC", "Sc7Directory", "directory_size",
+__all__ = ["SC7_VERSION", "SC7_MAGIC", "SC7_DIRECTORY_VERSION",
+           "SC7_REGION_COMPOSITE", "Sc7Directory", "directory_size",
            "build_directory", "write_sc7", "read_sc7", "decode_directory",
            "sc7_snapshot_id", "LOADER_V7"]
 
@@ -27,7 +28,9 @@ SC7_VERSION = 7
 SC7_OFFSET = 0x100
 SC7_MAGIC = b"QSC7FWRG"
 SC7_FEATURE_FIRMWARE_REGIONS = 1
-LOADER_V7 = "qemu-sc-v7-firmware-regions"
+SC7_DIRECTORY_VERSION = 2
+SC7_REGION_COMPOSITE = 1
+LOADER_V7 = "qemu-sc-v7-composite-firmware-regions"
 
 _HEADER = struct.Struct("<8sIIIIIIQQQ8sQ8s")
 _REGION = struct.Struct("<8s8sIIIIQQQII")
@@ -62,7 +65,7 @@ def _id8(value: str) -> bytes:
 
 
 def _artifact_id8(table: bytes, payloads: Sequence[tuple[bytes, bytes, bytes]]) -> bytes:
-    return hashlib.sha256(b"scopt.sc7/1" + table + b"".join(
+    return hashlib.sha256(b"scopt.sc7/2" + table + b"".join(
         hashlib.sha256(descriptor + code + search).digest()
         for descriptor, code, search in payloads)).digest()[:8]
 
@@ -73,8 +76,30 @@ def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
     edge_rows = bytearray()
     first_member = first_edge = 0
     for ri, region in enumerate(link.firmware_regions):
-        if not region.members or not 0 <= region.entry_member < len(region.members):
+        if not region.members or region.entry_member != 0:
             raise ScFormatError(f"firmware region {ri}: invalid entry member")
+        descriptor_size = len(region.members[0].descriptor)
+        next_descriptor = region.start_offset
+        next_code = region.members[0].tc_offset
+        code_end = next_code + sum(len(m.code) for m in region.members)
+        next_search = code_end
+        for mi, member in enumerate(region.members):
+            if (len(member.descriptor) != descriptor_size or
+                    member.tb_offset != next_descriptor):
+                raise ScFormatError(f"firmware region {ri} member {mi}: descriptors are "
+                                    "not contiguous in member order")
+            if member.tc_offset != next_code:
+                raise ScFormatError(f"firmware region {ri} member {mi}: code is not "
+                                    "contiguous in member order")
+            if member.search_offset != next_search:
+                raise ScFormatError(f"firmware region {ri} member {mi}: search data is not "
+                                    "contiguous and out of line")
+            next_descriptor += descriptor_size
+            next_code += len(member.code)
+            next_search += len(member.search)
+        if (not descriptor_size or next_descriptor > region.members[0].tc_offset or
+                region.end_offset != next_search):
+            raise ScFormatError(f"firmware region {ri}: invalid composite geometry")
         region_member_base = first_member
         region_edge_base = first_edge
         n_edges = sum(len(m.patched_edges) for m in region.members)
@@ -88,7 +113,7 @@ def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
             _id8(region.region_id), _id8(region.callsite_id), region.entry_member,
             region_member_base, len(region.members), region_edge_base,
             entry_source_tb, region.start_offset, region.end_offset,
-            n_edges, 0)
+            n_edges, SC7_REGION_COMPOSITE)
         for local_member, member in enumerate(region.members):
             if len(member.code) != member.tc_size or len(member.search) != member.search_size:
                 raise ScFormatError(f"firmware region {ri} member {local_member}: "
@@ -125,7 +150,8 @@ def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
                 for r in link.firmware_regions for m in r.members]
     aid = _artifact_id8(table, payloads)
     max_end = link.firmware_table_offset + len(table)
-    prefix = _HEADER.pack(SC7_MAGIC, 1, _HEADER.size, len(link.firmware_regions),
+    prefix = _HEADER.pack(SC7_MAGIC, SC7_DIRECTORY_VERSION, _HEADER.size,
+                          len(link.firmware_regions),
                           first_member, first_edge, _REGION.size, link.firmware_table_offset,
                           len(table), max_end, aid, 0, b"\0" * 8)
     checksum = fnv1a64(table, fnv1a64(prefix[:64]))
@@ -198,7 +224,8 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
             raise ScFormatError("truncated v7 directory header")
         magic, version, size, nr, nm, ne, rsz, off, n, max_end, aid, checksum, reserved = \
             _HEADER.unpack(raw)
-        if magic != SC7_MAGIC or version != 1 or size != _HEADER.size or rsz != _REGION.size:
+        if (magic != SC7_MAGIC or version != SC7_DIRECTORY_VERSION or
+                size != _HEADER.size or rsz != _REGION.size):
             raise ScFormatError("invalid v7 directory header")
         expected_size = nr * _REGION.size + nm * _MEMBER.size + ne * _EDGE.size
         if reserved != b"\0" * 8 or off + n != max_end:
@@ -219,7 +246,8 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
     expected_member = expected_edge = 0
     region_spans: list[tuple[int, int, str]] = []
     for i, region in enumerate(rows["regions"]):
-        if (region["flags"] or region["first_member"] != expected_member or
+        if (region["flags"] != SC7_REGION_COMPOSITE or
+                region["first_member"] != expected_member or
                 region["first_edge"] != expected_edge or not region["n_members"] or
                 region["entry_member"] >= region["n_members"] or
                 region["start_offset"] % 64 or
@@ -277,6 +305,29 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
                     fnv1a64(search) != member["search_fnv64"]:
                 raise ScFormatError(f"v7 member {i}: code/search hash mismatch")
             payloads.append((descriptor, code, search))
+    for i, region in enumerate(rows["regions"]):
+        lo = region["first_member"]
+        members = rows["members"][lo:lo + region["n_members"]]
+        next_descriptor = region["start_offset"]
+        code_start = members[0]["tc_offset"]
+        next_code = code_start
+        code_end = code_start + sum(member["tc_size"] for member in members)
+        next_search = code_end
+        for member in members:
+            source = by_tb[member["source_tb_offset"]]
+            search_size = source.end_offset - source.tc_offset - source.tc_size
+            if (member["tb_offset"] != next_descriptor or
+                    member["tc_offset"] != next_code):
+                raise ScFormatError(f"v7 region {i}: non-contiguous composite members")
+            if member["search_offset"] != next_search:
+                raise ScFormatError(f"v7 region {i}: search data is not contiguous and "
+                                    "out of line")
+            next_descriptor += sc.header.tb_size
+            next_code += member["tc_size"]
+            next_search += search_size
+        if (region["entry_member"] != 0 or next_descriptor > code_start or
+                next_code != code_end or next_search != region["end_offset"]):
+            raise ScFormatError(f"v7 region {i}: invalid composite geometry")
     occupied = sorted(public_spans + private_spans +
                       [(off, max_end, "firmware directory")])
     for (a, b, al), (c, d, cl) in zip(occupied, occupied[1:]):
@@ -349,6 +400,20 @@ def decode_directory(directory: Sc7Directory) -> dict[str, Any]:
                 "private_offset": member["tc_offset"], "size": member["tc_size"],
                 "member_index": i, "region_index": member["region_index"]}
                for i, member in enumerate(members)]
+    for region in regions:
+        first = region["first_member"]
+        subset = members[first:first + region["n_members"]]
+        if not subset:
+            region["composite"] = None
+            continue
+        tc_offset = subset[0]["tc_offset"]
+        tc_size = sum(member["tc_size"] for member in subset)
+        region["composite"] = {
+            "descriptor_offset": subset[0]["tb_offset"],
+            "tc_offset": tc_offset, "tc_size": tc_size,
+            "search_start": tc_offset + tc_size,
+            "search_end": region["end_offset"],
+        }
     return {"artifact_id8": directory.artifact_id8.hex(), "regions": regions,
             "members": members, "edges": edges, "origins": origins,
             "max_end": directory.max_end}
@@ -358,7 +423,7 @@ def sc7_snapshot_id(path: str | os.PathLike) -> str:
     """Identity of the records, directory and every private member byte."""
     sc = read_sc(path, versions=(SC7_VERSION,))
     directory = read_sc7(path)
-    digest = hashlib.sha256(b"scopt.snapshot_id.v7/1")
+    digest = hashlib.sha256(b"scopt.snapshot_id.v7/2")
     digest.update(sc.snapshot_id().encode())
     digest.update(directory.header)
     digest.update(directory.table)
