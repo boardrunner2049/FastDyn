@@ -136,15 +136,16 @@ def test_private_exit_tb_pointer_targets_real_descriptor(encoding, width, field,
         assert int.from_bytes(code[field:field + width], "little") == target
 
 
-def test_trusted_exit_tb_pointer_forces_shared_no_chain_descriptor():
+@pytest.mark.parametrize("exit_index", [0, 1, 3])
+def test_trusted_exit_tb_pointer_preserves_index_on_shared_descriptor(exit_index):
     site = ScmSite(2, 0, 8, Encoding.IMM64, SiteKind.MOVI_EXIT_TB_PTR,
-                   0, 0, 0, 0)
+                   exit_index, 0, 0, 0)
     source = SimpleNamespace(uid="trusted-member", record=b"\0" * 152, sites=(site,))
     code = bytearray(bytes.fromhex("48b80000000000000000"))
     retarget_private_descriptor_refs(
         code, source, tc_offset=0x3000, tb_offset=0x1800,
-        code_address=0x7fff_0000_0000, forced_exit_index=3)
-    assert int.from_bytes(code[2:10], "little") == 0x7fff_0000_1803
+        code_address=0x7fff_0000_0000)
+    assert int.from_bytes(code[2:10], "little") == 0x7fff_0000_1800 + exit_index
 
 
 def test_trusted_prefix_requires_exact_non_icount_poll_and_can_do_io_store():

@@ -275,8 +275,7 @@ def _branch_disp(start: int, end: int, uid: str) -> bytes:
 
 def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
                                      tc_offset: int, tb_offset: int,
-                                     code_address: int,
-                                     forced_exit_index: int | None = None
+                                     code_address: int
                                      ) -> tuple[tuple[int, int], ...]:
     """Bind EXIT_TB results in a private copy to its real descriptor.
 
@@ -293,8 +292,7 @@ def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
         if site.aux < 0 or site.aux >= len(source.record):
             raise LinkError("firmware_region_descriptor_ref",
                             f"{source.uid}: descriptor addend {site.aux:#x}", source.uid)
-        addend = site.aux if forced_exit_index is None else forced_exit_index
-        target = code_address + tb_offset + addend
+        target = code_address + tb_offset + site.aux
         field = site.field_off
         if site.enc == Encoding.RIPREL32 and site.width == 4:
             if field < 0 or field + 4 > len(code):
@@ -320,7 +318,6 @@ def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
 CF_USE_ICOUNT = 0x00002000
 TRUSTED_ENTRY_OFFSET = 15
 TRUSTED_INSN0_START = 15
-TB_EXIT_IDXMAX = 3
 
 
 def trusted_firmware_entry_problem(u: TBUnit) -> str | None:
@@ -866,7 +863,7 @@ __all__ += [
     "apply_pure_rewrite", "rewrite_unit", "VariantSpec", "B3Plan", "VariantLink",
     "LinkResultV2", "NativeLinkerV2", "R2", "exit_class_of", "variant_key", "free_slots",
     "derive_scm_v2", "tb_ret_abs_of",
-    "trusted_firmware_entry_problem", "TRUSTED_ENTRY_OFFSET", "TB_EXIT_IDXMAX",
+    "trusted_firmware_entry_problem", "TRUSTED_ENTRY_OFFSET",
 ]
 
 
@@ -1567,8 +1564,7 @@ class NativeLinkerV2:
                     descriptor_start + i * self.header.tb_size
                 retarget_private_descriptor_refs(
                     code, source, tc_offset=tc_offsets[i],
-                    tb_offset=member_tb, code_address=ca,
-                    forced_exit_index=TB_EXIT_IDXMAX if plan.trusted else None)
+                    tb_offset=member_tb, code_address=ca)
                 exits = {x.id: x for x in unit_exits(source)}
                 guards = guarded_exit_rows(source)
                 patched: list[tuple[str, int, int]] = []

@@ -1768,8 +1768,7 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
             for site in unit.sites:
                 if site.kind != SiteKind.MOVI_EXIT_TB_PTR:
                     continue
-                expected = (snapshot.header.code_address + member.tb_offset +
-                            (3 if region.trusted else site.aux))
+                expected = snapshot.header.code_address + member.tb_offset + site.aux
                 if site.enc == Encoding.RIPREL32 and site.width == 4:
                     disp = int.from_bytes(member.code[site.field_off:site.field_off + 4],
                                           "little", signed=True)
@@ -1790,7 +1789,8 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
           f"{directory.n_edges} internal transfers target private members"
           if not bad_edges else _few(bad_edges))
     v.add("V4", "private_descriptor_refs", not bad_descriptors,
-          ("every EXIT_TB result names the shared no-chain descriptor" if trusted else
+          ("every EXIT_TB result names the shared descriptor with its original exit index"
+           if trusted else
            "every EXIT_TB result names its actual private member descriptor")
           if not bad_descriptors else _few(bad_descriptors))
     by_uid = {u.uid: u for u in snapshot.units()}
