@@ -17,7 +17,7 @@ from scopt.decode.guest_symbols import load_guest_image
 from scopt.decode.x86 import sweep
 from scopt.formats.artifact import read_artifact, verify_manifest
 from scopt.formats.profile_v1 import ProfileView, read_profile
-from scopt.formats.sc_v6 import read_sc6
+from scopt.formats.sc_v6 import SC7_SEMANTIC_MARKER, read_sc6
 from scopt.importer.import_cache import import_variants, open_snapshot
 
 
@@ -232,10 +232,10 @@ def weighted_sites(rows):
 def physical_bodies(snap, units):
     bodies = [(u.uid, u, u.code, u.tc_offset, None) for u in units.values()]
     variants = {}
-    if snap.header.version == 6:
+    if snap.header.version == 7 and snap.header.reserved & SC7_SEMANTIC_MARKER:
         f6 = read_sc6(Path(snap.path) / "cache.sc")
         if not f6.loadable:
-            raise ValueError("unloadable v6 snapshot")
+            raise ValueError("unloadable canonical semantic snapshot")
         joined, _ = _verified_captures(snap)
         for v in import_variants(f6, list(units.values()), joined.captures):
             if not v["ok"]:

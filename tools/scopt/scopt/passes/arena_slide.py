@@ -38,8 +38,8 @@ class AlignTracePages:
 
     def run(self, snap, ctx, edits):
         h = snap.header
-        if h is None or h.version != 5 or ctx.b3 is not None:
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_base_v5")
+        if h is None or (h.version, h.reserved) != (7, 0) or ctx.b3 is not None:
+            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_public_v7")
         units = {u.uid: u for u in snap.units()}
         if not units or h.host_page_size < TB_ALIGN or h.host_page_size % TB_ALIGN:
             return PassResult(Outcome.NO_CHANGE, "no_page_alignment_choices")

@@ -178,7 +178,7 @@ def _sidecar():
         "pinned": [{"unit": UID, "reasons": ["unexplained_reference"]}],
         "validation_sha256": SHA,
         "tool_versions": {"scopt": "0.1.0", "capstone": "5.0.3", "pyelftools": "0.33"},
-        "loader_requirement": "qemu-sc-v5-unmodified",
+        "loader_requirement": "qemu-sc-v7",
     }
 
 

@@ -61,7 +61,6 @@ EXT_BEGIN = 0x100
 EXT_END = SC_CODE_OFFSET
 #: offset of ``artifact_id8`` in the ext header (file offset 0x130)
 EXT_ID8_OFFSET = EXT_BEGIN + 48
-SC6_VERSION = 6
 SC7_VERSION = 7
 
 __all__ = ["deployed_state", "prove", "prove_run", "deploy_refusal", "VERDICT_PASS",
@@ -123,17 +122,15 @@ def deployed_state(sc_path: str | os.PathLike,
         if len(hb) < HEADER_SIZE:
             raise ValueError(f"{sc_path}: truncated header")
         h = ScHeader.from_bytes(hb)
+        if h.version != SC7_VERSION:
+            raise ValueError(f"{sc_path}: legacy cache version {h.version} is not deployable")
         roff = SC_CODE_OFFSET + h.code_size
         avail = max(0, (st.st_size - roff) // RECORD_SIZE) if st.st_size > roff else 0
         n = min(h.record_count, avail)
         recs = _read_exact(fd, n * RECORD_SIZE, roff) if n else b""
-        # a real v6 file: version 6 with the EXT_TABLE feature bit (a version-6 header
-        # without it is a v5 file with its version field changed, B1-9 / WP18 rework 2)
         from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
 
-        ext = ext_state(fd) if ((h.version == SC6_VERSION and h.reserved & 1) or
-                                (h.version == SC7_VERSION and
-                                 h.reserved & SC7_SEMANTIC_MARKER)) else None
+        ext = ext_state(fd) if h.reserved & SC7_SEMANTIC_MARKER else None
     finally:
         os.close(fd)
     out = {
@@ -152,14 +149,23 @@ def deployed_state(sc_path: str | os.PathLike,
     }
     if ext is not None:
         out.update(ext)
-    if h.version == SC7_VERSION and h.reserved == 1:
+    if h.reserved == 1:
         from ..formats.sc_v7 import read_sc7, sc7_snapshot_id
 
         directory = read_sc7(sc_path)
         out.update(v7_kind="firmware", firmware_artifact_id8=directory.artifact_id8.hex(),
                    firmware_snapshot_id=sc7_snapshot_id(sc_path))
-    elif h.version == SC7_VERSION:
-        out["v7_kind"] = "semantic" if ext is not None else "public"
+    elif ext is not None:
+        from ..formats.sc_v6 import read_sc6
+
+        semantic = read_sc6(sc_path)
+        if not semantic.loadable or semantic.ext is None:
+            raise ValueError(f"{sc_path}: invalid canonical semantic extension")
+        out["v7_kind"] = "semantic"
+    elif h.reserved == 0:
+        out["v7_kind"] = "public"
+    else:
+        raise ValueError(f"{sc_path}: unknown canonical-v7 feature bits 0x{h.reserved:x}")
     return out
 
 
@@ -206,15 +212,12 @@ def prove(state: dict[str, Any]) -> dict[str, Any]:
                 "the .sc was replaced (unlinked and recreated) during the run")
             if state.get("ext_sha256") is not None:
                 if post is None:
-                    add("v6_header", False, "no header after the run")
+                    add("semantic_header", False, "no header after the run")
                 else:
-                    want_version = SC7_VERSION if dep.version == SC7_VERSION else SC6_VERSION
-                    okv = post.version == want_version and post.reserved == dep.reserved
-                    add("semantic_header" if want_version == SC7_VERSION else "v6_header",
-                        okv, "" if okv else
+                    okv = post.version == SC7_VERSION and post.reserved == dep.reserved
+                    add("semantic_header", okv, "" if okv else
                         f"version {dep.version} -> {post.version}, feature_flags "
-                        f"{dep.reserved:#x} -> {post.reserved:#x} (a v5-only loader "
-                        "truncates a v6 file and writes a fresh v5 header)")
+                        f"{dep.reserved:#x} -> {post.reserved:#x}")
                 es = ext_state(fd)
                 oke = es["ext_sha256"] == state["ext_sha256"]
                 add("ext", oke, "" if oke else
@@ -280,11 +283,13 @@ def frozen_append_counts(run):
     checks = proof.get("checks") or []
     names = {c.get("check") for c in checks}
     required = {"sc_exists", "header", "records", "inode", "manifest"}
-    if proof.get("file_version") == 6:
-        required.update(("v6_header", "ext"))
-    elif proof.get("file_version") == 7 and proof.get("v7_kind") == "firmware":
+    if proof.get("file_version") != 7:
+        raise ValueError("frozen deployment is not a canonical-v7 cache")
+    if proof.get("v7_kind") not in ("public", "semantic", "firmware"):
+        raise ValueError("frozen deployment has no canonical-v7 subtype")
+    if proof.get("v7_kind") == "firmware":
         required.update(("v7_header", "firmware_regions"))
-    elif proof.get("file_version") == 7 and proof.get("v7_kind") == "semantic":
+    elif proof.get("v7_kind") == "semantic":
         required.update(("semantic_header", "ext"))
     if not required <= names or any(c.get("ok") is not True for c in checks):
         raise ValueError("frozen deployment has incomplete cache identity checks")

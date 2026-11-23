@@ -161,7 +161,7 @@ def guarded_lookup_model(sc_path: str | os.PathLike, pv: Mapping[str, Any]) -> d
     the ``lookup_hit`` edges from its R unit to a unit at the slot's target vaddr (the
     edges the guard passes on); SPEC slots also count as C' entries."""
     f, by_off, _ = _sc_units(sc_path)
-    if not f.is_v6 or f.ext is None:
+    if not f.has_ext or f.ext is None:
         return {"status": "no_ext", "slots": 0, "guarded_lookups": 0.0,
                 "share_of_lookups": 0.0, "spec_entries": 0.0}
     g = spec = 0.0
@@ -240,7 +240,7 @@ def code_growth(art_sc: str | os.PathLike, base_sc: str | os.PathLike) -> dict[s
     d_code = sum(art[u].record.tc_size - base[u].record.tc_size for u in grown)
     var_bytes = stub = 0
     nv = ns = 0
-    if fa.is_v6 and fa.ext is not None:
+    if fa.has_ext and fa.ext is not None:
         var_bytes = sum(v.end_offset - v.tb_offset for v in fa.ext.variants)
         stub = sum(s.guard_len for s in fa.ext.slots)
         nv, ns = len(fa.ext.variants), len(fa.ext.slots)

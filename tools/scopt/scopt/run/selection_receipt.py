@@ -114,8 +114,15 @@ def _trial_evidence(path, artifact, case, expected_inputs, expected_guest, runti
     proof = run["proof"]
     checks = {row["check"]: row["ok"] for row in proof["checks"]}
     required = {"sc_exists", "header", "records", "inode", "manifest"}
-    if deploy["state"]["file_version"] == 6:
-        required.update(("v6_header", "ext"))
+    _require(deploy["state"]["file_version"] == 7,
+             f"{path.name}: deployed cache is not canonical v7")
+    kind = deploy["state"].get("v7_kind")
+    _require(kind in ("public", "semantic", "firmware"),
+             f"{path.name}: deployed cache has no canonical-v7 subtype")
+    if kind == "semantic":
+        required.update(("semantic_header", "ext"))
+    elif kind == "firmware":
+        required.update(("v7_header", "firmware_regions"))
     _require(run["exit_code"] == 0 and run["timed_out"] is False
              and run["verdict"] == proof["verdict"] == "PASS"
              and type(run["appended"]) is int and run["appended"] == proof["appended"] == 0

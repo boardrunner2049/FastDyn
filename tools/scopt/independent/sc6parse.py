@@ -91,9 +91,7 @@ def main(argv):
                          target_page_bits=tpb, tb_size=tbsz, feature_flags=feat, checksum=ck,
                          checksum_ok=fnv(hb[:72]) == ck)
     semantic_v7 = ver == 7 and bool(feat & (1 << 31))
-    # Compatibility inputs are v5/v6; canonical semantic publications are v7
-    # with the high marker and the legacy feature bits in the low nibble.
-    if magic != b'QSCACHE1' or (ver not in (5, 6) and not semantic_v7) or \
+    if magic != b'QSCACHE1' or not semantic_v7 or \
             hsz != 80 or fnv(hb[:72]) != ck:
         doc["verdict"] = "invalid_header"
         json.dump(doc, open(out, 'w'))
@@ -122,19 +120,15 @@ def main(argv):
         if ok:
             loaded.append(r)
     doc["loaded"] = [r["tb_offset"] for r in loaded]
-    if ver == 5:
-        doc["verdict"] = "v5"
-        json.dump(doc, open(out, 'w'))
-        return 0
     try:
         vs, ss, rs = load_ext(doc, data, loaded, code_size, prol_end,
-                              feat & 0xf if semantic_v7 else feat, tbsz, tpb,
+                              feat & 0xf, tbsz, tpb,
                               host_page)
         verify_hashes(data, vs, ss, rs)
-        doc["verdict"] = "v7_semantic_ok" if semantic_v7 else "v6_ok"
+        doc["verdict"] = "v7_semantic_ok"
     except Die as e:
         doc["die"] = str(e)
-        doc["verdict"] = "v7_semantic_die" if semantic_v7 else "v6_die"
+        doc["verdict"] = "v7_semantic_die"
     json.dump(doc, open(out, 'w'))
     return 0
 

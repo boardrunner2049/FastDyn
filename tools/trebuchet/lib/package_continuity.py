@@ -30,8 +30,9 @@ def make_variant(snap, profile, source_uid, slot, dest_uid, phase):
               and edge["status"] == "exact" and not edge["flags"]]
     require(len(counts) == 1 and counts[0] > 0, "missing exact unflagged training edge")
     units = snap.units()
-    require(snap.header.version == 5 and len(units) == snap.header.record_count,
-            "requires an ordinary v5 cache with all records present")
+    require((snap.header.version, snap.header.reserved) == (7, 0)
+            and len(units) == snap.header.record_count,
+            "requires a canonical public-only v7 cache with all records present")
     source, dest = snap.unit(source_uid), snap.unit(dest_uid)
     require(source != dest and len(dest.vaddrs) == 1 and dest.reloc.relocatable
             and not any(u.native_fragments or u.stub_start is not None for u in (source, dest)),
@@ -135,7 +136,7 @@ def publish(path, snap, ext, body, report, guest_elf):
                       "outcome": "candidate", "reason": "", "affected": [report["source"], report["destination"]],
                       "edit_digest": sha256_id(body), "duration_s": 0.0}],
         "move_map": {}, "pinned": [], "tool_versions": artifact_format.tool_versions(),
-        "loader_requirement": "qemu-sc-v6", "x_direct_slot_required": True,
+        "loader_requirement": "qemu-sc-v7", "x_direct_slot_required": True,
         "x_ext_artifact_id8": ext.artifact_id8.hex(), "validation_sha256": sha256_id(validation),
     }
     errors = artifact_format.sidecar_errors(sidecar)

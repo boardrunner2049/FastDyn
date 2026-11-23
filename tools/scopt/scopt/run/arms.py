@@ -230,6 +230,18 @@ def sc_file_version(src: str | os.PathLike) -> int | None:
         return None
 
 
+def sc_file_features(src: str | os.PathLike) -> int | None:
+    """Canonical-v7 feature word of an arm source; None if unreadable."""
+    p = Path(src)
+    sc = p / "cache.sc" if p.is_dir() else p
+    try:
+        with open(sc, "rb") as f:
+            b = f.read(72)
+        return int.from_bytes(b[68:72], "little") if len(b) == 72 else None
+    except OSError:
+        return None
+
+
 class CampaignError(RuntimeError):
     def __init__(self, code: str, detail: str = ""):
         self.code = code
@@ -745,7 +757,7 @@ def preflight(c: Campaign, out: Path) -> dict[str, Any]:
                        "sha256": "sha256:" + _file_sha(c.qemu)}
     from .policy import artifact_tags
 
-    v6_arms = []
+    semantic_arms = []
     for a in c.arms:
         if a.kind != "deploy" or a.source == "auto":
             continue
@@ -761,20 +773,26 @@ def preflight(c: Campaign, out: Path) -> dict[str, Any]:
             raise CampaignError("freeze_violation",
                                 f"{a.name}: sha256 {info['sha256']} != frozen {a.expect_sha256}")
         info["file_version"] = sc_file_version(a.source)
-        if info["file_version"] == 6:
-            v6_arms.append(a.name)
+        info["file_features"] = sc_file_features(a.source)
+        if info["file_version"] != 7:
+            raise CampaignError("legacy_cache_version",
+                                f"{a.name}: top-level cache version "
+                                f"{info['file_version']} is not canonical v7")
+        from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+        if info["file_features"] is not None and info["file_features"] & SC7_SEMANTIC_MARKER:
+            semantic_arms.append(a.name)
         ids["arms"][a.name] = info
-    if v6_arms:
+    if semantic_arms:
         from ..validate import v6_capable_exes
 
         if not c.qemu:
-            raise CampaignError("v6_arm_needs_qemu", "arms " + ", ".join(v6_arms) + " deploy "
-                                ".sc v6: name the v6-capable QEMU (every arm runs on it)")
+            raise CampaignError("semantic_arm_needs_qemu", "arms " + ", ".join(semantic_arms) +
+                                " deploy semantic v7: name the capable QEMU "
+                                "(every arm runs on it)")
         if _file_sha(c.qemu) not in v6_capable_exes():
-            raise CampaignError("v6_loader_required", f"{c.qemu} is not a v6-capable binary "
-                                "(runs/wp22/gate-binary.json or $SCOPT_V6_EXES); arms "
-                                + ", ".join(v6_arms))
-        ids["v6_arms"] = v6_arms
+            raise CampaignError("semantic_loader_required", f"{c.qemu} is not a "
+                                "semantic-v7-capable binary; arms " + ", ".join(semantic_arms))
+        ids["semantic_arms"] = semantic_arms
     return ids
 
 

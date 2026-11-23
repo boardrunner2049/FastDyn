@@ -667,29 +667,31 @@ class OracleRefused(RuntimeError):
         super().__init__(f"{code}: {detail}" if detail else code)
 
 
-def _v6_runtime_refusal(art: Path, qemu: str | os.PathLike | None) -> tuple[str, str] | None:
-    """``(code, detail)`` when ``art`` is a ``.sc`` v6 artifact and the QEMU the
+def _semantic_runtime_refusal(art: Path, qemu: str | os.PathLike | None) -> tuple[str, str] | None:
+    """``(code, detail)`` when ``art`` is a semantic-v7 artifact and the QEMU the
     runs would use (``qemu``, or the integrated runtime for None) is not a
     v6-capable binary (:func:`scopt.validate.v6_capable_exes`): run there,
     every v6 run is ``INVALID_artifact_not_used``."""
-    from .arms import sc_file_version
+    from .arms import sc_file_features, sc_file_version
     from .launcher import RunDirError, resolve_qemu
 
-    if sc_file_version(art) != 6:
+    if sc_file_version(art) != 7:
+        return ("legacy_cache_version", f"{art} is not canonical top-level v7")
+    from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+    if not (sc_file_features(art) or 0) & SC7_SEMANTIC_MARKER:
         return None
     from ..validate import v6_capable_exes
 
     try:
         q = resolve_qemu(qemu)
     except RunDirError as e:
-        return ("v6_loader_required", f"cannot resolve the QEMU binary: {e}")
+        return ("semantic_loader_required", f"cannot resolve the QEMU binary: {e}")
     sha = q.get("qemu_sha256")
     hexsha = None if sha is None else str(sha).removeprefix("sha256:")
     if hexsha is None or hexsha not in v6_capable_exes():
-        return ("v6_loader_required",
-                f"{art} is .sc v6 but QEMU {q.get('qemu')} (sha256 {hexsha}, "
-                f"{q.get('qemu_selection')}) is not a v6-capable binary "
-                "(runs/wp22/gate-binary.json or $SCOPT_V6_EXES)")
+        return ("semantic_loader_required",
+                f"{art} is semantic v7 but QEMU {q.get('qemu')} (sha256 {hexsha}, "
+                f"{q.get('qemu_selection')}) is not semantic-v7-capable")
     return None
 
 
@@ -764,7 +766,7 @@ def dynamic_oracles(art_dir: str | os.PathLike, configs: Sequence[str | os.PathL
     baseline = Path(baseline).resolve()
     if qemu is None and info is not None and info.runtime_identity:
         qemu = (info.runtime_identity.get("qemu_exe_stat") or {}).get("path")
-    why = _v6_runtime_refusal(art, qemu)
+    why = _semantic_runtime_refusal(art, qemu)
     if why is not None:
         raise OracleRefused(*why)
     fx = load_fixture_expected(fixture_expected) if fixture_expected else None

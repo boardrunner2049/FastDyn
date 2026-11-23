@@ -200,8 +200,6 @@
     "loader_requirement": {
       "enum": [
         "qemu-sc-v7",
-        "qemu-sc-v5-unmodified",
-        "qemu-sc-v6",
         "qemu-sc-v7-firmware-regions",
         "qemu-sc-v7-composite-firmware-regions",
         "qemu-sc-v7-trusted-firmware-regions"

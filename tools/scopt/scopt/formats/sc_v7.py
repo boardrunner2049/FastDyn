@@ -238,7 +238,7 @@ def write_sc7(path: str | os.PathLike, header: ScHeader, units: Iterable,
                 raise ScFormatError(f"{al} [0x{a:x},0x{b:x}) overlaps {cl} "
                                     f"[0x{c:x},0x{d:x})")
     out = write_sc(path, hdr, parts, check=check, fsync=fsync,
-                   versions=(5, 6, SC7_VERSION), extra=extra)
+                   versions=(SC7_VERSION,), extra=extra)
     if check:
         parsed = read_sc7(path)
         if parsed.artifact_id8 != directory.artifact_id8:
@@ -251,7 +251,7 @@ def write_sc7_public(path: str | os.PathLike, header: ScHeader, units: Iterable,
     """Write a canonical public-only scopt artifact (top-level v7, no payload)."""
     hdr = header.replace(version=SC7_VERSION, reserved=0)
     return write_sc(path, hdr, units, check=check, fsync=fsync,
-                    versions=(5, 6, SC7_VERSION))
+                    versions=(SC7_VERSION,))
 
 
 def write_sc7_semantic(path: str | os.PathLike, header: ScHeader, units: Iterable,
@@ -285,7 +285,7 @@ def write_sc7_semantic(path: str | os.PathLike, header: ScHeader, units: Iterabl
     hdr = header.replace(version=SC7_VERSION,
                          reserved=SC7_SEMANTIC_MARKER | features)
     out = write_sc(path, hdr, units, check=check, fsync=fsync,
-                   versions=(5, 6, SC7_VERSION), extra=extra)
+                   versions=(SC7_VERSION,), extra=extra)
     if check:
         parsed = read_sc6(path, host_page_size=host_page_size)
         if not parsed.is_semantic_v7 or parsed.problem is not None or parsed.sc.skipped:

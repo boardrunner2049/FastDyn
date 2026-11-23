@@ -48,7 +48,8 @@ def campaign(tmp_path, monkeypatch):
         ids = {"checked": True, "bundle_id": "bundle", "expected_bundle_id": "bundle",
                "runtime_identity_id": "runtime", "reasons": []}
         deploy = {"artifact": a, "run_dir": str(path), "identity": ids,
-                  "state": {"n": 1, "sc_path": str(cache), "file_version": 5}}
+                  "state": {"n": 1, "sc_path": str(cache), "file_version": 7,
+                            "v7_kind": "public"}}
         if a.get("restore_hints"):
             deploy["restore_hint_sha256"] = file_sha256(a["restore_hints"])
         write_json(path / "deploy.json", deploy)
@@ -60,7 +61,8 @@ def campaign(tmp_path, monkeypatch):
         (path / "stdout.log").write_text(stdout)
         (path / "guest.norm").write_text("\n".join(norm_guest(stdout)) + "\n")
         (path / "output.norm").write_text("\n".join(norm_b0(stdout)) + "\n")
-        proof = {"verdict": "PASS", "n": 1, "record_count_after": 1, "appended": 0, "failed": [],
+        proof = {"verdict": "PASS", "n": 1, "record_count_after": 1, "appended": 0,
+                 "failed": [], "file_version": 7, "v7_kind": "public",
                  "checks": [{"check": name, "ok": True}
                             for name in ("sc_exists", "header", "records", "inode", "manifest")]}
         write_json(path / "run.json", {"run_dir": str(path), "exit_code": 0, "timed_out": False,

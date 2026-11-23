@@ -1934,8 +1934,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
                                     trusted_v7_exes=trusted_v7_exes,
                                     skip_reimport=skip_reimport)
     from .formats.envlayout_v1 import find_envlayout
-    from .formats.sc_v6 import (KIND_SPEC, LOADER_V6, read_sc6, sc6_snapshot_id,
-                                sc6parse_compare)
+    from .formats.sc_v6 import KIND_SPEC, read_sc6, sc6_snapshot_id, sc6parse_compare
     from .guard import GuardError, GuardOffsets, decode_guard, guard_key
     from .link import lookup_tails, tb_ret_abs_of
 
@@ -3116,8 +3115,8 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     publish into ``store`` or write ``store/rejections/<candidate>.json``.
 
     ``pipeline`` are the sidecar pipeline rows (default: one row describing the
-    plan). The sidecar's ``loader_requirement`` is ``qemu-sc-v6`` for a v6
-    output; ``x_ext_artifact_id8`` carries the ext table id; ``move_map``
+    plan). The sidecar's ``loader_requirement`` is ``qemu-sc-v7``;
+    ``x_ext_artifact_id8`` carries the semantic-extension id; ``move_map``
     lists moved units; ``regions.jsonl`` has the tb_singleton rows
     of the re-import plus the manager-generated multi_tb rows.
 
@@ -3131,7 +3130,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     ``ledger_rows`` (WP21) start the artifact ledger (the PassManager's pass rows);
     ``sidecar_extra`` adds ``x_`` keys to the sidecar (the manager's B3 report)."""
     from .formats.envlayout_v1 import find_envlayout
-    from .formats.sc_v6 import LOADER_V6, ScExtRefused
+    from .formats.sc_v6 import ScExtRefused
     from .formats.sc_v7 import LOADER_V7, LOADER_V7_TRUSTED
     from .link import NativeLinkerV2
 

@@ -267,6 +267,12 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
     if header.version == 7 and not (public or semantic or firmware):
         reasons.append("unknown_v7_features")
     id8 = _ext_id8_of(art["sc"]) if semantic else None
+    if semantic:
+        from ..formats.sc_v6 import read_sc6
+
+        semantic_file = read_sc6(art["sc"])
+        if not semantic_file.loadable or semantic_file.ext is None:
+            reasons.append("semantic_extension_invalid")
     firmware_id8 = None
     firmware_directory = None
     if firmware:
@@ -390,8 +396,7 @@ def deploy(artifact: str | os.PathLike, rd: RunDir, *, check: bool = False,
     doc: dict[str, Any] = {"schema": DEPLOY_SCHEMA, "artifact": art, "method": method,
                            "run_dir": str(rd.root),
                            # informational: QEMU will rebuild such a file; the proof catches it
-                           "artifact_header_problems": header.problems(),
-                           "artifact_header_problems_v6": header.problems(versions=(5, 6))}
+                           "artifact_header_problems": header.problems(versions=(7,))}
     try:
         reasons, ainfo = artifact_refusals(art, header,
                                            allow_negative_control=allow_negative_control,
@@ -550,8 +555,7 @@ def deploy_direct(artifact: str | os.PathLike, run_dir: str | os.PathLike, *,
     full = [exe] + [a.replace(PH_SC, str(cache)).replace(PH_RUN, str(root)) for a in argv[1:]]
     doc: dict[str, Any] = {"schema": DEPLOY_SCHEMA, "artifact": art, "method": "direct",
                            "run_dir": str(root),
-                           "artifact_header_problems": header.problems(),
-                           "artifact_header_problems_v6": header.problems(versions=(5, 6))}
+                           "artifact_header_problems": header.problems(versions=(7,))}
     reasons, ainfo = artifact_refusals(art, header, allow_negative_control=allow_negative_control,
                                        test_policies=test_policies)
     ids: dict[str, Any] = {"checked": False, "reasons": [], "frontend": "none",

@@ -48,8 +48,7 @@ from . import schemas
 from .sc_v5 import sha256_sparse
 
 __all__ = [
-    "SIDECAR", "MANIFEST", "VALIDATION", "LEDGER", "REGIONS", "PROFILES", "LOADER_V5",
-    "LOADER_V7",
+    "SIDECAR", "MANIFEST", "VALIDATION", "LEDGER", "REGIONS", "PROFILES", "LOADER_V7",
     "ArtifactError", "manifest_bytes", "parse_manifest", "verify_manifest", "staging_dir",
     "publish", "write_rejection", "read_artifact", "ArtifactInfo", "write_json_file",
     "tool_versions", "sidecar_errors", "id_hex", "artifact_dir", "rejection_path",
@@ -62,7 +61,6 @@ VALIDATION = "validation.json"
 LEDGER = "ledger.jsonl"
 REGIONS = "regions.jsonl"
 PROFILES = "profiles.json"
-LOADER_V5 = "qemu-sc-v5-unmodified"
 LOADER_V7 = "qemu-sc-v7"
 REJECTION_SCHEMA = "scopt.rejection"
 

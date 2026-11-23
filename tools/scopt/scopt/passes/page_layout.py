@@ -30,8 +30,8 @@ class PageAwareLocalLayout:
 
     def run(self, snap, ctx, edits):
         h = snap.header
-        if h is None or h.version != 5 or ctx.b3 is not None:
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_base_v5")
+        if h is None or (h.version, h.reserved) != (7, 0) or ctx.b3 is not None:
+            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_public_v7")
         units = sorted(snap.units(), key=lambda u: u.tb_offset)
         if not units:
             return PassResult(Outcome.NO_CHANGE, "empty_arena")

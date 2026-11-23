@@ -62,7 +62,7 @@ __all__ = [
     "KIND_GENERAL", "KIND_SPEC", "EXIT_RETURN", "EXIT_STATIC", "EXIT_DIRECT", "VARIANT_FACTS",
     "VariantEntry", "SlotEntry", "LinkEntry", "ExtTable", "Sc6File", "read_sc6", "write_sc6",
     "ext_problem", "sc6parse_compare", "SC6PARSE", "max_ext_entries", "TB_STRUCT_ROUND",
-    "LOADER_V6", "SC7_SEMANTIC_MARKER", "sc6_snapshot_id", "ScExtRefused",
+    "SC7_SEMANTIC_MARKER", "sc6_snapshot_id", "ScExtRefused",
 ]
 
 SC6_VERSION = 6
@@ -82,12 +82,9 @@ EXIT_DIRECT = 3
 VARIANT_FACTS = 1 << 0
 NONE16 = 0xFFFF
 TB_STRUCT_ROUND = 64
-#: sidecar ``loader_requirement`` of a v6 artifact (artifact_sidecar.v1 enum)
-LOADER_V6 = "qemu-sc-v6"
 #: Top-level v7 marker for the legacy semantic-extension payload.  The low
 #: bits retain the v6 feature flags, and the payload remains at ``0x100``.
-#: This lets v5/v6 remain compatibility inputs while new scopt publications
-#: have one top-level version.  Firmware v7 uses bit 0 without this marker.
+#: Firmware v7 uses bit 0 without this marker.
 SC7_SEMANTIC_MARKER = 1 << 31
 
 _EXT_HDR = struct.Struct("<8sIIIIIHHHHIQ8sQ")
@@ -459,7 +456,8 @@ class Sc6File:
 
     @property
     def is_v6(self) -> bool:
-        return self.sc.loadable and self.sc.header.version == SC6_VERSION
+        """False for every production artifact; retained as an API migration aid."""
+        return False
 
     @property
     def is_semantic_v7(self) -> bool:
@@ -468,7 +466,7 @@ class Sc6File:
 
     @property
     def has_ext(self) -> bool:
-        return self.is_v6 or self.is_semantic_v7
+        return self.is_semantic_v7
 
     @property
     def loadable(self) -> bool:
@@ -510,13 +508,17 @@ class Sc6File:
 
 def read_sc6(path: str | os.PathLike, *, host_page_size: int | None = None,
              expect: Mapping[str, int] | None = None) -> Sc6File:
-    """Read a v5 or v6 ``.sc`` like the ``qint-v6`` loader does."""
+    """Read the semantic-extension payload of a canonical top-level-v7 cache."""
     path = os.fspath(path)
-    sc = read_sc(path, expect=expect, versions=(5, SC6_VERSION, 7))
+    sc = read_sc(path, expect=expect, versions=(7,))
     semantic_v7 = (sc.loadable and sc.header.version == 7 and
                    bool(sc.header.reserved & SC7_SEMANTIC_MARKER))
-    if not sc.loadable or (sc.header.version != SC6_VERSION and not semantic_v7):
+    if not sc.loadable or not semantic_v7:
         return Sc6File(sc)
+    unknown = sc.header.reserved & ~(SC7_SEMANTIC_MARKER | KNOWN_FEATURES)
+    if unknown:
+        return Sc6File(sc, problem=("feature_flags",
+                                    f"unknown feature bits 0x{unknown:x}"))
     ext_header = sc.header
     if semantic_v7:
         # The extension rules consume only the legacy low feature bits.
@@ -550,9 +552,7 @@ def sc6_snapshot_id(f: "Sc6File") -> str:
     sc = f.sc
     if not f.has_ext or f.ext is None:
         return sc.snapshot_id()
-    domain = b"scopt.snapshot_id.v7-semantic/1" if f.is_semantic_v7 else \
-        b"scopt.snapshot_id.v6/1"
-    h = hashlib.sha256(domain)
+    h = hashlib.sha256(b"scopt.snapshot_id.v7-semantic/1")
     h.update(sc.snapshot_id().encode())
     h.update(f.ext.encode())
     for b in f.variant_bodies:
@@ -568,8 +568,8 @@ def write_sc6(path: str | os.PathLike, header: ScHeader, units: Iterable, ext: E
               variant_bodies: Sequence[bytes] = (), *, rewritten: bool = False,
               features: int | None = None, check: bool = True, fsync: bool = True,
               host_page_size: int | None = None) -> ScHeader:
-    """Write a v6 ``.sc``: the v5 parts (``units`` as for
-    :func:`~scopt.formats.sc_v5.write_sc`), version 6 and ``feature_flags``
+    """Write a canonical top-level-v7 cache with the semantic payload: the
+    public parts (``units`` as for :func:`~scopt.formats.sc_v5.write_sc`) and ``feature_flags``
     (``features`` overrides the computed value), the extension table at 0x100
     and ``variant_bodies[i]`` at ``0x10000 + ext.variants[i].tc_offset``.
 
@@ -592,13 +592,15 @@ def write_sc6(path: str | os.PathLike, header: ScHeader, units: Iterable, ext: E
                                 f"{v.end_offset - v.tc_offset}")
         extra.append((SC_CODE_OFFSET + v.tc_offset, bytes(b)))
     feat = ext.features(rewritten=rewritten) if features is None else features
-    hdr = header.replace(version=SC6_VERSION, reserved=feat)
-    out = write_sc(path, hdr, units, check=check, fsync=fsync, versions=(5, SC6_VERSION),
+    if check and feat & ~KNOWN_FEATURES:
+        raise ScFormatError(f"unknown semantic extension features 0x{feat:x}")
+    hdr = header.replace(version=7, reserved=SC7_SEMANTIC_MARKER | feat)
+    out = write_sc(path, hdr, units, check=check, fsync=fsync, versions=(7,),
                    extra=extra)
     if check:
         f = read_sc6(path, host_page_size=host_page_size)
         if f.problem is not None:
-            raise ScExtRefused(f.problem[0], f"v6 extension refused: {f.problem[1]}")
+            raise ScExtRefused(f.problem[0], f"semantic extension refused: {f.problem[1]}")
         if f.sc.skipped:
             raise ScFormatError(f"records skipped by load_records: {f.sc.skipped[:3]}")
     return out
@@ -641,10 +643,8 @@ def sc6parse_compare(path: str | os.PathLike, f: Sc6File, *,
     mine_loaded = [f.sc.records[i].tb_offset for i in f.sc.valid_slots] if f.sc.loadable else []
     if doc.get("loaded") != mine_loaded:
         probs.append(f"loaded records differ ({len(doc.get('loaded', []))} vs {len(mine_loaded)})")
-    want_verdict = ("invalid_header" if not f.sc.loadable else "v5" if h.version == 5 else
-                    ("v7_semantic_ok" if f.problem is None else "v7_semantic_die")
-                    if f.is_semantic_v7 else
-                    "v6_ok" if f.problem is None else "v6_die")
+    want_verdict = ("invalid_header" if not f.sc.loadable or not f.is_semantic_v7 else
+                    "v7_semantic_ok" if f.problem is None else "v7_semantic_die")
     if doc.get("verdict") != want_verdict:
         probs.append(f"verdict {doc.get('verdict')} vs {want_verdict}")
     if f.problem is not None and doc.get("die") != f.problem[1]:

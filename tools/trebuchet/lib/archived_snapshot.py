@@ -9,7 +9,7 @@ from scopt.importer.import_cache import ImportCache
 
 
 def archived_ordinary(path, guest_elf):
-    """Reimport exact v5 bytes and SCMs and compare all physical region fields.
+    """Reimport exact canonical public-v7 bytes and SCMs and compare all physical region fields.
 
     Only offline diagnostics use this interface. Host symbol resolution and
     relocation eligibility can change when the captured executable paths no
@@ -32,8 +32,9 @@ def archived_ordinary(path, guest_elf):
                          runtime_identity=path / "runtime_identity.json", firmware=firmware,
                          use_manifest_firmware=False, verify_files=False).run()
     snap = result.snapshot
-    if snap.header.version != 5 or any(u.native_fragments or u.stub_start is not None for u in snap.units()):
-        raise ValueError("archived census requires an ordinary v5 input")
+    if ((snap.header.version, snap.header.reserved) != (7, 0)
+            or any(u.native_fragments or u.stub_start is not None for u in snap.units())):
+        raise ValueError("archived census requires a canonical public-only v7 input")
     for key in ("snapshot_id", "header", "records", "bundle_id", "contract_id", "runtime_identity_id"):
         if result.summary[key] != stored[key]:
             raise ValueError(f"archived snapshot differs in {key}")
