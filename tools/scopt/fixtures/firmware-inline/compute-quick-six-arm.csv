@@ -1,0 +1,12 @@
+arm,trial,guest_ns,process_ns,exit_code,behavior_passed
+stock-O0,median,1102650286,1165275572,0,true
+fd-O0,median,1334988060,1386348472,0,true
+fd-fb,median,1319501200,1380434459,0,true
+fd-fb-warm,median,1242789606,1303038099,0,true
+fd-fb-scopt,median,1100832311,1160456738,0,true
+fd-fb-scopt-trusted,1,1431966808,1483305029,0,true
+fd-fb-scopt-trusted,2,1387072302,1442463229,0,true
+fd-fb-scopt-trusted,3,1383435760,1441364661,0,true
+fd-fb-scopt-trusted-set-ablation,1,1318780830,1377818097,0,true
+fd-fb-scopt-trusted-set-ablation,2,1241643896,1296759819,0,true
+fd-fb-scopt-trusted-set-ablation,3,1235970476,1291186612,0,true

@@ -1806,15 +1806,23 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
                   by_uid[m.source_uid].content_hash != m.source_hash or
                   m.effective_unit is None or
                   m.effective_unit.key != by_uid[m.source_uid].key]
-    if trusted and linked_members and linked_members[0].effective_unit is not None:
+    if trusted and linked_members:
         from .link import trusted_firmware_entry_problem
 
-        entry_key = linked_members[0].effective_unit.key
-        entry_context = (entry_key.flags, entry_key.cs_base, entry_key.cflags)
-        bad_origin += [m.source_uid for m in linked_members
-                       if m.effective_unit is not None and
-                       (m.effective_unit.key.flags, m.effective_unit.key.cs_base,
-                        m.effective_unit.key.cflags) != entry_context]
+        # Translation context must agree within each private region.  Separate
+        # captured call sites may legitimately have different flags/cs_base/
+        # cflags, so comparing every region with the first region's entry
+        # falsely rejects otherwise exact source identities.
+        for region in link.firmware_regions:
+            entry = region.members[region.entry_member]
+            if entry.effective_unit is None:
+                continue
+            entry_key = entry.effective_unit.key
+            entry_context = (entry_key.flags, entry_key.cs_base, entry_key.cflags)
+            bad_origin += [m.source_uid for m in region.members
+                           if m.effective_unit is not None and
+                           (m.effective_unit.key.flags, m.effective_unit.key.cs_base,
+                            m.effective_unit.key.cflags) != entry_context]
         bad_origin += [f"{m.source_uid}:{trusted_firmware_entry_problem(m.effective_unit)}"
                        for m in linked_members if m.effective_unit is not None and
                        trusted_firmware_entry_problem(m.effective_unit) is not None]

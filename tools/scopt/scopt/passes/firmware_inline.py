@@ -81,7 +81,8 @@ class FirmwareInline:
             ctx.budget()
             plan = build_firmware_region(ctx.b3.snapshot, image, discovered, call)
             if trusted and plan.complete:
-                from ..link import TRUSTED_ENTRY_OFFSET, trusted_firmware_entry_problem
+                from ..link import (TRUSTED_ENTRY_OFFSET, trusted_firmware_edge_problem,
+                                    trusted_firmware_entry_problem)
 
                 entry = ctx.b3.snapshot.unit(plan.members[plan.entry_member].source_uid)
                 entry_context = (entry.key.flags, entry.key.cs_base, entry.key.cflags)
@@ -95,8 +96,39 @@ class FirmwareInline:
                     if context != entry_context:
                         return PassResult(Outcome.FAILED, "trusted_context_mismatch",
                                           f"{unit.uid}: {context} != {entry_context}")
+                sanitized_edges = []
+                root_edge_unpatchable = False
+                for edge in plan.edges:
+                    if edge.target_member is None:
+                        sanitized_edges.append(edge)
+                        continue
+                    unit = ctx.b3.snapshot.unit(plan.members[edge.source_member].source_uid)
+                    problem = trusted_firmware_edge_problem(unit, edge.exit_id)
+                    if problem is None:
+                        sanitized_edges.append(edge)
+                        continue
+                    row = {"callsite_id": call.callsite_id,
+                           "region_id": plan.region_id,
+                           "source_uid": unit.uid,
+                           "exit_id": edge.exit_id,
+                           "inline_context": list(
+                               plan.members[edge.source_member].inline_context),
+                           "reason": "unpatchable_native_exit",
+                           "detail": problem}
+                    pending.append(row)
+                    refused["unpatchable_native_exit"] += 1
+                    if (edge.source_member == plan.entry_member and
+                            edge.exit_id == call.exit_id):
+                        root_edge_unpatchable = True
+                        break
+                    sanitized_edges.append(replace(
+                        edge, kind="side_exit", target_member=None, guarded=False,
+                        refusal_reason="unpatchable_native_exit"))
+                if root_edge_unpatchable:
+                    continue
                 plan = replace(plan, trusted=True,
-                               trusted_entry_offset=TRUSTED_ENTRY_OFFSET)
+                               trusted_entry_offset=TRUSTED_ENTRY_OFFSET,
+                               edges=tuple(sanitized_edges))
             max_depth = max(max_depth, max((len(m.inline_context) for m in plan.members), default=0))
             for row in plan.pending:
                 reason = str(row.get("reason", "incomplete"))

@@ -22,7 +22,7 @@ from scopt.formats.sc_v7 import (LOADER_V7_TRUSTED, build_directory, decode_dire
 from scopt.formats.sc_v5 import ScFormatError, ScHeader
 from scopt.link import (FirmwareMemberLink, FirmwareRegionLink, relocate_unit,
                         retarget_private_descriptor_refs, round_up,
-                        trusted_firmware_entry_problem)
+                        trusted_firmware_edge_problem, trusted_firmware_entry_problem)
 from scopt.validate import trusted_v7_capable_exes, v7_capable_exes
 
 from ..synth.builders import SynthUnit
@@ -160,6 +160,14 @@ def test_trusted_prefix_requires_exact_non_icount_poll_and_can_do_io_store():
         SimpleNamespace(code=code[:11] + bytes.fromhex("c645fc02") + code[15:],
                         insn0_start=15,
                         key=SimpleNamespace(cflags=0))) == "trusted_irq_prefix_shape"
+
+
+def test_trusted_edge_requires_patchable_native_transfer():
+    snapshot, _image = _snapshot()
+    call, _continuation, ret = snapshot.units()
+    assert trusted_firmware_edge_problem(call, "x0") is None
+    assert trusted_firmware_edge_problem(ret, "x0") == "lookup_tail_missing"
+    assert trusted_firmware_edge_problem(ret, "missing") == "exit_missing"
 
 
 def test_v7_export_and_reimport_directory(tmp_path):

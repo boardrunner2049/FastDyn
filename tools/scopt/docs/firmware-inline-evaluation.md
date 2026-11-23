@@ -238,6 +238,37 @@ The canonical-v7 raw BENCH samples and identities are in
 `fixtures/firmware-inline/canonical-v7-measurement.json`; the earlier progression is
 in `measurement.json`, and regression ablations are in `regression-ablations.json`.
 
+## Compute quick six-arm check
+
+A three-launch check on the retained Trebuchet compute `final-1` input added the
+trusted artifact as a sixth arm to the existing five-arm comparison. Compilation,
+capture, optimization, deployment, cache copying, and RAM/input staging were outside
+the timed boundary. Each arm used the generated Python-free direct QEMU launcher.
+
+| Arm | Median BENCH | Median process wall |
+| --- | ---: | ---: |
+| stock-O0 | 1102.650 ms | 1165.276 ms |
+| fd-O0 | 1334.988 ms | 1386.348 ms |
+| fd-fb | 1319.501 ms | 1380.434 ms |
+| fd-fb-warm | 1242.790 ms | 1303.038 ms |
+| fd-fb-scopt | **1100.832 ms** | **1160.457 ms** |
+| fd-fb-scopt-trusted | 1387.072 ms | 1442.463 ms |
+
+This is a quick mechanism check, not the declared paired inference campaign. All
+trusted launches reproduced the same sixteen application registers, exited zero,
+loaded artifact id `148bbd71ea61b768`, activated 125 of 168 loaded regions, and left
+the cache byte-identical. The trusted contract deliberately differs from the first
+five arms: icount is ignored, interrupts are disabled, and fault recovery is external.
+
+The regression is active, not an inactive pass. An untimed diagnostic recorded
+4,584,336 trusted-TB membership queries, 197,987,616 linear comparisons, and 4,138,883
+chain refusals involving trusted sources or destinations. Enabling the existing exact
+trusted-TB set ablation removed all 197,987,616 comparisons and reduced the three-run
+median BENCH to 1241.644 ms, but did not beat ordinary scopt. This larger workload
+therefore exposes a second scaling problem after the source-to-region index fix:
+trusted-TB membership and lost cross-region chaining dominate the embedded-call gain.
+Raw samples are in `fixtures/firmware-inline/compute-quick-six-arm.csv`.
+
 ## Reproduction skeleton
 
 ```sh

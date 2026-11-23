@@ -228,6 +228,9 @@ translation context, and fall back to the original lookup path on mismatch.
   emitting the safe mode's return-context guards; an unexpected return/context is therefore
   outside the trusted contract. It is suitable only when the user verifies immutable code,
   mappings, and admitted control contexts and accepts fatal recovery for a real fault.
+  An internal edge whose captured native exit has neither a rel32 field nor one verified
+  lookup tail is retained as an ordinary side exit and reported as
+  `unpatchable_native_exit`; it no longer invalidates every otherwise eligible region.
 - Example:
 
   ```sh

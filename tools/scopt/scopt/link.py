@@ -334,6 +334,32 @@ def trusted_firmware_entry_problem(u: TBUnit) -> str | None:
     return None
 
 
+def trusted_firmware_edge_problem(u: TBUnit, exit_id: str) -> str | None:
+    """Why a trusted private edge cannot be retargeted in ``u``.
+
+    Trusted regions may patch either a captured rel32 exit field or the one
+    verified ``lookup_tb_ptr`` tail associated with a GOTO_PTR exit.  Other
+    exit shapes remain valid ordinary QEMU side exits, but must not be
+    advertised as internal region edges and discovered only after packaging.
+    """
+    from .formats.region_v1 import unit_exits
+
+    exit_ = next((row for row in unit_exits(u) if row.id == exit_id), None)
+    if exit_ is None:
+        return "exit_missing"
+    field = exit_.insn_offset
+    if field is not None:
+        if 1 <= field and field + 4 <= len(u.code):
+            return None
+        return "rel32_field_out_of_bounds"
+    if exit_.kind.value == "goto_ptr":
+        tails = [tail for tail in lookup_tails(u) if tail.insn_idx == exit_.insn]
+        if len(tails) == 1:
+            return None
+        return "lookup_tail_missing" if not tails else "lookup_tail_ambiguous"
+    return "no_rel32_field"
+
+
 def transplant_native(u: TBUnit, *, code_address: int) -> TBUnit:
     """Materialize a unit's checked symbolic fragments at its pre-move offsets."""
     from .validate_sym.native_inline import verify_fragment
@@ -863,7 +889,8 @@ __all__ += [
     "apply_pure_rewrite", "rewrite_unit", "VariantSpec", "B3Plan", "VariantLink",
     "LinkResultV2", "NativeLinkerV2", "R2", "exit_class_of", "variant_key", "free_slots",
     "derive_scm_v2", "tb_ret_abs_of",
-    "trusted_firmware_entry_problem", "TRUSTED_ENTRY_OFFSET",
+    "trusted_firmware_entry_problem", "trusted_firmware_edge_problem",
+    "TRUSTED_ENTRY_OFFSET",
 ]
 
 
