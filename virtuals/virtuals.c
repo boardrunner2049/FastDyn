@@ -336,6 +336,7 @@ void benchmark_start(unsigned int cpu_index, void *udata) {
     /* No I/O here: printfs would land inside the measured region and pollute
      * the sample. Just capture the monotonic timestamp. */
     g_bench_tick_count = 0;
+    qemu_plugin_supercache_restore_window(true);
     clock_gettime(CLOCK_MONOTONIC, &g_bench_start_ts);
     g_bench_started = true;
 }
@@ -344,6 +345,7 @@ void benchmark_end(unsigned int cpu_index, void *udata) {
     (void)cpu_index;
     struct timespec end_ts;
     clock_gettime(CLOCK_MONOTONIC, &end_ts);
+    qemu_plugin_supercache_restore_window(false);
 
     if (!g_bench_started) {
         FD_LOG_ERROR("benchmark_end called before benchmark_start");
@@ -402,6 +404,7 @@ void benchmark_end_after(unsigned int cpu_index, void *udata) {
 
     struct timespec end_ts;
     clock_gettime(CLOCK_MONOTONIC, &end_ts);
+    qemu_plugin_supercache_restore_window(false);
     int64_t delta_ns = (int64_t)(end_ts.tv_sec - g_bench_start_ts.tv_sec) * 1000000000LL
                      + (int64_t)(end_ts.tv_nsec - g_bench_start_ts.tv_nsec);
     const char *tag = separator[1] ? separator + 1 : "fixed-work";
