@@ -273,6 +273,47 @@ def _branch_disp(start: int, end: int, uid: str) -> bytes:
     return value.to_bytes(4, "little", signed=True)
 
 
+def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
+                                     tc_offset: int, tb_offset: int,
+                                     code_address: int) -> tuple[tuple[int, int], ...]:
+    """Bind EXIT_TB results in a private copy to its real descriptor.
+
+    Ordinary whole-TB relocation preserves ``tc_offset - tb_offset``.  A
+    firmware region deliberately stores all descriptors first and all code
+    second, so that invariant does not hold.  Captured EXIT_TB pointer
+    materializations must therefore be rebound after relocation; otherwise an
+    icount/interrupt/exception exit returns a pointer into padding or code.
+    """
+    patched: list[tuple[int, int]] = []
+    for site in source.sites:
+        if site.kind != SiteKind.MOVI_EXIT_TB_PTR:
+            continue
+        if site.aux < 0 or site.aux >= len(source.record):
+            raise LinkError("firmware_region_descriptor_ref",
+                            f"{source.uid}: descriptor addend {site.aux:#x}", source.uid)
+        target = code_address + tb_offset + site.aux
+        field = site.field_off
+        if site.enc == Encoding.RIPREL32 and site.width == 4:
+            if field < 0 or field + 4 > len(code):
+                raise LinkError("firmware_region_descriptor_ref",
+                                f"{source.uid}: RIP field +{field:#x}", source.uid)
+            disp = target - (code_address + tc_offset + field + 4)
+            if not int32_ok(disp):
+                raise LinkError(R.REL32_RANGE,
+                                f"{source.uid}: descriptor field +{field:#x}", source.uid)
+            struct.pack_into("<i", code, field, disp)
+        elif site.enc == Encoding.IMM64 and site.width == 8:
+            if field < 0 or field + 8 > len(code):
+                raise LinkError("firmware_region_descriptor_ref",
+                                f"{source.uid}: imm64 field +{field:#x}", source.uid)
+            struct.pack_into("<Q", code, field, target)
+        else:
+            raise LinkError("firmware_region_descriptor_ref",
+                            f"{source.uid}: unsupported {site.enc.name}/{site.width}", source.uid)
+        patched.append((field, site.width))
+    return tuple(patched)
+
+
 def transplant_native(u: TBUnit, *, code_address: int) -> TBUnit:
     """Materialize a unit's checked symbolic fragments at its pre-move offsets."""
     from .validate_sym.native_inline import verify_fragment
@@ -1473,6 +1514,10 @@ class NativeLinkerV2:
                 fake_tb = tc_offsets[i] - (source.tc_offset - source.tb_offset)
                 relocated = relocate_unit(source, fake_tb)
                 code = bytearray(relocated.body[:source.tc_size])
+                retarget_private_descriptor_refs(
+                    code, source, tc_offset=tc_offsets[i],
+                    tb_offset=descriptor_start + i * self.header.tb_size,
+                    code_address=ca)
                 exits = {x.id: x for x in unit_exits(source)}
                 guards = guarded_exit_rows(source)
                 patched: list[tuple[str, int, int]] = []

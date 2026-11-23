@@ -17,7 +17,8 @@ from scopt.ids import TBKey
 from scopt.formats.sc_v7 import (build_directory, decode_directory, directory_size, read_sc7,
                                  sc7_snapshot_id, write_sc7)
 from scopt.formats.sc_v5 import ScFormatError, ScHeader
-from scopt.link import FirmwareMemberLink, FirmwareRegionLink, relocate_unit, round_up
+from scopt.link import (FirmwareMemberLink, FirmwareRegionLink, relocate_unit,
+                        retarget_private_descriptor_refs, round_up)
 from scopt.validate import v7_capable_exes
 
 from ..synth.builders import SynthUnit
@@ -107,6 +108,28 @@ def test_missing_nested_capture_keeps_outer_region_with_side_exit():
     assert any(row["reason"] == "missing_callee_capture" for row in plan.pending)
     assert any(edge.kind == "side_exit" and
                edge.refusal_reason == "missing_callee_capture" for edge in plan.edges)
+
+
+@pytest.mark.parametrize(("encoding", "width", "field", "initial"), [
+    (Encoding.RIPREL32, 4, 3, bytes.fromhex("488d0500000000")),
+    (Encoding.IMM64, 8, 2, bytes.fromhex("48b80000000000000000")),
+])
+def test_private_exit_tb_pointer_targets_real_descriptor(encoding, width, field, initial):
+    site = ScmSite(field, 0, width, encoding, SiteKind.MOVI_EXIT_TB_PTR,
+                   3, 0, 0, 0)
+    source = SimpleNamespace(uid="private-member", record=b"\0" * 152, sites=(site,))
+    code = bytearray(initial)
+    tc_offset, tb_offset, code_address = 0x3000, 0x1800, 0x7fff_0000_0000
+
+    assert retarget_private_descriptor_refs(
+        code, source, tc_offset=tc_offset, tb_offset=tb_offset,
+        code_address=code_address) == ((field, width),)
+    target = code_address + tb_offset + 3
+    if encoding == Encoding.RIPREL32:
+        disp = int.from_bytes(code[field:field + width], "little", signed=True)
+        assert code_address + tc_offset + field + width + disp == target
+    else:
+        assert int.from_bytes(code[field:field + width], "little") == target
 
 
 def test_v7_export_and_reimport_directory(tmp_path):
