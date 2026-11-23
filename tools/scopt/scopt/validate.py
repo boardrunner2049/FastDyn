@@ -1740,6 +1740,9 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
           "directory header, arrays, hashes and artifact identity match the linked plan"
           if directory_matches else "directory differs from the linked plan")
     bad_edges = []
+    bad_descriptors = []
+    from .formats.enums import Encoding, SiteKind
+
     for region in link.firmware_regions:
         for member in region.members:
             for exit_id, field, target in member.patched_edges:
@@ -1748,9 +1751,35 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
                 expected = region.members[target].tc_offset
                 if actual != expected:
                     bad_edges.append(f"{member.source_uid}/{exit_id}: {actual:#x}!={expected:#x}")
+            unit = member.effective_unit
+            if unit is None:
+                continue
+            for site in unit.sites:
+                if site.kind != SiteKind.MOVI_EXIT_TB_PTR:
+                    continue
+                expected = snapshot.header.code_address + member.tb_offset + site.aux
+                if site.enc == Encoding.RIPREL32 and site.width == 4:
+                    disp = int.from_bytes(member.code[site.field_off:site.field_off + 4],
+                                          "little", signed=True)
+                    actual = (snapshot.header.code_address + member.tc_offset +
+                              site.field_off + 4 + disp)
+                elif site.enc == Encoding.IMM64 and site.width == 8:
+                    actual = int.from_bytes(member.code[site.field_off:site.field_off + 8],
+                                            "little")
+                else:
+                    bad_descriptors.append(
+                        f"{member.source_uid}/+{site.field_off:#x}: unsupported encoding")
+                    continue
+                if actual != expected:
+                    bad_descriptors.append(
+                        f"{member.source_uid}/+{site.field_off:#x}: "
+                        f"{actual:#x}!={expected:#x}")
     v.add("V4", "internal_edges", not bad_edges,
           f"{directory.n_edges} internal transfers target private members"
           if not bad_edges else _few(bad_edges))
+    v.add("V4", "private_descriptor_refs", not bad_descriptors,
+          "every EXIT_TB result names its actual private member descriptor"
+          if not bad_descriptors else _few(bad_descriptors))
     by_uid = {u.uid: u for u in snapshot.units()}
     bad_origin = [m.source_uid for m in linked_members
                   if m.source_uid not in by_uid or
@@ -1811,7 +1840,8 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
             v.add("V8", "reimport", False, str(exc), "reimport_failed")
     else:
         v.add("V8", "reimport", None, "explicitly skipped")
-    v.add("V24", "firmware_region_contract", not bad_edges and not bad_origin and not bad_recovery,
+    v.add("V24", "firmware_region_contract",
+          not bad_edges and not bad_descriptors and not bad_origin and not bad_recovery,
           "copied members, guarded fallbacks, internal targets and recovery validated")
     return v, result
 
