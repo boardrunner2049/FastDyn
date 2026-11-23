@@ -95,28 +95,34 @@ refusals do not reduce the complete QEMU-helper count above.
 
 ### Current all-helper runtime result
 
-Six randomized paired blocks compared the exact artifact above with the matched trusted
-sealed baseline. Cache production, deployment, Python startup, and the 569.08-second
-compile were outside the firmware timing window. Both arms used the same populated input
-RAM. All 16 reported registers matched in every run, and neither cache hash changed.
+Eight randomized paired blocks compared the exact artifact above with an independently
+deployed copy of the same 38,252-record compiler input. Cache production, deployment,
+Python startup, and the 569.08-second compile were outside the firmware timing window.
+Both arms used the same populated input RAM. All 16 reported registers matched in every
+run, both launchers were sealed, and neither cache hash changed.
 
 | measurement | trusted sealed baseline | all-helper configuration 7 |
 | --- | ---: | ---: |
-| median native firmware window | 1132.067 ms | 1238.646 ms |
-| cache SHA-256 | `c6d2c171...ea2fd49` | `097e4103...c33351f` |
+| median native firmware window | 1057.798 ms | 1247.853 ms |
+| cache SHA-256 | `6eb1d216...c41e769` | `097e4103...c33351f` |
 
-The median paired baseline/configuration-7 ratio was **0.914279x**, with a paired
-bootstrap 95% interval of **0.876645-0.945899x**. Thus the exhaustive all-helper
-artifact is a supported **measured regression**, about 9.4% slower than its matched
+The median paired baseline/configuration-7 ratio was **0.844469x**, with a paired
+bootstrap 95% interval of **0.826329-0.876616x**. Thus the exhaustive all-helper
+artifact is a supported **measured regression**, about 18.4% slower than its matched
 baseline; it must not be selected for this workload. The raw block values are in
 [`sealed-whopr-7-current-results.json`](sealed-whopr-7-current-results.json).
 
-The isolated helper-only ablation establishes the primary cause. After explicit
-warmups, its median was 1518.736 ms versus 1105.460 ms for the matched baseline;
-the median paired baseline/helper ratio was **0.720162x** with interval
-**0.700361-0.838369x**. The helper stage alone therefore takes about 38.9% longer
-when the paired ratio is inverted. It contains no firmware regions, so region
-activation and lookup cannot cause that isolated loss.
+The earlier six-pair result reported 0.914279x. It is invalid: diagnostic execution had
+appended the purported baseline from 38,252 to 39,757 records. It did not match the
+compiler input and is retained only as an explicit invalidated result in the JSON.
+
+The corrected isolated helper-only ablation establishes the primary cause. Its median
+was 1251.724 ms versus 1057.768 ms for the exact matched baseline; the median paired
+baseline/helper ratio was **0.841903x** with interval **0.825344-0.879657x**. The helper
+stage alone therefore takes about 18.8% longer when the paired ratio is inverted. It
+contains no firmware regions, and its result is essentially identical to the complete
+configuration-7 result. The previously reported 38.9% helper loss was also confounded
+by a cache that had been allowed to append and is superseded by this sealed comparison.
 
 This “inlining” copied 1,179,601,718 bytes at 21,977 sites (1,179,469,856 bytes of
 net growth), with a median **55,934 copied bytes per site**. The public native code
@@ -126,24 +132,35 @@ the copied bytes: `helper_ldul_mmu` alone was cloned at 11,314 sites and
 graphs, not small leaf bodies, and no context simplification removes their unused
 paths after copying.
 
-The entry lowering also does not preserve the original hardware call/return pair.
-For an inspected MMU site, the original six-byte `call qword ptr [rip+0xb]` became
-`lea r11,[rip+continuation]; push r11; <55 KiB copied graph>`. The copied root still
-returns with `ret`, but the synthetic `push` does not enter a return address in the
-x86 return-stack predictor as a `call` would. Out-of-arena RIP references and external
-edges additionally use register-save/mov/jump thunks. Hardware cache/TLB/branch-miss
-counters were unavailable on this host, so their individual shares are not claimed;
-the measured helper-only ablation and 230x executable expansion establish the policy
-failure without that attribution.
+The bottleneck was then isolated with controlled executable variants rather than
+inferred from code size:
 
-Firmware-region activation is a secondary cost in the combined artifact, not the
-primary cause. A same-artifact eight-pair diagnostic compared the default runtime with
-`QEMU_SC_V7_EXPERIMENT=no-regions`: no-regions had a 1221.744 ms median versus
-1293.337 ms default, with paired no-regions/default ratio **0.935331** and interval
-**0.832489-0.965306**. All register transcripts matched. Diagnostic counters showed
-54 region activations overall and three inside the benchmark window. Thus the active
-regions add about 6.9% here, while the much larger independently measured loss already
-exists in the helper-only artifact.
+| controlled comparison | median paired ratio | 95% interval | result |
+| --- | ---: | ---: | --- |
+| Same 1.2-GB physical file, but original record table and shared-helper bodies, versus exact baseline | 0.958969x | 0.936743-1.002276x | Includes 1.0; raw file size/mapping alone is not an established cause. |
+| Original shared QEMU helpers versus private transformed copies, with the helper artifact's TB layout retained | 0.884347x | 0.866058-0.936235x | Private transformed execution is 13.1% longer. |
+| One shared transformed copy of each of 25 graphs versus 21,952 per-site private copies | 0.937317x | 0.882027-0.982124x | Per-site placement/locality adds a verified 6.7% penalty. |
+| Shared transformed graphs versus exact original baseline | 0.961978x | 0.939952-0.984046x | Lowering, entry, and residual thunk costs retain a separate 4.0% penalty. |
+
+These controls verify that the main bottleneck is executing enormous per-site private
+helper graphs, with instruction locality/code duplication a material component. They
+also show a residual cost in the transformed shared-graph lowering. They do **not**
+support blaming the raw cache-file mapping itself.
+
+For an inspected MMU site, the original six-byte `call qword ptr [rip+0xb]` became
+`lea r11,[rip+continuation]; push r11; <55 KiB copied graph>`. A partial control changed
+8,399 eligible sites back to a real call while preserving their continuation. Its
+control/original ratio was 1.041364x with interval 0.971228-1.065424x, so it established
+no improvement. Return-stack prediction is therefore **not** claimed as the cause.
+Out-of-arena references and external edges use additional thunks, but hardware event
+counters were unavailable (`perf_event_paranoid=4` and no matching kernel `perf`). The
+causal executable controls above establish the regression without inventing cache-miss
+counts.
+
+The corrected exact helper-only and final results have overlapping intervals and nearly
+identical point estimates. Consequently this campaign establishes no incremental
+firmware-region loss in the complete artifact. An earlier same-artifact `no-regions`
+diagnostic was part of the cache-mutating campaign and is not used for attribution.
 
 The current seven-number dashboard retains rows 1-6 from their original campaigns and
 uses the new valid all-helper measurement for row 7. Cross-campaign subtraction is not
@@ -157,7 +174,7 @@ an attribution test; the fresh paired comparison above is authoritative for rows
 | 4 | ordinary warm cache | 1242.790 ms |
 | 5 | normal scopt | 1100.832 ms |
 | 6 | trusted sealed cache | 1042.037 ms |
-| 7 | trusted sealed WHOPR, all captured QEMU helpers | **1238.646 ms** |
+| 7 | trusted sealed WHOPR, all captured QEMU helpers | **1247.853 ms** |
 
 Exact-PC import validates the recorded PC instead of pinning every non-PCREL
 TB.  The optimizer models QEMU's newest-record selection for duplicate exact
@@ -209,7 +226,7 @@ fastdyn-env/bin/fastdyn compile-launch -c "$DEPLOY/run.toml" \
 PYTHONPATH=tools/scopt scopt-env/bin/python \
   tools/scopt/scripts/measure_sealed_whopr.py \
   --baseline "$SEALED_BASELINE/run.sh" --candidate "$DIRECT/run.sh" \
-  --pairs 6 --cpu 2 --out "$TIMING"
+  --pairs 8 --cpu 2 --out "$TIMING"
 ```
 
 The firmware input RAM must be the original immutable input in both compiled

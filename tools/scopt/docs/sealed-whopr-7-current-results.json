@@ -3,7 +3,7 @@
   "artifact_id": "sha256:588b78bae828fd22a4faede3af932c8679e0dfc913d305e13c486b3fa5d7b84f",
   "artifact_assurance": "compiler-produced/user-vouched",
   "audited": false,
-  "pairs": 6,
+  "pairs": 8,
   "seed": 1464356688,
   "cpu": 2,
   "host": {
@@ -11,34 +11,38 @@
     "platform": "Linux-6.17.0-1033-oem-x86_64-with-glibc2.39"
   },
   "cache_sha256": {
-    "baseline": "sha256:c6d2c1712c2cae77057e5cb368217d25d1d2d90ec2d2d091c9a19e821ea2fd49",
+    "baseline": "sha256:6eb1d216f7b4cf04d30b543afecb1606f07045bf8a1d4bfcd4e640a18c41e769",
     "whopr7": "sha256:097e4103d01147a05d4ea6e52d6e730114556955ce780a46bca2f56e4c33351f"
   },
   "cache_unchanged": true,
   "median_native_ns": {
-    "baseline": 1132067185.5,
-    "whopr7": 1238645745.5
+    "baseline": 1057798022.0,
+    "whopr7": 1247852742.5
   },
   "paired_speedups_baseline_over_whopr7": [
-    0.8606952349569974,
-    0.9687625535142156,
-    0.9146532945281132,
-    0.913905644542406,
-    0.923034874892409,
-    0.8925947455037944
+    0.8155181840442496,
+    0.8766157776894329,
+    0.8263290413666876,
+    0.8403085383190583,
+    0.841247012995885,
+    0.8476914183521886,
+    0.8746437020484262,
+    0.9292168030402576
   ],
-  "median_paired_speedup": 0.9142794695352596,
+  "median_paired_speedup": 0.8444692156740368,
   "bootstrap_95": [
-    0.8766449902303959,
-    0.9458987142033123
+    0.8263290413666876,
+    0.8766157776894329
   ],
   "blocks_native_ns": [
-    {"block": 1, "order": ["baseline", "whopr7"], "baseline": 1080583470, "whopr7": 1255477463},
-    {"block": 2, "order": ["baseline", "whopr7"], "baseline": 1168370516, "whopr7": 1206044259},
-    {"block": 3, "order": ["whopr7", "baseline"], "baseline": 1146698685, "whopr7": 1253697649},
-    {"block": 4, "order": ["baseline", "whopr7"], "baseline": 1117435686, "whopr7": 1222703561},
-    {"block": 5, "order": ["whopr7", "baseline"], "baseline": 1173840689, "whopr7": 1271718676},
-    {"block": 6, "order": ["baseline", "whopr7"], "baseline": 1092173434, "whopr7": 1223593842}
+    {"block": 1, "order": ["baseline", "whopr7"], "baseline": 1044867932, "whopr7": 1281231924},
+    {"block": 2, "order": ["baseline", "whopr7"], "baseline": 1075234241, "whopr7": 1226574137},
+    {"block": 3, "order": ["whopr7", "baseline"], "baseline": 1071154094, "whopr7": 1296280344},
+    {"block": 4, "order": ["baseline", "whopr7"], "baseline": 1045693769, "whopr7": 1244416451},
+    {"block": 5, "order": ["whopr7", "baseline"], "baseline": 1054889068, "whopr7": 1253958768},
+    {"block": 6, "order": ["baseline", "whopr7"], "baseline": 1060706976, "whopr7": 1251289034},
+    {"block": 7, "order": ["whopr7", "baseline"], "baseline": 1047923628, "whopr7": 1198114873},
+    {"block": 8, "order": ["whopr7", "baseline"], "baseline": 1139657772, "whopr7": 1226471334}
   ],
   "registers": [
     "0x149fdedb", "0x0000762e", "0x0000762e", "0x00000000",
@@ -48,19 +52,21 @@
   ],
   "helper_only_ablation": {
     "median_native_ns": {
-      "baseline": 1105459679.5,
-      "helper_only": 1518736423.5
+      "baseline": 1057768478.0,
+      "helper_only": 1251724039.5
     },
     "paired_speedups_baseline_over_helper_only": [
-      0.7611710429828692,
-      0.7223073427756626,
-      0.7180170590871278,
-      0.6935793009861543,
-      0.7071418155906088,
-      0.9155672040645148
+      0.847587779875903,
+      0.8601877636123444,
+      0.8099923456012484,
+      0.8362181280254555,
+      0.8796568249152907,
+      0.8330656238345392,
+      0.9107883106036941,
+      0.8253438305295897
     ],
-    "median_paired_speedup": 0.7201622009313952,
-    "bootstrap_95": [0.7003605582883816, 0.838369123523692],
+    "median_paired_speedup": 0.8419029539506793,
+    "bootstrap_95": [0.8253438305295897, 0.8796568249152907],
     "embedded_sites": 21977,
     "affected_tbs": 16303,
     "copied_bytes": 1179601718,
@@ -73,7 +79,51 @@
     },
     "baseline_public_native_bytes": 5144523,
     "helper_only_public_native_bytes": 1184614379,
-    "decision": "helper graph transplant is the primary cause of the regression"
+    "decision": "helper graph transplant accounts for essentially the complete final regression"
+  },
+  "bottleneck_controls": {
+    "same_large_file_original_records": {
+      "median_native_ns": {"exact_baseline": 1053984725.0, "large_file_control": 1094959487.0},
+      "paired_speedups": [1.002275690823596, 0.957529925660007, 0.9739990914296521, 0.9589073688716953, 0.9212279419029588, 0.9590303637610177, 0.936743379281732, 1.0212538903881017],
+      "median_paired_speedup": 0.9589688663163565,
+      "bootstrap_95": [0.936743379281732, 1.002275690823596],
+      "interpretation": "the 1.2 GB file and physical allocation alone do not establish a regression"
+    },
+    "original_shared_helpers_vs_private_copies_same_layout": {
+      "median_native_ns": {"original_shared_helpers": 1080877242.5, "private_copied_helpers": 1229551063.0},
+      "paired_speedups": [0.8660577034579388, 0.9541064488964944, 0.936234500731245, 0.8984538498454747, 0.8702408063780407, 0.8427329636634856, 0.8666095886772995, 0.929072321603301],
+      "median_paired_speedup": 0.8843473281117578,
+      "bootstrap_95": [0.8660577034579388, 0.936234500731245],
+      "interpretation": "executing private transformed helper copies is 13.1% longer than shared helpers"
+    },
+    "shared_copied_graphs_vs_private_copied_graphs": {
+      "graphs": 25,
+      "redirected_sites": 21952,
+      "median_native_ns": {"shared_copied_graphs": 1134537956.0, "private_copied_graphs": 1204684301.0},
+      "paired_speedups": [0.9509808715648447, 0.9678189306855896, 1.007956631609506, 0.9236530853676747, 0.8820268438210916, 0.909305024238368, 0.9821242833423572, 0.8633045997544949],
+      "median_paired_speedup": 0.9373169784662596,
+      "bootstrap_95": [0.8820268438210916, 0.9821242833423572],
+      "interpretation": "private per-site graph placement adds a verified 6.7% execution penalty"
+    },
+    "shared_copied_graphs_vs_original_baseline": {
+      "median_native_ns": {"original_baseline": 1101516754.0, "shared_copied_graphs": 1140898649.5},
+      "paired_speedups": [0.9051914082865783, 0.9891039537390834, 0.9639878814419605, 0.9840462834929958, 0.9650797159172297, 0.9399519047560507, 0.9549841216860429, 0.959967758809727],
+      "median_paired_speedup": 0.9619778201258438,
+      "bootstrap_95": [0.9399519047560507, 0.9840462834929958],
+      "interpretation": "the transformed graph lowering retains a separate 4.0% penalty after sharing"
+    },
+    "partial_real_call_return_control": {
+      "sites": 8399,
+      "median_native_ns": {"partial_real_call_control": 1233738128.5, "original_private_lowering": 1185474506.5},
+      "paired_speedups": [1.0101503858122831, 1.0356533329470834, 1.0654238682787347, 1.0722472218083234, 1.0576940495750347, 0.9712280809124599, 0.928214886967289, 1.0470745604432956],
+      "median_control_over_original": 1.0413639466951894,
+      "bootstrap_95": [0.9712280809124599, 1.0654238682787347],
+      "interpretation": "no supported improvement; return-stack prediction was not verified as the bottleneck"
+    }
+  },
+  "invalidated_measurement": {
+    "median_paired_speedup": 0.9142794695352596,
+    "reason": "the baseline had appended from 38252 to 39757 TBs and did not match the compiler input"
   },
   "decision": "measured regression; do not select exhaustive all-helper configuration 7 for this workload"
 }
