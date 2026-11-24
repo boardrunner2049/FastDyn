@@ -25,7 +25,8 @@ def _image(task: bytes, *, alternate_entry=False, pointer=0x1041, api_veneer=Fal
              GuestFunc("task", 0x1040, 0x1040 + len(task)),
              GuestFunc("wait_for_input", 0x1080, 0x1082))
     return GuestImage("thumb-fixture", "", ((0x1000, bytes(buf)),),
-                      ((0x1000, 0x1082),), funcs, ((0x1000, "t"), (0x100c, "d"), (0x1020, "t")))
+                      ((0x1000, 0x1082),), funcs, ((0x1000, "t"), (0x100c, "d"), (0x1020, "t")),
+                      readonly_ranges=((0x1000, 0x1082),))
 
 
 # bl wait_for_input (outside cycle); loop: movs r0,#3

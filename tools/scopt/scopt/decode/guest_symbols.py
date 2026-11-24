@@ -62,6 +62,12 @@ class GuestImage:
     mapping: tuple[tuple[int, str], ...]  # sorted (addr, "t"|"a"|"d")
     _starts: list[int] = field(default_factory=list, repr=False, compare=False)
 
+    # Read-only allocated section or segment bytes. A writable initializer alone
+    # is insufficient evidence for a value at a later registration.
+    readonly_ranges: tuple[tuple[int, int], ...] = ()
+
+    exception_entries: frozenset[int] = frozenset()
+
     def __post_init__(self) -> None:
         self._starts[:] = [f.start for f in self.funcs]
 
@@ -118,11 +124,14 @@ def _load(path: str, mtime_ns: int, size: int) -> GuestImage:
         raise GuestImageError(f"{path}: not an ARM ELF ({elf.header['e_machine']})")
     segs: list[tuple[int, bytes]] = []
     exe: list[tuple[int, int]] = []
+    readonly = []
     for seg in elf.iter_segments():
         if seg["p_type"] != "PT_LOAD":
             continue
         if seg["p_filesz"]:
             segs.append((seg["p_vaddr"], seg.data()))
+            if not seg["p_flags"] & 2:
+                readonly.append((seg["p_vaddr"], seg["p_vaddr"] + seg["p_filesz"]))
         if seg["p_flags"] & 1:
             exe.append((seg["p_vaddr"], seg["p_vaddr"] + seg["p_memsz"]))
     funcs: dict[tuple[int, str], GuestFunc] = {}
@@ -140,9 +149,22 @@ def _load(path: str, mtime_ns: int, size: int) -> GuestImage:
             if typ == "STT_FUNC" and nm and s["st_size"] > 0:
                 st = s["st_value"] & ~1
                 funcs.setdefault((st, nm), GuestFunc(nm, st, st + s["st_size"]))
+    exception_entries = set()
+    for sec in elf.iter_sections():
+        # Some linkers combine code and writable data in a single RWX segment.
+        if sec["sh_flags"] & 2 and not sec["sh_flags"] & 1 and sec["sh_type"] == "SHT_PROGBITS":
+            readonly.append((sec["sh_addr"], sec["sh_addr"] + sec["sh_size"]))
+        if sec.name in (".isr_vector", ".vectors", ".vector_table"):
+            table = sec.data()
+            # The first words are initial SP and reset. Entries 2+ are exceptions/IRQs.
+            for off in range(8, len(table) - 3, 4):
+                entry = int.from_bytes(table[off:off + 4], "little" if elf.little_endian else "big")
+                if entry & 1:
+                    exception_entries.add(entry & ~1)
     return GuestImage(path, sha, tuple(segs), tuple(sorted(exe)),
                       tuple(sorted(funcs.values(), key=lambda f: (f.start, -f.end, f.name))),
-                      tuple(sorted(mapping.items())))
+                      tuple(sorted(mapping.items())), readonly_ranges=tuple(readonly),
+                      exception_entries=frozenset(exception_entries))
 
 
 def load_guest_image(path: str | os.PathLike) -> GuestImage:
