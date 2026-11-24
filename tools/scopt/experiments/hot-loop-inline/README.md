@@ -131,3 +131,7 @@ FirmLooper remains opt-in. It found and exercised substantially different code
 from PGO. Across these three workloads the application-level intervals include
 1.0. A further comparison can use independent task workloads with a larger share
 of execution in those admitted regions.
+
+The subsequent profile-free RTOS experiments compare nine configurations,
+isolate guest layout and inlining, and test how far to follow application
+calls below a task loop. [Per-application results and reproduction](rtos/README.md)
