@@ -116,7 +116,7 @@ def _loop_evidence(inputs, *, v2=False):
     from ..analysis.task_loops import discover_task_loops
 
     options = inputs.params.get("policy_options", {})
-    allowed = {"task_entries", "include_terminal", "boundaries"} if v2 else {"task_entries"}
+    allowed = {"task_entries", "include_terminal", "boundaries", "signature_reference"} if v2 else {"task_entries"}
     if not isinstance(options, dict) or options.keys() - allowed:
         raise PolicyError(f"unknown FirmLooper options; allowed: {sorted(allowed)}")
     entries = options.get("task_entries", [])

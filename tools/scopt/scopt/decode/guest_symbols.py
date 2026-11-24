@@ -42,6 +42,7 @@ class GuestFunc:
     name: str
     start: int  # Thumb bit cleared
     end: int  # exclusive
+    source: str = "elf_symtab"
 
     @property
     def size(self) -> int:
@@ -49,7 +50,7 @@ class GuestFunc:
 
     def to_json(self) -> dict[str, Any]:
         return {"name": self.name, "start": f"0x{self.start:x}", "end": f"0x{self.end:x}",
-                "source": "elf_symtab"}
+                "source": self.source}
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,9 @@ class GuestImage:
     readonly_ranges: tuple[tuple[int, int], ...] = ()
 
     exception_entries: frozenset[int] = frozenset()
+    thumb_entries: frozenset[int] = frozenset()
+    text_sections: tuple[tuple[int, int], ...] = ()
+    little_endian: bool = True
 
     def __post_init__(self) -> None:
         self._starts[:] = [f.start for f in self.funcs]
@@ -150,21 +154,28 @@ def _load(path: str, mtime_ns: int, size: int) -> GuestImage:
                 st = s["st_value"] & ~1
                 funcs.setdefault((st, nm), GuestFunc(nm, st, st + s["st_size"]))
     exception_entries = set()
+    thumb_entries = {elf.header["e_entry"] & ~1} if elf.header["e_entry"] & 1 else set()
+    text_sections = []
     for sec in elf.iter_sections():
+        if sec["sh_flags"] & 6 == 6 and sec["sh_type"] == "SHT_PROGBITS":
+            text_sections.append((sec["sh_addr"], sec["sh_addr"] + sec["sh_size"]))
         # Some linkers combine code and writable data in a single RWX segment.
         if sec["sh_flags"] & 2 and not sec["sh_flags"] & 1 and sec["sh_type"] == "SHT_PROGBITS":
             readonly.append((sec["sh_addr"], sec["sh_addr"] + sec["sh_size"]))
         if sec.name in (".isr_vector", ".vectors", ".vector_table"):
             table = sec.data()
             # The first words are initial SP and reset. Entries 2+ are exceptions/IRQs.
-            for off in range(8, len(table) - 3, 4):
+            for off in range(4, len(table) - 3, 4):
                 entry = int.from_bytes(table[off:off + 4], "little" if elf.little_endian else "big")
                 if entry & 1:
-                    exception_entries.add(entry & ~1)
+                    thumb_entries.add(entry & ~1)
+                    if off >= 8:
+                        exception_entries.add(entry & ~1)
     return GuestImage(path, sha, tuple(segs), tuple(sorted(exe)),
                       tuple(sorted(funcs.values(), key=lambda f: (f.start, -f.end, f.name))),
                       tuple(sorted(mapping.items())), readonly_ranges=tuple(readonly),
-                      exception_entries=frozenset(exception_entries))
+                      exception_entries=frozenset(exception_entries), thumb_entries=frozenset(thumb_entries),
+                      text_sections=tuple(sorted(text_sections)), little_endian=elf.little_endian)
 
 
 def load_guest_image(path: str | os.PathLike) -> GuestImage:

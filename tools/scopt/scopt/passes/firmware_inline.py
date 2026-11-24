@@ -89,6 +89,19 @@ class FirmwareInline:
                                   "requires an exact reached phase of the ordinary input snapshot")
         inputs = PolicyInput(ctx.b3.snapshot, image, (), ctx.params, profile)
         try:
+            options = ctx.params.get("policy_options", {})
+            signature_evidence = None
+            if mode == "firmlooper-v2" and isinstance(options, dict) and "signature_reference" in options:
+                from ..analysis.rtos_signatures import recover
+                from ..decode.guest_symbols import load_guest_image
+                reference = options["signature_reference"]
+                if not isinstance(reference, str) or not reference:
+                    raise PolicyError("signature_reference must name a symbolized Thumb ELF")
+                try:
+                    annotated, signature_evidence = recover(image, load_guest_image(reference))
+                except (OSError, ValueError) as exc:
+                    raise PolicyError(f"cannot recover RTOS signatures: {exc}") from exc
+                inputs = replace(inputs, image=annotated)
             if policy.discover_loops:
                 loops = policy.discover_loops(inputs)
                 discovered = discover_firmware_calls(ctx.b3.snapshot, image,
@@ -98,6 +111,8 @@ class FirmwareInline:
                 discovered = ctx.analysis("firmware-calls", sid).value
             inputs = replace(inputs, calls=discovered.calls)
             selection = policy.select(inputs)
+            if signature_evidence is not None:
+                selection = replace(selection, evidence={**selection.evidence, "signatures": signature_evidence})
             planned_calls, residual = resolve_selection(inputs, selection)
         except PolicyError as e:
             return PassResult(Outcome.FAILED, "invalid_params", str(e))

@@ -69,3 +69,34 @@ LISTED_SITES = FirmwarePolicy(select_listed, expand_nested=False)
 Use `--params` with `{"firmware-inline":{"mode":"listed-sites","policy_options":{"call_pcs":["0x8001234"]}}}` on the same pipeline. A policy receives the imported snapshot, firmware image, discovered calls, pass parameters, and optional profile. Set `requires_edges=True` on its descriptor to request the exact phase profile and opt into the CLI's automatic PGO workflow. `expand_nested=True` requests transitive expansion in admitted regions.
 
 Return a tuple of captured call-site IDs in `PolicySelection.roots`. An optional `PolicySelection.expansion(site, inline_context)` callback returns an `ExpansionAction` from `scopt.analysis.rtos_boundaries`. The default allows every otherwise eligible transfer. A policy may also return per-site refusal reasons in `refusals`, per-site JSON evidence in `site_evidence`, and policy-level JSON evidence in `evidence`. Unselected IDs without an explicit reason appear as `excluded_by_policy`. Unknown, duplicated, and contradictory nominations fail compilation. Built-in names are reserved. A custom name must resolve to exactly one installed entry point.
+
+## FreeRTOS signatures for stripped Thumb firmware
+
+`sealed-firmlooper-v2` can use a local symbolized reference ELF to recover names for RTOS policy selection. Supply `--elf` with the actual target used for the capture. For example, run the standalone diagnostic and the optimizer as follows:
+
+```sh
+python -m scopt.analysis.rtos_signatures "$REFERENCE_ELF" "$TARGET_ELF" > recognition.json
+jq -n --arg ref "$REFERENCE_ELF" \
+  '{"firmware-inline":{"policy_options":{"signature_reference":$ref}}}' > params.json
+scopt optimize "$SNAP" --pipeline sealed-firmlooper-v2 --elf "$TARGET_ELF" \
+  --runtime-identity "$RUNTIME_JSON" --v7-trusted-exe "$QEMU_SHA" \
+  --params params.json --store "$OUT" --json
+```
+
+The matcher covers named Thumb functions in file-backed executable sections, including tasks, OS services and application callers. Keep the reference's symbol table and ARM mapping symbols. A matching load-image companion recovers names, function extents and code/data markers at their original addresses. On changed builds, the matcher requires a unique reference and target byte sequence of at least 12 bytes, and independent entry evidence from the target's symbol table, reset/exception vectors, Thumb entry point or a reachable direct call. When only external direct `BL` displacements differ, the candidate must retain a contiguous fixed anchor of at least 12 bytes and every masked field must still decode as a direct call to the independently matched destination. Ambiguous bodies, unresolved calls and overlapping spans produce refusals. Unknown indirect targets stay unknown.
+
+A changed-build match identifies a **covered span**. The true implementation may continue beyond its end. The receipt records the reference and target addresses, method, span size and extent evidence for each match. The policy consumes these hints; native edits retain their existing capture and control-flow checks. Inferring a queue identity, constant argument, scheduler state or lack of ISR access requires separate evidence.
+
+### Evaluated coverage
+
+The FreeRTOS+CLI UART application (FreeRTOS kernel `89592801dd8b`, Cortex-M3) was stripped with `arm-none-eabi-strip --strip-all`. The target's withheld symbol table was consulted only after inference to score address/name and extent agreement.
+
+| Reference → stripped target | Accepted names at correct entries | Spans with exact original size | Task entries recovered |
+|---|---:|---:|---:|
+| Same `-Os` build | 237 / 237 | 237 | 4 |
+| Ordinary `-Os` → independently linked `-Os` zero-wait kernel | 51 / 238 | 51 | 0 |
+| Ordinary `-Os` → `-O0` | 5 / 266 | 3 | 0 |
+
+Normalized direct calls accounted for seven of the 51 cross-link matches. The two size mismatches on the `-O0` target were matching prefixes in `prvPortStartFirstTask` and `Default_Handler`, each two bytes short of the symbol size. All five recovered names and start addresses agreed with the withheld symbols. Cross-build matches alone did not recover the UART task registrations in these two comparisons.
+
+A separate sealed capture of the stripped `-O0` guest produced zero regions with ordinary symbol discovery. Supplying its matching `-O0` companion admitted 22 private regions. Each input activated seven regions during the work window. Six randomized process blocks checked 16 output words on each of 24 runs and verified the loaded cache identity. The median time for 6,000 mixed commands went from 731.2 to 709.0 ms, and the 4,000-line help mix went from 345.2 to 322.1 ms. The paired baseline/candidate ratio across both windows was **1.036× (95% bootstrap interval 1.014–1.080)**. This measures enabling FirmLooper on that stripped guest. Matching runs offline and is excluded from the timed window.
