@@ -25,3 +25,14 @@ A selected natural loop has a header dominating its backedges. The analysis excl
 Direct and indirect calls may block. A returning `BLX` continues at its fallthrough. Resolved Thumb switch tables require an unsigned immediate index guard, an aligned PC-relative `TBB` or `TBH`, mapped table bytes, complete intra-function instruction targets and no alternate known entry after the comparison. Other shapes remain unresolved. Ordinary loops and exceptional/unknown edges keep their original runtime behavior.
 
 For each cycle, the receipt records its header, classification, instruction PCs, direct calls, exits and terminal cleanup PCs. Call PCs are candidates for the region builder, which independently checks captured code and supported control flow. An ELF analysis alone cannot establish that a selected site executed.
+
+### Attribute recovered services to FreeRTOS submodules
+
+Use the symbolized reference build's DWARF compilation units to attribute kernel code to the task, queue/semaphore/mutex, timer, list, event, stream/message, co-routine, heap or port module. An application source file that happens to share a kernel filename is excluded. For a nonstandard directory layout pass `--kernel-dir` using the path as recorded in DWARF. The target can also be the symbolized ELF itself. For example:
+
+```sh
+python -m scopt.analysis.rtos_opportunities packet.stripped.elf \
+  --reference packet.debug.elf --tb-profile packet.tbprof > modules.json
+```
+
+A TB profile is optional. Supply a diagnostic recorded on that exact target with FirmBOLT's TB profiler. The tool sums executions of TBs whose start equals the recovered function entry across contexts. A tail transfer or loop back to that address also counts. The reported numbers mean entry-address TB executions. They do not estimate CPU cycles, unique invocations or time in the module. A zero can mean that the function was inlined, omitted by the linker, missing from debug information, or unexercised. The function list includes the matching method and target PC for each attributable row. Cross-build names inherit the limits of the signature matcher.
