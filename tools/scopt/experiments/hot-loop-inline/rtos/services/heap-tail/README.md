@@ -1,5 +1,7 @@
 # Constant heap pointers for permanent allocations
 
+This report measures firmware rebuilt from generated sources. For the later experiment that starts with the original linked packet and UART ELFs, see [FirmBOLT's binary allocation passes and seven-configuration results](https://github.com/boardrunner2049/firmbolt/blob/treb-wip/docs/rtos-elf/heap.md).
+
 FirmBOLT's installed `firmbolt heap-tail` command substitutes compile-time addresses for selected allocation results while building the firmware. The original dynamic creation routines still initialize the objects. FastDyn captures and runs each resulting image. Building the ordinary and static-constructor versions separately provides two controls. [FirmBOLT command, examples and eligibility](https://github.com/boardrunner2049/firmbolt/blob/82ae4d4/tools/rtos-specialize/heap-tail.md)
 
 Each site requires a fixed size and alignment, at most one creation per firmware lifetime, and no subsequent free, including on error paths. Ordinary kernel allocation flags and delete behavior are retained, so a later free would violate this policy's contract. Giving selected objects addresses unconditionally also changes exhaustion, allocator instrumentation and address observations. Slots have no firmware-resident allocation headers, lookup table, claim bits, or added selection guards. Existing object state, bounds checks and RTOS initialization stay in the original dynamic path. Unselected allocations continue to use heap_4 within the shortened prefix.
