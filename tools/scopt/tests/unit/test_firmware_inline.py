@@ -23,7 +23,7 @@ from scopt.formats.sc_v5 import ScFormatError, ScHeader
 from scopt.link import (FirmwareMemberLink, FirmwareRegionLink, relocate_unit,
                         retarget_private_descriptor_refs, round_up,
                         trusted_firmware_edge_problem, trusted_firmware_entry_problem)
-from scopt.passes.firmware_inline import _hot_loop_calls
+from scopt.passes.firmware_policy import _hot_loop_calls
 from scopt.validate import trusted_v7_capable_exes, v7_capable_exes
 
 from ..synth.builders import SynthUnit
@@ -131,7 +131,9 @@ def test_nested_capture_policy_keeps_outer_region_with_side_exit(capture_nested)
     ]
     if capture_nested:
         units.extend([
-            SynthUnit(key, 0x400, b"\x90", guest_bytes=b"\x00\xbf", vaddr=0x1104),
+            SynthUnit(key, 0x400, b"\xff\xe0", guest_bytes=b"\x70\x47", vaddr=0x1104,
+                      meta={"sites": (ScmSite(0, 0, 0, Encoding.NONE, SiteKind.GOTO_PTR,
+                                              0, 0, 0, 0),)}),
             SynthUnit(key, 0x500, b"\xff\xe0", guest_bytes=b"\x70\x47", vaddr=0x1200,
                       meta={"sites": (ScmSite(0, 0, 0, Encoding.NONE, SiteKind.GOTO_PTR,
                                               0, 0, 0, 0),)}),
@@ -144,7 +146,7 @@ def test_nested_capture_policy_keeps_outer_region_with_side_exit(capture_nested)
     image_bytes[4:6] = b"\x00\xbf"
     image_bytes[0x100:0x104] = nested_call
     if capture_nested:
-        image_bytes[0x104:0x106] = b"\x00\xbf"
+        image_bytes[0x104:0x106] = b"\x70\x47"
         image_bytes[0x200:0x202] = b"\x70\x47"
     image = GuestImage("synthetic", "sha256:" + "2" * 64,
                        ((0x1000, bytes(image_bytes)),), ((0x1000, 0x1204),), (), ())
@@ -159,6 +161,23 @@ def test_nested_capture_policy_keeps_outer_region_with_side_exit(capture_nested)
         nested = next(call for call in calls.calls if call.insn_vaddr == 0x1100)
         assert nested.eligible
         assert nested.callee_candidates[0] not in plan.source_uids
+
+        expanded = build_firmware_region(snapshot, image, calls, root)
+        return_edges = {(expanded.members[e.source_member].source_uid,
+                         expanded.members[e.target_member].source_uid)
+                        for e in expanded.edges if e.kind == "return"}
+        assert return_edges == {
+            (nested.callee_candidates[0], nested.continuation_candidates[0]),
+            (nested.continuation_candidates[0], root.continuation_candidates[0]),
+        }
+
+        # An exact-PC fallback-only BL may be reached inside this region
+        # without a matching discovery row. It must retain its own LR context.
+        sparse_calls = replace(calls, calls=(root,))
+        fallback = build_firmware_region(snapshot, image, sparse_calls, root)
+        assert nested.callee_candidates[0] not in fallback.source_uids
+        assert any(e.refusal_reason == "unverified_nested_call_exit"
+                   and e.target_member is None for e in fallback.edges)
     else:
         assert any(row["reason"] == "missing_callee_capture" for row in plan.pending)
 

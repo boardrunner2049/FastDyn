@@ -229,6 +229,13 @@ steady evidence.
 
 ## `firmware-inline@1`
 
+The pass takes a call-site selection policy. FirmLooper (`sealed-firmlooper`)
+reads the guest ELF, finds registered task entries and selects direct calls
+inside structurally persistent task loops. It expands eligible nested callees.
+The existing `hot-loop` policy selects from a training run. See
+[Firmware inlining policies](firmware-inline-policies.md) for the selection
+rules, explicit task entries and an example of registering a new policy.
+
 The `hot-loop-firmware-inline` pipeline selects verified guest call instructions
 inside cycles on the observed TB graph. It requires 1,000 observed transfers to
 the verified callee on the training input by default (`min_call_count`). It embeds
@@ -258,7 +265,7 @@ translation context, and fall back to the original lookup path on mismatch.
   environment layout, and the region-capable v7 QEMU loader. Public TB records remain
   independently available. Missing capture, ambiguous keys, handler/exception returns,
   and recursive call edges are retained and reported rather than assumed impossible.
-- Control: `mode`, currently exactly `exhaustive`. In this mode hotness, profile share,
+- With `mode = "exhaustive"`, hotness, profile share,
   callee/caller size, region growth, site count, copy count, member count, expansion
   depth, fixed-point iterations, and pass wall time are explicitly unbounded (`None`).
   The physical TCG arena remains a real resource; exhaustion rejects an incomplete
@@ -279,10 +286,12 @@ translation context, and fall back to the original lookup path on mismatch.
   complete 15-byte prefix so MMIO cannot observe a stale false value; trusted root
   entries skip the same prefix. Trusted v7 uses one descriptor per region, no member search
   data or live fault/plugin recovery, no guest-code dependency checks, and a distinct
-  loader capability. It also replaces admitted captured lookup tails directly instead of
-  emitting the safe mode's return-context guards; an unexpected return/context is therefore
-  outside the trusted contract. It is suitable only when the user verifies immutable code,
-  mappings, and admitted control contexts and accepts fatal recovery for a real fault.
+  loader capability. Static admitted transfers can jump directly to the private target.
+  A dynamic return enters its private continuation after checking the guest PC and
+  translation context. A mismatch takes the original lookup. If scopt cannot bind
+  the return guard to the runtime layout and captured tail, that exit stays public.
+  Trusted execution requires immutable code and mappings, the declared interrupt
+  contract, and acceptance of fatal recovery for a real fault.
   An internal edge whose captured native exit has neither a rel32 field nor one verified
   lookup tail is retained as an ordinary side exit and reported as
   `unpatchable_native_exit`; it no longer invalidates every otherwise eligible region.

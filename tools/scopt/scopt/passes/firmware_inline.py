@@ -18,56 +18,12 @@ from ..analysis.api import ScopeRef
 from ..analysis.b3_inputs import guest_image_for
 from ..analysis.firmware_calls import firmware_compatibility_index
 from ..analysis.firmware_regions import build_firmware_region
-from ..analysis.helper_hot_loop import exact_loop_profile, observed_loop_units
+from ..analysis.helper_hot_loop import exact_loop_profile
 from ..analysis.firmware_whopr import balanced_partitions
-from ..formats.enums import ExitKind
-from ..formats.region_v1 import unit_exits
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
+from .firmware_policy import PolicyError, PolicyInput, firmware_policy, resolve_selection
 
 __all__ = ["FirmwareInline", "PASSES"]
-
-
-def _hot_loop_calls(snapshot, calls, profile, phase, minimum):
-    """Rank exact observed normal transfers of verified BLs to a captured full key."""
-    edges = [e for e in profile.edges(phase) if e["status"] == "exact" and not e["flags"]]
-    loops = observed_loop_units(edges)
-    transfers = Counter()
-    for e in edges:
-        transfers[e["src"], e["dst"], e["kind"]] += e["count"]
-    kept, residual, selected_counts = [], [], {}
-    for call in calls:
-        count = None
-        if not call.eligible:
-            reason = call.refusal_reasons[0]
-        elif call.source_uid not in loops:
-            reason = "outside_observed_loop"
-        elif call.source_uid == call.callee_candidates[0]:
-            reason = "recursive_call_edge"
-        else:
-            exits = unit_exits(snapshot.unit(call.source_uid))
-            source_exit = next((e for e in exits if e.id == call.exit_id), None)
-            kinds = ()
-            if (source_exit and source_exit.kind == ExitKind.GOTO_TB
-                    and source_exit.slot in (0, 1) and sum(
-                        e.kind == ExitKind.GOTO_TB and e.slot == source_exit.slot
-                        for e in exits) == 1):
-                kinds = (f"chain{source_exit.slot}",)
-            elif (source_exit and source_exit.kind == ExitKind.GOTO_PTR
-                  and sum(e.kind == ExitKind.GOTO_PTR for e in exits) == 1):
-                kinds = ("lookup_hit", "lookup_miss")
-            reason = "call_edge_count_unavailable"
-            if kinds:
-                count = sum(transfers[call.source_uid, call.callee_candidates[0], kind]
-                            for kind in kinds)
-                if count >= minimum:
-                    kept.append(call)
-                    selected_counts[call.callsite_id] = count
-                    continue
-                reason = "below_min_call_count"
-        residual.append({"callsite_id": call.callsite_id, "source_uid": call.source_uid,
-                         "reason": reason, "observed_call_edges": count})
-    kept.sort(key=lambda c: (-selected_counts[c.callsite_id], c.callsite_id))
-    return kept, residual, selected_counts
 
 
 class FirmwareInline:
@@ -81,7 +37,7 @@ class FirmwareInline:
         invalidates=frozenset({"code", "meta", "layout"}),
         params_schema={"mode": str, "trust": str, "interrupts": str, "icount": str,
                        "planner": str, "partitions": int, "workers": int,
-                       "phase": str, "min_call_count": int},
+                       "phase": str, "min_call_count": int, "policy_options": dict},
     )
 
     def run(self, view: Any, ctx: Any, edits: Any) -> PassResult:
@@ -89,9 +45,10 @@ class FirmwareInline:
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "capability_not_enabled",
                               "firmware-inline requires the region-capable B3 packager")
         mode = ctx.params.get("mode", "exhaustive")
-        if mode not in ("exhaustive", "hot-loop"):
-            return PassResult(Outcome.FAILED, "invalid_params",
-                              "firmware-inline mode must be 'exhaustive' or 'hot-loop'")
+        try:
+            policy = firmware_policy(mode)
+        except PolicyError as e:
+            return PassResult(Outcome.FAILED, "invalid_params", str(e))
         trust = ctx.params.get("trust", "safe")
         interrupts = ctx.params.get("interrupts", "preserved")
         icount = ctx.params.get("icount", "preserved")
@@ -120,23 +77,23 @@ class FirmwareInline:
             return PassResult(Outcome.FAILED, "invalid_params",
                               "firmware-inline planner must be 'legacy' or 'whopr'")
         partition_rows: list[dict[str, Any]] = []
-        planned_calls = list(discovered.calls)
-        residual = []
-        selection = {}
-        selected_counts = {}
-        if mode == "hot-loop":
+        image = guest_image_for(ctx.b3.snapshot, ctx.bundle)
+        if image is None:
+            return PassResult(Outcome.SKIPPED_UNKNOWN, "guest_image_missing",
+                              "the exact firmware ELF is required")
+        profile = None
+        if policy.requires_edges:
             phase = ctx.params.get("phase", "steady")
-            minimum = ctx.params.get("min_call_count", 2)
-            if type(minimum) is not int or minimum < 2:
-                return PassResult(Outcome.FAILED, "invalid_params", "min_call_count must be >= 2")
             profile = ctx.profile(phase)
             if not exact_loop_profile(profile, ctx.snapshot_id, phase):
                 return PassResult(Outcome.SKIPPED_UNKNOWN, "hot_loop_exact_profile_required",
                                   "requires an exact reached phase of the ordinary input snapshot")
-            planned_calls, residual, selected_counts = _hot_loop_calls(
-                ctx.b3.snapshot, planned_calls, profile, phase, minimum)
-            selection = {"profile_id": profile.profile.profile_id, "phase": phase,
-                         "min_call_count": minimum, "expand_nested": False}
+        inputs = PolicyInput(ctx.b3.snapshot, image, tuple(discovered.calls), ctx.params, profile)
+        try:
+            selection = policy.select(inputs)
+            planned_calls, residual = resolve_selection(inputs, selection)
+        except PolicyError as e:
+            return PassResult(Outcome.FAILED, "invalid_params", str(e))
         workers = 1
         if planner == "whopr":
             partitions = ctx.params.get("partitions", 4)
@@ -163,10 +120,6 @@ class FirmwareInline:
                     "native_bytes": sum(by_uid[uid].native_bytes for uid in uids),
                     "calls": sum(call.source_uid in uid_set for call in planned_calls),
                 })
-        image = guest_image_for(ctx.b3.snapshot, ctx.bundle)
-        if image is None:
-            return PassResult(Outcome.SKIPPED_UNKNOWN, "guest_image_missing",
-                              "the exact firmware ELF is required")
         refused: Counter[str] = Counter()
         affected: list[str] = []
         embedded: list[dict[str, Any]] = []
@@ -178,26 +131,31 @@ class FirmwareInline:
         max_depth = 0
         for _call in planned_calls:
             ctx.budget()
-        if (planner == "whopr" or mode == "hot-loop") and planned_calls:
+        if planned_calls:
             # LTRANS materialization is pure until edits are admitted below.
             # executor.map preserves the deterministic WPA order.
             region_units = tuple(ctx.b3.snapshot.units())
             region_by_uid = {unit.uid: unit for unit in region_units}
             compatibility = firmware_compatibility_index(region_units)
-            with ThreadPoolExecutor(max_workers=min(workers, len(planned_calls)),
-                                    thread_name_prefix="scopt-ltrans") as executor:
-                plans = list(executor.map(
-                    lambda call: build_firmware_region(
-                        ctx.b3.snapshot, image, discovered, call,
-                        units=region_units, by_uid=region_by_uid,
-                        compatibility=compatibility, expand_nested=mode != "hot-loop"), planned_calls))
+
+            def plan_call(call):
+                return build_firmware_region(
+                    ctx.b3.snapshot, image, discovered, call, units=region_units,
+                    by_uid=region_by_uid, compatibility=compatibility,
+                    expand_nested=policy.expand_nested)
+
+            if workers == 1:
+                plans = [plan_call(call) for call in planned_calls]
+            else:
+                with ThreadPoolExecutor(max_workers=min(workers, len(planned_calls)),
+                                        thread_name_prefix="scopt-ltrans") as executor:
+                    plans = list(executor.map(plan_call, planned_calls))
         else:
-            plans = [build_firmware_region(ctx.b3.snapshot, image, discovered, call)
-                     for call in planned_calls]
+            plans = []
         for call, plan in zip(planned_calls, plans):
             if trusted and plan.complete:
                 from ..link import (TRUSTED_ENTRY_OFFSET, trusted_firmware_edge_problem,
-                                    trusted_firmware_entry_problem)
+                                    trusted_firmware_entry_problem, trusted_return_guard_problem)
 
                 entry = ctx.b3.snapshot.unit(plan.members[plan.entry_member].source_uid)
                 entry_context = (entry.key.flags, entry.key.cs_base, entry.key.cflags)
@@ -219,6 +177,11 @@ class FirmwareInline:
                         continue
                     unit = ctx.b3.snapshot.unit(plan.members[edge.source_member].source_uid)
                     problem = trusted_firmware_edge_problem(unit, edge.exit_id)
+                    if problem is None and edge.kind == "return":
+                        target = ctx.b3.snapshot.unit(plan.members[edge.target_member].source_uid)
+                        problem = trusted_return_guard_problem(
+                            unit, edge.exit_id, target.key, ctx.b3.offsets,
+                            ctx.b3.snapshot.header.code_address)
                     if problem is None:
                         sanitized_edges.append(edge)
                         continue
@@ -252,12 +215,14 @@ class FirmwareInline:
             if not plan.complete:
                 continue
             edits.emit_firmware_region(plan)
-            embedded.append({"callsite_id": call.callsite_id,
-                             **({"observed_call_edges": selected_counts[call.callsite_id]}
-                                if mode == "hot-loop" else {}),
+            embedded.append({**selection.site_evidence.get(call.callsite_id, {}),
+                             "callsite_id": call.callsite_id,
                              "region_id": plan.region_id,
                              "source_uids": list(plan.source_uids),
                              "members": len(plan.members),
+                             "private_guarded_returns": sum(edge.kind == "return" and
+                                                            edge.target_member is not None
+                                                            for edge in plan.edges),
                              "trusted": plan.trusted,
                              "trusted_entry_offset": plan.trusted_entry_offset})
             residual.extend({"callsite_id": call.callsite_id,
@@ -279,6 +244,8 @@ class FirmwareInline:
         stats = {"discovered": float(len(discovered.calls)),
                  "embedded": float(len(embedded)), "pending": float(len(pending)),
                  "actual_expansion_depth": float(max_depth),
+                 "private_guarded_returns": float(sum(row["private_guarded_returns"]
+                                                      for row in embedded)),
                  "whopr_partitions": float(len(partition_rows)),
                  **{f"refused:{k}": float(v) for k, v in sorted(refused.items())}}
         receipt = {"discovered": [call.to_json() for call in discovered.calls],
@@ -293,12 +260,13 @@ class FirmwareInline:
                              "partitions": partition_rows,
                              "workers": workers,
                              "virtual_clones": "inline_context"},
-                   "policy": {"mode": mode, "trust": trust, **selection,
+                   "policy": {**selection.evidence, "mode": mode, "trust": trust,
+                              "expand_nested": policy.expand_nested,
                               "interrupts": interrupts, "icount": icount,
                               "planner": planner,
                               "max_hotness": None,
                               "max_growth": None, "max_sites": None,
-                              "max_members": None, "max_depth": 1 if mode == "hot-loop" else None,
+                              "max_members": None, "max_depth": None if policy.expand_nested else 1,
                               "max_iterations": None, "max_wall_s": None}}
         if embedded:
             return PassResult(Outcome.CANDIDATE, "firmware_regions_emitted",

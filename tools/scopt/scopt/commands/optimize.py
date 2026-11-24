@@ -335,11 +335,20 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                                "any missing intermediate artifacts.")
     views, notes = _profiles(profiles, snap)
     auto_loop_phase = None
+    firmware_needs_edges = False
     for hot in pl.passes:
         policy = {**hot.params, **(params or {}).get(hot.name, {})}
+        if hot.name in disable or only not in (None, hot.name):
+            continue
         helpers = hot.name == "host-inline" and policy.get("hot_loop_only")
-        firmware = hot.name == "firmware-inline" and policy.get("mode") == "hot-loop"
-        if not (helpers or firmware) or hot.name in disable or only not in (None, hot.name):
+        firmware = hot.name == "firmware-inline"
+        if firmware:
+            from ..passes.firmware_policy import PolicyError, firmware_policy
+            try:
+                firmware_needs_edges = firmware_policy(policy.get("mode", "exhaustive")).requires_edges
+            except PolicyError as e:
+                raise click.UsageError(str(e)) from e
+        if not (helpers or (firmware and firmware_needs_edges)):
             continue
         if notes:
             raise click.UsageError("; ".join(notes))
@@ -391,9 +400,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                     snap, native_stage = _splice_generation(source, standalone, store, views, stage_params)
                 except PipelineError as exc:
                     raise click.UsageError(str(exc)) from exc
-                if any(p.name == "firmware-inline" and
-                       (params or {}).get(p.name, {}).get("mode", p.params.get("mode")) == "hot-loop"
-                       for p in rest):
+                if firmware_needs_edges:
                     views = _helper_prefix_profiles(views, source, snap)
                 else:
                     views, stage_notes = _profiles(profiles, snap)

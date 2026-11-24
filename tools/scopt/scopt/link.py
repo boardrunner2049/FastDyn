@@ -360,6 +360,26 @@ def trusted_firmware_edge_problem(u: TBUnit, exit_id: str) -> str | None:
     return "no_rel32_field"
 
 
+def trusted_return_guard_problem(unit, exit_id, key, offsets, code_address) -> str | None:
+    """Whether a private return can retain the original lookup on a guard miss."""
+    from .formats.region_v1 import unit_exits
+    from .guard import GuardError, guard_key
+
+    if offsets is None or offsets.envlayout_id is None:
+        return "return_guard_layout_unbound"
+    exit_ = next((e for e in unit_exits(unit) if e.id == exit_id), None)
+    if exit_ is None or exit_.kind.value != "goto_ptr":
+        return "return_guard_requires_dynamic_exit"
+    tails = [tail for tail in lookup_tails(unit) if tail.insn_idx == exit_.insn]
+    if len(tails) != 1 or not free_slots(unit):
+        return "return_guard_no_free_tail_or_slot"
+    try:
+        guard_key(key.flags, key.cs_base)
+    except GuardError as exc:
+        return exc.reason
+    return tail_problem(unit, tails[0], code_address)
+
+
 def transplant_native(u: TBUnit, *, code_address: int) -> TBUnit:
     """Materialize a unit's checked symbolic fragments at its pre-move offsets."""
     from .validate_sym.native_inline import verify_fragment
@@ -1486,13 +1506,14 @@ class NativeLinkerV2:
     def _fail(self, uid: str, reason: str, detail: str = "") -> LinkResultV2:
         return LinkResultV2(False, self.header, (), (LinkFailure(uid, reason, detail),))
 
-    def _firmware_member_units(self, region: Any, by_uid: Mapping[str, TBUnit]) -> list[TBUnit]:
-        """Build private member preimages, retaining guarded lookup fallbacks."""
+    def _firmware_member_units(self, region: Any, by_uid: Mapping[str, TBUnit]
+                               ) -> tuple[list[TBUnit], dict[tuple[int, str], int]]:
+        """Build member preimages and bind each guard's rel32 to its original exit ID."""
         from .formats.region_v1 import unit_exits
 
         if region.trusted:
-            out = [by_uid[member.source_uid] for member in region.members]
-            for source in out:
+            for member in region.members:
+                source = by_uid[member.source_uid]
                 problem = trusted_firmware_entry_problem(source)
                 if problem is not None:
                     raise LinkError("firmware_region_trusted_prefix",
@@ -1506,19 +1527,20 @@ class NativeLinkerV2:
                     raise LinkError("firmware_region_trusted_descriptor_ref",
                                     f"{source.uid}: unclassified descriptor reference",
                                     source.uid)
-            return out
-        if self.tb_ret_abs is None:
-            raise LinkError("firmware_region_no_tb_ret", "no tb_ret_addr", region.region_id)
         out: list[TBUnit] = []
+        guarded_fields: dict[tuple[int, str], int] = {}
         by_source: dict[int, list[Any]] = {}
         for edge in region.edges:
-            if edge.target_member is not None:
+            if edge.target_member is not None and (not region.trusted or edge.kind == "return"):
                 by_source.setdefault(edge.source_member, []).append(edge)
         for i, member in enumerate(region.members):
             source = by_uid[member.source_uid]
+            if i not in by_source:
+                out.append(source)
+                continue
             exits = {x.id: x for x in unit_exits(source)}
             specs: list[GuardedExitSpec] = []
-            used_tails: set[int] = set()
+            tail_exits = {}
             free = iter(free_slots(source))
             tails = tuple(lookup_tails(source))
             for edge in by_source.get(i, ()):
@@ -1529,7 +1551,7 @@ class NativeLinkerV2:
                 if tail is None:
                     raise LinkError("firmware_region_exit_shape",
                                     f"{source.uid}/{edge.exit_id}: no lookup tail", source.uid)
-                if tail.off in used_tails:
+                if tail.off in tail_exits:
                     raise LinkError("firmware_region_exit_shape",
                                     f"{source.uid}: two internal targets on one tail", source.uid)
                 try:
@@ -1547,24 +1569,32 @@ class NativeLinkerV2:
                     # public variant contract and requires loader registration.
                     (GuardTarget(int(edge.guest_target), slot, "GENERAL"),),
                     key.flags, key.cs_base))
-                used_tails.add(tail.off)
+                tail_exits[tail.off] = edge.exit_id
             if specs:
-                source = grow_unit(source, specs, code_address=self.header.code_address,
-                                   tb_ret_abs=self.tb_ret_abs, offsets=self.offsets,
-                                   register=False).unit
+                if self.tb_ret_abs is None:
+                    raise LinkError("firmware_region_no_tb_ret", "no tb_ret_addr", region.region_id)
+                if region.trusted and self.offsets.envlayout_id is None:
+                    raise LinkError("guard_layout_unbound", "private return needs matching EnvLayout",
+                                    source.uid)
+                grown = grow_unit(source, specs, code_address=self.header.code_address,
+                                  tb_ret_abs=self.tb_ret_abs, offsets=self.offsets,
+                                  register=False)
+                source = grown.unit
+                for spec, stub in grown.stubs:
+                    guarded_fields[i, tail_exits[spec.tail_off]] = stub.slots[0].field_off
             out.append(source)
-        return out
+        return out, guarded_fields
 
     def _link_firmware_regions(self, cursor: int, by_uid: Mapping[str, TBUnit]
                                ) -> tuple[tuple[FirmwareRegionLink, ...], int]:
         """Lay out private descriptors, contiguous code and out-of-line recovery data."""
-        from .formats.region_v1 import guarded_exit_rows, unit_exits
+        from .formats.region_v1 import unit_exits
 
         linked: list[FirmwareRegionLink] = []
         ca = self.header.code_address
         for plan in self.plan.firmware_regions:
             start = round_up(cursor, TB_ALIGN)
-            effective = self._firmware_member_units(plan, by_uid)
+            effective, guarded_fields = self._firmware_member_units(plan, by_uid)
             descriptor_start = start
             descriptor_count = 1 if plan.trusted else len(effective)
             code_start = round_up(descriptor_start + descriptor_count * self.header.tb_size, 16)
@@ -1595,29 +1625,25 @@ class NativeLinkerV2:
                 retarget_private_descriptor_refs(
                     code, source, tc_offset=tc_offsets[i],
                     tb_offset=member_tb, code_address=ca)
-                exits = {x.id: x for x in unit_exits(source)}
-                guards = guarded_exit_rows(source)
+                # Plans name exits in the captured source. Guard growth adds exits and
+                # renumbers the fallback, so look up original IDs on that source.
+                exits = {x.id: x for x in unit_exits(by_uid[member.source_uid])}
                 patched: list[tuple[str, int, int]] = []
                 for edge in plan.edges:
                     if edge.source_member != i or edge.target_member is None:
                         continue
                     exit_ = exits.get(edge.exit_id)
-                    field = None
-                    if exit_ is not None and exit_.insn_offset is not None:
+                    field = guarded_fields.get((i, edge.exit_id))
+                    if field is None and edge.kind != "return" and exit_ is not None:
                         field = exit_.insn_offset
-                    if field is None and plan.trusted and exit_ is not None and \
-                            exit_.kind.value == "goto_ptr":
+                    if field is None and plan.trusted and edge.kind != "return" and \
+                            exit_ is not None and exit_.kind.value == "goto_ptr":
                         tails = [tail for tail in lookup_tails(source)
                                  if tail.insn_idx == exit_.insn]
                         if len(tails) == 1:
                             tail = tails[0]
                             code[tail.off:tail.end] = b"\xe9\0\0\0\0" + b"\x90" * 6
                             field = tail.off + 1
-                    if field is None:
-                        matches = [off for off, row in guards.items()
-                                   if int(row["target_vaddr"], 16) == edge.guest_target]
-                        if len(matches) == 1:
-                            field = matches[0]
                     if field is None or field < 1 or field + 4 > len(code):
                         raise LinkError("firmware_region_exit_shape",
                                         f"{source.uid}/{edge.exit_id}: no rel32 field", source.uid)

@@ -93,9 +93,19 @@ def build_firmware_region(snapshot: Any, image: Any, calls: FirmwareCalls,
         for exit_ in unit_exits(unit):
             g = by_insn.get(exit_.insn) if exit_.insn is not None else None
             nested = call_by_exit.get((uid, exit_.id))
-            if g is not None and direct_call_target(g) is not None and g.index in handled_control:
+            call_target = direct_call_target(g) if g is not None else None
+            if call_target is not None and g.index in handled_control:
                 continue
-            if nested is not None and g is not None and direct_call_target(g) is not None:
+            if nested is None and g is not None and (
+                    call_target is not None or g.mnemonic.split(".")[0] == "blx"):
+                # A sealed fallback TB can occur inside a region even when it
+                # was excluded from call discovery. Its BL writes a new LR.
+                # A branch edge would incorrectly inherit the outer return.
+                edges.append(FirmwareRegionEdge(source_member, exit_.id, "side_exit",
+                                                None, call_target,
+                                                refusal_reason="unverified_nested_call_exit"))
+                continue
+            if nested is not None and call_target is not None:
                 handled_control.add(g.index)
                 if not nested.eligible:
                     reason = nested.refusal_reasons[0]
@@ -127,6 +137,9 @@ def build_firmware_region(snapshot: Any, image: Any, calls: FirmwareCalls,
                                                 nested_entry, nested.target_vaddr))
                 work.append((nested_uid, nested_context, nested_cont,
                              active_calls + (semantic,)))
+                # Calls after this return belong to the enclosing invocation.
+                work.append((nested.continuation_candidates[0], context,
+                             return_member, active_calls))
                 continue
             if g is not None and is_return_insn(g):
                 if g.index in handled_control:

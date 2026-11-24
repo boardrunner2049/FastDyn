@@ -1,0 +1,10 @@
+schema = "scopt.pipeline"
+version = 1
+name = "sealed-firmlooper"
+description = "Inline captured calls rooted in persistent task loops, including their eligible acyclic callees."
+allowed_capabilities = ["EMIT_FIRMWARE_REGION"]
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "firmlooper", trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4 }

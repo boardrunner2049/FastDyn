@@ -109,6 +109,12 @@ do not contain timing observations or assert a speedup.
 The `pgo7` recipe combines hot helper and guest call selection with trusted sealed
 firmware regions. The `whopr7` recipe retains exhaustive graph expansion.
 
+The `firmlooper` recipe uses the trusted sealed capture and matching firmware
+ELF to find calls in persistent task loops. The optimizer receives neither a
+training profile nor a training launch for this policy. The campaign registry
+still takes the common evaluation profile for its footprint report.
+[Selection rules and policy extensions](../../scopt/docs/firmware-inline-policies.md)
+
 The `hot-loop-inline` recipe profiles helper call instructions and
 `hot-loop-firmware-inline` selects guest calls in observed loops. Set
 `images.<variant>.training_launch` to that image's ordinary fixed-input

@@ -72,3 +72,62 @@ Keep input files, eval firmware, caches, logs, counters, timing observations
 and generated reports in the external results directory. The
 [paired timing utility](measure.py) can also compare two prepared FreeRTOS
 caches with private RAM mappings.
+
+## FirmLooper compared with PGO
+
+FirmLooper is a separate eighth configuration. It selects guest calls in
+structurally persistent task loops and recursively expands eligible captured
+callees. It uses the same sealed capture and trusted execution mode as
+configurations 6 and 7. The PGO selector still uses an ordinary training launch.
+Both policies were compiled with the corrected region builder and return linker.
+[Policy definitions and reproduction command](../../docs/firmware-inline-policies.md)
+
+![Eight configurations in three panels with independent time axes. On the packet parser FirmLooper took 1,045 ms and PGO 1,056 ms. On the finite CLI batch they took 35.9 and 35.7 ms. On the persistent UART command server they took 450.7 and 473.3 ms.](firmlooper-comparison.png)
+
+| Firmware workload | Inputs × paired blocks | PGO / FirmLooper, median paired speedup (95% interval) | Sealed / FirmLooper |
+|---|---:|---:|---:|
+| FreeRTOS packet parser | 6 × 6 | 1.018× (0.999–1.030) | 1.003× (0.977–1.024) |
+| FreeRTOS+CLI finite batch | 2 × 8 | 1.021× (0.967–1.035) | 0.989× (0.945–1.019) |
+| FreeRTOS+CLI persistent UART server | 2 × 8 | 1.042× (0.992–1.076) | 1.039× (0.996–1.059) |
+
+Each process ran one fixed input. Ratios use the summed times across inputs
+in each randomized block, followed by the median across blocks. Intervals
+resample whole blocks. The chart shows the mean of individual input medians.
+Both CLI panels use fresh timings for all eight arms. The packet panel uses
+the previous campaign's arms 1–5 and fresh, interleaved timings for arms 6–8.
+Only arms 6–8 share the sealed execution contract. Build, capture, optimization,
+launch preparation, process startup and diagnostic replays are outside the timer.
+
+* **Packet parser.** FreeRTOS starts a persistent processing task and a finite
+  receive task. FirmLooper emitted 30 regions and PGO emitted 9. Single-input
+  diagnostic replay identified 29 active FirmLooper roots in the processing and
+  timer tasks. PGO entered all 9 of its roots, including calls in the finite receive
+  task. The two active sets had no captured root in common. FirmLooper emitted
+  395,934 private native bytes and PGO emitted 79,301. Both completed the same
+  work on all six streams. The application-wide timing interval includes parity.
+* **Finite batch CLI.** The command loop exits when the batch ends. FirmLooper
+  emitted two other task regions and entered neither during measured work.
+  Its timing does not measure a benefit from inlining the command loop.
+* **Persistent UART server.** The upstream FreeRTOS+CLI UART task waits for
+  characters, handles commands, and resumes waiting. A RAM serial adapter sent
+  6,000 mixed commands or 4,000 help-heavy commands. All 16 output words matched
+  upstream QEMU on both sessions. FirmLooper emitted 14 regions to depth 5
+  (171,614 native bytes) and activated 8 during each work window. PGO emitted
+  7 regions to depth 1 (126,478 bytes) and activated 5. Mixed commands alone
+  gave 1.037× (1.004–1.088), while help-heavy commands gave 1.024×
+  (0.967–1.051). FirmLooper's compile wall times on these sealed CLI snapshots
+  were 20 s for the batch and 23 s for UART. PGO took 137 s and 157 s respectively,
+  including automatic training. These were single setup observations.
+
+An initial packet build processed 184 of 28,560 expected packets. The guest
+`BL` at `0x19650` was present in a fallback translation omitted from call-site
+discovery. The region builder treated it as a branch. Its callee returned to
+`0x1a902` instead of `0x19654`. The repaired builder keeps unverified calls
+public, follows nested continuations in their enclosing context, and the linker
+preserves the original lookup on a return-guard miss. The invalid timing was
+discarded. The triggering stream became a development case for this repair.
+
+FirmLooper remains opt-in. It found and exercised substantially different code
+from PGO. Across these three workloads the application-level intervals include
+1.0. A further comparison can use independent task workloads with a larger share
+of execution in those admitted regions.

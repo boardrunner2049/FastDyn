@@ -41,6 +41,15 @@ def test_firmware_region_candidates_bind_the_matching_loader_capability(tmp_path
     assert "--v7-trusted-exe" in trusted and "--v7-exe" not in trusted
 
 
+def test_firmlooper_recipe_selects_static_policy_without_training(tmp_path):
+    image = dict(snapshot="sealed", prep="capture", firmware="guest", admission_runtime="identity",
+                 runtime=__file__, training_launch="unused")
+    args, names, requested = optimizer_args("firmlooper", image, "sealed", tmp_path, {}, [])
+    assert args[args.index("--pipeline") + 1] == "sealed-firmlooper"
+    assert names == requested == ["firmware-inline"]
+    assert "--v7-trusted-exe" in args and "--profile" not in args and "--pgo-launch" not in args
+
+
 def test_identity_changes_with_guest_and_restore_metadata(tmp_path):
     for name in ("cache.sc", "bundle.json", "runtime_identity.json", "fw", "cfg", "qemu"):
         (tmp_path / name).write_bytes(name.encode())

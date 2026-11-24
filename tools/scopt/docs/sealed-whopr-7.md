@@ -24,6 +24,9 @@ The remainder of this document describes the historical exhaustive graph
 experiment, still available as `sealed-whopr-7` and the Trebuchet recipe
 `whopr7`. Choose `pgo7` in current Trebuchet candidate plans.
 
+The separate `sealed-firmlooper` pipeline uses task registration and static loop
+structure to select guest calls. See [Firmware inlining policies](firmware-inline-policies.md).
+
 ## Mapping from GCC WHOPR
 
 The implementation follows GCC's three-stage structure, adapted to captured
