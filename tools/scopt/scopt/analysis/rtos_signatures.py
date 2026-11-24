@@ -73,14 +73,14 @@ def _entry_evidence(image):
     return entries
 
 
-def _signature_calls(image, func, raw, ref_starts, code, md):
+def _signature_calls(image, func, raw, code, md):
     insns = decode_function(image, func, code, md)
     calls = [
         (pc - func.start, direct_target(insn))
         for pc, insn in sorted(insns.items())
         if insn.id == A.ARM_INS_BL
         and insn.size == 4
-        and direct_target(insn) in ref_starts
+        and direct_target(insn) is not None
         and not func.start <= direct_target(insn) < func.end
     ]
     parts = []
@@ -123,18 +123,15 @@ def _relocated_matches(spans, size, parts, calls, md):
     return matches
 
 
-def _find_signature(
-    image, func, raw, syms, entries, ref_starts, ref_text, tgt_text, ref_code, md
-):
+def _find_signature(image, func, raw, syms, entries, ref_text, tgt_text, ref_code, md):
     # Short return stubs and veneers rarely carry a distinctive implementation.
     if len(raw) < 12:
         return None, (), "short_signature"
     if len(syms) != 1 or sum(1 for _ in _locations(ref_text, raw)) != 1:
         return None, (), "ambiguous_reference"
     locations = list(_locations(tgt_text, raw))
-    dependencies = ()
+    calls, parts = _signature_calls(image, func, raw, ref_code, md)
     if not locations:
-        calls, parts = _signature_calls(image, func, raw, ref_starts, ref_code, md)
         relocated = (
             _relocated_matches(tgt_text, len(raw), parts, calls, md) if calls else []
         )
@@ -145,14 +142,19 @@ def _find_signature(
         if len(_relocated_matches(ref_text, len(raw), parts, calls, md)) != 1:
             return None, (), "ambiguous_reference"
         ((pc, destinations),) = relocated
-        dependencies = tuple(zip((dst for _, dst in calls), destinations))
     elif len(locations) != 1:
         return None, (), "ambiguous_target"
     else:
         pc = locations[0]
+        # BL is PC-relative even when all its bytes match. At the new
+        # address it must still reach the independently recognized callee.
+        destinations = [
+            direct_target(next(md.disasm(raw[off : off + 4], pc + off, count=1)))
+            for off, _ in calls
+        ]
     if pc not in entries:
         return None, (), "no_independent_entry"
-    return pc, dependencies, None
+    return pc, tuple(zip((dst for _, dst in calls), destinations)), None
 
 
 def recover(target: GuestImage, reference: GuestImage):
@@ -201,7 +203,6 @@ def recover(target: GuestImage, reference: GuestImage):
     else:
         entries = _entry_evidence(target)
         md = _md()
-        ref_starts = {f.start for f in reference.funcs}
         for raw, syms in by_bytes.items():
             f = syms[0]
             pc, deps, reason = _find_signature(
@@ -210,7 +211,6 @@ def recover(target: GuestImage, reference: GuestImage):
                 raw,
                 syms,
                 entries,
-                ref_starts,
                 ref_text,
                 tgt_text,
                 ref_code,
@@ -219,7 +219,12 @@ def recover(target: GuestImage, reference: GuestImage):
             if pc is not None:
                 proposals.append((f, pc))
                 if deps:
-                    methods[f] = ("linked_thumb_calls", deps)
+                    kind = (
+                        "exact_thumb_span"
+                        if target.read(pc, f.size) == raw
+                        else "linked_thumb_calls"
+                    )
+                    methods[f] = (kind, deps)
             if reason:
                 refused.extend(dict(initial(f), reason=reason) for f in syms)
 
@@ -281,7 +286,7 @@ def recover(target: GuestImage, reference: GuestImage):
             (f, pc, changes if not same_image and not target.mapping else [])
         )
 
-    # A masked displacement requires independent evidence for the identity
+    # External calls require independent evidence for the identity
     # of every BL destination. Cycles with no independent seed stay unresolved.
     known = {f.start: pc for f, pc, _ in eligible if f not in methods}
     pending = list(eligible)

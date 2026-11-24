@@ -98,3 +98,25 @@ def test_missing_entry_and_code_data_conflicts_are_refused():
     assert data["refusal_counts"]["conflicting_mapping"] == 1
     with pytest.raises(ValueError, match="little-endian"):
         recover(replace(tgt, little_endian=False), ref)
+
+
+def test_identical_displacement_at_moved_address_calls_wrong_function():
+    ref = image(0x1040)
+    # Relocate the entire caller. Its unchanged BL now targets 0x2040;
+    # the matching timer has moved independently to 0x2060.
+    raw_body = bytearray(ref.segments[0][1])
+    raw_body[0x60:0x6C] = raw_body[0x40:0x4C]
+    raw_body[0x40:0x4C] = b"\x00" * 12
+    tgt = GuestImage(
+        "changed",
+        "",
+        ((0x2000, bytes(raw_body)),),
+        ((0x2000, 0x2180),),
+        (),
+        (),
+        text_sections=((0x2000, 0x2180),),
+        thumb_entries=frozenset({0x2000, 0x2060}),
+    )
+    _, receipt = recover(tgt, ref)
+    assert [f["name"] for f in receipt["matched"]] == ["xTimerIsTimerActive"]
+    assert receipt["refusal_counts"] == {"unconfirmed_call_destination": 1}
