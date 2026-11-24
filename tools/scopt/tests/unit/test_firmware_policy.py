@@ -177,3 +177,24 @@ def test_ambiguous_offpage_destinations_keep_guest_lookup():
                                        StaticExit(255, True, 0, 0x1200)))
     assert unit_exits(unit)[0].static_dest_vaddr is None
     assert unit_exits(replace(unit, static_exits=unit.static_exits[:1]))[0].static_dest_vaddr == 0x1100
+
+
+def test_cli_addon_is_application_and_fromisr_api_is_not_an_irq_root():
+    from scopt.analysis.rtos_boundaries import ExpansionAction, TaskBoundaries
+
+    _, image = _snapshot()
+    data = bytearray(0x108)
+    data[:6] = bytes.fromhex("00f07ef87047")  # FromISR API directly calls common.
+    data[0x100:] = bytes.fromhex("00bf704770477047")
+    image = replace(image, segments=((0x1000, bytes(data)),), exec_ranges=((0x1000, 0x1108),),
+                    funcs=(GuestFunc("xQueueSendFromISR", 0x1000, 0x1006),
+                           GuestFunc("common", 0x1100, 0x1104),
+                           GuestFunc("FreeRTOS_CLIProcessCommand", 0x1104, 0x1106),
+                           GuestFunc("MPU_ulTaskGenericNotifyTake", 0x1106, 0x1108)))
+    bounds = TaskBoundaries(image)
+    assert bounds.classify(0x1000) is ExpansionAction.PUBLIC
+    assert bounds.classify(0x1102) is ExpansionAction.INLINE
+    assert bounds.classify(0x1104) is ExpansionAction.INLINE
+    assert bounds.classify(0x1106) is ExpansionAction.SHARED
+    irq = TaskBoundaries(replace(image, exception_entries=frozenset({0x1000})))
+    assert irq.classify(0x1102) is ExpansionAction.PUBLIC

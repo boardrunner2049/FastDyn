@@ -37,9 +37,10 @@ def residual_reason(action: ExpansionAction) -> str | None:
 
 # FreeRTOS API naming conventions. Internal scheduler routines reached by
 # ordinary calls from these entry points execute in the public kernel body.
-_KERNEL_API = re.compile(r"^(?:[xvpuels]+(?:Queue|Semaphore|Task|Timer|EventGroup|"
-                         r"StreamBuffer|MessageBuffer|CoRoutine|List|Port)[A-Z]"
-                         r"|port(?:YIELD|ENTER|EXIT)|pvPortMalloc|vPortFree|FreeRTOS_|MPU_)")
+_KERNEL_API = re.compile(
+    r"^(?:(?:MPU_|FreeRTOS_)?(?:x|v|u|e|ux|ul|us|uc|pc|pv|px)"
+    r"(?:Queue|Semaphore|Task|Timer|EventGroup|StreamBuffer|MessageBuffer|CoRoutine|List|Port)[A-Z]"
+    r"|port(?:YIELD|ENTER|EXIT))")
 _SCHEDULER = {"vTaskSwitchContext", "xTaskIncrementTick", "vTaskStartScheduler",
               "xPortStartScheduler", "prvPortStartFirstTask", "prvIdleTask", "prvTimerTask",
               "prvSelectHighestPriorityTask", "prvAddCurrentTaskToDelayedList"}
@@ -65,7 +66,11 @@ class TaskBoundaries:
         self._classes = {}
         self._exception_visible = set()
         pending = list(image.exception_entries)
-        pending += [pc for pc, names in self.names.items() if any(_ISR.search(n) for n in names)]
+        # A FromISR API may exist without an installed interrupt caller. Keep
+        # its entry public, but only propagate IRQ visibility from actual
+        # vector entries or named handlers, not from the API's spelling.
+        pending += [pc for pc, names in self.names.items()
+                    if any(_ISR.search(n) and not n.endswith("FromISR") for n in names)]
         seen = set()
         while pending:
             pc = pending.pop()
