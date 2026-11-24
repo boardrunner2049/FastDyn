@@ -37,6 +37,24 @@ The recursive callback receives an `ExpansionSite` with the source unit, guest i
 
 The built-in boundary classification uses FreeRTOS API names, recognized scheduler functions, exception vector entries, handler names and direct call/branch reachability from handlers. FreeRTOS+ application libraries such as `FreeRTOS_CLIProcessCommand` can be inlined. MPU-wrapped kernel APIs and kernel `FromISR` entries stay shared or public. A `FromISR` name alone does not imply all its callees execute in an interrupt. When a discovered handler directly reaches a function, the policy keeps the entire symbol range public, including shared routines also called in task context. A direct branch veneer inherits its destination's classification. Unknown function ownership stays public. Indirect interrupt call targets, stripped or renamed private kernel routines, and dynamically installed vectors can escape static identification. The classification affects duplication only. It gives no authority to remove synchronization, exception checks or guest memory effects.
 
+FirmLooper v2 distinguishes the caller from the destination when applying the FreeRTOS name convention. A recovered registration can identify a file-local application worker such as `vQueueReceiveWhenSuspendedTask`. Its loop may nominate calls even though its name begins with `vQueue`. This exception requires unambiguous ELF local function ownership in a named C compilation unit outside the recognized kernel sources. Explicit task hints, global aliases, stripped functions and kernel source files keep the ordinary name boundary. Scheduler and exception visibility take precedence. A file-local helper owned by a recognized kernel source stays shared, even when its name has no API prefix. This applies to its interior and direct entry veneers. Every callee still goes through the ordinary destination check.
+
+The object receipt reads the type argument of generic constructors from the Thumb binary. Dynamic queues and both stream-buffer constructors use R2. Static generic queues pass their fifth word at the call-site SP. A missing value or unknown type leaves the family unresolved. On 34 symbolized Cortex-M3 FreeRTOS Common/Minimal images, the analysis distinguished 10 streams and nine message buffers previously reported as generic stream buffers. Seven generic queue sites gained a concrete type. Known handle-use records rose from 290 to 404, including ISR and stream-buffer APIs, while 202 task registrations remained resolved. Two registered application workers in the dynamic-priority demo gained nine loop call nominations. All nine destinations were shared or public kernel routines. These are discovery results and do not establish an execution speedup.
+
+To reproduce the static receipt for one linked application from the FastDyn checkout, set `ELF` to its ARM firmware image and run:
+
+```sh
+PYTHONPATH=tools/scopt python - "$ELF" <<'PYTHON'
+import json
+import sys
+from scopt.analysis.task_loops import discover_task_loops
+from scopt.decode.guest_symbols import load_guest_image
+
+loops = discover_task_loops(load_guest_image(sys.argv[1]), include_terminal=True)
+print(json.dumps(loops.report(), indent=2))
+PYTHON
+```
+
 For two independent ablations, pass `{"firmware-inline":{"policy_options":{"boundaries":false}}}` to retain recursive expansion across RTOS boundaries, or set `include_terminal` to `false` to keep only strong persistent loops. An empty task discovery produces no firmware roots.
 
 The firmware pass reports selected roots that were actually emitted in `embedded`. Its `private_guarded_returns` count covers return guards embedded inside these executable regions. The B3 public-slot count concerns separately registered slots. An unexpected guest return target or context uses the original lookup after guest return effects complete. Trusted private returns require a Cortex-M3 capture, a bound EnvLayout and an eligible lookup tail. Other CPU models preserve the original return lookup. If a requirement is unavailable, the receipt records a side exit. Trusted interrupt and instruction-count settings still apply.

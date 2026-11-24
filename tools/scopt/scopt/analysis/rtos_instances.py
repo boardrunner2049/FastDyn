@@ -21,6 +21,7 @@ _TASK_CREATE = {"xTaskCreate", "xTaskCreateStatic", "xTaskCreateAffinitySet",
 _OBJECT_CREATE = {
     "xQueueGenericCreate": "queue", "xQueueGenericCreateStatic": "queue",
     "xQueueCreate": "queue", "xQueueCreateStatic": "queue",
+    "xQueueCreateSet": "queue_set", "xQueueCreateSetStatic": "queue_set",
     "xQueueCreateMutex": "mutex", "xQueueCreateMutexStatic": "mutex",
     "xSemaphoreCreateMutex": "mutex", "xSemaphoreCreateRecursiveMutex": "mutex",
     "xQueueCreateCountingSemaphore": "semaphore", "xQueueCreateCountingSemaphoreStatic": "semaphore",
@@ -33,7 +34,14 @@ _OBJECT_CREATE = {
 _USES = {"xQueueReceive", "xQueuePeek", "xQueueGenericSend", "xQueueSend",
          "xSemaphoreTake", "xQueueSemaphoreTake", "xQueueTakeMutexRecursive",
          "xQueueGiveMutexRecursive", "xTimerGenericCommand", "xTimerGenericCommandFromTask",
-         "xEventGroupWaitBits", "xEventGroupSetBits", "xEventGroupClearBits"}
+         "xEventGroupWaitBits", "xEventGroupSetBits", "xEventGroupClearBits",
+         "xQueueGenericSendFromISR", "xQueueGiveFromISR", "xQueueReceiveFromISR", "xQueuePeekFromISR",
+         "xQueueSelectFromSet", "xQueueSelectFromSetFromISR",
+         "xEventGroupSetBitsFromISR", "xEventGroupClearBitsFromISR",
+         "xStreamBufferSend", "xStreamBufferReceive", "xStreamBufferSendFromISR",
+         "xStreamBufferReceiveFromISR", "xStreamBufferSetTriggerLevel", "vStreamBufferDelete"}
+_QUEUE_KINDS = {0: "queue", 1: "mutex", 2: "semaphore", 3: "semaphore", 4: "mutex", 5: "queue_set"}
+_STREAM_KINDS = {0: "stream_buffer", 1: "message_buffer", 2: "batching_stream_buffer"}
 _INSTANCE_APIS = _TASK_CREATE | _OBJECT_CREATE.keys() | _USES
 TERMINATE = {"vTaskDelete", "abort", "_exit", "exit", "__assert_func",
              "__assert_fail", "__stack_chk_fail", "k_panic"}
@@ -196,6 +204,13 @@ def _transfer(image, insn, before, create_pc, leaf=()):
         _store(st, None, None)
     if dst is not None and value is not None:
         st[dst] = value
+    # Popped/deallocated slots may be reused by interrupt entry or another
+    # activation. Subsequent growth of SP's frame does not restore those facts.
+    sp = st.get(A.ARM_REG_SP)
+    for key in tuple(st):
+        if (isinstance(key, tuple) and key[0] == "stack"
+                and (not isinstance(sp, _Stack) or key[1] < sp.offset)):
+            del st[key]
     return _join(before, st) if predicated(insn) else st
 
 
@@ -376,12 +391,21 @@ def discover_instances(program):
                         rows.append(dict(evidence, status="resolved", entry=hex(entry)))
             elif state is not None and pc in program.objects:
                 kind = _OBJECT_CREATE[api]
-                if api == "xQueueGenericCreate":
-                    kind = {0: "queue", 1: "mutex", 2: "semaphore", 3: "semaphore",
-                            4: "mutex"}.get(state.get(A.ARM_REG_R2), "queue_family")
-                elif api == "xQueueGenericCreateStatic":
-                    kind = "queue_family"
-                objects.append({**row, "kind": kind, "api": api, "identity": hex(pc)})
+                row = {**row, "api": api, "identity": hex(pc)}
+                if api in ("xQueueGenericCreate", "xQueueGenericCreateStatic",
+                           "xStreamBufferGenericCreate", "xStreamBufferGenericCreateStatic"):
+                    # Arm AAPCS32: the queue type is the fifth word for the
+                    # static constructor. Stream constructors both use R2.
+                    static_queue = api == "xQueueGenericCreateStatic"
+                    sp = state.get(A.ARM_REG_SP)
+                    key = _memory_key(sp) if static_queue else A.ARM_REG_R2
+                    value = state.get(key)
+                    queue = api.startswith("xQueue")
+                    kinds = _QUEUE_KINDS if queue else _STREAM_KINDS
+                    kind = kinds.get(value, "queue_family" if queue else "stream_buffer_family")
+                    row["type_argument"] = {"location": "[sp]" if static_queue else "r2",
+                                            "value": value if isinstance(value, int) else None}
+                objects.append({**row, "kind": kind})
             elif state is not None:
                 for val, ctx in origins(owner, state.get(A.ARM_REG_R0)):
                     use = {**row, "api": api, "status": "unknown_handle"}

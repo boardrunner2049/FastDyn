@@ -132,3 +132,29 @@ def test_callback_store_through_stack_argument_kills_only_overlapping_slots(disp
         (0x1040, 'callback', 'movs r1,#0; str r1,[r0]; bx lr'),
         (0x1080, 'xTaskCreate', 'bx lr'), (0x1100, 'worker', 'b 0x1100')])
     assert bool(discover_task_loops(img).tasks) == resolved
+
+
+@pytest.mark.parametrize("prep,kind,value", [
+    ("movs r2,#3; str r2,[sp]", "semaphore", 3),
+    ("movs r2,#5; str r2,[sp]", "queue_set", 5),
+    ("movs r2,#2; str r2,[sp]; strb r3,[sp,#1]", "queue_family", None),
+    ("movs r2,#1; str r2,[sp]; add sp,#8; sub sp,#8", "queue_family", None),
+    ("movs r2,#17; str r2,[sp]", "queue_family", 17),
+])
+def test_static_queue_type_uses_live_stacked_word(prep,kind,value):
+    img = fixture([(0x1000,'init','sub sp,#8; '+prep+'; movs r2,#0; bl 0x1080; bx lr'),
+                   (0x1080,'xQueueGenericCreateStatic','bx lr')])
+    obj, = discover_task_loops(img).objects
+    assert obj['kind'] == kind
+    assert obj['type_argument'] == {'location':'[sp]', 'value':value}
+
+
+@pytest.mark.parametrize("api", ["xStreamBufferGenericCreate", "xStreamBufferGenericCreateStatic"])
+def test_stream_creation_kind_and_isr_handle_use(api):
+    img = fixture([(0x1000,'init','movs r2,#1; bl 0x1080; bl 0x10a0; bx lr'),
+                   (0x1080,api,'bx lr'), (0x10a0,'xStreamBufferSendFromISR','bx lr')])
+    loops = discover_task_loops(img)
+    obj, = loops.objects
+    use, = loops.uses
+    assert obj['kind'] == 'message_buffer' and obj['type_argument'] == {'location':'r2','value':1}
+    assert use['api'] == 'xStreamBufferSendFromISR' and use['creation_pc'] == obj['identity']

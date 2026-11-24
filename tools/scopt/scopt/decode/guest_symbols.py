@@ -71,6 +71,8 @@ class GuestImage:
     thumb_entries: frozenset[int] = frozenset()
     text_sections: tuple[tuple[int, int], ...] = ()
     little_endian: bool = True
+    # Only entries whose local function aliases agree on one ELF STT_FILE.
+    local_function_sources: tuple[tuple[int, str], ...] = ()
 
     def __post_init__(self) -> None:
         self._starts[:] = [f.start for f in self.funcs]
@@ -140,6 +142,8 @@ def _load(path: str, mtime_ns: int, size: int) -> GuestImage:
             exe.append((seg["p_vaddr"], seg["p_vaddr"] + seg["p_memsz"]))
     funcs: dict[tuple[int, str], GuestFunc] = {}
     mapping: dict[int, str] = {}
+    function_sources: dict[int, set[str | None]] = {}
+    local_file = None
     tab = elf.get_section_by_name(".symtab")
     if isinstance(tab, SymbolTableSection):
         for s in tab.iter_symbols():
@@ -147,6 +151,11 @@ def _load(path: str, mtime_ns: int, size: int) -> GuestImage:
                 continue
             nm = s.name or ""
             typ = s["st_info"]["type"]
+            if typ == "STT_FILE":
+                local_file = nm or None
+            elif typ == "STT_FUNC":
+                owner = local_file if s["st_info"]["bind"] == "STB_LOCAL" else None
+                function_sources.setdefault(s["st_value"] & ~1, set()).add(owner)
             if nm in ("$t", "$a", "$d") or nm.startswith(("$t.", "$a.", "$d.")):
                 mapping[s["st_value"]] = nm[1]
                 continue
@@ -175,7 +184,10 @@ def _load(path: str, mtime_ns: int, size: int) -> GuestImage:
                       tuple(sorted(funcs.values(), key=lambda f: (f.start, -f.end, f.name))),
                       tuple(sorted(mapping.items())), readonly_ranges=tuple(readonly),
                       exception_entries=frozenset(exception_entries), thumb_entries=frozenset(thumb_entries),
-                      text_sections=tuple(sorted(text_sections)), little_endian=elf.little_endian)
+                      text_sections=tuple(sorted(text_sections)), little_endian=elf.little_endian,
+                      local_function_sources=tuple((pc, next(iter(owners))) for pc, owners in
+                                                   sorted(function_sources.items())
+                                                   if len(owners) == 1 and None not in owners))
 
 
 def load_guest_image(path: str | os.PathLike) -> GuestImage:

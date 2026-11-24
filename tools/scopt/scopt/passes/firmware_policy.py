@@ -137,6 +137,8 @@ def _firmlooper(inputs, *, v2=False):
     expansion = None
     if v2 and inputs.params.get("policy_options", {}).get("boundaries", True):
         boundaries = TaskBoundaries(inputs.image)
+        registrations = {int(row["entry"], 16) for row in loops.registrations
+                         if row["status"] == "resolved" and "explicit_entry" not in row}
         # Materialize classifications before parallel region planning. Every
         # internal target must start an existing captured translation.
         actions = {pc: boundaries.classify(pc) for pc in
@@ -151,7 +153,8 @@ def _firmlooper(inputs, *, v2=False):
             refusals[call.callsite_id] = call.refusal_reasons[0]
         elif call.source_uid == call.callee_candidates[0]:
             refusals[call.callsite_id] = "recursive_call_edge"
-        elif expansion and boundaries.classify(call.insn_vaddr) is not ExpansionAction.INLINE:
+        elif expansion and boundaries.classify_task_source(
+                call.insn_vaddr, registrations) is not ExpansionAction.INLINE:
             refusals[call.callsite_id] = "rtos_public_caller"
         else:
             roots.append(call.callsite_id)

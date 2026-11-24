@@ -1,8 +1,10 @@
 """Guest-call expansion boundaries for FreeRTOS task regions."""
 
 from collections import defaultdict
+from collections.abc import Set
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import PurePath
 import re
 
 from capstone import arm as A
@@ -47,6 +49,10 @@ _SCHEDULER = {"vTaskSwitchContext", "xTaskIncrementTick", "vTaskStartScheduler",
 _ISR = re.compile(r"(?:_Handler|IRQHandler|ISR|FromISR)$|^(?:xPortPendSVHandler|"
                   r"xPortSysTickHandler|vPortSVCHandler)$")
 
+_KERNEL_SOURCES = {"tasks.c", "queue.c", "port.c", "portasm.c", "list.c", "timers.c",
+                   "stream_buffer.c", "event_groups.c", "croutine.c", "mpu_wrappers.c",
+                   "mpu_wrappers_v2.c", *(f"heap_{n}.c" for n in range(1, 6))}
+
 
 class TaskBoundaries:
     """Classify code using ELF symbols, direct veneers and visible exception reachability.
@@ -58,6 +64,8 @@ class TaskBoundaries:
 
     def __init__(self, image: GuestImage):
         self.image = image
+        self._local_sources = {entry: PurePath(path).name.lower()
+                               for entry, path in image.local_function_sources}
         self.names = defaultdict(set)
         for func in image.funcs:
             self.names[func.start].add(func.name.split(".", 1)[0])
@@ -129,9 +137,27 @@ class TaskBoundaries:
         if (not func or func.start in self._exception_visible or names & _SCHEDULER
                 or any(_ISR.search(n) for n in names)):
             result = ExpansionAction.PUBLIC
-        elif any(_KERNEL_API.match(n) for n in names):
+        elif (any(_KERNEL_API.match(n) for n in names)
+              or any(f and self._local_sources.get(f.start) in _KERNEL_SOURCES for f in (owner, func))):
             result = ExpansionAction.SHARED
         else:
             result = ExpansionAction.INLINE
         self._classes[pc] = result
         return result
+
+    def classify_task_source(self, pc: int, registered_entries: Set[int]) -> ExpansionAction:
+        """A registered, file-local application worker can use an API-like name.
+
+        Only decides if the worker may nominate its loop calls. The existing
+        classification still applies to every destination and to ISR-visible code.
+        """
+        action = self.classify(pc)
+        if action is not ExpansionAction.SHARED:
+            return action
+        owner = self.image.func_at(pc)
+        if owner is None or owner.start not in registered_entries or self._body(owner.start) != owner:
+            return action
+        source = self._local_sources.get(owner.start, "")
+        if source.endswith(".c") and source not in _KERNEL_SOURCES:
+            return ExpansionAction.INLINE
+        return action

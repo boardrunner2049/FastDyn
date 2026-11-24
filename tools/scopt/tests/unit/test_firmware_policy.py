@@ -198,3 +198,63 @@ def test_cli_addon_is_application_and_fromisr_api_is_not_an_irq_root():
     assert bounds.classify(0x1106) is ExpansionAction.SHARED
     irq = TaskBoundaries(replace(image, exception_entries=frozenset({0x1000})))
     assert irq.classify(0x1102) is ExpansionAction.PUBLIC
+
+
+def test_registered_application_worker_named_like_an_api_can_nominate_loop_calls(tmp_path):
+    import shutil
+    import subprocess
+
+    from scopt.analysis.rtos_boundaries import ExpansionAction, TaskBoundaries
+    from scopt.decode.guest_symbols import load_guest_image
+
+    cc = shutil.which("arm-none-eabi-gcc")
+    if not cc:
+        pytest.skip("ARM GNU compiler required for linked ELF symbol test")
+    source = tmp_path / "workers.s"
+    source.write_text("""
+        .syntax unified
+        .thumb
+        .text
+        .macro worker name
+          .type \\name,%function
+          .thumb_func
+          \\name:
+          nop
+          bx lr
+          .size \\name, .-\\name
+        .endm
+        .file "dynamic.c"
+        worker vQueueServiceTask
+        worker vQueueAliasedTask
+        .global xQueuePublicAlias
+        .thumb_set xQueuePublicAlias,vQueueAliasedTask
+        worker vQueueServiceFromISR
+        .file "stream_buffer.c"
+        worker prvWriteBytesToBuffer
+        .file "dynamic.c"
+        .type app_veneer,%function
+        .thumb_func
+        app_veneer:
+        b prvWriteBytesToBuffer
+        .size app_veneer,.-app_veneer
+        .file "queue.c"
+        worker vQueueKernelWorker
+    """)
+    elf = tmp_path / "workers.elf"
+    subprocess.run([cc, "-mcpu=cortex-m3", "-mthumb", "-nostdlib", "-Wl,-e,0x1001",
+                    "-Wl,-Ttext,0x1000", "-o", elf, source], check=True)
+    image = load_guest_image(elf)
+    bounds = TaskBoundaries(image)
+    entries = {f.name: f.start for f in image.funcs}
+    registered = set(entries.values())
+    app = entries["vQueueServiceTask"]
+    assert bounds.classify_task_source(app + 2, registered) is ExpansionAction.INLINE
+    assert bounds.classify(app) is ExpansionAction.SHARED
+    assert bounds.classify_task_source(app + 2, set()) is ExpansionAction.SHARED
+    for name in ("vQueueAliasedTask", "vQueueKernelWorker"):
+        assert bounds.classify_task_source(entries[name], registered) is ExpansionAction.SHARED
+    assert bounds.classify_task_source(entries["vQueueServiceFromISR"], registered) is ExpansionAction.PUBLIC
+    assert bounds.classify(entries["prvWriteBytesToBuffer"] + 2) is ExpansionAction.SHARED
+    assert bounds.classify(entries["app_veneer"]) is ExpansionAction.SHARED
+    irq = TaskBoundaries(replace(image, exception_entries=frozenset({entries["prvWriteBytesToBuffer"]})))
+    assert irq.classify(entries["prvWriteBytesToBuffer"]) is ExpansionAction.PUBLIC
