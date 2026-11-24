@@ -20,7 +20,13 @@ def symbols(elf):
 
 class Gdb:
     def __init__(self, path):
-        self.s = socket.socket(socket.AF_UNIX); self.s.connect(path); self.buf = b""
+        self.s = socket.socket(socket.AF_UNIX)
+        try:
+            self.s.connect(path)
+        except OSError:
+            self.s.close()
+            raise
+        self.buf = b""
     def send(self, data):
         pkt = b"$" + data.encode() + b"#" + b"%02x" % (sum(data.encode()) & 0xff)
         self.s.sendall(pkt)
@@ -36,6 +42,19 @@ class Gdb:
             self.buf += chunk
     def cmd(self, data):
         self.send(data); return self.recv()
+
+def connect_gdb(path, process, deadline):
+    # An AF_UNIX name becomes visible at bind(), before QEMU calls listen().
+    while True:
+        try:
+            return Gdb(path)
+        except (FileNotFoundError, ConnectionRefusedError):
+            status = process.poll()
+            if status is not None:
+                raise RuntimeError(f"QEMU exited with status {status} before GDB connected")
+            if time.monotonic_ns() >= deadline:
+                raise RuntimeError("QEMU GDB listener did not accept a connection")
+            time.sleep(0.0005)
 
 def run(elf, inp, icount=False, qemu=None, timeout=120, expect_ns=None, window=True,
         result=("xStats", 20)):
@@ -57,12 +76,10 @@ def run(elf, inp, icount=False, qemu=None, timeout=120, expect_ns=None, window=T
     done = s["vComputeDone"]; polls = 0
     t0 = time.monotonic_ns()
     p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    g = None
     try:
-        while not os.path.exists(sock):
-            if time.monotonic_ns() - t0 > 10e9:
-                raise RuntimeError("gdb socket did not appear")
-            time.sleep(0.0005)
-        g = Gdb(sock); g.s.settimeout(timeout)
+        g = connect_gdb(sock, p, t0 + 10_000_000_000)
+        g.s.settimeout(timeout)
         def pc_now():
             r = g.cmd("g"); return int.from_bytes(bytes.fromhex(r[120:128]), "little") & ~1
         t_start = t0
@@ -91,6 +108,8 @@ def run(elf, inp, icount=False, qemu=None, timeout=120, expect_ns=None, window=T
         stats = [int.from_bytes(mem[i:i + 4], "little") for i in range(0, len(mem), 4)]
         g.send("k")
     finally:
+        if g is not None:
+            g.s.close()
         p.kill(); p.wait()
         t_end = time.monotonic_ns()
         try:
