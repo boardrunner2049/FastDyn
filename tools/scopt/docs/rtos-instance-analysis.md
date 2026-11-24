@@ -36,3 +36,16 @@ python -m scopt.analysis.rtos_opportunities packet.stripped.elf \
 ```
 
 A TB profile is optional. Supply a diagnostic recorded on that exact target with FirmBOLT's TB profiler. The tool sums executions of TBs whose start equals the recovered function entry across contexts. A tail transfer or loop back to that address also counts. The reported numbers mean entry-address TB executions. They do not estimate CPU cycles, unique invocations or time in the module. A zero can mean that the function was inlined, omitted by the linker, missing from debug information, or unexercised. The function list includes the matching method and target PC for each attributable row. Cross-build names inherit the limits of the signature matcher.
+
+### Find RTOS objects that can own permanent storage
+
+Given a function the application declares to run at most once per boot, the storage report lists direct object creations, their arguments and the destination variables for recovered handles. For a stripped guest, supply a companion with the same load image so function and data addresses agree.
+
+```sh
+python -m scopt.analysis.rtos_storage packet.stripped.elf \
+    --reference packet.debug.elf --once-function main_compute
+```
+
+For the packet firmware, the report identifies `xFreeQ` (8 one-byte items), `xWorkQ` (9 one-byte items), `xResultQ` (2 items of 68 bytes), `xMonitorQ` (4 one-byte items), the mutex and the heartbeat timer. Each has its own source constructor. A matching kernel entry can implement several public macros, e.g. a stream buffer with or without callbacks. The source determines which constructor to rewrite.
+
+A creation inside a control-flow cycle, ambiguous handle storage, missing queue dimensions, or an unresolved branch can leave a site unsuitable for direct conversion. A candidate still requires the application's once-entry and ownership contract, the matching source, and agreement to the changed allocation and failure behavior. This analysis handles calls in the named routine. An arbitrary helper, factory or allocator in the rest of the image can have a different lifetime. [Build-assisted static-object conversion](https://github.com/boardrunner2049/firmbolt/blob/treb-wip/tools/rtos-specialize/static_objects.py)

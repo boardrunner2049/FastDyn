@@ -27,6 +27,8 @@ _OBJECT_CREATE = {
     "xSemaphoreCreateBinary": "semaphore", "xSemaphoreCreateCounting": "semaphore",
     "xTimerCreate": "timer", "xTimerCreateStatic": "timer",
     "xEventGroupCreate": "event_group", "xEventGroupCreateStatic": "event_group",
+    "xStreamBufferGenericCreate": "stream_buffer_family",
+    "xStreamBufferGenericCreateStatic": "stream_buffer_family",
 }
 _USES = {"xQueueReceive", "xQueuePeek", "xQueueGenericSend", "xQueueSend",
          "xSemaphoreTake", "xQueueSemaphoreTake", "xQueueTakeMutexRecursive",
