@@ -875,6 +875,26 @@ static void prvHeartbeat( TimerHandle_t t )
     xQueueSend( xMonitorQ, &hb, 0 );
 }
 
+/* One application task per boot site, with storage in the firmware image. */
+#if defined( TREBUCHET_DIRECT_STATIC_TASKS ) && defined( TREBUCHET_GUARDED_STATIC_TASKS )
+    #error "Choose one task storage policy"
+#elif defined( TREBUCHET_DIRECT_STATIC_TASKS )
+static StackType_t prvMonitorTaskStack[configMINIMAL_STACK_SIZE * 2] __attribute__((aligned(portBYTE_ALIGNMENT)));
+static StaticTask_t prvMonitorTaskTcb;
+static StackType_t prvRxTaskStack[configMINIMAL_STACK_SIZE * 4] __attribute__((aligned(portBYTE_ALIGNMENT)));
+static StaticTask_t prvRxTaskTcb;
+static StackType_t prvProcTaskStack[configMINIMAL_STACK_SIZE * 4] __attribute__((aligned(portBYTE_ALIGNMENT)));
+static StaticTask_t prvProcTaskTcb;
+static StackType_t prvAggTaskStack[configMINIMAL_STACK_SIZE * 2] __attribute__((aligned(portBYTE_ALIGNMENT)));
+static StaticTask_t prvAggTaskTcb;
+#elif defined( TREBUCHET_GUARDED_STATIC_TASKS )
+#include "boot_task.h"
+FIRMBOLT_BOOT_TASK_SLOT( prvMonitorTaskSlot, configMINIMAL_STACK_SIZE * 2 );
+FIRMBOLT_BOOT_TASK_SLOT( prvRxTaskSlot, configMINIMAL_STACK_SIZE * 4 );
+FIRMBOLT_BOOT_TASK_SLOT( prvProcTaskSlot, configMINIMAL_STACK_SIZE * 4 );
+FIRMBOLT_BOOT_TASK_SLOT( prvAggTaskSlot, configMINIMAL_STACK_SIZE * 2 );
+#endif
+
 void main_compute( void )
 {
     prvCrc32Init();
@@ -889,10 +909,22 @@ void main_compute( void )
     {
         xQueueSend( xFreeQ, &i, 0 );
     }
+#if defined( TREBUCHET_DIRECT_STATIC_TASKS )
+    xMonitorTask = xTaskCreateStatic( prvMonitorTask, "mon", configMINIMAL_STACK_SIZE * 2, NULL, tskIDLE_PRIORITY + 1, prvMonitorTaskStack, &prvMonitorTaskTcb );
+    xTaskCreateStatic( prvRxTask, "rx", configMINIMAL_STACK_SIZE * 4, NULL, tskIDLE_PRIORITY + 2, prvRxTaskStack, &prvRxTaskTcb );
+    xTaskCreateStatic( prvProcTask, "proc", configMINIMAL_STACK_SIZE * 4, NULL, tskIDLE_PRIORITY + 3, prvProcTaskStack, &prvProcTaskTcb );
+    xTaskCreateStatic( prvAggTask, "agg", configMINIMAL_STACK_SIZE * 2, NULL, tskIDLE_PRIORITY + 4, prvAggTaskStack, &prvAggTaskTcb );
+#elif defined( TREBUCHET_GUARDED_STATIC_TASKS )
+    FIRMBOLT_CREATE_BOOT_TASK( prvMonitorTaskSlot, prvMonitorTask, "mon", configMINIMAL_STACK_SIZE * 2, NULL, tskIDLE_PRIORITY + 1, &xMonitorTask );
+    FIRMBOLT_CREATE_BOOT_TASK( prvRxTaskSlot, prvRxTask, "rx", configMINIMAL_STACK_SIZE * 4, NULL, tskIDLE_PRIORITY + 2, NULL );
+    FIRMBOLT_CREATE_BOOT_TASK( prvProcTaskSlot, prvProcTask, "proc", configMINIMAL_STACK_SIZE * 4, NULL, tskIDLE_PRIORITY + 3, NULL );
+    FIRMBOLT_CREATE_BOOT_TASK( prvAggTaskSlot, prvAggTask, "agg", configMINIMAL_STACK_SIZE * 2, NULL, tskIDLE_PRIORITY + 4, NULL );
+#else
     xTaskCreate( prvMonitorTask, "mon", configMINIMAL_STACK_SIZE * 2, NULL, tskIDLE_PRIORITY + 1, &xMonitorTask );
     xTaskCreate( prvRxTask, "rx", configMINIMAL_STACK_SIZE * 4, NULL, tskIDLE_PRIORITY + 2, NULL );
     xTaskCreate( prvProcTask, "proc", configMINIMAL_STACK_SIZE * 4, NULL, tskIDLE_PRIORITY + 3, NULL );
     xTaskCreate( prvAggTask, "agg", configMINIMAL_STACK_SIZE * 2, NULL, tskIDLE_PRIORITY + 4, NULL );
+#endif
     xHeartbeatTimer = xTimerCreate( "hb", pdMS_TO_TICKS( 2 ), pdTRUE, NULL, prvHeartbeat );
     xTimerStart( xHeartbeatTimer, 0 );
     vTaskStartScheduler();
