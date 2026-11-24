@@ -78,6 +78,7 @@ def test_private_trusted_return_patches_guard_success_and_keeps_lookup_on_miss()
 
     snapshot, image = _snapshot()
     call, = discover_firmware_calls(snapshot, image).calls
+    snapshot.bundle = {"target": {"cpu": "cortex-m3"}}
     original = snapshot.unit(call.callee_candidates[0])
     # Ordinary TCG entry, dynamic return lookup and its pointer pool.
     prefix = bytes.fromhex("8b5df885db0f8c00000000c645fc01")
@@ -95,9 +96,12 @@ def test_private_trusted_return_patches_guard_success_and_keeps_lookup_on_miss()
     exit_, = unit_exits(unit)
     offsets = GuardOffsets(envlayout_id="test-layout")
     assert trusted_return_guard_problem(unit, exit_.id, unit.key, None,
-                                        snapshot.header.code_address) == "return_guard_layout_unbound"
+                                        snapshot.header.code_address, cpu_model="cortex-m3") == "return_guard_layout_unbound"
     assert trusted_return_guard_problem(unit, exit_.id, unit.key, offsets,
-                                        snapshot.header.code_address) is None
+                                        snapshot.header.code_address, cpu_model="cortex-m3") is None
+    for cpu in (None, "cortex-m4", "cortex-m33"):
+        assert trusted_return_guard_problem(unit, exit_.id, unit.key, offsets, snapshot.header.code_address,
+                                            cpu_model=cpu) == "return_guard_cpu_unsupported"
     member = FirmwareRegionMember(unit.uid, unit.content_hash, unit.key, (), "callee")
     edge = FirmwareRegionEdge(0, exit_.id, "return", 0, unit.vaddrs[0], guarded=True)
     region = SimpleNamespace(members=(member,), trusted=True, edges=(edge,), region_id="fixture",
@@ -121,3 +125,55 @@ def test_private_trusted_return_patches_guard_success_and_keeps_lookup_on_miss()
     assert guard.slots[0].field_off == field
     assert guard.f_bytes[:5] == tail[:5] and guard.f_bytes[-2:] == tail[-2:]
     assert guard.pool_slot_off == 32
+
+
+def test_sealed_cold_entry_and_translation_context_agree_with_lookup():
+    from scopt.analysis.firmware_calls import compatible_units, selected_firmware_units
+    from scopt.graph import ONE_SHOT_CFLAGS
+
+    snapshot, _ = _snapshot()
+    unit = snapshot.units()[0]
+    cold = replace(unit, key=replace(unit.key, cflags=0))
+    pc = cold.vaddrs[0]
+    assert selected_firmware_units((cold,))[0] == ()
+    assert selected_firmware_units((cold,), {pc})[0] == (cold,)
+    alias = replace(cold, uid="alias", key=replace(cold.key, page_addr0=0x80000))
+    special = replace(cold, uid="single-step", slot=999,
+                      key=replace(cold.key, cflags=ONE_SHOT_CFLAGS & -ONE_SHOT_CFLAGS))
+    assert compatible_units((cold, special), special, pc) == (cold.uid,)
+    assert set(compatible_units((cold, alias), cold, pc)) == {cold.uid, alias.uid}
+    shadow = replace(cold, uid="unverified", slot=999, origin="unknown")
+    assert compatible_units((cold, shadow), cold, pc) == ()
+    assert selected_firmware_units((cold, shadow), {pc})[0] == ()
+
+
+def test_branch_veneer_kernel_boundary_and_irq_reachability():
+    from scopt.analysis.rtos_boundaries import ExpansionAction, TaskBoundaries
+
+    _, image = _snapshot()
+    # 1000: bl 1100, 1004: b 1104 (a veneer), 1100/1104: bx lr.
+    data = bytearray(0x108)
+    data[:6] = bytes.fromhex("00f07ef87ee0")
+    data[0x100:0x108] = bytes.fromhex("704700bf70477047")
+    image = replace(image, segments=((0x1000, bytes(data)),), exec_ranges=((0x1000, 0x1108),),
+                    exception_entries=frozenset({0x1000}), funcs=(
+        GuestFunc("board_exception", 0x1000, 0x1004), GuestFunc("veneer", 0x1004, 0x1006),
+        GuestFunc("common", 0x1100, 0x1102), GuestFunc("ulTaskGenericNotifyTake", 0x1104, 0x1106),
+        GuestFunc("process", 0x1106, 0x1108)))
+    bounds = TaskBoundaries(image)
+    assert bounds.classify(0x1100) is ExpansionAction.PUBLIC
+    assert bounds.classify(0x1004) is ExpansionAction.SHARED
+    assert bounds.classify(0x1106) is ExpansionAction.INLINE
+    assert bounds.classify(0xffff) is ExpansionAction.PUBLIC
+
+
+def test_ambiguous_offpage_destinations_keep_guest_lookup():
+    from scopt.formats.region_v1 import unit_exits
+    from scopt.model.unit import StaticExit
+
+    snapshot, _ = _snapshot()
+    tail = snapshot.units()[-1]
+    unit = replace(tail, static_exits=(StaticExit(255, True, 0, 0x1100),
+                                       StaticExit(255, True, 0, 0x1200)))
+    assert unit_exits(unit)[0].static_dest_vaddr is None
+    assert unit_exits(replace(unit, static_exits=unit.static_exits[:1]))[0].static_dest_vaddr == 0x1100

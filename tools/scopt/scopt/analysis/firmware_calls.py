@@ -28,33 +28,37 @@ class FirmwareCalls:
     diagnostics: tuple[dict[str, Any], ...]
 
 
-def _entry_identity(unit: Any) -> tuple[int, int, int, int]:
-    return (unit.vaddrs[0], unit.key.flags, unit.key.cs_base,
-            lookup_cflags(unit.key.cflags))
+Context = tuple[int, int, int, int]
+CompatibilityIndex = dict[Context, tuple[str, ...]]
 
 
-def selected_firmware_units(units: tuple[Any, ...]) -> tuple[tuple[Any, ...], tuple[str, ...]]:
-    """Return optimizer roots and fallback-only units in runtime selection order.
+def _exact_groups(units):
+    # Mirrors the sealed exact-PC lookup in QEMU. A later record shadows an
+    # earlier one even if the later translation cannot be optimized.
+    groups = {}
+    for unit in units:
+        if unit.vaddrs:
+            key = (unit.vaddrs[0], unit.key.flags, unit.key.cs_base, unit.key.cflags,
+                   unit.key.page_addr0)
+            groups.setdefault(key, []).append(unit)
+    return groups
 
-    Ordinary CF_PCREL snapshots have no exhaustive exact-entry layer, so every
-    verified unit remains an optimizer root.  In a sealed exact-PC snapshot,
-    QEMU selects the newest record for a duplicate key.  A unique one-insn
-    record is exhaustive fallback evidence, not evidence that the halfword is
-    an executable entry.  A duplicated one-insn newest record was observed by
-    the training run and is therefore retained.
-    """
-    verified = tuple(u for u in units if u.vaddrs and u.meta_status == "ok"
-                     and u.origin == "elf_verified")
-    if not verified or all(is_pcrel(u.key.cflags) for u in verified):
-        return verified, ()
-    groups: dict[tuple[int, int, int, int], list[Any]] = {}
-    for unit in verified:
-        groups.setdefault(_entry_identity(unit), []).append(unit)
-    selected: list[Any] = []
-    fallback: list[str] = []
-    for group in groups.values():
+
+def _verified(unit):
+    return unit.meta_status == "ok" and unit.origin == "elf_verified"
+
+
+def selected_firmware_units(units: tuple[Any, ...], verified_entry_pcs=frozenset()
+                            ) -> tuple[tuple[Any, ...], tuple[str, ...]]:
+    """A sealed single-insn root needs training or independent instruction evidence."""
+    selected, fallback = [], []
+    for group in _exact_groups(units).values():
+        if is_pcrel(group[0].key.cflags):
+            selected.extend(unit for unit in group if _verified(unit))
+            continue
         newest = max(group, key=lambda unit: unit.slot)
-        if newest.icount > 1 or len(group) > 1:
+        if _verified(newest) and (newest.icount > 1 or len(group) > 1 or
+                                  newest.vaddrs[0] in verified_entry_pcs):
             selected.append(newest)
         else:
             fallback.append(newest.uid)
@@ -63,43 +67,26 @@ def selected_firmware_units(units: tuple[Any, ...]) -> tuple[tuple[Any, ...], tu
     return tuple(selected), tuple(fallback)
 
 
-def firmware_compatibility_index(units: tuple[Any, ...]
-                                 ) -> dict[tuple[int, int, int, int], str]:
-    groups: dict[tuple[int, int, int, int], list[Any]] = {}
-    for unit in units:
-        if (not unit.vaddrs or unit.meta_status != "ok" or
-                unit.origin != "elf_verified"):
-            continue
-        groups.setdefault(_entry_identity(unit), []).append(unit)
-    return {key: max(group, key=lambda unit: unit.slot).uid
-            for key, group in groups.items()}
+def firmware_compatibility_index(units: tuple[Any, ...]) -> CompatibilityIndex:
+    matches = {}
+    for key, group in _exact_groups(units).items():
+        newest = max(group, key=lambda unit: unit.slot)
+        matches.setdefault(key[:4], []).append(newest)
+    # Unknown physical mappings must not silently select a verified alias.
+    return {key: tuple(unit.uid for unit in group) if all(_verified(u) for u in group) else ()
+            for key, group in matches.items()}
 
 
 def compatible_units(units: tuple[Any, ...], source: Any, vaddr: int, *,
-                     index: dict[tuple[int, int, int, int], str] | None = None
-                     ) -> tuple[str, ...]:
-    want_cflags = lookup_cflags(source.key.cflags)
-    if index is not None:
-        uid = index.get((vaddr, source.key.flags, source.key.cs_base, want_cflags))
-        return () if uid is None else (uid,)
-    matches = [u for u in units if u.vaddrs and u.vaddrs[0] == vaddr
-               and u.key.flags == source.key.flags
-               and u.key.cs_base == source.key.cs_base
-               and u.key.cflags == want_cflags
-               and u.meta_status == "ok"
-               and u.origin == "elf_verified"]
-    if not matches:
-        return ()
-    # Sealed production writes exhaustive one-insn fallbacks first and then
-    # appends ordinary hot translations.  QEMU's record chains are newest
-    # first, so replay selects the greatest slot for an otherwise identical
-    # exact-PC key.  Model that selection here instead of treating the
-    # fallback and hot record as an ambiguous pair.  It also ensures that a
-    # private edge never enters the middle of a captured TB.
-    return (max(matches, key=lambda unit: unit.slot).uid,)
+                     index: CompatibilityIndex | None = None) -> tuple[str, ...]:
+    if index is None:
+        index = firmware_compatibility_index(units)
+    return index.get((vaddr, source.key.flags, source.key.cs_base,
+                      lookup_cflags(source.key.cflags)), ())
 
 
-def discover_firmware_calls(snapshot: Any, image: Any | None) -> FirmwareCalls:
+def discover_firmware_calls(snapshot: Any, image: Any | None, *,
+                            verified_entry_pcs=frozenset()) -> FirmwareCalls:
     """Discover calls without consulting native call opcodes or profile hotness.
 
     Every row binds the decoded BL to the capture exit at the same guest
@@ -107,7 +94,7 @@ def discover_firmware_calls(snapshot: Any, image: Any | None) -> FirmwareCalls:
     empty or ambiguous set is retained with an explicit refusal reason.
     """
     units = tuple(snapshot.units())
-    scan_units, fallback_units = selected_firmware_units(units)
+    scan_units, fallback_units = selected_firmware_units(units, verified_entry_pcs)
     compatibility = firmware_compatibility_index(units)
     calls: list[FirmwareCallSite] = []
     diagnostics: list[dict[str, Any]] = []

@@ -16,10 +16,10 @@ from typing import Any, ClassVar
 
 from ..analysis.api import ScopeRef
 from ..analysis.b3_inputs import guest_image_for
-from ..analysis.firmware_calls import firmware_compatibility_index
+from ..analysis.firmware_calls import discover_firmware_calls, firmware_compatibility_index
 from ..analysis.firmware_regions import build_firmware_region
 from ..analysis.helper_hot_loop import exact_loop_profile
-from ..analysis.firmware_whopr import balanced_partitions
+from ..analysis.firmware_whopr import balanced_partitions, summarize_firmware
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
 from .firmware_policy import PolicyError, PolicyInput, firmware_policy, resolve_selection
 
@@ -71,7 +71,6 @@ class FirmwareInline:
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "guard_layout_unbound",
                               ctx.b3.layout_reason or "")
         sid = ScopeRef("snapshot", ctx.snapshot_id)
-        discovered = ctx.analysis("firmware-calls", sid).value
         planner = ctx.params.get("planner", "legacy")
         if planner not in ("legacy", "whopr"):
             return PassResult(Outcome.FAILED, "invalid_params",
@@ -88,8 +87,16 @@ class FirmwareInline:
             if not exact_loop_profile(profile, ctx.snapshot_id, phase):
                 return PassResult(Outcome.SKIPPED_UNKNOWN, "hot_loop_exact_profile_required",
                                   "requires an exact reached phase of the ordinary input snapshot")
-        inputs = PolicyInput(ctx.b3.snapshot, image, tuple(discovered.calls), ctx.params, profile)
+        inputs = PolicyInput(ctx.b3.snapshot, image, (), ctx.params, profile)
         try:
+            if policy.discover_loops:
+                loops = policy.discover_loops(inputs)
+                discovered = discover_firmware_calls(ctx.b3.snapshot, image,
+                                                      verified_entry_pcs=loops.call_pcs)
+                inputs = replace(inputs, task_loops=loops)
+            else:
+                discovered = ctx.analysis("firmware-calls", sid).value
+            inputs = replace(inputs, calls=discovered.calls)
             selection = policy.select(inputs)
             planned_calls, residual = resolve_selection(inputs, selection)
         except PolicyError as e:
@@ -102,7 +109,11 @@ class FirmwareInline:
                     type(workers) is not int or workers < 1):
                 return PassResult(Outcome.FAILED, "invalid_params",
                                   "WHOPR partitions and workers must be positive integers")
-            whopr = ctx.analysis("firmware-whopr", sid).value
+            if inputs.task_loops is None:
+                whopr = ctx.analysis("firmware-whopr", sid).value
+            else:
+                whopr = summarize_firmware(ctx.snapshot_id, tuple(ctx.b3.snapshot.units()),
+                                           discovered, inputs.task_loops.call_pcs)
             partition_sccs = balanced_partitions(whopr, partitions)
             owner = {uid: scc_index for scc_index, scc in enumerate(whopr.sccs)
                      for uid in scc}
@@ -142,7 +153,7 @@ class FirmwareInline:
                 return build_firmware_region(
                     ctx.b3.snapshot, image, discovered, call, units=region_units,
                     by_uid=region_by_uid, compatibility=compatibility,
-                    expand_nested=policy.expand_nested)
+                    expand_nested=policy.expand_nested, expansion=selection.expansion)
 
             if workers == 1:
                 plans = [plan_call(call) for call in planned_calls]
@@ -181,7 +192,8 @@ class FirmwareInline:
                         target = ctx.b3.snapshot.unit(plan.members[edge.target_member].source_uid)
                         problem = trusted_return_guard_problem(
                             unit, edge.exit_id, target.key, ctx.b3.offsets,
-                            ctx.b3.snapshot.header.code_address)
+                            ctx.b3.snapshot.header.code_address,
+                            cpu_model=(ctx.bundle or {}).get("target", {}).get("cpu"))
                     if problem is None:
                         sanitized_edges.append(edge)
                         continue

@@ -181,8 +181,11 @@ def balanced_partitions(summary: FirmwareWhoprSummary, count: int
 
 def _compute(ctx: Any, scope: ScopeRef) -> FirmwareWhoprSummary:
     calls: FirmwareCalls = ctx.analysis("firmware-calls", scope).value
-    units = tuple(ctx.units())
-    selected, fallback = selected_firmware_units(units)
+    return summarize_firmware(ctx.snapshot_id, tuple(ctx.units()), calls)
+
+
+def summarize_firmware(snapshot_id, units, calls, verified_entry_pcs=frozenset()):
+    selected, fallback = selected_firmware_units(units, verified_entry_pcs)
     fallback_set = set(fallback)
     by_uid = {unit.uid: unit for unit in units}
     optimizer = {unit.uid for unit in selected}
@@ -195,7 +198,7 @@ def _compute(ctx: Any, scope: ScopeRef) -> FirmwareWhoprSummary:
                             by_uid[uid].icount, uid in fallback_set)
                   for uid in ordered)
     components, order = _sccs(ordered, edges)
-    return FirmwareWhoprSummary(ctx.snapshot_id, nodes, edges, components, order,
+    return FirmwareWhoprSummary(snapshot_id, nodes, edges, components, order,
                                 tuple(unit.uid for unit in selected), fallback)
 
 

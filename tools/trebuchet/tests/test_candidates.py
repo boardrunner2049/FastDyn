@@ -41,11 +41,12 @@ def test_firmware_region_candidates_bind_the_matching_loader_capability(tmp_path
     assert "--v7-trusted-exe" in trusted and "--v7-exe" not in trusted
 
 
-def test_firmlooper_recipe_selects_static_policy_without_training(tmp_path):
+@pytest.mark.parametrize("mode", ["firmlooper", "firmlooper-v2"])
+def test_firmlooper_recipe_selects_static_policy_without_training(tmp_path, mode):
     image = dict(snapshot="sealed", prep="capture", firmware="guest", admission_runtime="identity",
                  runtime=__file__, training_launch="unused")
-    args, names, requested = optimizer_args("firmlooper", image, "sealed", tmp_path, {}, [])
-    assert args[args.index("--pipeline") + 1] == "sealed-firmlooper"
+    args, names, requested = optimizer_args(mode, image, "sealed", tmp_path, {}, [])
+    assert args[args.index("--pipeline") + 1] == "sealed-" + mode
     assert names == requested == ["firmware-inline"]
     assert "--v7-trusted-exe" in args and "--profile" not in args and "--pgo-launch" not in args
 

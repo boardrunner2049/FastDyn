@@ -9,6 +9,7 @@ from importlib import metadata
 from typing import Any
 
 from ..analysis.helper_hot_loop import observed_loop_units
+from ..analysis.rtos_boundaries import ExpansionAction, ExpansionSite, TaskBoundaries, residual_reason
 from ..decode.guest_symbols import GuestImage
 from ..formats.enums import ExitKind
 from ..formats.profile_v1 import ProfileView
@@ -24,6 +25,7 @@ class PolicyInput:
     calls: tuple[FirmwareCallSite, ...]
     params: Mapping[str, Any]
     profile: ProfileView | None = None
+    task_loops: Any = None
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,7 @@ class PolicySelection:
     refusals: Mapping[str, str] = field(default_factory=dict)
     site_evidence: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     evidence: Mapping[str, Any] = field(default_factory=dict)
+    expansion: Callable[[ExpansionSite, tuple[str, ...]], ExpansionAction] | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,7 @@ class FirmwarePolicy:
     select: Callable[[PolicyInput], PolicySelection]
     expand_nested: bool
     requires_edges: bool = False
+    discover_loops: Callable[[PolicyInput], Any] | None = None
 
 
 class PolicyError(ValueError):
@@ -108,16 +112,37 @@ def _hot_loop(inputs):
         {"profile_id": inputs.profile.profile.profile_id, "phase": phase, "min_call_count": minimum})
 
 
-def _firmlooper(inputs):
+def _loop_evidence(inputs, *, v2=False):
     from ..analysis.task_loops import discover_task_loops
 
     options = inputs.params.get("policy_options", {})
-    if not isinstance(options, dict) or options.keys() - {"task_entries"}:
-        raise PolicyError("FirmLooper accepts policy_options.task_entries")
+    allowed = {"task_entries", "include_terminal", "boundaries"} if v2 else {"task_entries"}
+    if not isinstance(options, dict) or options.keys() - allowed:
+        raise PolicyError(f"unknown FirmLooper options; allowed: {sorted(allowed)}")
     entries = options.get("task_entries", [])
     if not isinstance(entries, list) or any(type(x) not in (int, str) for x in entries):
         raise PolicyError("task_entries must be a list of task symbols or addresses")
-    loops = discover_task_loops(inputs.image, task_entries=entries)
+    if any(type(options[k]) is not bool for k in ("include_terminal", "boundaries") if k in options):
+        raise PolicyError("include_terminal and boundaries must be boolean")
+    return discover_task_loops(inputs.image, task_entries=entries,
+                               include_terminal=options.get("include_terminal", v2))
+
+
+def _v2_loops(inputs):
+    return _loop_evidence(inputs, v2=True)
+
+
+def _firmlooper(inputs, *, v2=False):
+    loops = inputs.task_loops or _loop_evidence(inputs, v2=v2)
+    expansion = None
+    if v2 and inputs.params.get("policy_options", {}).get("boundaries", True):
+        boundaries = TaskBoundaries(inputs.image)
+        # Materialize classifications before parallel region planning. Every
+        # internal target must start an existing captured translation.
+        actions = {pc: boundaries.classify(pc) for pc in
+                   {u.vaddrs[0] for u in inputs.snapshot.units() if u.vaddrs}}
+        def expansion(site, context):
+            return actions.get(site.target_pc, ExpansionAction.PUBLIC)
     roots, refusals = [], {}
     for call in inputs.calls:
         if call.insn_vaddr not in loops.call_pcs:
@@ -126,15 +151,23 @@ def _firmlooper(inputs):
             refusals[call.callsite_id] = call.refusal_reasons[0]
         elif call.source_uid == call.callee_candidates[0]:
             refusals[call.callsite_id] = "recursive_call_edge"
+        elif expansion and boundaries.classify(call.insn_vaddr) is not ExpansionAction.INLINE:
+            refusals[call.callsite_id] = "rtos_public_caller"
         else:
             roots.append(call.callsite_id)
-    return PolicySelection(tuple(roots), refusals, evidence={"task_loops": loops.report()})
+    return PolicySelection(tuple(roots), refusals, evidence={"task_loops": loops.report(),
+                           "rtos_boundaries": expansion is not None}, expansion=expansion)
+
+
+def _firmlooper_v2(inputs):
+    return _firmlooper(inputs, v2=True)
 
 
 _BUILTINS = {
     "exhaustive": FirmwarePolicy(_exhaustive, expand_nested=True),
     "hot-loop": FirmwarePolicy(_hot_loop, expand_nested=False, requires_edges=True),
-    "firmlooper": FirmwarePolicy(_firmlooper, expand_nested=True),
+    "firmlooper": FirmwarePolicy(_firmlooper, expand_nested=True, discover_loops=_loop_evidence),
+    "firmlooper-v2": FirmwarePolicy(_firmlooper_v2, expand_nested=True, discover_loops=_v2_loops),
 }
 
 
@@ -169,4 +202,15 @@ def resolve_selection(inputs: PolicyInput, selected: PolicySelection):
                  "source_uid": call.source_uid,
                  "reason": selected.refusals.get(uid, "excluded_by_policy")}
                 for uid, call in calls.items() if uid not in roots]
-    return [calls[uid] for uid in selected.roots], residual
+    admitted = []
+    for uid in selected.roots:
+        call = calls[uid]
+        if selected.expansion is not None:
+            site = ExpansionSite("root", call.source_uid, call.insn_vaddr, call.target_vaddr)
+            reason = residual_reason(selected.expansion(site, ()))
+            if reason:
+                residual.append({**selected.site_evidence.get(uid, {}), "callsite_id": uid,
+                                 "source_uid": call.source_uid, "reason": reason})
+                continue
+        admitted.append(call)
+    return admitted, residual

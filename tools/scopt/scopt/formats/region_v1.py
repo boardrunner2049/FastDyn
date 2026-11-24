@@ -28,6 +28,7 @@ The importer writes one ``tb_singleton`` region per valid slot to
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
@@ -119,7 +120,11 @@ def unit_exits_at(u: TBUnit) -> tuple[tuple[int, Exit], ...]:
                                           None if jro[n] == _NO_JMP else jro[n])))
     else:
         sx = {x.slot: x for x in u.static_exits}
-        offpage = {x.insn_idx: x for x in u.static_exits if x.slot == STATIC_EXIT_OFFPAGE_SLOT}
+        offpage = defaultdict(set)
+        for x in u.static_exits:
+            if x.slot == STATIC_EXIT_OFFPAGE_SLOT:
+                offpage[x.insn_idx].add(x.dest_vaddr)
+        lookup_count = Counter(s.insn_idx for s in u.sites if s.kind == SiteKind.GOTO_PTR)
         goto_slots = set()
         insn_of_tail = None
         for s in u.sites:
@@ -147,9 +152,14 @@ def unit_exits_at(u: TBUnit) -> tuple[tuple[int, Exit], ...]:
                                                None if x is None else x.dest_vaddr, io, ro)))
         for s in u.sites:
             if s.kind == SiteKind.GOTO_PTR:
-                x = offpage.get(s.insn_idx) if s.insn_idx is not None else None
+                # A conditional off-page transfer may have two destinations
+                # and two lookup tails at the same guest insn. SCM carries
+                # no native-arm discriminator. Preserve the public lookup.
+                targets = offpage.get(s.insn_idx, ())
+                static = next(iter(targets)) if (len(targets) == 1 and
+                                                 lookup_count[s.insn_idx] == 1) else None
                 rows.append((s.insn_off, Exit("", 0, ExitKind.GOTO_PTR, None, s.insn_idx,
-                                              None if x is None else x.dest_vaddr)))
+                                              static)))
             elif s.kind == SiteKind.EXIT_TB_RET_JMP:
                 if s.aux == _EXIT_REQUESTED:
                     kind = ExitKind.EXIT_REQUESTED

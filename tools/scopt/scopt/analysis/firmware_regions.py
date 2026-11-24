@@ -12,7 +12,8 @@ from ..formats.region_v1 import unit_exits
 from ..model.firmware_region import (
     FirmwareCallSite, FirmwareRegionEdge, FirmwareRegionMember, FirmwareRegionPlan,
 )
-from .firmware_calls import (FirmwareCalls, compatible_units,
+from .rtos_boundaries import ExpansionSite, residual_reason
+from .firmware_calls import (CompatibilityIndex, FirmwareCalls, compatible_units,
                              firmware_compatibility_index)
 
 __all__ = ["build_firmware_region"]
@@ -22,8 +23,8 @@ def build_firmware_region(snapshot: Any, image: Any, calls: FirmwareCalls,
                           root: FirmwareCallSite, *,
                           units: tuple[Any, ...] | None = None,
                           by_uid: dict[str, Any] | None = None,
-                          compatibility: dict[tuple[int, int, int, int], str] | None = None,
-                          expand_nested: bool = True,
+                          compatibility: CompatibilityIndex | None = None,
+                          expand_nested: bool = True, expansion=None,
                           ) -> FirmwareRegionPlan:
     """Expand one eligible call through captured acyclic callees to a fixed point.
 
@@ -122,6 +123,14 @@ def build_firmware_region(snapshot: Any, image: Any, calls: FirmwareCalls,
                                                     None, nested.target_vaddr,
                                                     refusal_reason="nested_call_kept_public"))
                     continue
+                if expansion:
+                    site = ExpansionSite("call", uid, g.vaddr, nested.target_vaddr)
+                    reason = residual_reason(expansion(site, context))
+                    if reason:
+                        edges.append(FirmwareRegionEdge(source_member, exit_.id, "side_exit",
+                                                        None, nested.target_vaddr,
+                                                        refusal_reason=reason))
+                        continue
                 nested_uid = nested.callee_candidates[0]
                 semantic = nested_uid, by_uid[nested_uid].key
                 if semantic in active_calls:
@@ -151,6 +160,13 @@ def build_firmware_region(snapshot: Any, image: Any, calls: FirmwareCalls,
                 continue
             target = exit_.static_dest_vaddr
             if target is not None:
+                if expansion:
+                    site = ExpansionSite("branch", uid, g.vaddr if g else unit.vaddrs[-1], target)
+                    reason = residual_reason(expansion(site, context))
+                    if reason:
+                        edges.append(FirmwareRegionEdge(source_member, exit_.id, "side_exit",
+                                                        None, target, refusal_reason=reason))
+                        continue
                 candidates = compatible_units(units, unit, target,
                                               index=compatibility)
                 if len(candidates) == 1:

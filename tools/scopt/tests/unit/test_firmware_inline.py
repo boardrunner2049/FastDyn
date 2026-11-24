@@ -171,6 +171,17 @@ def test_nested_capture_policy_keeps_outer_region_with_side_exit(capture_nested)
             (nested.continuation_candidates[0], root.continuation_candidates[0]),
         }
 
+        from scopt.analysis.rtos_boundaries import ExpansionAction
+        def stop_at_kernel(site, context):
+            assert site.kind == "call" and context == (root.callsite_id,)
+            assert site.source_pc == 0x1100 and site.target_pc == 0x1200
+            return ExpansionAction.SHARED
+
+        bounded = build_firmware_region(snapshot, image, calls, root, expansion=stop_at_kernel)
+        assert bounded.complete and nested.callee_candidates[0] not in bounded.source_uids
+        assert any(e.refusal_reason == "rtos_shared_public_lookup" and e.target_member is None
+                   for e in bounded.edges)
+
         # An exact-PC fallback-only BL may be reached inside this region
         # without a matching discovery row. It must retain its own LR context.
         sparse_calls = replace(calls, calls=(root,))

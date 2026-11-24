@@ -30,6 +30,7 @@ PIPELINES = {
     "whopr7": "sealed-whopr-7",
     "pgo7": "sealed-pgo-7",
     "firmlooper": "sealed-firmlooper",
+    "firmlooper-v2": "sealed-firmlooper-v2",
     "hot-loop-inline": "hot-loop-inline",
     "hot-loop-firmware-inline": "hot-loop-firmware-inline",
     "b3-ph": "b3-ph", "b3-llvm": "b3-llvm", "llvm": "b2-llvm-layout", "page-local": "b2-page-local", "b3": B3, "static": B3, "returns": B3, "general": B3,
@@ -162,11 +163,12 @@ def optimizer_args(stage, image, parent, root, params, ancestry, pipeline_dir=No
             "--warm-baseline", image["snapshot"], "--prep", image["prep"],
             "--elf", image["firmware"], "--runtime-identity", image["admission_runtime"],
             "--v6-exe", file_sha256(image["runtime"]), *policy_arguments(names, requested)]
-    if stage != "firmlooper" or params.get("firmware-inline", {}).get("mode", "firmlooper") != "firmlooper":
+    static_modes = {"firmlooper", "firmlooper-v2"}
+    if stage not in static_modes or params.get("firmware-inline", {}).get("mode", stage) not in static_modes:
         args += ["--profile", image["profile"]]
     if stage in ("firmware-inline", "hot-loop-firmware-inline"):
         args += ["--v7-exe", file_sha256(image["runtime"])]
-    elif stage in ("whopr7", "pgo7", "firmlooper"):
+    elif stage in ("whopr7", "pgo7", "firmlooper", "firmlooper-v2"):
         args += ["--v7-trusted-exe", file_sha256(image["runtime"])]
     if stage in ("pgo7", "hot-loop-inline", "hot-loop-firmware-inline") and image.get("training_launch"):
         args += ["--pgo-launch", image["training_launch"]]

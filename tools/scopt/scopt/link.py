@@ -360,11 +360,17 @@ def trusted_firmware_edge_problem(u: TBUnit, exit_id: str) -> str | None:
     return "no_rel32_field"
 
 
-def trusted_return_guard_problem(unit, exit_id, key, offsets, code_address) -> str | None:
+def trusted_return_guard_problem(unit, exit_id, key, offsets, code_address, *,
+                                 cpu_model: str | None) -> str | None:
     """Whether a private return can retain the original lookup on a guard miss."""
     from .formats.region_v1 import unit_exits
     from .guard import GuardError, guard_key
 
+    if cpu_model != "cortex-m3":
+        return "return_guard_cpu_unsupported"
+    if ((unit.native_fragments and not unit.splice_applied) or unit.inline_start is not None
+            or unit.stub_start is not None):
+        return "return_guard_source_already_grown"
     if offsets is None or offsets.envlayout_id is None:
         return "return_guard_layout_unbound"
     exit_ = next((e for e in unit_exits(unit) if e.id == exit_id), None)
@@ -1561,6 +1567,12 @@ class NativeLinkerV2:
                                     f"{source.uid}: private guard slots exhausted", source.uid)
                 target = region.members[edge.target_member]
                 key = by_uid[target.source_uid].key
+                if region.trusted and edge.kind == "return":
+                    cpu = (self.snap.bundle or {}).get("target", {}).get("cpu")
+                    problem = trusted_return_guard_problem(source, edge.exit_id, key, self.offsets,
+                                                           self.header.code_address, cpu_model=cpu)
+                    if problem:
+                        raise LinkError(problem, f"{source.uid}/{edge.exit_id}", source.uid)
                 specs.append(GuardedExitSpec(
                     tail.off, "return" if edge.kind == "return" else "static",
                     # A firmware-region edge is an unregistered private jump.

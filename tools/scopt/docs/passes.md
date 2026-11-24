@@ -232,6 +232,8 @@ steady evidence.
 The pass takes a call-site selection policy. FirmLooper (`sealed-firmlooper`)
 reads the guest ELF, finds registered task entries and selects direct calls
 inside structurally persistent task loops. It expands eligible nested callees.
+Use `--pipeline sealed-firmlooper-v2` for terminal-exit recognition and recursive
+expansion bounded by RTOS, scheduler and interrupt-handler entry points.
 The existing `hot-loop` policy selects from a training run. See
 [Firmware inlining policies](firmware-inline-policies.md) for the selection
 rules, explicit task entries and an example of registering a new policy.
