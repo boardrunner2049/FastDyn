@@ -69,3 +69,5 @@ TREBUCHET_CFLAGS='-DFW_WORKLOAD=0 -DTREBUCHET_DIRECT_STATIC_TASKS' \
 ```
 
 For queues only use the four queue selectors and omit the task build flag. Build and capture each image separately. [Task-only controls](../task-creation/README.md) · [Capture and paired runtime replay](../../README.md)
+
+[Direct heap-pointer comparison](../heap-tail/README.md) evaluates the same permanent packet objects and UART command registrations with addresses carved out of the original heap.
