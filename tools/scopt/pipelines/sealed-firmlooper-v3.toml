@@ -8,12 +8,13 @@
 # per-task selection_summary.  sealed-firmlooper and sealed-firmlooper-v2 stay
 # unchanged so archived provenance remains reproducible.
 #
-# There is deliberately no sealed-firmlooper-v3-b3 yet.  In a composed sc6 +
-# trusted v7 artifact, regions whose sources B3 edited lose their per-member
-# descriptors; the hot packet region would then run with unchained residual
-# exits, and the profile cost model prices exactly that region as a loss
-# (c7b3: -22.2 ms).  FirmLooper's cost model is off, so it would be emitted
-# unpriced.  Add the -b3 variant once composed member descriptors exist.
+# There is deliberately no sealed-firmlooper-v3-b3 yet.  In the composed sc6 +
+# trusted v7 artifact that sealed-pgo-7-b3 built for packet (c7b3), regions
+# whose sources B3 edited kept the shared descriptor, so the hot packet region
+# ran with unchained residual exits, and the profile cost model priced exactly
+# that region as a loss (-22.2 ms).  FirmLooper's cost model is off, so a -b3
+# variant would emit it unpriced.  Revisit this once composed regions get
+# member descriptors.
 schema = "scopt.pipeline"
 version = 1
 name = "sealed-firmlooper-v3"

@@ -228,13 +228,14 @@ table is above its A/A floor.
   Of the 74 composed regions in these artifacts, all but one (on packet) kept the shared
   descriptor. Member skip flags now give them member descriptors on a QEMU that honours
   the flags; that has not been timed.
-- `sealed-firmlooper-v2` selects no call on the packet and CLI `-O4` images. A
-  benchmark task that ends by returning from its entry never has a closed loop (CLI
-  console, packet `prvRxTask`); GCC word jump tables (packet `prvRxTask`) are
-  unknown exits; and BOLT entry patches in `.bolt.org.text` have unknown ownership,
-  so the hot packet call to `prvCrc16Byte` through the patch at 0x331c is public.
-  Separately, `Reset_Handler` is seeded as an interrupt, so everything reachable
-  from `main` is classified public. On UART it is within noise of configuration 6.
+- `sealed-firmlooper-v2` selects no call on the packet and CLI `-O4` images: every
+  in-loop call is an RTOS boundary or the task loop is not closed. On UART it is
+  within noise of configuration 6. On packet and CLI, a benchmark task that ends by
+  returning from its entry never has a closed loop (CLI console, packet `prvRxTask`);
+  GCC word jump tables (packet `prvRxTask`) are unknown exits; and BOLT entry patches
+  in `.bolt.org.text` have unknown ownership, so the hot packet call to `prvCrc16Byte`
+  through the patch at 0x331c is public. Separately, `Reset_Handler` is seeded as an
+  interrupt, so everything reachable from `main` is classified public.
   `sealed-firmlooper-v3` addresses all four on analysis revision 2 and selects 15
   regions on packet (including the four `prvRxTask` CRC calls), 7 on UART and 5 on
   CLI; see [FirmLooper v3](firmware-inline-policies.md#firmlooper-v3). It has not

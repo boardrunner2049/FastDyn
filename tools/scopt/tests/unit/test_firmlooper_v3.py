@@ -79,8 +79,20 @@ def test_word_jump_table_cases_join_the_task_cfg_in_revision_2():
         "dominating header with closed, classified-terminal or task-return exits")
 
 
+# Every table word points at the loop head 0x1040.
+_HEAD_WORDS = _patched(0x10, (0x1041).to_bytes(4, "little") * 3)
+
+
+def _task_ending_at(image, end):
+    funcs = tuple(replace(f, end=end) if f.name == "task" else f for f in image.funcs)
+    return replace(image, funcs=funcs, _starts=[])
+
+
 @pytest.mark.parametrize("variant", ["no_data_mapping", "arm_state_word", "unguarded",
-                                     "base_is_index", "branch_to_adr", "branch_to_ldr"])
+                                     "base_is_index", "branch_to_adr", "branch_to_ldr",
+                                     "cmp_other_register", "table_past_function",
+                                     "code_inside_table", "target_inside_instruction",
+                                     "adr_other_register", "index_lsl_1"])
 def test_word_jump_table_guards(variant):
     image = {
         "no_data_mapping": lambda: _table_image(mapping=_TABLE_MAPPING[:3]),
@@ -94,10 +106,49 @@ def test_word_jump_table_guards(variant):
         # dflt: b adr / b ldr bypasses the range check.
         "branch_to_adr": lambda: _table_image(_patched(0x2a, asm(0x106a, "b 0x104a"))),
         "branch_to_ldr": lambda: _table_image(_patched(0x2a, asm(0x106a, "b 0x104c"))),
+        # cmp r1,#2 bounds a register the ldr does not index with.
+        "cmp_other_register": lambda: _table_image(_patched(0x4, asm(0x1044, "cmp r1, #2"))),
+        # The task symbol ends inside the table (its words all point at the
+        # loop head, so every target is still a decoded instruction).
+        "table_past_function": lambda: _task_ending_at(_table_image(_HEAD_WORDS), 0x1058),
+        # A $t mapping symbol inside the table.
+        "code_inside_table": lambda: _table_image(
+            mapping=_TABLE_MAPPING[:4] + ((0x1058, "t"),) + _TABLE_MAPPING[4:]),
+        # Word 0 points at the second halfword of case0's bl.
+        "target_inside_instruction": lambda: _table_image(
+            _patched(0x10, (0x105f).to_bytes(4, "little"))),
+        # adr r3,table; ldr.w pc,[r2,r0,lsl #2]
+        "adr_other_register": lambda: _table_image(_patched(0xa, asm(0x104a, "adr r3, #4"))),
+        "index_lsl_1": lambda: _table_image(_patched(0xc, asm(0x104c, "ldr.w pc,[r2,r0,lsl #1]"))),
     }[variant]()
     loops = discover_task_loops(image, include_terminal=True, revision=2, task_end=True)
     assert loops.tasks[0]["jump_tables"] == {}
     assert not loops.call_pcs
+
+
+def test_word_jump_table_guard_controls():
+    """The guard variants above differ from an accepted table only in that guard."""
+    from capstone import arm as A
+
+    from scopt.analysis.rtos_cfg import _word_table, decode_function
+    from scopt.decode.thumb_sem import _md
+
+    loops = discover_task_loops(_table_image(_HEAD_WORDS), include_terminal=True, revision=2)
+    assert loops.tasks[0]["jump_tables"] == {"0x104c": ["0x1040"]}
+    # Thumb-2 has no LDR (register) form with writeback, and an IT block that
+    # predicated the ldr would also predicate the adr just before it, so no
+    # encoding reaches these two guards; check them on stand-ins.
+    image = _table_image()
+    func = image.func_at(0x1040)
+    insns = decode_function(image, func, image.code_ranges(), _md())
+    prev = {i.address + i.size: i for i in insns.values()}
+    ldr = insns[0x104c]
+    stand_in = SimpleNamespace(id=ldr.id, cc=ldr.cc, operands=ldr.operands,
+                               writeback=ldr.writeback, address=ldr.address)
+    assert _word_table(image, func, insns, prev, stand_in) == (
+        (0x105c, 0x1062, 0x1068), (0x104c, 0x104a, 0x1046))
+    assert _word_table(image, func, insns, prev, _namespace_with(stand_in, cc=A.ARM_CC_LS)) is None
+    assert _word_table(image, func, insns, prev, _namespace_with(stand_in, writeback=True)) is None
 
 
 # -- task_end ------------------------------------------------------------------
@@ -212,10 +263,11 @@ def test_nested_cycle_of_selected_loop_is_reported_as_nested():
 
 def _boundary_image(reset_name="Reset_Handler", *, thumb_entries=frozenset({0x1000, 0x1030}),
                     exception_entries=frozenset({0x1030}), patch_target=0x1020,
-                    systick_calls=0x1040, patch_symbol=False):
+                    systick_calls=0x1040, patch_symbol=0):
     # 1000 reset: bl main(1010)     1010 main: bl helper(1020)
     # 1030 SysTick: bl tick(1040)   1020/1040: bx lr
-    # 1100: b.w <patch_target> (BOLT entry patch, no symbol, inside $d)
+    # 1100: b.w <patch_target> (BOLT entry patch inside $d; a symbol of
+    # ``patch_symbol`` bytes there, or none)
     data = bytearray(0x104)
     data[0x00:0x04] = asm(0x1000, "bl 0x1010")
     data[0x10:0x14] = asm(0x1010, "bl 0x1020")
@@ -227,7 +279,7 @@ def _boundary_image(reset_name="Reset_Handler", *, thumb_entries=frozenset({0x10
              GuestFunc("helper", 0x1020, 0x1022), GuestFunc("SysTick_Handler", 0x1030, 0x1034),
              GuestFunc("tick", 0x1040, 0x1042)]
     if patch_symbol:
-        funcs.append(GuestFunc("helper.bolt.org", 0x1100, 0x1104))
+        funcs.append(GuestFunc("helper.bolt.org", 0x1100, 0x1100 + patch_symbol))
     return GuestImage("boundaries", "", ((0x1000, bytes(data)),), ((0x1000, 0x1104),),
                       tuple(funcs), ((0x1000, "t"), (0x1050, "d")),
                       exception_entries=exception_entries, thumb_entries=thumb_entries,
@@ -260,6 +312,21 @@ def test_reset_entry_is_not_an_interrupt_root_in_revision_2():
         TaskBoundaries(_boundary_image(), revision=0)
 
 
+def test_explain_reports_isr_name_and_kernel_source_rules():
+    from scopt.analysis.rtos_boundaries import TaskBoundaries
+
+    # The unseeded reset handler still has an ISR-like name.
+    assert TaskBoundaries(_boundary_image(), revision=2).explain(0x1000) == {
+        "action": "public", "rule": "isr_name", "function": "Reset_Handler"}
+    assert TaskBoundaries(_boundary_image()).explain(0x1000) == {
+        "action": "public", "rule": "exception_visible", "function": "Reset_Handler",
+        "via": ["Reset_Handler"]}
+    kernel = replace(_boundary_image(), local_function_sources=(
+        (0x1020, "FreeRTOS/Source/tasks.c"),))
+    assert TaskBoundaries(kernel, revision=2).explain(0x1020) == {
+        "action": "shared", "rule": "kernel_source", "function": "helper"}
+
+
 def test_bolt_entry_patch_resolves_to_the_moved_function():
     from scopt.analysis.rtos_boundaries import ExpansionAction, TaskBoundaries
 
@@ -277,7 +344,7 @@ def test_bolt_entry_patch_resolves_to_the_moved_function():
     assert bounds.explain(0x1100)["via"] == ["SysTick_Handler", "helper"]
     assert TaskBoundaries(handler).classify(0x1020) is ExpansionAction.INLINE
     # A 4-byte symbol at the patch without a $t mapping also resolves.
-    symbol = _boundary_image(thumb_entries=frozenset(), patch_symbol=True)
+    symbol = _boundary_image(thumb_entries=frozenset(), patch_symbol=4)
     assert TaskBoundaries(symbol, revision=2).classify(0x1100) is ExpansionAction.INLINE
     # Outside an executable section, or into a function interior: unknown owner.
     outside = replace(image, text_sections=())
@@ -321,6 +388,14 @@ def test_patched_entry_requires_an_exact_unconditional_branch():
     data = bytearray(image.segments[0][1])
     data[0x100:0x104] = asm(0x1100, "beq.w 0x1020")
     assert patched_entry(replace(image, segments=((0x1000, bytes(data)),)), 0x1100, _md()) is None
+    # A symbol at the patch may cover at most the 4-byte branch.
+    assert patched_entry(_boundary_image(thumb_entries=frozenset(), patch_symbol=4),
+                         0x1100, _md()) == 0x1020
+    assert patched_entry(_boundary_image(thumb_entries=frozenset(), patch_symbol=8),
+                         0x1100, _md()) is None
+    # A branch to itself is not a patch, even when a symbol starts there.
+    assert patched_entry(_boundary_image(thumb_entries=frozenset(), patch_symbol=4,
+                                         patch_target=0x1100), 0x1100, _md()) is None
 
 
 # -- policy ----------------------------------------------------------------------
@@ -383,55 +458,68 @@ def _units_snapshot(units, image_bytes, funcs, *, base=0x1000, exception_entries
     return snapshot, image
 
 
-def _isb_snapshot():
-    """worker: bl store_and_yield; b worker.  store_and_yield: str; dsb; isb | bx lr."""
+def _isb_snapshot(barriers="dsb sy; isb sy"):
+    """worker: bl store_and_yield; b worker.  store_and_yield: str; <barriers> | bx lr."""
     key = TBKey(0x1000, None, 0x110, 0x800400, 0xff020000)
-    callee = asm(0x1100, "str r1,[r0]; dsb sy; isb sy")
+    callee = asm(0x1100, f"str r1,[r0]; {barriers}")
+    ret = 0x1100 + len(callee)
+    # A 2-byte str, then 4-byte barriers; the goto_tb belongs to the last one.
+    offsets = [0, *range(2, len(callee), 4)]
+    insns = [((0x100 + off, 0, 0), k, k + 1) for k, off in enumerate(offsets)]
+    insns[-1] = (insns[-1][0], len(offsets) - 1, 5)
     units = [
         SynthUnit(key, 0x100, b"\xe9\0\0\0\0", guest_bytes=asm(0x1000, "bl 0x1100"), vaddr=0x1000,
                   jmp_reset_offset=(5, 0xffff), jmp_insn_offset=(1, 0xffff), meta=_goto(0x1100)),
         SynthUnit(key, 0x200, b"\xe9\0\0\0\0", guest_bytes=asm(0x1004, "b 0x1000"), vaddr=0x1004,
                   jmp_reset_offset=(5, 0xffff), jmp_insn_offset=(1, 0xffff), meta=_goto(0x1000)),
-        # Three guest instructions (2, 4 and 4 bytes); the goto_tb belongs to the ISB.
-        SynthUnit(key, 0x300, b"\xe9\0\0\0\0", guest_bytes=callee, vaddr=0x1100, icount=3,
-                  jmp_reset_offset=(5, 0xffff), jmp_insn_offset=(1, 0xffff),
-                  meta={**_goto(0x110a, insn=2),
-                        "insns": (((0x100, 0, 0), 0, 1), ((0x102, 0, 0), 1, 2),
-                                  ((0x106, 0, 0), 2, 5))}),
-        SynthUnit(key, 0x400, b"\xff\xe0", guest_bytes=asm(0x110a, "bx lr"), vaddr=0x110a, meta=_RET),
+        SynthUnit(key, 0x300, b"\xe9\0\0\0\0", guest_bytes=callee, vaddr=0x1100,
+                  icount=len(offsets), jmp_reset_offset=(5, 0xffff), jmp_insn_offset=(1, 0xffff),
+                  meta={**_goto(ret, insn=len(offsets) - 1), "insns": tuple(insns)}),
+        SynthUnit(key, 0x400, b"\xff\xe0", guest_bytes=asm(ret, "bx lr"), vaddr=ret, meta=_RET),
     ]
-    data = bytearray(0x10c)
+    data = bytearray(ret + 2 - 0x1000)
     data[0:6] = asm(0x1000, "bl 0x1100; b 0x1000")
-    data[0x100:0x10a] = callee
-    data[0x10a:0x10c] = asm(0x110a, "bx lr")
+    data[0x100:ret - 0x1000] = callee
+    data[ret - 0x1000:] = asm(ret, "bx lr")
     return _units_snapshot(units, data, (GuestFunc("worker", 0x1000, 0x1006),
-                                         GuestFunc("store_and_yield", 0x1100, 0x110c)))
+                                         GuestFunc("store_and_yield", 0x1100, ret + 2)))
+
+
+def _callee_exit_edge(mode, snapshot, image):
+    """The region edge out of the called member (the root's callee)."""
+    from scopt.analysis.firmware_regions import build_firmware_region
+
+    policy = firmware_policy(mode)
+    inputs = _policy_inputs(snapshot, image, (), {"task_entries": ["worker"]})
+    loops = policy.discover_loops(inputs)
+    calls = discover_firmware_calls(snapshot, image, verified_entry_pcs=loops.call_pcs)
+    inputs = replace(inputs, calls=calls.calls, task_loops=loops)
+    selection = policy.select(inputs)
+    (root,), _ = resolve_selection(inputs, selection)
+    plan = build_firmware_region(snapshot, image, calls, root, expansion=selection.expansion)
+    member = next(i for i, m in enumerate(plan.members) if m.source_uid == root.callee_candidates[0])
+    edge, = [e for e in plan.edges if e.source_member == member]
+    return edge
 
 
 def test_firmlooper_v3_isb_member_exit_is_a_side_exit():
-    from scopt.analysis.firmware_regions import build_firmware_region
-
     snapshot, image = _isb_snapshot()
-    edges = {}
-    for mode in ("firmlooper-v2", "firmlooper-v3"):
-        policy = firmware_policy(mode)
-        inputs = _policy_inputs(snapshot, image, (), {"task_entries": ["worker"]})
-        loops = policy.discover_loops(inputs)
-        calls = discover_firmware_calls(snapshot, image, verified_entry_pcs=loops.call_pcs)
-        inputs = replace(inputs, calls=calls.calls, task_loops=loops)
-        selection = policy.select(inputs)
-        (root,), _ = resolve_selection(inputs, selection)
-        plan = build_firmware_region(snapshot, image, calls, root, expansion=selection.expansion)
-        isb_member = next(i for i, m in enumerate(plan.members) if m.source_uid == root.callee_candidates[0])
-        edges[mode], = [e for e in plan.edges if e.source_member == isb_member]
-    assert edges["firmlooper-v2"].kind == "branch" and edges["firmlooper-v2"].target_member is not None
-    v3 = edges["firmlooper-v3"]
+    v2 = _callee_exit_edge("firmlooper-v2", snapshot, image)
+    assert v2.kind == "branch" and v2.target_member is not None
+    v3 = _callee_exit_edge("firmlooper-v3", snapshot, image)
     assert (v3.kind, v3.target_member, v3.refusal_reason, v3.guest_target) == (
         "side_exit", None, "isb_boundary", 0x110a)
+    # A member that ends in DSB (the same 0xf3bf first halfword) keeps its
+    # internal branch under v3.
+    snapshot, image = _isb_snapshot("dsb sy")
+    for mode in ("firmlooper-v2", "firmlooper-v3"):
+        edge = _callee_exit_edge(mode, snapshot, image)
+        assert (edge.kind, edge.refusal_reason, edge.guest_target) == ("branch", None, 0x1106), mode
+        assert edge.target_member is not None
 
 
-def _receipt_snapshot(*, worker="worker", callee="helper", handler=False, callee_hash=None):
-    """worker: bl callee; nop; b worker.  Optional SysTick_Handler: bl callee."""
+def _receipt_snapshot(*, worker="worker", callee="helper", handler=None, callee_hash=None):
+    """worker: bl callee; nop; b worker.  Optional ``handler`` at 0x1200: bl callee."""
     key = TBKey(0x1000, None, 0x110, 0x800400, 0xff020000)
     units = [
         SynthUnit(key, 0x100, b"\xe9\0\0\0\0", guest_bytes=asm(0x1000, "bl 0x1100"), vaddr=0x1000,
@@ -447,7 +535,7 @@ def _receipt_snapshot(*, worker="worker", callee="helper", handler=False, callee
     funcs = [GuestFunc(worker, 0x1000, 0x1008), GuestFunc(callee, 0x1100, 0x1102)]
     if handler:
         data[0x200:0x204] = asm(0x1200, "bl 0x1100")
-        funcs.append(GuestFunc("SysTick_Handler", 0x1200, 0x1204))
+        funcs.append(GuestFunc(handler, 0x1200, 0x1204))
     return _units_snapshot(units, data, funcs)
 
 
@@ -458,7 +546,7 @@ _V3 = {"mode": "firmlooper-v3", "policy_options": {"task_entries": ["worker"]}}
 def test_firmlooper_v3_receipt_reports_boundaries_and_verdict(monkeypatch, case):
     snapshot, image = {
         "shared": lambda: _receipt_snapshot(callee="xQueueReceive"),
-        "public": lambda: _receipt_snapshot(handler=True),
+        "public": lambda: _receipt_snapshot(handler="SysTick_Handler"),
         "public_caller": lambda: _receipt_snapshot(worker="prvIdleTask"),
     }[case]()
     params = {**_V3, "policy_options": {"task_entries": ["prvIdleTask" if case == "public_caller"
@@ -531,6 +619,25 @@ def test_firmlooper_v3_failed_planned_root_does_not_take_the_verdict(monkeypatch
                         lambda *args: {"verdict": "only_rtos_boundary_calls", "tasks": {}})
     result, _, _, _ = _run_pass(monkeypatch, snapshot, image, _V3, None)
     assert result.reason == "no_eligible_call"
+
+
+def test_firmlooper_v3_unpatchable_root_edge_does_not_take_the_verdict(monkeypatch):
+    import scopt.link as L
+
+    # Trusted finalize refuses the root's own call edge: the plan is dropped.
+    snapshot, image = _receipt_snapshot()
+    snapshot.run_info = SimpleNamespace(flags=0)
+    monkeypatch.setattr(L, "trusted_firmware_entry_problem", lambda unit: None)
+    monkeypatch.setattr(L, "trusted_firmware_edge_problem", lambda unit, exit_id: "lookup_tail_missing")
+    params = {**_V3, "trust": "user", "interrupts": "disabled", "icount": "ignored"}
+    result, receipt, emitted, _ = _run_pass(monkeypatch, snapshot, image, params, None)
+    assert not emitted and result.stats["refused:unpatchable_native_exit"] == 1.0
+    row, = receipt["pending"]
+    assert (row["reason"], row["source_uid"]) == ("unpatchable_native_exit",
+                                                  receipt["discovered"][0]["source_uid"])
+    assert result.reason == "no_eligible_call"
+    task, = receipt["policy"]["selection_summary"]["tasks"].values()
+    assert task["verdict"] == "planned_not_embedded"
 
 
 def test_firmlooper_summary_verdicts():
@@ -690,6 +797,27 @@ def test_firmlooper_v1_v2_outputs_unchanged(monkeypatch, mode):
                    for t in report["tasks"] for c in t["cycles"])
     assert not any("boundary" in row for row in receipt["residual"])
     assert _revision1_receipt_sha(result, receipt) == _REVISION1_PASS_GOLDEN[mode]
+
+
+# Reset_Handler calls the task loop's callee. Revision 1 seeds the reset entry
+# as an interrupt, so firmlooper-v2 refuses the root at a PUBLIC callee;
+# revision 2 classifies the callee as application code. Recorded at 2f4dce8.
+_RESET_CALLER_V2_GOLDEN = ("no_eligible_call",
+                           "c2f34caae133d1a6ec22ed83620bcf234528e024c763cf8ccdb67818ffd8c702")
+
+
+def test_firmlooper_v2_keeps_revision_1_boundaries(monkeypatch):
+    snapshot, image = _receipt_snapshot(handler="Reset_Handler")
+    params = {"mode": "firmlooper-v2", "policy_options": {"task_entries": ["worker"]}}
+    result, receipt, emitted, _ = _run_pass(monkeypatch, snapshot, image, params, None)
+    assert not emitted
+    assert [row["reason"] for row in receipt["residual"]] == ["rtos_public_boundary"]
+    assert (result.reason, _revision1_receipt_sha(result, receipt)) == _RESET_CALLER_V2_GOLDEN
+    # The same fixture distinguishes the revisions: v3 embeds the root.
+    result, receipt, emitted, _ = _run_pass(monkeypatch, snapshot, image, {**params, **_V3}, None)
+    assert result.reason == "firmware_regions_emitted" and len(emitted) == 1
+    assert receipt["embedded"][0]["boundary"] == {"action": "inline", "rule": "application",
+                                                  "function": "helper"}
 
 
 def test_firmlooper_v3_uses_revision_2_on_the_same_image():
