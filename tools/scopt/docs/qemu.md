@@ -275,6 +275,41 @@ dispatcher:
 The experiment object gains `no_trusted_exit_chain`
 (`QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain`).
 
+`"counters_revision": 4` (one QEMU change: trusted-to-trusted chains and composed
+member skip flags) adds two key groups, all 0 when no trusted directory is loaded:
+
+- `chain_allowed_trusted_to_trusted`, `chain_installs_trusted_to_trusted`: chain
+  decisions and installed patches from a trusted source to a trusted region entry.
+  QEMU patches such a slot to the entry member's first byte (`tc.ptr - 15`), so the
+  destination's IRQ/exit-request poll and `can_do_io` store run on every chained
+  transfer. `chain_installs_trusted_self` is the subset that re-enters the source's own
+  region.
+- `chain_skipped_trusted_to_trusted` keeps its name but now counts only refused
+  trusted-to-trusted attempts. Without the token below, each refusal has one counted
+  reason: `chain_skipped_trusted_unsealed` (a non-sealed load without
+  `incoming-chain`, the same rule as ordinary-to-trusted chains) or
+  `chain_skipped_trusted_poll_unverified` (the destination's entry prefix did not
+  verify at load).
+- `trusted_poll_entries_verified` / `trusted_poll_entries_unverified`: one per loaded
+  trusted region. A region verifies when its entry poll's `jl` reaches the member's own
+  exit stub, which returns the entry descriptor with `TB_EXIT_REQUESTED` to `tb_ret`,
+  and its `can_do_io` store writes 1. Only verified regions are trusted-to-trusted
+  destinations; an unverified region still loads.
+- `trusted_poll_entry_exits`: `TB_EXIT_REQUESTED` returns that name a trusted
+  descriptor. Only a `+0` entry, that is a trusted-to-trusted chain, runs a trusted
+  poll.
+- `trusted_residual_slots_skipped`: member skip bits on valid record slots of the
+  member descriptors built (see [Sealed B3](#sealed-b3)). Like
+  `trusted_residual_slots_armed` it is counted only while arming, once per region
+  build, so it is 0 under `no-trusted-exit-chain` and `QEMU_SC_SEALED_SKIP_IRQ`.
+
+`QEMU_SC_V7_EXPERIMENT=no-trusted-to-trusted-chain` restores the revision-3 refusal
+of trusted-to-trusted chains on the same bytes; the experiment object reports it as
+`no_trusted_to_trusted_chain`. Trusted-to-trusted chains bypass `tb_lookup`, so
+`region_entries` no longer counts them; label the revision when comparing it across
+binaries. The new counters use uncounted lookups, so the `trusted_tb_calls` and
+`trusted_tb_chain_probes` identities still hold.
+
 `trusted_tb_calls` counts trusted-membership lookups (non-null dispatcher
 returns plus chain probes), not region exits. In trusted mode it equals
 `loop_returns_nonnull + trusted_tb_chain_probes`.

@@ -245,7 +245,6 @@ def _revision3(trusted):
 
 def test_consistent_revision3_chaining_file(trusted):
     stats = _revision3(trusted)
-    assert v7_stats.COUNTERS_REVISION == 3
     assert v7_stats.counter_problems(stats) == []
     summary = v7_stats.summary(stats)
     assert summary["residual_exits"] == 300
@@ -288,3 +287,158 @@ def test_unloaded_revision3_file_with_chain_counts():
                  chain_allowed_trusted_source=0, chain_skipped_trusted_to_trusted=0)
     assert v7_stats.counter_problems(stats) == [
         "trusted_residual_slots_armed 2 without a loaded trusted directory"]
+
+
+# -- revision 4: trusted->trusted chains and composed member skip flags -----
+
+def test_revision4_is_one_bump_for_both_key_groups():
+    assert v7_stats.COUNTERS_REVISION == 4
+    assert v7_stats.T2T_REVISION == v7_stats.MEMBER_SKIP_REVISION == 4
+    assert v7_stats.T2T_COUNTER_KEYS == (
+        "chain_allowed_trusted_to_trusted", "chain_installs_trusted_to_trusted",
+        "chain_installs_trusted_self", "chain_skipped_trusted_poll_unverified",
+        "chain_skipped_trusted_unsealed", "trusted_poll_entries_verified",
+        "trusted_poll_entries_unverified", "trusted_poll_entry_exits")
+    assert v7_stats.MEMBER_SKIP_COUNTER_KEYS == ("trusted_residual_slots_skipped",)
+    # The goto_ptr hook of the original follow-up 1 design was dropped.
+    assert "lookup_ptr_trusted_entries" not in v7_stats.T2T_COUNTER_KEYS
+
+
+def _revision4(trusted):
+    """A consistent revision-4 file: 2 of 15 allowed trusted chains go to a
+    trusted entry, one of them a self-chain, and its poll fired once; 6 member
+    skip bits were seen while arming."""
+    stats = _revision3(trusted)
+    stats.update(counters_revision=4,
+                 chain_skipped_trusted_to_trusted=0,
+                 chain_skipped_trusted_source=1,
+                 chain_installs_trusted_destination=5,
+                 chain_allowed_trusted_to_trusted=2,
+                 chain_installs_trusted_to_trusted=2,
+                 chain_installs_trusted_self=1,
+                 chain_skipped_trusted_poll_unverified=0,
+                 chain_skipped_trusted_unsealed=0,
+                 trusted_poll_entries_verified=4,
+                 trusted_poll_entries_unverified=0,
+                 trusted_poll_entry_exits=1,
+                 trusted_residual_slots_skipped=6,
+                 experiment={"no_trusted_to_trusted_chain": False,
+                             "no_trusted_exit_chain": False})
+    return stats
+
+
+def test_consistent_revision4_file_and_summary(trusted):
+    stats = _revision4(trusted)
+    assert v7_stats.counter_problems(stats) == []
+    summary = v7_stats.summary(stats)
+    assert summary["counters_revision"] == 4
+    assert summary["chain_installs_trusted_to_trusted"] == 2
+    assert summary["trusted_poll_entry_exits"] == 1
+    assert summary["trusted_residual_slots_skipped"] == 6
+    assert summary["trusted_residual_slots_armed"] == 17
+
+
+@pytest.mark.parametrize("mutate, needle", [
+    (lambda s: s.update(chain_allowed_trusted_to_trusted=16, chain_installs_trusted_to_trusted=2),
+     "chain_allowed_trusted_to_trusted 16 > chain_allowed_trusted_source"),
+    (lambda s: s.update(chain_installs_trusted_to_trusted=3, chain_installs_trusted_self=1),
+     "chain_installs_trusted_to_trusted 3 > chain_allowed_trusted_to_trusted"),
+    (lambda s: s.update(chain_installs_trusted_destination=1),
+     "chain_installs_trusted_to_trusted 2 > chain_installs_trusted_destination 1"),
+    (lambda s: s.update(chain_installs_trusted_self=3),
+     "chain_installs_trusted_self 3 >"),
+    # A refusal without a counted reason (e.g. a shadow destination).
+    (lambda s: s.update(chain_skipped_trusted_to_trusted=1),
+     "chain_skipped_trusted_to_trusted 1 != chain_skipped_trusted_poll_unverified + _unsealed 0"),
+    # A counted reason without the refusal.
+    (lambda s: s.update(chain_skipped_trusted_unsealed=1),
+     "chain_skipped_trusted_to_trusted 0 != chain_skipped_trusted_poll_unverified + _unsealed 1"),
+    (lambda s: s.update(chain_allowed_trusted_to_trusted=0, chain_installs_trusted_to_trusted=0,
+                        chain_installs_trusted_self=0),
+     "trusted_poll_entry_exits 1 without"),
+    (lambda s: s.update(experiment={"no_trusted_to_trusted_chain": True}),
+     "under no-trusted-to-trusted-chain"),
+    (lambda s: s.update(trusted_poll_entries_verified=3),
+     "regions_loaded 4"),
+    (lambda s: s.update(experiment={"no_trusted_exit_chain": True}),
+     "trusted_residual_slots_skipped 6 under no-trusted-exit-chain"),
+])
+def test_each_broken_revision4_invariant_is_one_problem(trusted, mutate, needle):
+    stats = _revision4(trusted)
+    mutate(stats)
+    problems = v7_stats.counter_problems(stats)
+    assert len(problems) == 1, problems
+    assert needle in problems[0]
+
+
+def test_allowed_t2t_needs_armed_slots(trusted):
+    stats = _revision4(trusted)
+    stats.update(trusted_residual_slots_armed=0, trusted_residual_exits_chainable=0,
+                 trusted_residual_exits_unchainable=300)
+    problems = v7_stats.counter_problems(stats)
+    assert "chain_allowed_trusted_to_trusted 2 without armed residual slots" in problems
+
+
+@pytest.mark.parametrize("field", ["chain_skipped_trusted_poll_unverified",
+                                   "chain_skipped_trusted_unsealed"])
+def test_each_refusal_reason_accounts_for_skipped_t2t(trusted, field):
+    stats = _revision4(trusted)
+    stats.update({field: 3}, chain_skipped_trusted_to_trusted=3,
+                 chain_skipped_trusted_source=4)
+    assert v7_stats.counter_problems(stats) == []
+
+
+@pytest.mark.parametrize("key", v7_stats.T2T_COUNTER_KEYS + v7_stats.MEMBER_SKIP_COUNTER_KEYS)
+def test_revision4_requires_both_key_groups(trusted, key):
+    stats = _revision4(trusted)
+    del stats[key]
+    problems = v7_stats.counter_problems(stats)
+    assert len(problems) == 1 and "missing" in problems[0] and key in problems[0]
+
+
+def test_revision3_files_are_accepted_unchanged(trusted):
+    stats = _revision3(trusted)
+    assert not set(v7_stats.T2T_COUNTER_KEYS + v7_stats.MEMBER_SKIP_COUNTER_KEYS) & set(stats)
+    assert v7_stats.counter_problems(stats) == []
+    assert "trusted_residual_slots_skipped" not in v7_stats.summary(stats)
+
+
+def test_token_arm_reproduces_revision3_counts(trusted):
+    """no-trusted-to-trusted-chain: every T->T attempt refused, as in revision 3."""
+    stats = _revision4(trusted)
+    stats.update(experiment={"no_trusted_to_trusted_chain": True},
+                 chain_allowed_trusted_to_trusted=0, chain_installs_trusted_to_trusted=0,
+                 chain_installs_trusted_self=0, trusted_poll_entry_exits=0,
+                 chain_allowed_trusted_source=13, chain_installs_trusted_source=13,
+                 chain_skipped_trusted_source=3, chain_skipped_trusted_to_trusted=2)
+    assert v7_stats.counter_problems(stats) == []
+    stats.update(chain_skipped_trusted_poll_unverified=2)
+    assert "under no-trusted-to-trusted-chain" in v7_stats.counter_problems(stats)[0]
+
+
+def test_unchained_arm_arms_and_skips_nothing(trusted):
+    """no-trusted-exit-chain: no slot is armed, so no skip bit is counted."""
+    stats = _revision4(trusted)
+    stats.update(experiment={"no_trusted_exit_chain": True},
+                 trusted_residual_slots_armed=0, trusted_residual_slots_skipped=0,
+                 trusted_residual_exits_chainable=0, trusted_residual_exits_unchainable=300,
+                 chain_allowed_trusted_source=0, chain_installs_trusted_source=0,
+                 benchmark_chain_installs_trusted_source=0,
+                 chain_allowed_trusted_to_trusted=0, chain_installs_trusted_to_trusted=0,
+                 chain_installs_trusted_self=0, trusted_poll_entry_exits=0)
+    assert v7_stats.counter_problems(stats) == []
+
+
+def test_unloaded_revision4_file_with_new_counts():
+    stats = _unloaded()
+    stats.update(counters_revision=4,
+                 trusted_residual_exits_chainable=0, trusted_residual_exits_unchainable=0,
+                 trusted_residual_slots_armed=0, chain_allowed_trusted_source=0,
+                 chain_skipped_trusted_to_trusted=0,
+                 **{k: 0 for k in v7_stats.T2T_COUNTER_KEYS + v7_stats.MEMBER_SKIP_COUNTER_KEYS})
+    assert v7_stats.counter_problems(stats) == []
+    stats["trusted_poll_entries_verified"] = 1
+    stats["trusted_residual_slots_skipped"] = 2
+    assert v7_stats.counter_problems(stats) == [
+        "trusted_poll_entries_verified 1 without a loaded trusted directory",
+        "trusted_residual_slots_skipped 2 without a loaded trusted directory"]
