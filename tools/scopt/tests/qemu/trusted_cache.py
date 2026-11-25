@@ -7,6 +7,7 @@ import subprocess
 
 from scopt.formats.sc_v5 import HEADER_SIZE, RECORD_SIZE, ScHeader, ScRecord, sparse_copy
 from scopt.run.helper_pgo import _guest_lines, _launch
+from scopt.run.v7_stats import counter_problems
 
 
 def change_records(cache, field):
@@ -71,6 +72,7 @@ def main():
         assert stats["user_trusted_input"] == trust
         assert (stats["public_record_checksum_checks"] == 0) == trust
         assert stats["guest_hash_checks"] == 0
+        assert counter_problems(stats) == [], (arm, counter_problems(stats))
 
 
 if __name__ == "__main__":

@@ -116,3 +116,12 @@ $FASTDYN_ROOT/runs/.timing.lock`, `taskset` <= 4 CPUs) and `diag` belong to the 
 | `b5_campaign.py run` / `diag` / `report` | timing sets (R1-R6 in `b5_campaign.json`), untimed v6-stats/C'-hit and base-profile diagnostics, one `scopt report --b5-campaign` |
 
 Offline tests: `tests/unit/test_wp30_b5.py`.
+
+## Sealed v7 counters
+
+| Script | What it checks |
+|---|---|
+| `v7_counters.py LAUNCH.json OUT` | a compiled sealed launch with exercised trusted firmware regions (for example packet config 7), on private cache copies: default, `QEMU_SC_V7_EXPERIMENT=no-regions` and `disable-chaining` print the same guest output; every `QEMU_SC_V7_STATS` file has `counters_revision` 2 and no `scopt.run.v7_stats.counter_problems`; `trusted_tb_calls == loop_returns_nonnull + trusted_tb_chain_probes`, `0 < trusted_residual_exits <= loop_returns_nonnull`, no chained trusted source, and no residual exits without regions. Writes `OUT/v7-counters.json` |
+| `trusted_cache.py`, `safe_region_index.py` | also require an empty `counter_problems` |
+
+Offline tests of the counter rules: `tests/unit/test_v7_stats.py`.

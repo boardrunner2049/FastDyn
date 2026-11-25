@@ -11,6 +11,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from scopt.run.v7_stats import counter_problems
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -48,6 +50,8 @@ def main():
                            stderr=subprocess.STDOUT, check=True, timeout=120)
         stats[arm] = json.loads(stats_path.read_text())
         assert stats[arm]["mode"] == "safe" and stats[arm]["experiment"]["source_index"]
+        assert counter_problems(stats[arm]) == [], (arm, counter_problems(stats[arm]))
+        assert stats[arm]["trusted_residual_exits"] == 0 < stats[arm]["loop_returns_nonnull"]
         outputs[arm] = re.findall(r"^Reg [0-3]:0x[0-9a-fA-F]{8}$", log.read_text(), re.M)
     normal, mismatch = stats["normal"], stats["mismatch"]
     assert normal["artifact_id8"] == mismatch["artifact_id8"]

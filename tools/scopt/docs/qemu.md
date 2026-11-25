@@ -193,3 +193,33 @@ Recording fresh translations still writes the standard record format. With
 `QEMU_SC_V7_STATS=/absolute/path.json`, verify `user_trusted_input` and compare
 `public_record_checksum_checks`, `guest_hash_checks`, and
 `artifact_hash_validations` in a separate diagnostic replay.
+
+### v7 dispatcher-return counters
+
+The `QEMU_SC_V7_STATS` file keeps the schema `qemu-sc-v7-stats@1`. Files with
+`"counters_revision": 2` also report how often execution came back to the
+dispatcher:
+
+- `loop_returns_nonnull`: returns to `cpu_exec_loop` that left a chainable
+  `last_tb`. This is counted even when no v7 directory is loaded, so configurations
+  with and without regions can be compared.
+- `trusted_residual_exits`: the subset of those returns that left a trusted
+  region descriptor. It is split by goto_tb slot (`trusted_residual_exits_slot`)
+  and by region (`trusted_residual_exit_regions`, with `region`, `region_id8`,
+  entry `pc`, `exits` and `benchmark_exits`, listing only regions with exits).
+  Exits through `exit_tb(0)` and longjmps have no `last_tb`, so this is a lower
+  bound on region-caused dispatcher round trips.
+- `trusted_tb_chain_probes`: trusted-membership lookups made by the generic
+  chaining path.
+- `chain_installs_trusted_source`: installed goto_tb patches whose source is a
+  trusted region descriptor.
+- `benchmark_*`: the same counters, restricted to the restore benchmark window.
+
+`trusted_tb_calls` counts trusted-membership lookups, not region exits. In
+trusted mode it equals `loop_returns_nonnull + trusted_tb_chain_probes`.
+`scopt.run.v7_stats` holds these definitions. `counter_problems` checks the
+invariants, and `scopt rundir launch --v7-stats` and the firmware-inline
+ablation diagnostics report or reject any violation. For older files without
+`counters_revision`, `legacy_loop_returns` estimates the dispatcher returns as
+`trusted_tb_calls - 2 * (chain_attempts - chain_skipped_global)`. This is
+still a return count, not a region-exit count.

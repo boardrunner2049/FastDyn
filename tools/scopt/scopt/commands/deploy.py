@@ -191,6 +191,11 @@ def rundir_launch(run_dir, timeout_s, reference_norm, input_file, input_bank, v7
             stats.setdefault("problems", []).append(
                 f"loaded artifact id {stats.get('artifact_id8')!r} != deployed {expected!r}")
         stats["loaded_artifact_identity_ok"] = identity_ok
+        from ..run.v7_stats import counter_problems
+        counter_errors = counter_problems(stats)
+        if counter_errors:
+            stats.setdefault("problems", []).extend(
+                f"v7 counters: {problem}" for problem in counter_errors)
         doc["v7_stats"] = stats
     ref_equal = (doc.get("reference_norm") or {}).get("equal")
     _emit(doc, as_json, {

@@ -24,6 +24,7 @@ from typing import Any
 
 from scopt.run.deploy import deploy
 from scopt.run.launcher import create_run_dir, launch
+from scopt.run.v7_stats import counter_problems, summary as counter_summary
 
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -166,6 +167,9 @@ def diagnostic(config: Path, qemu: Path, out: Path, arm: Arm,
             raise RuntimeError(f"diagnostic {arm.name}: loaded v7 artifact identity "
                                f"{stats.get('artifact_id8')!r} != {expected_id!r}")
     validate_experiment(arm, stats)
+    problems = counter_problems(stats)
+    if problems:
+        raise RuntimeError(f"diagnostic {arm.name}: counter invariants {problems}")
     diagnostic_outputs: dict[str, Any] = {}
     for key, value in diagnostic_env.items():
         path = Path(value)
@@ -185,6 +189,7 @@ def diagnostic(config: Path, qemu: Path, out: Path, arm: Arm,
         "deploy": dep,
         "run": run,
         "v7_stats": stats,
+        "v7_counters": counter_summary(stats),
         "loaded_artifact_id8": stats.get("artifact_id8"),
         "run_dir": str(rd.root),
     }, expected_norm

@@ -16,6 +16,7 @@ from fastdyn.compiled_launch import emit_bundle
 from scopt.formats.qprof_v1 import read_qprof
 from scopt.formats.sc_v5 import ScHeader, sparse_copy
 from scopt.formats.sc_v7 import read_sc7
+from scopt.run.v7_stats import counter_problems
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools/trebuchet/lib"))
 import stock
@@ -200,6 +201,9 @@ def main():
                         == 0
                     ):
                         raise RuntimeError(f"{directory}: private region identity")
+                    problems = counter_problems(evidence)
+                    if problems:
+                        raise RuntimeError(f"{directory}: v7 counters {problems}")
             else:
                 replay(directory, sample["words"], "warmup")
 
