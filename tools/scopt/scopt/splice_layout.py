@@ -38,6 +38,32 @@ class SpliceOffsets:
         return self(offset)
 
 
+#: goto_tb offset meaning "no slot" in .sc records and QEMU's TranslationBlock.
+NO_JUMP_SLOT = 0xFFFF
+
+
+def remap_jump_offsets(offsets, mu):
+    """``offsets`` (goto_tb insn or reset offsets) moved by the splice map ``mu``.
+
+    Records keep these in 16 bits with :data:`NO_JUMP_SLOT` as "no slot", so a
+    splice that moves a slot to 0xFFFF or beyond cannot be represented.  Refuse
+    the site (``splice_jump_offset_range``) instead of letting
+    ``ScRecord.to_bytes`` raise ``struct.error``, which would fail the pass.
+    """
+    out = []
+    for old in offsets:
+        if old == NO_JUMP_SLOT:
+            out.append(old)
+            continue
+        new = mu(old)
+        if not 0 <= new < NO_JUMP_SLOT:
+            raise NativeInlineError(
+                "splice_jump_offset_range",
+                f"goto_tb offset {old:#x} moves to {new:#x}, beyond the 16-bit record field")
+        out.append(new)
+    return tuple(out)
+
+
 def splice_offsets(request: InlineCall) -> SpliceOffsets:
     splice = request.splice
     if splice is None:
@@ -383,13 +409,10 @@ def _native_layout(unit: TBUnit, requests: tuple[InlineCall, ...], code_address:
     search = encode_search([(row.words, mu(row.host_end)) for row in old_rows], pcrel=pcrel,
                            pc=old_record.pc) + unit.search[old_rows.nbytes:]
 
-    def jump_offsets(offsets: tuple[int, ...]) -> tuple[int, ...]:
-        return tuple(x if x == 0xFFFF else mu(x) for x in offsets)
-
     end_offset = unit.tc_offset + len(code) + len(search)
     record = old_record.replace(tc_size=len(code), end_offset=end_offset,
-                                jmp_insn_offset=jump_offsets(old_record.jmp_insn_offset),
-                                jmp_reset_offset=jump_offsets(old_record.jmp_reset_offset))
+                                jmp_insn_offset=remap_jump_offsets(old_record.jmp_insn_offset, mu),
+                                jmp_reset_offset=remap_jump_offsets(old_record.jmp_reset_offset, mu))
     raw_record = record.to_bytes(fix_checksum=True)
     code = bytes(code)
     if branches:
