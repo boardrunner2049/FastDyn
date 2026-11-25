@@ -16,7 +16,7 @@ import sys
 from fastdyn.compiled_launch import emit_bundle
 from scopt.formats.qprof_v1 import read_qprof
 from scopt.formats.sc_v5 import ScHeader, sparse_copy
-from scopt.formats.sc_v7 import read_sc7
+from scopt.formats.sc_v7 import SC7_FEATURE_FIRMWARE_REGIONS, is_composed_features, read_sc7
 from scopt.run import paired_stats
 from scopt.run.v7_stats import counter_problems, summary as counter_summary
 
@@ -58,6 +58,17 @@ def arm_env(spec):
         if not isinstance(value, str):
             raise ValueError(f"arm env {key} must be a string")
     return dict(sorted(extra.items()))
+
+
+def has_firmware_directory(reserved):
+    """Whether a cache header's reserved word names a v7 firmware-region directory.
+
+    Plain trusted v7 (``reserved == 1``) and composed v7 (bits 31 and 30) carry
+    private regions to prove.  An sc6-only semantic v7 (configuration 6 + B3,
+    ``1<<31 | sc6 bits``) has none: its v7 stats report loaded=false and
+    ``read_sc7`` refuses the file.
+    """
+    return reserved == SC7_FEATURE_FIRMWARE_REGIONS or is_composed_features(reserved)
 
 
 def stage(spec, input_path, directory, cache):
@@ -337,7 +348,7 @@ def main():
                     == (h.record_count, h.checksum)
                 ):
                     raise RuntimeError(f"{directory}: warm cache identity")
-                if h.reserved and spec.get("sealed"):
+                if spec.get("sealed") and has_firmware_directory(h.reserved):
                     path = directory / "regions.json"
                     replay(
                         directory,

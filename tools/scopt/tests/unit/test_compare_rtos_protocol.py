@@ -132,3 +132,10 @@ def test_check_aa_identity_compares_env():
     _M.check_aa_identity({"x": ident, "x-aa": copy}, ("x-aa", "x"))
     with pytest.raises(RuntimeError):
         _M.check_aa_identity({"x": ident, "x-aa": dict(copy, env={})}, ("x-aa", "x"))
+
+
+def test_region_identity_check_only_for_firmware_directories():
+    assert _M.has_firmware_directory(1)                      # plain trusted v7
+    assert _M.has_firmware_directory((1 << 31) | (1 << 30) | 0xF)  # composed v7
+    assert not _M.has_firmware_directory(0)                  # plain sealed cache
+    assert not _M.has_firmware_directory((1 << 31) | 0xD)    # sc6-only (6 + B3)
