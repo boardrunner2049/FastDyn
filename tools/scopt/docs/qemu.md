@@ -107,13 +107,16 @@ data to the sha256 of `qemu-system-arm`:
 - **v7 feature capability**: all new artifacts are top-level v7. Public-only artifacts
   require the canonical loader. Semantic-extension admission still uses the compatibility
   names `SCOPT_V6_EXES` / `--v6-exe`; composite firmware regions use
-  `SCOPT_V7_COMPOSITE_EXES` / `--v7-exe`, and trusted regions use
-  `SCOPT_V7_TRUSTED_EXES` / `--v7-trusted-exe`. These are feature capability sets,
-  not competing output versions.
+  `SCOPT_V7_COMPOSITE_EXES` / `--v7-exe`, trusted regions use
+  `SCOPT_V7_TRUSTED_EXES` / `--v7-trusted-exe`, and member skip flags in composed
+  artifacts use `SCOPT_V7_MEMBER_SKIP_EXES` / `--v7-member-skip-exe` (only a QEMU
+  with counters revision 4; never `a1bdec6`). These are feature capability sets, not
+  competing output versions.
 
 Any rebuild (even of the same sources) changes the sha256 and the runtime signature.
 After a rebuild: prepare again (old snapshots and artifacts do not carry over), produce
-the EnvLayout, rebind the helper effect table, and update the applicable capability sets.
+the EnvLayout, rebind the helper effect table, and update the applicable capability sets
+(including `SCOPT_V7_MEMBER_SKIP_EXES` when the build honours member skip flags).
 
 ### Regenerate the EnvLayout
 

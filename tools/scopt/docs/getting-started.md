@@ -254,8 +254,11 @@ rebuild of QEMU, write the file again and repeat this section (see §13).
    `SCOPT_V6_EXES` and `--v6-exe` still admit the semantic-extension implementation;
    they do not request or publish a v6 file. Composite and trusted firmware regions
    use `SCOPT_V7_COMPOSITE_EXES` / `--v7-exe` and
-   `SCOPT_V7_TRUSTED_EXES` / `--v7-trusted-exe`, respectively. All capability checks
-   bind the executable's exact sha256.
+   `SCOPT_V7_TRUSTED_EXES` / `--v7-trusted-exe`, respectively. Member skip flags in
+   composed (`sealed-*-b3`) artifacts are a separate capability,
+   `SCOPT_V7_MEMBER_SKIP_EXES` / `--v7-member-skip-exe`, for a QEMU with counters
+   revision 4 only (never `a1bdec6`). All capability checks bind the executable's exact
+   sha256.
 
 `SCOPT_RUNTIME_QEMU` and `SCOPT_RUNTIME_QEMU_SHA256` name the QEMU that a command
 uses when it is given no `--qemu` (the commands below all pass `--qemu "$Q"`). scopt

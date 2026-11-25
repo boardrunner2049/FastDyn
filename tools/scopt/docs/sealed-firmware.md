@@ -225,9 +225,9 @@ table is above its A/A floor.
   Unchained residual exits were not the cause: the same counter change was timed as a
   null (time with `no-trusted-exit-chain` / time chained on the same bytes: 0.990 for
   CLI `sealed-pgo-7`, 0.997 for UART `sealed-firmlooper-v2`, both within the A/A band).
-  The composed regions of these artifacts kept the shared descriptor. Member skip flags
-  now give them member descriptors on a QEMU that honours the flags; that has not been
-  timed.
+  Of the 74 composed regions in these artifacts, all but one (on packet) kept the shared
+  descriptor. Member skip flags now give them member descriptors on a QEMU that honours
+  the flags; that has not been timed.
 - `sealed-firmlooper-v2` selects no call on the packet and CLI `-O4` images: every
   in-loop call is an RTOS boundary or the task loop is not closed. On UART it is
   within noise of configuration 6.

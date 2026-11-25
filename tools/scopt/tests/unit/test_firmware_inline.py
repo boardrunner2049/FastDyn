@@ -668,6 +668,30 @@ def test_trusted_region_falls_back_to_shared_descriptor(case):
         {"g", "r", "v"}
 
 
+def test_skip_capable_region_with_a_bad_armed_slot_falls_back_without_flags(tmp_path):
+    """With member skip flags on, a grown source's mask is non-zero; when an
+    armed (unflagged) slot still fails its shape check, the region falls back
+    to the legacy layout, which must carry no skip flags (a legacy member's
+    flags must be 0, and build_directory refuses anything else)."""
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call, slot=21)               # slot 0 misaligned
+    grown = _b3_grown_unit(unit)                                      # registers slot 1
+    region = _trusted_two_member_region(snapshot, call, unit)
+    linked, _ = _link_trusted(snapshot, region, unit,
+                              {"grow": {unit.uid: ()}, "member_slot_skip": True},
+                              {unit.uid: grown.record})
+    assert not linked.member_descriptors
+    assert linked.member_descriptor_refusal.startswith("residual_slot_shape")
+    assert [m.skip_slots for m in linked.members] == [0, 0]
+    assert (linked.skipped_b3_slots, linked.chainable_residual_slots) == (0, 0)
+    assert {m.tb_offset for m in linked.members} == {0x4000}           # shared descriptor
+    path, _ = _write_trusted_md(tmp_path, snapshot, call, grown, linked)
+    decoded = decode_directory(read_sc7(path))
+    assert decoded["regions"][0]["flags"] == 3
+    assert [m["flags"] for m in decoded["members"]] == [0, 0]
+
+
 def _write_trusted_md(tmp_path, snapshot, call, unit, linked, name="md.sc"):
     public = relocate_unit(unit, unit.tb_offset)
     link = SimpleNamespace(units=(public,), firmware_regions=(linked,),
@@ -745,6 +769,23 @@ def test_v7_reader_rejects_member_descriptor_mutants(tmp_path, where, data, need
         write_sc7(path, snapshot.header, ((public.record, public.body),), link, check=False)
     with pytest.raises(ScFormatError, match=needle):
         read_sc7(path)
+
+
+def test_v7_reader_rejects_skip_flags_outside_a_composed_directory(tmp_path):
+    """Without an sc6 extension the B3 slot mask is 0, so even a member of a
+    member-descriptor region may not carry skip flags."""
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    linked, _ = _link_trusted(snapshot, _trusted_two_member_region(snapshot, call, unit), unit)
+    assert linked.member_descriptors
+    flagged = replace(linked, members=tuple(replace(m, skip_slots=2) for m in linked.members))
+    # The writer's readback refuses the file it wrote ...
+    with pytest.raises(ScFormatError, match="skip flags 0x2 != B3 slot mask 0x0"):
+        _write_trusted_md(tmp_path, snapshot, call, unit, flagged)
+    # ... and so does any later read of it.
+    with pytest.raises(ScFormatError, match="v7 member 0: skip flags 0x2 != B3 slot mask 0x0"):
+        read_sc7(tmp_path / "md.sc")
 
 
 def test_v7_member_descriptors_need_trusted_contiguous_descriptors(tmp_path):
