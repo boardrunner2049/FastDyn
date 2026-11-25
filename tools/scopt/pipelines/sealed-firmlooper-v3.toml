@@ -13,8 +13,11 @@
 # whose sources B3 edited kept the shared descriptor, so the hot packet region
 # ran with unchained residual exits, and the profile cost model priced exactly
 # that region as a loss (-22.2 ms).  FirmLooper's cost model is off, so a -b3
-# variant would emit it unpriced.  Revisit this once composed regions get
-# member descriptors.
+# variant would emit it unpriced.  Composed regions can now get member
+# descriptors (B3-registered slots become member skip flags on a QEMU
+# allowlisted with --v7-member-skip-exe), but the profit model still prices a
+# B3-grown member source as unchainable, and no composed FirmLooper v3
+# artifact has been built or timed.
 schema = "scopt.pipeline"
 version = 1
 name = "sealed-firmlooper-v3"
