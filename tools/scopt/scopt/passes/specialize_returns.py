@@ -132,6 +132,12 @@ class SpecializeReturns:
                 if c.dst in grown or c.dst == row.uid:
                     refused["unit_not_relocatable"] += 1
                     continue
+                # A host-inline splice prefix certified C's native fragments
+                # in place; a clone C' would need a new proof, and the linker
+                # would refuse the whole plan (native_layout_unsupported).
+                if cu.native_fragments:
+                    refused["native_layout_unsupported"] += 1
+                    continue
                 ctx.analysis("hostops", ScopeRef("unit", cu.uid))
                 h = b3.hostops(cu.uid)
                 g = b3.hcfg(cu.uid)

@@ -206,6 +206,14 @@ lookup returned before `sc6_on_activate`. SPEC links then never armed, and
 GENERAL slots chained by the ordinary loop survived TLB flushes. Caches
 without an extension behave exactly as before.
 
+A cache with both a B3 extension and trusted firmware regions (composed v7,
+`SC7_FEAT_SC6_EXTENSION | SC7_FEAT_SC6_FIRMWARE_REGIONS`, bits 31 and 30) loads
+the sc6 extension first, with its arrays limited to `0xFF00`, then the v7
+directory from `0xFF00`. The directory's arena disjointness proof also covers
+every sc6 variant. A composed directory that is not trusted dies with "sc6
+composition requires a trusted directory". Bit 30 without bit 31 dies as an
+unknown feature. The v7 stats report `"sc6_composed"`.
+
 `QEMU_SC_V7_EXPERIMENT=no-sealed-sc6` restores the old sealed behaviour on the
 same bytes, for A/B attribution only, since it reopens the TLB hole. With
 `QEMU_SC_V6_STATS`, check `"sealed": true`, `"sealed_activation"` (false in

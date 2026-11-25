@@ -311,6 +311,14 @@ class B3State:
     def grown_uids(self) -> frozenset[str]:
         return frozenset(u for u, _ in self.exits)
 
+    def edited_uids(self) -> frozenset[str]:
+        """Units whose public record B3 changes (grown, rewritten or cloned),
+        as :func:`scopt.link.b3_edited_uids` sees the materialized plan.  A
+        variant later downgraded to a GENERAL slot keeps its source here, so
+        this is a superset (conservative for firmware-region pricing)."""
+        return (self.grown_uids() | frozenset(self.rewrites) |
+                frozenset(v.src_uid for v in self.variants.values()))
+
     def claimed_slots(self, uid: str) -> frozenset[int]:
         return frozenset(s.slot_n for (u, _), x in self.exits.items() if u == uid
                          for s in x.slots)

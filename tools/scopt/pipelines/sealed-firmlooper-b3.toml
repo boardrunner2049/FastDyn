@@ -1,0 +1,53 @@
+# sealed-firmlooper composed with B3 (the six b3.toml passes, b3.toml params).
+#
+# Order: B3 passes on the public TBs, then firmware-inline last with the
+# unchanged sealed-firmlooper params.  The linker writes the composed canonical v7
+# (sc6 extension at 0x100, trusted firmware directory at 0xFF00; loader
+# requirement qemu-sc-v7-trusted-firmware-regions+sc6).  Firmware regions whose
+# member sources B3 grew, rewrote or cloned keep the legacy shared descriptor
+# (unchainable residual exits); members always copy the pre-B3 bytes.
+#
+# specialize-returns, chain-returns and chain-static are disabled by default
+# and need a steady profile of the sealed capture (match >= 0.95):
+#   scopt profile run --sealed --trusted -c <sealed config> --snapshot S --phase steady@<marker>
+#   scopt optimize S --pipeline sealed-firmlooper-b3 --profile <that profile> --prep <sealed prep> \
+#       --enable specialize-returns --enable chain-returns --enable chain-static ...
+# SFB does not apply to sealed captures (no icount entry).  sealed-firmlooper itself
+# stays unchanged so archived provenance remains reproducible.
+schema = "scopt.pipeline"
+version = 1
+name = "sealed-firmlooper-b3"
+description = "Inline captured calls rooted in persistent task loops, including their eligible acyclic callees, composed with B3 guarded specialization (composed v7)."
+allowed_capabilities = ["EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "specialize-returns"
+version = 1
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "chain-returns"
+version = 1
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "firmlooper", trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4 }

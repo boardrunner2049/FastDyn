@@ -2139,6 +2139,15 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
     (:func:`scopt.validate_sym.link_check.hostsym_inputs`), which runs the
     kernel on this ``link``; :func:`package_b3` passes it through.
     """
+    if getattr(link, "firmware_regions", ()) and getattr(link, "ext", None) is not None:
+        # The composed subtype (sc6 + trusted regions) is published compile-only;
+        # neither auditor below understands both payloads, so refuse rather
+        # than give a verdict on half of the file.
+        v = Validation()
+        v.add("V1", "composed_v7_audit", False,
+              "composed v7 (semantic extension + firmware regions) has no auditor",
+              "composed_v7_audit_unsupported")
+        return v, None
     if getattr(link, "firmware_regions", ()):
         return validate_firmware_v7(snapshot, link, art_dir, sidecar=sidecar,
                                     runtime=runtime, v7_exes=v7_exes,
@@ -3118,7 +3127,13 @@ def write_b3_files(stage: str | os.PathLike, snapshot: Any, link: Any) -> None:
     st = Path(stage)
     st.mkdir(parents=True, exist_ok=True)
     parts = [(u.record, u.body) for u in link.units]
-    if getattr(link, "firmware_regions", ()):
+    if getattr(link, "firmware_regions", ()) and getattr(link, "ext", None) is not None:
+        from .formats.sc_v7 import write_sc7_composed
+
+        write_sc7_composed(st / "cache.sc", snapshot.header, parts, link,
+                           [x.body for x in link.variants],
+                           rewritten=bool(link.grown or link.rewritten))
+    elif getattr(link, "firmware_regions", ()):
         from .formats.sc_v7 import write_sc7
 
         write_sc7(st / "cache.sc", snapshot.header, parts, link)
@@ -3347,7 +3362,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     ``sidecar_extra`` adds ``x_`` keys to the sidecar (the manager's B3 report)."""
     from .formats.envlayout_v1 import find_envlayout
     from .formats.sc_v6 import ScExtRefused
-    from .formats.sc_v7 import LOADER_V7, LOADER_V7_TRUSTED
+    from .formats.sc_v7 import LOADER_V7, LOADER_V7_TRUSTED, LOADER_V7_TRUSTED_SC6
     from .link import NativeLinkerV2
 
     if not compile_only and vkw.get("skip_reimport"):
@@ -3405,7 +3420,8 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             "pinned": [{"unit": u, "reasons": list(reasons)} for u, reasons in placement.pinned()]
             if placement is not None else [],
             "validation_sha256": "sha256:" + "0" * 64, "tool_versions": A.tool_versions(),
-            "loader_requirement": ((LOADER_V7_TRUSTED
+            "loader_requirement": (((LOADER_V7_TRUSTED_SC6 if link.ext is not None else
+                                     LOADER_V7_TRUSTED)
                                     if link.firmware_regions[0].trusted else LOADER_V7)
                                    if link.firmware_regions else A.LOADER_V7),
             "x_candidate_id": candidate_id,

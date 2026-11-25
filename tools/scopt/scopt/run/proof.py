@@ -149,7 +149,21 @@ def deployed_state(sc_path: str | os.PathLike,
     }
     if ext is not None:
         out.update(ext)
-    if h.reserved == 1:
+    from ..formats.sc_v7 import is_composed_features
+
+    if is_composed_features(h.reserved):
+        # ext_state hashes [0x100, 0x10000), which includes the composed
+        # directory header at 0xFF00; the directory identity covers the rest.
+        from ..formats.sc_v6 import read_sc6
+        from ..formats.sc_v7 import read_sc7, sc7_snapshot_id
+
+        semantic = read_sc6(sc_path)
+        if not semantic.loadable or semantic.ext is None:
+            raise ValueError(f"{sc_path}: invalid composed semantic extension")
+        directory = read_sc7(sc_path)
+        out.update(v7_kind="composed", firmware_artifact_id8=directory.artifact_id8.hex(),
+                   firmware_snapshot_id=sc7_snapshot_id(sc_path))
+    elif h.reserved == 1:
         from ..formats.sc_v7 import read_sc7, sc7_snapshot_id
 
         directory = read_sc7(sc_path)

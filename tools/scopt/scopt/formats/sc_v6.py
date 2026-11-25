@@ -62,7 +62,8 @@ __all__ = [
     "KIND_GENERAL", "KIND_SPEC", "EXIT_RETURN", "EXIT_STATIC", "EXIT_DIRECT", "VARIANT_FACTS",
     "VariantEntry", "SlotEntry", "LinkEntry", "ExtTable", "Sc6File", "read_sc6", "write_sc6",
     "ext_problem", "sc6parse_compare", "SC6PARSE", "max_ext_entries", "TB_STRUCT_ROUND",
-    "SC7_SEMANTIC_MARKER", "sc6_snapshot_id", "ScExtRefused",
+    "SC7_SEMANTIC_MARKER", "SC7_SC6_REGIONS_MARKER", "COMPOSED_DIR_OFFSET",
+    "sc6_snapshot_id", "ScExtRefused",
 ]
 
 SC6_VERSION = 6
@@ -86,6 +87,12 @@ TB_STRUCT_ROUND = 64
 #: bits retain the v6 feature flags, and the payload remains at ``0x100``.
 #: Firmware v7 uses bit 0 without this marker.
 SC7_SEMANTIC_MARKER = 1 << 31
+#: Composed v7 (B3 + trusted firmware regions), only together with
+#: :data:`SC7_SEMANTIC_MARKER`: the semantic payload stays at ``0x100`` with its
+#: arrays ending at or before :data:`COMPOSED_DIR_OFFSET`, where the v7
+#: firmware-region directory header lives (QEMU SC7_FEAT_SC6_FIRMWARE_REGIONS).
+SC7_SC6_REGIONS_MARKER = 1 << 30
+COMPOSED_DIR_OFFSET = 0xFF00
 
 _EXT_HDR = struct.Struct("<8sIIIIIHHHHIQ8sQ")
 _VARIANT = struct.Struct("<QQQQQQIIQ")
@@ -97,9 +104,10 @@ SC6PARSE = Path(os.environ.get(
     "SCOPT_SC6PARSE", Path(__file__).resolve().parents[2] / "independent/sc6parse.py"))
 
 
-def max_ext_entries(nv: int, ns: int, nl: int) -> bool:
-    """True when the arrays fit before the arena (``ext_table_too_large`` otherwise)."""
-    return ARRAYS_OFFSET + 64 * nv + 32 * ns + 16 * nl <= SC_CODE_OFFSET
+def max_ext_entries(nv: int, ns: int, nl: int, *, limit: int = SC_CODE_OFFSET) -> bool:
+    """True when the arrays fit before ``limit`` (``ext_table_too_large`` otherwise):
+    the arena, or :data:`COMPOSED_DIR_OFFSET` in a composed file."""
+    return ARRAYS_OFFSET + 64 * nv + 32 * ns + 16 * nl <= limit
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +276,8 @@ def _round_up(v: int, a: int) -> int:
 
 
 def ext_problem(header: ScHeader, loaded: Sequence[ScRecord], read: Any, *,
-                host_page_size: int | None = None, check_hashes: bool = True
+                host_page_size: int | None = None, check_hashes: bool = True,
+                arrays_limit: int = SC_CODE_OFFSET
                 ) -> tuple[ExtTable | None, tuple[str, str] | None]:
     """``(table, None)`` when the v6 loader accepts the file, else ``(table or None,
     (code, message))`` for the first failing check.
@@ -276,7 +285,8 @@ def ext_problem(header: ScHeader, loaded: Sequence[ScRecord], read: Any, *,
     ``loaded`` are the records ``load_records`` keeps (valid, file-slot order);
     ``read(off, n)`` reads ``n`` file bytes at ``off`` (zero-filled past EOF).
     ``host_page_size`` defaults to the header's (the loader uses the real host
-    page size; equal on the pinned host).
+    page size; equal on the pinned host).  ``arrays_limit`` is where the
+    arrays must end: the arena, or :data:`COMPOSED_DIR_OFFSET` in a composed file.
     """
     page = header.host_page_size if host_page_size is None else host_page_size
     tab: ExtTable | None = None
@@ -300,7 +310,7 @@ def ext_problem(header: ScHeader, loaded: Sequence[ScRecord], read: Any, *,
         if r0 or r1:
             raise _Die("ext_reserved", "reserved header fields not zero")
         asz = 64 * nv + 32 * ns + 16 * nl
-        if ARRAYS_OFFSET + asz > SC_CODE_OFFSET:
+        if ARRAYS_OFFSET + asz > arrays_limit:
             raise _Die("ext_table_too_large", "ext table too large")
         arrays = read(ARRAYS_OFFSET, asz)
         tab = ExtTable.decode(xb, arrays)
@@ -469,6 +479,11 @@ class Sc6File:
         return self.is_semantic_v7
 
     @property
+    def is_composed(self) -> bool:
+        """Semantic payload plus a trusted v7 firmware directory at 0xFF00."""
+        return self.is_semantic_v7 and bool(self.sc.header.reserved & SC7_SC6_REGIONS_MARKER)
+
+    @property
     def loadable(self) -> bool:
         """The v6 loader would run on it (header valid, and no extension problem)."""
         return self.sc.loadable and self.problem is None
@@ -515,7 +530,9 @@ def read_sc6(path: str | os.PathLike, *, host_page_size: int | None = None,
                    bool(sc.header.reserved & SC7_SEMANTIC_MARKER))
     if not sc.loadable or not semantic_v7:
         return Sc6File(sc)
-    unknown = sc.header.reserved & ~(SC7_SEMANTIC_MARKER | KNOWN_FEATURES)
+    unknown = sc.header.reserved & ~(SC7_SEMANTIC_MARKER | SC7_SC6_REGIONS_MARKER |
+                                     KNOWN_FEATURES)
+    composed = bool(sc.header.reserved & SC7_SC6_REGIONS_MARKER)
     if unknown:
         return Sc6File(sc, problem=("feature_flags",
                                     f"unknown feature bits 0x{unknown:x}"))
@@ -530,7 +547,9 @@ def read_sc6(path: str | os.PathLike, *, host_page_size: int | None = None,
             return b + bytes(n - len(b))
 
         loaded = [sc.records[i] for i in sc.valid_slots]
-        tab, prob = ext_problem(ext_header, loaded, read, host_page_size=host_page_size)
+        tab, prob = ext_problem(ext_header, loaded, read, host_page_size=host_page_size,
+                                arrays_limit=COMPOSED_DIR_OFFSET if composed else
+                                SC_CODE_OFFSET)
         bodies: tuple[bytes, ...] = ()
         if tab is not None and prob is None:
             bodies = tuple(read(SC_CODE_OFFSET + v.tc_offset, v.end_offset - v.tc_offset)

@@ -4,6 +4,13 @@ V7 leaves all public v5 records intact.  A small fixed header at file offset
 0x100 points to an arena-resident, checksummed directory; therefore the number
 of regions and members is limited only by the actual TCG arena, not the legacy
 64 KiB metadata gap.
+
+The composed subtype (``reserved = 1<<31 | 1<<30 | sc6 feature bits``) carries
+both a B3 semantic extension and trusted firmware regions: the semantic payload
+stays at 0x100 (its arrays end at or before 0xFF00) and the unchanged directory
+header sits at :data:`SC7_COMPOSED_DIR_OFFSET`.  Only trusted directories may
+compose: safe members reuse their public record's goto_tb offsets, which B3
+growth moves.
 """
 
 from __future__ import annotations
@@ -28,12 +35,19 @@ __all__ = ["SC7_VERSION", "SC7_MAGIC", "SC7_DIRECTORY_VERSION",
            "build_directory", "write_sc7", "write_sc7_public",
            "write_sc7_semantic", "read_sc7", "decode_directory",
            "sc7_snapshot_id", "canonical_snapshot_id", "LOADER_V7_CANONICAL",
-           "LOADER_V7", "LOADER_V7_TRUSTED"]
+           "LOADER_V7", "LOADER_V7_TRUSTED", "LOADER_V7_TRUSTED_SC6",
+           "SC7_FEATURE_SC6_REGIONS", "SC7_COMPOSED_DIR_OFFSET", "write_sc7_composed",
+           "is_composed_features"]
 
 SC7_VERSION = 7
 SC7_OFFSET = 0x100
 SC7_MAGIC = b"QSC7FWRG"
 SC7_FEATURE_FIRMWARE_REGIONS = 1
+#: Composed v7 marker (QEMU SC7_FEAT_SC6_FIRMWARE_REGIONS); valid only together
+#: with the semantic marker (bit 31).  Bit 30 alone is an unknown feature.
+SC7_FEATURE_SC6_REGIONS = 1 << 30
+#: Directory header slot of a composed file (the semantic ext keeps 0x100).
+SC7_COMPOSED_DIR_OFFSET = 0xFF00
 SC7_DIRECTORY_VERSION = 2
 SC7_TRUSTED_DIRECTORY_VERSION = 3
 SC7_REGION_COMPOSITE = 1
@@ -51,6 +65,7 @@ SC7_EDGE_TRUSTED_SKIP_POLL = 1
 SC7_TRUSTED_ENTRY_OFFSET = 15
 LOADER_V7 = "qemu-sc-v7-composite-firmware-regions"
 LOADER_V7_TRUSTED = "qemu-sc-v7-trusted-firmware-regions"
+LOADER_V7_TRUSTED_SC6 = "qemu-sc-v7-trusted-firmware-regions+sc6"
 LOADER_V7_CANONICAL = "qemu-sc-v7"
 
 _HEADER = struct.Struct("<8sIIIIIIQQQ8sQ8s")
@@ -70,6 +85,8 @@ class Sc7Directory:
     n_edges: int
     artifact_id8: bytes
     directory_version: int = SC7_DIRECTORY_VERSION
+    #: The directory sits at 0xFF00 next to a semantic (sc6) extension.
+    composed: bool = False
 
     @property
     def trusted(self) -> bool:
@@ -77,7 +94,16 @@ class Sc7Directory:
 
 
 def loader_requirement(directory: Sc7Directory) -> str:
+    if directory.composed:
+        return LOADER_V7_TRUSTED_SC6
     return LOADER_V7_TRUSTED if directory.trusted else LOADER_V7
+
+
+def is_composed_features(reserved: int) -> bool:
+    """Whether top-level v7 feature bits name the composed (sc6 + regions) subtype."""
+    from .sc_v6 import SC7_SEMANTIC_MARKER
+
+    return bool(reserved & SC7_SEMANTIC_MARKER) and bool(reserved & SC7_FEATURE_SC6_REGIONS)
 
 
 def directory_size(regions: Sequence[Any]) -> int:
@@ -233,14 +259,14 @@ def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
                         directory_version)
 
 
-def write_sc7(path: str | os.PathLike, header: ScHeader, units: Iterable,
-              link: Any, *, check: bool = True, fsync: bool = True) -> ScHeader:
-    parts = list(units)
-    source_tb = {u.uid: u.new_tb_offset for u in link.units}
-    directory = build_directory(link, source_tb)
-    extra = [(SC7_OFFSET, directory.header),
-             (SC_CODE_OFFSET + directory.table_offset, directory.table)]
-    for region in link.firmware_regions:
+def _firmware_payload(link: Any, header: ScHeader, directory: Sc7Directory
+                      ) -> tuple[list[tuple[int, bytes]], list[tuple[int, int, str]]]:
+    """Arena file extras (table, descriptors, member code/search, NOP padding)
+    and the arena spans they occupy (directory table and region members)."""
+    extra = [(SC_CODE_OFFSET + directory.table_offset, directory.table)]
+    spans: list[tuple[int, int, str]] = [
+        (directory.table_offset, directory.max_end, "firmware directory")]
+    for ri, region in enumerate(link.firmware_regions):
         alias = directory.trusted and not getattr(region, "member_descriptors", False)
         for mi, member in enumerate(region.members):
             if (len(member.descriptor) != header.tb_size or
@@ -248,44 +274,120 @@ def write_sc7(path: str | os.PathLike, header: ScHeader, units: Iterable,
                 raise ScFormatError("private firmware descriptor must be canonical zero bytes")
             if not alias or mi == 0:
                 extra.append((SC_CODE_OFFSET + member.tb_offset, member.descriptor))
+                spans.append((member.tb_offset, member.tb_offset + len(member.descriptor),
+                              f"region {ri} member {mi} descriptor"))
             extra.append((SC_CODE_OFFSET + member.tc_offset, member.code))
             extra.append((SC_CODE_OFFSET + member.search_offset, member.search))
+            spans.extend((
+                (member.tc_offset, member.tc_offset + len(member.code),
+                 f"region {ri} member {mi} code"),
+                (member.search_offset, member.search_offset + len(member.search),
+                 f"region {ri} member {mi} search"),
+            ))
         if getattr(region, "member_descriptors", False):
             extra.extend((SC_CODE_OFFSET + at, _NOP * size)
                          for at, size in _member_code_gaps(region.members))
+    return extra, spans
+
+
+def _check_arena(parts: Sequence[Any], spans: Sequence[tuple[int, int, str]],
+                 code_size: int) -> None:
+    """Every public record and payload span lies in the arena, pairwise disjoint."""
+    arena_spans: list[tuple[int, int, str]] = []
+    for i, item in enumerate(parts):
+        rec = ScRecord.from_bytes(item[0] if isinstance(item, tuple) else item.record)
+        arena_spans.append((rec.tb_offset, rec.end_offset, f"public record {i}"))
+    arena_spans.extend(spans)
+    for start, end, label in arena_spans:
+        if not 0 <= start <= end <= code_size:
+            raise ScFormatError(f"{label} [0x{start:x},0x{end:x}) outside the arena")
+    ordered = sorted(arena_spans)
+    for (a, b, al), (c, d, cl) in zip(ordered, ordered[1:]):
+        if c < b:
+            raise ScFormatError(f"{al} [0x{a:x},0x{b:x}) overlaps {cl} "
+                                f"[0x{c:x},0x{d:x})")
+
+
+def write_sc7(path: str | os.PathLike, header: ScHeader, units: Iterable,
+              link: Any, *, check: bool = True, fsync: bool = True) -> ScHeader:
+    parts = list(units)
+    source_tb = {u.uid: u.new_tb_offset for u in link.units}
+    directory = build_directory(link, source_tb)
+    payload, spans = _firmware_payload(link, header, directory)
+    extra = [(SC7_OFFSET, directory.header), *payload]
     hdr = header.replace(version=SC7_VERSION, reserved=SC7_FEATURE_FIRMWARE_REGIONS)
     if check:
-        arena_spans: list[tuple[int, int, str]] = []
-        for i, item in enumerate(parts):
-            rec = ScRecord.from_bytes(item[0] if isinstance(item, tuple) else item.record)
-            arena_spans.append((rec.tb_offset, rec.end_offset, f"public record {i}"))
-        arena_spans.append((directory.table_offset, directory.max_end, "firmware directory"))
-        for ri, region in enumerate(link.firmware_regions):
-            alias = directory.trusted and not getattr(region, "member_descriptors", False)
-            for mi, member in enumerate(region.members):
-                if not alias or mi == 0:
-                    arena_spans.append(
-                        (member.tb_offset, member.tb_offset + len(member.descriptor),
-                         f"region {ri} member {mi} descriptor"))
-                arena_spans.extend((
-                    (member.tc_offset, member.tc_offset + len(member.code),
-                     f"region {ri} member {mi} code"),
-                    (member.search_offset, member.search_offset + len(member.search),
-                     f"region {ri} member {mi} search"),
-                ))
-        for start, end, label in arena_spans:
-            if not 0 <= start <= end <= hdr.code_size:
-                raise ScFormatError(f"{label} [0x{start:x},0x{end:x}) outside the arena")
-        ordered = sorted(arena_spans)
-        for (a, b, al), (c, d, cl) in zip(ordered, ordered[1:]):
-            if c < b:
-                raise ScFormatError(f"{al} [0x{a:x},0x{b:x}) overlaps {cl} "
-                                    f"[0x{c:x},0x{d:x})")
+        _check_arena(parts, spans, hdr.code_size)
     out = write_sc(path, hdr, parts, check=check, fsync=fsync,
                    versions=(SC7_VERSION,), extra=extra)
     if check:
         parsed = read_sc7(path)
         if parsed.artifact_id8 != directory.artifact_id8:
+            raise ScFormatError("v7 directory artifact identity changed after write")
+    return out
+
+
+def write_sc7_composed(path: str | os.PathLike, header: ScHeader, units: Iterable,
+                       link: Any, variant_bodies: Sequence[bytes] = (), *,
+                       rewritten: bool = False, check: bool = True, fsync: bool = True,
+                       host_page_size: int | None = None) -> ScHeader:
+    """Write the composed canonical v7: the B3 semantic extension (``link.ext``,
+    variants) at 0x100 and the trusted firmware-region directory at 0xFF00.
+
+    Refuses safe regions (``firmware_region_safe_composition``), arrays that
+    reach the directory header (:class:`ScExtRefused` ``ext_table_too_large``)
+    and any overlap of records, variants, region members and the directory
+    table.  With ``check`` the written file is read back by both readers.
+    """
+    from dataclasses import replace
+
+    from .sc_v6 import (ARRAYS_OFFSET, EXT_OFFSET, KNOWN_FEATURES, SC7_SEMANTIC_MARKER,
+                        ScExtRefused, read_sc6)
+
+    ext = link.ext
+    if ext is None or not link.firmware_regions:
+        raise ScFormatError("composed v7 needs both a semantic extension and firmware regions")
+    parts = list(units)
+    source_tb = {u.uid: u.new_tb_offset for u in link.units}
+    directory = build_directory(link, source_tb)
+    if not directory.trusted:
+        raise ScFormatError("firmware_region_safe_composition: safe firmware regions reuse "
+                            "public goto_tb offsets and cannot share an artifact with B3")
+    directory = replace(directory, composed=True)
+    enc = ext.encode()
+    if ARRAYS_OFFSET + len(enc) - 64 > SC7_COMPOSED_DIR_OFFSET:
+        raise ScExtRefused("ext_table_too_large",
+                           "the extension arrays do not fit before the composed directory "
+                           f"at 0x{SC7_COMPOSED_DIR_OFFSET:x}")
+    if check and len(variant_bodies) != len(ext.variants):
+        raise ScFormatError(f"{len(variant_bodies)} variant bodies for "
+                            f"{len(ext.variants)} variants")
+    payload, spans = _firmware_payload(link, header, directory)
+    extra = [(EXT_OFFSET, enc), (SC7_COMPOSED_DIR_OFFSET, directory.header), *payload]
+    for variant, body in zip(ext.variants, variant_bodies):
+        if check and len(body) != variant.end_offset - variant.tc_offset:
+            raise ScFormatError(f"variant {variant.variant_id}: body is {len(body)} bytes, "
+                                f"entry says {variant.end_offset - variant.tc_offset}")
+        extra.append((SC_CODE_OFFSET + variant.tc_offset, bytes(body)))
+        spans.append((variant.tb_offset, variant.end_offset,
+                      f"variant {variant.variant_id}"))
+    features = ext.features(rewritten=rewritten)
+    if features & ~KNOWN_FEATURES:
+        raise ScFormatError(f"unknown semantic extension features 0x{features:x}")
+    hdr = header.replace(version=SC7_VERSION,
+                         reserved=SC7_SEMANTIC_MARKER | SC7_FEATURE_SC6_REGIONS | features)
+    if check:
+        _check_arena(parts, spans, hdr.code_size)
+    out = write_sc(path, hdr, parts, check=check, fsync=fsync,
+                   versions=(SC7_VERSION,), extra=extra)
+    if check:
+        semantic = read_sc6(path, host_page_size=host_page_size)
+        if not semantic.is_composed or semantic.problem is not None or semantic.sc.skipped:
+            detail = semantic.problem[1] if semantic.problem is not None else "records skipped"
+            raise ScExtRefused(semantic.problem[0] if semantic.problem else "records_skipped",
+                               f"composed semantic extension refused: {detail}")
+        parsed = read_sc7(path)
+        if not parsed.composed or parsed.artifact_id8 != directory.artifact_id8:
             raise ScFormatError("v7 directory artifact identity changed after write")
     return out
 
@@ -342,12 +444,25 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
     sc = read_sc(path, versions=(SC7_VERSION,))
     if not sc.loadable or sc.header.version != SC7_VERSION:
         raise ScFormatError("not a loadable v7 cache")
-    if sc.header.reserved != SC7_FEATURE_FIRMWARE_REGIONS:
+    composed = is_composed_features(sc.header.reserved)
+    if sc.header.reserved != SC7_FEATURE_FIRMWARE_REGIONS and not composed:
         raise ScFormatError(f"invalid v7 feature bits 0x{sc.header.reserved:x}")
     if sc.problems or sc.skipped or sc.count != sc.header.record_count:
         raise ScFormatError("invalid v7 public record table")
+    variant_spans: list[tuple[int, int, str]] = []
+    if composed:
+        # QEMU loads the semantic payload first; its variants join the
+        # arena disjointness proof of the directory.
+        from .sc_v6 import read_sc6
+
+        semantic = read_sc6(path)
+        if semantic.problem is not None or semantic.ext is None:
+            detail = semantic.problem[1] if semantic.problem is not None else "no extension"
+            raise ScFormatError(f"composed v7 semantic extension refused: {detail}")
+        variant_spans = [(v.tb_offset, v.end_offset, f"variant {v.variant_id}")
+                         for v in semantic.ext.variants]
     with open(path, "rb") as stream:
-        stream.seek(SC7_OFFSET)
+        stream.seek(SC7_COMPOSED_DIR_OFFSET if composed else SC7_OFFSET)
         raw = stream.read(_HEADER.size)
         if len(raw) != _HEADER.size:
             raise ScFormatError("truncated v7 directory header")
@@ -367,7 +482,9 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
         table = stream.read(n)
     if len(table) != n or fnv1a64(table, fnv1a64(raw[:64])) != checksum:
         raise ScFormatError("v7 directory checksum mismatch")
-    directory = Sc7Directory(raw, table, off, max_end, nr, nm, ne, aid, version)
+    directory = Sc7Directory(raw, table, off, max_end, nr, nm, ne, aid, version, composed)
+    if composed and not directory.trusted:
+        raise ScFormatError("composed v7 requires a trusted firmware directory")
     rows = decode_directory(directory)
     by_tb = {sc.records[i].tb_offset: sc.records[i] for i in sc.valid_slots}
     public_spans = [(r.tb_offset, r.end_offset, f"public record {i}")
@@ -484,7 +601,7 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
                     stream.seek(SC_CODE_OFFSET + a["tc_offset"] + a["tc_size"])
                     if stream.read(gap) != _NOP * gap:
                         raise ScFormatError(f"v7 region {i}: member padding is not NOPs")
-    occupied = sorted(public_spans + private_spans +
+    occupied = sorted(public_spans + private_spans + variant_spans +
                       [(off, max_end, "firmware directory")])
     for (a, b, al), (c, d, cl) in zip(occupied, occupied[1:]):
         if c < b:
@@ -615,12 +732,22 @@ def decode_directory(directory: Sc7Directory) -> dict[str, Any]:
 
 
 def sc7_snapshot_id(path: str | os.PathLike) -> str:
-    """Identity of the records, directory and every private member byte."""
+    """Identity of the records, directory and every private member byte.
+
+    A composed file is domain-separated and its base is the semantic
+    identity (records, extension table and variant bodies)."""
     sc = read_sc(path, versions=(SC7_VERSION,))
     directory = read_sc7(path)
-    digest = hashlib.sha256(
-        f"scopt.snapshot_id.v7/{directory.directory_version}".encode())
-    digest.update(sc.snapshot_id().encode())
+    if directory.composed:
+        from .sc_v6 import read_sc6, sc6_snapshot_id
+
+        domain = f"scopt.snapshot_id.v7c/{directory.directory_version}"
+        base = sc6_snapshot_id(read_sc6(path))
+    else:
+        domain = f"scopt.snapshot_id.v7/{directory.directory_version}"
+        base = sc.snapshot_id()
+    digest = hashlib.sha256(domain.encode())
+    digest.update(base.encode())
     digest.update(directory.header)
     digest.update(directory.table)
     rows = decode_directory(directory)
@@ -649,6 +776,10 @@ def canonical_snapshot_id(path: str | os.PathLike) -> str:
         return sc.snapshot_id()
     from .sc_v6 import SC7_SEMANTIC_MARKER, read_sc6, sc6_snapshot_id
 
+    # The composed test must precede the semantic one: a composed identity
+    # covers the region bytes too.
+    if is_composed_features(sc.header.reserved):
+        return sc7_snapshot_id(path)
     if sc.header.reserved & SC7_SEMANTIC_MARKER:
         return sc6_snapshot_id(read_sc6(path))
     if sc.header.reserved == SC7_FEATURE_FIRMWARE_REGIONS:

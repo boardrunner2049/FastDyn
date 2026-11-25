@@ -141,8 +141,13 @@ class FirmwareInline:
                                   "hot_loop_exact_profile_required" if policy.requires_edges
                                   else "cost_model_exact_profile_required",
                                   "requires an exact reached phase of the ordinary input snapshot")
+        # Composed sealed+B3 pipelines run firmware-inline after the B3
+        # passes; regions whose member sources B3 edited keep the legacy
+        # shared descriptor, so price and report them as unchainable.
+        state = getattr(view, "b3", None)
+        b3_edited = state.edited_uids() if state is not None else frozenset()
         profit = (ProfitModel(ProfitIndex.build(profile, phase), costs, residual_mode,
-                              entry_mode, phase) if cost_enabled else None)
+                              entry_mode, phase, b3_edited) if cost_enabled else None)
         inputs = PolicyInput(ctx.b3.snapshot, image, (), ctx.params, profile, profit=profit)
         try:
             options = ctx.params.get("policy_options", {})
@@ -413,11 +418,12 @@ class FirmwareInline:
                                                             for edge in plan.edges),
                              "trusted": plan.trusted,
                              "trusted_entry_offset": plan.trusted_entry_offset,
-                             # Plan-level: firmware-inline is the terminal
-                             # stage, so no source is B3-edited.  The linker
-                             # may still keep the shared descriptor
-                             # (link firmware_regions member_descriptor_refusal).
-                             "residual_exits_chainable": region_exits_chainable(plan),
+                             # Plan-level, given the units earlier B3
+                             # passes edited.  The linker may still keep the
+                             # shared descriptor (link firmware_regions
+                             # member_descriptor_refusal).
+                             "residual_exits_chainable":
+                                 region_exits_chainable(plan, b3_edited),
                              "expansion_depth": depth(plan),
                              "nested_inlined_calls": sum(
                                  edge.kind == "call" and edge.target_member is not None

@@ -453,6 +453,15 @@ class ImportCache:
                     code = "version" if f6.problem[0] == "ext_table_clear" else "sc6_extension"
                     raise ImportRejected(code, f"{f6.problem[0]}: {f6.problem[1]}")
                 sc = f6.sc
+                if f6.is_composed:
+                    # Composed v7: the trusted firmware directory at 0xFF00
+                    # is imported next to the semantic extension.
+                    from ..formats.sc_v7 import read_sc7
+
+                    try:
+                        f7 = read_sc7(self.sc_path)
+                    except ScFormatError as exc:
+                        raise ImportRejected("sc7_extension", str(exc)) from exc
             elif sc.loadable and sc.header.version == 7 and sc.header.reserved == 1:
                 from ..formats.sc_v7 import read_sc7
 
@@ -489,6 +498,7 @@ class ImportCache:
         checks: dict[int, UnitCheck] = {}
         units: list[TBUnit] = []
         if f7 is not None:
+            # Composed files take the domain-separated composed identity.
             from ..formats.sc_v7 import sc7_snapshot_id
 
             sid = sc7_snapshot_id(self.sc_path)

@@ -235,6 +235,10 @@ PYTHONPATH=tools/scopt scopt-env/bin/scopt optimize "$SNAP" \
   --prep "$SEALED_PREP" --elf RTOSDemo.out --json
 ```
 
+`--pipeline sealed-whopr-7-b3` composes the same regions with B3 in one artifact. It also
+needs a sealed steady `--profile` and `--enable specialize-returns --enable chain-returns
+--enable chain-static`; see [B3 passes](b3-passes.md#sealed-firmware-regions--b3-configuration-7--b3).
+
 Check the exact published artifact before deployment. The first command is the minimal
 loader/runtime gate; the second is the optional proof path and can be run separately:
 

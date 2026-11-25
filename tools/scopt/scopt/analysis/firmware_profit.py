@@ -207,13 +207,15 @@ class RegionEstimate:
                 "reasons": list(self.reasons)}
 
 
-def resolve_residual_goto_tb(param: str, plan: Any) -> str:
+def resolve_residual_goto_tb(param: str, plan: Any,
+                             b3_edited: Iterable[str] = ()) -> str:
     """``chained``/``unchained`` for the region's residual ``goto_tb`` exits.
 
     ``auto`` follows the linker: safe regions keep their public slots
     (chained); trusted regions chain exactly when
-    :func:`scopt.link.region_exits_chainable` holds.  firmware-inline is the
-    terminal stage, so no member source is B3-edited at planning time.
+    :func:`scopt.link.region_exits_chainable` holds for ``b3_edited``, the
+    units earlier B3 passes of the same pipeline grew, rewrote or cloned
+    (empty when firmware-inline runs alone).
     """
     if param in ("chained", "unchained"):
         return param
@@ -223,7 +225,7 @@ def resolve_residual_goto_tb(param: str, plan: Any) -> str:
         return "chained"
     from ..link import region_exits_chainable
 
-    return "chained" if region_exits_chainable(plan) else "unchained"
+    return "chained" if region_exits_chainable(plan, b3_edited) else "unchained"
 
 
 def resolve_entry_chain(param: str, plan: Any, unit_of: Callable[[str], Any]) -> str:
@@ -519,13 +521,16 @@ class ProfitModel:
     residual_goto_tb: str = "auto"
     entry_chain: str = "auto"
     phase: str = "steady"
+    #: Units B3 edited before firmware-inline (composed sealed+B3 pipelines).
+    b3_edited: frozenset[str] = frozenset()
 
     def estimate(self, plan: Any, snapshot: Any, *, exits_of=None,
                  trusted_entries: Iterable[str] = (),
                  captured: Mapping[str, float] | None = None) -> RegionEstimate:
         return estimate_region(
             plan, snapshot.unit, self.index, self.costs,
-            residual_goto_tb=resolve_residual_goto_tb(self.residual_goto_tb, plan),
+            residual_goto_tb=resolve_residual_goto_tb(self.residual_goto_tb, plan,
+                                                      self.b3_edited),
             entry_chain=resolve_entry_chain(self.entry_chain, plan, snapshot.unit),
             tb_size=snapshot.header.tb_size, exits_of=exits_of,
             trusted_entries=trusted_entries, captured=captured)

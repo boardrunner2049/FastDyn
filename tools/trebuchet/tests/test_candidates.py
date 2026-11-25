@@ -41,6 +41,21 @@ def test_firmware_region_candidates_bind_the_matching_loader_capability(tmp_path
     assert "--v7-trusted-exe" in trusted and "--v7-exe" not in trusted
 
 
+@pytest.mark.parametrize("stage", ["whopr7-b3", "pgo7-b3", "firmlooper-b3", "firmlooper-v2-b3"])
+def test_sealed_b3_candidates_enable_b3_and_bind_the_trusted_loader(tmp_path, stage):
+    image = dict(profile="train", snapshot="sealed", prep="capture", firmware="guest",
+                 admission_runtime="identity", runtime=__file__, training_launch="launch")
+    args, names, requested = optimizer_args(stage, image, "sealed", tmp_path, {}, [])
+    assert args[args.index("--pipeline") + 1] == "sealed-" + stage.replace("7", "-7")
+    assert names == requested and names[-1] == "firmware-inline"
+    enabled = {args[i + 1] for i, flag in enumerate(args) if flag == "--enable"}
+    assert {"specialize-returns", "chain-returns", "chain-static"} <= enabled
+    assert "--disable" not in args
+    # B3 passes need the steady profile even for the static FirmLooper policies.
+    assert "--profile" in args and "--v7-trusted-exe" in args and "--v7-exe" not in args
+    assert ("--pgo-launch" in args) == (stage == "pgo7-b3")
+
+
 @pytest.mark.parametrize("mode", ["firmlooper", "firmlooper-v2"])
 def test_firmlooper_recipe_selects_static_policy_without_training(tmp_path, mode):
     image = dict(snapshot="sealed", prep="capture", firmware="guest", admission_runtime="identity",

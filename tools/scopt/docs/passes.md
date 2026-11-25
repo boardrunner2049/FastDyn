@@ -237,6 +237,9 @@ expansion bounded by RTOS, scheduler and interrupt-handler entry points.
 The existing `hot-loop` policy selects from a training run. See
 [Firmware inlining policies](firmware-inline-policies.md) for the selection
 rules, explicit task entries and an example of registering a new policy.
+The `sealed-*-b3` pipelines run the B3 passes before `firmware-inline` and
+publish the composed v7 artifact (trusted regions only); see
+[B3 passes](b3-passes.md#sealed-firmware-regions--b3-configuration-7--b3).
 
 The `hot-loop-firmware-inline` pipeline selects verified guest call instructions
 inside cycles on the observed TB graph. It requires 1,000 observed transfers to

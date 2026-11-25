@@ -78,7 +78,12 @@ scopt optimize "$SNAP" --pipeline b3 --store "$OUT" \
 Launch it like configuration 6. The QEMU must activate B3 on sealed lookups
 (`docs/qemu.md`, "Sealed B3"). `QEMU_SC_V7_EXPERIMENT=no-sealed-sc6` gives the
 old behaviour on the same bytes for attribution. [B3 on sealed captures](../../docs/b3-passes.md)
-B3 cannot yet share an artifact with configuration 7's firmware regions.
+Configuration 7 + B3 composes B3 with configuration 7's trusted firmware regions in one
+artifact: `--pipeline sealed-pgo-7-b3` (or `sealed-whopr-7-b3`) with the same sealed profile,
+`--prep`, `--enable` flags and `--v7-trusted-exe`. Give configurations 7 and 7 + B3 the same
+explicit sealed steady profile so that region selection does not confound the B3 effect.
+With `QEMU_SC_V7_STATS`, check `"sc6_composed": true` and that `regions_loaded` equals
+configuration 7's count.
 
 The packet-parser evaluation uses six distinct existing streams and checks the
 parser model and output registers. FreeRTOS+CLI uses the upstream command

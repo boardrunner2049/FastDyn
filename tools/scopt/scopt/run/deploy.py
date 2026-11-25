@@ -261,9 +261,13 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
 
     if header.version != 7:
         reasons.append("legacy_cache_version")
+    from ..formats.sc_v7 import is_composed_features
+
     semantic = header.version == 7 and bool(header.reserved & SC7_SEMANTIC_MARKER)
     public = header.version == 7 and header.reserved == 0
-    firmware = header.version == 7 and header.reserved == 1
+    # Composed v7 carries both payloads; both identities are checked.
+    composed = semantic and is_composed_features(header.reserved)
+    firmware = header.version == 7 and (header.reserved == 1 or composed)
     if header.version == 7 and not (public or semantic or firmware):
         reasons.append("unknown_v7_features")
     id8 = _ext_id8_of(art["sc"]) if semantic else None
@@ -310,7 +314,7 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
                 reasons.append("ext_artifact_id_missing")
             elif sid8 != id8:
                 reasons.append("ext_artifact_id_mismatch")
-        elif firmware:
+        if firmware:
             sid8 = side.get("x_firmware_artifact_id8")
             info["sidecar_firmware_artifact_id8"] = sid8
             if sid8 is None:

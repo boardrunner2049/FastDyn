@@ -249,7 +249,8 @@ rebuild of QEMU, write the file again and repeat this section (see §13).
 
 3. **Canonical v7 loader.** Every newly published artifact is top-level `.sc` v7.
    Public-only artifacts have no payload; cross-TB semantic artifacts and firmware
-   regions select mutually exclusive v7 feature payloads. The compatibility names
+   regions select v7 feature payloads, and the composed subtype carries a semantic
+   extension together with trusted firmware regions (`docs/b3-passes.md`). The compatibility names
    `SCOPT_V6_EXES` and `--v6-exe` still admit the semantic-extension implementation;
    they do not request or publish a v6 file. Composite and trusted firmware regions
    use `SCOPT_V7_COMPOSITE_EXES` / `--v7-exe` and

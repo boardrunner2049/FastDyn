@@ -31,6 +31,11 @@ PIPELINES = {
     "pgo7": "sealed-pgo-7",
     "firmlooper": "sealed-firmlooper",
     "firmlooper-v2": "sealed-firmlooper-v2",
+    # Sealed firmware regions composed with B3 (composed canonical v7).
+    "whopr7-b3": "sealed-whopr-7-b3",
+    "pgo7-b3": "sealed-pgo-7-b3",
+    "firmlooper-b3": "sealed-firmlooper-b3",
+    "firmlooper-v2-b3": "sealed-firmlooper-v2-b3",
     "hot-loop-inline": "hot-loop-inline",
     "hot-loop-firmware-inline": "hot-loop-firmware-inline",
     "b3-ph": "b3-ph", "b3-llvm": "b3-llvm", "llvm": "b2-llvm-layout", "page-local": "b2-page-local", "b3": B3, "static": B3, "returns": B3, "general": B3,
@@ -39,6 +44,8 @@ PIPELINES = {
     "scalar": "local-scalar", "global-region": "global-region",
     "native-1": "host-inline-splice", "native-2": "host-inline-splice",
 }
+TRUSTED_FIRMWARE_STAGES = ("whopr7", "pgo7", "firmlooper", "firmlooper-v2",
+                           "whopr7-b3", "pgo7-b3", "firmlooper-b3", "firmlooper-v2-b3")
 PACKAGES = {"sfb", "sfb-hot", "b4", "b4-coalesce", "b4-absorb"}
 CORE = ["warm", "b3", "sfb", "sfb+b3"]
 STAGES = PACKAGES | PIPELINES.keys()
@@ -168,9 +175,10 @@ def optimizer_args(stage, image, parent, root, params, ancestry, pipeline_dir=No
         args += ["--profile", image["profile"]]
     if stage in ("firmware-inline", "hot-loop-firmware-inline"):
         args += ["--v7-exe", file_sha256(image["runtime"])]
-    elif stage in ("whopr7", "pgo7", "firmlooper", "firmlooper-v2"):
+    elif stage in TRUSTED_FIRMWARE_STAGES:
         args += ["--v7-trusted-exe", file_sha256(image["runtime"])]
-    if stage in ("pgo7", "hot-loop-inline", "hot-loop-firmware-inline") and image.get("training_launch"):
+    if stage in ("pgo7", "pgo7-b3", "hot-loop-inline", "hot-loop-firmware-inline") and \
+            image.get("training_launch"):
         args += ["--pgo-launch", image["training_launch"]]
     for path in ancestry:
         args += ["--warm-stage", path]

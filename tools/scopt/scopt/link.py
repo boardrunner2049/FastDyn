@@ -75,6 +75,7 @@ from typing import TYPE_CHECKING, Any
 from .canon import fnv1a64, hexaddr
 from .formats import scm_v1 as S
 from .formats.enums import Encoding, OpMarkKind, SiteKind
+from .formats.layouts import SC_CODE_OFFSET
 from .formats.sc_v5 import ScHeader, ScRecord, read_sc
 from .model.snapshot import LAYOUT_SECTIONS, WorkingSet
 from .model.unit import Fixup, Site, TBUnit
@@ -1825,17 +1826,26 @@ class NativeLinkerV2:
         return effective, grown
 
     def link(self) -> LinkResultV2:
-        from .formats.sc_v6 import (EXIT_RETURN, EXIT_STATIC, KIND_GENERAL, KIND_SPEC,
-                                    VARIANT_FACTS, ExtTable, LinkEntry, SlotEntry, VariantEntry,
-                                    max_ext_entries)
+        from .formats.sc_v6 import (COMPOSED_DIR_OFFSET, EXIT_RETURN, EXIT_STATIC,
+                                    KIND_GENERAL, KIND_SPEC, VARIANT_FACTS, ExtTable,
+                                    LinkEntry, SlotEntry, VariantEntry, max_ext_entries)
 
         plan, h = self.plan, self.header
         ca = h.code_address
         units = list(self.snap.units())
-        if plan.firmware_regions and (plan.grow or plan.variants or plan.rewrites
-                                      or self.placement is not None):
+        if plan.firmware_regions and self.placement is not None:
             return self._fail("", "firmware_region_terminal_stage",
-                              "firmware-inline must be the terminal isolated stage")
+                              "layout placement cannot be combined with firmware regions")
+        # B3 edits compose only with trusted regions (the composed v7 subtype):
+        # a safe member reuses its public record's goto_tb offsets, which B3
+        # growth moves while the member keeps the pre-B3 code.  Trusted regions
+        # whose member sources B3 edited keep the legacy shared descriptor
+        # (region_exits_chainable), so no descriptor names a grown slot.
+        if plan.firmware_regions and b3_edited_uids(plan) and \
+                any(not r.trusted for r in plan.firmware_regions):
+            return self._fail("", "firmware_region_safe_composition",
+                              "safe firmware regions reuse public goto_tb offsets; B3 edits "
+                              "require trusted regions")
         cloned = {v.src_uid for v in plan.variants}
         for unit in units:
             if unit.native_fragments and (not unit.splice_applied or unit.uid in cloned):
@@ -1988,7 +1998,9 @@ class NativeLinkerV2:
         if any(si.kind == "SPEC" for g in grown.values() if not g.registered
                for _, st in g.stubs for si in st.slots):
             return self._fail(next(iter(grown)), R2.SPEC_UNREGISTERED)
-        if not max_ext_entries(len(variants), len(slots), len(lks)):
+        # A composed file keeps its firmware directory header at 0xFF00.
+        if not max_ext_entries(len(variants), len(slots), len(lks),
+                               limit=COMPOSED_DIR_OFFSET if firmware_links else SC_CODE_OFFSET):
             return self._fail(units[0].uid, R2.EXT_TOO_LARGE)
         v6 = bool(slots or variants or plan.force_v6)
         ext = None
@@ -1996,7 +2008,8 @@ class NativeLinkerV2:
             ext = ExtTable(tuple(variants), tuple(slots), tuple(lks))
             ext = replace(ext, artifact_id8=_artifact_id8(ext, links, vlinks))
         # All newly published scopt artifacts use the canonical top-level v7.
-        # ``ext`` and ``firmware_regions`` select its mutually exclusive payload.
+        # ``ext`` and ``firmware_regions`` select its payload; with both, the
+        # composed subtype (sc6 at 0x100, trusted directory at 0xFF00).
         res = LinkResultV2(True, h, tuple(links), version=7, ext=ext,
                            variants=tuple(vlinks), grown=grown,
                            rewritten={k: tuple(v) for k, v in plan.rewrites.items()},

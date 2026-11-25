@@ -88,9 +88,39 @@ ones: SPEC links arm, variants are built, and every guarded or variant slot is u
 a TLB/MPU change (`docs/qemu.md`, "Sealed B3"). Store-forwarding entry rewrites
 (`icount-entry-sfb`) do not apply, because sealed TBs have no icount entry.
 
-Firmware regions (configuration 7) and a B3 extension cannot yet share one artifact,
-because both payloads start at file offset `0x100`. `scopt optimize` still refuses that
-combination (`firmware_region_terminal_stage`).
+### Sealed firmware regions + B3 (configuration 7 + B3)
+
+Trusted firmware regions and a B3 extension share one artifact, the *composed* canonical
+v7: `reserved = 1<<31 | 1<<30 | sc6 feature bits`. The semantic extension keeps file
+offset `0x100`, and its arrays must end at or before `0xFF00` (`ext_table_too_large`
+otherwise). The unchanged firmware directory header sits at `0xFF00`. Bit 30 without bit
+31 is an unknown feature. The sidecar's `loader_requirement` is
+`qemu-sc-v7-trusted-firmware-regions+sc6` and carries both `x_ext_artifact_id8` and
+`x_firmware_artifact_id8`. Deploy and the post-run proof check both identities.
+
+Four pipelines add the six `b3` passes (with `b3.toml`'s parameters) between the
+host-inline prefix, if any, and `firmware-inline`, which stays last with its original
+parameters: `sealed-pgo-7-b3`, `sealed-whopr-7-b3`, `sealed-firmlooper-b3` and
+`sealed-firmlooper-v2-b3`. The original `sealed-*` pipelines are unchanged. Run them as for
+configuration 6 + B3 above (sealed steady profile, `--prep`, the three `--enable` flags) and
+add `--v7-trusted-exe`. trebuchet names the stages `pgo7-b3`, `whopr7-b3`, `firmlooper-b3`
+and `firmlooper-v2-b3`.
+
+Only trusted regions compose. A safe member reuses its public record's goto_tb offsets,
+which B3 growth moves while the member keeps the pre-B3 code, so the linker refuses safe
+regions together with B3 edits (`firmware_region_safe_composition`), and so does QEMU
+("sc6 composition requires a trusted directory"). Region members always copy the pre-B3
+bytes. A trusted region whose member source B3 grew, rewrote or cloned keeps the legacy
+shared descriptor (`member_descriptor_refusal: b3_edited_source`), so its residual exits
+stay unchainable. `firmware-inline` prices such regions as unchainable from the units the
+earlier B3 passes edited. With a host-inline prefix, `specialize-returns` does not clone a
+spliced unit (`refused:native_layout_unsupported`). Layout placement still cannot be
+combined with firmware regions (`firmware_region_terminal_stage`).
+
+Composed artifacts are published compile-only. `validate_b3` refuses to audit them
+(`composed_v7_audit_unsupported`). The importer reads both payloads, and the snapshot id
+is domain-separated (`scopt.snapshot_id.v7c/<directory version>` over the semantic id,
+directory and member bytes).
 
 ## Manager rules (B3 mode)
 
