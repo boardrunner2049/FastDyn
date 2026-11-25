@@ -142,6 +142,30 @@ def test_explicit_boot_is_the_whole_run_opt_in(training, capsys):
     options, record, _ = training.run(spec="boot")
     assert training.calls == [None] and options["phase"] == "boot"
     assert record["source"] == "whole_run_explicit" and record["reached"] is None
+    # The user asked for the whole run: no "no reached work-start marker" warning.
+    assert "warning" not in capsys.readouterr().err
+
+
+def _firmware_pipeline(tmp_path, phase="steady"):
+    """A firmware-inline-only hot-loop pipeline (it needs training edges)."""
+    pipeline = tmp_path / f"fw-{phase}.toml"
+    pipeline.write_text('schema = "scopt.pipeline"\nversion = 1\nname = "fw"\n'
+                        'allowed_capabilities = ["EMIT_FIRMWARE_REGION"]\n'
+                        '[[pass]]\nname = "firmware-inline"\nversion = 1\n'
+                        f'params = {{ mode = "hot-loop", phase = "{phase}" }}\n')
+    return pipeline
+
+
+def _capture_b3(monkeypatch):
+    seen = {}
+
+    def optimize_b3(snap, pl, store, views, notes, *args, training_phase=None, **kwargs):
+        # firmware-inline (EMIT_FIRMWARE_REGION) pipelines package through _optimize_b3,
+        # which copies ``notes`` and ``training_phase`` into its JSON document.
+        seen.update(views=views, notes=list(notes), training_phase=training_phase)
+
+    monkeypatch.setattr(command, "_optimize_b3", optimize_b3)
+    return seen
 
 
 @pytest.fixture
@@ -151,19 +175,8 @@ def supplied_profile_cli(tmp_path, monkeypatch):
     monkeypatch.setattr(command, "_profiles", lambda paths, snap: (["view"] if paths else [], []))
     monkeypatch.setattr(command, "_automatic_loop_pgo",
                         lambda *a, **k: pytest.fail("supplied views must not train"))
-    seen = {}
-
-    def optimize_b3(snap, pl, store, views, notes, *args, training_phase=None, **kwargs):
-        # firmware-inline (EMIT_FIRMWARE_REGION) pipelines package through _optimize_b3,
-        # which copies ``notes`` and ``training_phase`` into its JSON document.
-        seen.update(views=views, notes=list(notes), training_phase=training_phase)
-
-    monkeypatch.setattr(command, "_optimize_b3", optimize_b3)
-    pipeline = tmp_path / "fw.toml"
-    pipeline.write_text('schema = "scopt.pipeline"\nversion = 1\nname = "fw"\n'
-                        'allowed_capabilities = ["EMIT_FIRMWARE_REGION"]\n'
-                        '[[pass]]\nname = "firmware-inline"\nversion = 1\n'
-                        'params = { mode = "hot-loop", phase = "steady" }\n')
+    seen = _capture_b3(monkeypatch)
+    pipeline = _firmware_pipeline(tmp_path)
     profile = tmp_path / "merged.profile.json"
     profile.write_text("{}")
 
@@ -191,6 +204,47 @@ def test_supplied_profile_notes_an_ignored_pgo_phase(supplied_profile_cli):
     assert seen["notes"] == [] and "had no effect" not in result.stderr
 
 
+@pytest.mark.parametrize("pipeline_phase, spec, source, note", [
+    # An explicit marker that training uses: no note.
+    ("steady", "steady@0x82fc4", "cli", None),
+    ("steady", "boot", "whole_run_explicit", None),
+    # A boot pipeline always trains unmarked, so an explicit marker is ignored.
+    ("boot", "steady@0x82fc4", "whole_run_explicit",
+     "--pgo-phase steady@0x82fc4 had no effect: the pipeline phase is 'boot'"),
+])
+def test_training_run_notes_only_an_ignored_pgo_phase(tmp_path, monkeypatch, pipeline_phase,
+                                                      spec, source, note):
+    monkeypatch.setattr(command, "_open_snapshot", lambda *args: SimpleNamespace(units=lambda: ()))
+    monkeypatch.setattr(command, "_profiles", lambda paths, snap: ([], []))
+    record = {"phases": None if source == "whole_run_explicit" else spec, "source": source,
+              "phase": "boot" if source == "whole_run_explicit" else pipeline_phase,
+              "wanted": pipeline_phase}
+    calls = []
+
+    def train(snap, store, launch, prep, views, options, *, wanted_phase, phase_arg, **kwargs):
+        calls.append((wanted_phase, phase_arg))
+        views.append("view")
+        options.setdefault("phase", record["phase"])
+        return record
+
+    monkeypatch.setattr(command, "_automatic_loop_pgo", train)
+    seen = _capture_b3(monkeypatch)
+    launch = tmp_path / "launch.json"
+    launch.write_text("{}")
+    result = CliRunner().invoke(command.optimize_cmd, [
+        str(tmp_path), "--pipeline", str(_firmware_pipeline(tmp_path, pipeline_phase)),
+        "--store", str(tmp_path / "store"), "--json", "--pgo-launch", str(launch),
+        "--pgo-phase", spec])
+    assert result.exit_code == 0, result.output
+    assert calls == [(pipeline_phase, spec)]
+    assert seen["views"] == ["view"] and seen["training_phase"] is record
+    if note is None:
+        assert seen["notes"] == [] and "had no effect" not in result.stderr
+    else:
+        assert len(seen["notes"]) == 1 and seen["notes"][0].startswith(note)
+        assert f"note: {note}" in result.stderr
+
+
 @pytest.mark.parametrize("error, prefix", [
     (H.TrainingPhaseError("training replay never reached phase marker steady@0x81ba0"),
      "training phase: training replay never reached"),
@@ -208,11 +262,7 @@ def test_training_phase_errors_are_reported_as_such(tmp_path, monkeypatch, error
     monkeypatch.setattr(command, "_automatic_loop_pgo", fail)
     monkeypatch.setattr(command, "_optimize_b3",
                         lambda *a, **k: pytest.fail("a failed training replay must not package"))
-    pipeline = tmp_path / "fw.toml"
-    pipeline.write_text('schema = "scopt.pipeline"\nversion = 1\nname = "fw"\n'
-                        'allowed_capabilities = ["EMIT_FIRMWARE_REGION"]\n'
-                        '[[pass]]\nname = "firmware-inline"\nversion = 1\n'
-                        'params = { mode = "hot-loop", phase = "steady" }\n')
+    pipeline = _firmware_pipeline(tmp_path)
     launch = tmp_path / "launch.json"
     launch.write_text("{}")
     result = CliRunner().invoke(command.optimize_cmd, [

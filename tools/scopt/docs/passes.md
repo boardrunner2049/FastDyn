@@ -270,8 +270,9 @@ and passes it to the profiled replay:
    (`launch_virtual:benchmark_start`): the instruction FastDyn starts the timed
    window at. When the capture has a `manifest.json`, the replay already refuses a
    virtual file that differs from the captured one. Several distinct
-   `benchmark_start` addresses are refused as `ambiguous_work_start`; name one with
-   `--pgo-phase steady@0xADDR`. An unreadable file or row is an error too;
+   `benchmark_start` addresses, or several virtual files, are refused as
+   `ambiguous_work_start`; name one with `--pgo-phase steady@0xADDR`. An unreadable
+   file or row is an error too;
 3. `steady@vComputeWindowStart` from the launch kernel (`symbol:vComputeWindowStart`).
 
 2 wins over 3 because an inliner can leave the public symbol unexecuted: FirmBOLT
@@ -284,17 +285,20 @@ a fresh `-O4` image both sources name the dead body and auto cannot find the cop
 see the `--skip-funcs` build option below.
 
 A marker the replay never reaches is an error for every source (`training phase:
-training replay never reached phase marker ...`, listing every candidate);
-`--pgo-phase boot` trains on the whole run on request. Without any marker,
-selection uses the whole-run `boot` phase and says so on stderr
-(`whole_run_unmarked`). The optimize JSON records the choice as `training_phase`:
-`source` (`launch`, `launch_virtual:benchmark_start`, `symbol:vComputeWindowStart`,
-`cli`, `whole_run_explicit` or `whole_run_unmarked`), `candidates` (each marker auto
+training replay never reached phase marker ...`, listing the candidates auto
+examined); `--pgo-phase boot` trains on the whole run on request, without a warning.
+Without any marker, selection uses the whole-run `boot` phase and says so on stderr
+(`whole_run_unmarked`). A pipeline phase that is not a valid QEMU phase name (1 to
+15 bytes of `[A-Za-z0-9_.-]`) is an error for every source. The optimize JSON
+records the choice as `training_phase`: `source` (`launch`,
+`launch_virtual:benchmark_start`, `symbol:vComputeWindowStart`, `cli`,
+`whole_run_explicit` or `whole_run_unmarked`), `candidates` (each marker auto
 examined, with `not_chosen` on the losers), and `reached`, `first_dispatch_index`,
 `match` (`exact_start` or `contained`) and `profile_id` from the training profile.
 `--pgo-phase NAME@0xADDR` or `NAME@SYMBOL` names a marker explicitly. With
-`--profile`, no training edges are collected and `--pgo-phase` has no effect;
-optimize says so in `notes` and on stderr.
+`--profile`, no training edges are collected and `--pgo-phase` has no effect, and
+neither does a marker when the pipeline phase is `boot` (always the whole unmarked
+run); optimize says so in `notes` and on stderr.
 
 For benchmark images, the inliner can instead be told to keep the hook functions
 out of line (`firmbolt ... -- --skip-funcs=vComputeWindowStart,...`, as

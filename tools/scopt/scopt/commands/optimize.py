@@ -245,7 +245,8 @@ def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, t
                 + (f"; candidates: {tried}" if tried else "") + "); pass --pgo-phase "
                 f"{training['phase']}@0xADDR of an executed marker, or --pgo-phase boot to "
                 f"train on the whole run (training profile: {work / 'training-profile.json'})")
-        if training["phase"] == "boot" and wanted_phase != "boot":
+        if training["source"] == "whole_run_unmarked":
+            # whole_run_explicit is a request (--pgo-phase boot or a boot pipeline).
             print(f"warning: training replay has no reached work-start marker "
                   f"({training['source']}); firmware selection uses the whole-run "
                   f"'boot' phase instead of {wanted_phase!r}", file=sys.stderr)
@@ -434,12 +435,19 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         if collecting_edges:
             auto_loop_phase = overrides["phase"]
             training_phase = trained
+    ignored = None
     if pgo_phase != "auto" and training_phase is None:
+        ignored = ("no training edge profile was collected (it applies to --pgo-launch "
+                   "training without --profile; helper call counts are always whole-run)")
+    elif (pgo_phase not in ("auto", "boot") and training_phase is not None
+          and training_phase["source"] == "whole_run_explicit"):
+        # Only a pipeline phase "boot" resolves a marker spec to the whole run.
+        ignored = (f"the pipeline phase is {training_phase['wanted']!r}, which always trains "
+                   "on the whole unmarked run")
+    if ignored:
         # Informational (after the incompatible-profile check above, which
         # turns every _profiles note into a usage error).
-        note = (f"--pgo-phase {pgo_phase} had no effect: no training edge profile was "
-                "collected (it applies to --pgo-launch training without --profile; "
-                "helper call counts are always whole-run)")
+        note = f"--pgo-phase {pgo_phase} had no effect: {ignored}"
         notes.append(note)
         click.echo(f"note: {note}", err=True)
     native_stage = None

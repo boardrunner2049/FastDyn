@@ -147,9 +147,26 @@ def test_resolve_training_phases(tmp_path, monkeypatch):
     symbols.clear()
     unmarked = H.resolve_training_phases(launch, "auto", "steady")
     assert unmarked["phases"] is None and unmarked["source"] == "whole_run_unmarked"
-    assert H.resolve_training_phases(_phase_launch(tmp_path, kernel=False), "auto",
-                                     "steady")["source"] == "whole_run_unmarked"
     assert unmarked["candidates"] == []
+    no_kernel = H.resolve_training_phases(_phase_launch(tmp_path, kernel=False), "auto", "steady")
+    assert no_kernel["source"] == "whole_run_unmarked" and no_kernel["candidates"] == []
+
+
+@pytest.mark.parametrize("wanted", ["steady_window_16", "bad name", "", 7])
+def test_invalid_pipeline_phase_is_refused_for_every_source(tmp_path, monkeypatch, wanted):
+    """A pipeline phase QEMU would refuse never degrades to an unmarked whole run."""
+    import scopt.run.helper_pgo as H
+
+    monkeypatch.setattr(H, "_symbols", lambda kernel: {"vComputeWindowStart": [0x81ba0]})
+    launches = [_phase_launch(tmp_path), _phase_launch(tmp_path, virtuals=_UART_VIRTUALS),
+                _phase_launch(tmp_path, kernel=False)]
+    for launch in launches:
+        with pytest.raises(H.PhaseSpecError, match="bad pipeline phase"):
+            H.resolve_training_phases(launch, "auto", wanted)
+    with pytest.raises(H.PhaseSpecError, match="bad pipeline phase"):
+        H.resolve_training_phases(launches[0], "steady@0x81ba0", wanted)
+    # The whole run on request never names a phase.
+    assert H.resolve_training_phases(launches[0], "boot", wanted)["source"] == "whole_run_explicit"
 
 
 _UART_VIRTUALS = """0x822fc benchmark_start
@@ -190,16 +207,22 @@ def test_auto_prefers_the_launch_benchmark_start_virtual(tmp_path, monkeypatch):
     got = H.resolve_training_phases(packet, "auto", "steady")
     assert got["marker"] == "0x833e8" and got["source"] == "launch_virtual:benchmark_start"
     assert got["candidates"][1]["not_chosen"] == "same_address"
-    # No kernel symbol: the virtual alone; no benchmark_start row: the symbol as before.
+    # A virtual file without a benchmark_start row: the symbol as before.
+    plain = _phase_launch(tmp_path, virtuals="0x1000 printreg 0\n")
+    assert H.resolve_training_phases(plain, "auto", "steady") == {
+        "phases": "steady@0x833e8", "phase": "steady", "marker": "0x833e8",
+        "source": "symbol:vComputeWindowStart", "explicit": False,
+        "candidates": [{"source": "symbol:vComputeWindowStart", "vaddr": "0x833e8"}]}
+    # No kernel symbol: the virtual alone; neither: an unmarked whole run.
     monkeypatch.setattr(H, "_symbols", lambda kernel: {})
     assert H.resolve_training_phases(launch, "auto", "steady")["candidates"] == [
         {"source": "launch_virtual:benchmark_start", "vaddr": "0x822fc",
          "virtuals": str(launch.parent / "virtuals.txt"), "virtuals_sha256": digest}]
-    plain = _phase_launch(tmp_path, virtuals="0x1000 printreg 0\n")
     assert H.resolve_training_phases(plain, "auto", "steady")["source"] == "whole_run_unmarked"
-    # FastDyn's "virtual=None" placeholder is not a file.
-    none = _phase_launch(tmp_path, plugin_args=["virtual=None", "modifier=None"])
-    assert H.resolve_training_phases(none, "auto", "steady")["source"] == "whole_run_unmarked"
+    # FastDyn's "virtual=None" placeholder and an empty "virtual=" are not files.
+    for placeholder in ("virtual=None", "virtual="):
+        none = _phase_launch(tmp_path, plugin_args=[placeholder, "modifier=None"])
+        assert H.resolve_training_phases(none, "auto", "steady")["source"] == "whole_run_unmarked"
     # QEMU's single-dash -plugin spelling names the same file.
     dash = _phase_launch(tmp_path, virtuals=_UART_VIRTUALS, plugin_flag="-plugin")
     assert H.resolve_training_phases(dash, "auto", "steady")["phases"] == "steady@0x822fc"
@@ -210,7 +233,8 @@ def test_auto_refuses_ambiguous_or_unreadable_work_start(tmp_path, monkeypatch):
 
     monkeypatch.setattr(H, "_symbols", lambda kernel: {"vComputeWindowStart": [0x81ba0]})
     two = _phase_launch(tmp_path, virtuals="0x822fc benchmark_start\n0x82fc4 benchmark_start\n")
-    with pytest.raises(H.PhaseSpecError, match=r"ambiguous_work_start: .*0x822fc, 0x82fc4"):
+    with pytest.raises(H.PhaseSpecError, match=r"ambiguous_work_start: .*0x822fc, 0x82fc4; "
+                                               r"choose one with --pgo-phase steady@0xADDR"):
         H.resolve_training_phases(two, "auto", "steady")
     # The same address twice (e.g. two CPUs' identical rows) is one marker.
     same = _phase_launch(tmp_path, virtuals="0x822fc benchmark_start\n0x822fd benchmark_start\n")

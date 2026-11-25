@@ -152,13 +152,19 @@ def resolve_training_phases(launch_path, spec="auto", wanted="steady"):
 
     The caller refuses a marker that the replay never reached.  A pass that
     asks for ``boot`` always trains on the whole unmarked run: with markers,
-    ``boot`` would end at the first marker.
+    ``boot`` would end at the first marker.  Any other ``wanted`` that is not
+    a valid QEMU phase name raises ``PhaseSpecError`` for every source.
     """
     launch_path = Path(launch_path)
     launch = json.loads(launch_path.read_bytes())
     none = {"phases": None, "phase": "boot", "marker": None, "explicit": False, "candidates": []}
     if wanted == "boot" or spec == "boot":
         return {**none, "source": "whole_run_explicit", "explicit": spec == "boot"}
+    # Every marker source names this phase: refuse a name QEMU would refuse
+    # here, not as a missing symbol (which would quietly train unmarked).
+    if not isinstance(wanted, str) or not _PHASE_NAME.fullmatch(wanted):
+        raise PhaseSpecError(f"bad pipeline phase {wanted!r}: expected 1..15 bytes of "
+                             "[A-Za-z0-9_.-]")
     kernel = _launch_kernel(launch)
 
     def symbols():
@@ -200,7 +206,7 @@ def resolve_training_phases(launch_path, spec="auto", wanted="steady"):
     if kernel is not None and kernel.is_file():
         try:
             (_, vaddr), = parse_phase_spec(f"{wanted}@{WORK_START_SYMBOL}", symbols())
-        except PhaseSpecError:
+        except PhaseSpecError:  # ``wanted`` is valid: the symbol is missing or duplicated
             vaddr = None
         if vaddr is not None:
             row = {"source": f"symbol:{WORK_START_SYMBOL}", "vaddr": hex(vaddr)}
