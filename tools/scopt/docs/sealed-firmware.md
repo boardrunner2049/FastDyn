@@ -168,8 +168,49 @@ separate case: executing per-site private helper copies
    a bootstrap interval, sign test and a `within_noise` verdict against the A/A band
    (`scopt.run.paired_stats`).
 
-None of these changes has been timed yet. Their effect must be measured under the
-paired A/A protocol before any configuration is reported as fixed.
+### Measured effect (2026-11-25)
+
+Packet, UART and CLI (FirmBOLT `-O4` images) were captured again on QEMU `a1bdec6`
+and timed with `compare_rtos.py`: 10 paired fresh-process blocks per workload with an
+A/A arm. The A/A bands were about ±5-6% on this shared host, and byte-identical copies
+differed by up to about 3%, so no effect under about 3% is claimed. Ratios are
+time(configuration 6) / time(arm); above 1 means the arm is faster. Every row in the
+table is above its A/A floor.
+
+| Arm | packet | UART | CLI |
+|---|---:|---:|---:|
+| 6 + B3 (`b3` on a sealed steady profile) | 1.151 | 1.189 | 1.225 |
+| `sealed-pgo-7` | 1.116 | 1.160 | 1.152 |
+| `sealed-pgo-7-b3` (composed) | 1.153 | 1.228 | 1.259 |
+
+- The new `sealed-pgo-7` against the archived artifact on the old binary: 1.110,
+  1.175 and 1.121. The binary change alone is neutral (old 6 / new 6: 0.996, 1.006,
+  1.001). The old 7-vs-6 regression did not reproduce in this session (old 6 / old 7:
+  1.016, 1.002, 1.039, within noise).
+- 6 + B3 against configuration 5: 1.124, 1.203 and 1.276, so the sealed baseline
+  now beats ordinary scopt. The B3 gain comes from the `chain-returns` and
+  `chain-static` slots in the cache bytes: the same bytes with `no-sealed-sc6` run as
+  fast (0.981, 0.996, 1.006). Sealed activation is still needed so TLB and MPU
+  changes unlink the guarded slots.
+- Chainable residual exits (`sealed-pgo-7` against the same bytes with
+  `no-trusted-exit-chain`): 1.063, 1.040 and 0.990, within noise. They remove about
+  2.96M dispatcher returns per packet run and 1.08M per UART run. Most remaining
+  residual exits on UART and CLI enter another trusted region, which QEMU does not
+  chain.
+- The profit model, recursive nesting and steady training (against the same pipeline
+  with `cost_model = "off"`, `nested = "public"` and whole-run training): 1.026, 1.051
+  and 1.075, within the A/A band. On the CLI 6,000-command input alone it is 1.088,
+  beyond that input's band. That control still has the `exit_null` loop discovery, so
+  it is not the archived configuration 7.
+- Composition against 6 + B3: 1.013, 1.023 and 1.020, within noise. Most composed
+  regions keep the shared descriptor because B3 edited their sources (47 of 48 on
+  packet), so their exits do not chain.
+- `sealed-firmlooper-v2` selects no call on the packet and CLI `-O4` images: every
+  in-loop call is an RTOS boundary or the task loop is not closed. On UART it is
+  within noise of configuration 6.
+
+Plans, observations and per-arm counters are in
+`/data/scfix-campaign/{packet,uart,cli}/timing-1`.
 
 ## Remaining limitations
 
