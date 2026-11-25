@@ -2,9 +2,13 @@
 
 The `sealed-pgo-7` pipeline collects fixed-input training data and applies two
 passes. The native pass selects helper instructions inside observed guest cycles
-by their actual call counts. The firmware pass embeds one callee layer at
-verified guest call edges in the same cycles. Both use a tunable minimum of
-1,000 observed calls. The combined compiler preserves the original training
+by their actual call counts. The firmware pass embeds verified guest call edges in
+the same cycles and, recursively, nested calls whose marginal profit is positive;
+each planned region is admitted only when the training-profile
+[profit model](firmware-inline-policies.md#profit-model) predicts a net gain.
+Both use a tunable minimum of 1,000 observed calls. Training keeps the
+`steady` phase when the launch or kernel has a work-start marker
+(`--pgo-phase`, see [passes](passes.md#firmware-inline1)). The combined compiler preserves the original training
 phase and checks the guest unit identities and transfers across the helper
 splice. A helper count of zero at a frequently entered TB is a valid result.
 

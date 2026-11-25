@@ -903,3 +903,228 @@ def test_boundary_exits_cover_caller_and_unvisited_root_continuation():
         SimpleNamespace(source_member=2, exit_id="x9"),)})
     assert [(i, x.id) for i, x, _ in boundary_residual_exits(
         visited, lambda uid: exits.get(uid, ()))] == [(0, "x0")]
+
+
+# -- profit gate and profit-gated recursion ----------------------------------
+
+def _fake_view(snapshot, rows, *, phase="steady"):
+    """A ProfileView stand-in that passes exact_loop_profile for ``snapshot``."""
+    from collections import Counter
+
+    from scopt.formats.profile_v1 import METHOD, Count
+
+    edges = [dict(src=s, dst=d, kind=k, count=n, flags=(), status="exact", phase=1)
+             for s, d, k, n in rows]
+    entries = Counter()
+    for e in edges:
+        entries[e["dst"]] += e["count"]
+    data = SimpleNamespace(snapshot_id=snapshot.snapshot_id, complete=True, method=METHOD,
+                           collection=dict(overflow=False, chain_disabled=True),
+                           phase_id=lambda name: {"boot": 0, phase: 1}.get(name),
+                           phase_reached=lambda pid: True, profile_id="sha256:" + "a" * 64)
+    return SimpleNamespace(profile=data, profile_id=data.profile_id,
+                           edges=lambda ph: tuple(edges),
+                           count=lambda uid, ph, field="entries": Count(entries[uid], "exact"))
+
+
+def _run_pass(monkeypatch, snapshot, image, params, view):
+    import scopt.passes.firmware_inline as FI
+    from scopt.guard import GuardOffsets
+
+    calls = discover_firmware_calls(snapshot, image)
+    emitted = []
+    ctx = SimpleNamespace(b3=SimpleNamespace(snapshot=snapshot, layout_bound=True,
+                                             offsets=GuardOffsets()),
+                          params=params, snapshot_id=snapshot.snapshot_id, bundle=None,
+                          analysis=lambda name, sid: SimpleNamespace(value=calls),
+                          budget=lambda: None, profile=lambda phase: view)
+    monkeypatch.setattr(FI, "guest_image_for", lambda snap, bundle: image)
+    result = FI.FirmwareInline().run(None, ctx, SimpleNamespace(
+        emit_firmware_region=emitted.append))
+    detail = json.loads(result.detail) if result.detail.startswith("{") else result.detail
+    return result, detail, emitted, calls
+
+
+def test_hot_loop_profit_gate_records_not_profitable_residual(monkeypatch):
+    snapshot, image = _continuation_exit_snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    caller, callee = call.source_uid, call.callee_candidates[0]
+    cont = call.continuation_candidates[0]
+    view = _fake_view(snapshot, [(caller, callee, "chain0", 5000),
+                                 (callee, cont, "lookup_hit", 5000),
+                                 (cont, caller, "chain0", 5000)])
+    params = {"mode": "hot-loop", "min_call_count": 2, "residual_goto_tb": "unchained"}
+    result, receipt, emitted, _ = _run_pass(monkeypatch, snapshot, image, params, view)
+    # Safe region: the guarded return saves lookup - guard (6 ns); the
+    # continuation's goto_tb back to the caller costs a dispatch (40 ns).
+    assert not emitted
+    row, = [r for r in receipt["residual"] if r["reason"] == "not_profitable"]
+    assert row["callsite_id"] == call.callsite_id and row["observed_call_edges"] == 5000
+    assert row["profit"]["terms"]["residual_goto_tb_unchained"] == 5000
+    assert row["profit"]["net_ns_per_call"] < 0
+    assert result.stats["refused:not_profitable"] == 1.0
+    assert result.stats["cost_model_enabled"] == 1.0
+    assert result.reason == "no_profitable_call"
+    assert receipt["policy"]["cost_model"]["enabled"]
+    assert receipt["policy"]["cost_model"]["constants"]["dispatch_ns"] == 40.0
+    # Chained residual exits (the default for safe regions) admit it.
+    result, receipt, emitted, _ = _run_pass(
+        monkeypatch, snapshot, image, {"mode": "hot-loop", "min_call_count": 2}, view)
+    assert len(emitted) == 1 and receipt["embedded"][0]["profit"]["net_ns"] > 0
+    # cost_model=off embeds exactly the region of the unpriced pass.
+    off, receipt_off, emitted_off, calls = _run_pass(
+        monkeypatch, snapshot, image, {**params, "cost_model": "off"}, view)
+    assert [p.region_id for p in emitted_off] == [
+        build_firmware_region(snapshot, image, calls, call, expand_nested=False).region_id]
+    assert "profit" not in receipt_off["embedded"][0]
+    assert off.stats["cost_model_enabled"] == 0.0
+
+
+@pytest.mark.parametrize("params", [{"cost_model": "maybe"}, {"residual_goto_tb": "x"},
+                                    {"entry_chain": "y"}, {"cost_dispatch_ns": -1.0},
+                                    {"nested": "deep"}])
+def test_invalid_cost_params_fail(monkeypatch, params):
+    snapshot, image = _continuation_exit_snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    view = _fake_view(snapshot, [(call.source_uid, call.callee_candidates[0], "chain0", 10),
+                                 (call.callee_candidates[0], call.source_uid, "lookup_hit", 10)])
+    result, _, emitted, _ = _run_pass(monkeypatch, snapshot, image,
+                                      {"mode": "hot-loop", "min_call_count": 2, **params}, view)
+    assert result.outcome.value == "failed" and result.reason == "invalid_params"
+    assert not emitted
+
+
+def test_exhaustive_cost_model_needs_a_profile(monkeypatch):
+    snapshot, image = _continuation_exit_snapshot()
+    result, _, emitted, _ = _run_pass(monkeypatch, snapshot, image,
+                                      {"mode": "exhaustive", "cost_model": "profile"}, None)
+    assert result.reason == "cost_model_exact_profile_required" and not emitted
+
+
+def _nested_snapshot():
+    key = TBKey(0x1000, None, 0x110, 0x800400, 0xff020000)
+    root_call = bytes.fromhex("00f07ef8")       # 0x1000: bl 0x1100
+    nested_call = bytes.fromhex("00f07ef8")     # 0x1100: bl 0x1200
+
+    def goto(dest):
+        return {"sites": (ScmSite(1, 0, 4, Encoding.REL32, SiteKind.GOTO_TB, 0, 0, 0, 0),),
+                "static_exits": (ScmStaticExit(0, 1, 0, dest),)}
+
+    ret = {"sites": (ScmSite(0, 0, 0, Encoding.NONE, SiteKind.GOTO_PTR, 0, 0, 0, 0),)}
+    units = [
+        SynthUnit(key, 0x100, b"\xe9\0\0\0\0", guest_bytes=root_call, vaddr=0x1000,
+                  jmp_reset_offset=(5, 0xffff), jmp_insn_offset=(1, 0xffff), meta=goto(0x1100)),
+        SynthUnit(key, 0x200, b"\x90", guest_bytes=b"\x00\xbf", vaddr=0x1004),
+        SynthUnit(key, 0x300, b"\xe9\0\0\0\0", guest_bytes=nested_call, vaddr=0x1100,
+                  jmp_reset_offset=(5, 0xffff), jmp_insn_offset=(1, 0xffff), meta=goto(0x1200)),
+        SynthUnit(key, 0x400, b"\xff\xe0", guest_bytes=b"\x70\x47", vaddr=0x1104, meta=ret),
+        SynthUnit(key, 0x500, b"\xff\xe0", guest_bytes=b"\x70\x47", vaddr=0x1200, meta=ret),
+    ]
+    snapshot = fake_snapshot(units)
+    snapshot._units = tuple(replace(u, origin="elf_verified") for u in snapshot.units())
+    snapshot._by_uid = {u.uid: u for u in snapshot._units}
+    image_bytes = bytearray(0x202)
+    image_bytes[0:4] = root_call
+    image_bytes[4:6] = b"\x00\xbf"
+    image_bytes[0x100:0x104] = nested_call
+    image_bytes[0x104:0x106] = b"\x70\x47"
+    image_bytes[0x200:0x202] = b"\x70\x47"
+    image = GuestImage("synthetic", "sha256:" + "3" * 64,
+                       ((0x1000, bytes(image_bytes)),), ((0x1000, 0x1204),), (), ())
+    return snapshot, image
+
+
+def _nested_rows(snapshot, image, nested_calls):
+    calls = discover_firmware_calls(snapshot, image).calls
+    root = next(c for c in calls if c.insn_vaddr == 0x1000)
+    nested = next(c for c in calls if c.insn_vaddr == 0x1100)
+    caller, f, cont = root.source_uid, root.callee_candidates[0], root.continuation_candidates[0]
+    g, f_tail = nested.callee_candidates[0], nested.continuation_candidates[0]
+    rows = [(caller, f, "chain0", 5000), (f_tail, cont, "lookup_hit", 5000),
+            (cont, caller, "chain0", 5000)]
+    if nested_calls:
+        rows += [(f, g, "chain0", 5000), (g, f_tail, "lookup_hit", 5000)]
+    return root, nested, rows
+
+
+def test_hot_loop_recursion_inlines_profitable_nested_calls(monkeypatch):
+    snapshot, image = _nested_snapshot()
+    root, nested, rows = _nested_rows(snapshot, image, True)
+    view = _fake_view(snapshot, rows)
+    result, receipt, emitted, _ = _run_pass(
+        monkeypatch, snapshot, image, {"mode": "hot-loop", "min_call_count": 2}, view)
+    plan, = emitted
+    assert plan.callsite.callsite_id == root.callsite_id
+    # The nested callee and its continuation are private: both returns are
+    # guarded edges, and the receipt shows the nested_gain decision.
+    assert nested.callee_candidates[0] in plan.source_uids
+    assert max(len(m.inline_context) for m in plan.members) == 2
+    assert sum(e.kind == "return" and e.target_member is not None for e in plan.edges) == 2
+    row = receipt["embedded"][0]
+    assert row["expansion_depth"] == 2 and row["nested_inlined_calls"] == 1
+    decision, = receipt["policy"]["nested_decisions"]
+    assert decision["callsite_id"] == nested.callsite_id and decision["action"] == "inline"
+    assert decision["gain_ns"] > 0
+    assert receipt["policy"]["expand_nested"] is True and receipt["policy"]["max_depth"] is None
+    assert result.stats["actual_expansion_depth"] == 2.0
+    # The inner root is entered only through the outer region now: its
+    # entries are captured, so it is refused instead of emitted dead.
+    row, = [r for r in receipt["residual"] if r["reason"] == "not_profitable"]
+    assert row["callsite_id"] == nested.callsite_id and row["profit"]["entries"] == 0
+    # nested=public keeps one-level regions: the outer root never reaches a
+    # return and does not pay off; the inner root does.
+    _, receipt, emitted, _ = _run_pass(
+        monkeypatch, snapshot, image,
+        {"mode": "hot-loop", "min_call_count": 2, "nested": "public"}, view)
+    assert [p.callsite.callsite_id for p in emitted] == [nested.callsite_id]
+    row, = [r for r in receipt["residual"] if r["reason"] == "not_profitable"]
+    assert row["callsite_id"] == root.callsite_id
+    assert receipt["policy"]["max_depth"] == 1
+
+
+def test_hot_loop_recursion_keeps_cold_nested_calls_public(monkeypatch):
+    from scopt.analysis.firmware_profit import (DispatchCosts, NestedProfitExpansion,
+                                                ProfitIndex, ProfitModel)
+    from scopt.analysis.rtos_boundaries import ExpansionAction, ExpansionSite
+
+    snapshot, image = _nested_snapshot()
+    root, nested, rows = _nested_rows(snapshot, image, False)
+    view = _fake_view(snapshot, rows)
+    model = ProfitModel(ProfitIndex.build(view, "steady"), DispatchCosts())
+    calls = discover_firmware_calls(snapshot, image)
+    expansion = NestedProfitExpansion(model, snapshot, image, calls.calls, trusted=False)
+    site = ExpansionSite("call", nested.source_uid, 0x1100, 0x1200)
+    assert expansion(site, (root.callsite_id,)) == "nested_not_profitable"
+    assert expansion(ExpansionSite("branch", nested.source_uid, 0x1100, 0x1104), ()) \
+        is ExpansionAction.INLINE
+    plan = build_firmware_region(snapshot, image, calls, root, expansion=expansion)
+    assert nested.callee_candidates[0] not in plan.source_uids
+    assert any(e.refusal_reason == "nested_not_profitable" for e in plan.edges)
+    assert expansion.report()[0]["action"] == "public"
+
+
+def test_firmware_hot_loop_counts_real_exit_null_transfers(monkeypatch):
+    snapshot, image = _continuation_exit_snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    caller, callee = call.source_uid, call.callee_candidates[0]
+
+    def edge(src, dst, kind, count=1001):
+        return dict(src=src, dst=dst, kind=kind, count=count, flags=(), status="exact")
+
+    # The callee returns to the caller's loop only through exit_null (a
+    # BASEPRI write or similar): the root is now in a loop.
+    rows = [edge(caller, callee, "chain0"), edge(callee, caller, "exit_null")]
+    profile = SimpleNamespace(edges=lambda phase: rows)
+    kept, residual, _ = _hot_loop_calls(snapshot, [call], profile, "steady", 1000)
+    assert kept == [call]
+    # exit_requested never closes a loop.
+    rows[1] = edge(callee, caller, "exit_requested")
+    kept, residual, _ = _hot_loop_calls(snapshot, [call], profile, "steady", 1000)
+    assert residual[0]["reason"] == "outside_observed_loop"
+    # A handler-mode source (cs_base HANDLER) ends returns with exit_tb(0)
+    # for a possible EXC_RETURN: not a loop transfer.
+    rows[1] = edge(callee, caller, "exit_null")
+    handler = replace(snapshot.unit(callee), key=replace(snapshot.unit(callee).key, cs_base=1))
+    snapshot._by_uid = {**snapshot._by_uid, callee: handler}
+    kept, residual, _ = _hot_loop_calls(snapshot, [call], profile, "steady", 1000)
+    assert residual[0]["reason"] == "outside_observed_loop"

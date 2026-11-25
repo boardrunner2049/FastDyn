@@ -169,13 +169,21 @@ def _user_trusted_pipeline(pipeline, params, disable):
                for stage in pipeline.passes)
 
 
-def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, trusted=False):
+def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, trusted=False,
+                        wanted_phase="steady", phase_arg="auto"):
+    """Collect the training replay(s) and set ``options['phase']``.
+
+    Returns the ``training_phase`` record (None when existing ``views`` are
+    reused): which phase the passes read and why.  A training launch or
+    kernel with a work-start marker keeps ``wanted_phase`` (normally
+    ``steady``); otherwise the whole run (``boot``) is used and recorded,
+    never silently."""
     import shutil
     import subprocess
     import tempfile
     from ..canon import sha256_id
     from ..formats.profile_v1 import ProfileView, ingest, write_profile
-    from ..run.helper_pgo import collect, collect_edges
+    from ..run.helper_pgo import collect, collect_edges, resolve_training_phases
 
     store = Path(store).resolve()
     store.mkdir(parents=True, exist_ok=True)
@@ -197,19 +205,43 @@ def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, t
     source = Path(snap.path)
     counts = work / "calls.json"
     edges = None if views else work / "training.qprof"
+    training = None
+    phases = None
+    if edges:
+        training = resolve_training_phases(Path(launch), phase_arg, wanted_phase)
+        phases = training["phases"]
     if helpers:
-        collect(source, Path(launch), counts, edge_profile_path=edges, trusted=trusted)
+        collect(source, Path(launch), counts, edge_profile_path=edges, trusted=trusted,
+                phases=phases)
         options.update(site_profile_path=str(counts), site_profile_sha256=sha256_id(counts.read_bytes()))
     elif edges:
-        collect_edges(source, Path(launch), edges, trusted=trusted)
+        collect_edges(source, Path(launch), edges, trusted=trusted, phases=phases)
     if edges:
         meta = json.loads((source / "snapshot.json").read_bytes())
         profile = ingest(edges, source / "cache.sc", source, bundle_id=meta["bundle_id"],
                          contract_id=meta["contract_id"], runtime_identity=snap.runtime)
         write_profile(work / "training-profile.json", profile)
         views.append(ProfileView.open(profile, snap))
-        # An unmarked replay occupies QEMU's phase zero, named "boot", through exit.
-        options.setdefault("phase", "boot")
+        if phases:
+            pid = profile.phase_id(training["phase"])
+            if pid is None or not profile.phase_reached(pid):
+                if training["explicit"]:
+                    raise ValueError(f"training replay never reached phase marker "
+                                     f"{training['phase']}@{training['marker']}")
+                # The marker exists but was never hit: phase zero ("boot")
+                # then covers the whole run.
+                training = {**training, "phase": "boot", "source": "whole_run_unreached"}
+        if training["phase"] == "boot" and wanted_phase != "boot":
+            print(f"warning: training replay has no reached work-start marker "
+                  f"({training['source']}); firmware selection uses the whole-run "
+                  f"'boot' phase instead of {wanted_phase!r}", file=sys.stderr)
+        # An unmarked replay occupies QEMU's phase zero, named "boot", through
+        # exit; a marked one names the measured window.  An explicit --params
+        # phase still wins.
+        options.setdefault("phase", training["phase"])
+        training = {**training, "phase": options["phase"], "wanted": wanted_phase,
+                    "qprof": str(edges)}
+    return training
 
 
 def _select_output(doc, original_snapshot, cases_path, out, timing=None):
@@ -248,6 +280,10 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
               help="Profile v1 file (profile.json); repeatable.")
 @click.option("--pgo-launch", "--helper-pgo-launch", "helper_pgo_launch", type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help="Ordinary compiled training launch.json for automatic hot-loop profiling.")
+@click.option("--pgo-phase", "pgo_phase", default="auto", show_default=True,
+              help="Training phase marker for automatic PGO: auto (the launch's "
+                   "QEMU_SC_PROFILE_PHASES, else <phase>@vComputeWindowStart from the "
+                   "kernel, else the whole run), boot (whole run), NAME@0xADDR or NAME@SYMBOL.")
 @click.option("--disable", multiple=True, help="Ablation: skip this pass (repeatable).")
 @click.option("--enable", multiple=True,
               help="Opt a pipeline pass back in (repeatable). Accepts host-inline=<options>.")
@@ -290,7 +326,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                  ri_file, v6_exes, v7_exes, trusted_v7_exes, selftest_file, prep, elf, as_json,
                  select_with=None, selection_out=None,
                  qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=(),
-                 helper_pgo_launch=None, trust_input=False):
+                 helper_pgo_launch=None, trust_input=False, pgo_phase="auto"):
     """Run PIPELINE on SNAPSHOT, link, check loadability, and publish the artifact.
 
     SNAPSHOT is a store snapshot directory or a SnapshotId in --store. Exit
@@ -335,6 +371,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                                "any missing intermediate artifacts.")
     views, notes = _profiles(profiles, snap)
     auto_loop_phase = None
+    training_phase = None
     firmware_needs_edges = False
     for hot in pl.passes:
         policy = {**hot.params, **(params or {}).get(hot.name, {})}
@@ -345,7 +382,8 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         if firmware:
             from ..passes.firmware_policy import PolicyError, firmware_policy
             try:
-                firmware_needs_edges = firmware_policy(policy.get("mode", "exhaustive")).requires_edges
+                firmware_needs_edges = (firmware_policy(policy.get("mode", "exhaustive")).requires_edges
+                                        or policy.get("cost_model") == "profile")
             except PolicyError as e:
                 raise click.UsageError(str(e)) from e
         if not (helpers or (firmware and firmware_needs_edges)):
@@ -363,13 +401,16 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         overrides = dict(params.get(hot.name, {}))
         collecting_edges = not views
         try:
-            _automatic_loop_pgo(snap, store, helper_pgo_launch, prep, views, overrides,
-                                helpers=helpers, trusted=trust_input)
+            trained = _automatic_loop_pgo(snap, store, helper_pgo_launch, prep, views, overrides,
+                                          helpers=helpers, trusted=trust_input,
+                                          wanted_phase=policy.get("phase", "steady"),
+                                          phase_arg=pgo_phase)
         except (OSError, ValueError, RuntimeError) as exc:
             raise click.ClickException(f"training replay failed: {exc}") from exc
         params[hot.name] = overrides
         if collecting_edges:
             auto_loop_phase = overrides["phase"]
+            training_phase = trained
     native_stage = None
     from ..manager import HOST_INLINE_ALIASES
     native_names = {"host-inline", *HOST_INLINE_ALIASES}
@@ -419,7 +460,8 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
                      v6_exes, v7_exes, trusted_v7_exes,
                      selftest_file, prep, elf, as_json, native_stage=native_stage,
-                     selection=(original_snapshot, select_with, selection_out, timing), enable=enable)
+                     selection=(original_snapshot, select_with, selection_out, timing), enable=enable,
+                     training_phase=training_phase)
         return
     try:
         res = optimize(snap, pl, store, profiles=views, params=params,
@@ -429,6 +471,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
     doc = res.to_json()
     doc["passes"] = [p.to_json() for p in res.candidate.passes]
     doc["notes"] = notes
+    doc["training_phase"] = training_phase
     if res.published:
         _select_output(doc, original_snapshot, select_with, selection_out, timing)
     if as_json:
@@ -461,7 +504,8 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
 
 def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
                  v6_exes, v7_exes, trusted_v7_exes,
-                 selftest_file, prep, elf, as_json, native_stage=None, selection=None, enable=()):
+                 selftest_file, prep, elf, as_json, native_stage=None, selection=None, enable=(),
+                 training_phase=None):
     from ..analysis.b3_inputs import resolve_for_snapshot
     from ..manager import PipelineError
     from ..manager_b3 import B3Env, optimize_b3
@@ -486,6 +530,7 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
            "publish_status": getattr(pk, "publish_status", None),
            "rejection_path": getattr(pk, "rejection_path", None),
            "passes": [p.to_json() for p in c.passes], "notes": notes,
+           "training_phase": training_phase,
            "downgraded": None if m is None else m.downgraded,
            "pass_byte_delta": None if m is None else m.pass_bytes,
            "validation": None if pk.validation is None else pk.validation.codes()}

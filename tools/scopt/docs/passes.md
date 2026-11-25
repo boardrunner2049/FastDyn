@@ -240,9 +240,34 @@ rules, explicit task entries and an example of registering a new policy.
 
 The `hot-loop-firmware-inline` pipeline selects verified guest call instructions
 inside cycles on the observed TB graph. It requires 1,000 observed transfers to
-the verified callee on the training input by default (`min_call_count`). It embeds
-one callee layer. Nested guest calls keep their public exit. Loop iterations reuse
-the emitted body. The guest ELF remains the input image.
+the verified callee on the training input by default (`min_call_count`). The cycle
+search follows chained and looked-up transfers and, for firmware, unflagged
+`exit_null` transfers between thread-mode TBs (FreeRTOS critical sections end their
+TBs with `exit_tb(0)`); `exit_requested`, interrupt/exception/longjmp-flagged edges
+and handler-mode `exit_null` sources (possible `EXC_RETURN`) never close a loop.
+Loop iterations reuse the emitted body. The guest ELF remains the input image.
+
+Hot-loop prices every planned region with the training profile before emitting it
+(`cost_model="auto"`; see [the profit model](firmware-inline-policies.md#profit-model)).
+A root whose region removes less dispatcher work than its residual exits add is
+refused with reason `not_profitable` and its estimate in the receipt. The policy is
+recursive under the same model: a nested call inside an inlined callee is inlined
+when its marginal gain (`nested_gain`) is positive, so each inline can open the
+next one; build_firmware_region's recursion guard still keeps recursive call edges
+public, and the whole-region gate decides between the recursive and the one-level
+region. `nested="public"` keeps one callee layer, `cost_model="off"` restores the
+unpriced selection (one layer, every in-loop root over `min_call_count`).
+
+Automatic training (`--pgo-launch`) now keeps the pipeline's `phase="steady"`:
+`--pgo-phase auto` (the default) uses the training launch's own
+`QEMU_SC_PROFILE_PHASES`, else `steady@vComputeWindowStart` from the launch kernel,
+and passes it to the profiled replay. Without a marker, or when the marker is never
+reached, selection uses the whole-run `boot` phase and says so on stderr. The
+optimize JSON records the choice as `training_phase` (`source`:
+`launch`, `cli`, `symbol:vComputeWindowStart`, `whole_run_explicit`,
+`whole_run_unmarked` or `whole_run_unreached`). `--pgo-phase NAME@0xADDR` or
+`NAME@SYMBOL` names a marker explicitly (an unreached explicit marker is an error);
+`--pgo-phase boot` trains on the whole run.
 
 ```sh
 scopt optimize "$SNAP" --pipeline hot-loop-firmware-inline --pgo-launch "$BASE/launch.json" \

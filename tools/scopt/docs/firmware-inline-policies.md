@@ -5,7 +5,7 @@ The `firmware-inline` pass takes a `mode` that chooses which captured guest call
 | Mode | Region roots | Calls inside an admitted callee |
 | --- | --- | --- |
 | `exhaustive` | Every discovered call is submitted to the planner. | Expand captured acyclic calls recursively. |
-| `hot-loop` | Calls in observed transfer cycles with exact counts meeting `min_call_count` in the selected profile phase. | Leave nested calls public. |
+| `hot-loop` | Calls in observed transfer cycles with exact counts meeting `min_call_count` in the selected profile phase, kept only when the [profit model](#profit-model) admits the planned region. | Inline a nested call when its marginal profit is positive (`nested="profit"`, the default with the cost model); recursive, so a newly inlined callee's calls are priced next. `nested="public"` or `cost_model="off"` leaves nested calls public. |
 | `firmlooper` | Captured calls whose precise guest BL instruction belongs to a persistent loop in a recognized task entry. No profile or count threshold is required. | Expand captured acyclic calls recursively, including other eligible calls reached after they return. |
 | `firmlooper-v2` | Also admits single-entry natural task loops whose exits have recognized terminal paths. | Recursively embeds application code. Stops cloning at classified RTOS, scheduler and exception boundaries. |
 
@@ -59,6 +59,70 @@ For two independent ablations, pass `{"firmware-inline":{"policy_options":{"boun
 
 The firmware pass reports selected roots that were actually emitted in `embedded`. Its `private_guarded_returns` count covers return guards embedded inside these executable regions. The B3 public-slot count concerns separately registered slots. An unexpected guest return target or context uses the original lookup after guest return effects complete. Trusted private returns require a Cortex-M3 capture, a bound EnvLayout and an eligible lookup tail. Other CPU models preserve the original return lookup. If a requirement is unavailable, the receipt records a side exit. Trusted interrupt and instruction-count settings still apply.
 
+## Profit model
+
+`firmware-inline` can price each planned region with the exact training profile
+(`scopt/analysis/firmware_profit.py`, model `firmware-dispatch-v1`). It runs after the
+trusted edge checks, on the plan that would be emitted, and can only refuse a root:
+it never adds or changes region content. A refused call site keeps its public TBs,
+lookup, chaining and return path.
+
+Probabilities from the profile (`count(unit, exit kind) / executions(unit)`, flagged
+edges included) are pushed through the member graph, one strongly connected component
+at a time, so every inline context has its own flow. Per dynamic event the region
+**saves** a poll on every internal `goto_tb` edge and at the region entry (trusted
+regions enter members at +15), a `helper_lookup_tb_ptr` plus a poll on every internal
+`goto_ptr` edge (less a guard on guarded edges and returns), and a full dispatcher
+iteration on an internal edge that missed the lookup in training. It **adds** a full
+dispatcher iteration on every residual `goto_tb` exit (all member exits without an
+internal edge, including the caller's and the root continuation's) when the region's
+exits are unchainable, and on a trusted exit into a trusted region entry, which QEMU
+never chains; a dispatch per chained in-edge of the caller when chaining into the
+trusted entry is refused (non-sealed `CF_PCREL` captures); and `cost_byte_ns` per byte
+of member code and descriptors. `goto_ptr`, `exit_null` and `exit_requested` residual
+exits cost what they cost in public code. A root is admitted when
+`saved >= (1 + cost_margin) * added`, `net > 0` and `net / calls >= cost_min_net_per_call_ns`.
+When several roots overlap, regions whose members contain another root's caller are
+priced first, and the later root is credited only with the executions those regions
+leave public; a root entered only through an earlier region is refused.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `cost_model` | `auto` | `auto`: on for `hot-loop` (and policies whose descriptor sets `cost_model_default`), `profile`: on for any mode (optimize then collects training edges for it), `off`. |
+| `residual_goto_tb` | `auto` | `auto` follows the linker's `region_exits_chainable` (trusted regions with per-member descriptors chain; safe regions keep public slots); `chained`/`unchained` override. |
+| `entry_chain` | `auto` | `auto`: unchained for a trusted region whose entry key is `CF_PCREL`. |
+| `cost_poll_ns` | 0.4 | Skipped 15-byte IRQ/`can_do_io` prefix. |
+| `cost_lookup_ns` | 7.0 | One `helper_lookup_tb_ptr` hit (H4 measured about 6.4 ns). |
+| `cost_guard_ns` | 1.0 | One private return guard. |
+| `cost_dispatch_ns` | 40.0 | One return to `cpu_exec_loop` and back (see below). |
+| `cost_byte_ns` | 0.25 | Per run, per byte of private code and descriptor. |
+| `cost_margin` | 0.25 | Required saved/added surplus. |
+| `cost_min_net_per_call_ns` | 1.0 | Minimum net gain per root call. |
+
+`cost_dispatch_ns` is calibrated on the archived packet run (trebuchet
+`2026-11-25-seven-o4`, config 7 against config 6): the per-byte CRC-CCITT root
+`0x4a70 -> 0x331c` (2,317,210 training calls, one unchained continuation exit per call)
+saves 30.4 ns per call in the model (22 skipped polls, two patched lookups, one
+guarded return, the entry poll), and config 7 lost about 8.5 ns per residual exit
+(per-block median; 15.7 ns with per-arm medians), so one dispatcher trip costs about
+39-46 ns, inside the 20-50 ns expected for the path. With these defaults the CRC root
+is refused at -9.6 ns per call when exits are unchainable and admitted at +30.4 ns per
+call when they chain; a lookup-exit root such as `0x82aee -> 0x81afc` is admitted
+either way (`tests/unit/data/firmware_profit_packet.json` carries both plans). All
+constants are pass parameters, and the receipt's `policy.cost_model` records the
+values used.
+
+Receipts: every embedded row carries `profit` (status, entries, calls, dynamic
+`terms`, bytes, `saved_ns`, `added_ns`, `footprint_ns`, `net_ns`, `net_ns_per_call`,
+resolved `residual_goto_tb`/`entry_chain`), `expansion_depth` and
+`nested_inlined_calls`; refused roots are `residual` rows with reason
+`not_profitable` (or `profit_estimate_unknown` when an execution count is not exact)
+and the same `profit` object. `policy.nested_decisions` lists each priced nested call
+(`gain_ns`, `action`), and `policy.nested_fallbacks` names roots for which the
+one-level region won. Stats add `cost_model_enabled`, `profit_net_ns`,
+`profit_refused` and `nested_inlined_calls`. When nothing is embedded because roots
+were refused, the outcome reason is `no_profitable_call`.
+
 ## Install a policy
 
 Install a trusted Python package into the same environment as scopt, with an entry in its `pyproject.toml`:
@@ -84,9 +148,9 @@ def select_listed(inputs):
 LISTED_SITES = FirmwarePolicy(select_listed, expand_nested=False)
 ```
 
-Use `--params` with `{"firmware-inline":{"mode":"listed-sites","policy_options":{"call_pcs":["0x8001234"]}}}` on the same pipeline. A policy receives the imported snapshot, firmware image, discovered calls, pass parameters, and optional profile. Set `requires_edges=True` on its descriptor to request the exact phase profile and opt into the CLI's automatic PGO workflow. `expand_nested=True` requests transitive expansion in admitted regions.
+Use `--params` with `{"firmware-inline":{"mode":"listed-sites","policy_options":{"call_pcs":["0x8001234"]}}}` on the same pipeline. A policy receives the imported snapshot, firmware image, discovered calls, pass parameters, and optional profile. Set `requires_edges=True` on its descriptor to request the exact phase profile and opt into the CLI's automatic PGO workflow. `expand_nested=True` requests transitive expansion in admitted regions. `cost_model_default=True` prices the policy's regions unless `cost_model="off"`; the model is passed to the policy as `PolicyInput.profit`, and `scopt.analysis.firmware_profit.NestedProfitExpansion` is a ready-made profit-gated `expansion` callback (return it with `PolicySelection(expand_nested=True)`).
 
-Return a tuple of captured call-site IDs in `PolicySelection.roots`. An optional `PolicySelection.expansion(site, inline_context)` callback returns an `ExpansionAction` from `scopt.analysis.rtos_boundaries`. The default allows every otherwise eligible transfer. A policy may also return per-site refusal reasons in `refusals`, per-site JSON evidence in `site_evidence`, and policy-level JSON evidence in `evidence`. Unselected IDs without an explicit reason appear as `excluded_by_policy`. Unknown, duplicated, and contradictory nominations fail compilation. Built-in names are reserved. A custom name must resolve to exactly one installed entry point.
+Return a tuple of captured call-site IDs in `PolicySelection.roots`. An optional `PolicySelection.expansion(site, inline_context)` callback returns an `ExpansionAction` from `scopt.analysis.rtos_boundaries`, or a nonempty string that becomes the side exit's residual reason. The default allows every otherwise eligible transfer. A policy may also return per-site refusal reasons in `refusals`, per-site JSON evidence in `site_evidence`, and policy-level JSON evidence in `evidence`. Unselected IDs without an explicit reason appear as `excluded_by_policy`. Unknown, duplicated, and contradictory nominations fail compilation. Built-in names are reserved. A custom name must resolve to exactly one installed entry point.
 
 ## FreeRTOS signatures for stripped Thumb firmware
 

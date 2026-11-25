@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from scopt.analysis.helper_hot_loop import exact_loop_profile, load_site_counts, observed_loop_units
+from scopt.analysis.helper_hot_loop import (FIRMWARE_LOOP_KINDS, exact_loop_profile,
+                                            load_site_counts, observed_loop_units,
+                                            real_exit_null)
 from scopt.canon import sha256_id
 from scopt.formats.enums import SiteKind
 from scopt.formats.profile_v1 import METHOD
@@ -51,3 +53,25 @@ def test_measured_cold_is_distinct_from_missing(tmp_path):
     path.write_text(json.dumps(doc))
     with pytest.raises(ValueError, match="site set"):
         load_site_counts(path, snap, sha256_id(path.read_bytes()))
+
+
+def test_firmware_loop_kinds_include_real_exit_null_but_not_requested():
+    def edge(src, dst, kind="chain0", flags=()):
+        return dict(src=src, dst=dst, count=5, kind=kind, status="exact", flags=list(flags))
+
+    def unit(handler):
+        return SimpleNamespace(key=SimpleNamespace(cs_base=1 if handler else 0))
+
+    units = {"a": unit(False), "b": unit(False), "isr": unit(True)}
+    accept = real_exit_null(units.get)
+    cycle = [edge("a", "b"), edge("b", "a", "exit_null")]
+    assert observed_loop_units(cycle) == set()
+    assert observed_loop_units(cycle, kinds=FIRMWARE_LOOP_KINDS, accept=accept) == {"a", "b"}
+    # A re-dispatch after an aborted poll is not a transfer, flagged edges
+    # are interrupts, and a handler-mode exit_tb(0) may be an EXC_RETURN.
+    for rows in ([edge("a", "a", "exit_requested")],
+                 [edge("a", "b"), edge("b", "a", "exit_null", ("irq",))],
+                 [edge("a", "isr"), edge("isr", "a", "exit_null")],
+                 [edge("isr", "b", "exit_null"), edge("b", "isr")],
+                 [edge("a", "gone"), edge("gone", "a", "exit_null")]):
+        assert observed_loop_units(rows, kinds=FIRMWARE_LOOP_KINDS, accept=accept) == set()

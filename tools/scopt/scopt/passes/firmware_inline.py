@@ -18,6 +18,9 @@ from ..analysis.api import ScopeRef
 from ..analysis.b3_inputs import guest_image_for
 from ..analysis.firmware_calls import discover_firmware_calls, firmware_compatibility_index
 from ..analysis.firmware_regions import build_firmware_region
+from ..analysis.firmware_profit import (CHAIN_MODES, COST_MODES, MODEL as PROFIT_MODEL,
+                                        DispatchCosts, ProfitError, ProfitIndex, ProfitModel,
+                                        admission)
 from ..analysis.helper_hot_loop import exact_loop_profile
 from ..analysis.firmware_whopr import balanced_partitions, summarize_firmware
 from ..formats.region_v1 import unit_exits
@@ -68,7 +71,12 @@ class FirmwareInline:
         invalidates=frozenset({"code", "meta", "layout"}),
         params_schema={"mode": str, "trust": str, "interrupts": str, "icount": str,
                        "planner": str, "partitions": int, "workers": int,
-                       "phase": str, "min_call_count": int, "policy_options": dict},
+                       "phase": str, "min_call_count": int, "policy_options": dict,
+                       "nested": str, "cost_model": str, "residual_goto_tb": str,
+                       "entry_chain": str, "cost_poll_ns": float, "cost_lookup_ns": float,
+                       "cost_guard_ns": float, "cost_dispatch_ns": float,
+                       "cost_byte_ns": float, "cost_margin": float,
+                       "cost_min_net_per_call_ns": float},
     )
 
     def run(self, view: Any, ctx: Any, edits: Any) -> PassResult:
@@ -111,14 +119,31 @@ class FirmwareInline:
         if image is None:
             return PassResult(Outcome.SKIPPED_UNKNOWN, "guest_image_missing",
                               "the exact firmware ELF is required")
+        cost_mode = ctx.params.get("cost_model", "auto")
+        residual_mode = ctx.params.get("residual_goto_tb", "auto")
+        entry_mode = ctx.params.get("entry_chain", "auto")
+        if cost_mode not in COST_MODES or residual_mode not in CHAIN_MODES \
+                or entry_mode not in CHAIN_MODES:
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              f"cost_model must be one of {COST_MODES}; residual_goto_tb and "
+                              f"entry_chain one of {CHAIN_MODES}")
+        try:
+            costs = DispatchCosts.from_params(ctx.params)
+        except ProfitError as e:
+            return PassResult(Outcome.FAILED, "invalid_params", str(e))
+        cost_enabled = cost_mode == "profile" or (cost_mode == "auto" and policy.cost_model_default)
         profile = None
-        if policy.requires_edges:
-            phase = ctx.params.get("phase", "steady")
+        phase = ctx.params.get("phase", "steady")
+        if policy.requires_edges or cost_enabled:
             profile = ctx.profile(phase)
             if not exact_loop_profile(profile, ctx.snapshot_id, phase):
-                return PassResult(Outcome.SKIPPED_UNKNOWN, "hot_loop_exact_profile_required",
+                return PassResult(Outcome.SKIPPED_UNKNOWN,
+                                  "hot_loop_exact_profile_required" if policy.requires_edges
+                                  else "cost_model_exact_profile_required",
                                   "requires an exact reached phase of the ordinary input snapshot")
-        inputs = PolicyInput(ctx.b3.snapshot, image, (), ctx.params, profile)
+        profit = (ProfitModel(ProfitIndex.build(profile, phase), costs, residual_mode,
+                              entry_mode, phase) if cost_enabled else None)
+        inputs = PolicyInput(ctx.b3.snapshot, image, (), ctx.params, profile, profit=profit)
         try:
             options = ctx.params.get("policy_options", {})
             signature_evidence = None
@@ -186,6 +211,7 @@ class FirmwareInline:
         for row in pending:
             refused[str(row.get("reason", "incomplete"))] += 1
         max_depth = 0
+        profit_net = 0.0
         exit_cache: dict[str, tuple[Any, ...]] = {}
 
         def exits_of(uid: str) -> tuple[Any, ...]:
@@ -200,90 +226,182 @@ class FirmwareInline:
                     and exit_.reset_offset is not None}
         for _call in planned_calls:
             ctx.budget()
-        if planned_calls:
+        expand_nested = (selection.expand_nested if selection.expand_nested is not None
+                         else policy.expand_nested)
+        # A profit-gated recursive selection keeps the non-recursive plan as
+        # a fallback: the whole-region gate picks the better of the two.
+        flat_fallback = expand_nested and not policy.expand_nested
+        region_units = tuple(ctx.b3.snapshot.units()) if planned_calls else ()
+        region_by_uid = {unit.uid: unit for unit in region_units}
+        compatibility = firmware_compatibility_index(region_units) if planned_calls else None
+
+        def plan_call(call, nested=expand_nested):
+            return build_firmware_region(
+                ctx.b3.snapshot, image, discovered, call, units=region_units,
+                by_uid=region_by_uid, compatibility=compatibility,
+                expand_nested=nested, expansion=selection.expansion if nested else None)
+
+        if not planned_calls:
+            plans = []
+        elif workers == 1:
+            plans = [plan_call(call) for call in planned_calls]
+        else:
             # LTRANS materialization is pure until edits are admitted below.
             # executor.map preserves the deterministic WPA order.
-            region_units = tuple(ctx.b3.snapshot.units())
-            region_by_uid = {unit.uid: unit for unit in region_units}
-            compatibility = firmware_compatibility_index(region_units)
+            with ThreadPoolExecutor(max_workers=min(workers, len(planned_calls)),
+                                    thread_name_prefix="scopt-ltrans") as executor:
+                plans = list(executor.map(plan_call, planned_calls))
 
-            def plan_call(call):
-                return build_firmware_region(
-                    ctx.b3.snapshot, image, discovered, call, units=region_units,
-                    by_uid=region_by_uid, compatibility=compatibility,
-                    expand_nested=policy.expand_nested, expansion=selection.expansion)
+        def depth(plan):
+            return max((len(m.inline_context) for m in plan.members), default=0)
 
-            if workers == 1:
-                plans = [plan_call(call) for call in planned_calls]
-            else:
-                with ThreadPoolExecutor(max_workers=min(workers, len(planned_calls)),
-                                        thread_name_prefix="scopt-ltrans") as executor:
-                    plans = list(executor.map(plan_call, planned_calls))
-        else:
-            plans = []
-        for call, plan in zip(planned_calls, plans):
-            if trusted and plan.complete:
-                from ..link import (TRUSTED_ENTRY_OFFSET, trusted_firmware_edge_problem,
-                                    trusted_firmware_entry_problem, trusted_return_guard_problem)
+        def finalize(call, plan):
+            """Trusted checks and edge sanitization of one complete plan.
 
-                entry = ctx.b3.snapshot.unit(plan.members[plan.entry_member].source_uid)
-                entry_context = (entry.key.flags, entry.key.cs_base, entry.key.cflags)
-                for member in plan.members:
-                    unit = ctx.b3.snapshot.unit(member.source_uid)
-                    problem = trusted_firmware_entry_problem(unit)
-                    if problem is not None:
-                        return PassResult(Outcome.FAILED, "trusted_prefix_unproven",
-                                          f"{unit.uid}: {problem}")
-                    context = (unit.key.flags, unit.key.cs_base, unit.key.cflags)
-                    if context != entry_context:
-                        return PassResult(Outcome.FAILED, "trusted_context_mismatch",
-                                          f"{unit.uid}: {context} != {entry_context}")
-                sanitized_edges = []
-                root_edge_unpatchable = False
-                for edge in plan.edges:
-                    if edge.target_member is None:
-                        sanitized_edges.append(edge)
-                        continue
-                    unit = ctx.b3.snapshot.unit(plan.members[edge.source_member].source_uid)
-                    problem = trusted_firmware_edge_problem(unit, edge.exit_id)
-                    if problem is None and edge.kind == "return":
-                        target = ctx.b3.snapshot.unit(plan.members[edge.target_member].source_uid)
-                        problem = trusted_return_guard_problem(
-                            unit, edge.exit_id, target.key, ctx.b3.offsets,
-                            ctx.b3.snapshot.header.code_address,
-                            cpu_model=(ctx.bundle or {}).get("target", {}).get("cpu"))
-                    if problem is None:
-                        sanitized_edges.append(edge)
-                        continue
-                    row = {"callsite_id": call.callsite_id,
-                           "region_id": plan.region_id,
-                           "source_uid": unit.uid,
-                           "exit_id": edge.exit_id,
-                           "inline_context": list(
-                               plan.members[edge.source_member].inline_context),
-                           "reason": "unpatchable_native_exit",
-                           "detail": problem}
-                    pending.append(row)
-                    refused["unpatchable_native_exit"] += 1
-                    if (edge.source_member == plan.entry_member and
-                            edge.exit_id == call.exit_id):
-                        root_edge_unpatchable = True
-                        break
-                    sanitized_edges.append(replace(
-                        edge, kind="side_exit", target_member=None, guarded=False,
-                        refusal_reason="unpatchable_native_exit"))
-                if root_edge_unpatchable:
+            Returns ``(plan or None, pending rows, failure)``: ``None`` when the
+            root edge itself is unpatchable, ``failure`` a (reason, detail)
+            pair for a member whose trusted prefix or context is unproven."""
+            if not (trusted and plan.complete):
+                return plan, [], None
+            from ..link import (TRUSTED_ENTRY_OFFSET, trusted_firmware_edge_problem,
+                                trusted_firmware_entry_problem, trusted_return_guard_problem)
+
+            entry = ctx.b3.snapshot.unit(plan.members[plan.entry_member].source_uid)
+            entry_context = (entry.key.flags, entry.key.cs_base, entry.key.cflags)
+            for member in plan.members:
+                unit = ctx.b3.snapshot.unit(member.source_uid)
+                problem = trusted_firmware_entry_problem(unit)
+                if problem is not None:
+                    return None, [], ("trusted_prefix_unproven", f"{unit.uid}: {problem}")
+                context = (unit.key.flags, unit.key.cs_base, unit.key.cflags)
+                if context != entry_context:
+                    return None, [], ("trusted_context_mismatch",
+                                      f"{unit.uid}: {context} != {entry_context}")
+            sanitized_edges = []
+            rows = []
+            for edge in plan.edges:
+                if edge.target_member is None:
+                    sanitized_edges.append(edge)
                     continue
-                plan = replace(plan, trusted=True,
-                               trusted_entry_offset=TRUSTED_ENTRY_OFFSET,
-                               edges=tuple(sanitized_edges))
-            max_depth = max(max_depth, max((len(m.inline_context) for m in plan.members), default=0))
+                unit = ctx.b3.snapshot.unit(plan.members[edge.source_member].source_uid)
+                problem = trusted_firmware_edge_problem(unit, edge.exit_id)
+                if problem is None and edge.kind == "return":
+                    target = ctx.b3.snapshot.unit(plan.members[edge.target_member].source_uid)
+                    problem = trusted_return_guard_problem(
+                        unit, edge.exit_id, target.key, ctx.b3.offsets,
+                        ctx.b3.snapshot.header.code_address,
+                        cpu_model=(ctx.bundle or {}).get("target", {}).get("cpu"))
+                if problem is None:
+                    sanitized_edges.append(edge)
+                    continue
+                rows.append({"callsite_id": call.callsite_id,
+                             "region_id": plan.region_id,
+                             "source_uid": unit.uid,
+                             "exit_id": edge.exit_id,
+                             "inline_context": list(
+                                 plan.members[edge.source_member].inline_context),
+                             "reason": "unpatchable_native_exit",
+                             "detail": problem})
+                if (edge.source_member == plan.entry_member and
+                        edge.exit_id == call.exit_id):
+                    return None, rows, None
+                sanitized_edges.append(replace(
+                    edge, kind="side_exit", target_member=None, guarded=False,
+                    refusal_reason="unpatchable_native_exit"))
+            return (replace(plan, trusted=True, trusted_entry_offset=TRUSTED_ENTRY_OFFSET,
+                            edges=tuple(sanitized_edges)), rows, None)
+
+        trusted_entries = frozenset(call.source_uid for call in planned_calls) if trusted \
+            else frozenset()
+        nested_fallbacks: list[dict[str, Any]] = []
+        # Flow of each unit that admitted regions execute privately; a later
+        # root whose caller is such a member is entered only by the rest.
+        captured: Counter[str] = Counter()
+        work = list(zip(planned_calls, plans))
+        if profit is not None:
+            # Price covering regions first: a root whose caller is a member
+            # of other planned regions is entered only by the executions
+            # those regions leave public (see ``captured``), so it is priced
+            # after them.  The sort is stable, so the policy order breaks ties.
+            members_of = [frozenset(m.source_uid for m in p.members) if p.complete
+                          else frozenset() for p in plans]
+            covered = [sum(call.source_uid in members_of[j] for j in range(len(plans)) if j != i)
+                       for i, call in enumerate(planned_calls)]
+            work = [work[i] for i in sorted(range(len(work)), key=covered.__getitem__)]
+        for call, plan in work:
+            # Candidates in preference order: the (possibly recursive) plan,
+            # then, for a profit-gated recursive selection, the flat plan.
+            options: list[tuple[Any, Any, list[dict[str, Any]], Any]] = []
+            failure = None
+            attempts = [plan]
+            if flat_fallback and depth(plan) > 1:
+                attempts.append(None)
+            for attempt in attempts:
+                if attempt is None:
+                    attempt = plan_call(call, nested=False)
+                final, rows, problem = finalize(call, attempt)
+                if problem is not None:
+                    failure = failure or problem
+                    continue
+                est = None
+                if profit is not None and final is not None and final.complete:
+                    est = profit.estimate(final, ctx.b3.snapshot, exits_of=exits_of,
+                                          trusted_entries=trusted_entries - {call.source_uid},
+                                          captured=captured)
+                options.append((attempt, final, rows, est))
+            if not options:
+                return PassResult(Outcome.FAILED, *failure)
+            chosen = options[0]
+            if len(options) > 1:
+                def rank(option):
+                    _a, final, _r, est = option
+                    if final is None or not final.complete:
+                        return (0, 0.0)
+                    if est is None:
+                        return (1, 0.0)
+                    return (2 if admission(est, costs) is None else 1, est.net_ns)
+                best = max(options, key=rank)
+                if rank(best) > rank(chosen):
+                    nested_fallbacks.append({
+                        "callsite_id": call.callsite_id,
+                        "reason": ("trusted_prefix_unproven" if failure else
+                                   "flat_region_more_profitable"),
+                        "recursive_net_ns": None if chosen[3] is None
+                        else round(chosen[3].net_ns, 3),
+                        "flat_net_ns": None if best[3] is None else round(best[3].net_ns, 3)})
+                    chosen = best
+            elif failure is not None:
+                nested_fallbacks.append({"callsite_id": call.callsite_id,
+                                         "reason": failure[0], "recursive_net_ns": None,
+                                         "flat_net_ns": None if chosen[3] is None
+                                         else round(chosen[3].net_ns, 3)})
+            attempt, plan, rows, est = chosen
+            for row in rows:
+                pending.append(row)
+                refused["unpatchable_native_exit"] += 1
+            if plan is None:
+                continue
             for row in plan.pending:
                 reason = str(row.get("reason", "incomplete"))
                 refused[reason] += 1
                 pending.append(dict(row))
             if not plan.complete:
                 continue
+            estimate = None if est is None else est.to_json()
+            if est is not None:
+                reason = admission(est, costs)
+                if reason:
+                    residual.append({**selection.site_evidence.get(call.callsite_id, {}),
+                                     "callsite_id": call.callsite_id,
+                                     "source_uid": call.source_uid,
+                                     "region_id": plan.region_id, "reason": reason,
+                                     "profit": estimate})
+                    refused[reason] += 1
+                    continue
+                profit_net += est.net_ns
+                for member, flow in zip(plan.members, est.member_flow):
+                    captured[member.source_uid] += flow
+            max_depth = max(max_depth, depth(plan))
             edits.emit_firmware_region(plan)
             embedded.append({**selection.site_evidence.get(call.callsite_id, {}),
                              "callsite_id": call.callsite_id,
@@ -299,7 +417,13 @@ class FirmwareInline:
                              # stage, so no source is B3-edited.  The linker
                              # may still keep the shared descriptor
                              # (link firmware_regions member_descriptor_refusal).
-                             "residual_exits_chainable": region_exits_chainable(plan)})
+                             "residual_exits_chainable": region_exits_chainable(plan),
+                             "expansion_depth": depth(plan),
+                             "nested_inlined_calls": sum(
+                                 edge.kind == "call" and edge.target_member is not None
+                                 and plan.members[edge.source_member].inline_context != ()
+                                 for edge in plan.edges),
+                             **({"profit": estimate} if estimate is not None else {})})
             residual.extend({"callsite_id": call.callsite_id,
                              "source_member": edge.source_member,
                              "source_role": plan.members[edge.source_member].role,
@@ -335,6 +459,11 @@ class FirmwareInline:
                  "whopr_partitions": float(len(partition_rows)),
                  "residual_boundary_exits": float(sum(row.get("reason") in BOUNDARY_REASONS
                                                       for row in residual)),
+                 "cost_model_enabled": float(profit is not None),
+                 "profit_net_ns": round(profit_net, 3),
+                 "profit_refused": float(refused["not_profitable"]),
+                 "nested_inlined_calls": float(sum(row["nested_inlined_calls"]
+                                                   for row in embedded)),
                  **{f"refused:{k}": float(v) for k, v in sorted(refused.items())}}
         receipt = {"discovered": [call.to_json() for call in discovered.calls],
                    "embedded": embedded, "residual": residual,
@@ -349,18 +478,31 @@ class FirmwareInline:
                              "workers": workers,
                              "virtual_clones": "inline_context"},
                    "policy": {**selection.evidence, "mode": mode, "trust": trust,
-                              "expand_nested": policy.expand_nested,
+                              "expand_nested": expand_nested,
+                              "cost_model": {"enabled": profit is not None,
+                                             "mode": cost_mode, "model": PROFIT_MODEL,
+                                             "phase": phase if profit is not None else None,
+                                             "profile_id": getattr(profile, "profile_id", None)
+                                             if profit is not None else None,
+                                             "constants": costs.to_json(),
+                                             "residual_goto_tb": residual_mode,
+                                             "entry_chain": entry_mode},
+                              "nested_decisions": getattr(selection.expansion, "report",
+                                                          lambda: None)(),
+                              "nested_fallbacks": nested_fallbacks,
                               "interrupts": interrupts, "icount": icount,
                               "planner": planner,
                               "max_hotness": None,
                               "max_growth": None, "max_sites": None,
-                              "max_members": None, "max_depth": None if policy.expand_nested else 1,
+                              "max_members": None, "max_depth": None if expand_nested else 1,
                               "max_iterations": None, "max_wall_s": None}}
         if embedded:
             return PassResult(Outcome.CANDIDATE, "firmware_regions_emitted",
                               json.dumps(receipt, sort_keys=True),
                               tuple(dict.fromkeys(affected)), stats=stats)
-        reason = "no_eligible_call" if discovered.calls else "no_firmware_call"
+        reason = ("no_profitable_call" if refused["not_profitable"] or
+                  refused["profit_estimate_unknown"] else
+                  "no_eligible_call" if discovered.calls else "no_firmware_call")
         return PassResult(Outcome.SKIPPED_UNKNOWN, reason,
                           json.dumps(receipt, sort_keys=True), stats=stats)
 

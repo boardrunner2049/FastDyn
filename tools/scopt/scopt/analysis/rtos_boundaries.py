@@ -27,7 +27,12 @@ class ExpansionSite:
     target_pc: int
 
 
-def residual_reason(action: ExpansionAction) -> str | None:
+def residual_reason(action: ExpansionAction | str) -> str | None:
+    """The side-exit reason of an expansion decision.  A callback may also
+    return a plain nonempty string, used verbatim as the residual reason
+    (for example ``nested_not_profitable`` from the firmware profit model)."""
+    if not isinstance(action, ExpansionAction) and isinstance(action, str) and action:
+        return action
     if action is ExpansionAction.INLINE:
         return None
     if action is ExpansionAction.SHARED:

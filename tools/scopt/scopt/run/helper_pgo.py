@@ -30,6 +30,123 @@ from ..importer.import_cache import open_compiler_snapshot
 
 _COUNTER_MAGIC = b"SCHPROF1"
 
+#: Work-start marker of the trebuchet/FreeRTOS benchmark firmware.  ``auto``
+#: training resolves ``<phase>@vComputeWindowStart`` from the launch kernel.
+WORK_START_SYMBOL = "vComputeWindowStart"
+_PHASE_NAME = re.compile(r"[A-Za-z0-9_.-]{1,15}")
+_MAX_MARKERS = 7
+
+
+class PhaseSpecError(ValueError):
+    pass
+
+
+def _launch_kernel(launch, cwd=None):
+    argv = launch["argv"]
+    if "-kernel" not in argv:
+        return None
+    return Path(cwd or launch["cwd"]) / argv[argv.index("-kernel") + 1]
+
+
+def parse_phase_spec(spec, symbols=None):
+    """``name@0xHEX[,...]`` or ``name@SYMBOL`` -> ``((name, vaddr), ...)``.
+
+    Mirrors QEMU's ``QEMU_SC_PROFILE_PHASES`` rules (1..15 byte names of
+    ``[A-Za-z0-9_.-]``, unique, not ``boot``, at most 7 markers).  A SYMBOL is
+    looked up in ``symbols`` (name -> start addresses, Thumb bit clear) and
+    must be unique."""
+    if not isinstance(spec, str) or not spec:
+        raise PhaseSpecError("empty training phase spec")
+    out = []
+    for item in spec.split(","):
+        name, at, where = item.partition("@")
+        if not at or not _PHASE_NAME.fullmatch(name) or name == "boot":
+            raise PhaseSpecError(f"bad training phase {item!r}: expected NAME@ADDRESS")
+        if where.lower().startswith("0x"):
+            try:
+                vaddr = int(where, 16)
+            except ValueError:
+                raise PhaseSpecError(f"bad phase marker address {where!r}") from None
+        else:
+            found = sorted(set((symbols or {}).get(where, ())))
+            if len(found) != 1:
+                raise PhaseSpecError(f"phase marker symbol {where!r} has {len(found)} "
+                                     "definitions in the launch kernel")
+            vaddr = found[0]
+        out.append((name, vaddr & ~1))
+    if len({n for n, _ in out}) != len(out) or len(out) > _MAX_MARKERS:
+        raise PhaseSpecError("training phase names must be unique, at most 7 markers")
+    return tuple(out)
+
+
+def _symbols(kernel):
+    from ..decode.guest_symbols import load_guest_image
+
+    table = {}
+    for func in load_guest_image(kernel).funcs:
+        table.setdefault(func.name, []).append(func.start)
+    return table
+
+
+def resolve_training_phases(launch_path, spec="auto", wanted="steady"):
+    """Choose the ``QEMU_SC_PROFILE_PHASES`` of an automatic training replay.
+
+    Returns ``{"phases", "phase", "marker", "source", "explicit"}``:
+    ``phases`` is the spec for the edges arm (None: an unmarked whole run),
+    ``phase`` the profile phase the passes should read if the marker is
+    reached.  ``spec``:
+
+    * ``boot``: whole run, by request (``whole_run_explicit``);
+    * ``NAME@0xADDR`` / ``NAME@SYMBOL``: explicit (``cli``); NAME must be
+      ``wanted`` (or another marker of the list must be);
+    * ``auto``: the training launch's own ``QEMU_SC_PROFILE_PHASES`` when it
+      names ``wanted`` (``launch``), else ``wanted@vComputeWindowStart`` from
+      the launch kernel (``symbol:vComputeWindowStart``), else an unmarked
+      whole run (``whole_run_unmarked``; the caller warns).
+
+    A pass that asks for ``boot`` always trains on the whole unmarked run:
+    with markers, ``boot`` would end at the first marker.
+    """
+    launch_path = Path(launch_path)
+    launch = json.loads(launch_path.read_bytes())
+    none = {"phases": None, "phase": "boot", "marker": None, "explicit": False}
+    if wanted == "boot" or spec == "boot":
+        return {**none, "source": "whole_run_explicit", "explicit": spec == "boot"}
+    kernel = _launch_kernel(launch)
+
+    def symbols():
+        if kernel is None:
+            raise PhaseSpecError("the training launch has no -kernel for marker symbols")
+        return _symbols(kernel)
+
+    def result(markers, source, explicit):
+        names = dict(markers)
+        if wanted not in names:
+            raise PhaseSpecError(f"training phases {sorted(names)} do not include the "
+                                 f"pipeline phase {wanted!r}")
+        text = ",".join(f"{n}@{v:#x}" for n, v in markers)
+        return {"phases": text, "phase": wanted, "marker": hex(names[wanted]),
+                "source": source, "explicit": explicit}
+
+    if spec != "auto":
+        markers = parse_phase_spec(spec, None if all(
+            w.partition("@")[2].lower().startswith("0x") for w in spec.split(","))
+            else symbols())
+        return result(markers, "cli", True)
+    declared = (launch.get("env_set") or {}).get("QEMU_SC_PROFILE_PHASES")
+    if declared:
+        markers = parse_phase_spec(declared)
+        if wanted in dict(markers):
+            return result(markers, "launch", True)
+    if kernel is not None and kernel.is_file():
+        try:
+            markers = parse_phase_spec(f"{wanted}@{WORK_START_SYMBOL}", symbols())
+        except PhaseSpecError:
+            markers = None
+        if markers:
+            return result(markers, f"symbol:{WORK_START_SYMBOL}", False)
+    return {**none, "source": "whole_run_unmarked"}
+
 
 def _align(value, alignment):
     return (value + alignment - 1) // alignment * alignment
@@ -100,7 +217,7 @@ def _diagnostic_cache(snapshot, path):
     return rows, header.code_address + data
 
 
-def _launch(launch, rd, cache, *, qprof=None, trusted=False):
+def _launch(launch, rd, cache, *, qprof=None, trusted=False, phases=None):
     argv = launch["argv"].copy()
     accel = argv.index("-accel") + 1
     fields = argv[accel].split(",")
@@ -143,6 +260,9 @@ def _launch(launch, rd, cache, *, qprof=None, trusted=False):
         env["QEMU_SC_TRUSTED"] = "1"
     if qprof is not None:
         env["QEMU_SC_PROFILE"] = str(qprof)
+        if phases:
+            # Only next to QEMU_SC_PROFILE: QEMU refuses PHASES without it.
+            env["QEMU_SC_PROFILE_PHASES"] = phases
     return argv, env, inputs
 
 
@@ -256,7 +376,8 @@ def _publish(src, dest):
         tmp.unlink(missing_ok=True)
 
 
-def _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path, trusted):
+def _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path, trusted,
+             phases=None):
     snapshot_path, launch_path = Path(snapshot_path), Path(launch_path)
     launch_bytes, launch, snap = _inputs(snapshot_path, launch_path)
     with tempfile.TemporaryDirectory(prefix="scopt-pgo-") as tmp:
@@ -276,7 +397,8 @@ def _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path
             rd = root / name
             rd.mkdir()
             qprof = root / "control.qprof" if name == "edges" else None
-            argv, env, inputs = _launch(launch, rd, cache, qprof=qprof, trusted=trusted)
+            argv, env, inputs = _launch(launch, rd, cache, qprof=qprof, trusted=trusted,
+                                        phases=phases)
             if name != "counted" or not rows:
                 log = _run(["setarch", "x86_64", "-R", *argv], env, launch["cwd"], timeout)
             else:
@@ -329,11 +451,16 @@ printf "SCOPT_INFERIOR_EXIT %d\\n", $_exitcode
         return result
 
 
-def collect(snapshot_path, launch_path, output_path, *, timeout=300, edge_profile_path=None, trusted=False):
-    """Publish exact per-site counts after matching fixed-input replays."""
-    return _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path, trusted)
+def collect(snapshot_path, launch_path, output_path, *, timeout=300, edge_profile_path=None,
+            trusted=False, phases=None):
+    """Publish exact per-site counts after matching fixed-input replays.
+
+    ``phases`` (a ``QEMU_SC_PROFILE_PHASES`` spec) marks the edges arm only."""
+    return _collect(snapshot_path, launch_path, output_path, timeout, edge_profile_path, trusted,
+                    phases)
 
 
-def collect_edges(snapshot_path, launch_path, edge_profile_path, *, timeout=300, trusted=False):
+def collect_edges(snapshot_path, launch_path, edge_profile_path, *, timeout=300, trusted=False,
+                  phases=None):
     """Collect the dynamic TB edges only, using the same sealed control and oracle."""
-    _collect(snapshot_path, launch_path, None, timeout, edge_profile_path, trusted)
+    _collect(snapshot_path, launch_path, None, timeout, edge_profile_path, trusted, phases)

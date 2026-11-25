@@ -83,3 +83,60 @@ def test_profile_launch_uses_selected_trust_policy(tmp_path, monkeypatch, truste
         _, env, _ = _launch(launch, tmp_path, tmp_path / "input.sc", qprof=edge_prof, trusted=trusted)
         assert env["QEMU_SC_SEALED"] == "1"
         assert env.get("QEMU_SC_TRUSTED") == ("1" if trusted else None)
+
+
+def test_profile_phases_only_on_edge_arm(tmp_path, monkeypatch):
+    monkeypatch.setenv("QEMU_SC_PROFILE_PHASES", "stale@0x1")
+    launch = {"cwd": str(tmp_path), "argv": ["qemu", "-accel", "tcg,supercache=old.sc"],
+              "env_set": {"QEMU_SC_PROFILE_PHASES": "declared@0x2"}}
+    _, env, _ = _launch(launch, tmp_path, tmp_path / "a.sc", qprof=tmp_path / "e.qprof",
+                        phases="steady@0x833e8")
+    assert env["QEMU_SC_PROFILE_PHASES"] == "steady@0x833e8"
+    for qprof, phases in ((None, "steady@0x833e8"), (tmp_path / "e.qprof", None)):
+        _, env, _ = _launch(launch, tmp_path, tmp_path / "a.sc", qprof=qprof, phases=phases)
+        assert "QEMU_SC_PROFILE_PHASES" not in env
+
+
+def _phase_launch(tmp_path, env_set=None, kernel=True):
+    import json
+
+    tmp_path = tmp_path / f"launch{len(list(tmp_path.glob('launch*')))}"
+    tmp_path.mkdir()
+    argv = ["qemu", "-accel", "tcg,supercache=x.sc"]
+    if kernel:
+        (tmp_path / "fw.elf").write_bytes(b"\x7fELF")
+        argv += ["-kernel", "fw.elf"]
+    path = tmp_path / "launch.json"
+    path.write_text(json.dumps({"cwd": str(tmp_path), "argv": argv, "env_set": env_set or {}}))
+    return path
+
+
+def test_resolve_training_phases(tmp_path, monkeypatch):
+    import scopt.run.helper_pgo as H
+
+    symbols = {"vComputeWindowStart": [0x833e8], "twice": [0x10, 0x20]}
+    monkeypatch.setattr(H, "_symbols", lambda kernel: symbols)
+    launch = _phase_launch(tmp_path)
+    auto = H.resolve_training_phases(launch, "auto", "steady")
+    assert auto == {"phases": "steady@0x833e8", "phase": "steady", "marker": "0x833e8",
+                    "source": "symbol:vComputeWindowStart", "explicit": False}
+    # The launch's own markers win when they name the pipeline phase.
+    marked = _phase_launch(tmp_path, {"QEMU_SC_PROFILE_PHASES": "warm@0x100,steady@0x201"})
+    got = H.resolve_training_phases(marked, "auto", "steady")
+    assert got["phases"] == "warm@0x100,steady@0x200" and got["source"] == "launch"
+    # Explicit specs: hex, symbol, and their errors.
+    assert H.resolve_training_phases(launch, "steady@0x81BA1", "steady")["marker"] == "0x81ba0"
+    assert H.resolve_training_phases(launch, "steady@vComputeWindowStart",
+                                     "steady")["source"] == "cli"
+    for bad in ("steady@missing", "steady@twice", "steady@0xzz", "boot@0x1", "warm@0x1",
+                "steady@0x1,steady@0x2", "steady"):
+        with pytest.raises(H.PhaseSpecError):
+            H.resolve_training_phases(launch, bad, "steady")
+    # Whole-run cases are explicit or recorded, never silent.
+    assert H.resolve_training_phases(launch, "boot", "steady")["source"] == "whole_run_explicit"
+    assert H.resolve_training_phases(launch, "auto", "boot")["phases"] is None
+    symbols.clear()
+    unmarked = H.resolve_training_phases(launch, "auto", "steady")
+    assert unmarked["phases"] is None and unmarked["source"] == "whole_run_unmarked"
+    assert H.resolve_training_phases(_phase_launch(tmp_path, kernel=False), "auto",
+                                     "steady")["source"] == "whole_run_unmarked"

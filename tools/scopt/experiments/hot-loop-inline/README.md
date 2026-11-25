@@ -2,8 +2,9 @@
 
 Use an ordinary fixed-input training launch to find calls in observed cycles.
 For configuration 7, scopt first counts native helper calls and splices eligible
-roots. It then embeds one callee layer at eligible guest calls using the same
-training profile. The default threshold for each kind of call is 1,000 observed
+roots. It then embeds eligible guest calls using the same training profile,
+recursing into nested calls and keeping only regions the profit model admits
+(results below predate the profit model and recursion). The default threshold for each kind of call is 1,000 observed
 executions. Unselected functions remain shared. See the [pass catalog](../../docs/passes.md)
 and [trusted PGO pipeline](../../docs/sealed-whopr-7.md).
 

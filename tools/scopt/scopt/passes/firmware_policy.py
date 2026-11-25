@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from importlib import metadata
 from typing import Any
 
-from ..analysis.helper_hot_loop import observed_loop_units
+from ..analysis.helper_hot_loop import FIRMWARE_LOOP_KINDS, observed_loop_units, real_exit_null
 from ..analysis.rtos_boundaries import ExpansionAction, ExpansionSite, TaskBoundaries, residual_reason
 from ..decode.guest_symbols import GuestImage
 from ..formats.enums import ExitKind
@@ -26,6 +26,9 @@ class PolicyInput:
     params: Mapping[str, Any]
     profile: ProfileView | None = None
     task_loops: Any = None
+    #: :class:`scopt.analysis.firmware_profit.ProfitModel` when the pass
+    #: prices regions; policies may use it to gate nested expansion.
+    profit: Any = None
 
 
 @dataclass(frozen=True)
@@ -34,7 +37,9 @@ class PolicySelection:
     refusals: Mapping[str, str] = field(default_factory=dict)
     site_evidence: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     evidence: Mapping[str, Any] = field(default_factory=dict)
-    expansion: Callable[[ExpansionSite, tuple[str, ...]], ExpansionAction] | None = None
+    expansion: Callable[[ExpansionSite, tuple[str, ...]], ExpansionAction | str] | None = None
+    #: Overrides :attr:`FirmwarePolicy.expand_nested` for this selection.
+    expand_nested: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,8 @@ class FirmwarePolicy:
     expand_nested: bool
     requires_edges: bool = False
     discover_loops: Callable[[PolicyInput], Any] | None = None
+    #: Whether firmware-inline prices regions by default (``cost_model=auto``).
+    cost_model_default: bool = False
 
 
 class PolicyError(ValueError):
@@ -56,7 +63,13 @@ def _exhaustive(inputs):
 def _hot_loop_calls(snapshot, calls, profile, phase, minimum):
     """Rank exact observed normal transfers of verified BLs to a captured full key."""
     edges = [e for e in profile.edges(phase) if e["status"] == "exact" and not e["flags"]]
-    loops = observed_loop_units(edges)
+
+    def unit_of(uid):
+        try:
+            return snapshot.unit(uid)
+        except KeyError:
+            return None
+    loops = observed_loop_units(edges, kinds=FIRMWARE_LOOP_KINDS, accept=real_exit_null(unit_of))
     transfers = Counter()
     for e in edges:
         transfers[e["src"], e["dst"], e["kind"]] += e["count"]
@@ -103,13 +116,29 @@ def _hot_loop(inputs):
         raise PolicyError("min_call_count must be >= 2")
     kept, residual, counts = _hot_loop_calls(inputs.snapshot, inputs.calls, inputs.profile,
                                              phase, minimum)
+    nested = inputs.params.get("nested", "profit")
+    if nested not in ("profit", "public"):
+        raise PolicyError("hot-loop nested must be 'profit' or 'public'")
     site_evidence = {uid: {"observed_call_edges": count} for uid, count in counts.items()}
     for row in residual:
         site_evidence[row["callsite_id"]] = {"observed_call_edges": row["observed_call_edges"]}
+    expansion = None
+    if nested == "profit" and inputs.profit is not None:
+        # Recursive hot-loop: a nested call inside an inlined callee is
+        # inlined when its marginal profit is positive, so each inline can
+        # open the next one.  Without a cost model nested calls stay public.
+        from ..analysis.firmware_profit import NestedProfitExpansion
+
+        expansion = NestedProfitExpansion(inputs.profit, inputs.snapshot, inputs.image,
+                                          tuple(inputs.calls),
+                                          trusted=inputs.params.get("trust") == "user")
     return PolicySelection(
         tuple(call.callsite_id for call in kept),
         {row["callsite_id"]: row["reason"] for row in residual}, site_evidence,
-        {"profile_id": inputs.profile.profile.profile_id, "phase": phase, "min_call_count": minimum})
+        {"profile_id": inputs.profile.profile.profile_id, "phase": phase, "min_call_count": minimum,
+         "nested": nested if expansion is not None else "public",
+         "loop_kinds": sorted(FIRMWARE_LOOP_KINDS)},
+        expansion=expansion, expand_nested=True if expansion is not None else None)
 
 
 def _loop_evidence(inputs, *, v2=False):
@@ -168,7 +197,8 @@ def _firmlooper_v2(inputs):
 
 _BUILTINS = {
     "exhaustive": FirmwarePolicy(_exhaustive, expand_nested=True),
-    "hot-loop": FirmwarePolicy(_hot_loop, expand_nested=False, requires_edges=True),
+    "hot-loop": FirmwarePolicy(_hot_loop, expand_nested=False, requires_edges=True,
+                               cost_model_default=True),
     "firmlooper": FirmwarePolicy(_firmlooper, expand_nested=True, discover_loops=_loop_evidence),
     "firmlooper-v2": FirmwarePolicy(_firmlooper_v2, expand_nested=True, discover_loops=_v2_loops),
 }
@@ -187,7 +217,8 @@ def firmware_policy(name: str) -> FirmwarePolicy:
     except (ImportError, AttributeError) as exc:
         raise PolicyError(f"cannot load firmware policy {name!r}: {exc}") from exc
     if (not isinstance(policy, FirmwarePolicy) or not callable(policy.select)
-            or type(policy.expand_nested) is not bool or type(policy.requires_edges) is not bool):
+            or type(policy.expand_nested) is not bool or type(policy.requires_edges) is not bool
+            or type(policy.cost_model_default) is not bool):
         raise PolicyError(f"firmware policy {name!r} must export a FirmwarePolicy")
     return policy
 
@@ -196,6 +227,8 @@ def resolve_selection(inputs: PolicyInput, selected: PolicySelection):
     """Resolve nominated IDs using the original discovered calls, before region legality checks."""
     if not isinstance(selected, PolicySelection):
         raise PolicyError("a firmware policy must return a PolicySelection")
+    if selected.expand_nested is not None and type(selected.expand_nested) is not bool:
+        raise PolicyError("PolicySelection.expand_nested must be a bool or None")
     calls = {c.callsite_id: c for c in inputs.calls}
     roots = set(selected.roots)
     if (len(roots) != len(selected.roots) or roots & selected.refusals.keys()

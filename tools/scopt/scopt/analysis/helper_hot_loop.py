@@ -46,15 +46,62 @@ def load_site_counts(path, snapshot, expected_digest):
     return counts
 
 
-def observed_loop_units(edges):
-    """Find SCCs of observed control transfers without using the Python call stack."""
+#: Edge kinds that are ordinary control transfers out of a TB body.
+LOOP_TRANSFER_KINDS = frozenset({"chain0", "chain1", "lookup_hit", "lookup_miss"})
+#: Firmware hot-loop also follows ``exit_null``: FreeRTOS critical sections
+#: (``MSR BASEPRI``) and handler-mode returns end their TBs with
+#: ``exit_tb(0)``, which otherwise hides loops through them.  The caller must
+#: drop the ``exit_null`` edges that are not control flow (see
+#: :func:`real_exit_null`).  ``exit_requested`` is never a transfer: the
+#: source TB was aborted at its poll before its body ran, and the re-dispatch
+#: A -> A would create a false self-loop.
+FIRMWARE_LOOP_KINDS = LOOP_TRANSFER_KINDS | {"exit_null"}
+
+
+def real_exit_null(unit_of):
+    """Predicate over profile edges: whether an unflagged ``exit_null`` edge is
+    control flow inside one execution mode.
+
+    ``unit_of(uid)`` returns the snapshot unit (or None).  A handler-mode
+    source (``cs_base`` HANDLER) ends a ``BX``/``POP {pc}`` with ``exit_tb(0)``
+    because the target may be an ``EXC_RETURN`` value; the edge's destination
+    is then whatever code the exception return resumes, not a successor, and
+    following it can join ISR code and the interrupted task into a phantom
+    loop.  An edge that changes mode without an exception or IRQ flag is not
+    a transfer either.  Exception entries and exits themselves carry the
+    ``irq``/``exception``/``longjmp`` flags and are excluded before this.
+    """
+    from .return_edges import HANDLER_BIT
+
+    modes: dict[str, bool | None] = {}
+
+    def handler(uid):
+        if uid not in modes:
+            unit = unit_of(uid)
+            modes[uid] = None if unit is None else bool(unit.key.cs_base & HANDLER_BIT)
+        return modes[uid]
+
+    def accept(edge):
+        if edge["kind"] != "exit_null":
+            return True
+        src, dst = handler(edge["src"]), handler(edge["dst"])
+        return src is False and dst is False
+    return accept
+
+
+def observed_loop_units(edges, kinds=LOOP_TRANSFER_KINDS, accept=None):
+    """Find SCCs of observed control transfers without using the Python call stack.
+
+    Only unflagged exact edges of ``kinds`` count; ``accept(edge)`` can veto
+    more (firmware hot-loop passes :func:`real_exit_null`).
+    """
     forward, reverse = defaultdict(set), defaultdict(set)
     loops = set()
     for e in edges:
         src, dst = e["src"], e["dst"]
         if (not src or not dst or e["count"] <= 0 or e.get("flags")
                 or e.get("status") != "exact"
-                or e["kind"] not in {"chain0", "chain1", "lookup_hit", "lookup_miss"}):
+                or e["kind"] not in kinds or (accept is not None and not accept(e))):
             continue
         if src == dst:
             loops.add(src)

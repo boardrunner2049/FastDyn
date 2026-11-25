@@ -63,6 +63,25 @@ def test_policy_descriptor_controls_profile_and_nesting():
     assert hot.requires_edges and not hot.expand_nested
     all_calls = firmware_policy("exhaustive")
     assert all_calls.expand_nested and not all_calls.requires_edges
+    # The profit model is on by default for hot-loop only; elsewhere it is
+    # opt-in through cost_model=profile.
+    assert hot.cost_model_default
+    assert not any(firmware_policy(name).cost_model_default
+                   for name in ("exhaustive", "firmlooper", "firmlooper-v2"))
+
+
+def test_plugin_policy_cost_model_default_must_be_bool(monkeypatch):
+    policy = FirmwarePolicy(lambda data: PolicySelection(()), expand_nested=False,
+                            cost_model_default="yes")
+    monkeypatch.setattr("scopt.passes.firmware_policy.metadata.entry_points",
+                        lambda *, group, name: [SimpleNamespace(load=lambda: policy)])
+    with pytest.raises(PolicyError, match="FirmwarePolicy"):
+        firmware_policy("bad-policy")
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    with pytest.raises(PolicyError, match="expand_nested"):
+        resolve_selection(PolicyInput(snapshot, image, (call,), {}),
+                          PolicySelection((), expand_nested="deep"))
 
 
 def test_private_trusted_return_patches_guard_success_and_keeps_lookup_on_miss():
