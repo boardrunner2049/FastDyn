@@ -152,6 +152,19 @@ separate case: executing per-site private helper copies
    (`b3_registered_slot`; [B3 passes](b3-passes.md#sealed-captures-configuration-6--b3)).
    `loop_returns_nonnull` and `trusted_residual_exits` now count these returns
    ([counters](qemu.md#v7-dispatcher-return-counters)).
+   *Follow-up (counters revision 4):* QEMU also chains a trusted exit into another
+   trusted region's entry. A region entry's `tc.ptr` skips the poll (+15), so the
+   chain enters at the entry member's first byte (+0): the destination's IRQ/exit-request
+   poll and its `can_do_io` store run on every chained transfer, as when chaining into an
+   ordinary TB. Requirements: the region's entry prefix is proved at load (the poll exits
+   to the member's own stub, which returns the entry descriptor with
+   `TB_EXIT_REQUESTED`, and the store writes 1; a region that fails stays loadable and is
+   never such a destination), and the same sealed or `incoming-chain` rule as
+   ordinary-to-trusted chains. `QEMU_SC_V7_EXPERIMENT=no-trusted-to-trusted-chain`
+   restores the refusal on the same bytes. Pricing is unchanged: the profit model still
+   charges such an exit a dispatch, which is conservative now. The estimated time effect
+   is below this harness's floor (about 0.6% of a CLI `sealed-pgo-7` run, at most about
+   1% on the UART `p7_legacy` arm), so report the counter deltas, not a speedup.
 3. **No cost model.** `hot-loop` admitted every root above 1,000 training calls, such
    as the per-byte CRC-CCITT callee, whose saving per call (polls, two lookups, a
    guarded return) is smaller than one dispatcher round trip per unchained exit.
@@ -198,8 +211,8 @@ table is above its A/A floor.
 - Chainable residual exits (`sealed-pgo-7` against the same bytes with
   `no-trusted-exit-chain`): 1.063, 1.040 and 0.990, within noise. They remove about
   2.96M dispatcher returns per packet run and 1.08M per UART run. Most remaining
-  residual exits on UART and CLI enter another trusted region, which QEMU does not
-  chain.
+  residual exits on UART and CLI enter another trusted region, which QEMU `a1bdec6`
+  does not chain (counters revision 4 does; not timed).
 - The profit model, recursive nesting and steady training (against the same pipeline
   with `cost_model = "off"`, `nested = "public"` and whole-run training): 1.026, 1.051
   and 1.075, within the A/A band. On the CLI 6,000-command input alone it is 1.088,
@@ -237,6 +250,10 @@ Plans, observations and per-arm counters are in
   `QEMU_SC_SEALED_SKIP_IRQ=1` option is used; trusted firmware regions
   (configuration 7) skip it at entry and on internal edges.  Use ordinary SuperCache when the
   omitted contracts matter.
+- Chained transfers between regions poll (counters revision 4), but two poll-free
+  paths remain inside the trusted contract (`interrupts="disabled"`): cycles of
+  internal edges within one region, and a `goto_ptr` lookup that enters a region entry
+  at +15.
 - The cache is sparse and has a large logical size because it retains the
   existing executable arena layout.  Allocated disk bytes are much smaller;
   compacting this representation is independent of runtime semantics.

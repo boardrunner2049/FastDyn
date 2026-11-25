@@ -43,8 +43,11 @@ Costs added, per dynamic event:
   member-skip capability: deliberately conservative, because the
   internal-edge credit assumes lookups B3 already chains and residual
   ``goto_ptr`` exits on B3-guarded tails lose the guard in the pre-B3 member
-  copies.  An explicit ``chained`` overrides it.  A trusted exit into a trusted region entry (its own caller,
-  or another planned root) is never chained, so it always costs a dispatch;
+  copies.  An explicit ``chained`` overrides it.  A trusted exit into a
+  trusted region entry (its own caller, or another planned root) is priced as
+  a dispatch: exact for QEMU before counters revision 4, conservative from
+  revision 4 on (that QEMU chains such an exit to the destination entry's +0,
+  which costs one poll);
 * residual ``goto_ptr``/``exit_null``/``exit_requested``: nothing (the same
   as public code; trusted members never take their poll exit);
 * entry: when chaining into a trusted entry is refused (``entry_chain``

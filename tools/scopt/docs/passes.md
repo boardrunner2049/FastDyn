@@ -322,9 +322,12 @@ translation context, and fall back to the original lookup path on mismatch.
   residual goto_tb slots (record slots that are not internal edges, checked at load:
   `e9`, zero rel32 past the 15-byte prefix, reset at rel32 + 4, 4-byte aligned rel32) and
   chains them after first use to the ordinary TB the dispatcher looked up. That TB is
-  entered at `+0`, so its IRQ poll still runs. QEMU never chains a residual exit into a
-  trusted region entry (which skips its poll) and never chains trusted sources under
-  `QEMU_SC_SEALED_SKIP_IRQ`. `QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain` leaves the
+  entered at `+0`, so its IRQ poll still runs. QEMU before counters revision 4 never
+  chains a residual exit into a trusted region entry (whose `tc.ptr` skips its poll);
+  from revision 4 it chains it to the entry member's first byte (+0) when the entry
+  prefix was proved at load, so the destination's poll runs too
+  (`QEMU_SC_V7_EXPERIMENT=no-trusted-to-trusted-chain` restores the refusal). QEMU never
+  chains trusted sources under `QEMU_SC_SEALED_SKIP_IRQ`. `QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain` leaves the
   slots unarmed on the same artifact bytes (the A/B arm). In a composed (B3) artifact a
   member copies the pre-B3 bytes, so the goto_tb slots B3 registered on its source's
   output record (`added_goto_tb_slots`) are absent from the copy. With the member-skip

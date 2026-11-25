@@ -7,12 +7,25 @@ member descriptors (region flag SC7_REGION_MEMBER_DESCRIPTORS, for example a
 rebuilt packet config 7, or a composed c7b3 whose members carry skip flags).
 Each arm runs on a private copy of the same cache bytes:
 
-``chain``      default: residual goto_tb exits are armed and chained.
+``chain``      default: residual goto_tb exits are armed and chained; a
+               trusted region entry destination is entered at its +0 poll
+               (counters revision 4).
+``no-t2t``     QEMU_SC_V7_EXPERIMENT=no-trusted-to-trusted-chain: the
+               revision-3 behaviour, trusted->trusted chains refused.
 ``unchained``  QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain (old behaviour).
 ``skip-irq``   QEMU_SC_SEALED_SKIP_IRQ=1: trusted sources never chain.
 ``corrupt``    one residual rel32 made nonzero: QEMU must refuse to load.
+``bad-poll``   every region's entry poll exit stub (its rax operand)
+               corrupted: QEMU loads, refuses every chain into a region entry
+               as unverified (fail closed) and prints the same output.
+``bad-io``     every region's entry can_do_io store made 0, which the
+               loader's prefix check accepts: the same, through the rule
+               that a +0 entry must store 1.
 
-The first three must print the same guest output.  Flagged (B3-registered)
+The two ``bad-*`` arms run when the ``no-t2t`` arm refused a trusted->trusted
+chain.  All arms but ``corrupt`` must print the same guest output, and on the
+same bytes ``chain`` must return to the dispatcher less often than ``no-t2t``
+(apart from exits that escaped before a chain decision).  Flagged (B3-registered)
 member slots are never armed: with member skip flags the ``chain`` arm's
 ``trusted_residual_slots_skipped`` equals the flags' static sum over the
 regions it built, and the other arms arm and skip nothing.  Writes
@@ -31,11 +44,16 @@ from scopt.formats.sc_v7 import (SC7_REGION_MEMBER_DESCRIPTORS, decode_directory
                                  read_sc7)
 from scopt.link import residual_goto_tb_slots
 from scopt.run.helper_pgo import _guest_lines, _launch
-from scopt.run.v7_stats import counter_problems, summary
+from scopt.run.v7_stats import T2T_REVISION, counter_problems, summary
 
 ARMS = (("chain", {}),
+        ("no-t2t", {"QEMU_SC_V7_EXPERIMENT": "no-trusted-to-trusted-chain"}),
         ("unchained", {"QEMU_SC_V7_EXPERIMENT": "no-trusted-exit-chain"}),
         ("skip-irq", {"QEMU_SC_SEALED_SKIP_IRQ": "1"}))
+#: Entry prefix: mov ebx,[rbp-8]; test ebx,ebx; jl rel32 (poll exit stub).
+_POLL = bytes.fromhex("8b5df885db0f8c")
+_LEA_RAX = bytes.fromhex("488d05")       # lea rax,[rip+disp32]; jmp tb_ret
+_MOVABS_RAX = bytes.fromhex("48b8")      # movabs rax,imm64; jmp tb_ret
 
 
 def residual_slots(cache):
@@ -72,10 +90,40 @@ def residual_slots(cache):
     return skipped, rows, out
 
 
-def run(launch, rd, source, env_extra):
+def _entry_code(cache, rows, region):
+    member = rows["members"][rows["regions"][region]["first_member"]]
+    with open(cache, "rb") as stream:
+        stream.seek(SC_CODE_OFFSET + member["tc_offset"])
+        return SC_CODE_OFFSET + member["tc_offset"], stream.read(member["tc_size"])
+
+
+def poll_stub_patch(cache, rows, region):
+    """(file offset, bytes) corrupting the rax operand of region's entry-member
+    poll exit stub, so it no longer names the entry descriptor."""
+    at, code = _entry_code(cache, rows, region)
+    assert code[:7] == _POLL, code[:7].hex()
+    stub = 11 + int.from_bytes(code[7:11], "little", signed=True)
+    if code[stub:stub + 3] == _LEA_RAX:
+        return at + stub + 3, b"\x00\x00\x00\x80"
+    assert code[stub:stub + 2] == _MOVABS_RAX, code[stub:stub + 10].hex()
+    return at + stub + 9, bytes([code[stub + 9] ^ 0x80])
+
+
+def can_do_io_patch(cache, rows, region):
+    """(file offset, bytes) making region's entry-member can_do_io store 0."""
+    at, code = _entry_code(cache, rows, region)
+    assert code[11:15] == bytes.fromhex("c645fc01"), code[11:15].hex()
+    return at + 14, b"\x00"
+
+
+def run(launch, rd, source, env_extra, patches=()):
     rd.mkdir()
     cache = rd / "cache.sc"
     sparse_copy(source, cache)
+    with cache.open("r+b") as stream:
+        for offset, data in patches:
+            stream.seek(offset)
+            stream.write(data)
     argv, env, _ = _launch(launch, rd, cache)
     env.update(env_extra)
     env["QEMU_SC_V7_STATS"] = str(rd / "stats.json")
@@ -112,7 +160,31 @@ def main():
         assert s["loaded"] is True and s["mode"] == "trusted", arm
         assert counter_problems(s) == [], (arm, counter_problems(s))
 
-    chain, unchained, skip = stats["chain"], stats["unchained"], stats["skip-irq"]
+    chain, no_t2t = stats["chain"], stats["no-t2t"]
+    unchained, skip = stats["unchained"], stats["skip-irq"]
+    # Trusted->trusted chains (counters revision 4): every entry prefix of a
+    # sealed capture verifies, so nothing is refused for a reason.
+    assert chain["counters_revision"] >= T2T_REVISION
+    assert chain["trusted_poll_entries_unverified"] == 0
+    assert chain["trusted_poll_entries_verified"] == chain["regions_loaded"]
+    assert chain["chain_skipped_trusted_to_trusted"] == 0
+    assert no_t2t["experiment"]["no_trusted_to_trusted_chain"] is True
+    assert no_t2t["chain_allowed_trusted_to_trusted"] == 0
+    t2t = no_t2t["chain_skipped_trusted_to_trusted"]
+    if t2t:
+        # Same bytes: chaining into region entries removes those round trips.
+        assert chain["chain_installs_trusted_to_trusted"] > 0
+        assert chain["trusted_residual_exits"] < no_t2t["trusted_residual_exits"]
+        assert chain["loop_returns_nonnull"] < no_t2t["loop_returns_nonnull"]
+        # Exits that never reached a chain decision (an interrupt delivered
+        # or a page-spanning destination nulled last_tb) stay unchained.
+        escaped = (chain["trusted_residual_exits_chainable"] -
+                   chain["chain_allowed_trusted_source"] -
+                   chain["chain_skipped_trusted_source"])
+        assert 0 <= escaped <= max(50, t2t // 100), escaped
+        assert chain["trusted_residual_exits"] <= (
+            chain["trusted_residual_slots_armed"] +
+            chain["trusted_residual_exits_unchainable"] + escaped)
     assert chain["trusted_residual_slots_armed"] > 0
     assert chain["chain_installs_trusted_source"] > 0
     assert chain["trusted_residual_exits"] < unchained["trusted_residual_exits"]
@@ -125,6 +197,7 @@ def main():
         assert s["trusted_residual_slots_armed"] == 0
         assert s["chain_installs_trusted_source"] == 0
         assert s["trusted_residual_exits_chainable"] == 0
+        assert s["chain_allowed_trusted_to_trusted"] == 0
     if sum(skips.values()):
         # Member skip flags (revision 4): counted only while arming, once per
         # region build.  Regions with residual exits were built.
@@ -136,6 +209,7 @@ def main():
         assert chain["trusted_residual_slots_skipped"] > 0
         for s in (unchained, skip):
             assert s["trusted_residual_slots_skipped"] == 0
+        assert no_t2t["trusted_residual_slots_skipped"] == chain["trusted_residual_slots_skipped"]
 
     # A corrupted residual rel32 must be refused before anything runs.
     rd = out / "corrupt"
@@ -152,6 +226,27 @@ def main():
                             text=True, timeout=120)
     assert result.returncode != 0
     assert f"trusted member {member} residual slot" in result.stdout + result.stderr
+
+    # Corrupted entry prefixes are refused per region at load and never run:
+    # every trusted->trusted chain is refused as unverified and everything
+    # else is unchanged (fail closed, same output).  File offsets come from
+    # the pristine source.
+    if t2t:
+        regions = range(len(rows["regions"]))
+        bad = {"bad-poll": [poll_stub_patch(source, rows, ri) for ri in regions],
+               "bad-io": [can_do_io_patch(source, rows, ri) for ri in regions]}
+        for arm, patches in bad.items():
+            _, result, log = run(launch, out / arm, source, {}, patches)
+            assert result.returncode == 0, (arm, log[-2000:])
+            assert _guest_lines(launch, log) == expected, arm
+            s = stats[arm] = json.loads((out / arm / "stats.json").read_text())
+            assert counter_problems(s) == [], (arm, counter_problems(s))
+            assert s["trusted_poll_entries_verified"] == 0, arm
+            assert s["trusted_poll_entries_unverified"] == s["regions_loaded"], arm
+            assert s["chain_allowed_trusted_to_trusted"] == 0, arm
+            assert s["trusted_poll_entry_exits"] == 0, arm
+            assert (s["chain_skipped_trusted_poll_unverified"] ==
+                    s["chain_skipped_trusted_to_trusted"] > 0), arm
 
     (out / "trusted-exit-chain.json").write_text(json.dumps(
         {arm: summary(s) for arm, s in stats.items()}, indent=2) + "\n")

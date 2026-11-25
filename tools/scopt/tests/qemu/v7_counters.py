@@ -6,8 +6,11 @@ The launch must select a compiled firmware-region artifact whose trusted
 regions are exercised (for example packet config 7).  Each arm runs on a
 private copy of the cache: the default, QEMU_SC_V7_EXPERIMENT=no-regions,
 disable-chaining and no-trusted-exit-chain.  All arms must print the same guest
-output and satisfy scopt.run.v7_stats.counter_problems.  Writes
-OUT/v7-counters.json with the per-arm counter summaries.
+output, report scopt.run.v7_stats.COUNTERS_REVISION (4: trusted->trusted chains
+and member skip flags) and satisfy scopt.run.v7_stats.counter_problems.  The
+arms that chain nothing also chain no trusted source into a trusted entry and
+skip no member slot.  Writes OUT/v7-counters.json with the per-arm counter
+summaries.
 """
 
 import argparse
@@ -75,10 +78,18 @@ def main():
     if default["trusted_residual_slots_armed"] == 0:
         assert default["chain_installs_trusted_source"] == 0
 
+    # Revision 4: one load verdict per region; a sealed capture stores
+    # can_do_io = 1 at every entry, so every region is a trusted->trusted
+    # destination and no such chain is refused for a reason.
+    assert default["trusted_poll_entries_verified"] == default["regions_loaded"]
+    assert default["chain_skipped_trusted_to_trusted"] == 0
+
     unarmed = stats["no-trusted-exit-chain"]
     assert unarmed["experiment"]["no_trusted_exit_chain"] is True
     assert unarmed["trusted_residual_slots_armed"] == 0
+    assert unarmed["trusted_residual_slots_skipped"] == 0
     assert unarmed["chain_installs_trusted_source"] == 0
+    assert unarmed["chain_allowed_trusted_to_trusted"] == 0
     assert unarmed["trusted_residual_exits_chainable"] == 0
     if default["chain_installs_trusted_source"]:
         assert unarmed["trusted_residual_exits"] > default["trusted_residual_exits"]
@@ -90,6 +101,7 @@ def main():
 
     unchained = stats["disable-chaining"]
     assert unchained["trusted_tb_chain_probes"] == 0 == unchained["chain_installs"]
+    assert unchained["chain_installs_trusted_to_trusted"] == 0
     assert unchained["trusted_tb_calls"] == unchained["loop_returns_nonnull"]
 
     (out / "v7-counters.json").write_text(json.dumps(

@@ -76,9 +76,11 @@ regions enter members at +15), a `helper_lookup_tb_ptr` plus a poll on every int
 iteration on an internal edge that missed the lookup in training. It **adds** a full
 dispatcher iteration on every residual `goto_tb` exit (all member exits without an
 internal edge, including the caller's and the root continuation's) when the region's
-exits are unchainable, and on a trusted exit into a trusted region entry, which QEMU
-never chains; a dispatch per chained in-edge of the caller when chaining into the
-trusted entry is refused (non-sealed `CF_PCREL` captures); and `cost_byte_ns` per byte
+exits are unchainable, and on a trusted exit into a trusted region entry (exact for
+QEMU before counters revision 4; conservative from revision 4 on, where QEMU chains it
+to the destination entry's +0 for the price of one poll); a dispatch per chained
+in-edge of the caller when chaining into the trusted entry is refused (non-sealed
+`CF_PCREL` captures); and `cost_byte_ns` per byte
 of member code and descriptors. `goto_ptr`, `exit_null` and `exit_requested` residual
 exits cost what they cost in public code. A root is admitted when
 `saved >= (1 + cost_margin) * added`, `net > 0` and `net / calls >= cost_min_net_per_call_ns`.
