@@ -68,6 +68,8 @@ def test_policy_descriptor_controls_profile_and_nesting():
     assert hot.cost_model_default
     assert not any(firmware_policy(name).cost_model_default
                    for name in ("exhaustive", "firmlooper", "firmlooper-v2"))
+    v3 = firmware_policy("firmlooper-v3")
+    assert v3.expand_nested and not v3.requires_edges and not v3.cost_model_default
 
 
 def test_plugin_policy_cost_model_default_must_be_bool(monkeypatch):

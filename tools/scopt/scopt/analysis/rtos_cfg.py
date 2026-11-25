@@ -25,12 +25,49 @@ def decode_function(image, func, ranges, md):
     return insns
 
 
-def resolve_veneer(image, addr, entries, ranges, md):
-    """Follow pure direct branch veneers if the original address has no matching entry."""
+def patched_entry(image, pc, md):
+    """The moved function behind an unsymbolized BOLT entry patch at ``pc``, or None.
+
+    BOLT moves a function out of ``.bolt.org.text``, drops its symbol and
+    ``$t`` mapping and rewrites the old entry as ``b.w <new entry>``. Accept
+    exactly that shape: ``pc`` inside an executable section, no symbol there
+    (or one starting at ``pc`` of at most 4 bytes), and a first instruction
+    that is an unconditional B to the exact start of a symbolized function.
+    Callers apply this only to direct control-transfer targets.
+    """
+    if not any(lo <= pc < hi for lo, hi in image.text_sections):
+        return None
+    func = image.func_at(pc)
+    if func is not None and (func.start != pc or func.end - func.start > 4):
+        return None
+    branch = next(md.disasm(image.read(pc, 4) or b"", pc, count=1), None)
+    if (branch is None or branch.id != A.ARM_INS_B or predicated(branch)
+            or not branch.operands or branch.operands[0].type != A.ARM_OP_IMM):
+        return None
+    dst = branch.operands[0].imm & ~1
+    target = image.func_at(dst)
+    if dst == pc or target is None or target.start != dst:
+        return None
+    return dst
+
+
+def resolve_veneer(image, addr, entries, ranges, md, *, patched=False):
+    """Follow pure direct branch veneers if the original address has no matching entry.
+
+    With ``patched`` (analysis revision 2), an address outside the Thumb code
+    ranges may also be a BOLT entry patch (:func:`patched_entry`).
+    """
     seen = set()
     while addr not in entries:
-        if addr in seen or not any(lo <= addr < hi for lo, hi in ranges):
+        if addr in seen:
             return None
+        if not any(lo <= addr < hi for lo, hi in ranges):
+            nxt = patched_entry(image, addr, md) if patched else None
+            if nxt is None:
+                return None
+            seen.add(addr)
+            addr = nxt
+            continue
         container = image.func_at(addr)
         if container is not None and container.start != addr:
             return None
@@ -45,8 +82,8 @@ def resolve_veneer(image, addr, entries, ranges, md):
     return addr
 
 
-def resolve_function(image, addr, funcs, ranges, md):
-    root = resolve_veneer(image, addr, funcs, ranges, md)
+def resolve_function(image, addr, funcs, ranges, md, *, patched=False):
+    root = resolve_veneer(image, addr, funcs, ranges, md, patched=patched)
     seen = set()
     while root is not None and root not in seen:
         func = funcs[root]
@@ -60,7 +97,7 @@ def resolve_function(image, addr, funcs, ranges, md):
         # A kept public function symbol may itself consist of a single branch
         # to the displaced implementation. Preserve the registered pointer in
         # the receipt and analyze the symbol covering the implementation.
-        body = resolve_veneer(image, dst, funcs, ranges, md)
+        body = resolve_veneer(image, dst, funcs, ranges, md, patched=patched)
         if body is None:
             break
         seen.add(root)
@@ -91,12 +128,17 @@ def _edges(insn, terminals, tables):
     return (pc,)
 
 
-def jump_tables(image, func, insns):
+def jump_tables(image, func, insns, *, word_tables=False):
     """Recognize cmp index,#last; bhi default; tbb/tbh [pc,index{,lsl #1}].
 
     Require an aligned PC base, table bytes in a mapped data span, code targets,
     and a range check that cannot be bypassed by a known branch/table entry.
     This is only a selection graph, never authority for deleting an indirect exit.
+
+    With ``word_tables`` (analysis revision 2), also recognize GCC's Thumb-2
+    word table ``cmp index,#last; bhi default; adr base,table;
+    ldr.w pc,[base,index,lsl #2]``: same guards, plus base != index, a
+    4-aligned table and words that all have the Thumb bit set.
     """
     tables = {}
     guard_pairs = {}
@@ -140,7 +182,58 @@ def jump_tables(image, func, insns):
         tables[pc] = targets
         landings.update(targets)
         guard_pairs[pc] = (pc, guard.address)
+    if word_tables:
+        for pc, i in insns.items():
+            table = _word_table(image, func, insns, prev, i)
+            if table is not None:
+                targets, guards = table
+                tables[pc] = targets
+                landings.update(targets)
+                guard_pairs[pc] = guards
     return {pc: dst for pc, dst in tables.items() if not landings.intersection(guard_pairs[pc])}
+
+
+def _word_table(image, func, insns, prev, ldr):
+    """``(targets, guarded pcs)`` of a GCC Thumb-2 word table dispatched by ``ldr``."""
+    ops = ldr.operands
+    if (ldr.id != A.ARM_INS_LDR or predicated(ldr) or len(ops) != 2
+            or ops[0].type != A.ARM_OP_REG or ops[0].reg != A.ARM_REG_PC
+            or ops[1].type != A.ARM_OP_MEM or ldr.writeback):
+        return None
+    mem = ops[1].mem
+    if (mem.index in (0, A.ARM_REG_PC) or mem.disp or ops[1].shift.type != A.ARM_SFT_LSL
+            or ops[1].shift.value != 2):
+        return None
+    adr = prev.get(ldr.address)
+    if (adr is None or adr.id != A.ARM_INS_ADR or predicated(adr) or len(adr.operands) != 2
+            or adr.operands[0].type != A.ARM_OP_REG or adr.operands[0].reg != mem.base
+            or adr.operands[0].reg == mem.index or adr.operands[1].type != A.ARM_OP_IMM):
+        return None
+    guard = prev.get(adr.address)
+    if guard is None or guard.id != A.ARM_INS_B or guard.cc != A.ARM_CC_HI:
+        return None
+    cmp = prev.get(guard.address)
+    if (cmp is None or cmp.id != A.ARM_INS_CMP or predicated(cmp) or len(cmp.operands) != 2
+            or cmp.operands[0].type != A.ARM_OP_REG or cmp.operands[0].reg != mem.index
+            or cmp.operands[1].type != A.ARM_OP_IMM):
+        return None
+    start = ((adr.address + 4) & ~3) + adr.operands[1].imm
+    last = cmp.operands[1].imm
+    end = start + 4 * (last + 1)
+    if last < 0 or start % 4 or end > func.end or (start, "d") not in image.mapping:
+        return None
+    if any(start < addr < end and kind != "d" for addr, kind in image.mapping):
+        return None
+    data = image.read(start, end - start)
+    if data is None:
+        return None
+    words = [int.from_bytes(data[k:k + 4], "little") for k in range(0, len(data), 4)]
+    if any(not word & 1 for word in words):
+        return None
+    targets = tuple(dict.fromkeys(word & ~1 for word in words))
+    if any(t not in insns for t in targets):
+        return None
+    return targets, (ldr.address, adr.address, guard.address)
 
 
 def reachable(func, insns, terminals, tables):

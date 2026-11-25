@@ -26,7 +26,8 @@ from ..analysis.firmware_whopr import balanced_partitions, summarize_firmware
 from ..formats.region_v1 import unit_exits
 from ..link import region_exits_chainable
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
-from .firmware_policy import PolicyError, PolicyInput, firmware_policy, resolve_selection
+from .firmware_policy import (PolicyError, PolicyInput, firmware_policy, firmlooper_summary,
+                              resolve_selection)
 
 __all__ = ["FirmwareInline", "PASSES", "boundary_residual_exits"]
 
@@ -175,7 +176,8 @@ class FirmwareInline:
         try:
             options = ctx.params.get("policy_options", {})
             signature_evidence = None
-            if mode == "firmlooper-v2" and isinstance(options, dict) and "signature_reference" in options:
+            if (mode in ("firmlooper-v2", "firmlooper-v3") and isinstance(options, dict)
+                    and "signature_reference" in options):
                 from ..analysis.rtos_signatures import recover
                 from ..decode.guest_symbols import load_guest_image
                 reference = options["signature_reference"]
@@ -480,6 +482,13 @@ class FirmwareInline:
                                         "cs_base": member.source_key.cs_base,
                                         "cflags": member.source_key.cflags}})
             affected.extend(plan.source_uids)
+        # FirmLooper v3 (analysis revision 2): per-task verdicts, and the
+        # image verdict as the skip reason when no root was planned.
+        summary = None
+        if inputs.task_loops is not None and getattr(inputs.task_loops, "revision", 1) >= 2:
+            summary = firmlooper_summary(inputs.task_loops, discovered.calls, residual,
+                                         {row["callsite_id"] for row in embedded},
+                                         {call.callsite_id for call in planned_calls})
         stats = {"discovered": float(len(discovered.calls)),
                  "embedded": float(len(embedded)), "pending": float(len(pending)),
                  "actual_expansion_depth": float(max_depth),
@@ -528,12 +537,15 @@ class FirmwareInline:
                               "max_growth": None, "max_sites": None,
                               "max_members": None, "max_depth": None if expand_nested else 1,
                               "max_iterations": None, "max_wall_s": None}}
+        if summary is not None:
+            receipt["policy"]["selection_summary"] = summary
         if embedded:
             return PassResult(Outcome.CANDIDATE, "firmware_regions_emitted",
                               json.dumps(receipt, sort_keys=True),
                               tuple(dict.fromkeys(affected)), stats=stats)
         reason = ("no_profitable_call" if refused["not_profitable"] or
                   refused["profit_estimate_unknown"] else
+                  summary["verdict"] if summary is not None and not planned_calls else
                   "no_eligible_call" if discovered.calls else "no_firmware_call")
         return PassResult(Outcome.SKIPPED_UNKNOWN, reason,
                           json.dumps(receipt, sort_keys=True), stats=stats)

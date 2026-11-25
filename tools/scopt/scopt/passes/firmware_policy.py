@@ -195,12 +195,168 @@ def _firmlooper_v2(inputs):
     return _firmlooper(inputs, v2=True)
 
 
+# FirmLooper v3: analysis revision 2 (reset is not an interrupt, BOLT entry
+# patches, word jump tables), task_end, the isb_boundary side exit and the
+# selection summary. firmlooper and firmlooper-v2 above stay on revision 1 so
+# their selections, receipts and candidate ids remain reproducible.
+
+_V3_OPTIONS = {"task_entries", "include_terminal", "boundaries", "signature_reference", "task_end"}
+
+
+def _v3_loops(inputs):
+    from ..analysis.task_loops import discover_task_loops
+
+    options = inputs.params.get("policy_options", {})
+    if not isinstance(options, dict) or options.keys() - _V3_OPTIONS:
+        raise PolicyError(f"unknown FirmLooper options; allowed: {sorted(_V3_OPTIONS)}")
+    entries = options.get("task_entries", [])
+    if not isinstance(entries, list) or any(type(x) not in (int, str) for x in entries):
+        raise PolicyError("task_entries must be a list of task symbols or addresses")
+    if any(type(options[k]) is not bool for k in ("include_terminal", "boundaries", "task_end")
+           if k in options):
+        raise PolicyError("include_terminal, boundaries and task_end must be boolean")
+    include_terminal = options.get("include_terminal", True)
+    task_end = options.get("task_end", True)
+    if task_end and not include_terminal:
+        raise PolicyError("task_end requires include_terminal=true")
+    return discover_task_loops(inputs.image, task_entries=entries,
+                               include_terminal=include_terminal, revision=2,
+                               task_end=task_end)
+
+
+def _ends_in_isb(unit, image):
+    """Whether the unit's last decoded guest instruction is ISB."""
+    from ..decode.guest_symbols import unit_guest_bytes
+    from ..decode.thumb_sem import decode_unit
+
+    code = unit_guest_bytes(unit, image)
+    # ISB is a 32-bit Thumb-2 encoding whose first halfword is 0xf3bX, so only
+    # units whose last four bytes start that way are decoded.
+    if code is None or len(code) < 4 or code[-3] != 0xf3 or code[-4] & 0xf0 != 0xb0:
+        return False
+    decoded = decode_unit(unit, code)
+    return bool(decoded) and decoded[-1].mnemonic.split(".")[0] == "isb"
+
+
+def _firmlooper_v3(inputs):
+    loops = inputs.task_loops or _v3_loops(inputs)
+    options = inputs.params.get("policy_options", {})
+    boundaries = (TaskBoundaries(inputs.image, revision=2)
+                  if options.get("boundaries", True) else None)
+    registrations = {int(row["entry"], 16) for row in loops.registrations
+                     if row["status"] == "resolved" and "explicit_entry" not in row}
+    units = inputs.snapshot.units()
+    # Materialize every decision before parallel region planning. Every
+    # internal target must start an existing captured translation.
+    actions = None
+    if boundaries is not None:
+        actions = {pc: boundaries.classify(pc) for pc in {u.vaddrs[0] for u in units if u.vaddrs}}
+    # An ISB ends its TB with a goto_tb to the next instruction. Keep that edge
+    # a side exit, so a yield requested by cloned code (e.g. PendSV set before
+    # the ISB) is taken where the guest asked rather than at the region exit.
+    isb_sources = frozenset(u.uid for u in units if _ends_in_isb(u, inputs.image))
+
+    def expansion(site, context):
+        if site.kind == "branch" and site.source_uid in isb_sources:
+            return "isb_boundary"
+        if actions is None:
+            return ExpansionAction.INLINE
+        return actions.get(site.target_pc, ExpansionAction.PUBLIC)
+
+    roots, refusals, site_evidence = [], {}, {}
+    for call in inputs.calls:
+        if call.insn_vaddr in loops.call_pcs and boundaries is not None:
+            site_evidence[call.callsite_id] = {"boundary": boundaries.explain(call.target_vaddr)}
+        if call.insn_vaddr not in loops.call_pcs:
+            refusals[call.callsite_id] = "outside_persistent_task_loop"
+        elif not call.eligible:
+            refusals[call.callsite_id] = call.refusal_reasons[0]
+        elif call.source_uid == call.callee_candidates[0]:
+            refusals[call.callsite_id] = "recursive_call_edge"
+        elif boundaries is not None and boundaries.classify_task_source(
+                call.insn_vaddr, registrations) is not ExpansionAction.INLINE:
+            refusals[call.callsite_id] = "rtos_public_caller"
+            site_evidence[call.callsite_id]["caller_boundary"] = boundaries.explain(call.insn_vaddr)
+        else:
+            roots.append(call.callsite_id)
+    rules = {"isb_boundary": True}
+    if boundaries is not None:
+        rules = {"reset_entries": [hex(pc) for pc in sorted(boundaries.reset_entries)],
+                 "patched_entries_resolved": len(boundaries.patched_entries_resolved), **rules}
+    return PolicySelection(tuple(roots), refusals, site_evidence,
+                           {"task_loops": loops.report(), "rtos_boundaries": boundaries is not None,
+                            "analysis_revision": 2, "boundary_rules": rules},
+                           expansion=expansion)
+
+
+#: Root refusals that come from the RTOS expansion boundaries.
+RTOS_BOUNDARY_REASONS = frozenset({"rtos_shared_public_lookup", "rtos_public_boundary",
+                                   "rtos_public_caller"})
+
+
+def firmlooper_summary(task_loops, calls, residual, embedded_ids, planned_ids):
+    """Per-task and image verdicts of a FirmLooper v3 selection (receipt only).
+
+    ``calls`` are the discovered captured calls, ``residual`` the receipt's
+    residual rows (root rows have no ``source_member``), ``embedded_ids`` and
+    ``planned_ids`` callsite ids. The first matching verdict wins.
+    """
+    reason_by_call = {row["callsite_id"]: row["reason"] for row in residual
+                      if "source_member" not in row}
+    by_pc = {}
+    for call in calls:
+        by_pc.setdefault(call.insn_vaddr, []).append(call.callsite_id)
+    tasks, verdicts, captured_reasons = {}, [], []
+    for task in task_loops.tasks:
+        pcs = [int(pc, 16) for pc in task.get("selected_call_pcs", ())]
+        ids = [uid for pc in pcs for uid in by_pc.get(pc, ())]
+        embedded = [uid for uid in ids if uid in embedded_ids]
+        reasons = [reason_by_call[uid] for uid in ids if uid in reason_by_call]
+        captured_reasons += [reason_by_call.get(uid) for uid in ids]
+        if task["status"] != "selected":
+            verdict = "no_closed_task_loop"
+        elif not pcs:
+            verdict = "no_task_loop_calls"
+        elif not ids:
+            verdict = "task_loop_calls_not_captured"
+        elif embedded:
+            verdict = "embedded"
+        elif any(uid in planned_ids for uid in ids):
+            verdict = "planned_not_embedded"
+        elif all(reason_by_call.get(uid) in RTOS_BOUNDARY_REASONS for uid in ids):
+            verdict = "only_rtos_boundary_calls"
+        else:
+            verdict = "no_eligible_call"
+        verdicts.append(verdict)
+        name = task["name"] if task["name"] not in tasks else f"{task['name']}@{task['entry']}"
+        tasks[name] = {"entry": task["entry"], "status": task["status"],
+                       "loop_call_sites": len(pcs), "captured": len(ids),
+                       "embedded": len(embedded), "refused": dict(sorted(Counter(reasons).items())),
+                       "verdict": verdict}
+    if "embedded" in verdicts:
+        verdict = "embedded"
+    elif not verdicts:
+        verdict = "no_task_registrations"
+    elif all(v == "no_closed_task_loop" for v in verdicts):
+        verdict = "no_closed_task_loop"
+    elif not captured_reasons:
+        # Some loop was admitted, but none has a captured call.
+        verdict = ("task_loop_calls_not_captured" if "task_loop_calls_not_captured" in verdicts
+                   else "no_task_loop_calls")
+    elif all(reason in RTOS_BOUNDARY_REASONS for reason in captured_reasons):
+        verdict = "only_rtos_boundary_calls"
+    else:
+        verdict = "no_eligible_call"
+    return {"verdict": verdict, "tasks": tasks}
+
+
 _BUILTINS = {
     "exhaustive": FirmwarePolicy(_exhaustive, expand_nested=True),
     "hot-loop": FirmwarePolicy(_hot_loop, expand_nested=False, requires_edges=True,
                                cost_model_default=True),
     "firmlooper": FirmwarePolicy(_firmlooper, expand_nested=True, discover_loops=_loop_evidence),
     "firmlooper-v2": FirmwarePolicy(_firmlooper_v2, expand_nested=True, discover_loops=_v2_loops),
+    "firmlooper-v3": FirmwarePolicy(_firmlooper_v3, expand_nested=True, discover_loops=_v3_loops),
 }
 
 

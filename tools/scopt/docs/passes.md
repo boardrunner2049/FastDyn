@@ -234,6 +234,9 @@ reads the guest ELF, finds registered task entries and selects direct calls
 inside structurally persistent task loops. It expands eligible nested callees.
 Use `--pipeline sealed-firmlooper-v2` for terminal-exit recognition and recursive
 expansion bounded by RTOS, scheduler and interrupt-handler entry points.
+`--pipeline sealed-firmlooper-v3` adds analysis revision 2 (FreeRTOS task returns,
+BOLT entry patches, word jump tables, no reset-as-interrupt seeding), ISB side
+exits and a per-task selection summary; v1 and v2 stay unchanged.
 The existing `hot-loop` policy selects from a training run. See
 [Firmware inlining policies](firmware-inline-policies.md) for the selection
 rules, explicit task entries and an example of registering a new policy.

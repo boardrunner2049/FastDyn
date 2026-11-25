@@ -23,15 +23,27 @@ class TaskLoops:
     objects: list[dict]
     uses: list[dict]
     handle_stores: list[dict]
+    #: Analysis revision (1: original rules; 2: FirmLooper v3 rules).
+    revision: int = 1
+    #: Whether a return from a FreeRTOS-recovered task entry is a terminal.
+    task_end: bool = False
 
     def report(self) -> dict:
-        return {"discovery": "thumb_argument_flow_or_explicit_entry",
-                "loop_rule": "dominating header with closed or classified terminal exits",
-                "call_model": "direct and indirect calls may block; normal return resumes at fallthrough",
-                "registrations": self.registrations, "tasks": self.tasks,
-                "objects": self.objects, "handle_uses": self.uses, "handle_stores": self.handle_stores,
-                "selected_call_sites": len(self.call_pcs),
-                "selected_instructions": len(self.instruction_pcs)}
+        report = {"discovery": "thumb_argument_flow_or_explicit_entry",
+                  "loop_rule": "dominating header with closed or classified terminal exits",
+                  "call_model": "direct and indirect calls may block; normal return resumes at fallthrough",
+                  "registrations": self.registrations, "tasks": self.tasks,
+                  "objects": self.objects, "handle_uses": self.uses, "handle_stores": self.handle_stores,
+                  "selected_call_sites": len(self.call_pcs),
+                  "selected_instructions": len(self.instruction_pcs)}
+        if self.revision >= 2:
+            report.update(analysis_revision=self.revision, task_end=self.task_end,
+                          cfg_rules={"jump_tables": ["tbb", "tbh", "ldr_pc_word"],
+                                     "patched_entries": True})
+            if self.task_end:
+                report["loop_rule"] = ("dominating header with closed, classified-terminal "
+                                       "or task-return exits")
+        return report
 
 
 def _components(edges, predecessors):
@@ -119,7 +131,74 @@ def _natural_loops(edges, pred, entry):
     return loops
 
 
-def _task(program, func, include_terminal):
+def _is_return(insn, *, conditional=False):
+    """``bx lr``, ``pop {..., pc}`` or ``ldr pc, [sp], #k`` (post-indexed).
+
+    Only unpredicated forms qualify unless ``conditional`` is set. Capstone
+    reports the post-index offset as a third operand; older releases fold it
+    into a two-operand memory form flagged ``post_index``.
+    """
+    if predicated(insn) and not conditional:
+        return False
+    ops = insn.operands
+    if insn.id == A.ARM_INS_BX:
+        return len(ops) == 1 and ops[0].type == A.ARM_OP_REG and ops[0].reg == A.ARM_REG_LR
+    if insn.id == A.ARM_INS_POP:
+        return any(op.type == A.ARM_OP_REG and op.reg == A.ARM_REG_PC for op in ops)
+    if insn.id == A.ARM_INS_LDR and insn.writeback and len(ops) in (2, 3):
+        if (ops[0].type != A.ARM_OP_REG or ops[0].reg != A.ARM_REG_PC
+                or ops[1].type != A.ARM_OP_MEM or ops[1].mem.base != A.ARM_REG_SP
+                or ops[1].mem.index):
+            return False
+        if len(ops) == 3:
+            return ops[2].type == A.ARM_OP_IMM
+        return bool(getattr(insn, "post_index", False))
+    return False
+
+
+def _nontrivial(edges, pred):
+    """Strongly connected components that contain a cycle."""
+    return [comp for comp in _components(edges, pred)
+            if len(comp) > 1 or any(pc in edges[pc] for pc in comp)]
+
+
+def _blocking_exits(insns, edges, body, header, exits, leads_to_terminal, sccs):
+    """Why each non-terminal exit of a rejected cycle blocks selection (receipt only)."""
+    other = set().union(*(comp for comp in sccs if header not in comp))
+    out = {}
+    for dst in sorted(exits - leads_to_terminal, key=lambda x: -1 if x is None else x):
+        reasons = set()
+        if dst is None:
+            for pc in body:
+                if None in edges[pc]:
+                    reasons.add("return_in_cycle" if _is_return(insns[pc], conditional=True)
+                                else "unknown_indirect_in_cycle")
+            out["unknown"] = sorted(reasons)
+            continue
+        seen, todo = set(), [dst]
+        while todo:
+            pc = todo.pop()
+            if pc in seen:
+                continue
+            if pc in body:
+                reasons.add("reenters_cycle")
+                continue
+            if pc not in edges:
+                reasons.add("leaves_function")
+                continue
+            seen.add(pc)
+            if pc in other:
+                reasons.add("enters_other_cycle")
+            for nxt in edges[pc]:
+                if nxt is None:
+                    reasons.add("normal_return" if _is_return(insns[pc]) else "unknown_indirect")
+                else:
+                    todo.append(nxt)
+        out[hex(dst)] = sorted(reasons)
+    return out
+
+
+def _task(program, func, include_terminal, *, task_end=False, diagnostics=False):
     insns = program.decode(func)
     edges, pred, tables = program.cfg(func, insns)
     terminal = set()
@@ -130,6 +209,11 @@ def _task(program, func, include_terminal):
             if (name in TERMINATE and not predicated(insns[pc]) and
                     (name != "vTaskDelete" or states[pc].get(A.ARM_REG_R0) == 0)):
                 terminal.add(pc)
+    if task_end:
+        # FreeRTOS starts every task with LR = portTASK_RETURN_ADDRESS
+        # (prvTaskExitError), so a normal return from the registered entry
+        # ends the task. No other code is treated as a halt.
+        terminal.update(pc for pc in edges if edges[pc] == (None,) and _is_return(insns[pc]))
 
     # Remove a spurious normal-return path from an established noreturn call.
     if terminal:
@@ -157,7 +241,8 @@ def _task(program, func, include_terminal):
                 leads_to_terminal.add(pc)
                 queue.append(pc)
 
-    selected, calls, cycles = set(), set(), []
+    selected, calls, cycles, rejected = set(), set(), [], []
+    sccs = _nontrivial(edges, pred) if diagnostics else ()
     for header, body in sorted(_natural_loops(edges, pred, func.start).items()):
         exits = {dst for pc in body for dst in edges[pc] if dst not in body}
         if not exits:
@@ -185,23 +270,52 @@ def _task(program, func, include_terminal):
             "outgoing": [hex(dst) for dst in sorted(exits - {None})]
                         + (["unknown_or_termination"] if None in exits else []),
         })
+        if diagnostics:
+            if cls == "persistent_with_terminal_exit":
+                cycles[-1]["terminal_kinds"] = sorted({
+                    f"api:{program.api[pc]}" if pc in program.api else "task_return"
+                    for pc in cleanup & terminal})
+            if not admitted:
+                rejected.append((cycles[-1], header, body, exits))
+    for row, header, body, exits in rejected:
+        # Diagnostics only: after every loop is classified, a rejected cycle
+        # inside an admitted loop is already covered by that loop.
+        if body <= selected:
+            row["status"] = "nested_in_selected_loop"
+        else:
+            row["blocking_exits"] = _blocking_exits(insns, edges, body, header, exits,
+                                                    leads_to_terminal, sccs)
     for comp in _components(edges, pred):
         entries = sorted(pc for pc in comp if pc == func.start or pred[pc] - comp)
         if len(entries) > 1:
             cycles.append({"status": "multiple_entry_cycle", "classification": None,
                            "entries": list(map(hex, entries)), "instructions": len(comp)})
-    return selected, calls, {"name": func.name, "entry": hex(func.start),
-                             "reachable_instructions": len(edges),
-                             "status": "selected" if selected else "no_closed_task_loop",
-                             "cycles": cycles, "jump_tables": {
-                                 hex(k): list(map(hex, v)) for k, v in tables.items() if k in edges}}
+    report = {"name": func.name, "entry": hex(func.start),
+              "reachable_instructions": len(edges),
+              "status": "selected" if selected else "no_closed_task_loop",
+              "cycles": cycles, "jump_tables": {
+                  hex(k): list(map(hex, v)) for k, v in tables.items() if k in edges}}
+    if diagnostics:
+        report.update(task_end=task_end, selected_call_pcs=list(map(hex, sorted(calls))))
+    return selected, calls, report
 
 
 def discover_task_loops(image: GuestImage, task_entries: Iterable[str | int] = (), *,
-                        include_terminal: bool = False) -> TaskLoops:
-    program = Program(image)
+                        include_terminal: bool = False, revision: int = 1,
+                        task_end: bool = False) -> TaskLoops:
+    """Task roots and the calls inside their persistent loops.
+
+    ``revision`` 2 (FirmLooper v3) uses the revision-2 control flow of
+    :class:`Program` and adds receipt diagnostics. ``task_end`` (revision 2
+    only) makes a normal return from a FreeRTOS-recovered task entry a
+    terminal; explicit ``task_entries`` never get it.
+    """
+    if task_end and revision < 2:
+        raise ValueError("task_end requires analysis revision 2")
+    program = Program(image, revision=revision)
     instances = discover_instances(program)
     roots = {t.entry for t in instances.task_instances}
+    recovered = frozenset(roots)
     registrations = instances.registrations
     for entry in task_entries:
         if entry in program.names:
@@ -221,9 +335,15 @@ def discover_task_loops(image: GuestImage, task_entries: Iterable[str | int] = (
         registrations.append(row)
     all_insns, all_calls, tasks = set(), set(), []
     for root in sorted(roots):
-        insns, calls, report = _task(program, program.funcs[root], include_terminal)
+        if revision >= 2:
+            insns, calls, report = _task(program, program.funcs[root], include_terminal,
+                                         task_end=task_end and root in recovered,
+                                         diagnostics=True)
+        else:
+            insns, calls, report = _task(program, program.funcs[root], include_terminal)
         all_insns.update(insns)
         all_calls.update(calls)
         tasks.append(report)
     return TaskLoops(frozenset(all_calls), frozenset(all_insns), registrations, tasks,
-                     instances.objects, instances.uses, instances.handle_stores)
+                     instances.objects, instances.uses, instances.handle_stores,
+                     revision=revision, task_end=task_end)

@@ -237,10 +237,19 @@ def value_states(program, func, insns, edges):
 
 
 class Program:
-    """Lightweight cross-reference index; disassembly is retained per active routine."""
+    """Lightweight cross-reference index; disassembly is retained per active routine.
 
-    def __init__(self, image):
+    ``revision`` selects the control-flow rules. Revision 1 is the original
+    analysis. Revision 2 (FirmLooper v3) also follows BOLT entry patches
+    (:func:`~.rtos_cfg.patched_entry`) and GCC Thumb-2 word jump tables.
+    """
+
+    def __init__(self, image, *, revision=1):
+        if revision not in (1, 2):
+            raise ValueError(f"unknown RTOS analysis revision {revision!r}")
         self.image = image
+        self.revision = revision
+        patched = revision >= 2
         self.md = _md()
         self.ranges = image.code_ranges()
         self.funcs = {}
@@ -260,9 +269,10 @@ class Program:
 
         @lru_cache(maxsize=None)
         def target(addr):
-            api = resolve_veneer(image, addr, apis, self.ranges, self.md)
+            api = resolve_veneer(image, addr, apis, self.ranges, self.md, patched=patched)
             return (api, apis[api]) if api is not None else (
-                resolve_veneer(image, addr, self.funcs, self.ranges, self.md), None)
+                resolve_veneer(image, addr, self.funcs, self.ranges, self.md, patched=patched),
+                None)
 
         for f in self.funcs.values():
             insns = self.decode(f)
@@ -291,7 +301,8 @@ class Program:
         return decode_function(self.image, func, self.ranges, self.md)
 
     def body(self, pointer):
-        return resolve_function(self.image, pointer & ~1, self.funcs, self.ranges, self.md)
+        return resolve_function(self.image, pointer & ~1, self.funcs, self.ranges, self.md,
+                                patched=self.revision >= 2)
 
     def _leaf_body(self, addr):
         """Straight-line register/word-memory routines whose writes can be replayed."""
@@ -316,7 +327,7 @@ class Program:
         return ()
 
     def cfg(self, func, insns):
-        tables = jump_tables(self.image, func, insns)
+        tables = jump_tables(self.image, func, insns, word_tables=self.revision >= 2)
         return (*reachable(func, insns, self.terminals, tables), tables)
 
 

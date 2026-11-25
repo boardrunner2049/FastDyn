@@ -1,0 +1,26 @@
+# FirmLooper v3: the profile-free FirmLooper on analysis revision 2.
+#
+# Revision 2 adds, over sealed-firmlooper-v2: a return from a FreeRTOS-created
+# task entry ends the task (task_end), BOLT entry patches resolve to the moved
+# function, GCC Thumb-2 word jump tables join the task CFG, the reset entry is
+# not an interrupt root, and an ISB at the end of a cloned member becomes a
+# side exit (isb_boundary).  The receipt adds per-call boundary evidence and a
+# per-task selection_summary.  sealed-firmlooper and sealed-firmlooper-v2 stay
+# unchanged so archived provenance remains reproducible.
+#
+# There is deliberately no sealed-firmlooper-v3-b3 yet.  In a composed sc6 +
+# trusted v7 artifact, regions whose sources B3 edited lose their per-member
+# descriptors; the hot packet region would then run with unchained residual
+# exits, and the profile cost model prices exactly that region as a loss
+# (c7b3: -22.2 ms).  FirmLooper's cost model is off, so it would be emitted
+# unpriced.  Add the -b3 variant once composed member descriptors exist.
+schema = "scopt.pipeline"
+version = 1
+name = "sealed-firmlooper-v3"
+description = "Inline captured calls rooted in persistent task loops (analysis revision 2: FreeRTOS task returns, BOLT entry patches, word jump tables and ISB side exits), with public RTOS boundaries."
+allowed_capabilities = ["EMIT_FIRMWARE_REGION"]
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "firmlooper-v3", trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4 }

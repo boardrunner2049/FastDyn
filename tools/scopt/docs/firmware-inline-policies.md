@@ -8,6 +8,7 @@ The `firmware-inline` pass takes a `mode` that chooses which captured guest call
 | `hot-loop` | Calls in observed transfer cycles with exact counts meeting `min_call_count` in the selected profile phase, kept only when the [profit model](#profit-model) admits the planned region. | Inline a nested call when its marginal profit is positive (`nested="profit"`, the default with the cost model); recursive, so a newly inlined callee's calls are priced next. `nested="public"` or `cost_model="off"` leaves nested calls public. |
 | `firmlooper` | Captured calls whose precise guest BL instruction belongs to a persistent loop in a recognized task entry. No profile or count threshold is required. | Expand captured acyclic calls recursively, including other eligible calls reached after they return. |
 | `firmlooper-v2` | Also admits single-entry natural task loops whose exits have recognized terminal paths. | Recursively embeds application code. Stops cloning at classified RTOS, scheduler and exception boundaries. |
+| `firmlooper-v3` | As `firmlooper-v2`, on [analysis revision 2](#firmlooper-v3): a return from a FreeRTOS-created task entry is a terminal, BOLT entry patches and GCC word jump tables are followed, and the reset entry is not an interrupt root. | As `firmlooper-v2`. A branch out of a member that ends in ISB stays a side exit (`isb_boundary`). |
 
 `sealed-pgo-7` still runs both PGO host-helper inlining and the `hot-loop` firmware policy. `sealed-firmlooper` runs the firmware pass alone. Use the following command on a matching sealed capture, setting `SCOPT_ENVLAYOUT_PATH` to the directory containing the layout produced from the runtime executable.
 
@@ -56,6 +57,69 @@ PYTHON
 ```
 
 For two independent ablations, pass `{"firmware-inline":{"policy_options":{"boundaries":false}}}` to retain recursive expansion across RTOS boundaries, or set `include_terminal` to `false` to keep only strong persistent loops. An empty task discovery produces no firmware roots.
+
+`--params` merges pass parameters shallowly: a `policy_options` object replaces the pipeline's whole `policy_options`, so list every option you want.
+
+## FirmLooper v3
+
+`--pipeline sealed-firmlooper-v3` (mode `firmlooper-v3`) is FirmLooper v2 on analysis revision 2, plus an ISB side exit and a per-task selection summary. Like v2 it needs no profile, and its cost model stays off unless `cost_model="profile"` is passed. The modes `firmlooper` and `firmlooper-v2` keep analysis revision 1, so their selections, receipts, skip reasons and candidate ids are unchanged. A v3 identity comes from its mode: an override such as `{"boundaries":false}` still runs revision 2 with `task_end`. There is no `sealed-firmlooper-v3-b3` yet. In a composed sc6 + v7 artifact, regions whose sources B3 edited keep the shared descriptor and their exits do not chain. The hot packet region below is one of them, and the profile cost model prices it as a loss there.
+
+Revision 2 changes four analysis rules:
+
+- **Task end.** Inside a task entry recovered from a FreeRTOS creation site, an unpredicated `bx lr`, `pop {..., pc}` or post-indexed `ldr pc, [sp], #k` is a terminal of kind `task_return`. FreeRTOS starts every task with LR set to `portTASK_RETURN_ADDRESS` (`prvTaskExitError`), so such a return ends the task. A benchmark task that runs N iterations, signals completion and returns now has a `persistent_with_terminal_exit` loop. Entries given only through `task_entries` do not get this rule. The option `task_end` defaults to true and requires `include_terminal` (also the default). One-shot loops that lead into another loop, cleanup cycles, inner loops and call-free spins such as `b .` are still rejected.
+- **BOLT entry patches.** BOLT moves a function out of `.bolt.org.text`, drops its symbol and `$t` mapping, and rewrites the old entry as `b.w <new entry>`. A direct call or branch target outside the Thumb code ranges now resolves to the moved function when all of these hold: it lies in an executable section; it has no symbol, or a symbol of at most 4 bytes starting there; and its first instruction is an unconditional `B` to the exact start of a symbolized function. Task discovery, API recognition and the boundary classification follow the patch. Revision 1 classifies such a target as unknown ownership (public).
+- **Word jump tables.** GCC's Thumb-2 switch `cmp idx,#last; bhi default; adr base,table; ldr.w pc,[base,idx,lsl #2]` joins the task CFG. It needs the `TBB`/`TBH` guards plus `base != idx`, a 4-aligned table that starts at a `$d` mapping symbol, and table words that all have the Thumb bit set.
+- **Reset is not an interrupt.** The boundary classification no longer seeds the reset entry as an interrupt root. That entry is vector word 1 or the ELF entry when it is not also an exception vector, or a function named `Reset_Handler`, `reset_handler`, `ResetISR` or `Reset_IRQHandler`. Under revision 1, everything reachable from `main` is exception-visible and stays public. Real vector entries are still seeded.
+
+**ISB side exit.** ISB ends its TB with a `goto_tb` to the next instruction. Inside a trusted region that edge would branch past the next member's interrupt poll, so a PendSV that cloned code sets just before the ISB would be taken only at the region exit. v3 keeps every branch out of a member whose last guest instruction is ISB as a side exit with reason `isb_boundary`. The exit is armed and chained like any other residual exit, and it reaches only an ordinary TB, which polls at its entry. With `boundaries=false` this is the only expansion rule.
+
+### Why the RTOS boundaries remain
+
+The SHARED, PUBLIC and `rtos_public_caller` boundaries are not required by the trusted region contract; `hot-loop` (`sealed-pgo-7`) clones kernel code and accepts deferred yields. FirmLooper keeps them for these reasons, and only these:
+
+- Kernel APIs, scheduler tasks and exception-visible code are never cloned, so kernel-requested yields and critical sections run in public TBs, which poll for interrupts.
+- In v3, an ISB at the end of a cloned member ends the region. `MSR` and `CPS` already end their TB with `exit_tb`, which leaves the region (`observation_boundary`).
+- Interrupts pending when a region is entered, or raised while region code runs, are still deferred to the next region exit, as the trusted contract (`interrupts=disabled`) allows.
+- A poll-free cycle inside a region that waits on interrupt-updated memory without one of those instructions would never observe the update. FirmLooper does not detect this. It is a property of the trusted region ABI, shared with `hot-loop`.
+
+### FirmBOLT -O4 images
+
+On flattened `-O4` images the task loops mostly call kernel APIs, so v3's main output there is the per-task verdict. A region appears only where a hot task still calls application code. On the packet image, `prvRxTask` stayed unrewritten `-O0` code in `.bolt.org.text` and calls its moved callees through BOLT entry patches. Its switch is a word jump table, and its benchmark loop ends by returning from the task. Receipts from 2026-11-25 (selection only; v3 has not been timed):
+
+| Image | `sealed-firmlooper-v2` | `sealed-firmlooper-v3` |
+| --- | --- | --- |
+| packet | `no_eligible_call`, 0 regions | 15 regions: `prvRxTask` calls at 0x49dc, 0x4a02, 0x4a28 and 0x4a70 to `prvCrc16Byte` through the patch at 0x331c (10 members each), `prvEmit` (0x4814) and `memset`; `prvProcTask` to `memcpy`. `prvMonitorTask`, `prvIdleTask` and `prvTimerTask`: `only_rtos_boundary_calls`. |
+| uart | 5 regions (`FreeRTOS_CLIProcessCommand`, `vComputeDone`) | The same 5 regions plus 2 `memset` regions. `TzCtrl`: `only_rtos_boundary_calls`. |
+| cli | `no_eligible_call`, 0 regions | 5 regions: the console loop's call to `FreeRTOS_CLIProcessCommand` (0x82dd0) and `TzCtrl`'s calls to `prvIsValidCommand` and `prvProcessCommand`. |
+
+None of the three images has an `isb_boundary` exit.
+
+### v3 receipt fields
+
+All are additive, and only v3 writes them.
+
+- `policy.analysis_revision` (2) and `policy.boundary_rules`: `reset_entries`, `patched_entries_resolved` (count) and `isb_boundary`.
+- `policy.task_loops`: `analysis_revision`, `task_end`, `cfg_rules` (`jump_tables`: `tbb`, `tbh`, `ldr_pc_word`; `patched_entries`), and the `loop_rule` "dominating header with closed, classified-terminal or task-return exits". Each task row adds `task_end` (false for entries given only through `task_entries`) and `selected_call_pcs`.
+- Each cycle adds the following:
+  - `terminal_kinds` on a `persistent_with_terminal_exit` cycle: `task_return` or `api:<name>`.
+  - status `nested_in_selected_loop` for a rejected cycle inside an admitted loop.
+  - `blocking_exits` for every other rejected cycle, mapping each blocking exit (or `unknown`) to its reasons:
+
+    | Reason | The exit or its path |
+    | --- | --- |
+    | `return_in_cycle` | The cycle itself contains a return (predicated or not). |
+    | `unknown_indirect_in_cycle` | The cycle contains an unresolved indirect transfer. |
+    | `normal_return` | Reaches an ordinary return (no `task_end` for this task). |
+    | `unknown_indirect` | Reaches an unresolved indirect transfer. |
+    | `enters_other_cycle` | Enters another cycle: a cleanup loop, a later loop or a spin. |
+    | `reenters_cycle` | Comes back into the cycle. |
+    | `leaves_function` | Branches out of the function. |
+
+- With `boundaries` on, the residual and embedded rows of every in-loop call carry `boundary`: `{action, rule, function}`, plus `patched_entry` when a BOLT patch was followed and `via` (the handler-to-function path, at most 16 names) for `exception_visible`. The rules, in precedence order, are `unknown_owner`, `exception_visible`, `scheduler_name`, `isr_name`, `kernel_api_name`, `kernel_source` and `application`. An `rtos_public_caller` row also carries `caller_boundary`, the same object for the calling task.
+- `policy.selection_summary`: `{verdict, tasks: {name: {entry, status, loop_call_sites, captured, embedded, refused, verdict}}}`. A task verdict is the first that applies: `no_closed_task_loop`, `no_task_loop_calls` (no BL in the selected loops), `task_loop_calls_not_captured`, `embedded`, `planned_not_embedded`, `only_rtos_boundary_calls` (every captured in-loop call was refused at an RTOS boundary), `no_eligible_call`. The image verdict is `embedded` if any task embedded a root, otherwise the first of `no_task_registrations`, `no_closed_task_loop` (every task), `no_task_loop_calls` or `task_loop_calls_not_captured` (no task has a captured in-loop call), `only_rtos_boundary_calls`, `no_eligible_call`.
+- When no root was planned and no root was refused as unprofitable, the pass reason is the image verdict instead of `no_eligible_call`. `no_profitable_call` keeps precedence. A planned root that later failed (an incomplete plan, or `unpatchable_native_exit` on the root edge) does not take the verdict.
+
+No stats keys are added.
 
 The firmware pass reports selected roots that were actually emitted in `embedded`. Its `private_guarded_returns` count covers return guards embedded inside these executable regions. The B3 public-slot count concerns separately registered slots. An unexpected guest return target or context uses the original lookup after guest return effects complete. Trusted private returns require a Cortex-M3 capture, a bound EnvLayout and an eligible lookup tail. Other CPU models preserve the original return lookup. If a requirement is unavailable, the receipt records a side exit. Trusted interrupt and instruction-count settings still apply.
 
@@ -161,7 +225,7 @@ Return a tuple of captured call-site IDs in `PolicySelection.roots`. An optional
 
 ## FreeRTOS signatures for stripped Thumb firmware
 
-`sealed-firmlooper-v2` can use a local symbolized reference ELF to recover names for RTOS policy selection. Supply `--elf` with the actual target used for the capture. For example, run the standalone diagnostic and the optimizer as follows:
+`sealed-firmlooper-v2` and `sealed-firmlooper-v3` can use a local symbolized reference ELF to recover names for RTOS policy selection. Supply `--elf` with the actual target used for the capture. For example, run the standalone diagnostic and the optimizer as follows:
 
 ```sh
 python -m scopt.analysis.rtos_signatures "$REFERENCE_ELF" "$TARGET_ELF" > recognition.json
