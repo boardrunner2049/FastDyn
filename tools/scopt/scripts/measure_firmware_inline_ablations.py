@@ -6,6 +6,13 @@ settings to one arm, so all ablations can use one QEMU executable and one
 captured artifact.  A diagnostic launch per arm proves behavior, zero appended
 translations and (for v7) the exact loaded artifact id before timing begins.
 Diagnostic counters are not enabled in the scored launches.
+
+By default an A/A arm (``<reference>-aa``) deploys the reference arm's
+artifact again under another name.  Its paired ratio is the harness noise
+floor, and every comparison reports its block-ratio median, bootstrap
+interval, sign test and verdict against that floor
+(``scopt.run.paired_stats``).  Fewer than ``--min-blocks`` pairs are refused
+unless ``--allow-few-blocks`` is given.
 """
 
 from __future__ import annotations
@@ -18,11 +25,13 @@ import platform
 import random
 import re
 import statistics
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from scopt.run.deploy import deploy
+from scopt.run import paired_stats
 from scopt.run.launcher import create_run_dir, launch
 from scopt.run.v7_stats import counter_problems, summary as counter_summary
 
@@ -55,14 +64,12 @@ def sha256(path: Path) -> str:
         return "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+ROUNDS = 10_000
+
+
 def interval(values: list[float], rng: random.Random,
-             rounds: int = 10_000) -> list[float]:
-    if not values:
-        return [float("nan"), float("nan")]
-    draws = sorted(statistics.median(rng.choices(values, k=len(values)))
-                   for _ in range(rounds))
-    return [draws[int(.025 * rounds)],
-            draws[min(rounds - 1, int(.975 * rounds))]]
+             rounds: int = ROUNDS) -> list[float]:
+    return paired_stats.bootstrap_median_ci(values, rng, rounds)
 
 
 def _parse_env_rows(rows: list[str], arms: dict[str, Arm], attr: str) -> None:
@@ -113,6 +120,24 @@ def parse_comparisons(rows: list[str], arms: dict[str, Arm]) -> list[tuple[str, 
             raise ValueError(f"duplicate --compare {row!r}")
         out.append(pair)
     return out
+
+
+def add_aa_arm(arms: dict[str, Arm], comparisons: list[tuple[str, str]],
+               reference: str | None = None) -> tuple[str, str]:
+    """Add the A/A copy of ``reference`` (default: the first comparison's
+    baseline) to ``arms`` after the comparisons were parsed, so it is never
+    a default comparison.  Returns ``(aa_arm, reference)``."""
+    reference = reference or comparisons[0][1]
+    if reference not in arms:
+        raise ValueError(f"--aa-reference {reference!r} is not an arm")
+    name = paired_stats.aa_arm_name(reference, arms)
+    if not _NAME.fullmatch(name):
+        raise ValueError(f"invalid A/A arm name {name!r}")
+    source = arms[reference]
+    arms[name] = Arm(name, source.artifact, env=dict(source.env),
+                     diagnostic_env=dict(source.diagnostic_env),
+                     cache_sha256=source.cache_sha256)
+    return name, reference
 
 
 def validate_run(block: str, arm: Arm, run: dict[str, Any],
@@ -199,17 +224,41 @@ def diagnostic(config: Path, qemu: Path, out: Path, arm: Arm,
 
 def summarize(rows: list[dict[str, Any]], arms: dict[str, Arm],
               comparisons: list[tuple[str, str]], pairs: int,
-              seed: int) -> dict[str, Any]:
+              seed: int, *, aa: tuple[str, str] | None = None,
+              min_blocks: int = paired_stats.DEFAULT_MIN_BLOCKS) -> dict[str, Any]:
+    """Paired summary; ``speedup = baseline / candidate`` per block.
+
+    ``bootstrap_95`` is the same interval as before the shared protocol; the
+    added keys are the verdict fields of ``paired_stats.summarize_pair``
+    against the ``aa`` noise floor when one was measured.
+    """
     by_block = {b: {r["arm"]: r for r in rows if r["block"] == b}
                 for b in range(pairs)}
+
+    def speedups(candidate: str, baseline: str) -> list[float]:
+        return [by_block[b][baseline]["native_ns"] /
+                by_block[b][candidate]["native_ns"] for b in by_block]
+
+    floor = None
+    if aa:
+        name, reference = aa
+        values = speedups(name, reference)
+        floor = paired_stats.aa_floor(values, rng=random.Random(seed ^ 0xAA),
+                                      min_blocks=min_blocks, rounds=ROUNDS)
+        floor.update(arm=name, reference=reference,
+                     ratio=f"{reference}/{name}", speedup_per_block=values)
     result = {}
     for index, (candidate, baseline) in enumerate(comparisons):
-        ratios = [by_block[b][baseline]["native_ns"] /
-                  by_block[b][candidate]["native_ns"] for b in by_block]
+        ratios = speedups(candidate, baseline)
+        paired = paired_stats.summarize_pair(
+            ratios, rng=random.Random(seed ^ index), floor=floor,
+            min_blocks=min_blocks, rounds=ROUNDS)
         result[f"{candidate}_vs_{baseline}"] = {
             "speedup_per_block": ratios,
             "median_speedup": statistics.median(ratios),
-            "bootstrap_95": interval(ratios, random.Random(seed ^ index)),
+            "bootstrap_95": paired["ci95"],
+            **{key: value for key, value in paired.items()
+               if key not in ("median", "ci95")},
         }
     native = {name: [r["native_ns"] for r in rows if r["arm"] == name]
               for name in arms}
@@ -218,6 +267,7 @@ def summarize(rows: list[dict[str, Any]], arms: dict[str, Arm],
         "median_native_ns": {name: statistics.median(values)
                              for name, values in native.items()},
         "comparisons": result,
+        "noise_floor": floor,
     }
 
 
@@ -240,14 +290,27 @@ def main() -> None:
     p.add_argument("--pairs", type=int, default=12)
     p.add_argument("--seed", type=int, default=0xF17E)
     p.add_argument("--timeout", type=float, default=120.0)
+    paired_stats.add_protocol_arguments(p)
+    p.add_argument("--aa-control", choices=("auto", "none"), default="auto",
+                   help="add an A/A copy of the reference arm (default auto)")
+    p.add_argument("--aa-reference", metavar="ARM",
+                   help="arm copied by the A/A control "
+                        "(default: the baseline of the first comparison)")
     args = p.parse_args()
     if args.pairs < 2:
         p.error("--pairs must be at least 2")
+    aa = None
     try:
+        warning = paired_stats.check_min_blocks(args.pairs, args.min_blocks,
+                                                args.allow_few_blocks)
         arms = parse_arms(args.arm, args.env, args.diagnostic_env)
         comparisons = parse_comparisons(args.compare, arms)
+        if args.aa_control == "auto":
+            aa = add_aa_arm(arms, comparisons, args.aa_reference)
     except ValueError as exc:
         p.error(str(exc))
+    if warning:
+        print(f"WARNING: {warning}", file=sys.stderr)
     args.out.mkdir(parents=True, exist_ok=False)
     config, qemu = args.config.resolve(), args.qemu.resolve()
     if not config.is_file() or not qemu.is_file():
@@ -296,7 +359,8 @@ def main() -> None:
     with (args.out / "runs.jsonl").open("w", encoding="utf-8") as stream:
         for row in rows:
             stream.write(json.dumps(row, sort_keys=True) + "\n")
-    timing = summarize(rows, arms, comparisons, args.pairs, args.seed)
+    timing = summarize(rows, arms, comparisons, args.pairs, args.seed,
+                       aa=aa, min_blocks=args.min_blocks)
     summary = {
         "schema": "scopt.firmware-inline-ablation-timing/1",
         "pairs": args.pairs,
@@ -314,11 +378,28 @@ def main() -> None:
                         "env": dict(sorted(arm.env.items()))}
                  for name, arm in arms.items()},
         "diagnostics": str(args.out / "diagnostics.json"),
+        "protocol": paired_stats.protocol_record(
+            blocks=args.pairs, min_blocks=args.min_blocks,
+            allow_few_blocks=args.allow_few_blocks, rounds=ROUNDS, seed=args.seed,
+            aa_control=({"arm": aa[0], "reference": aa[1],
+                         "artifact_file_sha256": arms[aa[0]].cache_sha256}
+                        if aa else None),
+            ratio="baseline/candidate native time; above 1 means the candidate is faster",
+            warning=warning),
         **timing,
     }
     (args.out / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print(json.dumps(summary, indent=2, sort_keys=True))
+    floor = timing["noise_floor"]
+    if floor:
+        print(paired_stats.format_row(f"A/A {floor['ratio']}", floor),
+              f"band [{floor['band'][0]:.4f}, {floor['band'][1]:.4f}]",
+              file=sys.stderr)
+    for label, row in timing["comparisons"].items():
+        print(paired_stats.format_row(label, dict(row, median=row["median_speedup"],
+                                                  ci95=row["bootstrap_95"])),
+              file=sys.stderr)
 
 
 if __name__ == "__main__":

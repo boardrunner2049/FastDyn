@@ -57,8 +57,11 @@ executed sites. The underlying launch for arms 4–7 sets `QEMU_SC_TRUSTED=1`.
 Arms 6 and 7 additionally set `QEMU_SC_SEALED=1`. Diagnose public cache
 loading with the qprof loaded header and record count. In a separate replay
 without qprof, use `QEMU_SC_V7_STATS` to verify that private regions activated
-inside the work window and the integrity-check counters stayed at zero.
-Run timing without either diagnostic.
+inside the work window (`benchmark_region_entries`, `benchmark_region_activations`)
+and the integrity-check counters stayed at zero. Region exits through the
+dispatcher are `trusted_residual_exits` (counters revision 2 and later);
+`trusted_tb_calls` counts trusted-membership lookups, not exits
+([counter definitions](../../docs/qemu.md#v7-dispatcher-return-counters)). Run timing without either diagnostic.
 
 Configuration 6 lacks the guarded return chaining and specialization that the B3
 pipeline gives configuration 5. Configuration 6 + B3 adds them to the same sealed
@@ -97,7 +100,11 @@ Randomize the order within each paired block and retain per-input medians.
 Keep input files, eval firmware, caches, logs, counters, timing observations
 and generated reports in the external results directory. The
 [paired timing utility](measure.py) can also compare two prepared FreeRTOS
-caches with private RAM mappings.
+caches with private RAM mappings. It stages a third bundle of the snapshot cache,
+`ordinary-aa`, as the A/A noise-floor control, and refuses fewer than 8 pairs unless
+`--allow-few-blocks` is given. `pairs/results.json` keeps the legacy
+`paired_speedups`, `median_paired_speedup` and `bootstrap_95` and adds `noise_floor`
+and `comparison` (median, interval, sign test and `verdict`).
 
 ## FirmLooper compared with PGO
 

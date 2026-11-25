@@ -289,7 +289,10 @@ random order; one warm-up block per input is not recorded.
 `lib/report.py` prints the median per arm and, for each step, the median of the
 within-block time ratios with a bootstrap interval over blocks. `lib/compare.py` runs the
 same kind of campaign over any set of caches for one image (used for the four-arm
-comparison of `sfb`, `b3` and `sfb+b3`). `python3 -m pytest tools/trebuchet/tests` checks
+comparison of `sfb`, `b3` and `sfb+b3`). It adds an A/A copy of the first arm
+(`TREBUCHET_COMPARE_AA=0` omits it) as the noise floor, refuses fewer than 8 blocks
+(`REPS*3`) unless `TREBUCHET_ALLOW_FEW_BLOCKS=1`, and writes each arm's paired verdict
+(`scopt.run.paired_stats`) into its output JSON. `python3 -m pytest tools/trebuchet/tests` checks
 the result schema, the oracle and the invalid-campaign rule.
 
 ## Limits

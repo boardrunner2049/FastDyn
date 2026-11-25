@@ -123,3 +123,57 @@ def test_no_sealed_sc6_token_matches_qemu_experiment_key(tmp_path):
     with pytest.raises(RuntimeError):
         _M.validate_experiment(arm, {"loaded": False,
                                      "experiment": {**flags, "no_sealed_sc6": False}})
+
+
+def test_summarize_keeps_legacy_interval():
+    import random
+    import statistics
+
+    arms = {"base": None, "candidate": None}
+    rows = []
+    for block in range(8):
+        rows += [{"block": block, "arm": "base", "native_ns": 100 + block},
+                 {"block": block, "arm": "candidate", "native_ns": 90 + 2 * block}]
+    result = _M.summarize(rows, arms, [("candidate", "base")], 8, 7)
+    comparison = result["comparisons"]["candidate_vs_base"]
+    ratios = comparison["speedup_per_block"]
+    rng = random.Random(7 ^ 0)
+    draws = sorted(statistics.median(rng.choices(ratios, k=8)) for _ in range(10_000))
+    assert comparison["bootstrap_95"] == [draws[250], draws[9750]]
+    assert comparison["n_blocks"] == 8 and comparison["verdict"] == "above_one"
+    assert result["noise_floor"] is None
+
+
+def test_summarize_with_aa_floor(tmp_path):
+    arms = {"base": None, "candidate": None, "base-aa": None}
+    rows = []
+    for block in range(8):
+        rows += [{"block": block, "arm": "base", "native_ns": 1000},
+                 {"block": block, "arm": "base-aa",
+                  "native_ns": 1020 if block % 2 else 980},
+                 {"block": block, "arm": "candidate", "native_ns": 990}]
+    result = _M.summarize(rows, arms, [("candidate", "base")], 8, 7,
+                          aa=("base-aa", "base"))
+    floor = result["noise_floor"]
+    assert floor["arm"] == "base-aa" and floor["band"][0] < 1 < floor["band"][1]
+    comparison = result["comparisons"]["candidate_vs_base"]
+    assert comparison["within_noise"] is True
+    assert comparison["verdict"] == "within_noise"
+
+
+def test_aa_arm_is_added_after_default_comparisons(tmp_path):
+    warm = _artifact(tmp_path, "warm")
+    trusted = _artifact(tmp_path, "trusted")
+    arms = _M.parse_arms([f"warm={warm}", f"trusted={trusted}"],
+                         ["warm:QEMU_SC_V7_EXPERIMENT=no-tree"])
+    comparisons = _M.parse_comparisons([], arms)
+    assert _M.add_aa_arm(arms, comparisons) == ("warm-aa", "warm")
+    assert comparisons == [("trusted", "warm")]
+    copy = arms["warm-aa"]
+    assert copy.artifact == arms["warm"].artifact and copy.env == arms["warm"].env
+    assert copy.env is not arms["warm"].env
+    assert _M.add_aa_arm(arms, comparisons, "trusted") == ("trusted-aa", "trusted")
+    with pytest.raises(ValueError):
+        _M.add_aa_arm(arms, comparisons, "trusted")
+    with pytest.raises(ValueError):
+        _M.add_aa_arm(arms, comparisons, "missing")
