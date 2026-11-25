@@ -513,6 +513,9 @@ mismatch.
 `profile run` takes `--phase NAME@0xVADDR` to split the profile at a guest address
 (for example the `benchmark_start` address, `0x3018` in the §7 example) and
 `--inputs` for each training input. `$W/prof/merged.profile.json` is the profile the passes read.
+A sealed exact-PC capture (`docs/sealed-firmware.md`) needs `--sealed` (and usually
+`--trusted`), which replays with `QEMU_SC_SEALED=1`; otherwise no record matches. See
+`docs/b3-passes.md`, "Sealed captures".
 
 ## 9. Optimize
 

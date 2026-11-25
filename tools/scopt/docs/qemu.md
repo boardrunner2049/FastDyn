@@ -194,6 +194,25 @@ Recording fresh translations still writes the standard record format. With
 `public_record_checksum_checks`, `guest_hash_checks`, and
 `artifact_hash_validations` in a separate diagnostic replay.
 
+### Sealed B3
+
+A sealed cache may carry a B3 semantic extension (configuration 6 + B3,
+`docs/b3-passes.md`). Sealed lookups activate it exactly as ordinary lookups
+do. Each live R or G arms its SPEC links and builds variants. Variants go into
+the host-PC tree only, never the exact-PC index, so a sealed miss stays fatal
+and nothing is translated. `tcg_supercache_mapping_changed` unlinks every
+guarded and variant slot on each TLB/MPU change. Before this, the sealed
+lookup returned before `sc6_on_activate`. SPEC links then never armed, and
+GENERAL slots chained by the ordinary loop survived TLB flushes. Caches
+without an extension behave exactly as before.
+
+`QEMU_SC_V7_EXPERIMENT=no-sealed-sc6` restores the old sealed behaviour on the
+same bytes, for A/B attribution only, since it reopens the TLB hole. With
+`QEMU_SC_V6_STATS`, check `"sealed": true`, `"sealed_activation"` (false in
+the token arm), `activations`, `links_armed`, `tlb_hook_calls`,
+`slots_unlinked` and `invariant_violations == 0`. The v7 stats experiment
+object reports `no_sealed_sc6`.
+
 ### v7 dispatcher-return counters
 
 The `QEMU_SC_V7_STATS` file keeps the schema `qemu-sc-v7-stats@1`. Files with

@@ -51,13 +51,20 @@ def register(group: click.Group) -> None:
               help="Publish the merged profile to STORE/profiles/<hex>/profile.json.")
 @click.option("--watch", multiple=True, type=click.Path(exists=True),
               help="Extra files/dirs that must be unchanged after profiling (T-B1-7).")
+@click.option("--sealed", is_flag=True,
+              help="Replay with QEMU_SC_SEALED=1: required for a sealed exact-PC capture "
+                   "(CF_PCREL clear), e.g. to give the B3 passes a steady profile of "
+                   "configuration 6. Misses are fatal, so replay the captured input.")
+@click.option("--trusted", is_flag=True,
+              help="Also set QEMU_SC_TRUSTED=1 (skip runtime integrity checks), as the "
+                   "trusted sealed launches do.")
 @click.option("--out", required=True, type=click.Path(file_okay=False))
 @click.option("--quiet/--no-quiet", "quiet", default=False, show_default=True)
 @click.option("--timeout", "timeout_s", type=float, default=300.0, show_default=True)
 @click.option("--json", "as_json", is_flag=True)
 def profile_run_cmd(base_toml, target, phases, reps, inputs, input_bank, input_split, qemu,
-                    bundle, runtime_identity, artifact_domain, store, watch, out, quiet,
-                    timeout_s, as_json):
+                    bundle, runtime_identity, artifact_domain, store, watch, sealed, trusted,
+                    out, quiet, timeout_s, as_json):
     """Profile SNAPSHOT on unchained warm copies; ingest, merge, check isolation.
 
     Exit 0 when every run's proof passed, every .qprof ingested with flow
@@ -71,7 +78,7 @@ def profile_run_cmd(base_toml, target, phases, reps, inputs, input_bank, input_s
                           input_bank=input_bank, input_split=input_split, qemu=qemu,
                           bundle=bundle, runtime_identity=runtime_identity,
                           artifact_domain=artifact_domain, store=store, watch=watch,
-                          quiet=quiet, timeout_s=timeout_s)
+                          quiet=quiet, timeout_s=timeout_s, sealed=sealed, trusted=trusted)
     except ProfileRunError as e:
         click.echo(f"refused: {e.code}: {e.detail}", err=True)
         sys.exit(2)

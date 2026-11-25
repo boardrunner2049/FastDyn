@@ -37,6 +37,7 @@ _EXPERIMENT_KEYS = {
     "disable-chaining": "disable_chaining",
     "no-regions": "no_regions",
     "no-trusted-exit-chain": "no_trusted_exit_chain",
+    "no-sealed-sc6": "no_sealed_sc6",
 }
 
 

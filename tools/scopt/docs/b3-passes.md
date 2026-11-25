@@ -52,6 +52,46 @@ Inputs: the guest ELF and the patch-plan content are resolved by hash
 certifier on the captured R (`B3Ctx.summaries()`); without a bound EnvLayout no fact is
 citable and no guard can be emitted (`guard_layout_unbound`).
 
+### Sealed captures (configuration 6 + B3)
+
+B3 runs unchanged on a trusted sealed capture (configuration 6), so the sealed baseline
+also has guarded return chaining and specialization. Use the existing `b3` pipeline. The
+passes need a `steady` profile of the sealed snapshot itself. A sealed capture has exact-PC
+keys (`CF_PCREL` clear), and an ordinary `profile run` replay misses every such record, so
+the profile run must also be sealed:
+
+```sh
+scopt profile run -c "$SEALED_CFG" --snapshot "$SNAP" --qemu "$Q" \
+    --sealed --trusted --phase steady@0xMARKER --inputs train.bin --out "$W/prof-sealed"
+scopt optimize "$SNAP" --pipeline b3 --store "$OUT" \
+    --profile "$W/prof-sealed/merged.profile.json" --prep "$SEALED_PREP" --elf "$FIRMBOLT_ELF" \
+    --enable specialize-returns --enable chain-returns --enable chain-static --json
+```
+
+`$SEALED_CFG` is the sealed launch's FastDyn TOML (icount off). Set `SCOPT_ENVLAYOUT_PATH`
+to the directory holding the EnvLayout of `$Q`, as for the sealed pipelines; without it no
+guard can be emitted (`guard_layout_unbound`). Every input must replay fully from the
+snapshot, because a sealed miss is fatal. `--sealed` sets `QEMU_SC_SEALED=1` and
+`--trusted` sets `QEMU_SC_TRUSTED=1`, both applied after the environment scrub. The command
+refuses `--sealed` on a snapshot with `CF_PCREL` records (`sealed_needs_exact_pc`) and an
+all-exact-PC snapshot profiled without it (`exact_pc_needs_sealed`). `profile_run.json`
+records `sealed`, `trusted`, `target_key_mode` and `replay_env`.
+
+Check the pass receipts: `specialize-returns`, `chain-returns` and `chain-static` should
+report outcome `candidate` (or `no_change`), not reason `missing_profile` or
+`profile_incompatible`. `specialize-returns` also needs `--prep` to resolve the sealed
+preparation's patch plan.
+
+Deploy the artifact with the configuration 6 launch environment (`QEMU_SC_SEALED=1`,
+`QEMU_SC_TRUSTED=1`). QEMU activates the extension on sealed lookups as it does on ordinary
+ones: SPEC links arm, variants are built, and every guarded or variant slot is unlinked on
+a TLB/MPU change (`docs/qemu.md`, "Sealed B3"). Store-forwarding entry rewrites
+(`icount-entry-sfb`) do not apply, because sealed TBs have no icount entry.
+
+Firmware regions (configuration 7) and a B3 extension cannot yet share one artifact,
+because both payloads start at file offset `0x100`. `scopt optimize` still refuses that
+combination (`firmware_region_terminal_stage`).
+
 ## Manager rules (B3 mode)
 
 * Region scope (`unit_scope = "region"`) is accepted; such a pass runs once per variant on

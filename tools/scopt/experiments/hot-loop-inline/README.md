@@ -59,6 +59,26 @@ without qprof, use `QEMU_SC_V7_STATS` to verify that private regions activated
 inside the work window and the integrity-check counters stayed at zero.
 Run timing without either diagnostic.
 
+Configuration 6 lacks the guarded return chaining and specialization that the B3
+pipeline gives configuration 5. Configuration 6 + B3 adds them to the same sealed
+capture, so the sealed baseline includes everything normal scopt does. Store
+forwarding does not apply, because sealed TBs have no icount entry. Collect a steady
+profile on the sealed snapshot itself, then run the unchanged `b3` pipeline:
+
+```sh
+scopt profile run -c "$SEALED_CFG" --snapshot "$SNAP" --qemu "$Q" --sealed --trusted \
+  --phase steady@0xMARKER --inputs "$TRAIN" --out "$OUT/prof-sealed"
+scopt optimize "$SNAP" --pipeline b3 --store "$OUT" \
+  --profile "$OUT/prof-sealed/merged.profile.json" --prep "$SEALED_PREP" \
+  --elf "$FIRMBOLT_ELF" --enable specialize-returns --enable chain-returns \
+  --enable chain-static --json > "$OUT/optimization-6b3.json"
+```
+
+Launch it like configuration 6. The QEMU must activate B3 on sealed lookups
+(`docs/qemu.md`, "Sealed B3"). `QEMU_SC_V7_EXPERIMENT=no-sealed-sc6` gives the
+old behaviour on the same bytes for attribution. [B3 on sealed captures](../../docs/b3-passes.md)
+B3 cannot yet share an artifact with configuration 7's firmware regions.
+
 The packet-parser evaluation uses six distinct existing streams and checks the
 parser model and output registers. FreeRTOS+CLI uses the upstream command
 interpreter and sample handlers on the Cortex-M3 FreeRTOS port. A RAM-backed

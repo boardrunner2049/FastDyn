@@ -106,8 +106,20 @@ def test_no_trusted_exit_chain_token_matches_qemu_experiment_key(tmp_path):
     # The experiment object QEMU writes for this token, trusted and loaded.
     flags = {"source_index": True, "linear_source_scan": False, "trusted_set": False,
              "no_tree": False, "incoming_chain": False, "disable_chaining": False,
-             "no_regions": False, "no_trusted_exit_chain": True}
+             "no_regions": False, "no_trusted_exit_chain": True, "no_sealed_sc6": False}
     _M.validate_experiment(arm, {"loaded": True, "mode": "trusted", "experiment": flags})
     with pytest.raises(RuntimeError):
         _M.validate_experiment(arm, {"loaded": True, "mode": "trusted",
                                      "experiment": {**flags, "no_trusted_exit_chain": False}})
+
+
+def test_no_sealed_sc6_token_matches_qemu_experiment_key(tmp_path):
+    assert _M._EXPERIMENT_KEYS["no-sealed-sc6"] == "no_sealed_sc6"
+    arm = _M.Arm("sealed-pre-b3", _artifact(tmp_path, "sealed-pre-b3"), env={
+        "QEMU_SC_V7_EXPERIMENT": "no-sealed-sc6",
+    })
+    flags = {field: token == "no-sealed-sc6" for token, field in _M._EXPERIMENT_KEYS.items()}
+    _M.validate_experiment(arm, {"loaded": False, "experiment": flags})
+    with pytest.raises(RuntimeError):
+        _M.validate_experiment(arm, {"loaded": False,
+                                     "experiment": {**flags, "no_sealed_sc6": False}})

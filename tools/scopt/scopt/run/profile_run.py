@@ -8,6 +8,17 @@ never written), FastDyn runs once with ``QEMU_SC_PROFILE=<rd>/run.qprof`` and
 the run's staged ``.sc`` (§3.6). The per-run profiles are merged into
 ``OUT/merged.profile.json`` (published to ``--store`` when given).
 
+Sealed snapshots (``sealed=True``, ``scopt profile run --sealed``): a sealed
+exact-PC capture (every record has ``CF_PCREL`` clear) only matches its records
+under ``QEMU_SC_SEALED=1``; an ordinary replay misses every record and the
+profile cannot join (PROFILE_INCOMPATIBLE). ``sealed`` sets that switch, and
+``trusted`` also ``QEMU_SC_TRUSTED=1``, after the scrub; ``QEMU_SC_PROFILE``
+(which never chains and refuses sc6 arming) is unchanged. A sealed miss is
+fatal, so the run must replay the input the snapshot was captured with. The
+key mode is checked before any run: ``sealed_needs_exact_pc`` when ``sealed``
+targets a ``CF_PCREL`` record, ``exact_pc_needs_sealed`` when an all-exact-PC
+target is profiled without it.
+
 Isolation (T-B1-7): the target's files and every ``watch`` path (published
 artifacts, the base manifest, ...) are hashed before the first run and after
 the last; any difference fails the command. Rows the runs appended are
@@ -27,9 +38,13 @@ from typing import Any, Mapping, Sequence
 from ..formats.sc_v5 import sha256_sparse
 from .launcher import write_json
 
-__all__ = ["ProfileRunError", "profile_run", "tree_hashes"]
+__all__ = ["ProfileRunError", "profile_env", "profile_run", "target_key_mode", "tree_hashes"]
 
 SCHEMA = "scopt.profile_run/1"
+
+#: ``QEMU_SC_*`` switches a sealed profile run sets after the scrub.
+SEALED_ENV = {"QEMU_SC_SEALED": "1"}
+TRUSTED_ENV = {"QEMU_SC_TRUSTED": "1"}
 
 
 class ProfileRunError(RuntimeError):
@@ -74,6 +89,43 @@ def _load_json(p: str | os.PathLike) -> dict[str, Any]:
     return json.loads(Path(p).read_text())
 
 
+def target_key_mode(target: str | os.PathLike) -> str | None:
+    """``"exact_pc"`` when every valid record of the target's ``.sc`` has
+    ``CF_PCREL`` clear (a sealed capture), ``"pcrel"`` when every one has it set,
+    ``"mixed"`` otherwise; ``None`` when there is no readable ``.sc`` or no record
+    (deploy then reports the problem)."""
+    from ..decode.search import is_pcrel
+    from ..formats.sc_v5 import ScFormatError, read_sc
+    from .deploy import resolve_artifact
+
+    sc = Path(resolve_artifact(target)["sc"])
+    if not sc.is_file():
+        return None
+    try:
+        f = read_sc(sc)
+    except (OSError, ScFormatError):
+        return None
+    modes = {is_pcrel(f.records[i].cflags) for i in f.valid_slots}
+    if not modes:
+        return None
+    if len(modes) == 2:
+        return "mixed"
+    return "pcrel" if modes == {True} else "exact_pc"
+
+
+def profile_env(qprof: str | os.PathLike, phase_spec: str = "", *, sealed: bool = False,
+                trusted: bool = False) -> dict[str, str]:
+    """The ``extra_env`` of one profile launch (applied after the scrub)."""
+    env = {"QEMU_SC_PROFILE": str(qprof)}
+    if phase_spec:
+        env["QEMU_SC_PROFILE_PHASES"] = phase_spec
+    if sealed:
+        env.update(SEALED_ENV)
+    if trusted:
+        env.update(TRUSTED_ENV)
+    return env
+
+
 def profile_run(base_toml: str | os.PathLike, target: str | os.PathLike,
                 out: str | os.PathLike, *, phases: Sequence[str] = (), reps: int = 1,
                 inputs: Sequence[str | os.PathLike] = (), input_bank: str = "input",
@@ -82,8 +134,13 @@ def profile_run(base_toml: str | os.PathLike, target: str | os.PathLike,
                 runtime_identity: str | os.PathLike | None = None,
                 artifact_domain: bool = False, store: str | os.PathLike | None = None,
                 watch: Sequence[str | os.PathLike] = (), quiet: bool = False,
-                timeout_s: float = 300.0, peer=None) -> dict[str, Any]:
-    """Profile ``target`` (store snapshot dir, artifact dir or ``.sc``) into ``out``."""
+                timeout_s: float = 300.0, peer=None, sealed: bool = False,
+                trusted: bool = False) -> dict[str, Any]:
+    """Profile ``target`` (store snapshot dir, artifact dir or ``.sc``) into ``out``.
+
+    ``sealed``/``trusted`` replay with ``QEMU_SC_SEALED=1``/``QEMU_SC_TRUSTED=1``
+    (see the module docstring); both are recorded in ``profile_run.json``.
+    """
     from ..formats.profile_v1 import (ProfileError, check_flow, ingest, merge,
                                       publish_profile, write_profile)
     from ..formats.qprof_v1 import QprofFormatError
@@ -110,6 +167,15 @@ def profile_run(base_toml: str | os.PathLike, target: str | os.PathLike,
     out = Path(out).resolve()
     if out.exists() and any(out.iterdir()):
         raise ProfileRunError("out_not_fresh", f"{out} exists and is not empty")
+    key_mode = target_key_mode(tgt)
+    if sealed and key_mode in ("pcrel", "mixed"):
+        raise ProfileRunError("sealed_needs_exact_pc",
+                              f"{tgt} has CF_PCREL records; a sealed replay misses them "
+                              "fatally (profile it without --sealed)")
+    if not sealed and key_mode == "exact_pc":
+        raise ProfileRunError("exact_pc_needs_sealed",
+                              f"{tgt} is an exact-PC (sealed) capture; an ordinary replay "
+                              "matches none of its records (use --sealed)")
     out.mkdir(parents=True, exist_ok=True)
     phase_spec = ",".join(phases)
     watched = [tgt, *[Path(w).resolve() for w in watch]]
@@ -133,9 +199,7 @@ def profile_run(base_toml: str | os.PathLike, target: str | os.PathLike,
                 fails.append(f"{name}: deploy refused {e.code}: {e.detail}")
                 continue
             qprof = rd.root / "run.qprof"
-            env = {"QEMU_SC_PROFILE": str(qprof)}
-            if phase_spec:
-                env["QEMU_SC_PROFILE_PHASES"] = phase_spec
+            env = profile_env(qprof, phase_spec, sealed=sealed, trusted=trusted)
             doc = launch(rd, timeout_s=timeout_s, extra_env=env, capture_files_ok=True,
                          inputs={input_bank: inp} if inp else None, **({"peer": peer} if peer is not None else {}))
             rec.update(verdict=doc["verdict"], exit_code=doc["exit_code"],
@@ -180,6 +244,10 @@ def profile_run(base_toml: str | os.PathLike, target: str | os.PathLike,
     res: dict[str, Any] = {
         "schema": SCHEMA, "base_toml": str(Path(base_toml).resolve()), "target": str(tgt),
         "phases": list(phases), "reps": reps, "inputs": plan if inputs else [],
+        "sealed": sealed, "trusted": trusted, "target_key_mode": key_mode,
+        # the replay switches beyond QEMU_SC_PROFILE{,_PHASES} (``phases`` above)
+        "replay_env": {k: v for k, v in profile_env("", sealed=sealed, trusted=trusted).items()
+                       if k != "QEMU_SC_PROFILE"},
         "qemu": None if qemu is None else str(qemu), "runs": runs,
         "isolation": {"watched": [str(w) for w in watched], "files": len(before),
                       "changed": changed, "ok": not changed, "before": before},
