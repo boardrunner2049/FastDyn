@@ -35,6 +35,31 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+#: Variables the driver sets itself; an arm's ``env`` may not override them.
+_DRIVER_ENV = frozenset((
+    "QEMU_SC_TRUSTED", "QEMU_SC_SEALED", "QEMU_SC_PROFILE",
+    "QEMU_SC_V7_STATS", "QEMU_SC_V6_STATS",
+))
+
+
+def arm_env(spec):
+    """An arm's extra ``QEMU_SC_*`` variables, baked into its run.sh.
+
+    This lets two arms run the same files and differ only in a runtime switch,
+    e.g. ``{"QEMU_SC_V7_EXPERIMENT": "no-trusted-exit-chain"}``.
+    """
+    extra = spec.get("env", {})
+    if not isinstance(extra, dict):
+        raise ValueError("arm env must be an object")
+    for key, value in extra.items():
+        if (not isinstance(key, str) or not re.fullmatch(r"QEMU_SC_[A-Z0-9_]+", key)
+                or key in _DRIVER_ENV):
+            raise ValueError(f"arm env may only set other QEMU_SC_* variables, not {key!r}")
+        if not isinstance(value, str):
+            raise ValueError(f"arm env {key} must be a string")
+    return dict(sorted(extra.items()))
+
+
 def stage(spec, input_path, directory, cache):
     directory.mkdir()
     launch = json.loads(Path(spec["launch"]).read_text())
@@ -58,6 +83,7 @@ def stage(spec, input_path, directory, cache):
         if arg.startswith("unix:"):
             argv[i] = f"unix:{directory}/qmp,server,nowait"
     env = dict(launch["env_set"], FASTDYN_TIMING_FILE=str(directory / "window.jsonl"))
+    env.update(arm_env(spec))
     if cache is not None:
         if "-accel" in argv:
             i = argv.index("-accel") + 1
@@ -148,7 +174,10 @@ def check_aa_identity(identities, aa):
     if mine.keys() != theirs.keys():
         raise RuntimeError(f"A/A arm {name}: identity keys differ from {ref}")
     for key, value in theirs.items():
-        if key == "cache_copy":
+        if key == "env":
+            if mine[key] != value:
+                raise RuntimeError(f"A/A arm {name}: env differs from {ref}")
+        elif key == "cache_copy":
             if (mine[key]["path"] == value["path"]
                     or mine[key]["sha256"] != value["sha256"]):
                 raise RuntimeError(f"A/A arm {name}: cache copy is not a distinct, "
@@ -281,6 +310,8 @@ def main():
             "elf": identity(argv[argv.index("-kernel") + 1]),
             "plugin": identity(argv[argv.index("--plugin") + 1].split(",")[0]),
         }
+        if spec.get("env"):
+            identities[name]["env"] = arm_env(spec)
         cache = None
         if spec.get("cache"):
             cache = folder / "cache.sc"

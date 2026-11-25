@@ -112,3 +112,23 @@ def test_check_aa_identity():
         with pytest.raises(RuntimeError):
             _M.check_aa_identity({"sealed": ident, "sealed-aa": dict(ident, cache_copy=bad)},
                                  ("sealed-aa", "sealed"))
+
+
+def test_arm_env_accepts_runtime_switches_only():
+    assert _M.arm_env({}) == {}
+    env = {"QEMU_SC_V7_EXPERIMENT": "no-trusted-exit-chain"}
+    assert _M.arm_env({"env": env}) == env
+    for bad in ({"QEMU_SC_SEALED": "0"}, {"QEMU_SC_V7_STATS": "/x"}, {"PATH": "/x"},
+                {"QEMU_SC_V7_EXPERIMENT": 1}, ["QEMU_SC_V7_EXPERIMENT"]):
+        with pytest.raises(ValueError):
+            _M.arm_env({"env": bad})
+
+
+def test_check_aa_identity_compares_env():
+    ident = {"launch": {"path": "/l", "sha256": "1"},
+             "cache_copy": {"path": "/a/cache.sc", "sha256": "3"},
+             "env": {"QEMU_SC_V7_EXPERIMENT": "no-trusted-exit-chain"}}
+    copy = dict(ident, cache_copy={"path": "/b/cache.sc", "sha256": "3"})
+    _M.check_aa_identity({"x": ident, "x-aa": copy}, ("x-aa", "x"))
+    with pytest.raises(RuntimeError):
+        _M.check_aa_identity({"x": ident, "x-aa": dict(copy, env={})}, ("x-aa", "x"))
