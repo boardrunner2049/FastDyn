@@ -308,3 +308,9 @@ def test_profit_model_resolves_modes_per_plan():
     assert (est.residual_goto_tb, est.entry_chain) == ("chained", "chained")
     assert est.bytes == 5 * 100 + 5 * 8   # per-member descriptors once chainable
     assert model.to_json()["constants"]["dispatch_ns"] == 40.0
+    # A member source grown by an earlier B3 pass prices the region unchained
+    # (conservative, whatever the QEMU member-skip capability).
+    grown = ProfitModel(index, DispatchCosts(), "auto", "auto", "steady",
+                        b3_grown=frozenset({plan.members[1].source_uid}))
+    assert grown.estimate(plan, snapshot, exits_of=exits.__getitem__).residual_goto_tb == \
+        "unchained"
