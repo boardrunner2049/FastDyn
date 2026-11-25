@@ -338,18 +338,43 @@ def b3_edited_uids(plan: Any) -> frozenset[str]:
             frozenset(v.src_uid for v in getattr(plan, "variants", ())))
 
 
-def region_exits_chainable(plan: Any, grown_uids: Iterable[str] = ()) -> bool:
-    """Whether a firmware region gets per-member descriptors whose residual
-    goto_tb exits QEMU may chain.
+def added_goto_tb_slots(before: bytes | ScRecord, after: bytes | ScRecord) -> int:
+    """Bit mask of the ``goto_tb`` slots that ``after`` has and ``before`` left free.
 
-    Only trusted regions qualify, and only when no member's source is edited
-    by B3 (``grown_uids``, see :func:`b3_edited_uids`): QEMU arms a member's
-    slots from its source's *output* record while the member copies the
-    pre-B3 code, so a grown or rewritten source could name guard-stub offsets
-    that the copy does not have.  This is the plan-level decision shared by
-    the linker and the cost model; the linker may still fall back to the
-    legacy shared descriptor when a residual slot is misaligned or not a
-    reset ``goto_tb`` (see :func:`residual_goto_tb_slots`).
+    Bit ``n`` is set when slot ``n`` is valid in ``after`` (``jmp_reset_offset
+    != 0xFFFF``) and free in ``before``.  A trusted region member copies the
+    pre-B3 bytes of its source (``before``) while QEMU arms the member's
+    slots from the source's output record (``after``).  B3 growth only claims
+    free slots and keeps every original slot's offsets and reset bytes, so
+    these are exactly the slots B3 registered: the member copy does not have
+    them.  They become the member's skip flags (QEMU
+    ``SC7_MEMBER_SKIP_SLOT(n)``).
+    """
+    a = before if isinstance(before, ScRecord) else ScRecord.from_bytes(before)
+    b = after if isinstance(after, ScRecord) else ScRecord.from_bytes(after)
+    return sum(1 << n for n in (0, 1)
+               if b.jmp_reset_offset[n] != _NO_JMP and a.jmp_reset_offset[n] == _NO_JMP)
+
+
+def region_exits_chainable(plan: Any, grown_uids: Iterable[str] = ()) -> bool:
+    """The PRICING predicate: whether the cost model treats a firmware region's
+    residual ``goto_tb`` exits as chained.
+
+    Only trusted regions qualify, and only when no member's source is in
+    ``grown_uids``: the units whose exits B3 guards (grown, with registered
+    guard slots; :meth:`scopt.manager_b3.B3State.grown_uids`).  The rule is
+    deliberately conservative and independent of the QEMU member-skip
+    capability: a member copies the pre-B3 bytes, so the profile's lookups
+    that B3 already chains are credited as internal edges, and residual
+    ``goto_ptr`` exits on B3-guarded tails lose their guard in the copy.
+
+    The linker does not call this.  It decides from the per-member skip masks
+    (:func:`added_goto_tb_slots`): a trusted region whose masks are all zero
+    (including rewrite-only and variant sources) gets member descriptors; a
+    non-zero mask needs ``B3Plan.member_slot_skip``, otherwise the region
+    keeps the legacy shared descriptor (``b3_registered_slot``).  So a region
+    priced chained is always linked with member descriptors unless a residual
+    slot fails its shape check (:func:`residual_goto_tb_slots`).
     """
     edited = frozenset(grown_uids)
     return bool(plan.trusted) and not any(m.source_uid in edited for m in plan.members)
@@ -357,15 +382,18 @@ def region_exits_chainable(plan: Any, grown_uids: Iterable[str] = ()) -> bool:
 
 def residual_goto_tb_slots(record: bytes | ScRecord, code: bytes, tc_offset: int, *,
                            internal_fields: Iterable[int] = (),
-                           code_address: int = 0) -> tuple[int, list[str]]:
+                           code_address: int = 0,
+                           skip_slots: int = 0) -> tuple[int, list[str]]:
     """Check the residual ``goto_tb`` slots of one trusted member copy.
 
     ``record`` is the public (output) record of the member's source;
     ``internal_fields`` are the rel32 fields the region patched to internal
-    edges.  Every other valid slot must be the reset jump TCG emitted --
-    ``e9`` then a zero rel32 at ``jmp_insn_offset`` past the 15-byte entry
-    prefix, ``jmp_reset_offset == jmp_insn_offset + 4`` -- with its rel32 at a
-    4-byte aligned absolute address.  This mirrors QEMU's load-time check.
+    edges; ``skip_slots`` is the member's skip mask (bit ``n``: slot ``n`` is
+    a B3-registered slot the copy does not have, never verified or armed).
+    Every other valid slot must be the reset jump TCG emitted -- ``e9`` then
+    a zero rel32 at ``jmp_insn_offset`` past the 15-byte entry prefix,
+    ``jmp_reset_offset == jmp_insn_offset + 4`` -- with its rel32 at a 4-byte
+    aligned absolute address.  This mirrors QEMU's load-time check.
     Returns ``(chainable slot count, problems)``.
     """
     rec = record if isinstance(record, ScRecord) else ScRecord.from_bytes(record)
@@ -374,7 +402,7 @@ def residual_goto_tb_slots(record: bytes | ScRecord, code: bytes, tc_offset: int
     problems: list[str] = []
     for n in (0, 1):
         insn, reset = rec.jmp_insn_offset[n], rec.jmp_reset_offset[n]
-        if reset == _NO_JMP or insn in internal:
+        if reset == _NO_JMP or skip_slots & (1 << n) or insn in internal:
             continue
         if not (TRUSTED_ENTRY_OFFSET < insn and reset == insn + 4 and insn + 4 <= len(code)):
             problems.append(f"slot {n}: offsets insn={insn:#x} reset={reset:#x}")
@@ -987,7 +1015,7 @@ __all__ += [
     "derive_scm_v2", "tb_ret_abs_of",
     "trusted_firmware_entry_problem", "trusted_firmware_edge_problem",
     "TRUSTED_ENTRY_OFFSET", "b3_edited_uids", "region_exits_chainable",
-    "residual_goto_tb_slots", "MEMBER_CODE_ALIGN",
+    "residual_goto_tb_slots", "added_goto_tb_slots", "MEMBER_CODE_ALIGN",
 ]
 
 
@@ -1450,6 +1478,10 @@ class B3Plan:
     max_total_growth_bytes: int | None = None
     order_private_by_predecessor: bool = False
     firmware_regions: tuple[Any, ...] = ()
+    #: The target QEMU honours member skip flags (SC7_MEMBER_SKIP_SLOT):
+    #: resolved once by firmware-inline (``member_slot_skip`` param and the
+    #: ``--v7-member-skip-exe`` allowlist) and re-checked by package_b3.
+    member_slot_skip: bool = False
 
     @property
     def empty(self) -> bool:
@@ -1496,6 +1528,9 @@ class FirmwareMemberLink:
     guest_vaddr: int
     patched_edges: tuple[tuple[str, int, int], ...] = ()
     effective_unit: TBUnit | None = field(default=None, repr=False)
+    #: Member flags (QEMU SC7_MEMBER_SKIP_SLOT bits): source-record goto_tb
+    #: slots that B3 registered and this pre-B3 copy does not have.
+    skip_slots: int = 0
 
 
 @dataclass(frozen=True)
@@ -1513,6 +1548,11 @@ class FirmwareRegionLink:
     member_descriptors: bool = False
     #: Why a trusted region kept the legacy shared descriptor, if it did.
     member_descriptor_refusal: str | None = None
+    #: Member-descriptor regions: skip bits set over all members (B3-registered
+    #: record slots QEMU neither verifies nor arms).
+    skipped_b3_slots: int = 0
+    #: Member-descriptor regions: residual goto_tb slots QEMU arms.
+    chainable_residual_slots: int = 0
 
     @property
     def emitted_size(self) -> int:
@@ -1558,6 +1598,9 @@ class LinkResultV2(LinkResult):
                                     "member_descriptors": r.member_descriptors,
                                     "member_descriptor_refusal":
                                         r.member_descriptor_refusal,
+                                    "skipped_b3_slots": r.skipped_b3_slots,
+                                    "chainable_residual_slots":
+                                        r.chainable_residual_slots,
                                     "emitted_size": r.emitted_size,
                                     "source_identities": [m.source_hash
                                                           for m in r.members],
@@ -1677,48 +1720,62 @@ class NativeLinkerV2:
                                ) -> tuple[tuple[FirmwareRegionLink, ...], int]:
         """Lay out private descriptors, contiguous code and out-of-line recovery data.
 
-        A trusted region whose exits are chainable (:func:`region_exits_chainable`)
-        gets one descriptor per member and 16-byte aligned member code, so each
-        member's exit_tb results name its own descriptor and QEMU can arm the
-        member's residual goto_tb slots.  If any such slot is not a reset,
-        4-byte aligned goto_tb (checked against ``out_records``, the public
-        output records QEMU will read), the region falls back to the legacy
-        layout in which all members share the entry descriptor.
+        A trusted region gets one descriptor per member and 16-byte aligned
+        member code, so each member's exit_tb results name its own descriptor
+        and QEMU can arm the member's residual goto_tb slots.  Members copy the
+        pre-B3 bytes (``by_uid``) while QEMU arms slots from the source's
+        output record (``out_records``), so each member carries the mask of
+        the slots B3 registered (:func:`added_goto_tb_slots`).  A non-zero
+        mask needs ``B3Plan.member_slot_skip`` (the members' skip flags);
+        without it the region keeps the legacy layout in which all members
+        share the entry descriptor (``b3_registered_slot``).  The region also
+        falls back when an armed slot is not a reset, 4-byte aligned goto_tb
+        (``residual_slot_shape``).
         """
-        edited = b3_edited_uids(self.plan)
         records = out_records if out_records is not None else \
             {uid: unit.record for uid, unit in by_uid.items()}
+        skip_ok = bool(getattr(self.plan, "member_slot_skip", False))
         linked: list[FirmwareRegionLink] = []
         for plan in self.plan.firmware_regions:
             start = round_up(cursor, TB_ALIGN)
             effective, guarded_fields = self._firmware_member_units(plan, by_uid)
             refusal = None
+            chainable = 0
             if not plan.trusted:
                 members, end = self._layout_firmware_region(plan, effective, guarded_fields,
                                                              start, by_uid, alias=False)
-            elif region_exits_chainable(plan, edited):
-                members, end = self._layout_firmware_region(plan, effective, guarded_fields,
-                                                             start, by_uid, alias=False)
-                problems = []
-                for i, m in enumerate(members):
-                    _, bad = residual_goto_tb_slots(
-                        records[m.source_uid], m.code, m.tc_offset,
-                        internal_fields=(field for _, field, _ in m.patched_edges),
-                        code_address=self.header.code_address)
-                    problems += [f"member {i}: {p}" for p in bad]
-                if problems:
-                    refusal = "residual_slot_shape: " + "; ".join(problems[:3])
             else:
-                refusal = "b3_edited_source"
+                masks = [added_goto_tb_slots(by_uid[m.source_uid].record, records[m.source_uid])
+                         for m in plan.members]
+                if any(masks) and not skip_ok:
+                    refusal = "b3_registered_slot"
+                else:
+                    members, end = self._layout_firmware_region(plan, effective, guarded_fields,
+                                                                 start, by_uid, alias=False)
+                    # The layout keeps plan.members order.
+                    members = tuple(replace(m, skip_slots=k) for m, k in zip(members, masks))
+                    problems = []
+                    for i, m in enumerate(members):
+                        count, bad = residual_goto_tb_slots(
+                            records[m.source_uid], m.code, m.tc_offset,
+                            internal_fields=(field for _, field, _ in m.patched_edges),
+                            code_address=self.header.code_address, skip_slots=m.skip_slots)
+                        chainable += count
+                        problems += [f"member {i}: {p}" for p in bad]
+                    if problems:
+                        refusal = "residual_slot_shape: " + "; ".join(problems[:3])
             if plan.trusted and refusal is not None:
                 members, end = self._layout_firmware_region(plan, effective, guarded_fields,
                                                             start, by_uid, alias=True)
+                chainable = 0
             linked.append(FirmwareRegionLink(
                 plan.region_id, plan.callsite.callsite_id, plan.entry_member,
                 members, plan.source_uids, start, end,
                 plan.trusted, plan.trusted_entry_offset,
                 member_descriptors=plan.trusted and refusal is None,
-                member_descriptor_refusal=refusal))
+                member_descriptor_refusal=refusal,
+                skipped_b3_slots=sum(bin(m.skip_slots).count("1") for m in members),
+                chainable_residual_slots=chainable))
             cursor = end
         return tuple(linked), cursor
 
@@ -1837,10 +1894,12 @@ class NativeLinkerV2:
             return self._fail("", "firmware_region_terminal_stage",
                               "layout placement cannot be combined with firmware regions")
         # B3 edits compose only with trusted regions (the composed v7 subtype):
-        # a safe member reuses its public record's goto_tb offsets, which B3
-        # growth moves while the member keeps the pre-B3 code.  Trusted regions
-        # whose member sources B3 edited keep the legacy shared descriptor
-        # (region_exits_chainable), so no descriptor names a grown slot.
+        # a safe member reuses its public record's goto_tb offsets, and B3
+        # growth adds guard slots to that record while the member keeps the
+        # pre-B3 code.  A trusted member descriptor skips the slots B3
+        # registered through its member flags (B3Plan.member_slot_skip); without
+        # that capability the region keeps the legacy shared descriptor
+        # ('b3_registered_slot'), so no armed descriptor names a guard slot.
         if plan.firmware_regions and b3_edited_uids(plan) and \
                 any(not r.trusted for r in plan.firmware_regions):
             return self._fail("", "firmware_region_safe_composition",

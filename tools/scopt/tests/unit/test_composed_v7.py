@@ -9,6 +9,7 @@ These are the scopt-side mirrors of QEMU's composed loader checks
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import struct
 from dataclasses import replace
 from types import SimpleNamespace
@@ -25,29 +26,37 @@ from scopt.formats.sc_v6 import (ARRAYS_OFFSET, COMPOSED_DIR_OFFSET, EXIT_STATIC
                                  SlotEntry, VariantEntry, max_ext_entries, read_sc6,
                                  sc6_snapshot_id)
 from scopt.formats.sc_v7 import (LOADER_V7_TRUSTED, LOADER_V7_TRUSTED_SC6,
-                                 SC7_COMPOSED_DIR_OFFSET, SC7_FEATURE_SC6_REGIONS, SC7_MAGIC,
-                                 canonical_snapshot_id, directory_size, is_composed_features,
-                                 loader_requirement, read_sc7, sc7_snapshot_id, write_sc7,
-                                 write_sc7_composed, write_sc7_semantic)
+                                 LOADER_V7_TRUSTED_SC6_MEMBER_SKIP, SC7_COMPOSED_DIR_OFFSET,
+                                 SC7_FEATURE_SC6_REGIONS, SC7_MAGIC, build_directory,
+                                 canonical_snapshot_id, decode_directory, directory_size,
+                                 is_composed_features, loader_requirement, read_sc7,
+                                 sc7_snapshot_id, write_sc7, write_sc7_composed,
+                                 write_sc7_semantic)
 from scopt.link import B3Plan, NativeLinkerV2, relocate_unit, round_up
 
-from .test_firmware_inline import (_link_trusted, _snapshot, _trusted_member_unit,
-                                   _trusted_two_member_region)
+from .test_firmware_inline import (_TRUSTED_PREFIX, _b3_grown_unit, _link_trusted, _snapshot,
+                                   _trusted_member_unit, _trusted_two_member_region)
 
 _DIR_CHECKSUM = 64  # offset of the checksum in the 80-byte directory header
 
 
 def _fixture(*, variant_tb: int = 0x1000, member_descriptors: bool = True,
              table_gap: int = 0):
-    """One public record R (= C), one SPEC slot of R linked to a variant C' of
-    R, and one trusted two-member region of R's copies."""
+    """One public record R (= C) that B3 grew: its free slot 1 is a SPEC slot
+    at a guard stub past the pre-B3 code, linked to a variant C' of R.  One
+    trusted two-member region copies R's pre-B3 bytes.  With
+    ``member_descriptors`` the members skip slot 1 (flags 2, the sc6 slot set
+    of R); without it the region keeps the legacy shared descriptor."""
     snapshot, image = _snapshot()
     call, = discover_firmware_calls(snapshot, image).calls
     unit = _trusted_member_unit(snapshot, call)
+    grown = _b3_grown_unit(unit)
     region = _trusted_two_member_region(snapshot, call, unit)
     linked, _ = _link_trusted(snapshot, region, unit,
-                              None if member_descriptors else {"rewrites": {unit.uid: ()}})
-    public = relocate_unit(unit, unit.tb_offset)
+                              {"grow": {unit.uid: ()}, "member_slot_skip": member_descriptors},
+                              {unit.uid: grown.record})
+    assert linked.member_descriptors == member_descriptors
+    public = relocate_unit(grown, grown.tb_offset)
     if variant_tb < 0:                     # the last 64-aligned TB slot inside the region
         variant_tb = (linked.end_offset - 1) // 64 * 64
     rec = ScRecord.from_bytes(public.record)
@@ -56,15 +65,23 @@ def _fixture(*, variant_tb: int = 0x1000, member_descriptors: bool = True,
     pmask = (1 << snapshot.header.target_page_bits) - 1
     variant = VariantEntry(rec.tb_offset, variant_tb, variant_tb + tb_struct, rec.tc_size,
                            variant_tb + tb_struct + len(body), fnv1a64(body), 0)
-    slot = SlotEntry(rec.tb_offset, 0, KIND_SPEC, EXIT_STATIC, rec.page_addr0 & pmask, 0,
+    slot = SlotEntry(rec.tb_offset, 1, KIND_SPEC, EXIT_STATIC, rec.page_addr0 & pmask, 0,
                      rec.tc_size, fnv1a64(body[:rec.tc_size]))
     ext = ExtTable((variant,), (slot,), (LinkEntry(0, 0),), artifact_id8=b"COMPOSED")
     link = SimpleNamespace(units=(public,), firmware_regions=(linked,), ext=ext,
                            firmware_table_offset=round_up(linked.end_offset, 8) + table_gap)
     link.firmware_table_size = directory_size(link.firmware_regions)
-    return SimpleNamespace(snapshot=snapshot, header=snapshot.header, unit=unit,
+    # The same region without B3 (pre-B3 public record, no skip flags).
+    plain, _ = _link_trusted(snapshot, region, unit)
+    plain_public = relocate_unit(unit, unit.tb_offset)
+    plain_link = SimpleNamespace(units=(plain_public,), firmware_regions=(plain,),
+                                 firmware_table_offset=round_up(plain.end_offset, 8),
+                                 firmware_table_size=directory_size((plain,)))
+    return SimpleNamespace(snapshot=snapshot, header=snapshot.header, unit=unit, grown=grown,
                            region=region, linked=linked, public=public, link=link,
-                           parts=((public.record, public.body),), bodies=[body], ext=ext)
+                           parts=((public.record, public.body),), bodies=[body], ext=ext,
+                           plain_link=plain_link,
+                           plain_parts=((plain_public.record, plain_public.body),))
 
 
 def _write(tmp_path, fx, name="composed.sc", **kw):
@@ -99,7 +116,10 @@ def test_composed_round_trip(tmp_path, member_descriptors):
     assert semantic.ext.variants == fx.ext.variants
     directory = read_sc7(path)
     assert directory.composed and directory.trusted
-    assert loader_requirement(directory) == LOADER_V7_TRUSTED_SC6
+    assert loader_requirement(directory) == (LOADER_V7_TRUSTED_SC6_MEMBER_SKIP
+                                             if member_descriptors else LOADER_V7_TRUSTED_SC6)
+    members = decode_directory(directory)["members"]
+    assert [m["flags"] for m in members] == ([2, 2] if member_descriptors else [0, 0])
     with path.open("rb") as stream:
         stream.seek(SC7_COMPOSED_DIR_OFFSET)
         assert stream.read(80) == directory.header
@@ -115,7 +135,7 @@ def test_composed_round_trip(tmp_path, member_descriptors):
     semantic_only = tmp_path / "semantic.sc"
     write_sc7_semantic(semantic_only, fx.header, fx.parts, fx.ext, fx.bodies, fsync=False)
     firmware_only = tmp_path / "firmware.sc"
-    write_sc7(firmware_only, fx.header, fx.parts, fx.link, fsync=False)
+    write_sc7(firmware_only, fx.header, fx.plain_parts, fx.plain_link, fsync=False)
     assert loader_requirement(read_sc7(firmware_only)) == LOADER_V7_TRUSTED
     assert len({composed_id, canonical_snapshot_id(semantic_only),
                 canonical_snapshot_id(firmware_only)}) == 3
@@ -206,7 +226,7 @@ def test_deploy_and_proof_check_both_payloads(tmp_path):
     art.mkdir()
     path = _write(art, fx, "cache.sc")
     directory = read_sc7(path)
-    sidecar = {"loader_requirement": LOADER_V7_TRUSTED_SC6,
+    sidecar = {"loader_requirement": LOADER_V7_TRUSTED_SC6_MEMBER_SKIP,
                "x_ext_artifact_id8": fx.ext.artifact_id8.hex(),
                "x_firmware_artifact_id8": directory.artifact_id8.hex()}
     (art / "cache.sc.scopt.json").write_text(json.dumps(sidecar))
@@ -214,6 +234,11 @@ def test_deploy_and_proof_check_both_payloads(tmp_path):
     entry = {"path": str(art), "sc": str(path), "kind": "artifact_dir"}
     reasons, info = artifact_refusals(entry, header)
     assert reasons == [] and info["firmware_artifact_id8"] == directory.artifact_id8.hex()
+    # A sidecar that hides the member flags (plain '+sc6') is refused: deploy
+    # recomputes the requirement from the file.
+    (art / "cache.sc.scopt.json").write_text(json.dumps(
+        {**sidecar, "loader_requirement": LOADER_V7_TRUSTED_SC6}))
+    assert "loader_requirement_mismatch" in artifact_refusals(entry, header)[0]
     for key, reason in (("x_ext_artifact_id8", "ext_artifact_id_mismatch"),
                         ("x_firmware_artifact_id8", "firmware_artifact_id_mismatch"),
                         ("loader_requirement", "loader_requirement_mismatch")):
@@ -247,16 +272,25 @@ def test_linker_composes_only_trusted_regions_without_placement():
     assert not placed.ok and placed.failures[0].reason == "firmware_region_terminal_stage"
 
 
-def test_b3_edited_regions_are_priced_unchainable():
-    from scopt.analysis.firmware_profit import resolve_residual_goto_tb
+def test_b3_grown_regions_are_priced_unchainable(monkeypatch):
+    from scopt.analysis.firmware_profit import ProfitModel, resolve_residual_goto_tb
     from scopt.manager_b3 import B3State
 
     fx = _fixture()
     assert resolve_residual_goto_tb("auto", fx.region) == "chained"
     assert resolve_residual_goto_tb("auto", fx.region, {fx.unit.uid}) == "unchained"
+    # An explicit mode overrides the conservative rule.
+    assert resolve_residual_goto_tb("chained", fx.region, {fx.unit.uid}) == "chained"
+    # Rewrites and variants keep the record: only grown units block pricing.
     state = B3State(rewrites={"r": ()},
                     variants={"v": SimpleNamespace(src_uid="c")})
-    assert state.edited_uids() == {"r", "c"}
+    assert state.edited_uids() == {"r", "c"} and state.grown_uids() == frozenset()
+    rewrite_only = SimpleNamespace(**{**vars(fx.region)})
+    assert resolve_residual_goto_tb("auto", rewrite_only, state.grown_uids()) == "chained"
+    # Pricing never reads the member-skip capability.
+    assert "member_slot_skip" not in {f for f in ProfitModel.__dataclass_fields__}
+    monkeypatch.setenv("SCOPT_V7_MEMBER_SKIP_EXES", "ab" * 32)
+    assert resolve_residual_goto_tb("auto", fx.region, {fx.unit.uid}) == "unchained"
 
 
 @pytest.mark.parametrize("base", ["sealed-pgo-7", "sealed-whopr-7", "sealed-firmlooper",
@@ -276,3 +310,189 @@ def test_sealed_b3_pipelines_compose_b3_before_firmware_inline(base):
     assert composed.allowed_capabilities == original.allowed_capabilities | {
         EditKind.CLONE, EditKind.REDIRECT_EXIT, EditKind.ADD_ENTRY, EditKind.ATTACH_FACT,
         EditKind.PURE_REWRITE}
+
+
+# -- member skip flags (B3-registered slots of pre-B3 member copies) --------
+
+_NEW_QEMU = "ab" * 32
+
+
+def _grown_member_plan(member_slot_skip: bool):
+    """A trusted-entry member source M (one lookup tail, both goto_tb slots
+    free) that B3 grows with a SPEC slot 0 (linked to a variant of T) and a
+    GENERAL slot 1, and one trusted two-member region of M's copies."""
+    from scopt.guard import GuardTarget
+    from scopt.link import GuardedExitSpec, VariantSpec
+    from scopt.formats.enums import Encoding, SiteKind
+    from scopt.model.firmware_region import FirmwareRegionMember
+    from scopt.model.unit import HelperBinding, PoolEntry, Site
+    from tests.synth.fake_snapshot import FakeSnapshot, fake_snapshot
+
+    base = fake_snapshot(3)
+    member, target, other = base.units()
+    lookup = 0x2000
+    tail = len(_TRUSTED_PREFIX)
+    pool = tail + 11
+    code = (_TRUSTED_PREFIX + bytes.fromhex("488bfdff15") + (2).to_bytes(4, "little") +
+            bytes.fromhex("ffe0") + lookup.to_bytes(8, "little"))
+    rec = ScRecord.from_bytes(member.record).replace(
+        tc_size=len(code), end_offset=member.tc_offset + len(code) + len(member.search),
+        jmp_insn_offset=(0xFFFF, 0xFFFF), jmp_reset_offset=(0xFFFF, 0xFFFF))
+    sites = (Site(tail + 5, tail + 3, 4, Encoding.POOL_INDIRECT, SiteKind.HELPER_CALL,
+                  1, lookup, 0, 2),
+             Site(tail + 9, tail + 9, 0, Encoding.NONE, SiteKind.GOTO_PTR, 0, 0, 0, 0))
+    member = replace(member, record=rec.to_bytes(fix_checksum=True), code=code,
+                     tc_size=len(code), end_offset=rec.end_offset, insn0_start=15,
+                     sites=sites, pool_start=pool,
+                     pool=(PoolEntry(tail + 5, pool, 0, 1, 0, lookup),),
+                     bindings=replace(member.bindings, helpers=(HelperBinding(
+                         1, "lookup_tb_ptr", "qemu", "helper_lookup_tb_ptr", 0, lookup),)))
+    snap = FakeSnapshot((member, target, other), base.snapshot_id, base.header)
+    snap.run_info = SimpleNamespace(code_address=base.header.code_address, tb_ret_off=0,
+                                    flags=0)
+    spec = GuardedExitSpec(tail, "return", (GuardTarget(target.vaddrs[0], 0, "SPEC"),
+                                            GuardTarget(other.vaddrs[0], 1, "GENERAL")),
+                           target.key.flags, target.key.cs_base)
+    region = SimpleNamespace(
+        members=(FirmwareRegionMember(member.uid, member.content_hash, member.key, (), "caller"),
+                 FirmwareRegionMember(member.uid, member.content_hash, member.key, ("c",),
+                                      "callee")),
+        trusted=True, edges=(), region_id="sha256:" + "e" * 64,
+        callsite=SimpleNamespace(callsite_id="sha256:" + "c" * 64), entry_member=0,
+        source_uids=(member.uid,), trusted_entry_offset=15)
+    plan = B3Plan(grow={member.uid: (spec,)},
+                  variants=(VariantSpec(target.uid, member.uid, 0, key="v0"),),
+                  firmware_regions=(region,), member_slot_skip=member_slot_skip)
+    return snap, member, plan
+
+
+def _guard_layout():
+    """An EnvLayout stand-in with the default guard displacements."""
+    from scopt.guard import GuardOffsets
+
+    defaults = GuardOffsets()
+    names = {name: getattr(defaults, key) for key, name in GuardOffsets.FIELDS.items()}
+    return SimpleNamespace(offset=names.__getitem__, envlayout_id=None)
+
+
+@pytest.mark.parametrize("member_slot_skip", [True, False])
+def test_composed_member_skip_flags_equal_sc6_slots(tmp_path, member_slot_skip):
+    from scopt.guard import GuardOffsets
+    from scopt.validate import package_b3
+
+    snap, member, plan = _grown_member_plan(member_slot_skip)
+    link = NativeLinkerV2(snap, plan, offsets=GuardOffsets(), derive_captures=False).link()
+    assert link.ok, link.failures
+    out_tb = link.by_uid()[member.uid].new_tb_offset
+    sc6_mask = 0
+    for slot in link.ext.slots:
+        if slot.src_tb_offset == out_tb:
+            sc6_mask |= 1 << slot.slot_n
+    assert sc6_mask == 3 and {s.kind for s in link.ext.slots} == {KIND_SPEC, KIND_GENERAL}
+    assert len(link.variants) == 1
+    region, = link.firmware_regions
+    if member_slot_skip:
+        assert region.member_descriptors and region.member_descriptor_refusal is None
+        assert [m.skip_slots for m in region.members] == [sc6_mask, sc6_mask]
+        assert (region.skipped_b3_slots, region.chainable_residual_slots) == (4, 0)
+    else:
+        assert region.member_descriptor_refusal == "b3_registered_slot"
+        assert [m.skip_slots for m in region.members] == [0, 0]
+    # write_sc7_composed reads the file back with both readers (sc6 equality).
+    from scopt.validate import write_b3_files
+
+    write_b3_files(tmp_path / "art", snap, link)
+    directory = read_sc7(tmp_path / "art" / "cache.sc")
+    decoded = decode_directory(directory)
+    want = LOADER_V7_TRUSTED_SC6_MEMBER_SKIP if member_slot_skip else LOADER_V7_TRUSTED_SC6
+    assert loader_requirement(directory) == want
+    assert decoded["regions"][0]["flags"] == (7 if member_slot_skip else 3)
+    assert [m["flags"] for m in decoded["members"]] == ([3, 3] if member_slot_skip else [0, 0])
+    assert all(m["source_tb_offset"] == out_tb for m in decoded["members"])
+    # package_b3 publishes the same requirement and per-region outcomes.
+    runtime = {"qemu_sha256": "sha256:" + _NEW_QEMU}
+    res = package_b3(snap, plan, tmp_path / "store", candidate_id="sha256:" + "51" * 32,
+                     runtime=runtime, member_skip_exes=(_NEW_QEMU,), layout=_guard_layout())
+    assert res.status == "published", res.reason
+    side = json.loads((Path(res.artifact_dir) / "cache.sc.scopt.json").read_text())
+    assert side["loader_requirement"] == want
+    from scopt.formats.artifact import sidecar_errors
+
+    # The schema enum has both '+sc6' values (the fake snapshot has no
+    # bundle or RuntimeIdentity id, which the schema also requires).
+    assert not [e for e in sidecar_errors(side) if e.startswith("loader_requirement")]
+    assert side["x_b3"]["member_slot_skip"] is member_slot_skip
+    row, = side["x_b3"]["firmware_region_links"]
+    assert row == {"region_id": region.region_id, "member_descriptors": member_slot_skip,
+                   "member_descriptor_refusal": None if member_slot_skip
+                   else "b3_registered_slot",
+                   "skipped_b3_slots": 4 if member_slot_skip else 0,
+                   "chainable_residual_slots": 0}
+
+
+def _patch_member_flags(path, flags_by_member, members):
+    """Rewrite member flags in a composed directory, refreshing the checksum
+    and the artifact identity (``members``: the linked member payloads)."""
+    from scopt.formats.sc_v7 import _HEADER, _MEMBER, _REGION, _artifact_id8
+
+    with path.open("r+b") as stream:
+        stream.seek(SC7_COMPOSED_DIR_OFFSET)
+        fields = list(_HEADER.unpack(stream.read(_HEADER.size)))
+        off, size = fields[7], fields[8]
+        stream.seek(SC_CODE_OFFSET + off)
+        table = bytearray(stream.read(size))
+        for i, flags in flags_by_member.items():
+            struct.pack_into("<I", table, _REGION.size * fields[3] + _MEMBER.size * i +
+                             _MEMBER.size - 4, flags)
+        stream.seek(SC_CODE_OFFSET + off)
+        stream.write(table)
+        fields[10] = _artifact_id8(bytes(table), [(m.descriptor, m.code, m.search)
+                                                  for m in members], fields[1])
+        fields[11] = 0
+        prefix = _HEADER.pack(*fields)
+        fields[11] = fnv1a64(bytes(table), fnv1a64(prefix[:64]))
+        stream.seek(SC7_COMPOSED_DIR_OFFSET)
+        stream.write(_HEADER.pack(*fields))
+
+
+@pytest.mark.parametrize(("member_descriptors", "flags", "needle"), [
+    (True, {0: 0}, "skip flags 0x0 != B3 slot mask 0x2"),      # a required bit cleared
+    (True, {1: 3}, "skip flags 0x3 != B3 slot mask 0x2"),      # an original slot skipped
+    (True, {0: 4}, "invalid region or flags"),                 # bits 2-31
+    (False, {0: 2}, "skip flags 0x2 != B3 slot mask 0x0"),     # flags on a legacy region
+])
+def test_composed_reader_rejects_skip_mutants(tmp_path, member_descriptors, flags, needle):
+    fx = _fixture(member_descriptors=member_descriptors)
+    path = _write(tmp_path, fx)
+    decoded = decode_directory(read_sc7(path))
+    assert [m["flags"] for m in decoded["members"]] == ([2, 2] if member_descriptors
+                                                         else [0, 0])
+    assert decoded["regions"][0]["flags"] == (7 if member_descriptors else 3)
+    _patch_member_flags(path, flags, fx.linked.members)
+    with pytest.raises(ScFormatError, match=needle):
+        read_sc7(path)
+    # The unmutated table with a refreshed identity still reads.
+    _patch_member_flags(path, {i: m["flags"] for i, m in enumerate(decoded["members"])},
+                        fx.linked.members)
+    read_sc7(path)
+
+
+def test_v7_writer_rejects_bad_member_skip_flags():
+    fx = _fixture()
+    source_tb = {fx.unit.uid: fx.unit.tb_offset}
+
+    def directory(region):
+        return build_directory(SimpleNamespace(
+            units=(fx.public,), firmware_regions=(region,),
+            firmware_table_offset=fx.link.firmware_table_offset,
+            firmware_table_size=directory_size((region,))), source_tb)
+
+    directory(fx.linked)
+    bad_bit = replace(fx.linked, members=tuple(replace(m, skip_slots=4)
+                                               for m in fx.linked.members))
+    with pytest.raises(ScFormatError, match="invalid member flags 0x4"):
+        directory(bad_bit)
+    legacy = _fixture(member_descriptors=False).linked
+    flagged = replace(legacy, members=tuple(replace(m, skip_slots=2) for m in legacy.members))
+    with pytest.raises(ScFormatError, match="invalid member flags 0x2"):
+        directory(flagged)

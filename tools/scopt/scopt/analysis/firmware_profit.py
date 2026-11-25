@@ -38,7 +38,12 @@ Costs added, per dynamic event:
   dispatcher iteration when the region's exits are not chainable
   (:func:`scopt.link.region_exits_chainable` false, or forced with
   ``residual_goto_tb='unchained'``), else nothing -- QEMU chains them like the
-  public exit.  A trusted exit into a trusted region entry (its own caller,
+  public exit.  In a composed sealed+B3 pipeline ``auto`` prices a trusted
+  region unchained when a member source is B3-grown, whatever the QEMU
+  member-skip capability: deliberately conservative, because the
+  internal-edge credit assumes lookups B3 already chains and residual
+  ``goto_ptr`` exits on B3-guarded tails lose the guard in the pre-B3 member
+  copies.  An explicit ``chained`` overrides it.  A trusted exit into a trusted region entry (its own caller,
   or another planned root) is never chained, so it always costs a dispatch;
 * residual ``goto_ptr``/``exit_null``/``exit_requested``: nothing (the same
   as public code; trusted members never take their poll exit);
@@ -208,14 +213,17 @@ class RegionEstimate:
 
 
 def resolve_residual_goto_tb(param: str, plan: Any,
-                             b3_edited: Iterable[str] = ()) -> str:
+                             b3_grown: Iterable[str] = ()) -> str:
     """``chained``/``unchained`` for the region's residual ``goto_tb`` exits.
 
-    ``auto`` follows the linker: safe regions keep their public slots
-    (chained); trusted regions chain exactly when
-    :func:`scopt.link.region_exits_chainable` holds for ``b3_edited``, the
-    units earlier B3 passes of the same pipeline grew, rewrote or cloned
-    (empty when firmware-inline runs alone).
+    ``auto``: safe regions keep their public slots (chained); trusted regions
+    chain exactly when :func:`scopt.link.region_exits_chainable` holds for
+    ``b3_grown``, the units whose exits earlier B3 passes of the same
+    pipeline guard (grown with registered slots; empty when firmware-inline
+    runs alone).  This is deliberately conservative and does not depend on
+    the QEMU member-skip capability: a region priced chained is always linked
+    with member descriptors, but a grown member source prices unchained even
+    when the linker can skip its B3 slots (see the module docstring).
     """
     if param in ("chained", "unchained"):
         return param
@@ -225,7 +233,7 @@ def resolve_residual_goto_tb(param: str, plan: Any,
         return "chained"
     from ..link import region_exits_chainable
 
-    return "chained" if region_exits_chainable(plan, b3_edited) else "unchained"
+    return "chained" if region_exits_chainable(plan, b3_grown) else "unchained"
 
 
 def resolve_entry_chain(param: str, plan: Any, unit_of: Callable[[str], Any]) -> str:
@@ -521,8 +529,9 @@ class ProfitModel:
     residual_goto_tb: str = "auto"
     entry_chain: str = "auto"
     phase: str = "steady"
-    #: Units B3 edited before firmware-inline (composed sealed+B3 pipelines).
-    b3_edited: frozenset[str] = frozenset()
+    #: Units whose exits B3 guards (grown before firmware-inline in composed
+    #: sealed+B3 pipelines).
+    b3_grown: frozenset[str] = frozenset()
 
     def estimate(self, plan: Any, snapshot: Any, *, exits_of=None,
                  trusted_entries: Iterable[str] = (),
@@ -530,7 +539,7 @@ class ProfitModel:
         return estimate_region(
             plan, snapshot.unit, self.index, self.costs,
             residual_goto_tb=resolve_residual_goto_tb(self.residual_goto_tb, plan,
-                                                      self.b3_edited),
+                                                      self.b3_grown),
             entry_chain=resolve_entry_chain(self.entry_chain, plan, snapshot.unit),
             tb_size=snapshot.header.tb_size, exits_of=exits_of,
             trusted_entries=trusted_entries, captured=captured)

@@ -95,27 +95,59 @@ v7: `reserved = 1<<31 | 1<<30 | sc6 feature bits`. The semantic extension keeps 
 offset `0x100`, and its arrays must end at or before `0xFF00` (`ext_table_too_large`
 otherwise). The unchanged firmware directory header sits at `0xFF00`. Bit 30 without bit
 31 is an unknown feature. The sidecar's `loader_requirement` is
-`qemu-sc-v7-trusted-firmware-regions+sc6` and carries both `x_ext_artifact_id8` and
-`x_firmware_artifact_id8`. Deploy and the post-run proof check both identities.
+`qemu-sc-v7-trusted-firmware-regions+sc6` (`...+sc6+member-skip` when a member carries
+skip flags, below) and carries both `x_ext_artifact_id8` and `x_firmware_artifact_id8`.
+Deploy recomputes the requirement from the file, and deploy and the post-run proof check
+both identities.
 
 Four pipelines add the six `b3` passes (with `b3.toml`'s parameters) between the
 host-inline prefix, if any, and `firmware-inline`, which stays last with its original
 parameters: `sealed-pgo-7-b3`, `sealed-whopr-7-b3`, `sealed-firmlooper-b3` and
 `sealed-firmlooper-v2-b3`. The original `sealed-*` pipelines are unchanged. Run them as for
 configuration 6 + B3 above (sealed steady profile, `--prep`, the three `--enable` flags) and
-add `--v7-trusted-exe`. trebuchet names the stages `pgo7-b3`, `whopr7-b3`, `firmlooper-b3`
+add `--v7-trusted-exe` (and `--v7-member-skip-exe` for a QEMU that honours member skip
+flags). trebuchet names the stages `pgo7-b3`, `whopr7-b3`, `firmlooper-b3`
 and `firmlooper-v2-b3`.
 
 Only trusted regions compose. A safe member reuses its public record's goto_tb offsets,
-which B3 growth moves while the member keeps the pre-B3 code, so the linker refuses safe
-regions together with B3 edits (`firmware_region_safe_composition`), and so does QEMU
-("sc6 composition requires a trusted directory"). Region members always copy the pre-B3
-bytes. A trusted region whose member source B3 grew, rewrote or cloned keeps the legacy
-shared descriptor (`member_descriptor_refusal: b3_edited_source`), so its residual exits
-stay unchainable. `firmware-inline` prices such regions as unchainable from the units the
-earlier B3 passes edited. With a host-inline prefix, `specialize-returns` does not clone a
-spliced unit (`refused:native_layout_unsupported`). Layout placement still cannot be
-combined with firmware regions (`firmware_region_terminal_stage`).
+to which B3 growth adds guard slots while the member keeps the pre-B3 code, so the linker
+refuses safe regions together with B3 edits (`firmware_region_safe_composition`), and so
+does QEMU ("sc6 composition requires a trusted directory"). Region members always copy
+the pre-B3 bytes, while QEMU arms a member descriptor's goto_tb slots from the source's
+output record. B3 growth only claims free slots, so the only difference is the guard
+slots B3 registered. Each member carries their mask (`added_goto_tb_slots`):
+
+- A trusted region whose masks are all zero gets member descriptors. That includes
+  rewrite-only and variant-source members, whose public record keeps its slots.
+- A non-zero mask becomes the member's skip flags (`SC7_MEMBER_SKIP_SLOT0`/`1`, QEMU
+  verifies and arms neither slot) only when the capability is on; otherwise the region
+  keeps the legacy shared descriptor (`member_descriptor_refusal: b3_registered_slot`),
+  so its residual exits stay unchainable. A misaligned or non-reset armed slot still
+  falls back as `residual_slot_shape`.
+- The capability is resolved once by `firmware-inline` (param `member_slot_skip`:
+  `auto`, the default, `on` or `off`) from the artifact's target RuntimeIdentity exe and
+  an explicit allowlist (`scopt optimize --v7-member-skip-exe SHA` or
+  `SCOPT_V7_MEMBER_SKIP_EXES`). There is no force switch, `on` with an exe that is not
+  allowlisted fails the pass (`member_slot_skip_unsupported_runtime`), and `package_b3`
+  re-checks it before linking. QEMU `a1bdec6` rejects any member flag, so do not list it;
+  `--v7-trusted-exe` is a separate list.
+- In a composed directory the flags of a member-descriptor region's member must equal
+  the sc6 slot set of its source (the OR of `1 << slot_n` over the sc6 slots with that
+  `src_tb_offset`); every other member has flags 0. `read_sc7` (run at publish readback)
+  and QEMU's loader both enforce this. Any flag raises the sidecar's `loader_requirement`
+  to `qemu-sc-v7-trusted-firmware-regions+sc6+member-skip`.
+- The sidecar records `x_b3.member_slot_skip` and, per region,
+  `x_b3.firmware_region_links` (`member_descriptors`, `member_descriptor_refusal`,
+  `skipped_b3_slots`, `chainable_residual_slots`). The firmware-inline receipt records
+  `policy.member_slot_skip` (`enabled`, `reason`: `allowlisted`, `not_allowlisted`,
+  `no_runtime_identity` or `param_off`, and the exe).
+
+`firmware-inline` still prices a trusted region whose member source B3 grew as
+unchainable, whatever the capability (see
+[firmware-inline-policies](firmware-inline-policies.md#profit-model)). With a host-inline
+prefix, `specialize-returns` does not clone a spliced unit
+(`refused:native_layout_unsupported`). Layout placement still cannot be combined with
+firmware regions (`firmware_region_terminal_stage`).
 
 Composed artifacts are published compile-only. `validate_b3` refuses to audit them
 (`composed_v7_audit_unsupported`). The importer reads both payloads, and the snapshot id

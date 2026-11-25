@@ -76,7 +76,7 @@ class FirmwareInline:
                        "entry_chain": str, "cost_poll_ns": float, "cost_lookup_ns": float,
                        "cost_guard_ns": float, "cost_dispatch_ns": float,
                        "cost_byte_ns": float, "cost_margin": float,
-                       "cost_min_net_per_call_ns": float},
+                       "cost_min_net_per_call_ns": float, "member_slot_skip": str},
     )
 
     def run(self, view: Any, ctx: Any, edits: Any) -> PassResult:
@@ -106,6 +106,27 @@ class FirmwareInline:
         elif (trust, interrupts, icount) != ("safe", "preserved", "preserved"):
             return PassResult(Outcome.FAILED, "invalid_params",
                               "safe mode requires preserved interrupts and icount")
+        # Composed sealed+B3 artifacts: may trusted member descriptors skip
+        # the goto_tb slots B3 registered (v7 member flags)?  Resolved once
+        # here from the target RuntimeIdentity exe and the explicit
+        # allowlist; optimize_b3 copies it into B3Plan.member_slot_skip and
+        # package_b3 re-checks it.  Pricing does not depend on it.
+        from ..validate import _ri_exe, member_slot_skip_decision
+
+        skip_param = ctx.params.get("member_slot_skip", "auto")
+        b3_env = getattr(ctx.b3, "env", None)
+        skip_runtime = (getattr(b3_env, "runtime", None) or
+                        getattr(ctx.b3.snapshot, "runtime", None))
+        try:
+            skip_ok, skip_why = member_slot_skip_decision(
+                skip_param, skip_runtime, getattr(b3_env, "member_skip_exes", ()))
+        except ValueError as e:
+            return PassResult(Outcome.FAILED, "invalid_params", str(e))
+        skip_exe = _ri_exe(skip_runtime)
+        if skip_param == "on" and not skip_ok:
+            return PassResult(Outcome.FAILED, "member_slot_skip_unsupported_runtime",
+                              f"member_slot_skip=on but RuntimeIdentity exe {skip_exe} is "
+                              f"{skip_why} (--v7-member-skip-exe / SCOPT_V7_MEMBER_SKIP_EXES)")
         if not trusted and (not ctx.b3.layout_bound or ctx.b3.offsets is None):
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "guard_layout_unbound",
                               ctx.b3.layout_reason or "")
@@ -142,12 +163,14 @@ class FirmwareInline:
                                   else "cost_model_exact_profile_required",
                                   "requires an exact reached phase of the ordinary input snapshot")
         # Composed sealed+B3 pipelines run firmware-inline after the B3
-        # passes; regions whose member sources B3 edited keep the legacy
-        # shared descriptor, so price and report them as unchainable.
+        # passes.  Regions with a member source whose exits B3 guards (grown,
+        # registered slots) are priced unchainable whatever the member-skip
+        # capability: the pre-B3 member copies drop B3's guards and the
+        # internal-edge credit assumes lookups B3 already chains.
         state = getattr(view, "b3", None)
-        b3_edited = state.edited_uids() if state is not None else frozenset()
+        b3_grown = state.grown_uids() if state is not None else frozenset()
         profit = (ProfitModel(ProfitIndex.build(profile, phase), costs, residual_mode,
-                              entry_mode, phase, b3_edited) if cost_enabled else None)
+                              entry_mode, phase, b3_grown) if cost_enabled else None)
         inputs = PolicyInput(ctx.b3.snapshot, image, (), ctx.params, profile, profit=profit)
         try:
             options = ctx.params.get("policy_options", {})
@@ -418,12 +441,12 @@ class FirmwareInline:
                                                             for edge in plan.edges),
                              "trusted": plan.trusted,
                              "trusted_entry_offset": plan.trusted_entry_offset,
-                             # Plan-level, given the units earlier B3
-                             # passes edited.  The linker may still keep the
-                             # shared descriptor (link firmware_regions
-                             # member_descriptor_refusal).
+                             # The PRICED value (region_exits_chainable
+                             # given the units earlier B3 passes grew).  The
+                             # linker decides member descriptors from the
+                             # skip masks (sidecar x_b3.firmware_region_links).
                              "residual_exits_chainable":
-                                 region_exits_chainable(plan, b3_edited),
+                                 region_exits_chainable(plan, b3_grown),
                              "expansion_depth": depth(plan),
                              "nested_inlined_calls": sum(
                                  edge.kind == "call" and edge.target_member is not None
@@ -470,6 +493,7 @@ class FirmwareInline:
                  "profit_refused": float(refused["not_profitable"]),
                  "nested_inlined_calls": float(sum(row["nested_inlined_calls"]
                                                    for row in embedded)),
+                 "member_slot_skip": 1.0 if skip_ok else 0.0,
                  **{f"refused:{k}": float(v) for k, v in sorted(refused.items())}}
         receipt = {"discovered": [call.to_json() for call in discovered.calls],
                    "embedded": embedded, "residual": residual,
@@ -496,6 +520,8 @@ class FirmwareInline:
                               "nested_decisions": getattr(selection.expansion, "report",
                                                           lambda: None)(),
                               "nested_fallbacks": nested_fallbacks,
+                              "member_slot_skip": {"enabled": skip_ok, "reason": skip_why,
+                                                   "param": skip_param, "exe": skip_exe},
                               "interrupts": interrupts, "icount": icount,
                               "planner": planner,
                               "max_hotness": None,

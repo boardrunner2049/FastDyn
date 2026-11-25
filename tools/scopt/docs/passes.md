@@ -325,12 +325,18 @@ translation context, and fall back to the original lookup path on mismatch.
   entered at `+0`, so its IRQ poll still runs. QEMU never chains a residual exit into a
   trusted region entry (which skips its poll) and never chains trusted sources under
   `QEMU_SC_SEALED_SKIP_IRQ`. `QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain` leaves the
-  slots unarmed on the same artifact bytes (the A/B arm). The linker keeps the legacy
-  shared descriptor (no chaining) for a region whose member source B3 grows, rewrites
-  or clones (`region_exits_chainable`, `b3_edited_uids`), or whose residual slot fails
-  the load check; the link receipt records `member_descriptors` and
-  `member_descriptor_refusal` per region, and V4 `residual_exit_slots` repeats QEMU's
-  check against the output records. An older QEMU refuses the new region flag. Static admitted transfers can jump directly to the private target.
+  slots unarmed on the same artifact bytes (the A/B arm). In a composed (B3) artifact a
+  member copies the pre-B3 bytes, so the goto_tb slots B3 registered on its source's
+  output record (`added_goto_tb_slots`) are absent from the copy. With the member-skip
+  capability (`member_slot_skip`, an allowlisted `--v7-member-skip-exe`) they become the
+  member's skip flags, which QEMU neither verifies nor arms; without it the region keeps
+  the legacy shared descriptor (`b3_registered_slot`, no chaining). Rewrite-only and
+  variant-source members keep their record's slots and get member descriptors either
+  way. A region whose armed residual slot fails the load check also keeps the shared
+  descriptor (`residual_slot_shape`). The link receipt records `member_descriptors`,
+  `member_descriptor_refusal`, `skipped_b3_slots` and `chainable_residual_slots` per
+  region, and V4 `residual_exit_slots` repeats QEMU's check against the output records.
+  An older QEMU refuses the new region flag and any member flag. Static admitted transfers can jump directly to the private target.
   A dynamic return enters its private continuation after checking the guest PC and
   translation context. A mismatch takes the original lookup. If scopt cannot bind
   the return guard to the runtime layout and captured tail, that exit stays public.

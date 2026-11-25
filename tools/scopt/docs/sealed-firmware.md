@@ -146,7 +146,10 @@ separate case: executing per-site private helper copies
    blocks; 1.028x [1.008, 1.050], 10 of 12, pooled with a second campaign).
    *Change:* trusted regions get one descriptor per member, and QEMU chains their
    residual `goto_tb` exits after first use (`no-trusted-exit-chain` restores the old
-   behaviour). Regions whose sources B3 edited keep the shared descriptor.
+   behaviour). In composed artifacts a member whose source B3 grew skips the slots B3
+   registered (member skip flags) when the target QEMU is allowlisted with
+   `--v7-member-skip-exe`; otherwise its region keeps the shared descriptor
+   (`b3_registered_slot`; [B3 passes](b3-passes.md#sealed-captures-configuration-6--b3)).
    `loop_returns_nonnull` and `trusted_residual_exits` now count these returns
    ([counters](qemu.md#v7-dispatcher-return-counters)).
 3. **No cost model.** `hot-loop` admitted every root above 1,000 training calls, such
@@ -202,9 +205,15 @@ table is above its A/A floor.
   and 1.075, within the A/A band. On the CLI 6,000-command input alone it is 1.088,
   beyond that input's band. That control still has the `exit_null` loop discovery, so
   it is not the archived configuration 7.
-- Composition against 6 + B3: 1.013, 1.023 and 1.020, within noise. Most composed
-  regions keep the shared descriptor because B3 edited their sources (47 of 48 on
-  packet), so their exits do not chain.
+- Composition against 6 + B3: 1.013, 1.023 and 1.020, within noise. Composition is
+  non-additive because regions and B3 remove the same lookups: 74% of B3's converted
+  lookups on UART and 87% on CLI lie on edges the composed regions make internal.
+  Unchained residual exits were not the cause: the same counter change was timed as a
+  null (time with `no-trusted-exit-chain` / time chained on the same bytes: 0.990 for
+  CLI `sealed-pgo-7`, 0.997 for UART `sealed-firmlooper-v2`, both within the A/A band).
+  The composed regions of these artifacts kept the shared descriptor. Member skip flags
+  now give them member descriptors on a QEMU that honours the flags; that has not been
+  timed.
 - `sealed-firmlooper-v2` selects no call on the packet and CLI `-O4` images: every
   in-loop call is an RTOS boundary or the task loop is not closed. On UART it is
   within noise of configuration 6.

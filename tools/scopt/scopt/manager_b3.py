@@ -102,7 +102,9 @@ class B3Env:
     ``layout``: EnvLayout of the snapshot's exe (default: the store's ``envlayout@1``).
     ``runtime``/``v6_exes``/``v7_exes``: the RuntimeIdentity the artifact targets
     (V7/V20).  V7 admission is separate because its loader contract is not a
-    compatible extension of v6.
+    compatible extension of v6.  ``member_skip_exes``: exe sha256 digests whose
+    loader honours composed v7 member skip flags
+    (:func:`scopt.validate.member_skip_capable_exes`).
     ``selftest``: the V18 hostsym self-test document. ``calibration``: optional §10.3
     costs overriding workspace calibration. Pipeline and caller pass parameters
     take precedence. ``certify``: run WP19's V14
@@ -114,6 +116,7 @@ class B3Env:
     v6_exes: tuple[str, ...] = ()
     v7_exes: tuple[str, ...] = ()
     trusted_v7_exes: tuple[str, ...] = ()
+    member_skip_exes: tuple[str, ...] = ()
     selftest: Mapping[str, Any] | None = None
     calibration: Mapping[str, float] | None = None
     certify: bool = True
@@ -309,13 +312,16 @@ class B3State:
         return not (self.exits or self.variants or self.rewrites or self.firmware_regions)
 
     def grown_uids(self) -> frozenset[str]:
+        """Units whose exits B3 guards (grown; the materialized plan registers
+        their guard slots).  firmware-inline prices trusted regions with such
+        a member source as unchainable."""
         return frozenset(u for u, _ in self.exits)
 
     def edited_uids(self) -> frozenset[str]:
         """Units whose public record B3 changes (grown, rewritten or cloned),
         as :func:`scopt.link.b3_edited_uids` sees the materialized plan.  A
         variant later downgraded to a GENERAL slot keeps its source here, so
-        this is a superset (conservative for firmware-region pricing)."""
+        this is a superset."""
         return (self.grown_uids() | frozenset(self.rewrites) |
                 frozenset(v.src_uid for v in self.variants.values()))
 
@@ -1015,6 +1021,12 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
     m.plan.order_private_by_predecessor = any(
         record.outcome == Outcome.CANDIDATE and record.params.get("order_private_by_predecessor")
         for record in cand.passes)
+    # The member-skip capability is resolved once, by firmware-inline (pass
+    # stat ``member_slot_skip``); package_b3 re-checks it against the exe.
+    firmware = [record for record in cand.passes
+                if record.name == "firmware-inline" and record.outcome == Outcome.CANDIDATE]
+    m.plan.member_slot_skip = bool(firmware) and all(
+        record.stats.get("member_slot_skip") == 1 for record in firmware)
     rows = b3.summaries()
     # Normal optimization is a compiler/linker operation.  HostSym inputs and
     # mutation self-tests are constructed by the explicit audit command, not
@@ -1036,6 +1048,7 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
                      pipeline=cand.pipeline_provenance(), profile_ids=cand.profile_rows(),
                      runtime=env.runtime, v6_exes=env.v6_exes, v7_exes=env.v7_exes,
                      trusted_v7_exes=env.trusted_v7_exes,
+                     member_skip_exes=env.member_skip_exes,
                      summaries=rows, hostsym=hs,
                      hot_set_bytes=hot, passes_byte_delta=m.pass_bytes,
                      compile_only=True,

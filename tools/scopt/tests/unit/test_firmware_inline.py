@@ -572,6 +572,32 @@ def _link_trusted(snapshot, region, unit, plan_fields=None, out_records=None):
     return linked, end
 
 
+def _b3_grown_unit(unit, *, insn=None):
+    """``unit`` as B3 growth leaves its public record: a guard stub appended
+    past the pre-B3 code whose reset goto_tb registers the free slot 1
+    (``e9`` + zero rel32 at ``insn``, 4-aligned, reset at ``insn + 4``).  A
+    member copies the pre-B3 bytes, which do not have that slot."""
+    from scopt.formats.sc_v5 import ScRecord
+
+    if insn is None:
+        insn = len(unit.code) + 1
+        insn += (-(unit.tc_offset + insn)) % 4
+    code = (unit.code + b"\x90" * (insn - 1 - len(unit.code)) + b"\xe9\0\0\0\0" +
+            b"\xc3")
+    rec = ScRecord.from_bytes(unit.record)
+    end = unit.tc_offset + len(code) + len(unit.search)
+    record = rec.replace(tc_size=len(code), end_offset=end,
+                         jmp_insn_offset=(rec.jmp_insn_offset[0], insn),
+                         jmp_reset_offset=(rec.jmp_reset_offset[0], insn + 4))
+    return replace(unit, code=code, tc_size=len(code), end_offset=end,
+                   record=record.to_bytes(fix_checksum=True))
+
+
+def _b3_registered_record(unit):
+    """The output record of :func:`_b3_grown_unit`."""
+    return _b3_grown_unit(unit).record
+
+
 def test_trusted_region_links_one_descriptor_per_member():
     from scopt.link import region_exits_chainable, residual_goto_tb_slots
 
@@ -586,6 +612,8 @@ def test_trusted_region_links_one_descriptor_per_member():
     tb_size = snapshot.header.tb_size
     ca = snapshot.header.code_address
     assert linked.member_descriptors and linked.member_descriptor_refusal is None
+    assert [m.skip_slots for m in linked.members] == [0, 0]
+    assert (linked.chainable_residual_slots, linked.skipped_b3_slots) == (2, 0)
     first, second = linked.members
     assert (first.tb_offset, second.tb_offset) == (0x4000, 0x4000 + tb_size)
     assert first.tc_offset == round_up(0x4000 + 2 * tb_size, 16)
@@ -599,7 +627,7 @@ def test_trusted_region_links_one_descriptor_per_member():
                                       code_address=ca) == (1, [])
 
 
-@pytest.mark.parametrize("case", ["b3_edited", "misaligned", "output_record"])
+@pytest.mark.parametrize("case", ["b3_registered_slot", "misaligned", "output_record"])
 def test_trusted_region_falls_back_to_shared_descriptor(case):
     from scopt.formats.sc_v5 import ScRecord
     from scopt.link import b3_edited_uids
@@ -609,8 +637,11 @@ def test_trusted_region_falls_back_to_shared_descriptor(case):
     unit = _trusted_member_unit(snapshot, call, slot=21 if case == "misaligned" else 20)
     region = _trusted_two_member_region(snapshot, call, unit)
     plan_fields, out_records = None, None
-    if case == "b3_edited":
-        plan_fields = {"rewrites": {unit.uid: ()}}
+    if case == "b3_registered_slot":
+        # B3 grew the source and registered its free slot 1 at a stub past
+        # the pre-B3 code; without member skip flags QEMU would arm it.
+        plan_fields = {"grow": {unit.uid: ()}, "member_slot_skip": False}
+        out_records = {unit.uid: _b3_registered_record(unit)}
     elif case == "output_record":
         # QEMU arms slots from the OUTPUT record: one naming a non-goto_tb
         # field cannot get member descriptors.
@@ -620,7 +651,11 @@ def test_trusted_region_falls_back_to_shared_descriptor(case):
     linked, _ = _link_trusted(snapshot, region, unit, plan_fields, out_records)
     assert not linked.member_descriptors
     assert linked.member_descriptor_refusal.startswith(
-        "b3_edited_source" if case == "b3_edited" else "residual_slot_shape")
+        "b3_registered_slot" if case == "b3_registered_slot" else "residual_slot_shape")
+    if case == "b3_registered_slot":
+        assert linked.member_descriptor_refusal == "b3_registered_slot"
+    assert all(m.skip_slots == 0 for m in linked.members)
+    assert (linked.skipped_b3_slots, linked.chainable_residual_slots) == (0, 0)
     assert {m.tb_offset for m in linked.members} == {0x4000}
     first, second = linked.members
     assert second.tc_offset == first.tc_offset + first.tc_size        # legacy: contiguous
@@ -669,7 +704,8 @@ def test_v7_trusted_member_descriptors_layout(tmp_path):
         assert stream.read(snapshot.header.tb_size) == b"\0" * snapshot.header.tb_size
     # The legacy alias layout of the same region still reads (flags 3).
     legacy, _ = _link_trusted(snapshot, _trusted_two_member_region(snapshot, call, unit), unit,
-                              {"rewrites": {unit.uid: ()}})
+                              {"grow": {unit.uid: ()}}, {unit.uid: _b3_registered_record(unit)})
+    assert legacy.member_descriptor_refusal == "b3_registered_slot"
     legacy_path, _ = _write_trusted_md(tmp_path, snapshot, call, unit, legacy, "legacy.sc")
     assert decode_directory(read_sc7(legacy_path))["regions"][0]["flags"] == 3
 
@@ -804,8 +840,9 @@ def test_validate_v4_checks_residual_exit_slots_on_output_records(tmp_path):
         return found, contract
 
     found, contract = row(link)
-    assert found["result"] == "pass" and found["detail"].startswith(
-        "2 chainable residual goto_tb slots in 1 member-descriptor regions")
+    assert found["result"] == "pass" and found["detail"] == (
+        "2 chainable residual goto_tb slots in 1 member-descriptor regions "
+        "(0 B3 slots skipped)")
     assert contract["result"] == "pass"
     second = linked.members[1]
     code = bytearray(second.code)
@@ -814,6 +851,134 @@ def test_validate_v4_checks_residual_exit_slots_on_output_records(tmp_path):
     found, contract = row(SimpleNamespace(**{**vars(link), "firmware_regions": (broken,)}))
     assert found["result"] == "fail" and "region 0 member 1" in found["detail"]
     assert contract["result"] == "fail"
+    # Skip flags must equal the slots the output record gained over the
+    # snapshot source (none in a firmware-only artifact).
+    flagged = replace(linked, members=(linked.members[0], replace(second, skip_slots=1)))
+    found, contract = row(SimpleNamespace(**{**vars(link), "firmware_regions": (flagged,)}))
+    assert found["result"] == "fail" and "skip flags 0x1 != added slots 0x0" in found["detail"]
+    assert contract["result"] == "fail"
+
+
+# -- composed regions: member skip flags for B3-registered slots ------------
+
+def test_trusted_region_rewrite_or_variant_source_keeps_member_descriptors():
+    """B3 rewrites and variant clones keep the source's public record, so the
+    pre-B3 member copy matches every slot QEMU arms: member descriptors even
+    without the member-skip capability (frozen-binary compatible)."""
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    region = _trusted_two_member_region(snapshot, call, unit)
+    for fields in ({"rewrites": {unit.uid: ()}},
+                   {"variants": (SimpleNamespace(src_uid=unit.uid, pred_uid="p"),)}):
+        linked, _ = _link_trusted(snapshot, region, unit, {**fields, "member_slot_skip": False})
+        assert linked.member_descriptors and linked.member_descriptor_refusal is None
+        assert [m.skip_slots for m in linked.members] == [0, 0]
+        assert (linked.skipped_b3_slots, linked.chainable_residual_slots) == (0, 2)
+
+
+def test_trusted_region_skips_b3_registered_slots():
+    from scopt.formats.sc_v5 import ScRecord
+    from scopt.link import added_goto_tb_slots, residual_goto_tb_slots
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    region = _trusted_two_member_region(snapshot, call, unit)
+    out = _b3_registered_record(unit)
+    assert added_goto_tb_slots(unit.record, out) == 2                  # slot 1 added
+    assert added_goto_tb_slots(out, out) == 0                          # nothing added
+    assert added_goto_tb_slots(out, unit.record) == 0                  # slot removed
+    assert added_goto_tb_slots(ScRecord.from_bytes(unit.record), ScRecord.from_bytes(out)) == 2
+    linked, _ = _link_trusted(snapshot, region, unit,
+                              {"grow": {unit.uid: ()}, "member_slot_skip": True},
+                              {unit.uid: out})
+    assert linked.member_descriptors and linked.member_descriptor_refusal is None
+    assert [m.skip_slots for m in linked.members] == [2, 2]
+    # One skip bit per member descriptor (QEMU counts per descriptor built).
+    assert linked.skipped_b3_slots == 2
+    ca = snapshot.header.code_address
+    residual = 0
+    for member in linked.members:
+        # Slot 1 names bytes the pre-B3 copy does not have: armed, it is a problem.
+        assert residual_goto_tb_slots(out, member.code, member.tc_offset, code_address=ca)[1]
+        count, problems = residual_goto_tb_slots(out, member.code, member.tc_offset,
+                                                 code_address=ca, skip_slots=member.skip_slots)
+        assert (count, problems) == (1, [])
+        residual += count
+    assert linked.chainable_residual_slots == residual == 2
+    from scopt.link import LinkResultV2
+
+    row, = LinkResultV2(True, snapshot.header, (), (), firmware_regions=(linked,)
+                        ).to_json()["firmware_regions"]
+    assert (row["skipped_b3_slots"], row["chainable_residual_slots"]) == (2, 2)
+    assert row["member_descriptor_refusal"] is None
+
+
+def test_internal_coincident_b3_slot_is_flagged(monkeypatch):
+    """The region's own return guard and B3's guard are both appended at the
+    pre-B3 code length, so a B3-registered slot can name the rel32 field of
+    an internal edge.  The skip bit is still set and counted: QEMU tests it
+    before the internal check."""
+    from scopt.formats.sc_v5 import ScRecord
+    from scopt.link import NativeLinkerV2, residual_goto_tb_slots
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    grown = _b3_grown_unit(unit)
+    field = ScRecord.from_bytes(grown.record).jmp_insn_offset[1]
+    # Member 0's region return guard (unregistered): the same appended stub,
+    # its rel32 patched to member 1; the record keeps the pre-B3 slots.
+    rec = ScRecord.from_bytes(unit.record).replace(tc_size=grown.tc_size,
+                                                   end_offset=grown.end_offset)
+    guarded = replace(unit, code=grown.code, tc_size=grown.tc_size,
+                      end_offset=grown.end_offset, record=rec.to_bytes(fix_checksum=True))
+    monkeypatch.setattr(NativeLinkerV2, "_firmware_member_units",
+                        lambda self, region, by_uid: ([guarded, unit], {(0, "ret"): field}))
+    edge = SimpleNamespace(source_member=0, target_member=1, exit_id="ret", kind="return",
+                           guest_target=0x1100)
+    region = SimpleNamespace(**{**vars(_trusted_two_member_region(snapshot, call, unit)),
+                                "edges": (edge,)})
+    linked, _ = _link_trusted(snapshot, region, unit,
+                              {"grow": {unit.uid: ()}, "member_slot_skip": True},
+                              {unit.uid: grown.record})
+    first, second = linked.members
+    assert linked.member_descriptors and linked.member_descriptor_refusal is None
+    assert first.patched_edges == (("ret", field, 1),)
+    assert [m.skip_slots for m in linked.members] == [2, 2]
+    assert linked.skipped_b3_slots == 2 and linked.chainable_residual_slots == 2
+    ca = snapshot.header.code_address
+    assert residual_goto_tb_slots(grown.record, first.code, first.tc_offset, code_address=ca,
+                                  internal_fields=(field,), skip_slots=2) == (1, [])
+    # Without the capability the same region keeps the shared descriptor.
+    legacy, _ = _link_trusted(snapshot, region, unit, {"grow": {unit.uid: ()}},
+                              {unit.uid: grown.record})
+    assert legacy.member_descriptor_refusal == "b3_registered_slot"
+
+
+@pytest.mark.parametrize("skip", [True, False])
+@pytest.mark.parametrize("kind", ["grown", "rewrite", "untouched"])
+def test_priced_chainable_implies_member_descriptors(kind, skip):
+    from scopt.link import region_exits_chainable
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    region = _trusted_two_member_region(snapshot, call, unit)
+    fields, out_records, grown = {"member_slot_skip": skip}, None, frozenset()
+    if kind == "grown":
+        fields["grow"] = {unit.uid: ()}
+        out_records = {unit.uid: _b3_registered_record(unit)}
+        grown = frozenset({unit.uid})
+    elif kind == "rewrite":
+        fields["rewrites"] = {unit.uid: ()}
+    linked, _ = _link_trusted(snapshot, region, unit, fields, out_records)
+    if region_exits_chainable(region, grown):
+        assert linked.member_descriptors
+    # Pricing ignores the capability; the linker uses it.
+    assert region_exits_chainable(region, grown) == (kind != "grown")
+    assert linked.member_descriptors == (skip or kind != "grown")
 
 
 def _continuation_exit_snapshot():

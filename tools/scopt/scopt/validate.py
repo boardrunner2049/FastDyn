@@ -1764,6 +1764,50 @@ def trusted_v7_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
     return frozenset(out)
 
 
+def member_skip_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
+    """Explicit executable identities whose loader honours v7 member skip flags.
+
+    ``SC7_MEMBER_SKIP_SLOT`` (composed trusted directories, QEMU stats counters
+    revision 4) is a separate capability from :func:`trusted_v7_capable_exes`:
+    that list names binaries (such as ``a1bdec6``) that reject any member
+    flag.  Callers pass ``--v7-member-skip-exe`` digests or set
+    ``SCOPT_V7_MEMBER_SKIP_EXES`` (comma separated sha256, ``sha256:``
+    prefix optional).  No executable is admitted implicitly.
+    """
+    out = {x.removeprefix("sha256:") for x in extra if x}
+    out |= {x.strip().removeprefix("sha256:") for x in
+            os.environ.get("SCOPT_V7_MEMBER_SKIP_EXES", "").split(",") if x.strip()}
+    return frozenset(out)
+
+
+#: ``firmware-inline`` ``member_slot_skip`` values.
+MEMBER_SLOT_SKIP_MODES = ("auto", "on", "off")
+
+
+def member_slot_skip_decision(param: Any, runtime: Mapping[str, Any] | None,
+                              extra_exes: Iterable[str] = ()) -> tuple[bool, str]:
+    """Whether a composed artifact may carry member skip flags, and why.
+
+    ``param`` is the firmware-inline ``member_slot_skip`` value (``auto``,
+    ``on`` or ``off``; anything else raises ValueError).  ``runtime`` is the
+    RuntimeIdentity the artifact targets.  Returns ``(False, 'param_off')``,
+    ``(False, 'no_runtime_identity')``, ``(True, 'allowlisted')`` or
+    ``(False, 'not_allowlisted')``.  The caller treats ``on`` with a False
+    result as an error; there is no force override.
+    """
+    if param not in MEMBER_SLOT_SKIP_MODES:
+        raise ValueError(f"member_slot_skip must be one of {MEMBER_SLOT_SKIP_MODES}, "
+                         f"not {param!r}")
+    if param == "off":
+        return False, "param_off"
+    exe = _ri_exe(runtime)
+    if exe is None:
+        return False, "no_runtime_identity"
+    if exe in member_skip_capable_exes(extra_exes):
+        return True, "allowlisted"
+    return False, "not_allowlisted"
+
+
 def _ri_exe(ri: Mapping[str, Any] | None) -> str | None:
     if not ri:
         return None
@@ -1975,12 +2019,16 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
           if not bad_descriptors else _few(bad_descriptors))
     # QEMU arms each residual goto_tb slot of a member descriptor from the
     # member source's OUTPUT record and dies at load unless the copied slot is
-    # a reset, 4-byte aligned goto_tb.  Mirror that check here.
-    from .link import residual_goto_tb_slots
+    # a reset, 4-byte aligned goto_tb.  Mirror that check here.  Skip flags
+    # must name exactly the slots the output record gained over the source
+    # the member copied (always 0 here: this path validates firmware-only v7).
+    from .link import added_goto_tb_slots, residual_goto_tb_slots
 
     out_records = {u.uid: u.record for u in link.units}
+    snapshot_units = {u.uid: u for u in snapshot.units()}
     bad_slots: list[str] = []
     chainable_slots = 0
+    skipped_slots = 0
     md_regions = 0
     for ri, region in enumerate(link.firmware_regions):
         if not getattr(region, "member_descriptors", False):
@@ -1991,16 +2039,24 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
             if record is None:
                 bad_slots.append(f"region {ri} member {mi}: no output record")
                 continue
+            skip = getattr(member, "skip_slots", 0)
+            source = snapshot_units.get(member.source_uid)
+            want = 0 if source is None else added_goto_tb_slots(source.record, record)
+            if skip != want:
+                bad_slots.append(f"region {ri} member {mi} ({member.source_uid}): skip flags "
+                                 f"{skip:#x} != added slots {want:#x}")
+            skipped_slots += bin(skip).count("1")
             count, problems = residual_goto_tb_slots(
                 record, member.code, member.tc_offset,
                 internal_fields=(field for _, field, _ in member.patched_edges),
-                code_address=snapshot.header.code_address)
+                code_address=snapshot.header.code_address, skip_slots=skip)
             chainable_slots += count
             bad_slots += [f"region {ri} member {mi} ({member.source_uid}): {p}"
                           for p in problems]
     v.add("V4", "residual_exit_slots", not bad_slots,
           (f"{chainable_slots} chainable residual goto_tb slots in {md_regions} "
-           f"member-descriptor regions" if trusted else "no trusted regions")
+           f"member-descriptor regions ({skipped_slots} B3 slots skipped)"
+           if trusted else "no trusted regions")
           if not bad_slots else _few(bad_slots))
     by_uid = {u.uid: u for u in snapshot.units()}
     bad_origin = [m.source_uid for m in linked_members
@@ -3111,7 +3167,7 @@ def relocate_unit_body(u: Any, new_tb: int) -> bytes:
     return relocate_unit(u, new_tb).body
 
 
-__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "v7_capable_exes", "trusted_v7_capable_exes", "stub_rows", "relocate_unit_body",
+__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "v7_capable_exes", "trusted_v7_capable_exes", "member_skip_capable_exes", "member_slot_skip_decision", "MEMBER_SLOT_SKIP_MODES", "stub_rows", "relocate_unit_body",
             "multi_tb_rows"]
 
 
@@ -3331,6 +3387,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
                profile_ids: Sequence[Mapping[str, Any]] = (), layout: Any = None,
                v6_exes: Iterable[str] = (), v7_exes: Iterable[str] = (),
                trusted_v7_exes: Iterable[str] = (),
+               member_skip_exes: Iterable[str] = (),
                runtime: Mapping[str, Any] | None = None,
                scparse: Any = None, sc6parse: Any = None, allow_uncertified: bool = False,
                ledger_rows: Iterable[LedgerRow] = (),
@@ -3359,10 +3416,16 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     A table the loader would refuse is rejected with its ``ext_problem`` code.
 
     ``ledger_rows`` (WP21) start the artifact ledger (the PassManager's pass rows);
-    ``sidecar_extra`` adds ``x_`` keys to the sidecar (the manager's B3 report)."""
+    ``sidecar_extra`` adds ``x_`` keys to the sidecar (the manager's B3 report).
+
+    A plan with ``member_slot_skip`` (composed member skip flags) is rejected
+    with ``failed:member_slot_skip_unsupported_runtime`` before linking unless
+    the target RuntimeIdentity exe is in :func:`member_skip_capable_exes`
+    (``member_skip_exes``)."""
     from .formats.envlayout_v1 import find_envlayout
     from .formats.sc_v6 import ScExtRefused
-    from .formats.sc_v7 import LOADER_V7, LOADER_V7_TRUSTED, LOADER_V7_TRUSTED_SC6
+    from .formats.sc_v7 import (LOADER_V7, LOADER_V7_TRUSTED, LOADER_V7_TRUSTED_SC6,
+                                LOADER_V7_TRUSTED_SC6_MEMBER_SKIP)
     from .link import NativeLinkerV2
 
     if not compile_only and vkw.get("skip_reimport"):
@@ -3383,6 +3446,12 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
         if plan.grow or safe_firmware:
             return _reject_b3(store, candidate_id, f"{e.reason}", led, None, None)
         off = GuardOffsets()
+    if getattr(plan, "member_slot_skip", False):
+        exe = _ri_exe(ri)
+        if exe is None or exe not in member_skip_capable_exes(member_skip_exes):
+            return _reject_b3(store, candidate_id, "failed:member_slot_skip_unsupported_runtime",
+                              led, None, None, f"RuntimeIdentity exe {exe} is not allowlisted "
+                              "for v7 member skip flags")
     link = NativeLinkerV2(snapshot, plan, offsets=off, placement=placement,
                           derive_captures=not compile_only).link()
     if not link.ok:
@@ -3420,14 +3489,24 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             "pinned": [{"unit": u, "reasons": list(reasons)} for u, reasons in placement.pinned()]
             if placement is not None else [],
             "validation_sha256": "sha256:" + "0" * 64, "tool_versions": A.tool_versions(),
-            "loader_requirement": (((LOADER_V7_TRUSTED_SC6 if link.ext is not None else
-                                     LOADER_V7_TRUSTED)
-                                    if link.firmware_regions[0].trusted else LOADER_V7)
-                                   if link.firmware_regions else A.LOADER_V7),
+            "loader_requirement": ((((LOADER_V7_TRUSTED_SC6_MEMBER_SKIP if any(
+                                         m.skip_slots for r in link.firmware_regions
+                                         for m in r.members) else LOADER_V7_TRUSTED_SC6)
+                                      if link.ext is not None else LOADER_V7_TRUSTED)
+                                     if link.firmware_regions[0].trusted else LOADER_V7)
+                                    if link.firmware_regions else A.LOADER_V7),
             "x_candidate_id": candidate_id,
             "x_b3": {"grown": sorted(link.grown), "rewritten": sorted(link.rewritten),
                      "variants": [x.key for x in link.variants],
-                     "firmware_regions": [r.region_id for r in link.firmware_regions]},
+                     "firmware_regions": [r.region_id for r in link.firmware_regions],
+                     "member_slot_skip": bool(getattr(plan, "member_slot_skip", False)),
+                     "firmware_region_links": [
+                         {"region_id": r.region_id,
+                          "member_descriptors": r.member_descriptors,
+                          "member_descriptor_refusal": r.member_descriptor_refusal,
+                          "skipped_b3_slots": r.skipped_b3_slots,
+                          "chainable_residual_slots": r.chainable_residual_slots}
+                         for r in link.firmware_regions]},
         }
         if link.ext is not None:
             sidecar["x_ext_artifact_id8"] = bytes(link.ext.artifact_id8).hex()

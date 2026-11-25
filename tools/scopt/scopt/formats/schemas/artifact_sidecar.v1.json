@@ -202,7 +202,9 @@
         "qemu-sc-v7",
         "qemu-sc-v7-firmware-regions",
         "qemu-sc-v7-composite-firmware-regions",
-        "qemu-sc-v7-trusted-firmware-regions"
+        "qemu-sc-v7-trusted-firmware-regions",
+        "qemu-sc-v7-trusted-firmware-regions+sc6",
+        "qemu-sc-v7-trusted-firmware-regions+sc6+member-skip"
       ]
     }
   },

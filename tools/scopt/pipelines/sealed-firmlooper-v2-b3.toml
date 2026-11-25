@@ -3,9 +3,13 @@
 # Order: B3 passes on the public TBs, then firmware-inline last with the
 # unchanged sealed-firmlooper-v2 params.  The linker writes the composed canonical v7
 # (sc6 extension at 0x100, trusted firmware directory at 0xFF00; loader
-# requirement qemu-sc-v7-trusted-firmware-regions+sc6).  Firmware regions whose
-# member sources B3 grew, rewrote or cloned keep the legacy shared descriptor
-# (unchainable residual exits); members always copy the pre-B3 bytes.
+# requirement qemu-sc-v7-trusted-firmware-regions+sc6, or ...+sc6+member-skip
+# when members carry skip flags).  Members always copy the pre-B3 bytes.  A
+# member whose source B3 grew skips the goto_tb slots B3 registered (member
+# flags) when the target exe is allowlisted with --v7-member-skip-exe; otherwise
+# its region keeps the legacy shared descriptor ('b3_registered_slot',
+# unchainable residual exits).  firmware-inline prices such regions as
+# unchainable either way.
 #
 # specialize-returns, chain-returns and chain-static are disabled by default
 # and need a steady profile of the sealed capture (match >= 0.95):

@@ -306,6 +306,10 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
                    "semantic-extension capability).")
 @click.option("--v7-trusted-exe", "trusted_v7_exes", multiple=True,
               help="--b3: trusted firmware-region-v7 exe sha256 (distinct unsafe ABI).")
+@click.option("--v7-member-skip-exe", "member_skip_exes", multiple=True,
+              help="--b3: exe sha256 whose loader honours composed v7 member skip flags "
+                   "(repeatable; also SCOPT_V7_MEMBER_SKIP_EXES).  firmware-inline's "
+                   "member_slot_skip=auto enables them only for an allowlisted target exe.")
 @click.option("--selftest", "selftest_file", type=click.Path(dir_okay=False),
               help="Deprecated optimize option; proof self-tests belong to explicit scopt audit.")
 @click.option("--prep", type=click.Path(exists=True, file_okay=False),
@@ -323,8 +327,8 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @selection_timing_options
 @click.option("--json", "as_json", is_flag=True)
 def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, params_file, b3_mode,
-                 ri_file, v6_exes, v7_exes, trusted_v7_exes, selftest_file, prep, elf, as_json,
-                 select_with=None, selection_out=None,
+                 ri_file, v6_exes, v7_exes, trusted_v7_exes, member_skip_exes, selftest_file, prep,
+                 elf, as_json, select_with=None, selection_out=None,
                  qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=(),
                  helper_pgo_launch=None, trust_input=False, pgo_phase="auto"):
     """Run PIPELINE on SNAPSHOT, link, check loadability, and publish the artifact.
@@ -461,7 +465,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                      v6_exes, v7_exes, trusted_v7_exes,
                      selftest_file, prep, elf, as_json, native_stage=native_stage,
                      selection=(original_snapshot, select_with, selection_out, timing), enable=enable,
-                     training_phase=training_phase)
+                     training_phase=training_phase, member_skip_exes=member_skip_exes)
         return
     try:
         res = optimize(snap, pl, store, profiles=views, params=params,
@@ -505,7 +509,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
 def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
                  v6_exes, v7_exes, trusted_v7_exes,
                  selftest_file, prep, elf, as_json, native_stage=None, selection=None, enable=(),
-                 training_phase=None):
+                 training_phase=None, member_skip_exes=()):
     from ..analysis.b3_inputs import resolve_for_snapshot
     from ..manager import PipelineError
     from ..manager_b3 import B3Env, optimize_b3
@@ -517,6 +521,7 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
     ri = json.loads(Path(ri_file).read_text()) if ri_file else None
     env = B3Env(runtime=ri, v6_exes=tuple(v6_exes), v7_exes=tuple(v7_exes),
                 trusted_v7_exes=tuple(trusted_v7_exes),
+                member_skip_exes=tuple(member_skip_exes),
                 selftest=None)
     try:
         r = optimize_b3(snap, pl, store, env=env, profiles=views, params=params,

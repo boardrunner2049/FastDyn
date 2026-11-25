@@ -214,6 +214,21 @@ every sc6 variant. A composed directory that is not trusted dies with "sc6
 composition requires a trusted directory". Bit 30 without bit 31 dies as an
 unknown feature. The v7 stats report `"sc6_composed"`.
 
+Region members copy the pre-B3 bytes of their source, but a member descriptor
+is armed from the source's output record, to which B3 growth may have added
+guard slots. The member entry's `flags` therefore carry skip bits
+(`SC7_MEMBER_SKIP_SLOT(n) = 1 << n` for n = 0, 1; bits 2-31 are invalid): the
+loader neither verifies nor arms a flagged slot (an unarmed slot already drops
+`last_tb`), and counts it in `trusted_residual_slots_skipped` (counters
+revision 4). In a composed trusted directory the flags of a member of a
+`SC7_REGION_MEMBER_DESCRIPTORS` region must equal the OR of `1 << slot_n` over
+the sc6 slots whose `src_tb_offset` is that member's source; every other member
+must have flags 0. A mismatch dies with "member N skip flags ... != B3 slot
+mask ...". scopt emits flags only for an allowlisted target exe
+(`--v7-member-skip-exe`) and then requires
+`qemu-sc-v7-trusted-firmware-regions+sc6+member-skip`. QEMU before counters
+revision 4 rejects any member flag ("invalid source, region, or flags").
+
 `QEMU_SC_V7_EXPERIMENT=no-sealed-sc6` restores the old sealed behaviour on the
 same bytes, for A/B attribution only, since it reopens the TLB hole. With
 `QEMU_SC_V6_STATS`, check `"sealed": true`, `"sealed_activation"` (false in

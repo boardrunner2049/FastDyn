@@ -9,8 +9,21 @@ The composed subtype (``reserved = 1<<31 | 1<<30 | sc6 feature bits``) carries
 both a B3 semantic extension and trusted firmware regions: the semantic payload
 stays at 0x100 (its arrays end at or before 0xFF00) and the unchanged directory
 header sits at :data:`SC7_COMPOSED_DIR_OFFSET`.  Only trusted directories may
-compose: safe members reuse their public record's goto_tb offsets, which B3
-growth moves.
+compose: safe members reuse their public record's goto_tb offsets, to which
+B3 growth adds guard slots.
+
+Member flags.  A trusted member copies the pre-B3 bytes of its source while
+QEMU arms the member descriptor's goto_tb slots from the source's output
+record.  In a composed directory, every member of a
+:data:`SC7_REGION_MEMBER_DESCRIPTORS` region therefore carries the skip bits
+(:data:`SC7_MEMBER_SKIP_SLOT0`/``1``) of exactly the record slots B3
+registered: the OR of ``1 << slot_n`` over the sc6 slot rows whose
+``src_tb_offset`` is the member's source.  Every other member, and every
+member of a non-composed directory, has flags 0.  :func:`read_sc7` and QEMU's
+loader both enforce this equality, so a wrong mask fails at publish readback
+or load instead of silently losing chaining.  Any set flag raises the loader
+requirement to :data:`LOADER_V7_TRUSTED_SC6_MEMBER_SKIP`; an older QEMU rejects
+every member flag ("invalid source, region, or flags").
 """
 
 from __future__ import annotations
@@ -29,6 +42,7 @@ from .sc_v5 import ScFormatError, ScHeader, ScRecord, read_sc, write_sc
 __all__ = ["SC7_VERSION", "SC7_MAGIC", "SC7_DIRECTORY_VERSION",
            "SC7_TRUSTED_DIRECTORY_VERSION", "SC7_REGION_COMPOSITE",
            "SC7_REGION_TRUSTED", "SC7_REGION_MEMBER_DESCRIPTORS",
+           "SC7_MEMBER_SKIP_SLOT0", "SC7_MEMBER_SKIP_SLOT1", "SC7_MEMBER_SKIP_SLOTS",
            "SC7_EDGE_TRUSTED_SKIP_POLL",
            "SC7_TRUSTED_ENTRY_OFFSET", "Sc7Directory",
            "directory_size", "loader_requirement",
@@ -36,6 +50,7 @@ __all__ = ["SC7_VERSION", "SC7_MAGIC", "SC7_DIRECTORY_VERSION",
            "write_sc7_semantic", "read_sc7", "decode_directory",
            "sc7_snapshot_id", "canonical_snapshot_id", "LOADER_V7_CANONICAL",
            "LOADER_V7", "LOADER_V7_TRUSTED", "LOADER_V7_TRUSTED_SC6",
+           "LOADER_V7_TRUSTED_SC6_MEMBER_SKIP",
            "SC7_FEATURE_SC6_REGIONS", "SC7_COMPOSED_DIR_OFFSET", "write_sc7_composed",
            "is_composed_features"]
 
@@ -59,6 +74,15 @@ SC7_REGION_TRUSTED = 2
 #: trusted region uses the legacy layout: every member aliases one descriptor.
 #: An older QEMU rejects the flag ("invalid slices").
 SC7_REGION_MEMBER_DESCRIPTORS = 4
+#: Member flags (QEMU ``SC7_MEMBER_SKIP_SLOT(n)``): the source record's
+#: ``goto_tb`` slot ``n`` is a guard slot B3 registered after the member copied
+#: the pre-B3 bytes, so QEMU neither verifies nor arms it for this member.
+#: Bits 2-31 are invalid.  Only members of member-descriptor regions in a
+#: composed directory may set them, and then exactly the member source's sc6
+#: slot set (see the module docstring).
+SC7_MEMBER_SKIP_SLOT0 = 1
+SC7_MEMBER_SKIP_SLOT1 = 2
+SC7_MEMBER_SKIP_SLOTS = SC7_MEMBER_SKIP_SLOT0 | SC7_MEMBER_SKIP_SLOT1
 SC7_MEMBER_CODE_ALIGN = 16
 _NOP = b"\x90"
 SC7_EDGE_TRUSTED_SKIP_POLL = 1
@@ -66,6 +90,9 @@ SC7_TRUSTED_ENTRY_OFFSET = 15
 LOADER_V7 = "qemu-sc-v7-composite-firmware-regions"
 LOADER_V7_TRUSTED = "qemu-sc-v7-trusted-firmware-regions"
 LOADER_V7_TRUSTED_SC6 = "qemu-sc-v7-trusted-firmware-regions+sc6"
+#: A composed directory with member skip flags: needs a QEMU that honours
+#: SC7_MEMBER_SKIP_SLOT (stats counters revision 4).
+LOADER_V7_TRUSTED_SC6_MEMBER_SKIP = LOADER_V7_TRUSTED_SC6 + "+member-skip"
 LOADER_V7_CANONICAL = "qemu-sc-v7"
 
 _HEADER = struct.Struct("<8sIIIIIIQQQ8sQ8s")
@@ -95,6 +122,8 @@ class Sc7Directory:
 
 def loader_requirement(directory: Sc7Directory) -> str:
     if directory.composed:
+        if any(m["flags"] for m in decode_directory(directory)["members"]):
+            return LOADER_V7_TRUSTED_SC6_MEMBER_SKIP
         return LOADER_V7_TRUSTED_SC6
     return LOADER_V7_TRUSTED if directory.trusted else LOADER_V7
 
@@ -220,11 +249,16 @@ def build_directory(link: Any, source_tb: Mapping[str, int]) -> Sc7Directory:
                 raise ScFormatError(f"firmware region {ri} member {local_member}: unknown "
                                     f"source {member.source_uid}") from None
             context = hashlib.sha256(canonical_json(list(member.inline_context))).digest()[:8]
+            member_flags = int(getattr(member, "skip_slots", 0))
+            if member_flags & ~SC7_MEMBER_SKIP_SLOTS or (member_flags and
+                                                         not member_descriptors):
+                raise ScFormatError(f"firmware region {ri} member {local_member}: invalid "
+                                    f"member flags 0x{member_flags:x}")
             member_rows += _MEMBER.pack(
                 member_source_tb, member.tb_offset, member.tc_offset,
                 member.tc_size, member.search_offset,
                 fnv1a64(member.code), fnv1a64(member.search), member.guest_vaddr,
-                context, ri, 0)
+                context, ri, member_flags)
             global_source = region_member_base + local_member
             for exit_id, field, target in member.patched_edges:
                 if not 0 <= target < len(region.members):
@@ -450,6 +484,9 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
     if sc.problems or sc.skipped or sc.count != sc.header.record_count:
         raise ScFormatError("invalid v7 public record table")
     variant_spans: list[tuple[int, int, str]] = []
+    #: sc6 slot bits per source record (composed only): the B3-registered
+    #: slots that member skip flags must name exactly.
+    b3_mask: dict[int, int] = {}
     if composed:
         # QEMU loads the semantic payload first; its variants join the
         # arena disjointness proof of the directory.
@@ -461,6 +498,8 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
             raise ScFormatError(f"composed v7 semantic extension refused: {detail}")
         variant_spans = [(v.tb_offset, v.end_offset, f"variant {v.variant_id}")
                          for v in semantic.ext.variants]
+        for slot in semantic.ext.slots:
+            b3_mask[slot.src_tb_offset] = b3_mask.get(slot.src_tb_offset, 0) | 1 << slot.slot_n
     with open(path, "rb") as stream:
         stream.seek(SC7_COMPOSED_DIR_OFFSET if composed else SC7_OFFSET)
         raw = stream.read(_HEADER.size)
@@ -526,9 +565,15 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
             search_size = (0 if directory.trusted else
                            source.end_offset - source.tc_offset - source.tc_size)
             region_index = member["region_index"]
-            if region_index >= nr or member["flags"]:
+            if region_index >= nr or member["flags"] & ~SC7_MEMBER_SKIP_SLOTS:
                 raise ScFormatError(f"v7 member {i}: invalid region or flags")
             region = rows["regions"][region_index]
+            want = (b3_mask.get(member["source_tb_offset"], 0)
+                    if composed and directory.trusted and
+                    region["flags"] & SC7_REGION_MEMBER_DESCRIPTORS else 0)
+            if member["flags"] != want:
+                raise ScFormatError(f"v7 member {i}: skip flags {member['flags']:#x} != "
+                                    f"B3 slot mask {want:#x}")
             if not region["first_member"] <= i < region["first_member"] + region["n_members"]:
                 raise ScFormatError(f"v7 member {i}: outside its declared region")
             code_end = member["tc_offset"] + member["tc_size"]
@@ -649,7 +694,8 @@ def read_sc7(path: str | os.PathLike) -> Sc7Directory:
                             if edge["source_member"] == gi]
                 _, problems = residual_goto_tb_slots(
                     by_tb[member["source_tb_offset"]], payloads[gi][1], member["tc_offset"],
-                    internal_fields=internal, code_address=sc.header.code_address)
+                    internal_fields=internal, code_address=sc.header.code_address,
+                    skip_slots=member["flags"])
                 if problems:
                     raise ScFormatError(f"v7 region {i} member {gi}: residual exit "
                                         f"{problems[0]}")
