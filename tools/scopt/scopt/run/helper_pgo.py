@@ -31,14 +31,23 @@ from ..importer.import_cache import open_compiler_snapshot
 _COUNTER_MAGIC = b"SCHPROF1"
 
 #: Work-start marker of the trebuchet/FreeRTOS benchmark firmware.  ``auto``
-#: training resolves ``<phase>@vComputeWindowStart`` from the launch kernel.
+#: training falls back to ``<phase>@vComputeWindowStart`` from the launch kernel.
 WORK_START_SYMBOL = "vComputeWindowStart"
+#: FastDyn's window-start virtual (virtuals/virtuals.c benchmark_start): the
+#: instruction that starts the timed window.  ``auto`` prefers its address in
+#: the launch's plugin ``virtual=`` file over the symbol, because an inliner
+#: (FirmBOLT -O4 FirmGraal) can leave the public symbol body unexecuted.
+WORK_START_VIRTUAL = "benchmark_start"
 _PHASE_NAME = re.compile(r"[A-Za-z0-9_.-]{1,15}")
 _MAX_MARKERS = 7
 
 
 class PhaseSpecError(ValueError):
     pass
+
+
+class TrainingPhaseError(ValueError):
+    """The training replay never reached the chosen phase marker."""
 
 
 def _launch_kernel(launch, cwd=None):
@@ -79,6 +88,39 @@ def parse_phase_spec(spec, symbols=None):
     return tuple(out)
 
 
+def _launch_virtuals(launch):
+    """The plugin ``virtual=`` file of a compiled FastDyn launch, or None."""
+    argv = launch["argv"]
+    found = {arg.split("=", 1)[1] for i, flag in enumerate(argv[:-1])
+             if flag in ("--plugin", "-plugin") for arg in argv[i + 1].split(",")[1:]
+             if arg.startswith("virtual=") and arg.split("=", 1)[1] not in ("", "None")}
+    if len(found) > 1:
+        raise PhaseSpecError(f"ambiguous_work_start: the training launch names {len(found)} "
+                             "virtual files")
+    return Path(launch["cwd"]) / found.pop() if found else None
+
+
+def _virtual_work_starts(path):
+    """Distinct ``benchmark_start`` addresses (Thumb bit clear) and the file's sha256.
+
+    FastDyn writes resolved, canonical rows ``0xADDR name [args]``
+    (virtual_preprocessing.prepare_virtual_rules); rows of all CPUs share the file."""
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise PhaseSpecError(f"cannot read the training launch virtual file {path}: {exc}") from None
+    found = set()
+    for number, line in enumerate(raw.decode(errors="replace").splitlines(), 1):
+        fields = line.split()
+        if len(fields) >= 2 and fields[1] == WORK_START_VIRTUAL:
+            try:
+                found.add(int(fields[0], 0) & ~1)
+            except ValueError:
+                raise PhaseSpecError(f"unreadable {WORK_START_VIRTUAL} row {number} of {path}: "
+                                     f"{line!r}") from None
+    return sorted(found), "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
 def _symbols(kernel):
     from ..decode.guest_symbols import load_guest_image
 
@@ -91,25 +133,30 @@ def _symbols(kernel):
 def resolve_training_phases(launch_path, spec="auto", wanted="steady"):
     """Choose the ``QEMU_SC_PROFILE_PHASES`` of an automatic training replay.
 
-    Returns ``{"phases", "phase", "marker", "source", "explicit"}``:
+    Returns ``{"phases", "phase", "marker", "source", "explicit", "candidates"}``:
     ``phases`` is the spec for the edges arm (None: an unmarked whole run),
     ``phase`` the profile phase the passes should read if the marker is
-    reached.  ``spec``:
+    reached, ``candidates`` the work-start markers ``auto`` examined (the
+    first is the chosen one; the others carry ``not_chosen``).  ``spec``:
 
     * ``boot``: whole run, by request (``whole_run_explicit``);
     * ``NAME@0xADDR`` / ``NAME@SYMBOL``: explicit (``cli``); NAME must be
       ``wanted`` (or another marker of the list must be);
     * ``auto``: the training launch's own ``QEMU_SC_PROFILE_PHASES`` when it
-      names ``wanted`` (``launch``), else ``wanted@vComputeWindowStart`` from
-      the launch kernel (``symbol:vComputeWindowStart``), else an unmarked
-      whole run (``whole_run_unmarked``; the caller warns).
+      names ``wanted`` (``launch``), else the single ``benchmark_start`` row
+      of the launch's plugin ``virtual=`` file
+      (``launch_virtual:benchmark_start``; several distinct rows raise
+      ``ambiguous_work_start``), else ``wanted@vComputeWindowStart`` from the
+      launch kernel (``symbol:vComputeWindowStart``), else an unmarked whole
+      run (``whole_run_unmarked``; the caller warns).
 
-    A pass that asks for ``boot`` always trains on the whole unmarked run:
-    with markers, ``boot`` would end at the first marker.
+    The caller refuses a marker that the replay never reached.  A pass that
+    asks for ``boot`` always trains on the whole unmarked run: with markers,
+    ``boot`` would end at the first marker.
     """
     launch_path = Path(launch_path)
     launch = json.loads(launch_path.read_bytes())
-    none = {"phases": None, "phase": "boot", "marker": None, "explicit": False}
+    none = {"phases": None, "phase": "boot", "marker": None, "explicit": False, "candidates": []}
     if wanted == "boot" or spec == "boot":
         return {**none, "source": "whole_run_explicit", "explicit": spec == "boot"}
     kernel = _launch_kernel(launch)
@@ -119,14 +166,14 @@ def resolve_training_phases(launch_path, spec="auto", wanted="steady"):
             raise PhaseSpecError("the training launch has no -kernel for marker symbols")
         return _symbols(kernel)
 
-    def result(markers, source, explicit):
+    def result(markers, source, explicit, candidates=()):
         names = dict(markers)
         if wanted not in names:
             raise PhaseSpecError(f"training phases {sorted(names)} do not include the "
                                  f"pipeline phase {wanted!r}")
         text = ",".join(f"{n}@{v:#x}" for n, v in markers)
         return {"phases": text, "phase": wanted, "marker": hex(names[wanted]),
-                "source": source, "explicit": explicit}
+                "source": source, "explicit": explicit, "candidates": list(candidates)}
 
     if spec != "auto":
         markers = parse_phase_spec(spec, None if all(
@@ -138,13 +185,33 @@ def resolve_training_phases(launch_path, spec="auto", wanted="steady"):
         markers = parse_phase_spec(declared)
         if wanted in dict(markers):
             return result(markers, "launch", True)
+    candidates = []
+    virtuals = _launch_virtuals(launch)
+    if virtuals is not None:
+        starts, digest = _virtual_work_starts(virtuals)
+        if len(starts) > 1:
+            raise PhaseSpecError(
+                f"ambiguous_work_start: {virtuals} has {WORK_START_VIRTUAL} at "
+                f"{', '.join(map(hex, starts))}; choose one with --pgo-phase {wanted}@0xADDR")
+        if starts:
+            candidates.append({"source": f"launch_virtual:{WORK_START_VIRTUAL}",
+                               "vaddr": hex(starts[0]), "virtuals": str(virtuals),
+                               "virtuals_sha256": digest})
     if kernel is not None and kernel.is_file():
         try:
-            markers = parse_phase_spec(f"{wanted}@{WORK_START_SYMBOL}", symbols())
+            (_, vaddr), = parse_phase_spec(f"{wanted}@{WORK_START_SYMBOL}", symbols())
         except PhaseSpecError:
-            markers = None
-        if markers:
-            return result(markers, f"symbol:{WORK_START_SYMBOL}", False)
+            vaddr = None
+        if vaddr is not None:
+            row = {"source": f"symbol:{WORK_START_SYMBOL}", "vaddr": hex(vaddr)}
+            if candidates:
+                row["not_chosen"] = ("same_address" if candidates[0]["vaddr"] == row["vaddr"]
+                                     else f"launch_virtual:{WORK_START_VIRTUAL}_precedence")
+            candidates.append(row)
+    if candidates:
+        chosen = candidates[0]
+        return result(parse_phase_spec(f"{wanted}@{chosen['vaddr']}"), chosen["source"], False,
+                      candidates)
     return {**none, "source": "whole_run_unmarked"}
 
 

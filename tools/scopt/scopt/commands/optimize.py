@@ -174,16 +174,18 @@ def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, t
     """Collect the training replay(s) and set ``options['phase']``.
 
     Returns the ``training_phase`` record (None when existing ``views`` are
-    reused): which phase the passes read and why.  A training launch or
-    kernel with a work-start marker keeps ``wanted_phase`` (normally
-    ``steady``); otherwise the whole run (``boot``) is used and recorded,
-    never silently."""
+    reused): which phase the passes read and why.  A training launch, launch
+    ``benchmark_start`` virtual or kernel with a work-start marker keeps
+    ``wanted_phase`` (normally ``steady``) and the replay must reach it
+    (``TrainingPhaseError`` otherwise); without any marker the whole run
+    (``boot``) is used and recorded, never silently."""
     import shutil
     import subprocess
     import tempfile
     from ..canon import sha256_id
     from ..formats.profile_v1 import ProfileView, ingest, write_profile
-    from ..run.helper_pgo import collect, collect_edges, resolve_training_phases
+    from ..run.helper_pgo import (TrainingPhaseError, collect, collect_edges,
+                                  resolve_training_phases)
 
     store = Path(store).resolve()
     store.mkdir(parents=True, exist_ok=True)
@@ -222,15 +224,27 @@ def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, t
                          contract_id=meta["contract_id"], runtime_identity=snap.runtime)
         write_profile(work / "training-profile.json", profile)
         views.append(ProfileView.open(profile, snap))
+        row = None
         if phases:
             pid = profile.phase_id(training["phase"])
-            if pid is None or not profile.phase_reached(pid):
-                if training["explicit"]:
-                    raise ValueError(f"training replay never reached phase marker "
-                                     f"{training['phase']}@{training['marker']}")
-                # The marker exists but was never hit: phase zero ("boot")
-                # then covers the whole run.
-                training = {**training, "phase": "boot", "source": "whole_run_unreached"}
+            row = next((p for p in profile.phases if p["id"] == pid), None)
+        training = {**training, "reached": None if row is None else bool(row["reached"]),
+                    "first_dispatch_index": None if row is None else row["first_dispatch_index"],
+                    "match": None if row is None else row["match"],
+                    "profile_id": profile.profile_id}
+        if phases and not training["reached"]:
+            # Never fall back to the whole run behind the user's back: a dead
+            # marker (e.g. an inlined vComputeWindowStart) would train the
+            # passes on boot.  --pgo-phase boot asks for that explicitly.
+            tried = "; ".join(f"{c['source']} {c['vaddr']}"
+                              + (f" (not chosen: {c['not_chosen']})" if "not_chosen" in c else "")
+                              for c in training.get("candidates", ()))
+            raise TrainingPhaseError(
+                f"training replay never reached phase marker {training['phase']}@"
+                f"{training['marker']} (source {training['source']}"
+                + (f"; candidates: {tried}" if tried else "") + "); pass --pgo-phase "
+                f"{training['phase']}@0xADDR of an executed marker, or --pgo-phase boot to "
+                f"train on the whole run (training profile: {work / 'training-profile.json'})")
         if training["phase"] == "boot" and wanted_phase != "boot":
             print(f"warning: training replay has no reached work-start marker "
                   f"({training['source']}); firmware selection uses the whole-run "
@@ -281,9 +295,11 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @click.option("--pgo-launch", "--helper-pgo-launch", "helper_pgo_launch", type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help="Ordinary compiled training launch.json for automatic hot-loop profiling.")
 @click.option("--pgo-phase", "pgo_phase", default="auto", show_default=True,
-              help="Training phase marker for automatic PGO: auto (the launch's "
-                   "QEMU_SC_PROFILE_PHASES, else <phase>@vComputeWindowStart from the "
-                   "kernel, else the whole run), boot (whole run), NAME@0xADDR or NAME@SYMBOL.")
+              help="Training phase marker for automatic PGO (without --profile): auto (the "
+                   "launch's QEMU_SC_PROFILE_PHASES, else its single benchmark_start virtual, "
+                   "else <phase>@vComputeWindowStart from the kernel, else the whole run; a "
+                   "marker the replay never reaches is an error), boot (whole run), "
+                   "NAME@0xADDR or NAME@SYMBOL.")
 @click.option("--disable", multiple=True, help="Ablation: skip this pass (repeatable).")
 @click.option("--enable", multiple=True,
               help="Opt a pipeline pass back in (repeatable). Accepts host-inline=<options>.")
@@ -404,17 +420,28 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         params = dict(params or {})
         overrides = dict(params.get(hot.name, {}))
         collecting_edges = not views
+        from ..run.helper_pgo import PhaseSpecError, TrainingPhaseError
         try:
             trained = _automatic_loop_pgo(snap, store, helper_pgo_launch, prep, views, overrides,
                                           helpers=helpers, trusted=trust_input,
                                           wanted_phase=policy.get("phase", "steady"),
                                           phase_arg=pgo_phase)
+        except (PhaseSpecError, TrainingPhaseError) as exc:
+            raise click.ClickException(f"training phase: {exc}") from exc
         except (OSError, ValueError, RuntimeError) as exc:
             raise click.ClickException(f"training replay failed: {exc}") from exc
         params[hot.name] = overrides
         if collecting_edges:
             auto_loop_phase = overrides["phase"]
             training_phase = trained
+    if pgo_phase != "auto" and training_phase is None:
+        # Informational (after the incompatible-profile check above, which
+        # turns every _profiles note into a usage error).
+        note = (f"--pgo-phase {pgo_phase} had no effect: no training edge profile was "
+                "collected (it applies to --pgo-launch training without --profile; "
+                "helper call counts are always whole-run)")
+        notes.append(note)
+        click.echo(f"note: {note}", err=True)
     native_stage = None
     from ..manager import HOST_INLINE_ALIASES
     native_names = {"host-inline", *HOST_INLINE_ALIASES}

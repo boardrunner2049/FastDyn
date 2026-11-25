@@ -261,16 +261,44 @@ public, and the whole-region gate decides between the recursive and the one-leve
 region. `nested="public"` keeps one callee layer, `cost_model="off"` restores the
 unpriced selection (one layer, every in-loop root over `min_call_count`).
 
-Automatic training (`--pgo-launch`) now keeps the pipeline's `phase="steady"`:
-`--pgo-phase auto` (the default) uses the training launch's own
-`QEMU_SC_PROFILE_PHASES`, else `steady@vComputeWindowStart` from the launch kernel,
-and passes it to the profiled replay. Without a marker, or when the marker is never
-reached, selection uses the whole-run `boot` phase and says so on stderr. The
-optimize JSON records the choice as `training_phase` (`source`:
-`launch`, `cli`, `symbol:vComputeWindowStart`, `whole_run_explicit`,
-`whole_run_unmarked` or `whole_run_unreached`). `--pgo-phase NAME@0xADDR` or
-`NAME@SYMBOL` names a marker explicitly (an unreached explicit marker is an error);
-`--pgo-phase boot` trains on the whole run.
+Automatic training (`--pgo-launch` without `--profile`) keeps the pipeline's
+`phase="steady"`. `--pgo-phase auto` (the default) picks the marker in this order
+and passes it to the profiled replay:
+
+1. the training launch's own `QEMU_SC_PROFILE_PHASES` (`source` `launch`);
+2. the single `benchmark_start` row of the launch's plugin `virtual=` file
+   (`launch_virtual:benchmark_start`): the instruction FastDyn starts the timed
+   window at. When the capture has a `manifest.json`, the replay already refuses a
+   virtual file that differs from the captured one. Several distinct
+   `benchmark_start` addresses are refused as `ambiguous_work_start`; name one with
+   `--pgo-phase steady@0xADDR`. An unreadable file or row is an error too;
+3. `steady@vComputeWindowStart` from the launch kernel (`symbol:vComputeWindowStart`).
+
+2 wins over 3 because an inliner can leave the public symbol unexecuted: FirmBOLT
+`-O4` copies `vComputeWindowStart` into the console task, so on uart and cli
+the symbol (0x81ba0, 0x82d1c) never runs while the copies the launch's virtuals
+name (0x822fc, 0x82fc4) do. The virtual names the executed copy only when the
+launch config does; the uart and cli configs had it remapped by hand.
+`tools/trebuchet/lib/gen_toml.py` derives `benchmark_start` from the symbol, so on
+a fresh `-O4` image both sources name the dead body and auto cannot find the copy;
+see the `--skip-funcs` build option below.
+
+A marker the replay never reaches is an error for every source (`training phase:
+training replay never reached phase marker ...`, listing every candidate);
+`--pgo-phase boot` trains on the whole run on request. Without any marker,
+selection uses the whole-run `boot` phase and says so on stderr
+(`whole_run_unmarked`). The optimize JSON records the choice as `training_phase`:
+`source` (`launch`, `launch_virtual:benchmark_start`, `symbol:vComputeWindowStart`,
+`cli`, `whole_run_explicit` or `whole_run_unmarked`), `candidates` (each marker auto
+examined, with `not_chosen` on the losers), and `reached`, `first_dispatch_index`,
+`match` (`exact_start` or `contained`) and `profile_id` from the training profile.
+`--pgo-phase NAME@0xADDR` or `NAME@SYMBOL` names a marker explicitly. With
+`--profile`, no training edges are collected and `--pgo-phase` has no effect;
+optimize says so in `notes` and on stderr.
+
+For benchmark images, the inliner can instead be told to keep the hook functions
+out of line (`firmbolt ... -- --skip-funcs=vComputeWindowStart,...`, as
+`tools/trebuchet/trebuchet.sh` does); then the symbol and the virtual agree.
 
 ```sh
 scopt optimize "$SNAP" --pipeline hot-loop-firmware-inline --pgo-launch "$BASE/launch.json" \
