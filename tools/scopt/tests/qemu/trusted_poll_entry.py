@@ -5,7 +5,8 @@ python trusted_poll_entry.py path/to/compiled/launch.json fresh/output/dir [--ti
 Needs QEMU counters revision 4 (trusted->trusted chains enter a region at its
 +0 poll), a symbolized QEMU and GDB.  The launch must select a sealed trusted
 artifact whose regions exit into other region entries (for example uart
-``sealed-pgo-7-legacy`` or cli ``sealed-pgo-7``).  Both runs use private copies
+``sealed-pgo-7`` with firmware-inline ``cost_model="off"`` and
+``nested="public"``, or cli ``sealed-pgo-7``).  Both runs use private copies
 of the same cache bytes with ``QEMU_SC_V7_STATS``:
 
 ``reference``  the launch under ``setarch -R``: the guest oracle.

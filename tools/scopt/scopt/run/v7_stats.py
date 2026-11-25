@@ -75,7 +75,7 @@ Composed member skip flags (:data:`MEMBER_SKIP_COUNTER_KEYS`):
     (lazy activation, again after a tb_flush), so zero under
     ``no-trusted-exit-chain`` and ``QEMU_SC_SEALED_SKIP_IRQ``.  When every
     loaded region was built once it equals the sum of the link's
-    ``skipped_b3_slots``.
+    ``skipped_b3_slots``; :func:`per_build_bounds` gives the range otherwise.
 
 ``trusted_tb_calls`` is *not* a count of region exits.  In trusted mode it is
 the number of trusted-membership lookups, which revision 2 splits exactly as
@@ -85,7 +85,7 @@ the same counters restricted to the restore benchmark window.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable, Sequence
 
 SCHEMA = "qemu-sc-v7-stats@1"
 COUNTERS_REVISION = 4
@@ -324,6 +324,44 @@ def _member_skip_problems(stats: dict[str, Any]) -> list[str]:
     if skipped and _experiment(stats, "no_trusted_exit_chain"):
         return [f"trusted_residual_slots_skipped {skipped} under no-trusted-exit-chain"]
     return []
+
+
+def per_build_bounds(per_region: Sequence[int], builds: int, *, built: Iterable[int] = (),
+                     rebuilt: bool = True) -> tuple[int, int]:
+    """``(low, high)`` for a counter that grows by a fixed amount per region build.
+
+    ``trusted_residual_slots_armed`` and ``trusted_residual_slots_skipped``
+    grow by ``per_region[r]`` each time trusted region ``r`` is built: lazily
+    on its first lookup, and again after every tb_flush.
+    ``trusted_region_activations`` counts those builds (``builds``).
+    ``built`` names regions known to have been built in the run, for
+    example those in ``trusted_residual_exit_regions``.  ``rebuilt`` says
+    whether a region may have been built more than once.  Only tb_flush
+    resets a trusted directory, so on a composed load v6 ``flush_resets ==
+    0`` rules a rebuild out; without that evidence, pass True.  Without
+    rebuilds, ``builds`` distinct regions were built, and ``builds ==
+    len(per_region)`` gives the exact sum.  Raises ValueError when the counts
+    contradict each other.
+    """
+    n = len(per_region)
+    known = set(built)
+    if any(not 0 <= r < n for r in known):
+        raise ValueError(f"built regions {sorted(known)} outside {n} regions")
+    if len(known) > builds:
+        raise ValueError(f"{len(known)} regions built in {builds} builds")
+    if not rebuilt and builds > n:
+        raise ValueError(f"{builds} builds of {n} regions without a rebuild")
+    low = high = sum(per_region[r] for r in known)
+    rest = builds - len(known)
+    if rest and rebuilt:
+        # Each further build may repeat any region.
+        low += rest * min(per_region)
+        high += rest * max(per_region)
+    elif rest:
+        others = sorted(per_region[r] for r in range(n) if r not in known)
+        low += sum(others[:rest])
+        high += sum(others[len(others) - rest:])
+    return low, high
 
 
 def residual_exits(stats: dict[str, Any], window: bool = False) -> int | None:

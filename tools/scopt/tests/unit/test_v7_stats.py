@@ -442,3 +442,37 @@ def test_unloaded_revision4_file_with_new_counts():
     assert v7_stats.counter_problems(stats) == [
         "trusted_poll_entries_verified 1 without a loaded trusted directory",
         "trusted_residual_slots_skipped 2 without a loaded trusted directory"]
+
+
+# -- per-build counter bounds (armed / skipped residual slots) -------------
+
+def test_per_build_bounds_every_region_built_once_is_exact():
+    assert v7_stats.per_build_bounds([3, 0, 5, 1], 4, rebuilt=False) == (9, 9)
+    assert v7_stats.per_build_bounds([3, 0, 5, 1], 4, built={2, 0}, rebuilt=False) == (9, 9)
+    assert v7_stats.per_build_bounds([3, 0, 5, 1], 0, rebuilt=False) == (0, 0)
+
+
+def test_per_build_bounds_some_regions_built():
+    # Two of four regions built once: the two smallest / largest others.
+    assert v7_stats.per_build_bounds([3, 0, 5, 1], 2, rebuilt=False) == (1, 8)
+    # Region 2 is known to be built; one more build of the others.
+    assert v7_stats.per_build_bounds([3, 0, 5, 1], 2, built=[2], rebuilt=False) == (5, 8)
+
+
+def test_per_build_bounds_with_rebuilds():
+    # A tb_flush rebuild counts again: builds can exceed the region count,
+    # and an all-regions build count no longer pins the sum.
+    assert v7_stats.per_build_bounds([3, 0, 5, 1], 4) == (0, 20)
+    assert v7_stats.per_build_bounds([3, 0, 5, 1], 6, built={0, 1, 2, 3}) == (9, 19)
+    assert v7_stats.per_build_bounds([2, 2], 5, built=[0]) == (10, 10)
+
+
+@pytest.mark.parametrize(("per_region", "builds", "built", "rebuilt", "needle"), [
+    ([1, 2], 3, (), False, "3 builds of 2 regions without a rebuild"),
+    ([1, 2], 1, (0, 1), True, "2 regions built in 1 builds"),
+    ([1, 2], 2, (2,), True, "outside 2 regions"),
+])
+def test_per_build_bounds_rejects_inconsistent_counts(per_region, builds, built, rebuilt,
+                                                      needle):
+    with pytest.raises(ValueError, match=needle):
+        v7_stats.per_build_bounds(per_region, builds, built=built, rebuilt=rebuilt)

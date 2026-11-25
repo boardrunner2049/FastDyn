@@ -23,9 +23,13 @@ observes the exit path.  Parameters come from ``TRUSTED_POLL_ENTRY_GDB_PARAMS``
 4. ``reentry``: the next entry of T at ``tc.ptr`` (+15, through the
    dispatcher) sees ``*(uint32 *)($rbp + 0x3c) == T->pc``.
 
-Breakpoint callbacks only record and request actions; breakpoints are added
-or deleted, and memory is written, from the main loop while the inferior is
-stopped.
+The hardware and ordinary breakpoints are added and deleted, and memory is
+written, only from the main loop while the inferior is stopped.  The one
+exception is the ``gdb.FinishBreakpoint`` that observes a function's return
+(steps 1 and 3): it is created inside the ``stop()`` callback of the
+breakpoint on that function's entry, the pattern ``wp22_stress_gdb.py`` also
+uses.  The GDB manual advises against changing breakpoints from ``stop()``;
+this works on the installed GDB 15.1, so recheck it after a GDB upgrade.
 """
 
 import json
