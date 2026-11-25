@@ -124,7 +124,11 @@ and the same `profit` object. `policy.nested_decisions` lists each priced nested
 (`gain_ns`, `action`), and `policy.nested_fallbacks` names roots for which the
 one-level region won. Stats add `cost_model_enabled`, `profit_net_ns`,
 `profit_refused` and `nested_inlined_calls`. When nothing is embedded because roots
-were refused, the outcome reason is `no_profitable_call`.
+were refused, the outcome reason is `no_profitable_call`. Each embedded row's
+`residual_exits_chainable` is the priced value (`region_exits_chainable`); whether the
+linker actually gave the region member descriptors is in the artifact sidecar
+(`x_b3.firmware_region_links`). `policy.member_slot_skip` and the stat
+`member_slot_skip` record the member-skip decision.
 
 ## Install a policy
 

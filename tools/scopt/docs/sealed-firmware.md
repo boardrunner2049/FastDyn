@@ -164,7 +164,8 @@ separate case: executing per-site private helper copies
    restores the refusal on the same bytes. Pricing is unchanged: the profit model still
    charges such an exit a dispatch, which is conservative now. The estimated time effect
    is below this harness's floor (about 0.6% of a CLI `sealed-pgo-7` run, at most about
-   1% on the UART `p7_legacy` arm), so report the counter deltas, not a speedup.
+   1% of a UART `sealed-pgo-7` run with `cost_model = "off"` and `nested = "public"`), so
+   report the counter deltas, not a speedup.
 3. **No cost model.** `hot-loop` admitted every root above 1,000 training calls, such
    as the per-byte CRC-CCITT callee, whose saving per call (polls, two lookups, a
    guarded return) is smaller than one dispatcher round trip per unchained exit.
