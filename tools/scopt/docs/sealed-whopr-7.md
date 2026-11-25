@@ -184,6 +184,13 @@ identical point estimates. Consequently this campaign establishes no incremental
 firmware-region loss in the complete artifact. An earlier same-artifact `no-regions`
 diagnostic was part of the cache-mutating campaign and is not used for attribution.
 
+All configuration 7 numbers in this document predate chainable trusted residual exits.
+Their artifacts use the legacy shared descriptor, so every residual exit of a region
+(about 2.9M per packet run, nearly all from the never-expanded root continuation)
+returned to the dispatcher. Artifacts linked since then carry per-member descriptors
+whose residual goto_tb exits QEMU chains after first use; compare the two behaviours
+on the same bytes with `QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain`.
+
 The current seven-number dashboard retains rows 1-6 from their original campaigns and
 uses the new valid all-helper measurement for row 7. Cross-campaign subtraction is not
 an attribution test; the fresh paired comparison above is authoritative for rows 6-7.

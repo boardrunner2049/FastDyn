@@ -36,6 +36,7 @@ _EXPERIMENT_KEYS = {
     "incoming-chain": "incoming_chain",
     "disable-chaining": "disable_chaining",
     "no-regions": "no_regions",
+    "no-trusted-exit-chain": "no_trusted_exit_chain",
 }
 
 

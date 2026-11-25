@@ -286,9 +286,23 @@ translation context, and fall back to the original lookup path on mismatch.
   only for an icount-off capture whose every member has the exact 11-byte non-icount IRQ
   poll followed by the captured four-byte `can_do_io` store. Internal edges skip the
   complete 15-byte prefix so MMIO cannot observe a stale false value; trusted root
-  entries skip the same prefix. Trusted v7 uses one descriptor per region, no member search
-  data or live fault/plugin recovery, no guest-code dependency checks, and a distinct
-  loader capability. Static admitted transfers can jump directly to the private target.
+  entries skip the same prefix. Trusted v7 has no member search data or live
+  fault/plugin recovery, no guest-code dependency checks, and a distinct loader
+  capability. A trusted region gets one descriptor per member
+  (`SC7_REGION_MEMBER_DESCRIPTORS`, 16-byte aligned member code, NOP padding), so each
+  member's `exit_tb` results name its own descriptor. QEMU then arms that member's
+  residual goto_tb slots (record slots that are not internal edges, checked at load:
+  `e9`, zero rel32 past the 15-byte prefix, reset at rel32 + 4, 4-byte aligned rel32) and
+  chains them after first use to the ordinary TB the dispatcher looked up. That TB is
+  entered at `+0`, so its IRQ poll still runs. QEMU never chains a residual exit into a
+  trusted region entry (which skips its poll) and never chains trusted sources under
+  `QEMU_SC_SEALED_SKIP_IRQ`. `QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain` leaves the
+  slots unarmed on the same artifact bytes (the A/B arm). The linker keeps the legacy
+  shared descriptor (no chaining) for a region whose member source B3 grows, rewrites
+  or clones (`region_exits_chainable`, `b3_edited_uids`), or whose residual slot fails
+  the load check; the link receipt records `member_descriptors` and
+  `member_descriptor_refusal` per region, and V4 `residual_exit_slots` repeats QEMU's
+  check against the output records. An older QEMU refuses the new region flag. Static admitted transfers can jump directly to the private target.
   A dynamic return enters its private continuation after checking the guest PC and
   translation context. A mismatch takes the original lookup. If scopt cannot bind
   the return guard to the runtime layout and captured tail, that exit stays public.
@@ -328,7 +342,13 @@ translation context, and fall back to the original lookup path on mismatch.
 
 - Artifact/receipt: `fastdyn.firmware_region_plan@1` records source content hashes,
   full TB keys, call-site IDs, inline contexts, members, internal/side-exit edges and
-  pending work. The v7 directory is arena-resident, so it does not inherit v6's fixed
+  pending work. The pass receipt's `residual` rows carry `source_role`, `exit_kind` and
+  `patchable_rel32`. They also list the exits of the two root members the region never
+  expands, which have no plan edge: every caller exit except the root call
+  (`caller_exit`) and every exit of the root continuation (`continuation_exit`); the
+  stat `residual_boundary_exits` counts them. These rows are receipt-only: plan edges,
+  `region_id` and the artifact are unchanged, and the caller loop is not pulled into the
+  region. Embedded rows record `residual_exits_chainable`. The v7 directory is arena-resident, so it does not inherit v6's fixed
   64 KiB extension-table limit. Reimport retains `firmware-regions.jsonl`.
 - Trusted runtime entry uses a load-time first-match index from public source TB to
   private region. `QEMU_SC_V7_EXPERIMENT=linear-source-scan` is a diagnostic ablation
@@ -356,7 +376,8 @@ translation context, and fall back to the original lookup path on mismatch.
   trusted sealed replay: **1.0187x** `[1.0046, 1.0292]`. Disabling regions in the same
   artifact measured a **1.0321x** `[1.0096, 1.0654]` benefit for region execution itself;
   container/activation costs consume part of that gain. Setup and Python frontend time
-  are excluded. See `docs/sealed-whopr-7.md`.
+  are excluded. See `docs/sealed-whopr-7.md`. These measurements predate chainable
+  trusted residual exits: every region exit then returned to the dispatcher.
 
 - Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,
   `scopt/analysis/firmware_regions.py`, `scopt/formats/sc_v7.py`, and the v7 loader in

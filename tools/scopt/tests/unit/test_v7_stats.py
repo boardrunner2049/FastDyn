@@ -228,3 +228,63 @@ def test_rundir_launch_reports_counter_problems(tmp_path, monkeypatch):
     assert doc["v7_stats"]["problems"] == [
         "v7 counters: trusted_tb_calls 1041 != loop_returns_nonnull 1000 + "
         "trusted_tb_chain_probes 40"]
+
+
+def _revision3(trusted):
+    trusted.update(counters_revision=3, chain_attempts=20, chain_skipped_global=0,
+                   chain_skipped_trusted_source=3,
+                   trusted_residual_exits_chainable=17,
+                   trusted_residual_exits_unchainable=283,
+                   trusted_residual_slots_armed=17,
+                   chain_allowed_trusted_source=15,
+                   chain_skipped_trusted_to_trusted=2,
+                   chain_installs_trusted_source=15,
+                   benchmark_chain_installs_trusted_source=4)
+    return trusted
+
+
+def test_consistent_revision3_chaining_file(trusted):
+    stats = _revision3(trusted)
+    assert v7_stats.COUNTERS_REVISION == 3
+    assert v7_stats.counter_problems(stats) == []
+    summary = v7_stats.summary(stats)
+    assert summary["residual_exits"] == 300
+    assert summary["trusted_residual_slots_armed"] == 17
+    assert summary["chain_skipped_trusted_to_trusted"] == 2
+
+
+@pytest.mark.parametrize("mutate, needle", [
+    (lambda s: s.update(trusted_residual_exits_unchainable=284),
+     "trusted_residual_exits_unchainable"),
+    (lambda s: s.update(chain_allowed_trusted_source=18, chain_installs_trusted_source=16),
+     "chain_allowed_trusted_source 18 >"),
+    (lambda s: s.update(chain_installs_trusted_source=16),
+     "chain_installs_trusted_source 16 >"),
+    (lambda s: s.update(chain_skipped_trusted_to_trusted=4), "chain_skipped_trusted_to_trusted"),
+    (lambda s: s.update(trusted_residual_slots_armed=0), "without armed residual slots"),
+    # Revision 3 always probes both ends, chained trusted sources included.
+    (lambda s: s.update(trusted_tb_chain_probes=39, trusted_tb_calls=1039),
+     "2 * (chain_attempts"),
+])
+def test_each_broken_revision3_invariant_is_one_problem(trusted, mutate, needle):
+    stats = _revision3(trusted)
+    mutate(stats)
+    problems = v7_stats.counter_problems(stats)
+    assert len(problems) == 1, problems
+    assert needle in problems[0]
+
+
+def test_revision3_requires_chain_keys_and_revision2_does_not(trusted):
+    assert v7_stats.counter_problems(trusted) == []      # revision 2 file
+    stats = _revision3(copy.deepcopy(trusted))
+    del stats["trusted_residual_slots_armed"]
+    assert "missing" in v7_stats.counter_problems(stats)[0]
+
+
+def test_unloaded_revision3_file_with_chain_counts():
+    stats = _unloaded()
+    stats.update(counters_revision=3, trusted_residual_exits_chainable=0,
+                 trusted_residual_exits_unchainable=0, trusted_residual_slots_armed=2,
+                 chain_allowed_trusted_source=0, chain_skipped_trusted_to_trusted=0)
+    assert v7_stats.counter_problems(stats) == [
+        "trusted_residual_slots_armed 2 without a loaded trusted directory"]

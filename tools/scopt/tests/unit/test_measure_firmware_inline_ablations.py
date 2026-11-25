@@ -96,3 +96,18 @@ def test_validate_experiment_checks_source_index_policy(tmp_path, mode, linear):
     flags["source_index"] = linear
     with pytest.raises(RuntimeError):
         _M.validate_experiment(arm, stats)
+
+
+def test_no_trusted_exit_chain_token_matches_qemu_experiment_key(tmp_path):
+    assert _M._EXPERIMENT_KEYS["no-trusted-exit-chain"] == "no_trusted_exit_chain"
+    arm = _M.Arm("unchained", _artifact(tmp_path, "unchained"), env={
+        "QEMU_SC_V7_EXPERIMENT": "no-trusted-exit-chain",
+    })
+    # The experiment object QEMU writes for this token, trusted and loaded.
+    flags = {"source_index": True, "linear_source_scan": False, "trusted_set": False,
+             "no_tree": False, "incoming_chain": False, "disable_chaining": False,
+             "no_regions": False, "no_trusted_exit_chain": True}
+    _M.validate_experiment(arm, {"loaded": True, "mode": "trusted", "experiment": flags})
+    with pytest.raises(RuntimeError):
+        _M.validate_experiment(arm, {"loaded": True, "mode": "trusted",
+                                     "experiment": {**flags, "no_trusted_exit_chain": False}})

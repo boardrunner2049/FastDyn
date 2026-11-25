@@ -284,6 +284,10 @@ def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
     second, so that invariant does not hold.  Captured EXIT_TB pointer
     materializations must therefore be rebound after relocation; otherwise an
     icount/interrupt/exception exit returns a pointer into padding or code.
+    ``tb_offset`` is the descriptor this member's exits name: its own in safe
+    regions and in trusted regions with member descriptors, the one shared
+    region descriptor in the legacy trusted layout.  The exit index (``aux``
+    low bits) is preserved either way.
     """
     patched: list[tuple[int, int]] = []
     for site in source.sites:
@@ -318,6 +322,68 @@ def retarget_private_descriptor_refs(code: bytearray, source: TBUnit, *,
 CF_USE_ICOUNT = 0x00002000
 TRUSTED_ENTRY_OFFSET = 15
 TRUSTED_INSN0_START = 15
+#: Code alignment of every member of a trusted region with member
+#: descriptors (QEMU SC7_REGION_MEMBER_DESCRIPTORS).  Captured TB code is
+#: 16-byte aligned, so copies keep the 4-byte alignment that TCG gave each
+#: goto_tb rel32 for atomic patching.
+MEMBER_CODE_ALIGN = 16
+_NO_JMP = 0xFFFF
+
+
+def b3_edited_uids(plan: Any) -> frozenset[str]:
+    """Units whose public record a :class:`B3Plan` changes: grown,
+    rewritten, or cloned as a variant source."""
+    return (frozenset(getattr(plan, "grow", {})) | frozenset(getattr(plan, "rewrites", {})) |
+            frozenset(v.src_uid for v in getattr(plan, "variants", ())))
+
+
+def region_exits_chainable(plan: Any, grown_uids: Iterable[str] = ()) -> bool:
+    """Whether a firmware region gets per-member descriptors whose residual
+    goto_tb exits QEMU may chain.
+
+    Only trusted regions qualify, and only when no member's source is edited
+    by B3 (``grown_uids``, see :func:`b3_edited_uids`): QEMU arms a member's
+    slots from its source's *output* record while the member copies the
+    pre-B3 code, so a grown or rewritten source could name guard-stub offsets
+    that the copy does not have.  This is the plan-level decision shared by
+    the linker and the cost model; the linker may still fall back to the
+    legacy shared descriptor when a residual slot is misaligned or not a
+    reset ``goto_tb`` (see :func:`residual_goto_tb_slots`).
+    """
+    edited = frozenset(grown_uids)
+    return bool(plan.trusted) and not any(m.source_uid in edited for m in plan.members)
+
+
+def residual_goto_tb_slots(record: bytes | ScRecord, code: bytes, tc_offset: int, *,
+                           internal_fields: Iterable[int] = (),
+                           code_address: int = 0) -> tuple[int, list[str]]:
+    """Check the residual ``goto_tb`` slots of one trusted member copy.
+
+    ``record`` is the public (output) record of the member's source;
+    ``internal_fields`` are the rel32 fields the region patched to internal
+    edges.  Every other valid slot must be the reset jump TCG emitted --
+    ``e9`` then a zero rel32 at ``jmp_insn_offset`` past the 15-byte entry
+    prefix, ``jmp_reset_offset == jmp_insn_offset + 4`` -- with its rel32 at a
+    4-byte aligned absolute address.  This mirrors QEMU's load-time check.
+    Returns ``(chainable slot count, problems)``.
+    """
+    rec = record if isinstance(record, ScRecord) else ScRecord.from_bytes(record)
+    internal = set(internal_fields)
+    count = 0
+    problems: list[str] = []
+    for n in (0, 1):
+        insn, reset = rec.jmp_insn_offset[n], rec.jmp_reset_offset[n]
+        if reset == _NO_JMP or insn in internal:
+            continue
+        if not (TRUSTED_ENTRY_OFFSET < insn and reset == insn + 4 and insn + 4 <= len(code)):
+            problems.append(f"slot {n}: offsets insn={insn:#x} reset={reset:#x}")
+        elif code[insn - 1] != 0xE9 or code[insn:insn + 4] != b"\0" * 4:
+            problems.append(f"slot {n}: +{insn:#x} is not a reset goto_tb")
+        elif (code_address + tc_offset + insn) % 4:
+            problems.append(f"slot {n}: rel32 at +{insn:#x} is not 4-byte aligned")
+        else:
+            count += 1
+    return count, problems
 
 
 def trusted_firmware_entry_problem(u: TBUnit) -> str | None:
@@ -919,7 +985,8 @@ __all__ += [
     "LinkResultV2", "NativeLinkerV2", "R2", "exit_class_of", "variant_key", "free_slots",
     "derive_scm_v2", "tb_ret_abs_of",
     "trusted_firmware_entry_problem", "trusted_firmware_edge_problem",
-    "TRUSTED_ENTRY_OFFSET",
+    "TRUSTED_ENTRY_OFFSET", "b3_edited_uids", "region_exits_chainable",
+    "residual_goto_tb_slots", "MEMBER_CODE_ALIGN",
 ]
 
 
@@ -1441,6 +1508,10 @@ class FirmwareRegionLink:
     end_offset: int
     trusted: bool = False
     trusted_entry_offset: int = 0
+    #: Trusted only: one descriptor per member (chainable residual exits).
+    member_descriptors: bool = False
+    #: Why a trusted region kept the legacy shared descriptor, if it did.
+    member_descriptor_refusal: str | None = None
 
     @property
     def emitted_size(self) -> int:
@@ -1483,6 +1554,9 @@ class LinkResultV2(LinkResult):
                                     "members": len(r.members),
                                     "trusted": r.trusted,
                                     "trusted_entry_offset": r.trusted_entry_offset,
+                                    "member_descriptors": r.member_descriptors,
+                                    "member_descriptor_refusal":
+                                        r.member_descriptor_refusal,
                                     "emitted_size": r.emitted_size,
                                     "source_identities": [m.source_hash
                                                           for m in r.members],
@@ -1597,91 +1671,138 @@ class NativeLinkerV2:
             out.append(source)
         return out, guarded_fields
 
-    def _link_firmware_regions(self, cursor: int, by_uid: Mapping[str, TBUnit]
+    def _link_firmware_regions(self, cursor: int, by_uid: Mapping[str, TBUnit],
+                               out_records: Mapping[str, bytes] | None = None
                                ) -> tuple[tuple[FirmwareRegionLink, ...], int]:
-        """Lay out private descriptors, contiguous code and out-of-line recovery data."""
-        from .formats.region_v1 import unit_exits
+        """Lay out private descriptors, contiguous code and out-of-line recovery data.
 
+        A trusted region whose exits are chainable (:func:`region_exits_chainable`)
+        gets one descriptor per member and 16-byte aligned member code, so each
+        member's exit_tb results name its own descriptor and QEMU can arm the
+        member's residual goto_tb slots.  If any such slot is not a reset,
+        4-byte aligned goto_tb (checked against ``out_records``, the public
+        output records QEMU will read), the region falls back to the legacy
+        layout in which all members share the entry descriptor.
+        """
+        edited = b3_edited_uids(self.plan)
+        records = out_records if out_records is not None else \
+            {uid: unit.record for uid, unit in by_uid.items()}
         linked: list[FirmwareRegionLink] = []
-        ca = self.header.code_address
         for plan in self.plan.firmware_regions:
             start = round_up(cursor, TB_ALIGN)
             effective, guarded_fields = self._firmware_member_units(plan, by_uid)
-            descriptor_start = start
-            descriptor_count = 1 if plan.trusted else len(effective)
-            code_start = round_up(descriptor_start + descriptor_count * self.header.tb_size, 16)
-            # Keep every executable member span contiguous.  Recovery tables
-            # live after the complete code span and the v7 loader binds each
-            # private TB to its explicit search_offset.  Interleaving search
-            # bytes here would turn a legal fall-through into execution of
-            # metadata and would defeat the defining property of this pass.
-            tc_offsets: list[int] = []
-            at = code_start
-            for source in effective:
-                tc_offsets.append(at)
-                at += source.tc_size
-            search_offsets: list[int] = []
-            if plan.trusted:
-                search_offsets = [at] * len(effective)
+            refusal = None
+            if not plan.trusted:
+                members, end = self._layout_firmware_region(plan, effective, guarded_fields,
+                                                             start, by_uid, alias=False)
+            elif region_exits_chainable(plan, edited):
+                members, end = self._layout_firmware_region(plan, effective, guarded_fields,
+                                                             start, by_uid, alias=False)
+                problems = []
+                for i, m in enumerate(members):
+                    _, bad = residual_goto_tb_slots(
+                        records[m.source_uid], m.code, m.tc_offset,
+                        internal_fields=(field for _, field, _ in m.patched_edges),
+                        code_address=self.header.code_address)
+                    problems += [f"member {i}: {p}" for p in bad]
+                if problems:
+                    refusal = "residual_slot_shape: " + "; ".join(problems[:3])
             else:
-                for source in effective:
-                    search_offsets.append(at)
-                    at += len(source.search)
-            member_links: list[FirmwareMemberLink] = []
-            for i, (member, source) in enumerate(zip(plan.members, effective)):
-                fake_tb = tc_offsets[i] - (source.tc_offset - source.tb_offset)
-                relocated = relocate_unit(source, fake_tb)
-                code = bytearray(relocated.body[:source.tc_size])
-                member_tb = descriptor_start if plan.trusted else \
-                    descriptor_start + i * self.header.tb_size
-                retarget_private_descriptor_refs(
-                    code, source, tc_offset=tc_offsets[i],
-                    tb_offset=member_tb, code_address=ca)
-                # Plans name exits in the captured source. Guard growth adds exits and
-                # renumbers the fallback, so look up original IDs on that source.
-                exits = {x.id: x for x in unit_exits(by_uid[member.source_uid])}
-                patched: list[tuple[str, int, int]] = []
-                for edge in plan.edges:
-                    if edge.source_member != i or edge.target_member is None:
-                        continue
-                    exit_ = exits.get(edge.exit_id)
-                    field = guarded_fields.get((i, edge.exit_id))
-                    if field is None and edge.kind != "return" and exit_ is not None:
-                        field = exit_.insn_offset
-                    if field is None and plan.trusted and edge.kind != "return" and \
-                            exit_ is not None and exit_.kind.value == "goto_ptr":
-                        tails = [tail for tail in lookup_tails(source)
-                                 if tail.insn_idx == exit_.insn]
-                        if len(tails) == 1:
-                            tail = tails[0]
-                            code[tail.off:tail.end] = b"\xe9\0\0\0\0" + b"\x90" * 6
-                            field = tail.off + 1
-                    if field is None or field < 1 or field + 4 > len(code):
-                        raise LinkError("firmware_region_exit_shape",
-                                        f"{source.uid}/{edge.exit_id}: no rel32 field", source.uid)
-                    target = tc_offsets[edge.target_member] + (
-                        plan.trusted_entry_offset if plan.trusted else 0)
-                    disp = target - (tc_offsets[i] + field + 4)
-                    if not int32_ok(disp):
-                        raise LinkError(R.REL32_RANGE,
-                                        f"firmware edge {source.uid}+{field:#x}", source.uid)
-                    struct.pack_into("<i", code, field, disp)
-                    patched.append((edge.exit_id, field, edge.target_member))
-                member_links.append(FirmwareMemberLink(
-                    member.source_uid, member.inline_context,
-                    member_tb, tc_offsets[i], len(code), search_offsets[i],
-                    0 if plan.trusted else len(source.search),
-                    b"\0" * self.header.tb_size, bytes(code),
-                    b"" if plan.trusted else source.search,
-                    member.source_hash, source.vaddrs[0],
-                    tuple(patched), source))
-            end = at
+                refusal = "b3_edited_source"
+            if plan.trusted and refusal is not None:
+                members, end = self._layout_firmware_region(plan, effective, guarded_fields,
+                                                            start, by_uid, alias=True)
             linked.append(FirmwareRegionLink(
                 plan.region_id, plan.callsite.callsite_id, plan.entry_member,
-                tuple(member_links), plan.source_uids, start, end,
-                plan.trusted, plan.trusted_entry_offset))
+                members, plan.source_uids, start, end,
+                plan.trusted, plan.trusted_entry_offset,
+                member_descriptors=plan.trusted and refusal is None,
+                member_descriptor_refusal=refusal))
             cursor = end
         return tuple(linked), cursor
+
+    def _layout_firmware_region(self, plan: Any, effective: Sequence[TBUnit],
+                                guarded_fields: Mapping[tuple[int, str], int], start: int,
+                                by_uid: Mapping[str, TBUnit], *, alias: bool
+                                ) -> tuple[tuple[FirmwareMemberLink, ...], int]:
+        """Place one region; ``alias`` selects the legacy shared trusted descriptor."""
+        from .formats.region_v1 import unit_exits
+
+        ca = self.header.code_address
+        member_descriptors = plan.trusted and not alias
+        descriptor_start = start
+        descriptor_count = 1 if alias else len(effective)
+        code_start = round_up(descriptor_start + descriptor_count * self.header.tb_size, 16)
+        # Keep every executable member span contiguous.  Recovery tables
+        # live after the complete code span and the v7 loader binds each
+        # private TB to its explicit search_offset.  Interleaving search
+        # bytes here would turn a legal fall-through into execution of
+        # metadata and would defeat the defining property of this pass.
+        # Member descriptors only pad each member to MEMBER_CODE_ALIGN; the
+        # writer fills the padding with NOPs.
+        tc_offsets: list[int] = []
+        at = code_start
+        for source in effective:
+            if member_descriptors:
+                at = round_up(at, MEMBER_CODE_ALIGN)
+            tc_offsets.append(at)
+            at += source.tc_size
+        search_offsets: list[int] = []
+        if plan.trusted:
+            search_offsets = [at] * len(effective)
+        else:
+            for source in effective:
+                search_offsets.append(at)
+                at += len(source.search)
+        member_links: list[FirmwareMemberLink] = []
+        for i, (member, source) in enumerate(zip(plan.members, effective)):
+            fake_tb = tc_offsets[i] - (source.tc_offset - source.tb_offset)
+            relocated = relocate_unit(source, fake_tb)
+            code = bytearray(relocated.body[:source.tc_size])
+            member_tb = descriptor_start if alias else \
+                descriptor_start + i * self.header.tb_size
+            retarget_private_descriptor_refs(
+                code, source, tc_offset=tc_offsets[i],
+                tb_offset=member_tb, code_address=ca)
+            # Plans name exits in the captured source. Guard growth adds exits and
+            # renumbers the fallback, so look up original IDs on that source.
+            exits = {x.id: x for x in unit_exits(by_uid[member.source_uid])}
+            patched: list[tuple[str, int, int]] = []
+            for edge in plan.edges:
+                if edge.source_member != i or edge.target_member is None:
+                    continue
+                exit_ = exits.get(edge.exit_id)
+                field = guarded_fields.get((i, edge.exit_id))
+                if field is None and edge.kind != "return" and exit_ is not None:
+                    field = exit_.insn_offset
+                if field is None and plan.trusted and edge.kind != "return" and \
+                        exit_ is not None and exit_.kind.value == "goto_ptr":
+                    tails = [tail for tail in lookup_tails(source)
+                             if tail.insn_idx == exit_.insn]
+                    if len(tails) == 1:
+                        tail = tails[0]
+                        code[tail.off:tail.end] = b"\xe9\0\0\0\0" + b"\x90" * 6
+                        field = tail.off + 1
+                if field is None or field < 1 or field + 4 > len(code):
+                    raise LinkError("firmware_region_exit_shape",
+                                    f"{source.uid}/{edge.exit_id}: no rel32 field", source.uid)
+                target = tc_offsets[edge.target_member] + (
+                    plan.trusted_entry_offset if plan.trusted else 0)
+                disp = target - (tc_offsets[i] + field + 4)
+                if not int32_ok(disp):
+                    raise LinkError(R.REL32_RANGE,
+                                    f"firmware edge {source.uid}+{field:#x}", source.uid)
+                struct.pack_into("<i", code, field, disp)
+                patched.append((edge.exit_id, field, edge.target_member))
+            member_links.append(FirmwareMemberLink(
+                member.source_uid, member.inline_context,
+                member_tb, tc_offsets[i], len(code), search_offsets[i],
+                0 if plan.trusted else len(source.search),
+                b"\0" * self.header.tb_size, bytes(code),
+                b"" if plan.trusted else source.search,
+                member.source_hash, source.vaddrs[0],
+                tuple(patched), source))
+        return tuple(member_links), at
 
     def effective_units(self, units: Iterable[TBUnit]) -> tuple[dict[str, TBUnit],
                                                                 dict[str, GrownUnit]]:
@@ -1808,7 +1929,8 @@ class NativeLinkerV2:
         firmware_links: tuple[FirmwareRegionLink, ...] = ()
         if plan.firmware_regions:
             try:
-                firmware_links, cursor = self._link_firmware_regions(cursor, by_uid)
+                firmware_links, cursor = self._link_firmware_regions(
+                    cursor, by_uid, {lu.uid: lu.record for lu in links})
             except LinkError as e:
                 return self._fail(e.uid or "", e.reason, e.detail)
             from .formats.sc_v7 import directory_size

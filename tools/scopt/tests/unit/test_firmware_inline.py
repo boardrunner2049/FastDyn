@@ -277,7 +277,7 @@ def test_v7_export_and_reimport_directory(tmp_path):
         "descriptor_offset": start, "tc_offset": tc, "tc_size": source.tc_size,
         "search_start": tc + source.tc_size,
         "search_end": region.end_offset,
-        "trusted": False, "member_recovery": True,
+        "trusted": False, "member_recovery": True, "member_descriptors": False,
     }
 
 
@@ -358,7 +358,8 @@ def test_v7_trusted_uses_one_descriptor_no_search_and_skip_poll_edges(tmp_path):
     assert decoded["regions"][0]["composite"] == {
         "descriptor_offset": start, "tc_offset": tc0,
         "tc_size": len(code0) + len(code1), "search_start": end,
-        "search_end": end, "trusted": True, "member_recovery": False}
+        "search_end": end, "trusted": True, "member_recovery": False,
+        "member_descriptors": False}
     assert {m["tb_offset"] for m in decoded["members"]} == {start}
     assert {m["search_offset"] for m in decoded["members"]} == {end}
     assert decoded["edges"][0]["flags"] == 1
@@ -521,3 +522,384 @@ def test_v7_loader_capability_is_explicit_and_distinct_from_v6(monkeypatch):
     assert not trusted_v7_capable_exes()
     monkeypatch.setenv("SCOPT_V7_TRUSTED_EXES", "ff" * 32)
     assert trusted_v7_capable_exes() == frozenset({"ff" * 32})
+
+
+# -- trusted member descriptors (chainable residual exits) -----------------
+
+_TRUSTED_PREFIX = bytes.fromhex("8b5df885db0f8c00000000c645fc00")
+
+
+def _trusted_member_unit(snapshot, call, *, slot=20):
+    """The caller rebuilt as a trusted-entry TB with one residual goto_tb slot.
+
+    ``e9`` at ``slot - 1``, the zero rel32 at ``slot`` (4-aligned when ``slot``
+    is), its reset path at ``slot + 4``: ``movabs rax, descriptor|0; ret``.
+    """
+    import struct
+
+    from scopt.formats.sc_v5 import ScRecord
+    from scopt.model.unit import Site
+
+    original = snapshot.unit(call.source_uid)
+    code = (_TRUSTED_PREFIX + b"\x90" * (slot - 1 - len(_TRUSTED_PREFIX)) + b"\xe9\0\0\0\0" +
+            bytes.fromhex("48b8") + struct.pack("<Q", 0) + b"\xc3")
+    sites = (Site(slot, slot - 1, 4, Encoding.REL32, SiteKind.GOTO_TB, 0, 0, 0, 0),
+             Site(slot + 6, slot + 4, 8, Encoding.IMM64, SiteKind.MOVI_EXIT_TB_PTR, 0, 0, 0, 0))
+    end = original.tc_offset + len(code) + len(original.search)
+    record = ScRecord.from_bytes(original.record).replace(
+        tc_size=len(code), end_offset=end,
+        jmp_insn_offset=(slot, 0xFFFF), jmp_reset_offset=(slot + 4, 0xFFFF))
+    return replace(original, code=code, tc_size=len(code), end_offset=end, insn0_start=15,
+                   sites=sites, record=record.to_bytes(fix_checksum=True))
+
+
+def _trusted_two_member_region(snapshot, call, unit):
+    from scopt.model.firmware_region import FirmwareRegionMember
+
+    members = (FirmwareRegionMember(unit.uid, unit.content_hash, unit.key, (), "caller"),
+               FirmwareRegionMember(unit.uid, unit.content_hash, unit.key, ("c",), "callee"))
+    return SimpleNamespace(members=members, trusted=True, edges=(), region_id="sha256:" + "e" * 64,
+                           callsite=call, entry_member=0, source_uids=(unit.uid,),
+                           trusted_entry_offset=15)
+
+
+def _link_trusted(snapshot, region, unit, plan_fields=None, out_records=None):
+    from scopt.link import B3Plan, NativeLinkerV2
+
+    plan = B3Plan(firmware_regions=(region,), **(plan_fields or {}))
+    linker = NativeLinkerV2(snapshot, plan, tb_ret_abs=snapshot.header.code_address + 24)
+    (linked,), end = linker._link_firmware_regions(0x4000, {unit.uid: unit}, out_records)
+    return linked, end
+
+
+def test_trusted_region_links_one_descriptor_per_member():
+    from scopt.link import region_exits_chainable, residual_goto_tb_slots
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    region = _trusted_two_member_region(snapshot, call, unit)
+    assert region_exits_chainable(region)
+    assert not region_exits_chainable(SimpleNamespace(trusted=False, members=region.members))
+    assert not region_exits_chainable(region, {unit.uid})
+    linked, end = _link_trusted(snapshot, region, unit)
+    tb_size = snapshot.header.tb_size
+    ca = snapshot.header.code_address
+    assert linked.member_descriptors and linked.member_descriptor_refusal is None
+    first, second = linked.members
+    assert (first.tb_offset, second.tb_offset) == (0x4000, 0x4000 + tb_size)
+    assert first.tc_offset == round_up(0x4000 + 2 * tb_size, 16)
+    assert second.tc_offset == round_up(first.tc_offset + first.tc_size, 16)
+    assert second.tc_offset > first.tc_offset + first.tc_size          # padded
+    assert end == second.tc_offset + second.tc_size
+    # Each member's exit_tb result names its own descriptor, exit index kept.
+    for member in linked.members:
+        assert int.from_bytes(member.code[26:34], "little") == ca + member.tb_offset
+        assert residual_goto_tb_slots(unit.record, member.code, member.tc_offset,
+                                      code_address=ca) == (1, [])
+
+
+@pytest.mark.parametrize("case", ["b3_edited", "misaligned", "output_record"])
+def test_trusted_region_falls_back_to_shared_descriptor(case):
+    from scopt.formats.sc_v5 import ScRecord
+    from scopt.link import b3_edited_uids
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call, slot=21 if case == "misaligned" else 20)
+    region = _trusted_two_member_region(snapshot, call, unit)
+    plan_fields, out_records = None, None
+    if case == "b3_edited":
+        plan_fields = {"rewrites": {unit.uid: ()}}
+    elif case == "output_record":
+        # QEMU arms slots from the OUTPUT record: one naming a non-goto_tb
+        # field cannot get member descriptors.
+        rec = ScRecord.from_bytes(unit.record).replace(
+            jmp_insn_offset=(16, 0xFFFF), jmp_reset_offset=(20, 0xFFFF))
+        out_records = {unit.uid: rec.to_bytes(fix_checksum=True)}
+    linked, _ = _link_trusted(snapshot, region, unit, plan_fields, out_records)
+    assert not linked.member_descriptors
+    assert linked.member_descriptor_refusal.startswith(
+        "b3_edited_source" if case == "b3_edited" else "residual_slot_shape")
+    assert {m.tb_offset for m in linked.members} == {0x4000}
+    first, second = linked.members
+    assert second.tc_offset == first.tc_offset + first.tc_size        # legacy: contiguous
+    for member in linked.members:
+        assert int.from_bytes(member.code[26 + (case == "misaligned"):
+                                          34 + (case == "misaligned")], "little") == \
+            snapshot.header.code_address + 0x4000
+    assert b3_edited_uids(SimpleNamespace(grow={"g": ()}, rewrites={"r": ()},
+                                          variants=(SimpleNamespace(src_uid="v"),))) == \
+        {"g", "r", "v"}
+
+
+def _write_trusted_md(tmp_path, snapshot, call, unit, linked, name="md.sc"):
+    public = relocate_unit(unit, unit.tb_offset)
+    link = SimpleNamespace(units=(public,), firmware_regions=(linked,),
+                           firmware_table_offset=round_up(linked.end_offset, 8))
+    link.firmware_table_size = directory_size(link.firmware_regions)
+    path = tmp_path / name
+    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
+    return path, link
+
+
+def test_v7_trusted_member_descriptors_layout(tmp_path):
+    from scopt.formats.layouts import SC_CODE_OFFSET
+    from scopt.formats.sc_v7 import SC7_REGION_MEMBER_DESCRIPTORS
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    linked, _ = _link_trusted(snapshot, _trusted_two_member_region(snapshot, call, unit), unit)
+    path, link = _write_trusted_md(tmp_path, snapshot, call, unit, linked)
+    directory = read_sc7(path)
+    decoded = decode_directory(directory)
+    region = decoded["regions"][0]
+    assert SC7_REGION_MEMBER_DESCRIPTORS == 4
+    assert directory.trusted and region["flags"] == 7
+    first, second = linked.members
+    assert region["composite"]["member_descriptors"] is True
+    assert region["composite"]["tc_size"] == second.tc_offset + second.tc_size - first.tc_offset
+    assert [m["tb_offset"] for m in decoded["members"]] == [first.tb_offset, second.tb_offset]
+    gap_at = first.tc_offset + first.tc_size
+    with path.open("rb") as stream:
+        stream.seek(SC_CODE_OFFSET + gap_at)
+        assert stream.read(second.tc_offset - gap_at) == b"\x90" * (second.tc_offset - gap_at)
+        stream.seek(SC_CODE_OFFSET + second.tb_offset)
+        assert stream.read(snapshot.header.tb_size) == b"\0" * snapshot.header.tb_size
+    # The legacy alias layout of the same region still reads (flags 3).
+    legacy, _ = _link_trusted(snapshot, _trusted_two_member_region(snapshot, call, unit), unit,
+                              {"rewrites": {unit.uid: ()}})
+    legacy_path, _ = _write_trusted_md(tmp_path, snapshot, call, unit, legacy, "legacy.sc")
+    assert decode_directory(read_sc7(legacy_path))["regions"][0]["flags"] == 3
+
+
+@pytest.mark.parametrize(("where", "data", "needle"), [
+    ("rel32", b"\x01\0\0\0", "residual exit"),
+    ("opcode", b"\x90", "residual exit"),
+    ("padding", b"\xcc", "padding is not NOPs"),
+])
+def test_v7_reader_rejects_member_descriptor_mutants(tmp_path, where, data, needle):
+    from scopt.formats.layouts import SC_CODE_OFFSET
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    linked, _ = _link_trusted(snapshot, _trusted_two_member_region(snapshot, call, unit), unit)
+    second = linked.members[1]
+    if where == "padding":
+        # Padding is outside every member hash; only the reader's check sees it.
+        path, _ = _write_trusted_md(tmp_path, snapshot, call, unit, linked)
+        with path.open("r+b") as stream:
+            stream.seek(SC_CODE_OFFSET + second.tc_offset - 1)
+            stream.write(data)
+    else:
+        # A member whose directory hash covers the mutated code: only the
+        # residual-slot check (QEMU's load-time check) can refuse it.
+        at = 20 if where == "rel32" else 19
+        code = bytearray(second.code)
+        code[at:at + len(data)] = data
+        broken = replace(linked, members=(linked.members[0],
+                                          replace(second, code=bytes(code))))
+        public = relocate_unit(unit, unit.tb_offset)
+        link = SimpleNamespace(units=(public,), firmware_regions=(broken,),
+                               firmware_table_offset=round_up(broken.end_offset, 8))
+        link.firmware_table_size = directory_size(link.firmware_regions)
+        path = tmp_path / "mutant.sc"
+        write_sc7(path, snapshot.header, ((public.record, public.body),), link, check=False)
+    with pytest.raises(ScFormatError, match=needle):
+        read_sc7(path)
+
+
+def test_v7_member_descriptors_need_trusted_contiguous_descriptors(tmp_path):
+    from scopt.canon import fnv1a64
+    from scopt.formats.layouts import SC_CODE_OFFSET
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    linked, _ = _link_trusted(snapshot, _trusted_two_member_region(snapshot, call, unit), unit)
+    public = relocate_unit(unit, unit.tb_offset)
+
+    def build(region):
+        link = SimpleNamespace(units=(public,), firmware_regions=(region,),
+                               firmware_table_offset=round_up(region.end_offset, 8),
+                               firmware_table_size=directory_size((region,)))
+        return build_directory(link, {unit.uid: unit.tb_offset})
+
+    build(linked)
+    first, second = linked.members
+    with pytest.raises(ScFormatError, match="trusted-region layout"):
+        build(replace(linked, trusted=False))
+    with pytest.raises(ScFormatError, match="descriptors are not contiguous"):
+        build(replace(linked, members=(first, replace(second, tb_offset=first.tb_offset))))
+    with pytest.raises(ScFormatError, match="code is not contiguous"):
+        build(replace(linked, members=(first, replace(
+            second, tc_offset=first.tc_offset + first.tc_size))))
+    # A safe (version 2) directory never accepts the flag.
+    path, _ = _write_trusted_md(tmp_path, snapshot, call, unit, linked)
+    from scopt.formats.sc_v7 import SC7_OFFSET, _HEADER
+
+    with path.open("r+b") as stream:
+        stream.seek(SC7_OFFSET)
+        raw = bytearray(stream.read(_HEADER.size))
+        fields = list(_HEADER.unpack(bytes(raw)))
+        fields[1] = 2                                    # safe directory version
+        off, size = fields[7], fields[8]
+        stream.seek(SC_CODE_OFFSET + off)
+        table = stream.read(size)
+        prefix = _HEADER.pack(*fields)
+        fields[11] = fnv1a64(table, fnv1a64(prefix[:64]))
+        stream.seek(SC7_OFFSET)
+        stream.write(_HEADER.pack(*fields))
+    with pytest.raises(ScFormatError, match="region 0: invalid bounds"):
+        read_sc7(path)
+
+
+def test_residual_goto_tb_slots_mirrors_qemu_load_check():
+    from scopt.formats.sc_v5 import ScRecord
+    from scopt.link import residual_goto_tb_slots
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    code = bytearray(unit.code)
+    ca = snapshot.header.code_address
+    assert residual_goto_tb_slots(unit.record, bytes(code), 0x1000, code_address=ca) == (1, [])
+    # An admitted internal edge owns the slot: excluded, even when patched.
+    code[20:24] = b"\x10\0\0\0"
+    assert residual_goto_tb_slots(unit.record, bytes(code), 0x1000, code_address=ca,
+                                  internal_fields=(20,)) == (0, [])
+    count, problems = residual_goto_tb_slots(unit.record, bytes(code), 0x1000, code_address=ca)
+    assert count == 0 and "not a reset goto_tb" in problems[0]
+    code = bytearray(unit.code)
+    code[19] = 0x90
+    assert "not a reset goto_tb" in residual_goto_tb_slots(
+        unit.record, bytes(code), 0x1000, code_address=ca)[1][0]
+    assert "aligned" in residual_goto_tb_slots(
+        unit.record, unit.code, 0x1001, code_address=ca)[1][0]
+    bad_reset = ScRecord.from_bytes(unit.record).replace(jmp_reset_offset=(25, 0xFFFF))
+    assert "offsets" in residual_goto_tb_slots(bad_reset, unit.code, 0x1000)[1][0]
+    in_prefix = ScRecord.from_bytes(unit.record).replace(jmp_insn_offset=(12, 0xFFFF),
+                                                        jmp_reset_offset=(16, 0xFFFF))
+    assert "offsets" in residual_goto_tb_slots(in_prefix, unit.code, 0x1000)[1][0]
+
+
+def test_validate_v4_checks_residual_exit_slots_on_output_records(tmp_path):
+    from scopt.validate import validate_firmware_v7
+
+    snapshot, image = _snapshot()
+    call, = discover_firmware_calls(snapshot, image).calls
+    unit = _trusted_member_unit(snapshot, call)
+    linked, _ = _link_trusted(snapshot, _trusted_two_member_region(snapshot, call, unit), unit)
+    path, link = _write_trusted_md(tmp_path, snapshot, call, unit, linked)
+    (tmp_path / "cache.sc").write_bytes(path.read_bytes())
+    snapshot.run_info = SimpleNamespace(flags=0)
+    snapshot.runtime = None
+
+    def row(link):
+        v, _ = validate_firmware_v7(snapshot, link, tmp_path, skip_reimport=True)
+        found, = [r for r in v.rows if r["check"] == "residual_exit_slots"]
+        contract, = [r for r in v.rows if r["check"] == "firmware_region_contract"]
+        return found, contract
+
+    found, contract = row(link)
+    assert found["result"] == "pass" and found["detail"].startswith(
+        "2 chainable residual goto_tb slots in 1 member-descriptor regions")
+    assert contract["result"] == "pass"
+    second = linked.members[1]
+    code = bytearray(second.code)
+    code[20:24] = b"\x01\0\0\0"
+    broken = replace(linked, members=(linked.members[0], replace(second, code=bytes(code))))
+    found, contract = row(SimpleNamespace(**{**vars(link), "firmware_regions": (broken,)}))
+    assert found["result"] == "fail" and "region 0 member 1" in found["detail"]
+    assert contract["result"] == "fail"
+
+
+def _continuation_exit_snapshot():
+    key = TBKey(0x1000, None, 0x110, 0x800400, 0xff020000)
+    call = bytes.fromhex("00f07ef8")
+
+    def goto(dest):
+        return {"sites": (ScmSite(1, 0, 4, Encoding.REL32, SiteKind.GOTO_TB, 0, 0, 0, 0),),
+                "static_exits": (ScmStaticExit(0, 1, 0, dest),)}
+
+    units = [
+        SynthUnit(key, 0x100, b"\xe9\0\0\0\0", guest_bytes=call, vaddr=0x1000,
+                  jmp_reset_offset=(5, 0xffff), jmp_insn_offset=(1, 0xffff), meta=goto(0x1100)),
+        SynthUnit(key, 0x200, b"\xe9\0\0\0\0", guest_bytes=b"\x00\xbf", vaddr=0x1004,
+                  jmp_reset_offset=(5, 0xffff), jmp_insn_offset=(1, 0xffff), meta=goto(0x1006)),
+        SynthUnit(key, 0x300, b"\xff\xe0", guest_bytes=b"\x70\x47", vaddr=0x1100,
+                  meta={"sites": (ScmSite(0, 0, 0, Encoding.NONE, SiteKind.GOTO_PTR,
+                                          0, 0, 0, 0),)}),
+    ]
+    snapshot = fake_snapshot(units)
+    snapshot._units = tuple(replace(u, origin="elf_verified") for u in snapshot.units())
+    snapshot._by_uid = {u.uid: u for u in snapshot._units}
+    image_bytes = bytearray(0x102)
+    image_bytes[0:4] = call
+    image_bytes[4:6] = b"\x00\xbf"
+    image_bytes[0x100:0x102] = b"\x70\x47"
+    image = GuestImage("synthetic", "sha256:" + "1" * 64,
+                       ((0x1000, bytes(image_bytes)),), ((0x1000, 0x1102),), (), ())
+    return snapshot, image
+
+
+def test_receipt_reports_root_member_exits_without_changing_the_region(monkeypatch):
+    import scopt.passes.firmware_inline as FI
+    from scopt.guard import GuardOffsets
+
+    snapshot, image = _continuation_exit_snapshot()
+    calls = discover_firmware_calls(snapshot, image)
+    call, = calls.calls
+    plan = build_firmware_region(snapshot, image, calls, call)
+    edges_before = plan.edges
+    emitted = []
+    ctx = SimpleNamespace(b3=SimpleNamespace(snapshot=snapshot, layout_bound=True,
+                                             offsets=GuardOffsets()),
+                          params={"mode": "exhaustive"}, snapshot_id="sid", bundle=None,
+                          analysis=lambda name, sid: SimpleNamespace(value=calls),
+                          budget=lambda: None)
+    monkeypatch.setattr(FI, "guest_image_for", lambda snap, bundle: image)
+    result = FI.FirmwareInline().run(None, ctx, SimpleNamespace(
+        emit_firmware_region=emitted.append))
+    receipt = json.loads(result.detail)
+    emitted_plan, = emitted
+    # Receipt-only rows: the emitted plan, its edges and region_id are unchanged.
+    assert emitted_plan.edges == edges_before
+    assert emitted_plan.region_id == plan.region_id
+    row, = [r for r in receipt["residual"] if r["reason"] == "continuation_exit"]
+    assert row == {"callsite_id": call.callsite_id, "source_member": 2,
+                   "source_role": "continuation", "exit_id": "x0", "guest_target": 0x1006,
+                   "reason": "continuation_exit", "exit_kind": "goto_tb",
+                   "patchable_rel32": True}
+    assert result.stats["residual_boundary_exits"] == 1.0
+    assert receipt["embedded"][0]["residual_exits_chainable"] is False   # safe region
+    keys = [(r["source_member"], r["exit_id"]) for r in receipt["residual"]]
+    assert len(keys) == len(set(keys))
+
+
+def test_boundary_exits_cover_caller_and_unvisited_root_continuation():
+    from scopt.passes.firmware_inline import boundary_residual_exits
+
+    def member(role, context=()):
+        return SimpleNamespace(source_uid=role, role=role, inline_context=context)
+
+    def exit_(id_):
+        return SimpleNamespace(id=id_)
+
+    plan = SimpleNamespace(
+        entry_member=0,
+        members=(member("caller"), member("callee", ("c",)), member("continuation"),
+                 member("continuation", ("c",))),
+        edges=(SimpleNamespace(source_member=0, exit_id="x1"),
+               SimpleNamespace(source_member=1, exit_id="x0")))
+    exits = {"caller": (exit_("x0"), exit_("x1")), "continuation": (exit_("x0"),)}
+    rows = boundary_residual_exits(plan, lambda uid: exits.get(uid, ()))
+    assert [(i, x.id, reason) for i, x, reason in rows] == [
+        (0, "x0", "caller_exit"), (2, "x0", "continuation_exit")]
+    # A root continuation with recorded edges was expanded: no boundary rows.
+    visited = SimpleNamespace(**{**vars(plan), "edges": plan.edges + (
+        SimpleNamespace(source_member=2, exit_id="x9"),)})
+    assert [(i, x.id) for i, x, _ in boundary_residual_exits(
+        visited, lambda uid: exits.get(uid, ()))] == [(0, "x0")]

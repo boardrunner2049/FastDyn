@@ -20,10 +20,41 @@ from ..analysis.firmware_calls import discover_firmware_calls, firmware_compatib
 from ..analysis.firmware_regions import build_firmware_region
 from ..analysis.helper_hot_loop import exact_loop_profile
 from ..analysis.firmware_whopr import balanced_partitions, summarize_firmware
+from ..formats.region_v1 import unit_exits
+from ..link import region_exits_chainable
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
 from .firmware_policy import PolicyError, PolicyInput, firmware_policy, resolve_selection
 
-__all__ = ["FirmwareInline", "PASSES"]
+__all__ = ["FirmwareInline", "PASSES", "boundary_residual_exits"]
+
+#: Receipt reasons for exits of the two root members that the region never
+#: expands: every exit of the caller except the root call, and every exit of
+#: the root continuation.  Both members are region code, so these exits leave
+#: the region (and the trusted runtime may chain them), but build_firmware_
+#: region never visits them and so records no edge for them.
+BOUNDARY_REASONS = ("caller_exit", "continuation_exit")
+
+
+def boundary_residual_exits(plan: Any, exits_of: Any) -> list[tuple[int, Any, str]]:
+    """``(member index, Exit, reason)`` for the never-expanded root members.
+
+    Computed from ``plan.members`` and ``exits_of(uid)`` (the unit's
+    :func:`unit_exits`) without touching ``plan.edges``, so ``region_id``
+    and the artifact are unchanged.  Exits that already have an edge (the
+    root call) are skipped; a continuation that was visited is skipped.
+    """
+    edged = {(edge.source_member, edge.exit_id) for edge in plan.edges}
+    sources = {edge.source_member for edge in plan.edges}
+    boundary: list[tuple[int, str]] = [(plan.entry_member, "caller_exit")]
+    boundary += [(i, "continuation_exit") for i, member in enumerate(plan.members)
+                 if member.role == "continuation" and not member.inline_context
+                 and i not in sources]
+    out: list[tuple[int, Any, str]] = []
+    for index, reason in boundary:
+        for exit_ in exits_of(plan.members[index].source_uid):
+            if (index, exit_.id) not in edged:
+                out.append((index, exit_, reason))
+    return out
 
 
 class FirmwareInline:
@@ -155,6 +186,18 @@ class FirmwareInline:
         for row in pending:
             refused[str(row.get("reason", "incomplete"))] += 1
         max_depth = 0
+        exit_cache: dict[str, tuple[Any, ...]] = {}
+
+        def exits_of(uid: str) -> tuple[Any, ...]:
+            if uid not in exit_cache:
+                exit_cache[uid] = unit_exits(ctx.b3.snapshot.unit(uid))
+            return exit_cache[uid]
+
+        def exit_fields(uid: str, exit_id: str) -> dict[str, Any]:
+            exit_ = next((x for x in exits_of(uid) if x.id == exit_id), None)
+            return {"exit_kind": None if exit_ is None else exit_.kind.value,
+                    "patchable_rel32": exit_ is not None and exit_.insn_offset is not None
+                    and exit_.reset_offset is not None}
         for _call in planned_calls:
             ctx.budget()
         if planned_calls:
@@ -251,13 +294,29 @@ class FirmwareInline:
                                                             edge.target_member is not None
                                                             for edge in plan.edges),
                              "trusted": plan.trusted,
-                             "trusted_entry_offset": plan.trusted_entry_offset})
+                             "trusted_entry_offset": plan.trusted_entry_offset,
+                             # Plan-level: firmware-inline is the terminal
+                             # stage, so no source is B3-edited.  The linker
+                             # may still keep the shared descriptor
+                             # (link firmware_regions member_descriptor_refusal).
+                             "residual_exits_chainable": region_exits_chainable(plan)})
             residual.extend({"callsite_id": call.callsite_id,
                              "source_member": edge.source_member,
+                             "source_role": plan.members[edge.source_member].role,
                              "exit_id": edge.exit_id,
                              "guest_target": edge.guest_target,
-                             "reason": edge.refusal_reason}
+                             "reason": edge.refusal_reason,
+                             **exit_fields(plan.members[edge.source_member].source_uid,
+                                           edge.exit_id)}
                             for edge in plan.edges if edge.target_member is None)
+            residual.extend({"callsite_id": call.callsite_id,
+                             "source_member": index,
+                             "source_role": plan.members[index].role,
+                             "exit_id": exit_.id,
+                             "guest_target": exit_.static_dest_vaddr,
+                             "reason": reason,
+                             **exit_fields(plan.members[index].source_uid, exit_.id)}
+                            for index, exit_, reason in boundary_residual_exits(plan, exits_of))
             for member in plan.members:
                 source_identities.setdefault(member.source_uid, {
                     "source_uid": member.source_uid,
@@ -274,6 +333,8 @@ class FirmwareInline:
                  "private_guarded_returns": float(sum(row["private_guarded_returns"]
                                                       for row in embedded)),
                  "whopr_partitions": float(len(partition_rows)),
+                 "residual_boundary_exits": float(sum(row.get("reason") in BOUNDARY_REASONS
+                                                      for row in residual)),
                  **{f"refused:{k}": float(v) for k, v in sorted(refused.items())}}
         receipt = {"discovered": [call.to_json() for call in discovered.calls],
                    "embedded": embedded, "residual": residual,

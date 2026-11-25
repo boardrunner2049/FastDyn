@@ -1964,11 +1964,44 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
     v.add("V4", "internal_edges", not bad_edges,
           f"{directory.n_edges} internal transfers target private members"
           if not bad_edges else _few(bad_edges))
+    shared = sum(1 for r in link.firmware_regions
+                 if r.trusted and not getattr(r, "member_descriptors", False))
     v.add("V4", "private_descriptor_refs", not bad_descriptors,
-          ("every EXIT_TB result names the shared descriptor with its original exit index"
-           if trusted else
+          ("every EXIT_TB result names its own member descriptor with its original "
+           "exit index" if trusted and not shared else
+           "every EXIT_TB result names the region's shared descriptor (legacy layout) or "
+           "its own member descriptor, with its original exit index" if trusted else
            "every EXIT_TB result names its actual private member descriptor")
           if not bad_descriptors else _few(bad_descriptors))
+    # QEMU arms each residual goto_tb slot of a member descriptor from the
+    # member source's OUTPUT record and dies at load unless the copied slot is
+    # a reset, 4-byte aligned goto_tb.  Mirror that check here.
+    from .link import residual_goto_tb_slots
+
+    out_records = {u.uid: u.record for u in link.units}
+    bad_slots: list[str] = []
+    chainable_slots = 0
+    md_regions = 0
+    for ri, region in enumerate(link.firmware_regions):
+        if not getattr(region, "member_descriptors", False):
+            continue
+        md_regions += 1
+        for mi, member in enumerate(region.members):
+            record = out_records.get(member.source_uid)
+            if record is None:
+                bad_slots.append(f"region {ri} member {mi}: no output record")
+                continue
+            count, problems = residual_goto_tb_slots(
+                record, member.code, member.tc_offset,
+                internal_fields=(field for _, field, _ in member.patched_edges),
+                code_address=snapshot.header.code_address)
+            chainable_slots += count
+            bad_slots += [f"region {ri} member {mi} ({member.source_uid}): {p}"
+                          for p in problems]
+    v.add("V4", "residual_exit_slots", not bad_slots,
+          (f"{chainable_slots} chainable residual goto_tb slots in {md_regions} "
+           f"member-descriptor regions" if trusted else "no trusted regions")
+          if not bad_slots else _few(bad_slots))
     by_uid = {u.uid: u for u in snapshot.units()}
     bad_origin = [m.source_uid for m in linked_members
                   if m.source_uid not in by_uid or
@@ -2062,7 +2095,8 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
     else:
         v.add("V8", "reimport", None, "explicitly skipped")
     v.add("V24", "firmware_region_contract",
-          not bad_edges and not bad_descriptors and not bad_origin and not bad_recovery,
+          not bad_edges and not bad_descriptors and not bad_origin and not bad_recovery
+          and not bad_slots,
           "copied members, guarded fallbacks, internal targets and recovery validated")
     return v, result
 

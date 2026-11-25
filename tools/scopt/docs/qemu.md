@@ -215,8 +215,27 @@ dispatcher:
   trusted region descriptor.
 - `benchmark_*`: the same counters, restricted to the restore benchmark window.
 
-`trusted_tb_calls` counts trusted-membership lookups, not region exits. In
-trusted mode it equals `loop_returns_nonnull + trusted_tb_chain_probes`.
+`"counters_revision": 3` (QEMU with chainable trusted residual exits) adds:
+
+- `trusted_residual_exits_chainable` / `trusted_residual_exits_unchainable`: the
+  split of `trusted_residual_exits` by whether the exit left through an armed
+  residual goto_tb slot of a per-member descriptor. Once a slot is chained it no
+  longer returns to the dispatcher, so in the chaining arm these count first uses
+  and re-chains rather than traffic.
+- `trusted_residual_slots_armed`: slots armed when trusted regions were (re)built;
+  0 for legacy shared-descriptor caches, `no-trusted-exit-chain` and
+  `QEMU_SC_SEALED_SKIP_IRQ`.
+- `chain_allowed_trusted_source`, `chain_skipped_trusted_to_trusted`: chains from a
+  trusted source to an ordinary TB, and refusals because the destination is a
+  trusted region entry. Every chain attempt now probes both ends, so
+  `trusted_tb_chain_probes == 2 * (chain_attempts - chain_skipped_global)`.
+
+The experiment object gains `no_trusted_exit_chain`
+(`QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain`).
+
+`trusted_tb_calls` counts trusted-membership lookups (non-null dispatcher
+returns plus chain probes), not region exits. In trusted mode it equals
+`loop_returns_nonnull + trusted_tb_chain_probes`.
 `scopt.run.v7_stats` holds these definitions. `counter_problems` checks the
 invariants, and `scopt rundir launch --v7-stats` and the firmware-inline
 ablation diagnostics report or reject any violation. For older files without
