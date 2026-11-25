@@ -4,15 +4,18 @@ python trusted_exit_chain.py path/to/compiled/launch.json fresh/output/dir
 
 The launch must select a trusted firmware-region artifact written with per-
 member descriptors (region flag SC7_REGION_MEMBER_DESCRIPTORS, for example a
-rebuilt packet config 7).  Each arm runs on a private copy of the same cache
-bytes:
+rebuilt packet config 7, or a composed c7b3 whose members carry skip flags).
+Each arm runs on a private copy of the same cache bytes:
 
 ``chain``      default: residual goto_tb exits are armed and chained.
 ``unchained``  QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain (old behaviour).
 ``skip-irq``   QEMU_SC_SEALED_SKIP_IRQ=1: trusted sources never chain.
 ``corrupt``    one residual rel32 made nonzero: QEMU must refuse to load.
 
-The first three must print the same guest output.  Writes
+The first three must print the same guest output.  Flagged (B3-registered)
+member slots are never armed: with member skip flags the ``chain`` arm's
+``trusted_residual_slots_skipped`` equals the flags' static sum over the
+regions it built, and the other arms arm and skip nothing.  Writes
 OUT/trusted-exit-chain.json with the per-arm counter summaries.
 """
 
@@ -36,16 +39,17 @@ ARMS = (("chain", {}),
 
 
 def residual_slots(cache):
-    """(member index, absolute field offset in the file) of every residual slot."""
+    """(member index, absolute field offset in the file) of every armed
+    residual slot, and the member skip bits per member-descriptor region."""
     sc = read_sc(cache, versions=(7,))
     rows = decode_directory(read_sc7(cache))
     by_tb = {sc.records[i].tb_offset: sc.records[i] for i in sc.valid_slots}
-    out, regions = [], 0
+    out, skipped = [], {}
     with open(cache, "rb") as stream:
-        for region in rows["regions"]:
+        for ri, region in enumerate(rows["regions"]):
             if not region["flags"] & SC7_REGION_MEMBER_DESCRIPTORS:
                 continue
-            regions += 1
+            skipped[ri] = 0
             lo = region["first_member"]
             for gi in range(lo, lo + region["n_members"]):
                 member = rows["members"][gi]
@@ -54,15 +58,18 @@ def residual_slots(cache):
                 code = stream.read(member["tc_size"])
                 internal = {e["field_offset"] for e in rows["edges"]
                             if e["source_member"] == gi}
+                # Flagged slots are B3-registered: absent from the copy, never armed.
                 count, problems = residual_goto_tb_slots(
                     record, code, member["tc_offset"], internal_fields=internal,
-                    code_address=sc.header.code_address)
+                    code_address=sc.header.code_address, skip_slots=member["flags"])
                 assert not problems, (gi, problems)
+                skipped[ri] += bin(member["flags"]).count("1")
                 for n in (0, 1):
                     insn = record.jmp_insn_offset[n]
-                    if record.jmp_reset_offset[n] != 0xFFFF and insn not in internal:
+                    if (record.jmp_reset_offset[n] != 0xFFFF and insn not in internal and
+                            not member["flags"] >> n & 1):
                         out.append((gi, SC_CODE_OFFSET + member["tc_offset"] + insn))
-    return regions, rows, out
+    return skipped, rows, out
 
 
 def run(launch, rd, source, env_extra):
@@ -91,8 +98,8 @@ def main():
     source = Path(launch["cwd"]) / source
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    regions, rows, slots = residual_slots(source)
-    assert regions and slots, "launch has no member-descriptor region with residual slots"
+    skips, rows, slots = residual_slots(source)
+    assert skips and slots, "launch has no member-descriptor region with residual slots"
 
     expected, stats = None, {}
     for arm, env_extra in ARMS:
@@ -118,6 +125,17 @@ def main():
         assert s["trusted_residual_slots_armed"] == 0
         assert s["chain_installs_trusted_source"] == 0
         assert s["trusted_residual_exits_chainable"] == 0
+    if sum(skips.values()):
+        # Member skip flags (revision 4): counted only while arming, once per
+        # region build.  Regions with residual exits were built.
+        built = sum(skips.get(ri, 0) for ri in activated)
+        if chain["trusted_region_activations"] == chain["regions_loaded"]:
+            assert chain["trusted_residual_slots_skipped"] == sum(skips.values())
+        else:
+            assert built <= chain["trusted_residual_slots_skipped"] <= sum(skips.values())
+        assert chain["trusted_residual_slots_skipped"] > 0
+        for s in (unchained, skip):
+            assert s["trusted_residual_slots_skipped"] == 0
 
     # A corrupted residual rel32 must be refused before anything runs.
     rd = out / "corrupt"

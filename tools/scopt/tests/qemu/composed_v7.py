@@ -10,18 +10,27 @@ QEMU_SC_SEALED=1 and QEMU_SC_TRUSTED=1.
 ``composed``  the artifact as published: guest output equals the optional
               ``--baseline`` launch (configuration 7 without B3), the v7 stats
               report ``sc6_composed`` and every region loaded, and the v6
-              stats show activation without invariant violations.
+              stats show activation without invariant violations.  With member
+              skip flags (counters revision 4) the armed and skipped residual
+              slots match the directory: equal to the static sums when every
+              region was built once, else positive and bounded by them.
 
 Then one fail-loud mutant per loader-facing format rule.  Each must exit
 non-zero with the stated loader message and print no guest line:
 
-``bit30_alone``      header reserved = 1 << 30            unknown feature bits
-``safe_directory``   composed directory ext_version 2     sc6 composition requires a trusted directory
-``arrays_limit``     sc6 arrays reach the 0xFF00 header   ext table too large
-``variant_overlap``  variant 0 moved onto region 0        arena spans overlap
+``bit30_alone``          header reserved = 1 << 30              unknown feature bits
+``safe_directory``       composed directory ext_version 2       sc6 composition requires a trusted directory
+``arrays_limit``         sc6 arrays reach the 0xFF00 header     ext table too large
+``variant_overlap``      variant 0 moved onto region 0          arena spans overlap
+``member_flag_bit2``     a member's flags |= 4                  invalid source, region, or flags
+``member_skip_missing``  a required skip bit cleared            skip flags
+``member_skip_extra``    an original slot's skip bit set        skip flags
+``member_skip_legacy``   skip bit 0 on a legacy-region member   skip flags
 
+The ``member_skip_*`` mutants run only when the directory has such a member.
 Trusted input skips the sc6 and directory checksums, which is what lets the
-last two mutants reach the size and arena checks.  Writes OUT/composed-v7.json.
+last mutants reach the size, arena and member checks.  Writes
+OUT/composed-v7.json.
 """
 
 import argparse
@@ -31,16 +40,20 @@ from pathlib import Path
 import struct
 import subprocess
 
-from scopt.formats.sc_v5 import ScHeader, sparse_copy
+from scopt.formats.layouts import SC_CODE_OFFSET
+from scopt.formats.sc_v5 import ScHeader, read_sc, sparse_copy
 from scopt.formats.sc_v6 import ARRAYS_OFFSET, EXT_OFFSET, read_sc6
 from scopt.formats.sc_v7 import SC7_COMPOSED_DIR_OFFSET, SC7_FEATURE_SC6_REGIONS, \
-    decode_directory, read_sc7
+    SC7_REGION_MEMBER_DESCRIPTORS, _HEADER, _MEMBER, _REGION, decode_directory, read_sc7
+from scopt.link import residual_goto_tb_slots
 from scopt.run.helper_pgo import _guest_lines, _launch
+from scopt.run.v7_stats import MEMBER_SKIP_REVISION, counter_problems
 
 V6_KEYS = ("loaded", "sealed", "sealed_activation", "activations", "links_armed",
            "variants_built", "tlb_hook_calls", "slots_unlinked", "invariant_violations")
 V7_KEYS = ("loaded", "mode", "sc6_composed", "regions_loaded", "members_loaded",
-           "region_activations", "trusted_residual_slots_armed")
+           "region_activations", "trusted_region_activations", "trusted_residual_slots_armed",
+           "trusted_residual_slots_skipped", "counters_revision")
 
 
 def source_cache(launch):
@@ -107,6 +120,80 @@ def _variant_overlap(directory, semantic):
     return mutate
 
 
+def static_slots(source, directory):
+    """``(chainable, skipped)`` residual slots over all member-descriptor
+    regions, from the file: what QEMU arms and skips when every region is
+    built once."""
+    sc = read_sc(source, versions=(7,))
+    by_tb = {sc.records[i].tb_offset: sc.records[i] for i in sc.valid_slots}
+    rows = decode_directory(directory)
+    chainable = skipped = 0
+    with open(source, "rb") as stream:
+        for region in rows["regions"]:
+            if not region["flags"] & SC7_REGION_MEMBER_DESCRIPTORS:
+                continue
+            lo = region["first_member"]
+            for gi in range(lo, lo + region["n_members"]):
+                member = rows["members"][gi]
+                stream.seek(SC_CODE_OFFSET + member["tc_offset"])
+                code = stream.read(member["tc_size"])
+                internal = {e["field_offset"] for e in rows["edges"] if e["source_member"] == gi}
+                count, problems = residual_goto_tb_slots(
+                    by_tb[member["source_tb_offset"]], code, member["tc_offset"],
+                    internal_fields=internal, code_address=sc.header.code_address,
+                    skip_slots=member["flags"])
+                assert not problems, (gi, problems)
+                chainable += count
+                skipped += bin(member["flags"]).count("1")
+    return chainable, skipped
+
+
+def _member_flags(member, flags):
+    """Overwrite one member's flags in the composed directory table (trusted
+    input skips the directory checksum, so QEMU reaches member validation)."""
+    def mutate(stream):
+        stream.seek(SC7_COMPOSED_DIR_OFFSET)
+        fields = _HEADER.unpack(stream.read(_HEADER.size))
+        n_regions, table = fields[3], fields[7]
+        stream.seek(SC_CODE_OFFSET + table + _REGION.size * n_regions +
+                    _MEMBER.size * member + _MEMBER.size - 4)
+        stream.write(struct.pack("<I", flags))
+    return mutate
+
+
+def member_mutants(source, directory):
+    """The ``member_*`` mutants this directory supports: (name, mutate, needle)."""
+    sc = read_sc(source, versions=(7,))
+    by_tb = {sc.records[i].tb_offset: sc.records[i] for i in sc.valid_slots}
+    rows = decode_directory(directory)
+    region_of = {}
+    for region in rows["regions"]:
+        for gi in range(region["first_member"], region["first_member"] + region["n_members"]):
+            region_of[gi] = region
+    out = [("member_flag_bit2", _member_flags(0, rows["members"][0]["flags"] | 4),
+            "invalid source, region, or flags")]
+    flagged = next((gi for gi, m in enumerate(rows["members"]) if m["flags"]), None)
+    if flagged is not None:
+        flags = rows["members"][flagged]["flags"]
+        out.append(("member_skip_missing", _member_flags(flagged, flags & (flags - 1)),
+                    "skip flags"))
+    for gi, member in enumerate(rows["members"]):
+        if not region_of[gi]["flags"] & SC7_REGION_MEMBER_DESCRIPTORS:
+            continue
+        record = by_tb[member["source_tb_offset"]]
+        extra = [n for n in (0, 1) if record.jmp_reset_offset[n] != 0xFFFF and
+                 not member["flags"] >> n & 1]
+        if extra:
+            out.append(("member_skip_extra",
+                        _member_flags(gi, member["flags"] | 1 << extra[0]), "skip flags"))
+            break
+    legacy = next((gi for gi in range(len(rows["members"]))
+                   if not region_of[gi]["flags"] & SC7_REGION_MEMBER_DESCRIPTORS), None)
+    if legacy is not None:
+        out.append(("member_skip_legacy", _member_flags(legacy, 1), "skip flags"))
+    return tuple(out)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("launch", type=Path)
@@ -140,8 +227,21 @@ def main():
     assert v6["invariant_violations"] == 0 and v6["activations"] > 0
     assert v7["loaded"] is True and v7["mode"] == "trusted" and v7["sc6_composed"] is True
     assert v7["regions_loaded"] == directory.n_regions
+    assert counter_problems(v7) == [], counter_problems(v7)
+    chainable, skipped = static_slots(source, directory)
+    if skipped:
+        # Flags load only on a QEMU with member skip flags (revision 4).
+        assert v7["counters_revision"] >= MEMBER_SKIP_REVISION
+        armed, seen = v7["trusted_residual_slots_armed"], v7["trusted_residual_slots_skipped"]
+        if v7["trusted_region_activations"] == v7["regions_loaded"]:
+            assert (armed, seen) == (chainable, skipped), (armed, seen, chainable, skipped)
+        else:
+            assert 0 < seen <= skipped and armed <= chainable, (armed, seen, chainable, skipped)
+            assert armed > 0 or not chainable
     doc["composed"] = {"v6": {k: v6.get(k) for k in V6_KEYS},
-                       "v7": {k: v7.get(k) for k in V7_KEYS}}
+                       "v7": {k: v7.get(k) for k in V7_KEYS},
+                       "static": {"chainable_residual_slots": chainable,
+                                  "skipped_b3_slots": skipped}}
 
     reserved = semantic.sc.header.reserved
     mutants = (
@@ -152,6 +252,7 @@ def main():
     if semantic.ext.variants:
         mutants += (("variant_overlap", _variant_overlap(directory, semantic),
                      "arena spans overlap"),)
+    mutants += member_mutants(source, directory)
     doc["mutants"] = {}
     for name, mutate, needle in mutants:
         rc, log = launch_run(launch, out / name, source, mutate)
