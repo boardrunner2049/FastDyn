@@ -22,7 +22,10 @@ QEMU_SC_SEALED=1 QEMU_SC_TRUSTED=1 "$DEPLOYED/run.sh"
 The direct launcher must select the emitted cache. The trusted region ABI
 requires icount off and an execution contract that permits omitted internal
 interrupt polls and live recovery. Set `QEMU_SC_V7_STATS` to an absolute path
-in a diagnostic replay for the loaded region ID and activation counts.
+in a diagnostic replay for the loaded region ID, activation counts and
+`trusted_residual_exits` (region exits that went through the dispatcher).
+`trusted_tb_calls` counts trusted-membership lookups, not exits; see
+[v7 stats counters](qemu.md#v7-dispatcher-return-counters).
 
 The remainder of this document describes the historical exhaustive graph
 experiment, still available as `sealed-whopr-7` and the Trebuchet recipe
@@ -158,20 +161,38 @@ the copied bytes: `helper_ldul_mmu` alone was cloned at 11,314 sites and
 graphs, not small leaf bodies, and no context simplification removes their unused
 paths after copying.
 
+Size is not the same as executed cost. MMU helpers run only on a TLB miss or MMIO
+access, so most of the 11,314 `helper_ldul_mmu` and 5,566 `helper_stl_mmu` copies are
+unexecuted bloat: a hardware breakpoint counted 0 calls at a `helper_lduw_mmu` site
+whose TB was entered about 28.6M times
+([sweet-spot site counts](../experiments/helper-inline-sweetspot/README.md#original-call-site-counts)).
+The copies that do execute are more plausibly `helper_lookup_tb_ptr` (1,750 sites,
+median 61,598 B each, run on every `goto_ptr` exit) and the `v7m_msr`, `rebuild_hflags`
+and exception helpers. This is not isolated: the shared-graph control below redirects
+all 21,952 sites together.
+
 The bottleneck was then isolated with controlled executable variants rather than
 inferred from code size:
 
 | controlled comparison | median paired ratio | 95% interval | result |
 | --- | ---: | ---: | --- |
-| Same 1.2-GB physical file, but original record table and shared-helper bodies, versus exact baseline | 0.958969x | 0.936743-1.002276x | Includes 1.0; raw file size/mapping alone is not an established cause. |
+| Same 1.2-GB physical file, but original record table and shared-helper bodies, versus exact baseline | 0.958969x | 0.936743-1.002276x | Includes 1.0, borderline: the upper bound rests on one block and 6 of 8 blocks are below 1. QEMU maps cached code only up to `max_end` (`tcg/supercache.c`), 13,087,520 B here, so this tests on-disk allocation, not in-process memory. |
 | Original shared QEMU helpers versus private transformed copies, with the helper artifact's TB layout retained | 0.884347x | 0.866058-0.936235x | Private transformed execution is 13.1% longer. |
-| One shared transformed copy of each of 25 graphs versus 21,952 per-site private copies | 0.937317x | 0.882027-0.982124x | Per-site placement/locality adds a verified 6.7% penalty. |
-| Shared transformed graphs versus exact original baseline | 0.961978x | 0.939952-0.984046x | Lowering, entry, and residual thunk costs retain a separate 4.0% penalty. |
+| Executed-clone control: same large file with original records (footprint control) versus helper-exact (`paired8-executed-clone-control`) | 0.863282x | 0.830950-0.877555x | Executing the private copies, with the file size held fixed. |
+| One shared transformed copy of each of 25 graphs versus 21,952 per-site private copies | 0.937317x | 0.882027-0.982124x | Per-site placement/locality adds approximately 6.7%. |
+| Layout + lowering: shared transformed graphs versus exact original baseline (16,303 relocated TBs, 1.2 GB loaded) | 0.961978x | 0.939952-0.984046x | 4.0% from layout and lowering together; not a lowering-only effect. |
+| Same-layout lowering control: original shared helpers versus shared transformed graphs, identical records (`paired8-lowering-control`) | 0.973415x | 0.838142-1.006662x | Includes 1.0; no supported lowering-only penalty. |
 
-These controls verify that the main bottleneck is executing enormous per-site private
-helper graphs, with instruction locality/code duplication a material component. They
-also show a residual cost in the transformed shared-graph lowering. They do **not**
-support blaming the raw cache-file mapping itself.
+The components come from separate 8-pair campaigns with different baselines. They
+are approximate and do not compose: 0.937 x 0.962 = 0.902 against the direct 0.884,
+and 0.959 x 0.863 = 0.828 against the direct helper-only 0.842. The identical
+helper-exact cache measured campaign medians from 1185.5 to 1251.7 ms within 11
+minutes (5.6% drift), so components of 3-6% are at the size of campaign-level noise.
+The conclusion stands: executing enormous per-site private helper copies is the
+dominant cost. The split between placement, layout and lowering is not established,
+and the controls do **not** support blaming the raw cache-file mapping itself. All
+controls and their per-block ratios are in the
+[results JSON](sealed-whopr-7-current-results.json) (`bottleneck_controls`).
 
 For an inspected MMU site, the original six-byte `call qword ptr [rip+0xb]` became
 `lea r11,[rip+continuation]; push r11; <55 KiB copied graph>`. A partial control changed
@@ -185,8 +206,12 @@ counts.
 
 The corrected exact helper-only and final results have overlapping intervals and nearly
 identical point estimates. Consequently this campaign establishes no incremental
-firmware-region loss in the complete artifact. An earlier same-artifact `no-regions`
-diagnostic was part of the cache-mutating campaign and is not used for attribution.
+firmware-region loss in the complete artifact. The same-artifact `no-regions`
+diagnostic of this artifact (`paired8-full-vs-no-regions-diag`) was not run through
+`measure_sealed_whopr.py` and has no seal or cache-hash guarantee. It showed
+no-regions/default 0.935 with 7 of 8 blocks below 1, which runs contrary to the
+conclusion above, but it is inadmissible and remains unreconciled. It is distinct from
+the historical 169-region same-artifact ablation below.
 
 All configuration 7 numbers in this document predate chainable trusted residual exits.
 Their artifacts use the legacy shared descriptor, so every residual exit of a region
@@ -295,7 +320,8 @@ both caches unchanged.  Only the firmware `[BENCH][fw]` window is reported.
 The paired bootstrap 95% interval is **1.004559-1.029233x**.  A second six-pair
 campaign compared the same artifact with regions enabled and disabled.  The
 enabled region median was 1.056296 s versus 1.106924 s disabled, a paired
-**1.032092x** improvement with interval **1.009597-1.065389x**.  This proves
+**1.032092x** improvement with interval **1.009597-1.065389x** (its archive keeps
+the medians and interval only, no per-block rows).  This proves
 the embedded regions execute and remove enough dispatch to help; container
 lookup/activation overhead consumes part of the isolated gain in the net
 baseline comparison.
@@ -321,7 +347,10 @@ table is the firmware-region-only predecessor, not the current all-helper artifa
   residual exits.  Configuration 7 does not make indirect targets known.
 - The trusted contract intentionally omits guest-code hash checks, live QEMU
   fault recovery, and icount.  The user is responsible for immutable code and
-  acceptable fault behavior.  Sealed entry interrupt polling remains enabled.
+  acceptable fault behavior.  Public sealed TBs keep their entry interrupt poll.
+  Trusted firmware regions are entered at +15, past the poll, and their internal
+  edges skip it too, so an interrupt pending inside a region is taken only when
+  the region exits.
 - LTRANS uses Python threads; region construction releases no explicit GIL, so
   the current benefit is work isolation and deterministic scheduling more than
   guaranteed CPU-parallel speedup.  Process workers are a future setup-time

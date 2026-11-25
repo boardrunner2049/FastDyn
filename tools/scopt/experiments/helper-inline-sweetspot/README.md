@@ -16,7 +16,7 @@ measured 1.003x [0.971, 1.030]. This interval admits a small application speedup
 
 | policy | sites | net growth | paired speedup | 95% interval | disposition |
 | --- | ---: | ---: | ---: | ---: | --- |
-| exhaustive graph | 21,977 | 1,179,601,718 B | 0.720x | [0.700, 0.838] | reject |
+| exhaustive graph | 21,977 | 1,179,601,718 B | 0.842x | [0.825, 0.880] | reject |
 | frequency-density, 64 KiB | 13 | 64,632 B | 1.008x | [0.979, 1.033] | neutral |
 | frequency-density, 256 KiB | 23 | 261,600 B | 0.950x | [0.934, 0.981] | reject |
 | frequency-density, 1 MiB | 37 | 1,045,712 B | 0.956x | [0.924, 0.972] | reject |
@@ -30,6 +30,22 @@ measured 1.003x [0.971, 1.030]. This interval admits a small application speedup
 All scored runs produced the same 16-register transcript and retained their sealed
 cache hashes. `results.json` records artifact identities and raw-result locations.
 
+The exhaustive row is the corrected 8-pair helper-only ablation against the exact
+baseline ([configuration 7 results](../../docs/sealed-whopr-7.md)). The 0.720x
+[0.700, 0.838] previously listed came from the invalidated `paired6-helper-only-warm`
+campaign, whose baseline cache had appended records (`sha256:59a6fb37...`) and no
+longer matched the compiler input.
+
+The two density regressions are weak evidence and have no verified cause. A
+re-analysis of the raw campaigns found that MMU slow-path picks do not explain them:
+density-4m, which selects a superset of density-1m's MMU sites, was neutral at 0.995x
+[0.971, 1.039], while small-density-64k, which selects no MMU site, regressed at 0.957x
+[0.927, 0.974]. Across the arms the regression tracks the number of inlined
+`helper_rebuild_hflags_m32_newel` sites (8-21 sites: 0.942-0.956x; 1-5 sites:
+0.995-1.008x), which is suggestive, not causal. The byte-budget-2048 arm on one
+identical cache measured 1.037x [1.009, 1.057] in 8 pairs and 0.961x [0.943, 1.003] in a
+12-pair confirmation, so effects of about 5% need an A/A control and more pairs.
+
 ## Why frequency did not rescue literal inlining
 
 The user's correction was decisive: bytes are not the objective; eliminated dynamic
@@ -42,8 +58,9 @@ explicitly sets `trusted_allow_tb_entry_proxy=true`.
 
 The lowering costs also matter:
 
-* Exhaustive graph transplantation copied roughly 45 KiB of transitive MMU code per
-  site and created a 1.18 GiB working-set expansion.
+* Exhaustive graph transplantation copied a median 55,934 B (mean 53,674 B) per
+  emitted site; the source graphs are 45-50 KB and lowering adds the rest. It grew the
+  cache by 1.18 GiB, most of it MMU slow paths that rarely execute.
 * Root-wrapper lowering retains a call to the shared slow path. The one-site arm
   also changes the layout of its containing TB. Its timing cannot isolate layout cost.
 * The four admitted shift leaves really contain no `CALL`, `PUSH`, or `RET` after

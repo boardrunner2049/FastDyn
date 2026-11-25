@@ -109,13 +109,67 @@ sealed baseline median of **1.083271 s** and configuration 7 median of
 **1.063933 s**.  The median paired speedup was **1.0187x**, bootstrap 95%
 interval **1.0046-1.0292x**, with all six pairs favoring configuration 7.
 In a same-artifact control, enabled regions beat `no-regions` by **1.0321x**
-`[1.0096, 1.0654]`; the difference between that mechanism result and the net
+`[1.0096, 1.0654]` (medians and interval only; no per-block rows archived); the difference between that mechanism result and the net
 gain is container/activation overhead.  All runs reproduced the sixteen
 reported registers and neither cache changed.  Preparation, optimization,
 deployment, launch compilation, and process setup are outside `[BENCH][fw]`.
 
 Implementation, commands, raw rows and limitations are in
 [`sealed-whopr-7.md`](sealed-whopr-7.md).
+
+## Why sealed regressed
+
+A re-analysis of the archived 2026-11 campaigns from raw per-block data found four
+causes behind the sealed configurations (6-9) measuring slower than ordinary scopt (5)
+or than plain sealed (6). The exhaustive all-helper configuration 7 (0.844x) is a
+separate case: executing per-site private helper copies
+([sealed-whopr-7.md](sealed-whopr-7.md#current-all-helper-runtime-result)).
+
+1. **No B3 on the sealed baseline.** Configuration 6 is a separate exhaustive,
+   icount-off, exact-PC capture without scopt's guarded chaining (`chain-static`,
+   `chain-returns`, `specialize-returns`), and configurations 7-9 inherit it, because
+   firmware regions could not carry B3. Sealed runs made 20.77M `lookup_tb_ptr`
+   lookups against scopt's 4.39M on `-O4` packet, and about 18M more on `-Os`. The sealed/scopt
+   time ratio is 1.076-1.166 in 12 of 13 `-Os` panels with every block agreeing. This
+   is confounded with the execution contract (scopt runs `-icount shift=0`, sealed runs
+   icount off); on `-O0` packet the ratio is 0.976, sealed faster.
+   *Change:* `scopt profile run --sealed --trusted` gives B3 a steady profile on the
+   sealed capture, so configuration 6 + B3 runs the unchanged `b3` pipeline, and QEMU
+   activates the B3 extension on sealed lookups (`no-sealed-sc6` restores the old
+   behaviour on the same bytes). The `sealed-*-b3` pipelines compose B3 with the
+   trusted regions in one v7 artifact ([B3 passes](b3-passes.md#sealed-captures-configuration-6--b3)).
+2. **Unchainable residual exits.** A trusted region had one shared descriptor, QEMU
+   cleared `last_tb` after it and never chained from it, so every residual exit
+   returned to the dispatcher: about 2.9M per packet run, nearly all from the root
+   continuation that the region never expands. The packet PGO arm, whose public code is
+   byte-identical to sealed, measured PGO / sealed 1.031x [1.020, 1.053] (6 of 6
+   blocks; 1.028x [1.008, 1.050], 10 of 12, pooled with a second campaign).
+   *Change:* trusted regions get one descriptor per member, and QEMU chains their
+   residual `goto_tb` exits after first use (`no-trusted-exit-chain` restores the old
+   behaviour). Regions whose sources B3 edited keep the shared descriptor.
+   `loop_returns_nonnull` and `trusted_residual_exits` now count these returns
+   ([counters](qemu.md#v7-dispatcher-return-counters)).
+3. **No cost model.** `hot-loop` admitted every root above 1,000 training calls, such
+   as the per-byte CRC-CCITT callee, whose saving per call (polls, two lookups, a
+   guarded return) is smaller than one dispatcher round trip per unchained exit.
+   *Change:* the [profit model](firmware-inline-policies.md#profit-model) prices each
+   planned region on the training profile and refuses net losses; it is on by default
+   for `hot-loop`, and automatic PGO training keeps the steady phase.
+4. **Noise and protocol.** Most other reported regressions are within an in-harness
+   floor of about ±2% or underpowered: several panels had 3-4 blocks, and 3 blocks
+   cannot reach a sign-test p below 0.25. Sealed-pipeline runs drifted -3.2% to +2.7%
+   per input between campaigns of the same artifact. The 4-6% identical-artifact
+   differences cited earlier came from other setups (Rosetta, stock QEMU) and do not
+   set this harness's floor.
+   *Change:* the paired drivers (`compare_rtos.py`, hot-loop `measure.py`,
+   `measure_sealed_whopr.py`, `measure_firmware_inline_ablations.py` and Trebuchet's
+   `compare.py`) now run an automatic A/A arm, refuse fewer than 8 blocks without
+   `--allow-few-blocks`, and report the paired block-ratio median with
+   a bootstrap interval, sign test and a `within_noise` verdict against the A/A band
+   (`scopt.run.paired_stats`).
+
+None of these changes has been timed yet. Their effect must be measured under the
+paired A/A protocol before any configuration is reported as fixed.
 
 ## Remaining limitations
 
@@ -129,8 +183,9 @@ Implementation, commands, raw rows and limitations are in
   private region; coverage alone cannot turn an indirect target into a known
   edge.
 - The mode intentionally does not support QEMU fault recovery, icount, or guest
-  code mutation.  Interrupt polling remains enabled unless the explicit unsafe
-  `QEMU_SC_SEALED_SKIP_IRQ=1` option is used.  Use ordinary SuperCache when the
+  code mutation.  Public TBs keep their interrupt poll unless the explicit unsafe
+  `QEMU_SC_SEALED_SKIP_IRQ=1` option is used; trusted firmware regions
+  (configuration 7) skip it at entry and on internal edges.  Use ordinary SuperCache when the
   omitted contracts matter.
 - The cache is sparse and has a large logical size because it retains the
   existing executable arena layout.  Allocated disk bytes are much smaller;

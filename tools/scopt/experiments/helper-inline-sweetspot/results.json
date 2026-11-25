@@ -16,7 +16,7 @@
     ]
   },
   "results": [
-    {"policy":"exhaustive_graph","sites":21977,"growth_bytes":1179601718,"paired_speedup":0.720162,"ci95":[0.700361,0.838369],"outcome":"regression"},
+    {"policy":"exhaustive_graph","sites":21977,"growth_bytes":1179601718,"pairs":8,"paired_speedup":0.841903,"ci95":[0.825344,0.879657],"source":"docs/sealed-whopr-7-current-results.json#helper_only_ablation (paired8-helper-exact)","superseded":{"paired_speedup":0.720162,"ci95":[0.700361,0.838369],"campaign":"paired6-helper-only-warm","reason":"baseline cache had appended records (sha256:59a6fb37...) and no longer matched the compiler input"},"outcome":"regression"},
     {"policy":"frequency_density_64k","sites":13,"growth_bytes":64632,"paired_speedup":1.00833,"ci95":[0.97897,1.03317],"outcome":"neutral"},
     {"policy":"frequency_density_256k","sites":23,"growth_bytes":261600,"paired_speedup":0.94994,"ci95":[0.93407,0.98050],"outcome":"regression"},
     {"policy":"frequency_density_1m","sites":37,"growth_bytes":1045712,"paired_speedup":0.95596,"ci95":[0.92428,0.97164],"outcome":"regression"},

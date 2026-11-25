@@ -79,7 +79,8 @@
     },
     "baseline_public_native_bytes": 5144523,
     "helper_only_public_native_bytes": 1184614379,
-    "decision": "helper graph transplant accounts for essentially the complete final regression"
+    "decision": "helper graph transplant accounts for essentially the complete final regression",
+    "execution_note": "MMU helpers run only on TLB misses or MMIO, so most of the 11,314 helper_ldul_mmu and 5,566 helper_stl_mmu copies are unexecuted bloat (a breakpoint counted 0 calls at a helper_lduw_mmu site whose TB was entered about 28.6M times). The executed copies are more plausibly helper_lookup_tb_ptr (1,750 sites, median 61,598 B, run on every goto_ptr exit) and the v7m_msr, rebuild_hflags and exception helpers. Not isolated: the shared-graph control redirects all 21,952 sites together."
   },
   "bottleneck_controls": {
     "same_large_file_original_records": {
@@ -87,7 +88,7 @@
       "paired_speedups": [1.002275690823596, 0.957529925660007, 0.9739990914296521, 0.9589073688716953, 0.9212279419029588, 0.9590303637610177, 0.936743379281732, 1.0212538903881017],
       "median_paired_speedup": 0.9589688663163565,
       "bootstrap_95": [0.936743379281732, 1.002275690823596],
-      "interpretation": "the 1.2 GB file and physical allocation alone do not establish a regression"
+      "interpretation": "the 1.2 GB file and physical allocation alone do not establish a regression; QEMU loads cached code only up to max_end = 13,087,520 B for this control, so it tests on-disk allocation only, not in-process memory; the upper bound 1.0023 rests on one block and 6 of 8 blocks are below 1 (borderline)"
     },
     "original_shared_helpers_vs_private_copies_same_layout": {
       "median_native_ns": {"original_shared_helpers": 1080877242.5, "private_copied_helpers": 1229551063.0},
@@ -103,14 +104,15 @@
       "paired_speedups": [0.9509808715648447, 0.9678189306855896, 1.007956631609506, 0.9236530853676747, 0.8820268438210916, 0.909305024238368, 0.9821242833423572, 0.8633045997544949],
       "median_paired_speedup": 0.9373169784662596,
       "bootstrap_95": [0.8820268438210916, 0.9821242833423572],
-      "interpretation": "private per-site graph placement adds a verified 6.7% execution penalty"
+      "interpretation": "private per-site graph placement adds an approximately 6.7% execution penalty (separate campaign; not additive with the other controls)"
     },
     "shared_copied_graphs_vs_original_baseline": {
       "median_native_ns": {"original_baseline": 1101516754.0, "shared_copied_graphs": 1140898649.5},
       "paired_speedups": [0.9051914082865783, 0.9891039537390834, 0.9639878814419605, 0.9840462834929958, 0.9650797159172297, 0.9399519047560507, 0.9549841216860429, 0.959967758809727],
       "median_paired_speedup": 0.9619778201258438,
       "bootstrap_95": [0.9399519047560507, 0.9840462834929958],
-      "interpretation": "the transformed graph lowering retains a separate 4.0% penalty after sharing"
+      "label": "layout_plus_lowering",
+      "interpretation": "layout + lowering (16,303 relocated TBs and 1.2 GB loaded versus the exact baseline layout); not lowering alone"
     },
     "partial_real_call_return_control": {
       "sites": 8399,
@@ -119,6 +121,32 @@
       "median_control_over_original": 1.0413639466951894,
       "bootstrap_95": [0.9712280809124599, 1.0654238682787347],
       "interpretation": "no supported improvement; return-stack prediction was not verified as the bottleneck"
+    },
+    "same_layout_lowering_control": {
+      "campaign": "paired8-lowering-control",
+      "launchers": {"call_shared_control": "direct-call-shared-control", "shared_copied_graph_control": "direct-shared-copied-graph-control"},
+      "cache_sha256": {"call_shared_control": "sha256:ead43a24f81fe285ea9e001db59b09d4992c522cbf0c5e318bc334fa448f0ab4", "shared_copied_graph_control": "sha256:291990919aed0ff7b6ef0e32ee47fc18bbc18485c1f89eff32f914e2a88991d3"},
+      "median_native_ns": {"call_shared_control": 1109835214.0, "shared_copied_graph_control": 1127964278.5},
+      "paired_speedups": [0.9674867566337778, 0.7937452249373115, 0.8381420959483689, 1.007558863634083, 0.9793437038844826, 1.0066617521946393, 0.9993483202815032, 0.9295540830596818],
+      "median_paired_speedup": 0.9734152302591301,
+      "bootstrap_95": [0.8381420959483689, 1.0066617521946393],
+      "interpretation": "not significant; same record layout; no supported lowering-only penalty"
+    },
+    "executed_clone_control": {
+      "campaign": "paired8-executed-clone-control",
+      "launchers": {"footprint_control": "direct-footprint-control", "helper_exact": "direct-helper-exact"},
+      "cache_sha256": {"footprint_control": "sha256:9984bc15cb4eac2a43ebfd8c44c1678eb714ecabe3d40f036654fe5a51fa410e", "helper_exact": "sha256:9b0e571261541d46709de458ad4f0312961e4a12d9ad638621cbf26fe5fa30dd"},
+      "median_native_ns": {"footprint_control": 1048904232.0, "helper_exact": 1237174349.5},
+      "paired_speedups": [0.87012242374278, 0.877554566810995, 0.830950461900403, 0.8614996834844825, 0.8304594077286367, 0.8650647605355569, 0.8317487868245055, 0.9309151982461089],
+      "median_paired_speedup": 0.8632822220100197,
+      "bootstrap_95": [0.830950461900403, 0.877554566810995],
+      "interpretation": "executing the per-site private copies versus the same large file with original records and shared helpers"
+    },
+    "decomposition_caveat": {
+      "non_additive": true,
+      "reason": "each control is a separate 8-pair campaign with a different baseline",
+      "products": {"placement_x_layout_lowering": 0.9017, "direct_private_vs_shared": 0.884347, "footprint_x_executed_clone": 0.8279, "direct_helper_only": 0.841903},
+      "campaign_drift": {"helper_exact_median_ms": [1185.5, 1251.7], "minutes": 11, "relative": 0.056, "note": "the identical helper-exact cache (sha256:9b0e5712...) measured in five campaigns between 13:24 and 13:35"}
     }
   },
   "invalidated_measurement": {
