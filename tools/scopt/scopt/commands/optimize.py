@@ -260,9 +260,11 @@ def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, t
     return training
 
 
-#: Pipelines named like this are scopt O4 (docs/O4.md): ``-O4``, ``--pipeline O4`` or
-#: ``--pipeline O4-r1`` all run the preflight.  Experiment arms are named ``o4-...``.
-O4_PIPELINE_NAME = re.compile(r"O4(-r[1-9][0-9]*)?")
+#: Pipelines named like this (design 2.7: ``^O4(-r\d+)?$``) are scopt O4 (docs/O4.md):
+#: ``-O4``, ``--pipeline O4`` or ``--pipeline O4-r1`` all run the preflight, and a name
+#: such as ``O4-r01`` that is no packaged revision is refused by it.  Experiment arms are
+#: named ``o4-...``.
+O4_PIPELINE_NAME = re.compile(r"O4(-r\d+)?")
 #: capability -> (flag, environment variable) of its explicit allowlist.
 _O4_ALLOWLISTS = {"v6": ("--v6-exe", "SCOPT_V6_EXES"),
                   "trusted_v7": ("--v7-trusted-exe", "SCOPT_V7_TRUSTED_EXES"),

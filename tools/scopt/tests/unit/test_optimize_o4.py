@@ -153,6 +153,28 @@ def test_any_o4_named_pipeline_runs_the_preflight(o4, name):
     assert o4.calls[-1].o4["pipeline"] == load_pipeline(name).name
 
 
+def _renamed(tmp_path, name):
+    path = tmp_path / f"{name}.toml"
+    path.write_text((PIPELINES_DIR / "O4-r1.toml").read_text()
+                    .replace('name = "O4-r1"', f'name = "{name}"'))
+    return str(path)
+
+
+@pytest.mark.parametrize("name", ["O4-r01", "O4-r0", "O4-r2"])
+def test_an_unpackaged_o4_revision_name_runs_the_preflight(o4, tmp_path, name):
+    # design 2.7: every name matching ^O4(-r\d+)?$ runs the preflight.
+    _refused(o4.invoke("--pipeline", _renamed(tmp_path, name)), "is not the packaged")
+    assert not o4.calls
+
+
+@pytest.mark.parametrize("name", ["O4x", "O4-r1x", "O4-r", "xO4", "O4-R1"])
+def test_a_name_that_only_contains_o4_is_not_o4(o4, tmp_path, name):
+    result = o4.invoke("--pipeline", _renamed(tmp_path, name), "--disable",
+                       "constant-propagation", elf=False)
+    assert result.exit_code == 0, result.output
+    assert o4.calls[-1].o4 is None
+
+
 def test_an_arm_pipeline_is_not_o4(o4, tmp_path):
     arm = tmp_path / "o4-chained.toml"
     text = (PIPELINES_DIR / "O4-r1.toml").read_text().replace('name = "O4-r1"', 'name = "o4-chained"')
