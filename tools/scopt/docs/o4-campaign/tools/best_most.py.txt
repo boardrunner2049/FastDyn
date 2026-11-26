@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""BEST-most: the "wins in most cases" adoption check of AMENDMENT-F-most-cases.md.
+
+It reads decide_r3.py's campaign-F output (F.json) and computes no estimate of its own: every
+d, SE, df, LB95, UB95 and one-sided p is copied from F.json's ``estimates`` (decide.py's
+Hodges-Lehmann, block bootstrap, Student-t and inverse-variance pooling, run by the registered
+decide_r3.py).  The only statistics here are two Holm step-downs, done with the registered
+decide.py's own ``holm`` (imported unchanged; decide.py's sha256 is checked).
+
+The rule (AMENDMENT-F-most-cases.md, sha256 in AMENDMENT-F.sha256), reference W = F's winner arm:
+  1. Pooled family: one hypothesis per arm, "arm faster than W, pooled over the workloads where
+     its bytes differ" (F.json's estimates[arm]["pooled"]); Holm at 0.05 over every F arm except
+     W and W-aa.  An alias takes its target's result: an arm whose pooled hypothesis is another
+     arm's (decide.py's ``pooled_alias_of``) is not a second hypothesis.
+  2. Per-workload family: one hypothesis per arm and workload where its bytes differ from W,
+     "arm faster than W on w"; a separate Holm at 0.05 over all of them.  An alias workload (the
+     arm's bytes there equal another timed arm's) takes that arm's result, as in decide.best.
+  3. Holds iff no arm is rejected in (1) and no arm is rejected in (2) on a majority of the
+     workloads where its bytes differ from W (majority = more than half: 2 of 3, 2 of 2; and
+     1 of 1, see INTERPRETATION).  An arm rejected in (2) on fewer workloads than a majority is a
+     workload-specific win: recorded, not blocking.
+  4. Adoption: W adopted iff W passed ADD-confirm in R3 (final) and BEST-most holds in F, with
+     VALID ok or reference_bias recorded (F not provisional).
+
+usage: best_most.py F.json --out F-most.json
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import decide as D  # noqa: E402  (the registered rule's functions, unchanged)
+
+SCHEMA = "scfix-o4.best-most/1"
+F_SCHEMA = "scfix-o4.decide-r3/1"
+REGISTERED_DECIDE_SHA256 = "0b7247476a39abade599000de4e2555c7edb1167b57d0989f4bac54cbaf1a438"
+REGISTERED_DECIDE_R3_SHA256 = "e6554ab034b85d021df575b2eb401c1cf288e26614e37a66c9477c517409969c"
+AMENDMENT = HERE / "AMENDMENT-F-most-cases.md"
+AMENDMENT_SHA = HERE / "AMENDMENT-F.sha256"
+ALPHA = D.ALPHA
+WORKLOADS = D.WORKLOADS
+EST_KEYS = ("d", "se", "df", "lb95", "ub95", "p")
+INTERPRETATION = {
+    "majority": "more than half of the workloads where the arm's bytes differ from W "
+                "(n // 2 + 1): 2 of 3 and 2 of 2 as the amendment states; 1 of 1 for an arm "
+                "that differs on one workload only (the amendment does not name that case). "
+                "The verdict under the other reading (1 of 1 is never a majority) is reported "
+                "as holds_if_one_of_one_is_not_a_majority.",
+    "per_workload_alias": "an alias workload takes its target's hypothesis (decide.best's "
+                          "alias_for), so it is not a second hypothesis",
+    "pooled_alias": "decide.py's pooled_alias_of: every workload an alias of one arm Y that is "
+                    "timed on exactly those workloads",
+    "single_workload_arm_pooled": "an arm whose bytes differ on one workload has decide.py's "
+                                  "pooled estimate over that one workload (pool of one) and is "
+                                  "a hypothesis of the pooled family like every other arm",
+}
+
+
+def sha256_of(path: Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def self_sha256() -> str:
+    return sha256_of(Path(__file__))
+
+
+def check_registration(f_doc, amendment: Path = AMENDMENT, amendment_sha: Path = AMENDMENT_SHA):
+    """decide.py and decide_r3.py must be the registered ones, F.json their F output, and the
+    amendment the one whose digest the lead recorded."""
+    have = D.self_sha256()
+    want = (HERE / "DECIDE.sha256").read_text().split()[0]
+    if not have == want == REGISTERED_DECIDE_SHA256:
+        raise SystemExit(f"decide.py sha256 {have} / DECIDE.sha256 {want} is not the registered "
+                         f"{REGISTERED_DECIDE_SHA256}")
+    r3_want = (HERE / "DECIDE_R3.sha256").read_text().split()[0]
+    if r3_want != REGISTERED_DECIDE_R3_SHA256:
+        raise SystemExit(f"DECIDE_R3.sha256 {r3_want} is not {REGISTERED_DECIDE_R3_SHA256}")
+    if f_doc.get("schema") != F_SCHEMA or f_doc.get("campaign") != "F":
+        raise SystemExit("the input is not a campaign-F decision of decide_r3.py")
+    if f_doc.get("decide_r3_sha256") != REGISTERED_DECIDE_R3_SHA256:
+        raise SystemExit(f"F decision made by decide_r3.py {f_doc.get('decide_r3_sha256')}, not "
+                         f"the registered {REGISTERED_DECIDE_R3_SHA256}")
+    if f_doc.get("decide_sha256") != REGISTERED_DECIDE_SHA256 or f_doc.get("registered") is not True:
+        raise SystemExit("F decision not made with the registered decide.py")
+    a_have = sha256_of(amendment)
+    a_want = Path(amendment_sha).read_text().split()[0]
+    if a_have != a_want:
+        raise SystemExit(f"{amendment} sha256 {a_have} is not {amendment_sha}'s {a_want}")
+    return {"decide_sha256": have, "decide_r3_sha256": r3_want, "amendment_sha256": a_have}
+
+
+def majority(n: int) -> int:
+    return n // 2 + 1
+
+
+def _est(e):
+    return {k: e[k] for k in EST_KEYS}
+
+
+def best_most(f_doc):
+    table = f_doc["estimates"]
+    w_arm = f_doc["F"]["winner_arm"]
+    arms = [a for a in table if a not in (w_arm, f"{w_arm}-aa")]
+
+    # ---------------------------------------------------------------- (1) pooled family
+    def pooled_target(a):
+        t = table[a].get("pooled_alias_of")
+        return t if t in arms and t != a and table[t]["pooled"] is not None else None
+
+    hyps1 = [(a, table[a]["pooled"]["p"]) for a in arms
+             if table[a]["pooled"] is not None and pooled_target(a) is None]
+    fam1 = D.holm(hyps1)
+    pooled = {}
+    for a in arms:
+        e = table[a]
+        if e["pooled"] is None:
+            pooled[a] = {"pooled": None, "rejected": False,
+                         "note": "no workload where the bytes differ from W"}
+            continue
+        t = pooled_target(a)
+        h = fam1[t or a]
+        pooled[a] = {**_est(e["pooled"]), "over": [w for w in WORKLOADS if w in e["workloads"]],
+                     "alias_of": t, "holm_rank": h["rank"], "holm_threshold": h["threshold"],
+                     "holm_family_size": h["family_size"], "rejected": h["rejected"]}
+
+    # ---------------------------------------------------------------- (2) per-workload family
+    def w_target(a, w):            # decide.best's alias_for, per workload
+        t = table[a]["alias_of"].get(w)
+        if t is None or t not in table:
+            return None
+        tt = table[t]
+        if w not in tt["workloads"] or w in tt["alias_of"]:
+            return None
+        return t
+
+    hyps2 = [(f"{a}|{w}", table[a]["workloads"][w]["p"]) for a in arms for w in WORKLOADS
+             if w in table[a]["workloads"] and w_target(a, w) is None]
+    fam2 = D.holm(hyps2)
+    per_w = {}
+    for a in arms:
+        per_w[a] = {}
+        for w in WORKLOADS:
+            if w not in table[a]["workloads"]:
+                continue
+            t = w_target(a, w)
+            h = fam2[f"{t or a}|{w}"]
+            per_w[a][w] = {**_est(table[a]["workloads"][w]), "alias_of": t,
+                           "holm_rank": h["rank"], "holm_threshold": h["threshold"],
+                           "holm_family_size": h["family_size"], "rejected": h["rejected"]}
+
+    # ---------------------------------------------------------------- (3) the rule
+    verdicts, blocking, specific = {}, [], []
+    alt_blocking = []
+    for a in arms:
+        ws = list(per_w[a])
+        n = len(ws)
+        rej = [w for w in ws if per_w[a][w]["rejected"]]
+        need = majority(n) if n else None
+        maj = bool(n) and len(rej) >= need
+        alt_maj = bool(n) and n >= 2 and len(rej) >= need       # 1 of 1 never a majority
+        p_rej = bool(pooled[a]["rejected"])
+        blocks = p_rej or maj
+        if blocks:
+            blocking.append(a)
+        if p_rej or alt_maj:
+            alt_blocking.append(a)
+        wsw = rej if (rej and not maj) else []
+        if wsw:
+            specific.append({"arm": a, "workloads": wsw,
+                             "estimates": {w: per_w[a][w] for w in wsw},
+                             "pooled": pooled[a]})
+        verdicts[a] = {"workloads_differ": ws, "same_bytes_as_W": table[a]["same_bytes"],
+                       "n_differ": n, "majority_needed": need, "rejected_workloads": rej,
+                       "rejected_on_majority": maj, "pooled_rejected": p_rej,
+                       "blocks": blocks, "workload_specific_win": wsw,
+                       "reference_bias": table[a].get("reference_bias") or {}}
+    holds = not blocking
+    return {"reference": w_arm, "alpha": ALPHA,
+            "pooled_family": {"family_size": len(hyps1), "rows": pooled},
+            "per_workload_family": {"family_size": len(hyps2), "rows": per_w},
+            "arms": verdicts, "blocking": blocking, "workload_specific_wins": specific,
+            "holds": holds, "holds_if_one_of_one_is_not_a_majority": not alt_blocking}
+
+
+def decide_doc(f_doc, f_path: Path, regs):
+    bm = best_most(f_doc)
+    adoption = f_doc["adoption"]
+    strict = f_doc["F"]["best"]["holds"]
+    pending = bool(f_doc.get("provisional"))
+    adopted = bool(adoption["r3_add_confirm"] and adoption["r3_final"] and bm["holds"]
+                   and not pending)
+    if strict:
+        docs_note = "strict BEST (PREREG-R3.md) also holds"
+    elif bm["workload_specific_wins"]:
+        docs_note = "strict BEST does not hold; workload-specific wins: " + "; ".join(
+            f"{x['arm']} on {', '.join(x['workloads'])}" for x in bm["workload_specific_wins"])
+    else:
+        docs_note = "strict BEST does not hold"
+    return {"schema": SCHEMA, "campaign": "F", "rule": "BEST-most (AMENDMENT-F-most-cases.md)",
+            "best_most_sha256": self_sha256(), **regs,
+            "input": {"path": str(f_path), "sha256": sha256_of(f_path)},
+            "interpretation": INTERPRETATION,
+            "valid": f_doc["valid"], "rerun_required": f_doc["rerun_required"],
+            "reference_bias_workloads": f_doc["reference_bias_workloads"],
+            "provisional": pending, "warnings": f_doc["warnings"],
+            "best_most": bm,
+            "strict_best": {"holds": strict, "family_size": f_doc["F"]["best"]["family_size"],
+                            "faster_than_W": f_doc["F"]["best"]["faster_than_W"]},
+            "adoption": {"winner": adoption["winner"], "winner_arm": f_doc["F"]["winner_arm"],
+                         "r3_add_confirm": adoption["r3_add_confirm"],
+                         "r3_final": adoption["r3_final"], "best_most_holds": bm["holds"],
+                         "f_final": not pending,
+                         "reference_bias_recorded": f_doc["reference_bias_workloads"],
+                         "adopted": adopted, "strict_best_holds": strict,
+                         "adopted_under_strict_rule": adoption["adopted"],
+                         "docs_note": docs_note}}
+
+
+def pct(x):
+    return "n/a" if x is None else f"{100 * x:+.2f}%"
+
+
+def report(doc):
+    bm = doc["best_most"]
+    print(f"best_most F  (best_most.py {doc['best_most_sha256'][:16]}…, decide_r3 "
+          f"{doc['decide_r3_sha256'][:16]}…, amendment {doc['amendment_sha256'][:16]}…)")
+    print(f"  reference {bm['reference']}; pooled family {bm['pooled_family']['family_size']}, "
+          f"per-workload family {bm['per_workload_family']['family_size']}")
+    for a, r in bm["pooled_family"]["rows"].items():
+        if r.get("pooled", 1) is None:
+            continue
+        v = bm["arms"][a]
+        print(f"  {a:13} pooled {pct(r['d'])} p {r['p']:.5f} rank {r['holm_rank']:2} "
+              f"rej {r['rejected']!s:5}; per-w rejected {v['rejected_workloads']} of "
+              f"{v['n_differ']} (need {v['majority_needed']}); blocks {v['blocks']}")
+    print(f"  workload-specific wins: {[x['arm'] for x in bm['workload_specific_wins']] or 'none'}")
+    print(f"  BEST-most holds {bm['holds']} (1-of-1 alt reading: "
+          f"{bm['holds_if_one_of_one_is_not_a_majority']}); strict BEST holds "
+          f"{doc['strict_best']['holds']}")
+    print(f"  adoption: {doc['adoption']}")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("f_json", type=Path)
+    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--amendment", type=Path, default=AMENDMENT)
+    ap.add_argument("--amendment-sha", type=Path, default=AMENDMENT_SHA)
+    args = ap.parse_args(argv)
+    f_doc = json.loads(args.f_json.read_text())
+    regs = check_registration(f_doc, args.amendment, args.amendment_sha)
+    doc = decide_doc(f_doc, args.f_json, regs)
+    args.out.write_text(json.dumps(doc, indent=1) + "\n")
+    report(doc)
+    return doc
+
+
+if __name__ == "__main__":
+    main()

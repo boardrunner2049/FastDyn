@@ -1,0 +1,973 @@
+#!/usr/bin/env python3
+"""Pre-registered decision rule of the scopt O4 campaign (O4-design.md 3.3, 3.4, 3.7, 3.8).
+
+Written before any O4 timing data existed.  Its sha256 is recorded in
+/data/scfix-o4/driver/DECIDE.sha256 and in every plan as ``x_decide_sha256``; a run whose
+plan names another digest is refused (``--unregistered`` only for replays of other data,
+and the output then says ``"registered": false``).  The driver's own medians decide nothing.
+Registration 2 (PREREG.md, still before any O4 timing data): the reference distribution of
+d / SE is Student's t (was the normal), same-bytes aliases between timed arms, and campaign
+A2 as one combined plan per workload.
+
+Input: driver output directories (``plan.json`` as the driver wrote it, with
+``aa_control_resolved``, and ``observations.jsonl``).  Plans carry ``x_campaign`` (A, A2, H,
+B1, B2), for A2 either ``x_candidates`` (the combined mode: every surviving candidate timed in
+one plan per workload) or ``x_candidate`` (one head-to-head per candidate), ``x_attempt`` (1,
+or 2 for the VALID rerun at seed + 100), ``burn_in_blocks`` and ``x_same_cache_bytes``:
+  {"reference": ref,
+   "arms": {arm: [workloads whose cache.sc equals ref's]},
+   "aliases": {arm: {workload: other}}}   (optional: arm's cache.sc equals that of the timed
+                                            arm ``other`` on that workload; only ``other`` is
+                                            timed there, and arm's estimate there IS other's)
+Optional: ``--gates`` (G0 per arm: ``{"arms": {arm: {"g0": true|false}}}``) and ``--screen``
+(the campaign-A decide.json, carried into the final item table).
+
+Estimator (3.3), per run (one workload w) and arm X, over blocks b >= burn_in_blocks:
+  T_b(a)  = sum over cases of ns(b, a, case)                     (every cell must exist)
+  l_b     = 0.5 * (log T_b(ref) + log T_b(aa)) - log T_b(X)      (pooled reference)
+  n_w     = number of those blocks (burn-in excluded); df_w = n_w - 1 (n_w >= 2 required)
+  d_w     = Hodges-Lehmann(l_b) = median of the Walsh averages (l_i + l_j) / 2, i <= j
+  SE_w    = sample SD of 20,000 HL values of block-bootstrap resamples
+            (random.Random(f"{seed}:{w}:{X}").choices over blocks, as scopt.run.paired_stats)
+  LB_w/UB_w = d_w -/+ t(0.95, df_w) SE_w (one-sided 95%);  UB99_w = d_w + t(0.99, df_w) SE_w
+  p_w     = P(T_{df_w} > d_w / SE_w)   ("X faster than the reference")
+  where T_df is Student's t and t(q, df) its q quantile (pure Python: the regularized
+  incomplete beta by continued fraction, quantiles by bisection; checked against scipy).
+Pooled over the workloads where X was timed (its bytes differ):
+  d = sum(d_w / SE_w^2) / sum(1 / SE_w^2);  SE = sum(1 / SE_w^2) ** -0.5;
+  df = (sum 1 / SE_w^2)^2 / sum(1 / (SE_w^4 df_w))   (Welch-Satterthwaite);  LB, UB, p as above.
+SE values below 1e-9 are floored at 1e-9 (only degenerate synthetic data reach it).
+Aliases: where X's bytes equal a timed arm Y's on w, X's row on w is Y's estimate (the same
+numbers, Y's bootstrap seed).  In BEST an alias scope is not a second hypothesis: it takes
+Y's Holm result (rows carry ``alias_of``); a pooled scope is an alias only when every
+workload of X is an alias of the same Y and Y was timed on exactly those workloads.
+
+VALID (3.7): per run, a_w = HL of log(T_b(ref) / T_b(aa)) with the two-sided 99% percentile
+interval of its 20,000 bootstrap values (seed f"{seed}:{w}:{aa}").  An interval excluding 0
+means the workload is biased: rerun it once at seed + 100 (x_attempt 2).  With a rerun, the
+rerun replaces the first attempt; if it is biased too every row of it carries
+reference_bias.  Without a rerun the rows carry reference_bias "pending_rerun" and the output
+lists rerun_required.
+
+SCREEN (3.4, campaign A), on the workloads where the item was timed:
+  add-on (A1 A3 A4 A7 A8) or fidelity (I1): any UB99_w < 0 -> excluded measured_slower;
+  removal (X1-X4): any UB99_w < 0 -> rejected, the component stays (marginal PROVEN_GAIN);
+  otherwise -> A2.  Same bytes on every workload: removal accepted, I1 included, add-on
+  excluded same_bytes, without timing.  Challengers (C1 C1p C2) -> A2 iff pooled d > 0,
+  else the screen row is their best-check.  A2 order: removals, then add-ons (with I1), then
+  challengers, each in 1.8 order; k = 0-based index.  A2 is timed in combined mode: one plan
+  per workload with o4, o4-aa and every A2 arm whose bytes differ there, blocks 41/81/41,
+  seed 20261130 (registration 2; the per-candidate seed 20261126 + k is not used).
+
+ADD (3.7), for add-ons timed in A2 or H (A1 A3 A4 A6 A7 A8, A2a if built): accept iff
+  G0, Holm step-down over that family on pooled p at family alpha 0.05
+  (p_(j) <= 0.05 / (|F| - j + 1) for every j up to X's rank), and LB_w > log(0.98) on every
+  timed workload.
+REMOVE (X1-X4) and FIDELITY (I1): accept iff G0, UB >= 0, LB > log(0.99) and
+  LB_w > log(0.98) on every timed workload.  Same bytes everywhere: accepted for free.
+  An item needs every workload either timed or same-bytes, else it is "incomplete".
+BEST (3.7): per campaign, one Holm family over every arm other than ref and aa and every
+  scope (each timed workload, and pooled when timed on two or more workloads) on p; a
+  rejection at 0.05 is faster_than_o4.  Row verdicts: same_bytes, faster_than_o4,
+  slower_than_o4 (UB < 0, unadjusted), not_shown.
+GROUPS (3.7): host-inline (X1 A4 A6): of the accepted ones the highest pooled d, and within
+  0.003 of it prefer X1, then A4, then A6.  X3 applies only if no firmware add-on (A1 A7 A8
+  A2a) is accepted and A5 was not shown faster than O4; else "removable, superseded".  I1 is
+  moot under X3.  X4 makes X2 moot.  A1 A7 A8 I1 compose.
+COMPOSITION (3.8): O4-r2 = O4-r1 + accepted add-ons (one per group) + accepted removals +
+  I1 if accepted.  Challengers or anchors faster than O4 are listed for absorption.
+B1 (3.8): o4r2 against the pooled o4/o4-aa reference.  With an add-on: pooled LB > 0 and
+  LB_w > log(0.98) on every timed workload; with only removals/I1: REMOVE.  On failure the
+  next step is to drop the accepted add-on with the smallest A2 pooled d (from the plan's
+  x_composition) and retry once (x_b1_retry true); a failed retry keeps O4 at r1.
+B2 (3.8): BEST with reference o4r2 must hold.  O4-r2 is adopted iff B1 and B2 pass.
+
+Usage:
+  decide.py --out decide.json [--gates gates.json] [--screen decide-A.json] RUN_DIR...
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import random
+import statistics
+import sys
+from functools import lru_cache
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+
+SCHEMA = "scfix-o4.decide/2"
+ROUNDS = 20_000
+Q95 = 0.95          # one-sided 95% bounds use the t(0.95, df) quantile
+Q99 = 0.99          # the screen's UB99 uses t(0.99, df)
+ALPHA = 0.05
+VALID_QUANTILES = (0.005, 0.995)
+LOG_098 = math.log(0.98)
+LOG_099 = math.log(0.99)
+GROUP_TIE = 0.003
+SE_FLOOR = 1e-9
+A2_SEED = 20261130  # combined A2 (registration 2); distinct from A, B1, H, B2 (…26 to …29)
+REFERENCE_DISTRIBUTION = ("student_t: df_w = n_w - 1 per workload (n_w timed blocks, burn-in "
+                          "excluded); pooled df by Welch-Satterthwaite")
+WORKLOADS = ("packet", "uart", "cli")
+CAMPAIGNS = ("A", "A2", "H", "B1", "B2")
+EXPECTED_REFERENCE = {"A": ("o4", "o4-aa"), "A2": ("o4", "o4-aa"), "H": ("o4", "o4-aa"),
+                      "B1": ("o4", "o4-aa"), "B2": ("o4r2", "o4r2-aa")}
+
+# arm -> (item id, role); the order is O4-design.md 1.8's.
+ITEMS = {
+    "o4_chained": ("A1", "addon"),
+    "o4_isb": ("I1", "fidelity"),
+    "o4_rank": ("A3", "addon"),
+    "o4_hotgraph": ("A4", "addon"),
+    "o4_min2": ("A7", "addon"),
+    "o4_legacy": ("A8", "addon"),
+    "o4_nohi": ("X1", "removal"),
+    "o4_nocp": ("X2", "removal"),
+    "o4_noregions": ("X3", "removal"),
+    "o4_nospec": ("X4", "removal"),
+    "fl3b3": ("C1", "challenger"),
+    "fl3b3p": ("C1p", "challenger"),
+    "b3l": ("C2", "challenger"),
+    "o4_pwhopr": ("A5", "challenger"),
+    "o4_hostall": ("A6", "addon"),
+    "o4_tasks": ("A2a", "addon"),
+    "w7bd_b3": ("w7bd_b3", "challenger"),
+    "s6": ("s6", "anchor"),
+    "s6b3": ("s6b3", "anchor"),
+    "p7": ("p7", "anchor"),
+    "c7b3": ("c7b3", "anchor"),
+    "fl3": ("fl3", "anchor"),
+    "o4": ("O4-r1", "reference"),
+    "o4r2": ("O4-r2", "composition"),
+}
+ORDER = list(ITEMS)
+HOST_INLINE_GROUP = ("o4_nohi", "o4_hotgraph", "o4_hostall")      # preference order X1, A4, A6
+FIRMWARE_ADDONS = ("o4_chained", "o4_min2", "o4_legacy", "o4_tasks")
+FIRMWARE_CHALLENGER = "o4_pwhopr"
+A2_CLASSES = (("removal",), ("addon", "fidelity"), ("challenger",))
+FIRMWARE_INLINE_ITEMS = {"o4_chained", "o4_min2", "o4_legacy", "o4_tasks", "o4_isb", "o4_noregions"}
+HOST_INLINE_ITEMS = set(HOST_INLINE_GROUP)
+
+
+def self_sha256() -> str:
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def role(arm):
+    return ITEMS.get(arm, (arm, "other"))[1]
+
+
+def item(arm):
+    return ITEMS.get(arm, (arm, "other"))[0]
+
+
+def order_key(arm):
+    return (ORDER.index(arm) if arm in ORDER else len(ORDER), arm)
+
+
+# --------------------------------------------------------------------------- statistics
+
+def walsh_sorted(values):
+    """Walsh averages (v_i + v_j) / 2, i <= j, sorted, with their index pairs."""
+    n = len(values)
+    pairs = sorted(((values[i] + values[j]) / 2, i, j) for i in range(n) for j in range(i, n))
+    return [p[0] for p in pairs], [p[1] for p in pairs], [p[2] for p in pairs]
+
+
+def hodges_lehmann(values):
+    if not values:
+        raise ValueError("Hodges-Lehmann of no values")
+    return statistics.median(walsh_sorted(list(values))[0])
+
+
+def bootstrap_hl(values, seed_text, rounds=ROUNDS):
+    """HL of ``rounds`` block-bootstrap resamples (``rng.choices`` over the blocks).
+
+    Exact: the resample's Walsh averages are the original pairs' averages with
+    multiplicity c_i (c_i + 1) / 2 (i == j) or c_i c_j (i < j), so the weighted median over
+    the once-sorted pairs equals statistics.median of the resample's own Walsh averages.
+    """
+    values = list(values)
+    n = len(values)
+    if n == 0:
+        raise ValueError("bootstrap of no values")
+    V, I, J = walsh_sorted(values)
+    P = len(V)
+    N = n * (n + 1) // 2
+    k1, k2 = (N - 1) // 2, N // 2
+    rng = random.Random(seed_text)
+    choices = rng.choices
+    population = range(n)
+    draws = []
+    for _ in range(rounds):
+        c = [0] * n
+        for i in choices(population, k=n):
+            c[i] += 1
+        cum = 0
+        lo = hi = None
+        for p in range(P):
+            ci = c[I[p]]
+            if not ci:
+                continue
+            j = J[p]
+            if I[p] == j:
+                w = ci * (ci + 1) // 2
+            else:
+                cj = c[j]
+                if not cj:
+                    continue
+                w = ci * cj
+            cum += w
+            if lo is None and cum > k1:
+                lo = V[p]
+            if cum > k2:
+                hi = V[p]
+                break
+        draws.append((lo + hi) / 2)
+    return draws
+
+
+def percentile_interval(draws, quantiles):
+    s = sorted(draws)
+    r = len(s)
+    lo_q, hi_q = quantiles
+    return [s[int(r * lo_q)], s[min(r - 1, int(r * hi_q))]]
+
+
+_TINY = 1e-300
+
+
+def _betacf(a, b, x):
+    """Continued fraction of the regularized incomplete beta I_x(a, b) (modified Lentz)."""
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    d = 1.0 / (d if abs(d) > _TINY else _TINY)
+    h = d
+    for m in range(1, 10_000):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > _TINY else _TINY)
+        c = 1.0 + aa / c
+        c = c if abs(c) > _TINY else _TINY
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        d = 1.0 / (d if abs(d) > _TINY else _TINY)
+        c = 1.0 + aa / c
+        c = c if abs(c) > _TINY else _TINY
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-15:
+            return h
+    raise ArithmeticError(f"incomplete beta I_{x}({a}, {b}) did not converge")
+
+
+def _ibeta(a, b, x, y):
+    """Regularized incomplete beta I_x(a, b), with y = 1 - x given exactly."""
+    if x <= 0.0:
+        return 0.0
+    if y <= 0.0:
+        return 1.0
+    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+                     + a * math.log(x) + b * math.log(y))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return front * _betacf(a, b, x) / a
+    return 1.0 - front * _betacf(b, a, y) / b
+
+
+def t_sf(t, df):
+    """P(T > t) for Student's t with ``df`` > 0 degrees of freedom (df may be fractional)."""
+    if not df > 0:
+        raise ValueError(f"degrees of freedom {df!r}")
+    if t == 0:
+        return 0.5
+    t2 = t * t
+    tail = 0.5 * _ibeta(df / 2.0, 0.5, df / (df + t2), t2 / (df + t2))   # P(T > |t|)
+    return tail if t > 0 else 1.0 - tail
+
+
+def t_cdf(t, df):
+    return t_sf(-t, df)
+
+
+@lru_cache(maxsize=None)
+def t_ppf(p, df):
+    """The t with P(T <= t) = p (0 < p < 1), by bisection on t_sf to 1e-12 relative."""
+    if not 0.0 < p < 1.0:
+        raise ValueError(f"probability {p!r}")
+    if p == 0.5:
+        return 0.0
+    if p < 0.5:
+        return -t_ppf(1.0 - p, df)
+    q = 1.0 - p
+    lo, hi = 0.0, 1.0
+    while t_sf(hi, df) > q:
+        lo, hi = hi, 2.0 * hi
+        if hi > 1e12:
+            raise ArithmeticError(f"t quantile {p} with df {df} out of range")
+    for _ in range(400):
+        mid = 0.5 * (lo + hi)
+        if t_sf(mid, df) > q:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo <= 1e-12 * hi:
+            break
+    return 0.5 * (lo + hi)
+
+
+def p_faster(d, se, df):
+    """One-sided p of "X faster than the reference": P(T_df > d / SE)."""
+    return t_sf(d / se, df)
+
+
+def bounds(d, se, df):
+    t95, t99 = t_ppf(Q95, df), t_ppf(Q99, df)
+    return {"d": d, "se": se, "df": df, "t95": t95, "t99": t99, "lb95": d - t95 * se,
+            "ub95": d + t95 * se, "ub99": d + t99 * se, "p": p_faster(d, se, df)}
+
+
+def welch_df(per_w):
+    """Welch-Satterthwaite df of the inverse-variance pooled estimate of {w: {"se", "df"}}."""
+    weights = [1 / r["se"] ** 2 for r in per_w.values()]
+    return sum(weights) ** 2 / sum(wt ** 2 / r["df"] for wt, r in zip(weights, per_w.values()))
+
+
+def pool(per_w):
+    """Inverse-variance pooling of {w: {"d", "se", "df"}}; t reference with Welch df."""
+    weights = {w: 1 / r["se"] ** 2 for w, r in per_w.items()}
+    total = sum(weights.values())
+    d = sum(per_w[w]["d"] * weights[w] for w in per_w) / total
+    return bounds(d, total ** -0.5, welch_df(per_w))
+
+
+def holm(hyps, alpha=ALPHA):
+    """Holm step-down.  ``hyps``: [(key, p)].  -> {key: {rank, threshold, rejected, family_size}}."""
+    ordered = sorted(hyps, key=lambda h: (h[1], h[0]))
+    m = len(ordered)
+    out, going = {}, True
+    for j, (key, p) in enumerate(ordered, 1):
+        threshold = alpha / (m - j + 1)
+        rejected = going and p <= threshold
+        going = rejected
+        out[key] = {"rank": j, "threshold": threshold, "rejected": rejected, "family_size": m}
+    return out
+
+
+# --------------------------------------------------------------------------- runs
+
+class Run:
+    def __init__(self, directory: Path, registered_sha: str | None):
+        self.dir = Path(directory)
+        plan_path = self.dir / "plan.json"
+        obs_path = self.dir / "observations.jsonl"
+        self.plan = json.loads(plan_path.read_text())
+        self.inputs = {"dir": str(self.dir.resolve()),
+                       "plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+                       "observations_sha256": hashlib.sha256(obs_path.read_bytes()).hexdigest()}
+        plan = self.plan
+        if registered_sha is not None and plan.get("x_decide_sha256") != registered_sha:
+            raise SystemExit(f"{self.dir}: plan x_decide_sha256 {plan.get('x_decide_sha256')} "
+                             f"is not this decide.py ({registered_sha})")
+        self.campaign = plan.get("x_campaign")
+        if self.campaign not in CAMPAIGNS:
+            raise SystemExit(f"{self.dir}: x_campaign {self.campaign!r} not in {CAMPAIGNS}")
+        self.candidate = plan.get("x_candidate")
+        combined = plan.get("x_candidates")
+        if self.campaign == "A2":
+            if (self.candidate is None) == (combined is None):
+                raise SystemExit(f"{self.dir}: an A2 run needs exactly one of x_candidate "
+                                 f"and x_candidates")
+            if combined is not None and (not isinstance(combined, list) or not combined
+                                         or len(set(combined)) != len(combined)):
+                raise SystemExit(f"{self.dir}: x_candidates must be a non-empty list of "
+                                 f"distinct arms")
+        elif self.candidate is not None or combined is not None:
+            raise SystemExit(f"{self.dir}: x_candidate(s) only for A2 runs")
+        # the arms an A2 unit decides: the head-to-head's candidate or the combined list
+        self.decides = ([self.candidate] if self.candidate is not None else combined)
+        self.attempt = plan.get("x_attempt", 1)
+        if self.attempt not in (1, 2):
+            raise SystemExit(f"{self.dir}: x_attempt must be 1 or 2")
+        self.workload = plan["application"]
+        self.seed = plan["seed"]
+        resolved = plan.get("aa_control_resolved")
+        if not resolved:
+            raise SystemExit(f"{self.dir}: no aa_control_resolved (needs the A/A control)")
+        self.ref, self.aa = resolved["reference"], resolved["arm"]
+        if registered_sha is not None:
+            if (self.ref, self.aa) != EXPECTED_REFERENCE[self.campaign]:
+                raise SystemExit(f"{self.dir}: reference {self.ref}/{self.aa} is not "
+                                 f"{EXPECTED_REFERENCE[self.campaign]}")
+            if self.workload not in WORKLOADS:
+                raise SystemExit(f"{self.dir}: workload {self.workload!r}")
+        self.burn_in = plan.get("burn_in_blocks", 0)
+        self.blocks = plan["blocks"]
+        if not (isinstance(self.burn_in, int) and 0 <= self.burn_in < self.blocks):
+            raise SystemExit(f"{self.dir}: burn_in_blocks {self.burn_in!r}")
+        same = plan.get("x_same_cache_bytes") or {}
+        if same and same.get("reference") not in (None, self.ref):
+            raise SystemExit(f"{self.dir}: x_same_cache_bytes reference {same.get('reference')} "
+                             f"is not {self.ref}")
+        self.same_bytes = {a: sorted(ws) for a, ws in (same.get("arms") or {}).items()}
+        self.aliases = {a: dict(sorted(m.items())) for a, m in (same.get("aliases") or {}).items()}
+        self.arms = list(plan["arms"])
+        for a, m in self.aliases.items():
+            target = m.get(self.workload)
+            if target is None:
+                continue
+            if a in self.arms or a in (plan.get("aa_name"), resolved["arm"]):
+                raise SystemExit(f"{self.dir}: {a} is timed here and also an alias of {target}")
+            if (target not in self.arms or target in (self.ref, resolved["arm"])
+                    or self.workload in self.same_bytes.get(a, [])):
+                raise SystemExit(f"{self.dir}: alias {a} -> {target} on {self.workload}: the "
+                                 f"target must be a timed arm other than the reference")
+        cases = list(plan["cases"])
+        cells = {}
+        for line in obs_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            o = json.loads(line)
+            key = (o["block"], o["arm"], o["case"])
+            if key in cells:
+                raise SystemExit(f"{self.dir}: duplicate observation {key}")
+            cells[key] = o["ns"]
+        missing = [(b, a, c) for b in range(self.blocks) for a in self.arms for c in cases
+                   if (b, a, c) not in cells]
+        if missing:
+            raise SystemExit(f"{self.dir}: incomplete run, {len(missing)} cells missing "
+                             f"(first {missing[0]})")
+        extra = set(cells) - {(b, a, c) for b in range(self.blocks) for a in self.arms
+                              for c in cases}
+        if extra:
+            raise SystemExit(f"{self.dir}: observations outside the plan: {sorted(extra)[:3]}")
+        self.used_blocks = list(range(self.burn_in, self.blocks))
+        if len(self.used_blocks) < 2:
+            raise SystemExit(f"{self.dir}: {len(self.used_blocks)} blocks after the burn-in; "
+                             f"the t reference needs at least 2")
+        self._estimates = {}
+        self.T = {(b, a): sum(cells[b, a, c] for c in cases) for b in range(self.blocks)
+                  for a in self.arms}
+        for a in (self.ref, self.aa):
+            if a not in self.arms:
+                raise SystemExit(f"{self.dir}: reference arm {a} not in the plan")
+        self.inputs.update(campaign=self.campaign, candidate=self.candidate,
+                           candidates=combined, workload=self.workload,
+                           attempt=self.attempt, seed=self.seed,
+                           reference=self.ref, aa=self.aa, burn_in_blocks=self.burn_in,
+                           blocks_used=len(self.used_blocks))
+
+    @property
+    def unit(self):
+        return (self.campaign, self.candidate)
+
+    def timed_arms(self):
+        return [a for a in self.arms if a not in (self.ref, self.aa)]
+
+    def logratios(self, arm):
+        return [0.5 * (math.log(self.T[b, self.ref]) + math.log(self.T[b, self.aa]))
+                - math.log(self.T[b, arm]) for b in self.used_blocks]
+
+    def aa_logratios(self):
+        return [math.log(self.T[b, self.ref]) - math.log(self.T[b, self.aa])
+                for b in self.used_blocks]
+
+    def estimate(self, arm):
+        if arm not in self._estimates:
+            values = self.logratios(arm)
+            d = hodges_lehmann(values)
+            draws = bootstrap_hl(values, f"{self.seed}:{self.workload}:{arm}")
+            se = max(statistics.stdev(draws), SE_FLOOR)
+            self._estimates[arm] = {**bounds(d, se, len(values) - 1), "n_blocks": len(values)}
+        return dict(self._estimates[arm])
+
+    def alias_target(self, arm):
+        """The timed arm whose bytes ``arm`` has on this run's workload, or None."""
+        return self.aliases.get(arm, {}).get(self.workload)
+
+    def valid(self):
+        values = self.aa_logratios()
+        a = hodges_lehmann(values)
+        draws = bootstrap_hl(values, f"{self.seed}:{self.workload}:{self.aa}")
+        ci = percentile_interval(draws, VALID_QUANTILES)
+        return {"a_w": a, "ci99": ci, "se": statistics.stdev(draws),
+                "biased": ci[0] > 0 or ci[1] < 0, "n_blocks": len(values)}
+
+
+def select_runs(runs):
+    """VALID: choose one run per (campaign, candidate, workload); returns (chosen, valid rows,
+    rerun_required, warnings)."""
+    by_key = {}
+    for r in runs:
+        key = (r.campaign, r.candidate, r.workload)
+        if r.attempt in by_key.setdefault(key, {}):
+            raise SystemExit(f"two attempt-{r.attempt} runs for {key}")
+        by_key[key][r.attempt] = r
+    chosen, valid_rows, rerun, warnings = [], [], [], []
+    for key in sorted(by_key, key=lambda k: (CAMPAIGNS.index(k[0]), k[1] or "", WORKLOADS.index(k[2]) if k[2] in WORKLOADS else 9, k[2])):
+        attempts = by_key[key]
+        if 1 not in attempts:
+            raise SystemExit(f"{key}: a rerun without its first attempt")
+        first = attempts[1]
+        v1 = first.valid()
+        row = {"campaign": key[0], "candidate": key[1], "workload": key[2], "attempt": 1,
+               "dir": str(first.dir), **v1}
+        valid_rows.append(row)
+        if not v1["biased"]:
+            first.reference_bias = None
+            chosen.append(first)
+            if 2 in attempts:
+                warnings.append(f"{key}: attempt 1 is not biased; its rerun is ignored")
+            continue
+        if 2 not in attempts:
+            first.reference_bias = "pending_rerun"
+            chosen.append(first)
+            rerun.append({"campaign": key[0], "candidate": key[1], "workload": key[2],
+                          "seed": first.seed + 100, "first_attempt": str(first.dir)})
+            continue
+        second = attempts[2]
+        if second.seed != first.seed + 100:
+            raise SystemExit(f"{key}: the rerun's seed {second.seed} is not {first.seed} + 100")
+        v2 = second.valid()
+        valid_rows.append({"campaign": key[0], "candidate": key[1], "workload": key[2],
+                           "attempt": 2, "dir": str(second.dir), **v2})
+        second.reference_bias = "reference_bias" if v2["biased"] else None
+        chosen.append(second)
+    return chosen, valid_rows, rerun, warnings
+
+
+# --------------------------------------------------------------------------- per-unit estimates
+
+def unit_estimates(runs):
+    """{(campaign, candidate): {arm: {"workloads": {w: est}, "pooled": est|None,
+    "same_bytes": [w], "alias_of": {w: arm}, "pooled_alias_of": arm|None, "missing": [w],
+    "reference_bias": [...]}}}."""
+    units = {}
+    for r in runs:
+        units.setdefault(r.unit, []).append(r)
+    out = {}
+    for unit, rs in units.items():
+        same, aliases = {}, {}
+        for r in rs:
+            for a, ws in r.same_bytes.items():
+                if same.setdefault(a, ws) != ws:
+                    raise SystemExit(f"{unit}: runs disagree on x_same_cache_bytes for {a}")
+            for a, m in r.aliases.items():
+                if aliases.setdefault(a, m) != m:
+                    raise SystemExit(f"{unit}: runs disagree on the same-bytes aliases of {a}")
+        arms = sorted({a for r in rs for a in r.timed_arms()} | set(same) | set(aliases),
+                      key=order_key)
+        if unit[0] == "A2":     # an A2 unit decides only its own candidate(s)
+            decides = {tuple(r.decides) for r in rs}
+            if len(decides) != 1:
+                raise SystemExit(f"{unit}: runs disagree on the A2 candidates {sorted(decides)}")
+            arms = sorted(decides.pop(), key=order_key)
+        rs = sorted(rs, key=lambda r: WORKLOADS.index(r.workload) if r.workload in WORKLOADS else 9)
+        table = {}
+        for arm in arms:
+            per_w, flags, alias_of = {}, {}, {}
+            for r in rs:
+                target = r.alias_target(arm)
+                if arm in r.timed_arms():
+                    per_w[r.workload] = r.estimate(arm)
+                elif target is not None:
+                    per_w[r.workload] = r.estimate(target)      # the same bytes: Y's numbers
+                    alias_of[r.workload] = target
+                else:
+                    continue
+                if r.reference_bias:
+                    flags[r.workload] = r.reference_bias
+            sb = same.get(arm, [])
+            overlap = set(sb) & set(per_w)
+            if overlap:
+                raise SystemExit(f"{unit} {arm}: timed on same-bytes workload(s) {sorted(overlap)}")
+            pooled = pool(per_w) if per_w else None
+            ws_known = set(per_w) | set(sb)
+            table[arm] = {"item": item(arm), "role": role(arm), "workloads": per_w,
+                          "pooled": pooled, "same_bytes": sb, "alias_of": alias_of,
+                          "missing": [w for w in WORKLOADS if w not in ws_known],
+                          "reference_bias": flags}
+        for arm, e in table.items():
+            # the pooled scope is Y's own hypothesis when every workload is an alias of Y and
+            # Y's row is exactly those workloads, all timed (same estimates, same pooling)
+            targets = set(e["alias_of"].values())
+            e["pooled_alias_of"] = None
+            if (len(targets) == 1 and set(e["alias_of"]) == set(e["workloads"])
+                    and len(e["workloads"]) >= 2):
+                (target,) = targets
+                t = table.get(target)
+                if t and not t["alias_of"] and set(t["workloads"]) == set(e["workloads"]):
+                    e["pooled_alias_of"] = target
+        out[unit] = table
+    return out
+
+
+def best(campaign, tables):
+    """BEST over every unit of one campaign (A2's units form one family)."""
+    def key_of(unit, arm, scope):
+        return f"{unit[1] or ''}|{arm}|{scope}"
+
+    def alias_for(unit, e, scope):
+        target = e["pooled_alias_of"] if scope == "pooled" else e["alias_of"].get(scope)
+        if target is None or target not in tables[unit]:
+            return None
+        t = tables[unit][target]
+        if scope != "pooled" and (scope not in t["workloads"] or scope in t["alias_of"]):
+            return None
+        return target
+
+    hyps, rows = [], []
+    for unit, table in tables.items():
+        for arm, e in table.items():
+            scopes = list(e["workloads"].items())
+            if len(e["workloads"]) >= 2:
+                scopes.append(("pooled", e["pooled"]))
+            for scope, est in scopes:
+                target = alias_for(unit, e, scope)
+                if target is None:          # an alias scope is its target's hypothesis
+                    hyps.append((key_of(unit, arm, scope), est["p"]))
+                rows.append((unit, arm, scope, est, target))
+    family = holm(hyps)
+    out_rows, faster = [], []
+    for unit, arm, scope, est, target in rows:
+        h = family[key_of(unit, target or arm, scope)]
+        verdict = ("faster_than_o4" if h["rejected"] else
+                   "slower_than_o4" if est["ub95"] < 0 else "not_shown")
+        if h["rejected"]:
+            faster.append(arm)
+        flags = tables[unit][arm]["reference_bias"]
+        bias = (flags.get(scope) if scope != "pooled"
+                else ",".join(sorted(set(flags.values()))) or None)
+        out_rows.append({"campaign": campaign, "candidate": unit[1], "arm": arm, "item": item(arm),
+                         "role": role(arm), "scope": scope, **est, "holm_rank": h["rank"],
+                         "holm_threshold": h["threshold"], "holm_family_size": h["family_size"],
+                         "reference_bias": bias, "verdict": verdict, "alias_of": target})
+    for unit, table in tables.items():
+        for arm, e in table.items():
+            for w in e["same_bytes"]:
+                out_rows.append({"campaign": campaign, "candidate": unit[1], "arm": arm,
+                                 "item": item(arm), "role": role(arm), "scope": w,
+                                 "verdict": "same_bytes"})
+    faster = sorted(set(faster), key=order_key)
+    return {"family_size": len(hyps), "alpha": ALPHA, "faster_than_o4": faster,
+            "holds": not faster,
+            "absorb": [a for a in faster if role(a) in ("challenger", "anchor", "other")],
+            "rows": out_rows}
+
+
+def all_same_bytes(e):
+    return not e["workloads"] and set(e["same_bytes"]) >= set(WORKLOADS)
+
+
+def screen(table):
+    """Campaign A screen (3.4)."""
+    rows, to_a2 = {}, []
+    for arm, e in sorted(table.items(), key=lambda kv: order_key(kv[0])):
+        r = role(arm)
+        if r not in ("addon", "fidelity", "removal", "challenger"):
+            continue
+        slower_w = sorted((w for w, est in e["workloads"].items() if est["ub99"] < 0),
+                          key=WORKLOADS.index)
+        row = {"item": item(arm), "role": r, "same_bytes": e["same_bytes"],
+               "alias_of": e["alias_of"], "missing": e["missing"], "pooled": e["pooled"],
+               "ub99_below_zero": slower_w}
+        if "pending_rerun" in e["reference_bias"].values():
+            row["provisional"] = "pending_rerun"
+        if all_same_bytes(e):
+            row["decision"] = {"removal": "accepted_same_bytes", "fidelity": "included_same_bytes",
+                               "addon": "excluded_same_bytes",
+                               "challenger": "same_bytes"}[r]
+        elif not e["workloads"]:
+            row["decision"] = "not_timed"
+        elif r == "challenger":
+            row["decision"] = "to_A2" if e["pooled"]["d"] > 0 else "best_check_is_screen"
+        elif slower_w:
+            row["decision"] = ("rejected_marginal_proven_gain" if r == "removal"
+                               else "excluded_measured_slower")
+        else:
+            row["decision"] = "to_A2"
+        rows[arm] = row
+    for classes in A2_CLASSES:
+        for arm in sorted(rows, key=order_key):
+            if rows[arm]["role"] in classes and rows[arm]["decision"] == "to_A2":
+                to_a2.append(arm)
+    a2 = [{"arm": a, "item": item(a), "k": k,
+           "workloads": sorted(table[a]["workloads"], key=WORKLOADS.index)}
+          for k, a in enumerate(to_a2)]
+    return {"items": rows, "a2_order": a2, "a2_mode": "combined", "a2_seed": A2_SEED}
+
+
+def g0_of(gates, arm):
+    if gates is None:
+        return None
+    entry = gates.get("arms", {}).get(arm)
+    if entry is None:
+        return None
+    g0 = entry.get("g0")
+    if g0 not in (True, False):
+        raise SystemExit(f"gates: {arm} g0 must be true or false")
+    return g0
+
+
+def decide_items(tables_by_campaign, gates, screen_doc):
+    """ADD / REMOVE / FIDELITY over A2 and H (3.7)."""
+    entries = {}
+    for campaign in ("A2", "H"):
+        for unit, table in tables_by_campaign.get(campaign, {}).items():
+            for arm, e in table.items():
+                if campaign == "A2" and unit[1] is not None and arm != unit[1]:
+                    continue
+                if role(arm) not in ("addon", "removal", "fidelity"):
+                    continue
+                if arm in entries:
+                    raise SystemExit(f"{arm} is decided in more than one A2/H unit")
+                entries[arm] = {"campaign": campaign, **e}
+    family = holm([(arm, e["pooled"]["p"]) for arm, e in entries.items()
+                   if role(arm) == "addon" and e["pooled"] is not None])
+    decisions = {}
+    for arm in sorted(entries, key=order_key):
+        e = entries[arm]
+        r = role(arm)
+        g0 = g0_of(gates, arm)
+        per_w = e["workloads"]
+        pooled = e["pooled"]
+        if pooled is None:
+            decisions[arm] = {"item": item(arm), "role": r, "campaign": e["campaign"],
+                              "g0": g0, "pooled": None, "status": "excluded",
+                              "reason": "not_timed", "same_bytes": e["same_bytes"],
+                              "missing": e["missing"]}
+            continue
+        noninf = {w: est["lb95"] > LOG_098 for w, est in per_w.items()}
+        row = {"item": item(arm), "role": r, "campaign": e["campaign"], "g0": g0,
+               "pooled": pooled, "workloads": per_w, "same_bytes": e["same_bytes"],
+               "missing": e["missing"], "noninferior_w": noninf,
+               "reference_bias": e["reference_bias"]}
+        if r == "addon":
+            h = family.get(arm)
+            row["holm"] = h
+            checks = {"holm": bool(h and h["rejected"]), "noninferior_every_w": all(noninf.values())}
+        else:
+            checks = {"ub_ge_0": pooled["ub95"] >= 0, "lb_gt_log099": pooled["lb95"] > LOG_099,
+                      "noninferior_every_w": all(noninf.values())}
+            row["passes_add_unadjusted"] = pooled["lb95"] > 0 and all(noninf.values())
+        row["checks"] = checks
+        if e["missing"]:
+            status, reason = "excluded", "incomplete"
+        elif g0 is False:
+            status, reason = "excluded", "unsafe"
+        elif not all(checks.values()):
+            status = "excluded" if r == "addon" else "rejected"
+            reason = next(k for k, v in checks.items() if not v)
+        elif g0 is None:
+            status, reason = "pending_g0", "g0_not_recorded"
+        else:
+            status, reason = "accepted", "rule_passed"
+        if "pending_rerun" in e["reference_bias"].values():
+            status, reason = "pending_rerun", f"VALID: rerun required ({reason})"
+        row["status"], row["reason"] = status, reason
+        decisions[arm] = row
+    # items decided by the screen (same bytes everywhere, or slower at 99%) are carried over
+    carried = {}
+    if screen_doc is not None:
+        for arm, srow in screen_doc.get("screen", {}).get("items", {}).items():
+            if (arm in decisions or srow["decision"] == "to_A2"
+                    or srow["role"] not in ("addon", "removal", "fidelity")):
+                continue
+            g0 = g0_of(gates, arm)
+            dec = srow["decision"]
+            status = ("accepted" if dec in ("accepted_same_bytes", "included_same_bytes")
+                      else "rejected" if srow["role"] == "removal" else "excluded")
+            if status == "accepted" and g0 is False:
+                status = "excluded"
+            carried[arm] = {**srow, "status": status, "reason": dec, "g0": g0,
+                            "decided_in": "A (screen)"}
+    return decisions, carried
+
+
+def compose(decisions, carried, best_by_campaign):
+    accepted = {a for a, r in decisions.items() if r["status"] == "accepted"}
+    accepted |= {a for a, r in carried.items() if r["status"] == "accepted"}
+
+    def d_of(arm):
+        row = decisions.get(arm)
+        return row["pooled"]["d"] if row and row.get("pooled") else 0.0
+
+    notes = {}
+    chosen = set(accepted)
+    hosts = [a for a in HOST_INLINE_GROUP if a in accepted]
+    if len(hosts) > 1:
+        top = max(d_of(a) for a in hosts)
+        pick = next(a for a in HOST_INLINE_GROUP if a in hosts and d_of(a) >= top - GROUP_TIE)
+        for a in hosts:
+            if a != pick:
+                chosen.discard(a)
+                notes[a] = f"accepted, superseded in the host-inline group by {pick}"
+    pwhopr_faster = any(FIRMWARE_CHALLENGER in b.get("faster_than_o4", ())
+                        for b in best_by_campaign.values())
+    firmware = [a for a in FIRMWARE_ADDONS if a in chosen]
+    if "o4_noregions" in chosen and (firmware or pwhopr_faster):
+        chosen.discard("o4_noregions")
+        why = firmware or [FIRMWARE_CHALLENGER + " (faster than O4)"]
+        notes["o4_noregions"] = f"removable, superseded by an accepted firmware add-on: {why}"
+    if "o4_noregions" in chosen and "o4_isb" in chosen:
+        chosen.discard("o4_isb")
+        notes["o4_isb"] = "accepted, moot under X3 (no regions)"
+    if "o4_nospec" in chosen and "o4_nocp" in chosen:
+        chosen.discard("o4_nocp")
+        notes["o4_nocp"] = "accepted, moot: X4 removes the whole SPEC bundle"
+    comp = sorted(chosen, key=order_key)
+    absorb = sorted({a for b in best_by_campaign.values() for a in b.get("absorb", ())},
+                    key=order_key)
+    return {
+        "o4r2": {
+            "addons": [a for a in comp if role(a) == "addon"],
+            "removals": [a for a in comp if role(a) == "removal"],
+            "fidelity": [a for a in comp if role(a) == "fidelity"],
+            "items": [item(a) for a in comp],
+            "contains_addon": any(role(a) == "addon" for a in comp),
+            "changes_firmware_inline": bool(set(comp) & FIRMWARE_INLINE_ITEMS),
+            "changes_host_inline": bool(set(comp) & HOST_INLINE_ITEMS),
+            "a2_pooled_d": {a: d_of(a) for a in comp},
+        },
+        "nothing_accepted": not comp,
+        "notes": notes,
+        "absorb_faster_configurations": absorb,
+        "b2_rejected_with_highest_d": max(
+            ((a, r["pooled"]["d"]) for a, r in decisions.items()
+             if r["status"] != "accepted" and r.get("pooled")),
+            key=lambda t: (t[1], t[0]), default=(None, None))[0],
+    }
+
+
+def decide_b1(tables, plans, gates):
+    out = {}
+    for unit, table in tables.items():
+        e = table.get("o4r2")
+        if e is None:
+            raise SystemExit("B1 runs need the arm o4r2")
+        comp = plans[unit].get("x_composition") or {}
+        retry = bool(plans[unit].get("x_b1_retry"))
+        if "contains_addon" not in comp:
+            raise SystemExit("B1 plan lacks x_composition.contains_addon")
+        g0 = g0_of(gates, "o4r2")
+        pooled = e["pooled"]
+        noninf = {w: est["lb95"] > LOG_098 for w, est in e["workloads"].items()}
+        if comp["contains_addon"]:
+            checks = {"pooled_lb_gt_0": pooled["lb95"] > 0, "noninferior_every_w": all(noninf.values())}
+        else:
+            checks = {"ub_ge_0": pooled["ub95"] >= 0, "lb_gt_log099": pooled["lb95"] > LOG_099,
+                      "noninferior_every_w": all(noninf.values())}
+        passed = all(checks.values()) and g0 is True and not e["missing"]
+        row = {"rule": "ADD-confirm" if comp["contains_addon"] else "REMOVE", "checks": checks,
+               "g0": g0, "pooled": pooled, "workloads": e["workloads"],
+               "same_bytes": e["same_bytes"], "missing": e["missing"],
+               "reference_bias": e["reference_bias"], "retry": retry,
+               "passed": passed}
+        if not passed:
+            if g0 is None and all(checks.values()) and not e["missing"]:
+                row["next"] = "record G0 for o4r2"
+            elif retry or not comp.get("addons"):
+                row["next"] = "O4 stays at r1"
+            else:
+                d = comp.get("a2_pooled_d", {})
+                drop = min(comp["addons"], key=lambda a: (d.get(a, 0.0), a))
+                row["next"] = f"drop {drop} (smallest A2 pooled d) and repeat B1 once"
+        out[unit[1] or "o4r2"] = row
+    return out
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("runs", nargs="+", type=Path, help="driver output directories")
+    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--gates", type=Path)
+    ap.add_argument("--screen", type=Path, help="campaign A decide.json")
+    ap.add_argument("--unregistered", action="store_true",
+                    help="accept plans without this decide.py's x_decide_sha256 (replays only)")
+    args = ap.parse_args(argv)
+    sha = self_sha256()
+    runs = [Run(d, None if args.unregistered else sha) for d in args.runs]
+    gates = json.loads(args.gates.read_text()) if args.gates else None
+    screen_doc = json.loads(args.screen.read_text()) if args.screen else None
+    chosen, valid_rows, rerun, warnings = select_runs(runs)
+    plans = {r.unit: r.plan for r in chosen}
+    by_campaign = {}
+    for unit, table in unit_estimates(chosen).items():
+        by_campaign.setdefault(unit[0], {})[unit] = table
+    doc = {
+        "schema": SCHEMA,
+        "decide_sha256": sha,
+        "registered": not args.unregistered,
+        "constants": {"rounds": ROUNDS, "reference_distribution": REFERENCE_DISTRIBUTION,
+                      "bound_quantiles": {"lb95_ub95": Q95, "ub99": Q99}, "alpha": ALPHA,
+                      "valid_quantiles": list(VALID_QUANTILES), "log_0_98": LOG_098,
+                      "log_0_99": LOG_099, "group_tie": GROUP_TIE, "se_floor": SE_FLOOR,
+                      "a2_seed": A2_SEED},
+        "inputs": [r.inputs | {"chosen": r in chosen} for r in runs],
+        "gates": None if args.gates is None else {
+            "path": str(args.gates), "sha256": hashlib.sha256(args.gates.read_bytes()).hexdigest()},
+        "screen_input": None if args.screen is None else {
+            "path": str(args.screen), "sha256": hashlib.sha256(args.screen.read_bytes()).hexdigest()},
+        "valid": valid_rows,
+        "rerun_required": rerun,
+        "warnings": warnings,
+        "estimates": {c: {u[1] or "-": t for u, t in units.items()}
+                      for c, units in by_campaign.items()},
+        "best": {c: best(c, units) for c, units in by_campaign.items()},
+    }
+    if "A" in by_campaign:
+        (table,) = by_campaign["A"].values()
+        doc["screen"] = screen(table)
+    if "A2" in by_campaign or "H" in by_campaign:
+        decisions, carried = decide_items(by_campaign, gates, screen_doc)
+        doc["decisions"] = decisions
+        doc["carried_from_screen"] = carried
+        doc["composition"] = compose(decisions, carried, doc["best"])
+    if "B1" in by_campaign:
+        doc["b1"] = decide_b1(by_campaign["B1"], plans, gates)
+    if "B2" in by_campaign:
+        b2 = doc["best"]["B2"]
+        doc["b2"] = {"best_holds": b2["holds"], "faster_than_o4r2": b2["faster_than_o4"]}
+        if "b1" in doc:
+            doc["adopt_o4r2"] = all(r["passed"] for r in doc["b1"].values()) and b2["holds"]
+    args.out.write_text(json.dumps(doc, indent=1, sort_keys=True, allow_nan=False) + "\n")
+    report(doc)
+
+
+def report(doc):
+    pct = lambda x: f"{100 * x:+.2f}%"
+    for v in doc["valid"]:
+        print(f"VALID {v['campaign']}{'/' + v['candidate'] if v['candidate'] else ''} "
+              f"{v['workload']} attempt {v['attempt']}: a_w {pct(v['a_w'])} "
+              f"ci99 [{pct(v['ci99'][0])}, {pct(v['ci99'][1])}]{' BIASED' if v['biased'] else ''}")
+    for r in doc["rerun_required"]:
+        print(f"RERUN {r['campaign']} {r['candidate'] or ''} {r['workload']} at seed {r['seed']}")
+    for c, b in doc["best"].items():
+        print(f"BEST {c}: family {b['family_size']}, faster than reference: {b['faster_than_o4'] or 'none'}")
+    if "screen" in doc:
+        for arm, row in doc["screen"]["items"].items():
+            p = row["pooled"]
+            print(f"SCREEN {row['item']:>4} {arm:<13} {row['decision']:<30} "
+                  + (f"d {pct(p['d'])} SE {100 * p['se']:.2f}%" if p else ""))
+        print(f"A2 ({doc['screen']['a2_mode']}, seed {doc['screen']['a2_seed']}):",
+              [a["arm"] for a in doc["screen"]["a2_order"]])
+    for arm, row in doc.get("decisions", {}).items():
+        p = row["pooled"]
+        print(f"DECIDE {row['item']:>4} {arm:<13} {row['status']:<10} {row['reason']:<22} "
+              + (f"d {pct(p['d'])} [{pct(p['lb95'])}, {pct(p['ub95'])}]" if p else ""))
+    if "composition" in doc:
+        print("O4-r2:", doc["composition"]["o4r2"]["items"] or "nothing accepted (O4 stays r1)")
+    for k, row in doc.get("b1", {}).items():
+        print(f"B1 {k}: {'pass' if row['passed'] else 'fail'} ({row['rule']}) {row.get('next', '')}")
+    if "adopt_o4r2" in doc:
+        print("adopt O4-r2:", doc["adopt_o4r2"])
+
+
+if __name__ == "__main__":
+    main()

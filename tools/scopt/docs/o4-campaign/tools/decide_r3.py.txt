@@ -1,0 +1,508 @@
+#!/usr/bin/env python3
+"""Pre-registered decision rule of round R3 of the scopt O4 campaign (PREREG-R3.md).
+
+Written before any R3 timing data existed.  Its sha256 is recorded in PREREG-R3.md and in
+every R3 / F plan as ``x_decide_r3_sha256``; a run whose plan names another digest is refused.
+The statistics are the registered decide.py's own functions, imported unchanged (decide.py's
+sha256 must be DECIDE.sha256's, 0b724747..., or this refuses to run): Hodges-Lehmann
+(``hodges_lehmann``), the 20,000-round block-bootstrap SE (``bootstrap_hl`` through
+``Run.estimate``), the Student-t p and bounds (``bounds``, ``p_faster``, ``t_ppf``), inverse-
+variance pooling with Welch df (``pool``), Holm (``holm``), VALID (``Run.valid``: the
+two-sided 99% bootstrap interval of the reference / A/A log-ratio), per-arm estimates with
+same-bytes and alias handling (``unit_estimates``), BEST (``best``) and G0 (``g0_of``).  Only the
+round's own rule is new: the plan checks, the VALID run selection for the R3 / F campaign
+labels (decide.select_runs's logic; its sort key knows only campaigns A-B2), ADD-confirm, the
+choice of the winner, F's arm set and adoption.
+
+Campaign R3 (seed 20261201; blocks 41/81/41 = 40/80/40 + burn-in block 0; settle 30 s):
+  reference o4 (O4-r1), A/A arm o4-aa; variants (label: plan arm, parts)
+    o4r3a: o4_pwhopr (A5)          o4r3b: o4r3b (A5 X1 X4)
+    o4r3c: o4r3c (A5 A3)           o4r3d: o4r3d (A5 A3 X1 X4)
+  every variant whose bytes differ from o4 on a workload is timed there; a variant whose bytes
+  equal another variant's on a workload is timed once and aliased (decide.py's aliases: its
+  row there IS the timed arm's estimate).
+  VALID per workload: decide.py's (interval excludes 0 -> rerun that workload's plan once at
+    seed + 100 as x_attempt 2; the rerun replaces attempt 1; still biased -> every row of that
+    workload carries reference_bias; a biased attempt 1 without its rerun is pending_rerun and
+    the decision is provisional).
+  ADD-confirm of variant V against O4-r1, all of:
+    G0       gates g0 true (O4-design 3.7 ADD clause 1, as in B1's ADD-confirm)
+    Holm     V's pooled one-sided p ("V faster than O4-r1") rejected by Holm at 0.05 over the
+             family of variants timed (one hypothesis per distinct pooled estimate: a variant
+             whose every workload is an alias of one variant Y, which is timed on exactly those
+             workloads, takes Y's Holm result and is not a second hypothesis)
+    LB_w     LB95_w > log(0.98) on every workload where V's bytes differ from O4-r1's
+  Choice: among the variants passing ADD-confirm, the highest pooled d; within 0.003 (0.3%,
+    decide.GROUP_TIE) of that d, prefer a variant with X1 and X4, then one without A3; among
+    what remains the highest d (an exact tie: o4r3a, o4r3b, o4r3c, o4r3d order).  None passes:
+    winner "none", the round is blocked.
+Campaign F (after R3; seed 20261202; blocks 31/21/21 = 30/20/20 + burn-in; settle 30 s):
+  reference W (the R3 winner's arm), A/A arm "<W arm>-aa"; arms: W, O4-r1 (o4), the other R3
+  variants, O4-r2 (arm o4r2; "o4r2a" in B2's tables), O4-r2b (arm o4r2b), and every other
+  built arm or anchor whose latest pooled estimate against O4-r1 has UB95 > log(0.99)
+  (F_CRITERION below, computed from A, A2, H, B1 and B1-retry; B2 and H2 used O4-r2b as the
+  reference).  The plan's timed arms, same-bytes arms and aliases must be exactly that set.
+  VALID as above.  BEST: decide.best over the F run (per-workload and pooled one-sided p for
+  "A faster than W", one Holm family over every arm and scope at 0.05, alias scopes take their
+  target's result); BEST holds iff nothing is rejected.
+Adoption: W becomes the new O4 iff W passed ADD-confirm in R3 and BEST holds in F, with VALID
+  ok or reference_bias recorded (no pending_rerun in R3 or F).
+
+Usage:
+  decide_r3.py R3 --gates gates/all.json --out decide-R3.json RUN_DIR...
+  decide_r3.py F --r3 decide-R3.json --gates gates/all.json --out decide-F.json RUN_DIR...
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import decide as D  # noqa: E402  (the registered rule's functions, unchanged)
+
+SCHEMA = "scfix-o4.decide-r3/1"
+REGISTERED_DECIDE_SHA256 = "0b7247476a39abade599000de4e2555c7edb1167b57d0989f4bac54cbaf1a438"
+ROUND = "R3"
+CAMPAIGNS = ("R3", "F")
+SEEDS = {"R3": 20261201, "F": 20261202}
+RERUN_SEED_OFFSET = 100
+BLOCKS = {"R3": {"packet": 41, "uart": 81, "cli": 41}, "F": {"packet": 31, "uart": 21, "cli": 21}}
+BURN_IN = 1
+SETTLE_SECONDS = 30
+WORKLOADS = D.WORKLOADS
+ALPHA = D.ALPHA
+TIE = D.GROUP_TIE
+LOG_098 = D.LOG_098
+LOG_099 = D.LOG_099
+R3_REFERENCE = ("o4", "o4-aa")
+VARIANTS = {
+    "o4r3a": {"arm": "o4_pwhopr", "items": ("A5",), "pipeline": "o4r3a.toml (= o4-pwhopr.toml's passes)"},
+    "o4r3b": {"arm": "o4r3b", "items": ("A5", "X1", "X4"), "pipeline": "o4r3b.toml"},
+    "o4r3c": {"arm": "o4r3c", "items": ("A5", "A3"), "pipeline": "o4r3c.toml"},
+    "o4r3d": {"arm": "o4r3d", "items": ("A5", "A3", "X1", "X4"), "pipeline": "o4r3d.toml"},
+}
+ARM_TO_VARIANT = {v["arm"]: k for k, v in VARIANTS.items()}
+F_FIXED = {"o4": "O4-r1 (-O4; cache.sc = c7b3's)",
+           "o4r2": "O4-r2 (A5 + I1 + X1 + X4; build opt/o4r2; 'o4r2a' in B2's tables)",
+           "o4r2b": "O4-r2b (I1 + X1 + X4; build opt/o4r2b)"}
+# The latest pooled estimate against O4-r1 of every other built arm and anchor (decide.py
+# rows; d, ub95 in log units; source campaign).  Threshold: UB95 > log(0.99).  Recomputed from
+# the decide outputs by /data/scfix-o4/r3/make_r3_plans.py, which refuses to plan if it differs.
+F_CRITERION = {
+    "threshold": "pooled UB95 > log(0.99) = -0.0100503",
+    "sources": {"A": "screen.json", "A2": "A2.json", "H": "H.json", "B1": "B1.json (o4r2 = O4-r2)",
+                "B1-retry": "B1-retry.json (its arm o4r2 = O4-r2b)",
+                "not_used": "B2.json and H2.json: reference o4r2 = O4-r2b, no estimate against O4-r1"},
+    "included": {
+        "c7b3": {"campaign": "A", "d": None, "ub95": None,
+                 "note": "same bytes as O4-r1 on every workload: not shown slower; an alias of o4 in F"},
+        "fl3b3": {"campaign": "A2", "d": 0.00199, "ub95": 0.00681},
+        "fl3b3p": {"campaign": "A", "d": -0.00696, "ub95": 0.00531},
+        "o4_chained": {"campaign": "A2", "d": -0.00093, "ub95": 0.00581},
+        "o4_isb": {"campaign": "A2", "d": 0.00194, "ub95": 0.00747},
+        "o4_legacy": {"campaign": "A2", "d": 0.00374, "ub95": 0.01346},
+        "o4_min2": {"campaign": "A2", "d": 0.00097, "ub95": 0.00634},
+        "o4_nocp": {"campaign": "A2", "d": 0.00577, "ub95": 0.01135},
+        "o4_nohi": {"campaign": "A2", "d": 0.00235, "ub95": 0.00773},
+        "o4_noregions": {"campaign": "A2", "d": -0.00176, "ub95": 0.00293},
+        "o4_nospec": {"campaign": "A2", "d": 0.00325, "ub95": 0.00884},
+        "o4_rank": {"campaign": "A2", "d": 0.01513, "ub95": 0.02542},
+        "o4_tasks": {"campaign": "A2", "d": 0.00978, "ub95": 0.02251},
+        "s6b3": {"campaign": "A", "d": -0.008, "ub95": 0.00122},
+    },
+    "excluded": {
+        "b3l": {"campaign": "A", "d": -0.02316, "ub95": -0.01166},
+        "fl3": {"campaign": "A", "d": -0.14697, "ub95": -0.13713},
+        "o4_hostall": {"campaign": "H", "d": -0.04509, "ub95": -0.03938},
+        "o4_hotgraph": {"campaign": "A", "d": -0.03634, "ub95": -0.02425},
+        "p7": {"campaign": "A", "d": -0.0458, "ub95": -0.03777},
+        "s6": {"campaign": "A", "d": -0.16668, "ub95": -0.15512},
+        "w7bd_b3": {"campaign": "H", "d": -0.03566, "ub95": -0.02951},
+    },
+    "in_F_by_rule": {"o4_pwhopr": "R3 variant o4r3a", "o4r2": "fixed", "o4r2b": "fixed"},
+    "not_campaign_arms": {"o4_pinned": "identity aid (O4-r1 via --pipeline O4.toml), never a campaign arm"},
+}
+
+
+def self_sha256() -> str:
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def check_decide_registration():
+    """The imported decide.py must be the registered one (its functions are used unchanged)."""
+    want = (HERE / "DECIDE.sha256").read_text().split()[0]
+    have = D.self_sha256()
+    if not have == want == REGISTERED_DECIDE_SHA256:
+        raise SystemExit(f"decide.py sha256 {have} / DECIDE.sha256 {want} is not the registered "
+                         f"{REGISTERED_DECIDE_SHA256}")
+    return have
+
+
+def f_arms(winner):
+    """The arms (A/A arm excluded) an F plan must cover for winner label ``winner``."""
+    w_arm = VARIANTS[winner]["arm"]
+    arms = [w_arm, "o4", *(v["arm"] for k, v in VARIANTS.items() if k != winner),
+            "o4r2", "o4r2b", *F_CRITERION["included"]]
+    return list(dict.fromkeys(arms))
+
+
+# --------------------------------------------------------------------------- runs
+
+class R3Run(D.Run):
+    """A driver output directory of campaign R3 or F.  Reuses decide.Run's estimate(),
+    valid(), logratios(), aa_logratios(), timed_arms() and alias_target() unchanged; only the
+    plan checks are R3's own."""
+
+    def __init__(self, directory: Path):          # noqa: C901 (one linear list of checks)
+        self.dir = Path(directory)
+        plan_path, obs_path = self.dir / "plan.json", self.dir / "observations.jsonl"
+        self.plan = plan = json.loads(plan_path.read_text())
+        self.inputs = {"dir": str(self.dir.resolve()),
+                       "plan_sha256": hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+                       "observations_sha256": hashlib.sha256(obs_path.read_bytes()).hexdigest()}
+        mine = self_sha256()
+        if plan.get("x_decide_r3_sha256") != mine:
+            raise SystemExit(f"{self.dir}: plan x_decide_r3_sha256 {plan.get('x_decide_r3_sha256')} "
+                             f"is not this decide_r3.py ({mine})")
+        if plan.get("x_decide_sha256") != REGISTERED_DECIDE_SHA256:
+            raise SystemExit(f"{self.dir}: plan x_decide_sha256 {plan.get('x_decide_sha256')} is "
+                             f"not the registered decide.py")
+        if plan.get("x_round") != ROUND:
+            raise SystemExit(f"{self.dir}: x_round {plan.get('x_round')!r} is not {ROUND!r}")
+        self.campaign = plan.get("x_campaign")
+        if self.campaign not in CAMPAIGNS:
+            raise SystemExit(f"{self.dir}: x_campaign {self.campaign!r} not in {CAMPAIGNS}")
+        self.candidate, self.decides = None, None
+        self.attempt = plan.get("x_attempt", 1)
+        if self.attempt not in (1, 2):
+            raise SystemExit(f"{self.dir}: x_attempt must be 1 or 2")
+        self.workload = plan["application"]
+        if self.workload not in WORKLOADS:
+            raise SystemExit(f"{self.dir}: workload {self.workload!r}")
+        self.seed = plan["seed"]
+        want_seed = SEEDS[self.campaign] + (RERUN_SEED_OFFSET if self.attempt == 2 else 0)
+        if self.seed != want_seed:
+            raise SystemExit(f"{self.dir}: seed {self.seed} is not {want_seed} "
+                             f"({self.campaign} attempt {self.attempt})")
+        self.blocks = plan["blocks"]
+        if self.blocks != BLOCKS[self.campaign][self.workload]:
+            raise SystemExit(f"{self.dir}: blocks {self.blocks} is not "
+                             f"{BLOCKS[self.campaign][self.workload]}")
+        self.burn_in = plan.get("burn_in_blocks")
+        if self.burn_in != BURN_IN:
+            raise SystemExit(f"{self.dir}: burn_in_blocks {self.burn_in!r} is not {BURN_IN}")
+        if plan.get("settle_seconds") != SETTLE_SECONDS:
+            raise SystemExit(f"{self.dir}: settle_seconds {plan.get('settle_seconds')!r}")
+        resolved = plan.get("aa_control_resolved")
+        if not resolved:
+            raise SystemExit(f"{self.dir}: no aa_control_resolved (needs the A/A control)")
+        self.ref, self.aa = resolved["reference"], resolved["arm"]
+        self.winner = plan.get("x_winner")
+        if self.campaign == "R3":
+            if (self.ref, self.aa) != R3_REFERENCE:
+                raise SystemExit(f"{self.dir}: reference {self.ref}/{self.aa} is not {R3_REFERENCE}")
+            expected = {"o4", *(v["arm"] for v in VARIANTS.values())}
+        else:
+            if self.winner not in VARIANTS:
+                raise SystemExit(f"{self.dir}: x_winner {self.winner!r} is not an R3 variant")
+            w_arm = VARIANTS[self.winner]["arm"]
+            if (self.ref, self.aa) != (w_arm, f"{w_arm}-aa"):
+                raise SystemExit(f"{self.dir}: reference {self.ref}/{self.aa} is not "
+                                 f"{w_arm}/{w_arm}-aa")
+            expected = set(f_arms(self.winner))
+        same = plan.get("x_same_cache_bytes") or {}
+        if same.get("reference") != self.ref:
+            raise SystemExit(f"{self.dir}: x_same_cache_bytes reference {same.get('reference')} "
+                             f"is not {self.ref}")
+        self.same_bytes = {a: sorted(ws) for a, ws in (same.get("arms") or {}).items()}
+        self.aliases = {a: dict(sorted(m.items())) for a, m in (same.get("aliases") or {}).items()}
+        self.arms = list(plan["arms"])
+        for a in (self.ref, self.aa):
+            if a not in self.arms:
+                raise SystemExit(f"{self.dir}: reference arm {a} not in the plan")
+        for a, m in self.aliases.items():
+            target = m.get(self.workload)
+            if target is None:
+                continue
+            if a in self.arms:
+                raise SystemExit(f"{self.dir}: {a} is timed here and also an alias of {target}")
+            if (target not in self.arms or target in (self.ref, self.aa)
+                    or self.workload in self.same_bytes.get(a, [])):
+                raise SystemExit(f"{self.dir}: alias {a} -> {target} on {self.workload}: the "
+                                 f"target must be a timed arm other than the reference")
+        here_same = {a for a, ws in self.same_bytes.items() if self.workload in ws}
+        here_alias = {a for a, m in self.aliases.items() if self.workload in m}
+        if here_same & set(self.arms):
+            raise SystemExit(f"{self.dir}: same-bytes arms timed: {sorted(here_same & set(self.arms))}")
+        covered = (set(self.arms) - {self.aa}) | here_same | here_alias
+        if covered != expected:
+            raise SystemExit(f"{self.dir}: arms {sorted(covered)} are not the registered "
+                             f"{self.campaign} set {sorted(expected)} (missing "
+                             f"{sorted(expected - covered)}, extra {sorted(covered - expected)})")
+        cases = list(plan["cases"])
+        cells = {}
+        for line in obs_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            o = json.loads(line)
+            key = (o["block"], o["arm"], o["case"])
+            if key in cells:
+                raise SystemExit(f"{self.dir}: duplicate observation {key}")
+            cells[key] = o["ns"]
+        grid = {(b, a, c) for b in range(self.blocks) for a in self.arms for c in cases}
+        missing = sorted(grid - set(cells))
+        if missing:
+            raise SystemExit(f"{self.dir}: incomplete run, {len(missing)} cells missing "
+                             f"(first {missing[0]})")
+        extra = set(cells) - grid
+        if extra:
+            raise SystemExit(f"{self.dir}: observations outside the plan: {sorted(extra)[:3]}")
+        self.used_blocks = list(range(self.burn_in, self.blocks))
+        self._estimates = {}
+        self.T = {(b, a): sum(cells[b, a, c] for c in cases) for b in range(self.blocks)
+                  for a in self.arms}
+        self.reference_bias = None
+        self.inputs.update(campaign=self.campaign, workload=self.workload, attempt=self.attempt,
+                           seed=self.seed, reference=self.ref, aa=self.aa, winner=self.winner,
+                           burn_in_blocks=self.burn_in, blocks_used=len(self.used_blocks))
+
+
+def select_runs(runs):
+    """VALID run selection per (campaign, workload): decide.select_runs's rule, unchanged in
+    substance.  -> (chosen, valid rows, rerun_required, warnings)."""
+    by_key = {}
+    for r in runs:
+        key = (r.campaign, r.workload)
+        if r.attempt in by_key.setdefault(key, {}):
+            raise SystemExit(f"two attempt-{r.attempt} runs for {key}")
+        by_key[key][r.attempt] = r
+    chosen, valid_rows, rerun, warnings = [], [], [], []
+    for key in sorted(by_key, key=lambda k: (CAMPAIGNS.index(k[0]), WORKLOADS.index(k[1]))):
+        attempts = by_key[key]
+        if 1 not in attempts:
+            raise SystemExit(f"{key}: a rerun without its first attempt")
+        first = attempts[1]
+        v1 = first.valid()
+        valid_rows.append({"campaign": key[0], "workload": key[1], "attempt": 1,
+                           "dir": str(first.dir), **v1})
+        if not v1["biased"]:
+            first.reference_bias = None
+            chosen.append(first)
+            if 2 in attempts:
+                warnings.append(f"{key}: attempt 1 is not biased; its rerun is ignored")
+            continue
+        if 2 not in attempts:
+            first.reference_bias = "pending_rerun"
+            chosen.append(first)
+            rerun.append({"campaign": key[0], "workload": key[1],
+                          "seed": first.seed + RERUN_SEED_OFFSET, "first_attempt": str(first.dir)})
+            continue
+        second = attempts[2]
+        v2 = second.valid()
+        valid_rows.append({"campaign": key[0], "workload": key[1], "attempt": 2,
+                           "dir": str(second.dir), **v2})
+        second.reference_bias = "reference_bias" if v2["biased"] else None
+        chosen.append(second)
+    return chosen, valid_rows, rerun, warnings
+
+
+# --------------------------------------------------------------------------- R3 rule
+
+def pooled_alias(label, table):
+    """The variant whose pooled hypothesis ``label``'s is (every workload an alias of that one
+    variant, which is timed on exactly those workloads), or None."""
+    e = table[VARIANTS[label]["arm"]]
+    targets = set(e["alias_of"].values())
+    if len(targets) != 1 or set(e["alias_of"]) != set(e["workloads"]) or not e["workloads"]:
+        return None
+    (target,) = targets
+    t = table.get(target)
+    if target not in ARM_TO_VARIANT or t is None or t["alias_of"] \
+            or set(t["workloads"]) != set(e["workloads"]):
+        return None
+    return ARM_TO_VARIANT[target]
+
+
+def r3_rule(table, gates):
+    rows, hyps = {}, []
+    for label, v in VARIANTS.items():
+        e = table.get(v["arm"])
+        if e is None:
+            raise SystemExit(f"R3: variant {label} (arm {v['arm']}) is in no run")
+        if e["missing"]:
+            raise SystemExit(f"R3: variant {label} has no run on {e['missing']}")
+        alias = pooled_alias(label, table)
+        rows[label] = {"arm": v["arm"], "items": list(v["items"]), "pipeline": v["pipeline"],
+                       "g0": D.g0_of(gates, v["arm"]),
+                       "workloads_differ": sorted(e["workloads"], key=WORKLOADS.index),
+                       "same_bytes_as_o4": e["same_bytes"], "alias_of": e["alias_of"],
+                       "pooled_hypothesis_of": alias, "pooled": e["pooled"],
+                       "workloads": e["workloads"], "reference_bias": e["reference_bias"]}
+        if e["pooled"] is not None and alias is None:
+            hyps.append((label, e["pooled"]["p"]))
+    family = D.holm(hyps)
+    for label, r in rows.items():
+        key = r["pooled_hypothesis_of"] or label
+        h = family.get(key) if r["pooled"] is not None else None
+        r["holm"] = h
+        lbw = {w: est["lb95"] for w, est in r["workloads"].items()}
+        r["lb95_w_above_log098"] = {w: lb > LOG_098 for w, lb in lbw.items()}
+        checks = {"g0": r["g0"] is True,
+                  "holm_rejected": bool(h and h["rejected"]),
+                  "lb95_w_above_log098_everywhere_differing": bool(lbw) and all(
+                      lb > LOG_098 for lb in lbw.values())}
+        r["checks"] = checks
+        r["add_confirm"] = all(checks.values())
+    passing = [k for k in VARIANTS if rows[k]["add_confirm"]]
+    choice = {"passing": passing}
+    if not passing:
+        choice.update(best_d=None, band=None, steps=[], winner=None, status="blocked")
+    else:
+        best_d = max(rows[k]["pooled"]["d"] for k in passing)
+        near = [k for k in passing if rows[k]["pooled"]["d"] >= best_d - TIE]
+        x1x4 = [k for k in near if {"X1", "X4"} <= set(VARIANTS[k]["items"])] or near
+        no_a3 = [k for k in x1x4 if "A3" not in VARIANTS[k]["items"]] or x1x4
+        winner = max(no_a3, key=lambda k: (rows[k]["pooled"]["d"], -list(VARIANTS).index(k)))
+        choice.update(best_d=best_d, band=[best_d - TIE, best_d],
+                      steps=[{"within_0.3pct_of_best": near}, {"prefer_X1_X4": x1x4},
+                             {"prefer_without_A3": no_a3}],
+                      winner=winner, winner_arm=VARIANTS[winner]["arm"], status="winner")
+    return {"family_size": len(hyps), "alpha": ALPHA, "family": family, "variants": rows,
+            "choice": choice}
+
+
+# --------------------------------------------------------------------------- F rule
+
+def f_rule(table):
+    b = D.best("F", {("F", None): table})
+    names = {"faster_than_o4": "faster_than_W", "slower_than_o4": "slower_than_W"}
+    rows = [{**r, "verdict": names.get(r["verdict"], r["verdict"])} for r in b["rows"]]
+    return {"family_size": b["family_size"], "alpha": b["alpha"],
+            "faster_than_W": b["faster_than_o4"], "holds": b["holds"], "rows": rows}
+
+
+# --------------------------------------------------------------------------- main
+
+def load_runs(dirs, campaign):
+    runs = [R3Run(Path(d)) for d in dirs]
+    other = sorted({r.campaign for r in runs} - {campaign})
+    if other:
+        raise SystemExit(f"{campaign} decision given {other} runs")
+    if campaign == "F":
+        winners = {r.winner for r in runs}
+        if len(winners) != 1:
+            raise SystemExit(f"F runs disagree on the winner: {sorted(map(str, winners))}")
+    return runs
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("campaign", choices=CAMPAIGNS)
+    ap.add_argument("runs", nargs="+", type=Path)
+    ap.add_argument("--gates", type=Path, required=True)
+    ap.add_argument("--r3", type=Path, help="F only: the R3 decision (decide_r3.py R3 output)")
+    ap.add_argument("--out", type=Path, required=True)
+    args = ap.parse_args(argv)
+    decide_sha = check_decide_registration()
+    mine = self_sha256()
+    gates = json.loads(args.gates.read_text())
+    runs = load_runs(args.runs, args.campaign)
+    r3_doc = None
+    if args.campaign == "F":
+        if args.r3 is None:
+            raise SystemExit("F needs --r3 (the R3 decision)")
+        r3_doc = json.loads(args.r3.read_text())
+        r3_sha = hashlib.sha256(args.r3.read_bytes()).hexdigest()
+        if r3_doc.get("schema") != SCHEMA or r3_doc.get("campaign") != "R3" \
+                or r3_doc.get("decide_r3_sha256") != mine:
+            raise SystemExit(f"{args.r3} is not an R3 decision of this decide_r3.py")
+        winner = runs[0].winner
+        if r3_doc["R3"]["choice"].get("winner") != winner:
+            raise SystemExit(f"F's x_winner {winner} is not R3's winner "
+                             f"{r3_doc['R3']['choice'].get('winner')}")
+        for r in runs:
+            bound = (r.plan.get("x_r3_decision") or {}).get("sha256")
+            if bound != r3_sha:
+                raise SystemExit(f"{r.dir}: plan x_r3_decision sha256 {bound} is not {args.r3}'s")
+    chosen, valid_rows, rerun, warnings = select_runs(runs)
+    missing_w = sorted(set(WORKLOADS) - {r.workload for r in chosen}, key=WORKLOADS.index)
+    if missing_w:
+        raise SystemExit(f"{args.campaign}: no run for {missing_w}")
+    tables = D.unit_estimates(chosen)
+    table = tables[(args.campaign, None)]
+    pending = any(r.reference_bias == "pending_rerun" for r in chosen)
+    biased = sorted(r.workload for r in chosen if r.reference_bias == "reference_bias")
+    doc = {"schema": SCHEMA, "campaign": args.campaign, "round": ROUND,
+           "decide_r3_sha256": mine, "decide_sha256": decide_sha, "registered": True,
+           "constants": {"seeds": SEEDS, "rerun_seed_offset": RERUN_SEED_OFFSET, "blocks": BLOCKS,
+                         "burn_in_blocks": BURN_IN, "settle_seconds": SETTLE_SECONDS,
+                         "alpha": ALPHA, "tie": TIE, "log_098": LOG_098, "log_099": LOG_099,
+                         "rounds": D.ROUNDS, "reference_distribution": D.REFERENCE_DISTRIBUTION,
+                         "variants": VARIANTS},
+           "gates": {"path": str(args.gates), "sha256": hashlib.sha256(args.gates.read_bytes()).hexdigest()},
+           "inputs": [{**r.inputs, "chosen": r in chosen, "reference_bias": r.reference_bias}
+                      for r in runs],
+           "valid": valid_rows, "rerun_required": rerun, "reference_bias_workloads": biased,
+           "provisional": pending, "warnings": warnings, "estimates": table}
+    if args.campaign == "R3":
+        doc["R3"] = r3_rule(table, gates)
+        ch = doc["R3"]["choice"]
+        doc["R3"]["final"] = not pending
+        doc["summary"] = {"winner": ch["winner"], "status": ch["status"], "final": not pending}
+    else:
+        winner = runs[0].winner
+        f = f_rule(table)
+        r3_add = bool(r3_doc["R3"]["variants"][winner]["add_confirm"])
+        r3_final = bool(r3_doc["R3"].get("final"))
+        adopted = r3_add and r3_final and f["holds"] and not pending
+        doc["r3_input"] = {"path": str(args.r3), "sha256": hashlib.sha256(args.r3.read_bytes()).hexdigest()}
+        doc["F"] = {"winner": winner, "winner_arm": VARIANTS[winner]["arm"], "best": f,
+                    "final": not pending}
+        doc["adoption"] = {"winner": winner, "r3_add_confirm": r3_add, "r3_final": r3_final,
+                           "best_holds": f["holds"], "f_final": not pending,
+                           "reference_bias_recorded": biased, "adopted": adopted}
+        doc["summary"] = {"winner": winner, "best_holds": f["holds"], "adopted": adopted,
+                          "final": not pending and r3_final}
+    args.out.write_text(json.dumps(doc, indent=1, default=list) + "\n")
+    report(doc)
+    return doc
+
+
+def pct(x):
+    return "n/a" if x is None else f"{100 * x:+.2f}%"
+
+
+def report(doc):
+    print(f"decide_r3 {doc['campaign']}  sha256 {doc['decide_r3_sha256'][:16]}…  "
+          f"(decide.py {doc['decide_sha256'][:16]}…)")
+    for v in doc["valid"]:
+        print(f"  VALID {v['workload']:6} attempt {v['attempt']}: a_w {pct(v['a_w'])} "
+              f"99% [{pct(v['ci99'][0])}, {pct(v['ci99'][1])}] {'BIASED' if v['biased'] else 'ok'}")
+    if doc["rerun_required"]:
+        print("  rerun required:", doc["rerun_required"])
+    if doc["campaign"] == "R3":
+        r3 = doc["R3"]
+        for label, r in r3["variants"].items():
+            p = r["pooled"] or {}
+            per = " ".join(f"{w} {pct(e['d'])} (LB {pct(e['lb95'])})" for w, e in r["workloads"].items())
+            h = r["holm"] or {}
+            print(f"  {label} ({r['arm']}): pooled d {pct(p.get('d'))} LB {pct(p.get('lb95'))} "
+                  f"p {p.get('p', float('nan')):.5f} holm rank {h.get('rank')} thr "
+                  f"{h.get('threshold', float('nan')):.5f}; {per}; ADD-confirm {r['add_confirm']}")
+        print(f"  choice: status {r3['choice']['status']}, winner {r3['choice']['winner']} "
+              f"(passing {r3['choice']['passing']}); final {r3['final']}")
+    else:
+        f = doc["F"]["best"]
+        print(f"  F BEST over {f['family_size']} hypotheses: faster than W {f['faster_than_W']}; "
+              f"holds {f['holds']}")
+        print(f"  adoption: {doc['adoption']}")
+
+
+if __name__ == "__main__":
+    main()

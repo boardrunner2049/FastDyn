@@ -1,0 +1,43 @@
+# Experiment arm (not shipped): O4-r1 plus exactly the change named here.  See O4-design.md 1.8.
+# X3: firmware-inline removed (EMIT_FIRMWARE_REGION dropped); no member-skip runtime needed.
+schema = "scopt.pipeline"
+version = 1
+name = "o4-noregions"
+description = "O4-r1 without firmware regions (X3)"
+allowed_capabilities = ["INLINE_CALL", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, trusted_rank_by = "frequency", trusted_selected_root = true, hot_loop_only = true, min_site_calls = 1000 }
+
+[[pass]]
+name = "specialize-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+

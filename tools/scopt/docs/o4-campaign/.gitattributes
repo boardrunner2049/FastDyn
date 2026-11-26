@@ -1,0 +1,5 @@
+# The records here are byte-for-byte copies (see README.md), so whitespace checks do not
+# apply to them. pipelines/o4-noregions.toml ends in a blank line, as its original does.
+* -whitespace
+README.md !whitespace
+.gitattributes !whitespace

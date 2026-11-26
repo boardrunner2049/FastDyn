@@ -1,0 +1,523 @@
+#!/usr/bin/env python3
+"""Driver plans for the scopt O4 campaigns A, A2, H, B1 and B2 (O4-design.md 3.4-3.8).
+
+One plan per workload, for /data/scfix-o4/driver/compare_rtos.py.  Every plan has o4 (B2:
+o4r2) as ``aa_control`` with ``aa_name`` o4-aa (B2: o4r2-aa), ``burn_in_blocks`` 1 (block 0
+is the pre-registered burn-in, so blocks = n + 1), ``settle_seconds`` 30, the campaign's seed
+and CPUs, round 2's oracle words with the private inputs, and ``x_decide_sha256``
+(DECIDE.sha256, checked against decide.py).  Arms whose cache.sc equals the reference's on a
+workload are dropped from that workload and listed in ``x_same_cache_bytes.arms``
+(campaign-wide, for decide.py).  Among the other arms, bytes are timed once per workload: of
+a group of arms with one cache.sc the arm kept is the decision item (add-on, removal,
+fidelity; then challenger, then anchor; then plan order), and the others are listed in
+``x_same_cache_bytes.aliases`` ({arm: {workload: kept arm}}), which decide.py reads off the
+kept arm.  Comparisons are rewritten onto kept arms (``x_rewritten_comparisons``); those that
+lose an arm, compare identical bytes or repeat a kept comparison are listed in
+``x_dropped_comparisons``.
+
+A2 (registration 2, PREREG.md) is one combined plan per workload: o4, o4-aa and every A2
+candidate whose bytes differ there (``x_candidates`` = the screen's a2_order), blocks
+41/81/41, seed 20261130.  ``--per-candidate`` writes the design's original one plan per
+candidate (``x_candidate``, seed 20261126 + k) instead.
+
+Arms come from /data/scfix-o4/<w>-w: anchors (s6 s6b3 p7 c7b3 fl3 w7bd_b3) from
+arms/<arm>/anchor.json (setup_inputs.py); built arms from opt/<arm>/store/artifacts/*/cache.sc
+(exactly one), with arms/<arm>/launch.json derived from the private c7b3 launch when missing
+or stale.  A missing arm is an error except b3l (optional, C2), or with --allow-missing
+(inspection plans only: x_runnable false).
+
+  make_plan.py A                                  plans/A/<w>.json
+  make_plan.py A2 --screen decide-A.json          plans/A2/<w>.json  (combined; a2_order)
+  make_plan.py A2 --candidates o4_nohi,o4_min2    the same with this list as the a2_order
+  make_plan.py A2 ... --per-candidate             plans/A2/<arm>/<w>.json, seed 20261126 + k
+  make_plan.py H                                  plans/H/<w>.json
+  make_plan.py B1 --decision decide.json [--retry --drop ARM]   plans/B1/<w>.json
+  make_plan.py B2 --decision decide.json          plans/B2/<w>.json
+  ... --rerun W [--candidate X]                   VALID rerun of one workload: seed + 100,
+                                                  x_attempt 2, <w>-rerun.json
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import o4lib as L  # noqa: E402
+
+DRIVER = L.DRIVER_DIR / "compare_rtos.py"
+DECIDE = L.DRIVER_DIR / "decide.py"
+DECIDE_SHA = L.DRIVER_DIR / "DECIDE.sha256"
+DESIGN_JSON = L.DESIGN / "O4-design.json"
+DESIGN_MD = L.DESIGN / "O4-design.md"
+ARMS_JSON = L.DESIGN / "arms.json"
+PLANS = L.ROOT / "plans"
+PY = "/data/trebuchet-clean/FastDyn/scopt-env/bin/python"
+
+ANCHORS = ("s6", "s6b3", "p7", "c7b3", "fl3", "w7bd_b3")
+OPTIONAL = {"b3l": "optional challenger C2 (O4-design 1.8)"}
+SETTLE_SECONDS = 30
+BURN_IN = 1
+A_ARMS = ("s6", "s6b3", "p7", "c7b3", "fl3", "o4",
+          "o4_chained", "o4_isb", "o4_rank", "o4_hotgraph", "o4_min2", "o4_legacy",
+          "o4_nohi", "o4_nocp", "o4_noregions", "o4_nospec",
+          "fl3b3", "fl3b3p", "b3l")
+H_ARMS = ("o4", "w7bd_b3", "o4_hostall", "o4_pwhopr")
+B2_FIXED = ("o4r2", "o4", "c7b3", "s6b3", "p7", "fl3")
+# arm -> (item, role); the same table decide.py pre-registers (checked at import).
+ROLES = {
+    "o4_chained": ("A1", "addon"), "o4_isb": ("I1", "fidelity"), "o4_rank": ("A3", "addon"),
+    "o4_hotgraph": ("A4", "addon"), "o4_min2": ("A7", "addon"), "o4_legacy": ("A8", "addon"),
+    "o4_nohi": ("X1", "removal"), "o4_nocp": ("X2", "removal"),
+    "o4_noregions": ("X3", "removal"), "o4_nospec": ("X4", "removal"),
+    "fl3b3": ("C1", "challenger"), "fl3b3p": ("C1p", "challenger"), "b3l": ("C2", "challenger"),
+    "o4_pwhopr": ("A5", "challenger"), "o4_hostall": ("A6", "addon"),
+    "o4_tasks": ("A2a", "addon"), "w7bd_b3": ("w7bd_b3", "challenger"),
+    "s6": ("s6", "anchor"), "s6b3": ("s6b3", "anchor"), "p7": ("p7", "anchor"),
+    "c7b3": ("c7b3", "anchor"), "fl3": ("fl3", "anchor"),
+    "o4": ("O4-r1", "reference"), "o4r2": ("O4-r2", "composition"),
+}
+A2_SEED = 20261130           # combined A2 (registration 2); checked against decide.A2_SEED
+A2_PER_CANDIDATE_SEED = 20261126
+# Which arm of a same-bytes group is timed: a decision item before a challenger before an
+# anchor (lower first), then the campaign's arm order.
+KEEP_RANK = {"reference": 0, "composition": 0, "addon": 1, "removal": 1, "fidelity": 1,
+             "challenger": 2, "anchor": 3}
+
+
+def keep_rank(arm, order):
+    return (KEEP_RANK.get(ROLES.get(arm, (arm, "other"))[1], 4),
+            order.index(arm) if arm in order else len(order), arm)
+
+
+def design():
+    doc = L.read_json(DESIGN_JSON)
+    return doc["blocks"], doc["comparisons"]
+
+
+def campaign_settings(campaign):
+    blocks, comparisons = design()
+    key = {"A": "A_screen", "A2": "A2_head_to_head", "H": "H_heavy", "B1": "B1_confirm",
+           "B2": "B2_best_check"}[campaign]
+    b = blocks[key]
+    per_w = {w: b[w] for w in L.WORKLOADS}
+    seed = b["seed"]
+    cpus = {w: blocks["cpus"][w] for w in L.WORKLOADS}
+    if cpus != L.CPUS:
+        raise SystemExit(f"design CPUs {cpus} differ from o4lib {L.CPUS}")
+    if blocks["settle_seconds"] != SETTLE_SECONDS:
+        raise SystemExit("design settle_seconds changed")
+    return per_w, seed, cpus, comparisons.get(key, {})
+
+
+def decide_sha():
+    want = DECIDE_SHA.read_text().split()[0]
+    have = hashlib.sha256(DECIDE.read_bytes()).hexdigest()
+    if want != have:
+        raise SystemExit(f"decide.py sha256 {have} != DECIDE.sha256 {want}: the decision rule "
+                         f"changed after registration")
+    return want
+
+
+class Resolver:
+    """Arm specs and cache digests from /data/scfix-o4/<w>-w."""
+
+    def __init__(self, derive_launches=True):
+        self.derive = derive_launches
+        self.records = []
+
+    def digest(self, w, cache: Path):
+        cache_file = L.wdir(w) / "digests.json"
+        known = L.read_json(cache_file) if cache_file.exists() else {}
+        st = cache.stat()
+        key = str(cache)
+        stamp = [st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns]
+        if key in known and known[key]["stat"] == stamp:
+            return known[key]["sha256"]
+        sha = L.sha256_file(cache)
+        known[key] = {"stat": stamp, "sha256": sha}
+        L.write_json(cache_file, known)
+        return sha
+
+    def arm(self, w, arm):
+        """-> ({launch, cache, sealed}, cache sha256) or None when not built."""
+        W = L.wdir(w)
+        if arm in ANCHORS:
+            doc = L.read_json(W / "arms" / arm / "anchor.json")
+            return doc["spec"], doc["cache"]["sha256"]
+        caches = sorted((W / "opt" / arm / "store" / "artifacts").glob("*/cache.sc"))
+        if not caches:
+            return None
+        if len(caches) > 1:
+            raise SystemExit(f"{w} {arm}: {len(caches)} artifacts in its store: {caches}")
+        cache = caches[0]
+        launch = W / "arms" / arm / "launch.json"
+        if not launch.exists() or self._supercache(launch) != str(cache):
+            if not self.derive:
+                raise SystemExit(f"{launch} missing or stale")
+            L.derive_arm_launch(w, arm, cache, self.records)
+        L.check_launch_paths(launch)
+        return {"launch": str(launch), "cache": str(cache), "sealed": True}, self.digest(w, cache)
+
+    @staticmethod
+    def _supercache(launch):
+        argv = L.read_json(launch)["argv"]
+        accel = argv[argv.index("-accel") + 1]
+        return next(f.split("=", 1)[1] for f in accel.split(",") if f.startswith("supercache="))
+
+
+def resolve_all(resolver, arms, reference, allow_missing):
+    """-> specs[w][arm], sha[w][arm], same[arm] = [w...], dropped[w][arm] = reason,
+    missing[arm] = [w...], aliases[arm] = {w: kept arm}."""
+    specs, shas, missing = {}, {}, {}
+    for w in L.WORKLOADS:
+        specs[w], shas[w] = {}, {}
+        for arm in arms:
+            got = resolver.arm(w, arm)
+            if got is None:
+                missing.setdefault(arm, []).append(w)
+                continue
+            specs[w][arm], shas[w][arm] = got
+    hard = {a: ws for a, ws in missing.items() if a not in OPTIONAL}
+    if hard and not allow_missing:
+        raise SystemExit(f"arms not built: {hard} (pass --allow-missing for an inspection plan)")
+    if reference in missing:
+        raise SystemExit(f"the reference {reference} is not built on {missing[reference]}")
+    same, dropped, aliases = {}, {w: {} for w in L.WORKLOADS}, {}
+    order = list(arms)
+    for w in L.WORKLOADS:
+        for arm in list(specs[w]):
+            if arm != reference and shas[w][arm] == shas[w][reference]:
+                same.setdefault(arm, []).append(w)
+                dropped[w][arm] = f"same_bytes: cache.sc sha256 equals {reference}'s"
+                del specs[w][arm]
+        groups = {}
+        for arm in specs[w]:
+            if arm != reference:
+                groups.setdefault(shas[w][arm], []).append(arm)
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            kept = min(group, key=lambda a: keep_rank(a, order))
+            for arm in sorted(group, key=lambda a: keep_rank(a, order)):
+                if arm == kept:
+                    continue
+                aliases.setdefault(arm, {})[w] = kept
+                dropped[w][arm] = (f"same_bytes: cache.sc sha256 equals {kept}'s; timed once as "
+                                   f"{kept}, and decide.py reads {arm}'s rows off it")
+                del specs[w][arm]
+    for arm, ws in missing.items():
+        for w in ws:
+            dropped[w][arm] = OPTIONAL.get(arm, "not built") + " (missing)"
+    return specs, shas, same, dropped, missing, aliases
+
+
+def cases_for(w):
+    doc = L.read_json(L.wdir(w) / "cases.json")
+    out = {}
+    for name, case in doc["cases"].items():
+        if L.sha256_file(case["input"]) != case["input_sha256"]:
+            raise SystemExit(f"{w} {name}: private input changed")
+        out[name] = {"input": case["input"], "words": case["words"]}
+    return out
+
+
+def build_plan(*, campaign, w, arms_spec, comparisons, blocks, seed, cpu, reference, aa_name,
+               same, shas, dropped, decide_sha256, candidate=None, attempt=1, extra=None,
+               missing=None, out_name, aliases=None, candidates=None):
+    aliases = {a: m for a, m in (aliases or {}).items() if m}
+    alias_w = {a: m[w] for a, m in aliases.items() if w in m}
+    keep, lost, rewritten, seen = [], [], [], set()
+    for ref, arm in comparisons:
+        pair = [alias_w.get(ref, ref), alias_w.get(arm, arm)]
+        gone = [a for a in pair if a not in arms_spec]
+        if gone:
+            lost.append({"pair": [ref, arm], "reason": "; ".join(
+                f"{a}: {dropped.get(a, 'not in this campaign')}" for a in gone)})
+            continue
+        if pair[0] == pair[1]:
+            lost.append({"pair": [ref, arm], "reason": f"identical bytes on {w}: both are "
+                                                       f"{pair[0]}'s cache.sc"})
+            continue
+        if frozenset(pair) in seen:
+            lost.append({"pair": [ref, arm], "reason": f"same bytes as {pair} on {w}, which is "
+                                                       f"already compared"})
+            continue
+        seen.add(frozenset(pair))
+        if pair != [ref, arm]:
+            rewritten.append({"pair": [ref, arm], "as": pair,
+                              "reason": "same-bytes alias: " + ", ".join(
+                                  f"{a} -> {alias_w[a]}" for a in (ref, arm) if a in alias_w)})
+        keep.append(pair)
+    plan = {
+        "application": w,
+        "cpu": cpu,
+        "blocks": blocks,
+        "seed": seed,
+        "oracle_launch": None,
+        "cases": cases_for(w),
+        "arms": arms_spec,
+        "comparisons": keep,
+        "aa_control": reference,
+        "aa_name": aa_name,
+        "burn_in_blocks": BURN_IN,
+        "settle_seconds": SETTLE_SECONDS,
+        "x_campaign": campaign,
+        "x_attempt": attempt,
+        "x_decide_sha256": decide_sha256,
+        "x_same_cache_bytes": {"reference": reference, "arms": same, "aliases": aliases},
+        "x_cache_sha256": {a: shas[a] for a in arms_spec},
+        "x_cache_sha256_not_timed": {a: shas[a] for a in dropped if a in shas},
+        "x_dropped_arms": dropped,
+        "x_dropped_comparisons": lost,
+        "x_rewritten_comparisons": rewritten,
+        "x_roles": {a: list(ROLES.get(a, (a, "other"))) for a in arms_spec},
+        "x_runnable": not missing,
+        "x_driver": {"path": str(DRIVER), "sha256": L.sha256_file(DRIVER)},
+        "x_qemu": {"path": str(L.QEMU), "sha256": L.QEMU_SHA256},
+        "x_design": {"path": str(DESIGN_MD), "sha256": L.sha256_file(DESIGN_MD),
+                     "json_sha256": L.sha256_file(DESIGN_JSON),
+                     "arms_json_sha256": L.sha256_file(ARMS_JSON)},
+        "x_make_plan_sha256": L.sha256_file(__file__),
+        "x_oracle": "round 2's per-input words (cases.json); oracle_launch unused",
+        "x_burn_in": "block 0 is run and recorded; decide.py drops it (O4-design 3.7)",
+    }
+    if candidate is not None:
+        plan["x_candidate"] = candidate
+    if candidates is not None:
+        plan["x_candidates"] = list(candidates)
+    if missing:
+        plan["x_missing_arms"] = missing
+    plan.update(extra or {})
+    out_dir = L.ROOT / w / out_name
+    plan["x_out"] = str(out_dir)
+    plan["x_run"] = (f"source {L.wdir(w)}/env.sh && $PY {DRIVER} <this plan> {out_dir} "
+                     f"> {out_dir}.log 2>&1")
+    text = json.dumps(plan)
+    bad = L.forbidden_refs(text)
+    if bad:
+        raise SystemExit(f"plan {campaign} {w} names {bad}")
+    if aa_name in arms_spec or reference not in arms_spec:
+        raise SystemExit(f"plan {campaign} {w}: bad reference/aa arms")
+    return plan
+
+
+def plans_A(args, resolver, sha):
+    per_w, seed, cpus, comp = campaign_settings("A")
+    specs, shas, same, dropped, missing, aliases = resolve_all(resolver, A_ARMS, "o4",
+                                                               args.allow_missing)
+    pairs = comp["candidates"] + comp["anchors"] + comp["diagnostics"]
+    return {f"A/{w}": build_plan(
+        campaign="A", w=w, arms_spec=specs[w], comparisons=pairs, blocks=per_w[w], seed=seed,
+        cpu=cpus[w], reference="o4", aa_name="o4-aa", same=same, shas=shas[w],
+        dropped=dropped[w], decide_sha256=sha, missing=_missing_for(missing, w),
+        aliases=aliases, out_name="timing-A") for w in L.WORKLOADS}
+
+
+def _missing_for(missing, w):
+    return sorted(a for a, ws in missing.items() if w in ws and a not in OPTIONAL)
+
+
+def _a2_order(args, sha):
+    """[(arm, k)] from the registered screen's a2_order, or from --candidates."""
+    if args.screen:
+        screen = L.read_json(args.screen)
+        if screen.get("decide_sha256") != sha or not screen.get("registered"):
+            raise SystemExit("the screen decide.json was not written by the registered decide.py")
+        s = screen["screen"]
+        if (s.get("a2_mode"), s.get("a2_seed")) != ("combined", A2_SEED):
+            raise SystemExit(f"the screen's A2 mode/seed {s.get('a2_mode')}/{s.get('a2_seed')} "
+                             f"is not combined/{A2_SEED}")
+        order = [(a["arm"], a["k"]) for a in s["a2_order"]]
+    elif args.candidates:
+        order = list(zip(args.candidates.split(","), range(10 ** 6)))
+    else:
+        raise SystemExit("A2 needs --screen or --candidates")
+    if [k for _, k in order] != list(range(len(order))) or len({a for a, _ in order}) != len(order):
+        raise SystemExit(f"A2 order {order}: k must be 0, 1, ... over distinct arms")
+    return order
+
+
+def plans_A2(args, resolver, sha):
+    per_w, _, cpus, _ = campaign_settings("A2")
+    order = _a2_order(args, sha)
+    if not order:
+        raise SystemExit("A2: no candidate survived the screen")
+    if getattr(args, "per_candidate", False):
+        return _plans_A2_per_candidate(args, resolver, sha, order, per_w, cpus)
+    cands = [a for a, _ in order]
+    specs, shas, same, dropped, missing, aliases = resolve_all(resolver, ("o4", *cands), "o4",
+                                                               args.allow_missing)
+    out = {}
+    for w in L.WORKLOADS:
+        if not any(a in specs[w] for a in cands):
+            continue                         # every candidate has o4's bytes here: not timed
+        out[f"A2/{w}"] = build_plan(
+            campaign="A2", w=w, arms_spec=specs[w], comparisons=[["o4", a] for a in cands],
+            blocks=per_w[w], seed=A2_SEED, cpu=cpus[w], reference="o4", aa_name="o4-aa",
+            same={a: same[a] for a in cands if a in same}, shas=shas[w], dropped=dropped[w],
+            decide_sha256=sha, candidates=cands, missing=_missing_for(missing, w),
+            aliases=aliases, out_name="timing-A2",
+            extra={"x_a2_mode": "combined",
+                   "x_a2_order": [{"arm": a, "k": k} for a, k in order],
+                   "x_seed_rule": f"{A2_SEED} for the combined A2 plan (registration 2, "
+                                  f"/data/scfix-o4/driver/PREREG.md); distinct from A, B1, H, B2",
+                   "x_deviation": "O4-design 3.5 plans one head-to-head per candidate (seed "
+                                  "20261126 + k); registration 2 times every candidate in one "
+                                  "plan per workload against the same pooled o4/o4-aa "
+                                  "reference, same blocks, same Holm family"})
+    return out
+
+
+def _plans_A2_per_candidate(args, resolver, sha, order, per_w, cpus):
+    out = {}
+    for arm, k in order:
+        seed = A2_PER_CANDIDATE_SEED + k
+        specs, shas, same, dropped, missing, aliases = resolve_all(resolver, ("o4", arm), "o4",
+                                                                   args.allow_missing)
+        for w in L.WORKLOADS:
+            if arm not in specs[w]:
+                continue                     # same bytes (or missing) here: not timed
+            out[f"A2/{arm}/{w}"] = build_plan(
+                campaign="A2", w=w, arms_spec=specs[w], comparisons=[["o4", arm]],
+                blocks=per_w[w], seed=seed, cpu=cpus[w], reference="o4", aa_name="o4-aa",
+                same={arm: same.get(arm, [])}, shas=shas[w], dropped=dropped[w],
+                decide_sha256=sha, candidate=arm, missing=_missing_for(missing, w),
+                aliases=aliases, out_name=f"timing-A2-{arm}",
+                extra={"x_a2_mode": "per_candidate", "x_a2_k": k,
+                       "x_seed_rule": "20261126 + k (k = 0-based index in the a2_order)"})
+    return out
+
+
+def plans_H(args, resolver, sha):
+    per_w, seed, cpus, comp = campaign_settings("H")
+    specs, shas, same, dropped, missing, aliases = resolve_all(resolver, H_ARMS, "o4",
+                                                               args.allow_missing)
+    return {f"H/{w}": build_plan(
+        campaign="H", w=w, arms_spec=specs[w], comparisons=comp["comparisons"], blocks=per_w[w],
+        seed=seed, cpu=cpus[w], reference="o4", aa_name="o4-aa", same=same, shas=shas[w],
+        dropped=dropped[w], decide_sha256=sha, missing=_missing_for(missing, w),
+        aliases=aliases, out_name="timing-H") for w in L.WORKLOADS}
+
+
+def _decision(args, sha):
+    if not args.decision:
+        raise SystemExit("needs --decision (the decide.json of A2 + H)")
+    doc = L.read_json(args.decision)
+    if doc.get("decide_sha256") != sha or not doc.get("registered") or "composition" not in doc:
+        raise SystemExit("--decision is not a registered decide.json with a composition")
+    return doc
+
+
+def plans_B1(args, resolver, sha):
+    per_w, seed, cpus, _ = campaign_settings("B1")
+    comp = dict(_decision(args, sha)["composition"]["o4r2"])
+    if args.retry:
+        if not args.drop or args.drop not in comp["addons"]:
+            raise SystemExit("--retry needs --drop <the accepted add-on with the smallest A2 d>")
+        comp["addons"] = [a for a in comp["addons"] if a != args.drop]
+        comp["items"] = [ROLES[a][0] for a in comp["addons"] + comp["removals"] + comp["fidelity"]]
+        comp["contains_addon"] = bool(comp["addons"])
+        comp["dropped_for_retry"] = args.drop
+    specs, shas, same, dropped, missing, aliases = resolve_all(resolver, ("o4", "o4r2"), "o4",
+                                                               args.allow_missing)
+    out = {}
+    for w in L.WORKLOADS:
+        if "o4r2" not in specs[w]:
+            continue
+        out[f"B1/{w}"] = build_plan(
+            campaign="B1", w=w, arms_spec=specs[w], comparisons=[["o4", "o4r2"]],
+            blocks=per_w[w], seed=seed, cpu=cpus[w], reference="o4", aa_name="o4-aa",
+            same={"o4r2": same.get("o4r2", [])}, shas=shas[w], dropped=dropped[w],
+            decide_sha256=sha, missing=_missing_for(missing, w), aliases=aliases,
+            out_name="timing-B1-retry" if args.retry else "timing-B1",
+            extra={"x_composition": comp, "x_b1_retry": bool(args.retry)})
+    return out
+
+
+def plans_B2(args, resolver, sha):
+    per_w, seed, cpus, _ = campaign_settings("B2")
+    comp = _decision(args, sha)["composition"]
+    singles = [a for a in comp["o4r2"]["addons"] + comp["o4r2"]["removals"] + comp["o4r2"]["fidelity"]]
+    top = comp.get("b2_rejected_with_highest_d")
+    arms = list(dict.fromkeys([*B2_FIXED, *singles, *([top] if top else [])]))
+    specs, shas, same, dropped, missing, aliases = resolve_all(resolver, arms, "o4r2",
+                                                               args.allow_missing)
+    return {f"B2/{w}": build_plan(
+        campaign="B2", w=w, arms_spec=specs[w], comparisons=[[a, "o4r2"] for a in arms if a != "o4r2"],
+        blocks=per_w[w], seed=seed, cpu=cpus[w], reference="o4r2", aa_name="o4r2-aa", same=same,
+        shas=shas[w], dropped=dropped[w], decide_sha256=sha, missing=_missing_for(missing, w),
+        aliases=aliases, out_name="timing-B2",
+        extra={"x_b2_arms": {"fixed": list(B2_FIXED), "accepted_single_items": singles,
+                             "rejected_with_highest_d": top},
+               "x_rerun_H": comp["o4r2"]["changes_firmware_inline"]
+               or comp["o4r2"]["changes_host_inline"]}) for w in L.WORKLOADS}
+
+
+def rerun_plan(plans, campaign, workload, candidate=None):
+    """VALID (3.7): the biased workload's plan again at seed + 100, as attempt 2."""
+    key = (f"A2/{candidate}/{workload}" if campaign == "A2" and candidate
+           else f"{campaign}/{workload}")
+    if key not in plans:
+        raise SystemExit(f"no plan {key} to rerun")
+    plan = dict(plans[key])
+    plan.update(seed=plan["seed"] + 100, x_attempt=2, x_rerun_of=plan["x_out"])
+    plan["x_out"] = plan["x_out"] + "-rerun"
+    plan["x_run"] = plan["x_run"].replace(plan["x_rerun_of"], plan["x_out"])
+    return {key + "-rerun": plan}
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("campaign", choices=("A", "A2", "H", "B1", "B2"))
+    ap.add_argument("--screen", type=Path)
+    ap.add_argument("--candidates")
+    ap.add_argument("--decision", type=Path)
+    ap.add_argument("--retry", action="store_true")
+    ap.add_argument("--drop")
+    ap.add_argument("--rerun", choices=L.WORKLOADS)
+    ap.add_argument("--candidate", help="A2 --per-candidate rerun: the candidate")
+    ap.add_argument("--per-candidate", action="store_true",
+                    help="A2: one plan per candidate (O4-design 3.5 as first registered)")
+    ap.add_argument("--allow-missing", action="store_true")
+    ap.add_argument("--out-dir", type=Path, default=PLANS)
+    ap.add_argument("--force", action="store_true", help="overwrite existing plans")
+    args = ap.parse_args(argv)
+    if args.allow_missing and args.out_dir.resolve() == PLANS.resolve():
+        raise SystemExit("--allow-missing plans are for inspection: give --out-dir elsewhere")
+    sha = decide_sha()
+    import decide as registered
+    if dict(registered.ITEMS) != ROLES:
+        raise SystemExit("make_plan.ROLES differs from the registered decide.py ITEMS")
+    if registered.A2_SEED != A2_SEED:
+        raise SystemExit("make_plan.A2_SEED differs from the registered decide.py A2_SEED")
+    resolver = Resolver()
+    plans = {"A": plans_A, "A2": plans_A2, "H": plans_H, "B1": plans_B1, "B2": plans_B2}[
+        args.campaign](args, resolver, sha)
+    if args.rerun:
+        plans = rerun_plan(plans, args.campaign, args.rerun, args.candidate)
+    written = []
+    for key, plan in plans.items():
+        path = args.out_dir / f"{key}.json"
+        if path.exists() and not args.force:
+            raise SystemExit(f"{path} exists (--force to overwrite)")
+        L.write_json(path, plan)
+        written.append(path)
+        print(f"{path}: {plan['blocks']} blocks seed {plan['seed']} cpu {plan['cpu']}; "
+              f"{len(plan['arms'])} arms (+{plan['aa_name']}); {len(plan['comparisons'])} "
+              f"comparisons; same bytes {sorted(a for a, ws in plan['x_same_cache_bytes']['arms'].items() if plan['application'] in ws)}"
+              + "".join(f"; {a} = {m[plan['application']]}" for a, m in sorted(
+                  plan["x_same_cache_bytes"]["aliases"].items()) if plan["application"] in m)
+              + ("" if plan["x_runnable"] else f"; NOT RUNNABLE, missing {plan['x_missing_arms']}"))
+    for r in resolver.records:
+        print("launch:", r["dst"], "<-", r.get("cache", ""))
+    return written
+
+
+if __name__ == "__main__":
+    main()

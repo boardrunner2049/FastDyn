@@ -1,0 +1,65 @@
+# scopt O4, revision 2 (docs/O4.md; per-item decisions in scopt/o4.py).
+#
+# The rule (the user's words): "we should have one config that include all of our
+# good things let's call it O4 ... O4 remains the best ... Whatever the best speed
+# optimizations are there MUST BE included in O4".
+#
+# Revision 2 is O4-r1 with the decisions of the O4 campaign applied (O4-design.md
+# 3.7 and 3.8; /data/scfix-o4/decisions.json, decided by the registered decide.py
+# 0b724747... over campaigns A, A2 and H).  d is the Hodges-Lehmann block log-ratio
+# against the pooled o4/o4-aa reference, positive = faster than O4-r1, pooled over
+# packet / uart / cli where the bytes differ; bounds are one-sided 95%.
+#
+#   A5 absorbed (rule BEST): firmware-inline selects regions by priced exhaustive
+#      selection (mode = "exhaustive", cost_model = "profile", o4-pwhopr.toml's
+#      params) instead of hot-loop.  Campaign H found o4_pwhopr faster than O4-r1
+#      (Holm family of 12): cli d +1.97% [LB +1.14%], p 0.00014 (rank 1); pooled
+#      d +0.93% [+0.44%, +1.42%], p 0.0011 (rank 2); packet -0.11%, uart +0.47%
+#      (not shown).  So O4 must absorb it.
+#   I1 included (rule FIDELITY): isb_boundary = true, so a branch out of a member
+#      whose last guest instruction is ISB is a side exit, in any mode.  o4_isb:
+#      pooled d +0.19% [-0.36%, +0.75%]; cli has O4-r1's bytes.
+#   X1 accepted (rule REMOVE): host-inline removed, with INLINE_CALL; so there is no
+#      --pgo-launch and no gdb-counted helper replay.  o4_nohi: pooled d +0.24%
+#      [-0.30%, +0.77%].
+#   X4 accepted (rule REMOVE): the SPEC bundle (specialize-returns,
+#      constant-propagation, branch-folding, dead-host-ops) removed.  o4_nospec:
+#      pooled d +0.32% [-0.24%, +0.88%]; packet has O4-r1's bytes.  X2 (CP alone,
+#      accepted) is moot under X4.
+#
+# Kept: B3 chaining (chain-returns, chain-static) and the trusted firmware regions
+# with member skip.  X3 was rejected: without regions cli is d -1.65%, LB -2.50% <
+# log 0.98.  No add-on passed ADD (Holm over A3 A2a A8 A7 A1 A6; the first, A3, has
+# p 0.0088 > 0.0083).  Each change is the exact delta of its measured arm file
+# (o4-pwhopr, o4-isb, o4-nohi, o4-nospec).  This composition itself is confirmed by
+# campaign B (B1 against O4-r1, B2 best-check).  O4.toml and -O4 move to this
+# revision only after B1 and B2 pass.
+#
+# It needs a trusted sealed capture of an icount-off run, its sealed steady profile
+# (--profile), --prep, --elf, --runtime-identity and the three runtime allowlists
+# (--v6-exe, --v7-trusted-exe, --v7-member-skip-exe) naming a QEMU with counters
+# revision 4 (aacca05 or later).  --pgo-launch is not needed.
+#
+# Frozen: a new decision adds O4-r3.toml; O4.toml always equals the newest adopted revision.
+schema = "scopt.pipeline"
+version = 1
+name = "O4-r2"
+description = "scopt O4 revision 2: O4-r1 with A5 absorbed (priced exhaustive firmware regions), the ISB side-exit rule, and host-inline and the SPEC bundle removed; B3 chaining and member skip kept."
+allowed_capabilities = ["EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "exhaustive", cost_model = "profile", phase = "steady", isb_boundary = true, trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4, member_slot_skip = "on" }

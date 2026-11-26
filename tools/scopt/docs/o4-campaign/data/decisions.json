@@ -1,0 +1,4376 @@
+{
+ "schema": "scfix-o4.decisions/1",
+ "step": "P5: final decisions and O4-r2 composition (O4-design 3.7, 3.8 Composition)",
+ "written": "2026-11-26T04:04:11-05:00",
+ "written_by": {
+  "path": "/data/scfix-o4/p5/make_decisions.py",
+  "sha256": "c9feb65b22dbd3a5b27e8c1543c92f91a99fad589fa84d5f196e76170af06d27"
+ },
+ "decide": {
+  "script": "/data/scfix-o4/driver/decide.py",
+  "sha256": "0b7247476a39abade599000de4e2555c7edb1167b57d0989f4bac54cbaf1a438",
+  "registered": true,
+  "registered_sha256_file": "0b7247476a39abade599000de4e2555c7edb1167b57d0989f4bac54cbaf1a438",
+  "command": "cd /data/scfix-o4 && nice -n 10 taskset -c 21-31 /data/trebuchet-clean/FastDyn/scopt-env/bin/python -B driver/decide.py packet/timing-A uart/timing-A cli/timing-A packet/timing-A2 uart/timing-A2 cli/timing-A2 packet/timing-H uart/timing-H cli/timing-H --gates gates/all.json --screen screen.json --out p5/P5.decide.json",
+  "output": "/data/scfix-o4/p5/P5.decide.json",
+  "output_sha256": "10675e1b3d8f8fb37cff8e19bbf0d6653794df7ea20a98d325daa9bd7e6c5be9",
+  "stdout": "/data/scfix-o4/p5/P5.decide.stdout.txt",
+  "inputs": [
+   {
+    "aa": "o4-aa",
+    "attempt": 1,
+    "blocks_used": 20,
+    "burn_in_blocks": 1,
+    "campaign": "A",
+    "candidate": null,
+    "candidates": null,
+    "chosen": true,
+    "dir": "/data/scfix-o4/packet/timing-A",
+    "observations_sha256": "00b027cebca362f92468a739716bd367514802198d1a9bd38a9db7f69c1b0bbd",
+    "plan_sha256": "458db2c3d6001e615fb8b6abe5e9a7af40c38bad0253dcd5f3939b26b3b1d913",
+    "reference": "o4",
+    "seed": 20261126,
+    "workload": "packet"
+   },
+   {
+    "aa": "o4-aa",
+    "attempt": 1,
+    "blocks_used": 10,
+    "burn_in_blocks": 1,
+    "campaign": "A",
+    "candidate": null,
+    "candidates": null,
+    "chosen": true,
+    "dir": "/data/scfix-o4/uart/timing-A",
+    "observations_sha256": "4933a89e04e5fa5e62bdca1a7a5a8dfeb408d64d74a09dacd71352fa3906409e",
+    "plan_sha256": "b3cc3720f5bf38bd25037c56aa7304d00b5a9f21db534dd66c2025a2dc7d5ac5",
+    "reference": "o4",
+    "seed": 20261126,
+    "workload": "uart"
+   },
+   {
+    "aa": "o4-aa",
+    "attempt": 1,
+    "blocks_used": 10,
+    "burn_in_blocks": 1,
+    "campaign": "A",
+    "candidate": null,
+    "candidates": null,
+    "chosen": true,
+    "dir": "/data/scfix-o4/cli/timing-A",
+    "observations_sha256": "9489b825032964e30e3235167300a186d7a73d2455a0fa3921bed8757b84cca0",
+    "plan_sha256": "77b1ec6882d4b5f5867f804b792cff758aa32df78e439f363f864714fdcd350c",
+    "reference": "o4",
+    "seed": 20261126,
+    "workload": "cli"
+   },
+   {
+    "aa": "o4-aa",
+    "attempt": 1,
+    "blocks_used": 40,
+    "burn_in_blocks": 1,
+    "campaign": "A2",
+    "candidate": null,
+    "candidates": [
+     "o4_nohi",
+     "o4_nocp",
+     "o4_noregions",
+     "o4_nospec",
+     "o4_chained",
+     "o4_isb",
+     "o4_rank",
+     "o4_min2",
+     "o4_legacy",
+     "fl3b3",
+     "o4_tasks"
+    ],
+    "chosen": true,
+    "dir": "/data/scfix-o4/packet/timing-A2",
+    "observations_sha256": "0018224e85d594389a3c2952a55c58954e4544df9d5f312603e0fabab1ac4789",
+    "plan_sha256": "0394ee92d933188eec2ab3c9bac30212ec325f747017c746fae3439709210098",
+    "reference": "o4",
+    "seed": 20261130,
+    "workload": "packet"
+   },
+   {
+    "aa": "o4-aa",
+    "attempt": 1,
+    "blocks_used": 80,
+    "burn_in_blocks": 1,
+    "campaign": "A2",
+    "candidate": null,
+    "candidates": [
+     "o4_nohi",
+     "o4_nocp",
+     "o4_noregions",
+     "o4_nospec",
+     "o4_chained",
+     "o4_isb",
+     "o4_rank",
+     "o4_min2",
+     "o4_legacy",
+     "fl3b3",
+     "o4_tasks"
+    ],
+    "chosen": true,
+    "dir": "/data/scfix-o4/uart/timing-A2",
+    "observations_sha256": "78ddf6b113e3d8047682ba08b27e5eb81ed8998b727d7f16d30bcf9db430f7bf",
+    "plan_sha256": "4e19d34187fd691ce12673939b0e7c0abe9f7668322b485679b5a7cc0e7f0c32",
+    "reference": "o4",
+    "seed": 20261130,
+    "workload": "uart"
+   },
+   {
+    "aa": "o4-aa",
+    "attempt": 1,
+    "blocks_used": 40,
+    "burn_in_blocks": 1,
+    "campaign": "A2",
+    "candidate": null,
+    "candidates": [
+     "o4_nohi",
+     "o4_nocp",
+     "o4_noregions",
+     "o4_nospec",
+     "o4_chained",
+     "o4_isb",
+     "o4_rank",
+     "o4_min2",
+     "o4_legacy",
+     "fl3b3",
+     "o4_tasks"
+    ],
+    "chosen": true,
+    "dir": "/data/scfix-o4/cli/timing-A2",
+    "observations_sha256": "515a2b2664855124b73633bd777793df618ee4a79c184a26fdeec2c404758440",
+    "plan_sha256": "f718ea1b0208383793c3f29f7fd9117a877b2cd7a81559c384fc12dc4a3e1187",
+    "reference": "o4",
+    "seed": 20261130,
+    "workload": "cli"
+   },
+   {
+    "aa": "o4-aa",
+    "attempt": 1,
+    "blocks_used": 40,
+    "burn_in_blocks": 1,
+    "campaign": "H",
+    "candidate": null,
+    "candidates": null,
+    "chosen": true,
+    "dir": "/data/scfix-o4/packet/timing-H",
+    "observations_sha256": "ef3d9082694e8d8a70211c008f8ea0675bf7a64b928b92fd730a29ece58c9079",
+    "plan_sha256": "6fa162867bd31044d667562ec9f469d1dcc0f8756adaad84d4c8c9218994c2bf",
+    "reference": "o4",
+    "seed": 20261128,
+    "workload": "packet"
+   },
+   {
+    "aa": "o4-aa",
+    "attempt": 1,
+    "blocks_used": 80,
+    "burn_in_blocks": 1,
+    "campaign": "H",
+    "candidate": null,
+    "candidates": null,
+    "chosen": true,
+    "dir": "/data/scfix-o4/uart/timing-H",
+    "observations_sha256": "f195cfc1f0424dac0067c5923a6e9ac6b0b216e39433813b71dd0a966780259b",
+    "plan_sha256": "74cdf48add46d24233d2e4e45147fbfd58919899f35206b2dc76aa06de895cb2",
+    "reference": "o4",
+    "seed": 20261128,
+    "workload": "uart"
+   },
+   {
+    "aa": "o4-aa",
+    "attempt": 1,
+    "blocks_used": 40,
+    "burn_in_blocks": 1,
+    "campaign": "H",
+    "candidate": null,
+    "candidates": null,
+    "chosen": true,
+    "dir": "/data/scfix-o4/cli/timing-H",
+    "observations_sha256": "a552784c2db8b99f95bfd1d37a7d1084950c808bf27ec39c1eb70931ba22877e",
+    "plan_sha256": "3f55e6baa469934f061d46730aa7dfbd7e3cc8e10f299047c31613b1a63b48de",
+    "reference": "o4",
+    "seed": 20261128,
+    "workload": "cli"
+   }
+  ],
+  "gates": {
+   "path": "gates/all.json",
+   "sha256": "54da4383d0f5a8833dfd782952e10c8f974d4ae42c198d157f07ab06b202f7e1"
+  },
+  "screen_input": {
+   "path": "screen.json",
+   "sha256": "3cac638cad722d34f6b3fa817ece1e78322ff8afc0b3d5b6050ab3102ad3755a"
+  },
+  "reproduces_earlier_outputs": {
+   "decisions == A2.json": true,
+   "carried_from_screen == A2.json": true,
+   "composition == A2.json": true,
+   "screen == screen.json": true,
+   "best.A == screen.json": true,
+   "estimates.A == screen.json": true,
+   "best.A2 == A2.json": true,
+   "best.H == H.json": true
+  }
+ },
+ "conventions": "d = Hodges-Lehmann of block log-ratios log(sqrt(T(o4) T(o4-aa)) / T(arm)), burn-in block 0 dropped; positive = faster than O4-r1. SE = block-bootstrap SD (20,000). lb95/ub95 one-sided 95% (Student t, df n_w - 1; pooled: inverse-variance, Welch df). p one-sided for 'faster than O4'. lb_gt_log098: LB95_w > log 0.98 (-2.02%).",
+ "valid": [
+  {
+   "a_w": 0.001018295677783776,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "A",
+   "candidate": null,
+   "ci99": [
+    -0.028312331873286745,
+    0.029899173381618738
+   ],
+   "dir": "packet/timing-A",
+   "n_blocks": 20,
+   "se": 0.011365476407540466,
+   "workload": "packet"
+  },
+  {
+   "a_w": -0.0232953815267809,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "A",
+   "candidate": null,
+   "ci99": [
+    -0.06752895990675789,
+    0.03210897973325011
+   ],
+   "dir": "uart/timing-A",
+   "n_blocks": 10,
+   "se": 0.019561193145617328,
+   "workload": "uart"
+  },
+  {
+   "a_w": 0.012711499927716474,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "A",
+   "candidate": null,
+   "ci99": [
+    -0.008064224849569257,
+    0.03610406870728866
+   ],
+   "dir": "cli/timing-A",
+   "n_blocks": 10,
+   "se": 0.0097314910569075,
+   "workload": "cli"
+  },
+  {
+   "a_w": 0.0012710203653085728,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "A2",
+   "candidate": null,
+   "ci99": [
+    -0.015924174410827163,
+    0.018779604292678442
+   ],
+   "dir": "packet/timing-A2",
+   "n_blocks": 40,
+   "se": 0.006646010713279178,
+   "workload": "packet"
+  },
+  {
+   "a_w": -0.010590070612113145,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "A2",
+   "candidate": null,
+   "ci99": [
+    -0.023979116517232058,
+    0.001717996843584757
+   ],
+   "dir": "uart/timing-A2",
+   "n_blocks": 80,
+   "se": 0.004841122839409436,
+   "workload": "uart"
+  },
+  {
+   "a_w": 0.005674350767186809,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "A2",
+   "candidate": null,
+   "ci99": [
+    -0.009270756774776956,
+    0.018969417826209423
+   ],
+   "dir": "cli/timing-A2",
+   "n_blocks": 40,
+   "se": 0.005869735095245091,
+   "workload": "cli"
+  },
+  {
+   "a_w": -0.0048402100447280105,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "H",
+   "candidate": null,
+   "ci99": [
+    -0.020126209799226302,
+    0.013652730333467034
+   ],
+   "dir": "packet/timing-H",
+   "n_blocks": 40,
+   "se": 0.006241607380270289,
+   "workload": "packet"
+  },
+  {
+   "a_w": 0.003548407449758706,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "H",
+   "candidate": null,
+   "ci99": [
+    -0.011140839368828814,
+    0.018624731649717674
+   ],
+   "dir": "uart/timing-H",
+   "n_blocks": 80,
+   "se": 0.005339749646891954,
+   "workload": "uart"
+  },
+  {
+   "a_w": -0.00403229603311317,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "H",
+   "candidate": null,
+   "ci99": [
+    -0.02101023597145968,
+    0.012384436759251827
+   ],
+   "dir": "cli/timing-H",
+   "n_blocks": 40,
+   "se": 0.006362956974943373,
+   "workload": "cli"
+  }
+ ],
+ "rerun_required": [],
+ "add_family": {
+  "members": [
+   "o4_rank",
+   "o4_tasks",
+   "o4_legacy",
+   "o4_min2",
+   "o4_chained",
+   "o4_hostall"
+  ],
+  "size": 6,
+  "alpha": 0.05,
+  "result": "no add-on accepted: rank 1 (o4_rank) p 0.00883 > 0.00833"
+ },
+ "items": [
+  {
+   "arm": "o4_chained",
+   "item": "A1",
+   "role": "addon",
+   "rule": "ADD",
+   "decided_in": "A2",
+   "status": "excluded",
+   "reason": "holm",
+   "g0": true,
+   "checks": {
+    "holm": false,
+    "noninferior_every_w": true
+   },
+   "pooled": {
+    "d": -0.0009263964871156833,
+    "se": 0.004065395976699079,
+    "df": 117.93900241393933,
+    "lb95": -0.007666320156606885,
+    "ub95": 0.005813527182375519,
+    "ub99": 0.008661359701921995,
+    "p": 0.5899304595330904
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.018200204689429178,
+     "se": 0.007188798730919442,
+     "df": 39,
+     "lb95": 0.006087976552710482,
+     "ub95": 0.030312432826147873,
+     "ub99": 0.03563909033714949,
+     "p": 0.007745264241320353,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": {
+     "d": -0.009919324039741717,
+     "se": 0.004929330878160545,
+     "df": 79,
+     "lb95": -0.018123561419525806,
+     "ub95": -0.001715086659957626,
+     "ub99": 0.001785281415666683,
+     "p": 0.9762020994368378,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": "same_bytes_as_o4"
+   },
+   "add_holm": {
+    "family_size": 6,
+    "rank": 5,
+    "rejected": false,
+    "threshold": 0.025
+   },
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": 0.00365253816217086,
+     "se": 0.007434688121780072,
+     "df": 27.59207698658748,
+     "lb95": -0.009001237864059014,
+     "ub95": 0.016306314188400735,
+     "ub99": 0.022011316234695093,
+     "p": 0.3135556721678514
+    },
+    "per_workload": {
+     "packet": {
+      "d": 0.006979828678466582,
+      "se": 0.008669891866019568,
+      "df": 19,
+      "lb95": -0.008011565819408095,
+      "ub95": 0.02197122317634126,
+      "ub99": 0.02899687333675272,
+      "p": 0.21537096768246228,
+      "n_blocks": 20,
+      "lb_gt_log098": true
+     },
+     "uart": {
+      "d": -0.005592915577311786,
+      "se": 0.014452149141911758,
+      "df": 9,
+      "lb95": -0.03208533707403885,
+      "ub95": 0.020899505919415275,
+      "ub99": 0.03518292610981951,
+      "p": 0.6461243066209933,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     },
+     "cli": "same_bytes_as_o4"
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": 0.006979828678466582,
+      "se": 0.008669891866019568,
+      "df": 19,
+      "lb95": -0.008011565819408095,
+      "ub95": 0.02197122317634126,
+      "ub99": 0.02899687333675272,
+      "p": 0.21537096768246228,
+      "n_blocks": 20,
+      "holm_rank": 11,
+      "holm_threshold": 0.0010869565217391304,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.005592915577311786,
+      "se": 0.014452149141911758,
+      "df": 9,
+      "lb95": -0.03208533707403885,
+      "ub95": 0.020899505919415275,
+      "ub99": 0.03518292610981951,
+      "p": 0.6461243066209933,
+      "n_blocks": 10,
+      "holm_rank": 24,
+      "holm_threshold": 0.0015151515151515152,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.00365253816217086,
+      "se": 0.007434688121780072,
+      "df": 27.59207698658748,
+      "lb95": -0.009001237864059014,
+      "ub95": 0.016306314188400735,
+      "ub99": 0.022011316234695093,
+      "p": 0.3135556721678514,
+      "holm_rank": 16,
+      "holm_threshold": 0.0012195121951219512,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "verdict": "same_bytes"
+     }
+    },
+    "A2": {
+     "packet": {
+      "d": 0.018200204689429178,
+      "se": 0.007188798730919442,
+      "df": 39,
+      "lb95": 0.006087976552710482,
+      "ub95": 0.030312432826147873,
+      "ub99": 0.03563909033714949,
+      "p": 0.007745264241320353,
+      "n_blocks": 40,
+      "holm_rank": 2,
+      "holm_threshold": 0.0016666666666666668,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.009919324039741717,
+      "se": 0.004929330878160545,
+      "df": 79,
+      "lb95": -0.018123561419525806,
+      "ub95": -0.001715086659957626,
+      "ub99": 0.001785281415666683,
+      "p": 0.9762020994368378,
+      "n_blocks": 80,
+      "holm_rank": 30,
+      "holm_threshold": 0.025,
+      "holm_family_size": 31,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.0009263964871156833,
+      "se": 0.004065395976699079,
+      "df": 117.93900241393933,
+      "lb95": -0.007666320156606885,
+      "ub95": 0.005813527182375519,
+      "ub99": 0.008661359701921995,
+      "p": 0.5899304595330904,
+      "holm_rank": 25,
+      "holm_threshold": 0.0071428571428571435,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "verdict": "same_bytes"
+     }
+    }
+   },
+   "verdict": "excluded",
+   "verdict_reason": "ADD: Holm rank 5 of 6, pooled p 0.590 > 0.025; packet +1.82% but uart -0.99% (slower_than_o4 unadjusted). A hot-loop knob, moot under A5",
+   "in_o4r2": false
+  },
+  {
+   "arm": "o4_isb",
+   "item": "I1",
+   "role": "fidelity",
+   "rule": "FIDELITY",
+   "decided_in": "A2",
+   "status": "accepted",
+   "reason": "rule_passed",
+   "g0": true,
+   "checks": {
+    "lb_gt_log099": true,
+    "noninferior_every_w": true,
+    "ub_ge_0": true
+   },
+   "pooled": {
+    "d": 0.001944447190762502,
+    "se": 0.0033298855088241637,
+    "df": 116.54126107706861,
+    "lb95": -0.0035766153637917133,
+    "ub95": 0.007465509745316717,
+    "ub99": 0.009798885123765899,
+    "p": 0.28019523266654406
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.0041278987481616625,
+     "se": 0.006316840304995261,
+     "df": 39,
+     "lb95": -0.0065151883295505,
+     "ub95": 0.014770985825873825,
+     "ub99": 0.01945155153870708,
+     "p": 0.2586422102902147,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": {
+     "d": 0.0011042260997555786,
+     "se": 0.0039185456148208295,
+     "df": 79,
+     "lb95": -0.00541768918694939,
+     "ub95": 0.007626141386460547,
+     "ub99": 0.010408740548908113,
+     "p": 0.3894188301268669,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": "same_bytes_as_o4"
+   },
+   "passes_add_unadjusted": false,
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": 0.01245037531043409,
+     "se": 0.008113392237186951,
+     "df": 24.95782092753184,
+     "lb95": -0.0014093414460398784,
+     "ub95": 0.026310092066908056,
+     "ub99": 0.03261533957542479,
+     "p": 0.0687380155442735
+    },
+    "per_workload": {
+     "packet": {
+      "d": 0.009755768103168805,
+      "se": 0.008843888901808896,
+      "df": 19,
+      "lb95": -0.005536490378396618,
+      "ub95": 0.025048026584734227,
+      "ub99": 0.03221467530906038,
+      "p": 0.14187824987767012,
+      "n_blocks": 20,
+      "lb_gt_log098": true
+     },
+     "uart": {
+      "d": 0.026769812658237413,
+      "se": 0.020387244039932525,
+      "df": 9,
+      "lb95": -0.010602308052598444,
+      "ub95": 0.06414193336907327,
+      "ub99": 0.08429115617927672,
+      "p": 0.11082549219831922,
+      "n_blocks": 10,
+      "lb_gt_log098": true
+     },
+     "cli": "same_bytes_as_o4"
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": 0.009755768103168805,
+      "se": 0.008843888901808896,
+      "df": 19,
+      "lb95": -0.005536490378396618,
+      "ub95": 0.025048026584734227,
+      "ub99": 0.03221467530906038,
+      "p": 0.14187824987767012,
+      "n_blocks": 20,
+      "holm_rank": 7,
+      "holm_threshold": 0.001,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": 0.026769812658237413,
+      "se": 0.020387244039932525,
+      "df": 9,
+      "lb95": -0.010602308052598444,
+      "ub95": 0.06414193336907327,
+      "ub99": 0.08429115617927672,
+      "p": 0.11082549219831922,
+      "n_blocks": 10,
+      "holm_rank": 4,
+      "holm_threshold": 0.0009433962264150943,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.01245037531043409,
+      "se": 0.008113392237186951,
+      "df": 24.95782092753184,
+      "lb95": -0.0014093414460398784,
+      "ub95": 0.026310092066908056,
+      "ub99": 0.03261533957542479,
+      "p": 0.0687380155442735,
+      "holm_rank": 3,
+      "holm_threshold": 0.000925925925925926,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "verdict": "same_bytes"
+     }
+    },
+    "A2": {
+     "packet": {
+      "d": 0.0041278987481616625,
+      "se": 0.006316840304995261,
+      "df": 39,
+      "lb95": -0.0065151883295505,
+      "ub95": 0.014770985825873825,
+      "ub99": 0.01945155153870708,
+      "p": 0.2586422102902147,
+      "n_blocks": 40,
+      "holm_rank": 16,
+      "holm_threshold": 0.003125,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": 0.0011042260997555786,
+      "se": 0.0039185456148208295,
+      "df": 79,
+      "lb95": -0.00541768918694939,
+      "ub95": 0.007626141386460547,
+      "ub99": 0.010408740548908113,
+      "p": 0.3894188301268669,
+      "n_blocks": 80,
+      "holm_rank": 22,
+      "holm_threshold": 0.005,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.001944447190762502,
+      "se": 0.0033298855088241637,
+      "df": 116.54126107706861,
+      "lb95": -0.0035766153637917133,
+      "ub95": 0.007465509745316717,
+      "ub99": 0.009798885123765899,
+      "p": 0.28019523266654406,
+      "holm_rank": 18,
+      "holm_threshold": 0.0035714285714285718,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "verdict": "same_bytes"
+     }
+    }
+   },
+   "verdict": "accepted, in O4-r2",
+   "verdict_reason": "FIDELITY rule passed (UB >= 0, LB > log 0.99, LB_w > log 0.98 on packet and uart; cli same bytes)",
+   "in_o4r2": true
+  },
+  {
+   "arm": "o4_rank",
+   "item": "A3",
+   "role": "addon",
+   "rule": "ADD",
+   "decided_in": "A2",
+   "status": "excluded",
+   "reason": "holm",
+   "g0": true,
+   "checks": {
+    "holm": false,
+    "noninferior_every_w": true
+   },
+   "pooled": {
+    "d": 0.0151278346174637,
+    "se": 0.006105885872980437,
+    "df": 38.99999999999999,
+    "lb95": 0.004840179414068132,
+    "ub95": 0.02541548982085927,
+    "ub99": 0.02993974541126027,
+    "p": 0.008832925853751308
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.015127834617463698,
+     "se": 0.006105885872980437,
+     "df": 39,
+     "lb95": 0.0048401794140681305,
+     "ub95": 0.025415489820859265,
+     "ub99": 0.029939745411260266,
+     "p": 0.008832925853751311,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": "same_bytes_as_o4",
+    "cli": "same_bytes_as_o4"
+   },
+   "add_holm": {
+    "family_size": 6,
+    "rank": 1,
+    "rejected": false,
+    "threshold": 0.008333333333333333
+   },
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": 0.00590947882508619,
+     "se": 0.00782730008195742,
+     "df": 19.0,
+     "lb95": -0.007624962572248494,
+     "ub95": 0.019443920222420873,
+     "ub99": 0.02578677581118845,
+     "p": 0.22975806480664485
+    },
+    "per_workload": {
+     "packet": {
+      "d": 0.00590947882508619,
+      "se": 0.00782730008195742,
+      "df": 19,
+      "lb95": -0.007624962572248494,
+      "ub95": 0.019443920222420873,
+      "ub99": 0.02578677581118845,
+      "p": 0.22975806480664485,
+      "n_blocks": 20,
+      "lb_gt_log098": true
+     },
+     "uart": "same_bytes_as_o4",
+     "cli": "same_bytes_as_o4"
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": 0.00590947882508619,
+      "se": 0.00782730008195742,
+      "df": 19,
+      "lb95": -0.007624962572248494,
+      "ub95": 0.019443920222420873,
+      "ub99": 0.02578677581118845,
+      "p": 0.22975806480664485,
+      "n_blocks": 20,
+      "holm_rank": 14,
+      "holm_threshold": 0.0011627906976744186,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "verdict": "same_bytes"
+     },
+     "uart": {
+      "verdict": "same_bytes"
+     }
+    },
+    "A2": {
+     "packet": {
+      "d": 0.015127834617463698,
+      "se": 0.006105885872980437,
+      "df": 39,
+      "lb95": 0.0048401794140681305,
+      "ub95": 0.025415489820859265,
+      "ub99": 0.029939745411260266,
+      "p": 0.008832925853751311,
+      "n_blocks": 40,
+      "holm_rank": 3,
+      "holm_threshold": 0.001724137931034483,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "verdict": "same_bytes"
+     },
+     "uart": {
+      "verdict": "same_bytes"
+     }
+    }
+   },
+   "verdict": "excluded",
+   "verdict_reason": "ADD: Holm rank 1 of 6, pooled (packet-only) p 0.00883 > 0.05/6 = 0.00833, so the step-down stops and no add-on is accepted; B2's 'rejected candidate with the highest pooled d'",
+   "in_o4r2": false
+  },
+  {
+   "arm": "o4_hotgraph",
+   "item": "A4",
+   "role": "addon",
+   "rule": "screen (3.4)",
+   "decided_in": "A (screen)",
+   "status": "excluded",
+   "reason": "excluded_measured_slower",
+   "g0": true,
+   "pooled": {
+    "d": -0.036339455181663344,
+    "se": 0.007127956111572046,
+    "df": 30.756142028762195,
+    "lb95": -0.048427990073552786,
+    "ub95": -0.0242509202897739,
+    "ub99": -0.018848318153679565,
+    "p": 0.9999917271997327
+   },
+   "per_workload": {
+    "packet": {
+     "d": -0.04107814703083701,
+     "se": 0.009353378659765663,
+     "df": 19,
+     "lb95": -0.057251380970019444,
+     "ub95": -0.024904913091654577,
+     "ub99": -0.017325399148819035,
+     "p": 0.9998432432401216,
+     "n_blocks": 20,
+     "lb_gt_log098": false
+    },
+    "uart": {
+     "d": -0.07265672624679453,
+     "se": 0.029183093955053467,
+     "df": 9,
+     "lb95": -0.1261526331907491,
+     "ub95": -0.019160819302839985,
+     "ub99": 0.009681561807609512,
+     "p": 0.9827801128361155,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    },
+    "cli": {
+     "d": -0.022660910835838877,
+     "se": 0.0118867451339083,
+     "df": 9,
+     "lb95": -0.04445065706800455,
+     "ub95": -0.0008711646036732058,
+     "ub99": 0.010876802690096075,
+     "p": 0.95551378913238,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    }
+   },
+   "ub99_below_zero": [
+    "packet"
+   ],
+   "best": {
+    "A": {
+     "packet": {
+      "d": -0.04107814703083701,
+      "se": 0.009353378659765663,
+      "df": 19,
+      "lb95": -0.057251380970019444,
+      "ub95": -0.024904913091654577,
+      "ub99": -0.017325399148819035,
+      "p": 0.9998432432401216,
+      "n_blocks": 20,
+      "holm_rank": 44,
+      "holm_threshold": 0.0038461538461538464,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.07265672624679453,
+      "se": 0.029183093955053467,
+      "df": 9,
+      "lb95": -0.1261526331907491,
+      "ub95": -0.019160819302839985,
+      "ub99": 0.009681561807609512,
+      "p": 0.9827801128361155,
+      "n_blocks": 10,
+      "holm_rank": 40,
+      "holm_threshold": 0.0029411764705882353,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.022660910835838877,
+      "se": 0.0118867451339083,
+      "df": 9,
+      "lb95": -0.04445065706800455,
+      "ub95": -0.0008711646036732058,
+      "ub99": 0.010876802690096075,
+      "p": 0.95551378913238,
+      "n_blocks": 10,
+      "holm_rank": 36,
+      "holm_threshold": 0.002380952380952381,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.036339455181663344,
+      "se": 0.007127956111572046,
+      "df": 30.756142028762195,
+      "lb95": -0.048427990073552786,
+      "ub95": -0.0242509202897739,
+      "ub99": -0.018848318153679565,
+      "p": 0.9999917271997327,
+      "holm_rank": 46,
+      "holm_threshold": 0.004545454545454546,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "excluded",
+   "verdict_reason": "screen: measured slower (UB99_packet < 0; pooled d -3.63%)",
+   "in_o4r2": false
+  },
+  {
+   "arm": "o4_min2",
+   "item": "A7",
+   "role": "addon",
+   "rule": "ADD",
+   "decided_in": "A2",
+   "status": "excluded",
+   "reason": "holm",
+   "g0": true,
+   "checks": {
+    "holm": false,
+    "noninferior_every_w": true
+   },
+   "pooled": {
+    "d": 0.0009712380835058226,
+    "se": 0.0032451161402892183,
+    "df": 150.16021712946218,
+    "lb95": -0.004399638522419837,
+    "ub95": 0.0063421146894314835,
+    "ub99": 0.008601925892513077,
+    "p": 0.38256545892737903
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.0028953007796612695,
+     "se": 0.0066857447206691515,
+     "df": 39,
+     "lb95": -0.008369344170309417,
+     "ub95": 0.014159945729631956,
+     "ub99": 0.019113857177982786,
+     "p": 0.3336799511513824,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": {
+     "d": -0.005560160899956479,
+     "se": 0.004974428073958439,
+     "df": 79,
+     "lb95": -0.013839456763058816,
+     "ub95": 0.002719134963145858,
+     "ub99": 0.006251527016947509,
+     "p": 0.866469024623423,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": {
+     "d": 0.007836809012437662,
+     "se": 0.005574890099554528,
+     "df": 39,
+     "lb95": -0.001556184622578536,
+     "ub95": 0.01722980264745386,
+     "ub99": 0.021360608270662988,
+     "p": 0.0838602171045062,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    }
+   },
+   "add_holm": {
+    "family_size": 6,
+    "rank": 4,
+    "rejected": false,
+    "threshold": 0.016666666666666666
+   },
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": 0.013104141561196712,
+     "se": 0.006639615213670113,
+     "df": 35.526183739419885,
+     "lb95": 0.0018905450477655142,
+     "ub95": 0.02431773807462791,
+     "ub99": 0.029278245042081964,
+     "p": 0.028120543983345035
+    },
+    "per_workload": {
+     "packet": {
+      "d": 0.0164674427971212,
+      "se": 0.008629415861656312,
+      "df": 19,
+      "lb95": 0.0015460366864703014,
+      "ub95": 0.031388848907772104,
+      "ub99": 0.03838169932270322,
+      "p": 0.0357898917527327,
+      "n_blocks": 20,
+      "lb_gt_log098": true
+     },
+     "uart": {
+      "d": 0.003915358143791181,
+      "se": 0.016663615100780647,
+      "df": 9,
+      "lb95": -0.026630930202269285,
+      "ub95": 0.034461646489851644,
+      "ub99": 0.050930713757180605,
+      "p": 0.40974752566306094,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     },
+     "cli": {
+      "d": 0.010968622521271953,
+      "se": 0.013299570218795857,
+      "df": 9,
+      "lb95": -0.013410991645583403,
+      "ub95": 0.03534823668812731,
+      "ub99": 0.048492534323137666,
+      "p": 0.2154186270975157,
+      "n_blocks": 10,
+      "lb_gt_log098": true
+     }
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": 0.0164674427971212,
+      "se": 0.008629415861656312,
+      "df": 19,
+      "lb95": 0.0015460366864703014,
+      "ub95": 0.031388848907772104,
+      "ub99": 0.03838169932270322,
+      "p": 0.0357898917527327,
+      "n_blocks": 20,
+      "holm_rank": 2,
+      "holm_threshold": 0.0009090909090909091,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": 0.003915358143791181,
+      "se": 0.016663615100780647,
+      "df": 9,
+      "lb95": -0.026630930202269285,
+      "ub95": 0.034461646489851644,
+      "ub99": 0.050930713757180605,
+      "p": 0.40974752566306094,
+      "n_blocks": 10,
+      "holm_rank": 18,
+      "holm_threshold": 0.001282051282051282,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": 0.010968622521271953,
+      "se": 0.013299570218795857,
+      "df": 9,
+      "lb95": -0.013410991645583403,
+      "ub95": 0.03534823668812731,
+      "ub99": 0.048492534323137666,
+      "p": 0.2154186270975157,
+      "n_blocks": 10,
+      "holm_rank": 12,
+      "holm_threshold": 0.0011111111111111111,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.013104141561196712,
+      "se": 0.006639615213670113,
+      "df": 35.526183739419885,
+      "lb95": 0.0018905450477655142,
+      "ub95": 0.02431773807462791,
+      "ub99": 0.029278245042081964,
+      "p": 0.028120543983345035,
+      "holm_rank": 1,
+      "holm_threshold": 0.0008928571428571429,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    },
+    "A2": {
+     "packet": {
+      "d": 0.0028953007796612695,
+      "se": 0.0066857447206691515,
+      "df": 39,
+      "lb95": -0.008369344170309417,
+      "ub95": 0.014159945729631956,
+      "ub99": 0.019113857177982786,
+      "p": 0.3336799511513824,
+      "n_blocks": 40,
+      "holm_rank": 19,
+      "holm_threshold": 0.0038461538461538464,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.005560160899956479,
+      "se": 0.004974428073958439,
+      "df": 79,
+      "lb95": -0.013839456763058816,
+      "ub95": 0.002719134963145858,
+      "ub99": 0.006251527016947509,
+      "p": 0.866469024623423,
+      "n_blocks": 80,
+      "holm_rank": 29,
+      "holm_threshold": 0.016666666666666666,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": 0.007836809012437662,
+      "se": 0.005574890099554528,
+      "df": 39,
+      "lb95": -0.001556184622578536,
+      "ub95": 0.01722980264745386,
+      "ub99": 0.021360608270662988,
+      "p": 0.0838602171045062,
+      "n_blocks": 40,
+      "holm_rank": 6,
+      "holm_threshold": 0.0019230769230769232,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.0009712380835058226,
+      "se": 0.0032451161402892183,
+      "df": 150.16021712946218,
+      "lb95": -0.004399638522419837,
+      "ub95": 0.0063421146894314835,
+      "ub99": 0.008601925892513077,
+      "p": 0.38256545892737903,
+      "holm_rank": 21,
+      "holm_threshold": 0.004545454545454546,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "excluded",
+   "verdict_reason": "ADD: Holm rank 4 of 6, pooled p 0.383 > 0.0167 (the screen's +1.31% did not replicate in A2: +0.10%). A hot-loop knob, moot under A5",
+   "in_o4r2": false
+  },
+  {
+   "arm": "o4_legacy",
+   "item": "A8",
+   "role": "addon",
+   "rule": "ADD",
+   "decided_in": "A2",
+   "status": "excluded",
+   "reason": "holm",
+   "g0": true,
+   "checks": {
+    "holm": false,
+    "noninferior_every_w": true
+   },
+   "pooled": {
+    "d": 0.0037400025750100596,
+    "se": 0.005771478813623685,
+    "df": 39.0,
+    "lb95": -0.005984218493550554,
+    "ub95": 0.013464223643570673,
+    "ub99": 0.017740694876511053,
+    "p": 0.2603862835156695
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.0037400025750100596,
+     "se": 0.005771478813623685,
+     "df": 39,
+     "lb95": -0.005984218493550554,
+     "ub95": 0.013464223643570673,
+     "ub99": 0.017740694876511053,
+     "p": 0.2603862835156695,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": "same_bytes_as_o4",
+    "cli": "same_bytes_as_o4"
+   },
+   "add_holm": {
+    "family_size": 6,
+    "rank": 3,
+    "rejected": false,
+    "threshold": 0.0125
+   },
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": 0.0020881248791484452,
+     "se": 0.009476704436349875,
+     "df": 19.0,
+     "lb95": -0.014298355706832074,
+     "ub95": 0.018474605465128965,
+     "ub99": 0.0261540564977727,
+     "p": 0.41397719199625077
+    },
+    "per_workload": {
+     "packet": {
+      "d": 0.0020881248791484452,
+      "se": 0.009476704436349875,
+      "df": 19,
+      "lb95": -0.014298355706832074,
+      "ub95": 0.018474605465128965,
+      "ub99": 0.0261540564977727,
+      "p": 0.41397719199625077,
+      "n_blocks": 20,
+      "lb_gt_log098": true
+     },
+     "uart": "same_bytes_as_o4",
+     "cli": "same_bytes_as_o4"
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": 0.0020881248791484452,
+      "se": 0.009476704436349875,
+      "df": 19,
+      "lb95": -0.014298355706832074,
+      "ub95": 0.018474605465128965,
+      "ub99": 0.0261540564977727,
+      "p": 0.41397719199625077,
+      "n_blocks": 20,
+      "holm_rank": 19,
+      "holm_threshold": 0.0013157894736842105,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "verdict": "same_bytes"
+     },
+     "uart": {
+      "verdict": "same_bytes"
+     }
+    },
+    "A2": {
+     "packet": {
+      "d": 0.0037400025750100596,
+      "se": 0.005771478813623685,
+      "df": 39,
+      "lb95": -0.005984218493550554,
+      "ub95": 0.013464223643570673,
+      "ub99": 0.017740694876511053,
+      "p": 0.2603862835156695,
+      "n_blocks": 40,
+      "holm_rank": 17,
+      "holm_threshold": 0.0033333333333333335,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "verdict": "same_bytes"
+     },
+     "uart": {
+      "verdict": "same_bytes"
+     }
+    }
+   },
+   "verdict": "excluded",
+   "verdict_reason": "ADD: Holm rank 3 of 6, pooled (packet-only) p 0.260 > 0.0125",
+   "in_o4r2": false
+  },
+  {
+   "arm": "o4_nohi",
+   "item": "X1",
+   "role": "removal",
+   "rule": "REMOVE",
+   "decided_in": "A2",
+   "status": "accepted",
+   "reason": "rule_passed",
+   "g0": true,
+   "checks": {
+    "lb_gt_log099": true,
+    "noninferior_every_w": true,
+    "ub_ge_0": true
+   },
+   "pooled": {
+    "d": 0.0023522525266693756,
+    "se": 0.0032498089741662666,
+    "df": 155.3869012722365,
+    "lb95": -0.0030252681295396483,
+    "ub95": 0.0077297731828784,
+    "ub99": 0.00999120541957925,
+    "p": 0.23513455010305734
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.0062324607654282715,
+     "se": 0.006207220657373513,
+     "df": 39,
+     "lb95": -0.004225930895155206,
+     "ub95": 0.01669085242601175,
+     "ub99": 0.021290193675452207,
+     "p": 0.16076801467237334,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": {
+     "d": 0.0003097620867720252,
+     "se": 0.004507911102007961,
+     "df": 79,
+     "lb95": -0.007193076266339004,
+     "ub95": 0.007812600439883055,
+     "ub99": 0.011013714039120557,
+     "p": 0.4726949681401932,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": {
+     "d": 0.0023421502997651444,
+     "se": 0.007157100424565783,
+     "df": 39,
+     "lb95": -0.009716670149177877,
+     "ub95": 0.014400970748708166,
+     "ub99": 0.01970414088331426,
+     "p": 0.3726150284189074,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    }
+   },
+   "passes_add_unadjusted": false,
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": -0.008726058040429857,
+     "se": 0.005280011891262107,
+     "df": 34.89667008356887,
+     "lb95": -0.01764773876713739,
+     "ub95": 0.00019562268627767478,
+     "ub99": 0.004146965573133507,
+     "p": 0.9463145233104411
+    },
+    "per_workload": {
+     "packet": {
+      "d": -0.0065985062915610015,
+      "se": 0.006986492110069651,
+      "df": 19,
+      "lb95": -0.018679079036516,
+      "ub95": 0.005482066453393995,
+      "ub99": 0.011143572983389447,
+      "p": 0.8216060547368766,
+      "n_blocks": 20,
+      "lb_gt_log098": true
+     },
+     "uart": {
+      "d": 0.012936907327739888,
+      "se": 0.014170313001654727,
+      "df": 9,
+      "lb95": -0.01303887669539186,
+      "ub95": 0.03891269135087164,
+      "ub99": 0.052917565840106866,
+      "p": 0.1925340089303823,
+      "n_blocks": 10,
+      "lb_gt_log098": true
+     },
+     "cli": {
+      "d": -0.023287012917256433,
+      "se": 0.009804575279152657,
+      "df": 9,
+      "lb95": -0.04125990666068086,
+      "ub95": -0.0053141191738320034,
+      "ub99": 0.004375987614123701,
+      "p": 0.9792205104011226,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     }
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": -0.0065985062915610015,
+      "se": 0.006986492110069651,
+      "df": 19,
+      "lb95": -0.018679079036516,
+      "ub95": 0.005482066453393995,
+      "ub99": 0.011143572983389447,
+      "p": 0.8216060547368766,
+      "n_blocks": 20,
+      "holm_rank": 27,
+      "holm_threshold": 0.0016666666666666668,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": 0.012936907327739888,
+      "se": 0.014170313001654727,
+      "df": 9,
+      "lb95": -0.01303887669539186,
+      "ub95": 0.03891269135087164,
+      "ub99": 0.052917565840106866,
+      "p": 0.1925340089303823,
+      "n_blocks": 10,
+      "holm_rank": 10,
+      "holm_threshold": 0.0010638297872340426,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.023287012917256433,
+      "se": 0.009804575279152657,
+      "df": 9,
+      "lb95": -0.04125990666068086,
+      "ub95": -0.0053141191738320034,
+      "ub99": 0.004375987614123701,
+      "p": 0.9792205104011226,
+      "n_blocks": 10,
+      "holm_rank": 38,
+      "holm_threshold": 0.002631578947368421,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.008726058040429857,
+      "se": 0.005280011891262107,
+      "df": 34.89667008356887,
+      "lb95": -0.01764773876713739,
+      "ub95": 0.00019562268627767478,
+      "ub99": 0.004146965573133507,
+      "p": 0.9463145233104411,
+      "holm_rank": 35,
+      "holm_threshold": 0.002272727272727273,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    },
+    "A2": {
+     "packet": {
+      "d": 0.0062324607654282715,
+      "se": 0.006207220657373513,
+      "df": 39,
+      "lb95": -0.004225930895155206,
+      "ub95": 0.01669085242601175,
+      "ub99": 0.021290193675452207,
+      "p": 0.16076801467237334,
+      "n_blocks": 40,
+      "holm_rank": 12,
+      "holm_threshold": 0.0025,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": 0.0003097620867720252,
+      "se": 0.004507911102007961,
+      "df": 79,
+      "lb95": -0.007193076266339004,
+      "ub95": 0.007812600439883055,
+      "ub99": 0.011013714039120557,
+      "p": 0.4726949681401932,
+      "n_blocks": 80,
+      "holm_rank": 23,
+      "holm_threshold": 0.005555555555555556,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": 0.0023421502997651444,
+      "se": 0.007157100424565783,
+      "df": 39,
+      "lb95": -0.009716670149177877,
+      "ub95": 0.014400970748708166,
+      "ub99": 0.01970414088331426,
+      "p": 0.3726150284189074,
+      "n_blocks": 40,
+      "holm_rank": 20,
+      "holm_threshold": 0.004166666666666667,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.0023522525266693756,
+      "se": 0.0032498089741662666,
+      "df": 155.3869012722365,
+      "lb95": -0.0030252681295396483,
+      "ub95": 0.0077297731828784,
+      "ub99": 0.00999120541957925,
+      "p": 0.23513455010305734,
+      "holm_rank": 14,
+      "holm_threshold": 0.002777777777777778,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "accepted, in O4-r2",
+   "verdict_reason": "REMOVE rule passed; the only accepted member of the host-inline group (A4 excluded in the screen, A6 by Holm and LB_w)",
+   "in_o4r2": true
+  },
+  {
+   "arm": "o4_nocp",
+   "item": "X2",
+   "role": "removal",
+   "rule": "REMOVE",
+   "decided_in": "A2",
+   "status": "accepted",
+   "reason": "rule_passed",
+   "g0": true,
+   "checks": {
+    "lb_gt_log099": true,
+    "noninferior_every_w": true,
+    "ub_ge_0": true
+   },
+   "pooled": {
+    "d": 0.00577261067803474,
+    "se": 0.0033633884833271363,
+    "df": 113.6476012134453,
+    "lb95": 0.0001948610537735821,
+    "ub95": 0.011350360302295899,
+    "ub99": 0.013708888859103863,
+    "p": 0.04441511698013778
+   },
+   "per_workload": {
+    "packet": "same_bytes_as_o4",
+    "uart": {
+     "d": 0.005100467830366995,
+     "se": 0.004426138096515791,
+     "df": 79,
+     "lb95": -0.002266269870363705,
+     "ub95": 0.012467205531097696,
+     "ub99": 0.015610251286048092,
+     "p": 0.12632587144868956,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": {
+     "d": 0.006691098977031018,
+     "se": 0.005174054310760666,
+     "df": 39,
+     "lb95": -0.002026536409554724,
+     "ub95": 0.01540873436361676,
+     "ub99": 0.019242534180296096,
+     "p": 0.10177454954684229,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    }
+   },
+   "passes_add_unadjusted": true,
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": -0.004995367229102962,
+     "se": 0.009183421116366131,
+     "df": 14.5725026101277,
+     "lb95": -0.021125437439273805,
+     "ub95": 0.01113470298106788,
+     "ub99": 0.018986966665551653,
+     "p": 0.7026511305930161
+    },
+    "per_workload": {
+     "packet": "same_bytes_as_o4",
+     "uart": {
+      "d": 0.014869775986039002,
+      "se": 0.01809699021765455,
+      "df": 9,
+      "lb95": -0.018304050824111837,
+      "ub95": 0.04804360279618984,
+      "ub99": 0.06592931051496598,
+      "p": 0.21624562499893613,
+      "n_blocks": 10,
+      "lb_gt_log098": true
+     },
+     "cli": {
+      "d": -0.01188503293723464,
+      "se": 0.010657603930922157,
+      "df": 9,
+      "lb95": -0.03142162453414475,
+      "ub95": 0.007651558659675473,
+      "ub99": 0.018184734983382318,
+      "p": 0.8531657846299614,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     }
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "uart": {
+      "d": 0.014869775986039002,
+      "se": 0.01809699021765455,
+      "df": 9,
+      "lb95": -0.018304050824111837,
+      "ub95": 0.04804360279618984,
+      "ub99": 0.06592931051496598,
+      "p": 0.21624562499893613,
+      "n_blocks": 10,
+      "holm_rank": 13,
+      "holm_threshold": 0.0011363636363636365,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.01188503293723464,
+      "se": 0.010657603930922157,
+      "df": 9,
+      "lb95": -0.03142162453414475,
+      "ub95": 0.007651558659675473,
+      "ub99": 0.018184734983382318,
+      "p": 0.8531657846299614,
+      "n_blocks": 10,
+      "holm_rank": 31,
+      "holm_threshold": 0.0019230769230769232,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.004995367229102962,
+      "se": 0.009183421116366131,
+      "df": 14.5725026101277,
+      "lb95": -0.021125437439273805,
+      "ub95": 0.01113470298106788,
+      "ub99": 0.018986966665551653,
+      "p": 0.7026511305930161,
+      "holm_rank": 25,
+      "holm_threshold": 0.0015625,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "packet": {
+      "verdict": "same_bytes"
+     }
+    },
+    "A2": {
+     "uart": {
+      "d": 0.005100467830366995,
+      "se": 0.004426138096515791,
+      "df": 79,
+      "lb95": -0.002266269870363705,
+      "ub95": 0.012467205531097696,
+      "ub99": 0.015610251286048092,
+      "p": 0.12632587144868956,
+      "n_blocks": 80,
+      "holm_rank": 9,
+      "holm_threshold": 0.002173913043478261,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": 0.006691098977031018,
+      "se": 0.005174054310760666,
+      "df": 39,
+      "lb95": -0.002026536409554724,
+      "ub95": 0.01540873436361676,
+      "ub99": 0.019242534180296096,
+      "p": 0.10177454954684229,
+      "n_blocks": 40,
+      "holm_rank": 8,
+      "holm_threshold": 0.0020833333333333333,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.00577261067803474,
+      "se": 0.0033633884833271363,
+      "df": 113.6476012134453,
+      "lb95": 0.0001948610537735821,
+      "ub95": 0.011350360302295899,
+      "ub99": 0.013708888859103863,
+      "p": 0.04441511698013778,
+      "holm_rank": 4,
+      "holm_threshold": 0.0017857142857142859,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "packet": {
+      "verdict": "same_bytes"
+     }
+    }
+   },
+   "verdict": "accepted, moot",
+   "verdict_reason": "REMOVE rule passed (it also passes ADD unadjusted, LB +0.02%), but X4 removes the whole SPEC bundle, constant-propagation included",
+   "in_o4r2": false
+  },
+  {
+   "arm": "o4_noregions",
+   "item": "X3",
+   "role": "removal",
+   "rule": "REMOVE",
+   "decided_in": "A2",
+   "status": "rejected",
+   "reason": "noninferior_every_w",
+   "g0": true,
+   "checks": {
+    "lb_gt_log099": true,
+    "noninferior_every_w": false,
+    "ub_ge_0": true
+   },
+   "pooled": {
+    "d": -0.0017575130514516312,
+    "se": 0.0028300355516542594,
+    "df": 152.6271367390133,
+    "lb95": -0.0064409345723096395,
+    "ub95": 0.0029259084694063776,
+    "ub99": 0.0048959794483605466,
+    "p": 0.7322441078096048
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.0067142245555560365,
+     "se": 0.006403101837409183,
+     "df": 39,
+     "lb95": -0.00407420243208107,
+     "ub95": 0.017502651543193144,
+     "ub99": 0.02224713414349841,
+     "p": 0.15041107818185606,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": {
+     "d": 0.0042801977406980996,
+     "se": 0.004037948989377448,
+     "df": 79,
+     "lb95": -0.002440449108773321,
+     "ub95": 0.01100084459016952,
+     "ub99": 0.01386823330534757,
+     "p": 0.146188929754758,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": {
+     "d": -0.016498801647066408,
+     "se": 0.005054840422569673,
+     "df": 39,
+     "lb95": -0.025015576519276626,
+     "ub95": -0.007982026774856188,
+     "ub99": -0.0042365604303906505,
+     "p": 0.9988549772257342,
+     "n_blocks": 40,
+     "lb_gt_log098": false
+    }
+   },
+   "passes_add_unadjusted": false,
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": -0.005716630667697456,
+     "se": 0.005486553570521909,
+     "df": 33.447332703490446,
+     "lb95": -0.01499827176550314,
+     "ub95": 0.00356501043010823,
+     "ub99": 0.00768776408487071,
+     "p": 0.847542504471852
+    },
+    "per_workload": {
+     "packet": {
+      "d": 0.004633852323252086,
+      "se": 0.007337129922114882,
+      "df": 19,
+      "lb95": -0.008053019767470304,
+      "ub95": 0.017320724413974475,
+      "ub99": 0.023266370427888646,
+      "p": 0.2675992642074513,
+      "n_blocks": 20,
+      "lb_gt_log098": true
+     },
+     "uart": {
+      "d": -0.001867115686891907,
+      "se": 0.01644487148914849,
+      "df": 9,
+      "lb95": -0.032012422289533354,
+      "ub95": 0.028278190915749537,
+      "ub99": 0.04453106840478124,
+      "p": 0.5439517558847731,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     },
+     "cli": {
+      "d": -0.02458135667139416,
+      "se": 0.00955788813409544,
+      "df": 9,
+      "lb95": -0.04210204501889396,
+      "ub95": -0.007060668323894362,
+      "ub99": 0.0023856313933049884,
+      "p": 0.9849515882369012,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     }
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": 0.004633852323252086,
+      "se": 0.007337129922114882,
+      "df": 19,
+      "lb95": -0.008053019767470304,
+      "ub95": 0.017320724413974475,
+      "ub99": 0.023266370427888646,
+      "p": 0.2675992642074513,
+      "n_blocks": 20,
+      "holm_rank": 15,
+      "holm_threshold": 0.0011904761904761906,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.001867115686891907,
+      "se": 0.01644487148914849,
+      "df": 9,
+      "lb95": -0.032012422289533354,
+      "ub95": 0.028278190915749537,
+      "ub99": 0.04453106840478124,
+      "p": 0.5439517558847731,
+      "n_blocks": 10,
+      "holm_rank": 23,
+      "holm_threshold": 0.0014705882352941176,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.02458135667139416,
+      "se": 0.00955788813409544,
+      "df": 9,
+      "lb95": -0.04210204501889396,
+      "ub95": -0.007060668323894362,
+      "ub99": 0.0023856313933049884,
+      "p": 0.9849515882369012,
+      "n_blocks": 10,
+      "holm_rank": 41,
+      "holm_threshold": 0.003125,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.005716630667697456,
+      "se": 0.005486553570521909,
+      "df": 33.447332703490446,
+      "lb95": -0.01499827176550314,
+      "ub95": 0.00356501043010823,
+      "ub99": 0.00768776408487071,
+      "p": 0.847542504471852,
+      "holm_rank": 30,
+      "holm_threshold": 0.001851851851851852,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    },
+    "A2": {
+     "packet": {
+      "d": 0.0067142245555560365,
+      "se": 0.006403101837409183,
+      "df": 39,
+      "lb95": -0.00407420243208107,
+      "ub95": 0.017502651543193144,
+      "ub99": 0.02224713414349841,
+      "p": 0.15041107818185606,
+      "n_blocks": 40,
+      "holm_rank": 11,
+      "holm_threshold": 0.002380952380952381,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": 0.0042801977406980996,
+      "se": 0.004037948989377448,
+      "df": 79,
+      "lb95": -0.002440449108773321,
+      "ub95": 0.01100084459016952,
+      "ub99": 0.01386823330534757,
+      "p": 0.146188929754758,
+      "n_blocks": 80,
+      "holm_rank": 10,
+      "holm_threshold": 0.002272727272727273,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.016498801647066408,
+      "se": 0.005054840422569673,
+      "df": 39,
+      "lb95": -0.025015576519276626,
+      "ub95": -0.007982026774856188,
+      "ub99": -0.0042365604303906505,
+      "p": 0.9988549772257342,
+      "n_blocks": 40,
+      "holm_rank": 31,
+      "holm_threshold": 0.05,
+      "holm_family_size": 31,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.0017575130514516312,
+      "se": 0.0028300355516542594,
+      "df": 152.6271367390133,
+      "lb95": -0.0064409345723096395,
+      "ub95": 0.0029259084694063776,
+      "ub99": 0.0048959794483605466,
+      "p": 0.7322441078096048,
+      "holm_rank": 27,
+      "holm_threshold": 0.01,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "rejected",
+   "verdict_reason": "REMOVE: cli d -1.65%, LB95_cli -2.50% < log 0.98 (noninferior_every_w fails); the regions stay. Also superseded by A5, which is shown faster than O4 (decide.py group rule)",
+   "in_o4r2": false
+  },
+  {
+   "arm": "o4_nospec",
+   "item": "X4",
+   "role": "removal",
+   "rule": "REMOVE",
+   "decided_in": "A2",
+   "status": "accepted",
+   "reason": "rule_passed",
+   "g0": true,
+   "checks": {
+    "lb_gt_log099": true,
+    "noninferior_every_w": true,
+    "ub_ge_0": true
+   },
+   "pooled": {
+    "d": 0.0032460265944579867,
+    "se": 0.003376401767622298,
+    "df": 114.78256549015238,
+    "lb95": -0.0023528488947569194,
+    "ub95": 0.008844902083672893,
+    "ub99": 0.01121188567100315,
+    "p": 0.16918941548922617
+   },
+   "per_workload": {
+    "packet": "same_bytes_as_o4",
+    "uart": {
+     "d": -7.350661672056447e-05,
+     "se": 0.004392961328467628,
+     "df": 79,
+     "lb95": -0.00738502585326435,
+     "ub95": 0.007238012619823221,
+     "ub99": 0.010357499213784304,
+     "p": 0.506654022797099,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": {
+     "d": 0.008037477120948822,
+     "se": 0.005277793273367749,
+     "df": 39,
+     "lb95": -0.0008549454628857724,
+     "ub95": 0.016929899704783417,
+     "ub99": 0.02084056659550919,
+     "p": 0.06792771173889128,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    }
+   },
+   "passes_add_unadjusted": false,
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": 0.0011769930912838194,
+     "se": 0.009261576030635967,
+     "df": 17.81360809590026,
+     "lb95": -0.014892277692394089,
+     "ub95": 0.017246263874961726,
+     "ub99": 0.024839927509469485,
+     "p": 0.4501489381027862
+    },
+    "per_workload": {
+     "packet": "same_bytes_as_o4",
+     "uart": {
+      "d": 0.017993689046043926,
+      "se": 0.013823948689200881,
+      "df": 9,
+      "lb95": -0.0073471700765178095,
+      "ub95": 0.04333454816860566,
+      "ub99": 0.05699710215137784,
+      "p": 0.11268564612933724,
+      "n_blocks": 10,
+      "lb_gt_log098": true
+     },
+     "cli": {
+      "d": -0.012518572073197731,
+      "se": 0.01247532178094847,
+      "df": 9,
+      "lb95": -0.03538724576891267,
+      "ub95": 0.010350101622517201,
+      "ub99": 0.022679773926481385,
+      "p": 0.829074791248425,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     }
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "uart": {
+      "d": 0.017993689046043926,
+      "se": 0.013823948689200881,
+      "df": 9,
+      "lb95": -0.0073471700765178095,
+      "ub95": 0.04333454816860566,
+      "ub99": 0.05699710215137784,
+      "p": 0.11268564612933724,
+      "n_blocks": 10,
+      "holm_rank": 5,
+      "holm_threshold": 0.0009615384615384616,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.012518572073197731,
+      "se": 0.01247532178094847,
+      "df": 9,
+      "lb95": -0.03538724576891267,
+      "ub95": 0.010350101622517201,
+      "ub99": 0.022679773926481385,
+      "p": 0.829074791248425,
+      "n_blocks": 10,
+      "holm_rank": 29,
+      "holm_threshold": 0.0017857142857142859,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.0011769930912838194,
+      "se": 0.009261576030635967,
+      "df": 17.81360809590026,
+      "lb95": -0.014892277692394089,
+      "ub95": 0.017246263874961726,
+      "ub99": 0.024839927509469485,
+      "p": 0.4501489381027862,
+      "holm_rank": 20,
+      "holm_threshold": 0.0013513513513513514,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "packet": {
+      "verdict": "same_bytes"
+     }
+    },
+    "A2": {
+     "uart": {
+      "d": -7.350661672056447e-05,
+      "se": 0.004392961328467628,
+      "df": 79,
+      "lb95": -0.00738502585326435,
+      "ub95": 0.007238012619823221,
+      "ub99": 0.010357499213784304,
+      "p": 0.506654022797099,
+      "n_blocks": 80,
+      "holm_rank": 24,
+      "holm_threshold": 0.00625,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": 0.008037477120948822,
+      "se": 0.005277793273367749,
+      "df": 39,
+      "lb95": -0.0008549454628857724,
+      "ub95": 0.016929899704783417,
+      "ub99": 0.02084056659550919,
+      "p": 0.06792771173889128,
+      "n_blocks": 40,
+      "holm_rank": 5,
+      "holm_threshold": 0.001851851851851852,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.0032460265944579867,
+      "se": 0.003376401767622298,
+      "df": 114.78256549015238,
+      "lb95": -0.0023528488947569194,
+      "ub95": 0.008844902083672893,
+      "ub99": 0.01121188567100315,
+      "p": 0.16918941548922617,
+      "holm_rank": 13,
+      "holm_threshold": 0.002631578947368421,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "packet": {
+      "verdict": "same_bytes"
+     }
+    }
+   },
+   "verdict": "accepted, in O4-r2",
+   "verdict_reason": "REMOVE rule passed",
+   "in_o4r2": true
+  },
+  {
+   "arm": "fl3b3",
+   "item": "C1",
+   "role": "challenger",
+   "rule": "BEST (challenger)",
+   "decided_in": "A2",
+   "pooled": {
+    "d": 0.001986410223154824,
+    "se": 0.0029121941837588388,
+    "df": 132.80837062647856,
+    "lb95": -0.0028373715474041823,
+    "ub95": 0.00681019199371383,
+    "ub99": 0.008843910115853917,
+    "p": 0.2481815275033999
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.02033572579680598,
+     "se": 0.006710473811882976,
+     "df": 39,
+     "lb95": 0.009029415416266583,
+     "ub95": 0.03164203617734538,
+     "ub99": 0.036614271048619126,
+     "p": 0.0021606165901595373,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": {
+     "d": -0.0011878094751338608,
+     "se": 0.004731402096277803,
+     "df": 79,
+     "lb95": -0.009062619849307103,
+     "ub95": 0.006687000899039381,
+     "ub99": 0.010046817730189693,
+     "p": 0.5987856200879063,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": {
+     "d": -0.0032197106078504234,
+     "se": 0.004426567673129368,
+     "df": 39,
+     "lb95": -0.010677924354879274,
+     "ub95": 0.004238503139178428,
+     "ub99": 0.007518440556624498,
+     "p": 0.7643253821551593,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    }
+   },
+   "screen_decision": "to_A2",
+   "screen": {
+    "decision": "to_A2",
+    "pooled": {
+     "d": 0.007516181163935209,
+     "se": 0.00671378455863865,
+     "df": 34.54128109855953,
+     "lb95": -0.0038313404883235647,
+     "ub95": 0.018863702816193983,
+     "ub99": 0.02389290684562258,
+     "p": 0.13532261849517085
+    },
+    "per_workload": {
+     "packet": {
+      "d": 0.009775672278900416,
+      "se": 0.009583265824141658,
+      "df": 19,
+      "lb95": -0.006795067099152105,
+      "ub95": 0.026346411656952937,
+      "ub99": 0.034112214750591494,
+      "p": 0.16025283597433337,
+      "n_blocks": 20,
+      "lb_gt_log098": true
+     },
+     "uart": {
+      "d": 0.015570144126954233,
+      "se": 0.016633729509152984,
+      "df": 9,
+      "lb95": -0.014921360554593456,
+      "ub95": 0.04606164880850192,
+      "ub99": 0.06250117939871351,
+      "p": 0.1868392423190241,
+      "n_blocks": 10,
+      "lb_gt_log098": true
+     },
+     "cli": {
+      "d": 0.0005246234377818126,
+      "se": 0.0114091032318319,
+      "df": 9,
+      "lb95": -0.02038955124650869,
+      "ub95": 0.021438798122072316,
+      "ub99": 0.03271469998661654,
+      "p": 0.4821640205503385,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     }
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": 0.009775672278900416,
+      "se": 0.009583265824141658,
+      "df": 19,
+      "lb95": -0.006795067099152105,
+      "ub95": 0.026346411656952937,
+      "ub99": 0.034112214750591494,
+      "p": 0.16025283597433337,
+      "n_blocks": 20,
+      "holm_rank": 8,
+      "holm_threshold": 0.0010204081632653062,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": 0.015570144126954233,
+      "se": 0.016633729509152984,
+      "df": 9,
+      "lb95": -0.014921360554593456,
+      "ub95": 0.04606164880850192,
+      "ub99": 0.06250117939871351,
+      "p": 0.1868392423190241,
+      "n_blocks": 10,
+      "holm_rank": 9,
+      "holm_threshold": 0.0010416666666666667,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": 0.0005246234377818126,
+      "se": 0.0114091032318319,
+      "df": 9,
+      "lb95": -0.02038955124650869,
+      "ub95": 0.021438798122072316,
+      "ub99": 0.03271469998661654,
+      "p": 0.4821640205503385,
+      "n_blocks": 10,
+      "holm_rank": 22,
+      "holm_threshold": 0.0014285714285714286,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.007516181163935209,
+      "se": 0.00671378455863865,
+      "df": 34.54128109855953,
+      "lb95": -0.0038313404883235647,
+      "ub95": 0.018863702816193983,
+      "ub99": 0.02389290684562258,
+      "p": 0.13532261849517085,
+      "holm_rank": 6,
+      "holm_threshold": 0.000980392156862745,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    },
+    "A2": {
+     "packet": {
+      "d": 0.02033572579680598,
+      "se": 0.006710473811882976,
+      "df": 39,
+      "lb95": 0.009029415416266583,
+      "ub95": 0.03164203617734538,
+      "ub99": 0.036614271048619126,
+      "p": 0.0021606165901595373,
+      "n_blocks": 40,
+      "holm_rank": 1,
+      "holm_threshold": 0.0016129032258064516,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.0011878094751338608,
+      "se": 0.004731402096277803,
+      "df": 79,
+      "lb95": -0.009062619849307103,
+      "ub95": 0.006687000899039381,
+      "ub99": 0.010046817730189693,
+      "p": 0.5987856200879063,
+      "n_blocks": 80,
+      "holm_rank": 26,
+      "holm_threshold": 0.008333333333333333,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.0032197106078504234,
+      "se": 0.004426567673129368,
+      "df": 39,
+      "lb95": -0.010677924354879274,
+      "ub95": 0.004238503139178428,
+      "ub99": 0.007518440556624498,
+      "p": 0.7643253821551593,
+      "n_blocks": 40,
+      "holm_rank": 28,
+      "holm_threshold": 0.0125,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.001986410223154824,
+      "se": 0.0029121941837588388,
+      "df": 132.80837062647856,
+      "lb95": -0.0028373715474041823,
+      "ub95": 0.00681019199371383,
+      "ub99": 0.008843910115853917,
+      "p": 0.2481815275033999,
+      "holm_rank": 15,
+      "holm_threshold": 0.0029411764705882353,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "not faster than O4",
+   "verdict_reason": "BEST not shown in A (pooled +0.75%) or A2 (pooled +0.20%; packet +2.03%, p 0.00216 > Holm 0.001613)",
+   "in_o4r2": false
+  },
+  {
+   "arm": "fl3b3p",
+   "item": "C1p",
+   "role": "challenger",
+   "rule": "BEST (challenger)",
+   "decided_in": "A",
+   "pooled": {
+    "d": -0.0069629014320658844,
+    "se": 0.007241101794555296,
+    "df": 31.136510695189447,
+    "lb95": -0.019238668231517455,
+    "ub95": 0.005312865367385687,
+    "ub99": 0.010794030064541497,
+    "p": 0.8281655007510164
+   },
+   "per_workload": {
+    "packet": {
+     "d": -0.006069536905537021,
+     "se": 0.008479223746767437,
+     "df": 19,
+     "lb95": -0.020731240902301815,
+     "ub95": 0.008592167091227771,
+     "ub99": 0.015463309268920401,
+     "p": 0.7585938703210819,
+     "n_blocks": 20,
+     "lb_gt_log098": false
+    },
+    "uart": {
+     "d": 0.007037408005723833,
+     "se": 0.01864926232138155,
+     "df": 9,
+     "lb95": -0.02714879594011469,
+     "ub95": 0.04122361195156236,
+     "ub99": 0.059655143993040415,
+     "p": 0.35732689574120424,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    },
+    "cli": {
+     "d": -0.029989832649565784,
+     "se": 0.020907152275731075,
+     "df": 9,
+     "lb95": -0.06831500387123887,
+     "ub95": 0.00833533857210731,
+     "ub99": 0.028998399685489257,
+     "p": 0.9073654188464768,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    }
+   },
+   "screen_decision": "best_check_is_screen",
+   "screen": {
+    "decision": "best_check_is_screen",
+    "pooled": {
+     "d": -0.0069629014320658844,
+     "se": 0.007241101794555296,
+     "df": 31.136510695189447,
+     "lb95": -0.019238668231517455,
+     "ub95": 0.005312865367385687,
+     "ub99": 0.010794030064541497,
+     "p": 0.8281655007510164
+    },
+    "per_workload": {
+     "packet": {
+      "d": -0.006069536905537021,
+      "se": 0.008479223746767437,
+      "df": 19,
+      "lb95": -0.020731240902301815,
+      "ub95": 0.008592167091227771,
+      "ub99": 0.015463309268920401,
+      "p": 0.7585938703210819,
+      "n_blocks": 20,
+      "lb_gt_log098": false
+     },
+     "uart": {
+      "d": 0.007037408005723833,
+      "se": 0.01864926232138155,
+      "df": 9,
+      "lb95": -0.02714879594011469,
+      "ub95": 0.04122361195156236,
+      "ub99": 0.059655143993040415,
+      "p": 0.35732689574120424,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     },
+     "cli": {
+      "d": -0.029989832649565784,
+      "se": 0.020907152275731075,
+      "df": 9,
+      "lb95": -0.06831500387123887,
+      "ub95": 0.00833533857210731,
+      "ub99": 0.028998399685489257,
+      "p": 0.9073654188464768,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     }
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": -0.006069536905537021,
+      "se": 0.008479223746767437,
+      "df": 19,
+      "lb95": -0.020731240902301815,
+      "ub95": 0.008592167091227771,
+      "ub99": 0.015463309268920401,
+      "p": 0.7585938703210819,
+      "n_blocks": 20,
+      "holm_rank": 26,
+      "holm_threshold": 0.0016129032258064516,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": 0.007037408005723833,
+      "se": 0.01864926232138155,
+      "df": 9,
+      "lb95": -0.02714879594011469,
+      "ub95": 0.04122361195156236,
+      "ub99": 0.059655143993040415,
+      "p": 0.35732689574120424,
+      "n_blocks": 10,
+      "holm_rank": 17,
+      "holm_threshold": 0.00125,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.029989832649565784,
+      "se": 0.020907152275731075,
+      "df": 9,
+      "lb95": -0.06831500387123887,
+      "ub95": 0.00833533857210731,
+      "ub99": 0.028998399685489257,
+      "p": 0.9073654188464768,
+      "n_blocks": 10,
+      "holm_rank": 33,
+      "holm_threshold": 0.0020833333333333333,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.0069629014320658844,
+      "se": 0.007241101794555296,
+      "df": 31.136510695189447,
+      "lb95": -0.019238668231517455,
+      "ub95": 0.005312865367385687,
+      "ub99": 0.010794030064541497,
+      "p": 0.8281655007510164,
+      "holm_rank": 28,
+      "holm_threshold": 0.001724137931034483,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "not faster than O4",
+   "verdict_reason": "screen: pooled d -0.70% <= 0, the screen row is its best-check; BEST not shown on any scope",
+   "in_o4r2": false
+  },
+  {
+   "arm": "b3l",
+   "item": "C2",
+   "role": "challenger",
+   "rule": "BEST (challenger)",
+   "decided_in": "A",
+   "pooled": {
+    "d": -0.023156288022110658,
+    "se": 0.006796223969074456,
+    "df": 33.60746473295329,
+    "lb95": -0.03465194783975402,
+    "ub95": -0.011660628204467298,
+    "ub99": -0.006556149440217499,
+    "p": 0.9991407881552495
+   },
+   "per_workload": {
+    "packet": {
+     "d": -0.016380852966336512,
+     "se": 0.008882884687295207,
+     "df": 19,
+     "lb95": -0.03174054034009736,
+     "ub95": -0.0010211655925756683,
+     "ub99": 0.006177083381302736,
+     "p": 0.9595891775510738,
+     "n_blocks": 20,
+     "lb_gt_log098": false
+    },
+    "uart": {
+     "d": -0.02942793559635426,
+     "se": 0.020632034312907204,
+     "df": 9,
+     "lb95": -0.06724878452236865,
+     "ub95": 0.008392913329660134,
+     "ub99": 0.028784068484533437,
+     "p": 0.9062358472221685,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    },
+    "cli": {
+     "d": -0.03388902389572834,
+     "se": 0.012283313735705957,
+     "df": 9,
+     "lb95": -0.05640572516053502,
+     "ub95": -0.011372322630921663,
+     "ub99": 0.0007675833231933146,
+     "p": 0.9889248825254096,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    }
+   },
+   "screen_decision": "best_check_is_screen",
+   "screen": {
+    "decision": "best_check_is_screen",
+    "pooled": {
+     "d": -0.023156288022110658,
+     "se": 0.006796223969074456,
+     "df": 33.60746473295329,
+     "lb95": -0.03465194783975402,
+     "ub95": -0.011660628204467298,
+     "ub99": -0.006556149440217499,
+     "p": 0.9991407881552495
+    },
+    "per_workload": {
+     "packet": {
+      "d": -0.016380852966336512,
+      "se": 0.008882884687295207,
+      "df": 19,
+      "lb95": -0.03174054034009736,
+      "ub95": -0.0010211655925756683,
+      "ub99": 0.006177083381302736,
+      "p": 0.9595891775510738,
+      "n_blocks": 20,
+      "lb_gt_log098": false
+     },
+     "uart": {
+      "d": -0.02942793559635426,
+      "se": 0.020632034312907204,
+      "df": 9,
+      "lb95": -0.06724878452236865,
+      "ub95": 0.008392913329660134,
+      "ub99": 0.028784068484533437,
+      "p": 0.9062358472221685,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     },
+     "cli": {
+      "d": -0.03388902389572834,
+      "se": 0.012283313735705957,
+      "df": 9,
+      "lb95": -0.05640572516053502,
+      "ub95": -0.011372322630921663,
+      "ub99": 0.0007675833231933146,
+      "p": 0.9889248825254096,
+      "n_blocks": 10,
+      "lb_gt_log098": false
+     }
+    },
+    "ub99_below_zero": []
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": -0.016380852966336512,
+      "se": 0.008882884687295207,
+      "df": 19,
+      "lb95": -0.03174054034009736,
+      "ub95": -0.0010211655925756683,
+      "ub99": 0.006177083381302736,
+      "p": 0.9595891775510738,
+      "n_blocks": 20,
+      "holm_rank": 37,
+      "holm_threshold": 0.0025,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.02942793559635426,
+      "se": 0.020632034312907204,
+      "df": 9,
+      "lb95": -0.06724878452236865,
+      "ub95": 0.008392913329660134,
+      "ub99": 0.028784068484533437,
+      "p": 0.9062358472221685,
+      "n_blocks": 10,
+      "holm_rank": 32,
+      "holm_threshold": 0.002,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.03388902389572834,
+      "se": 0.012283313735705957,
+      "df": 9,
+      "lb95": -0.05640572516053502,
+      "ub95": -0.011372322630921663,
+      "ub99": 0.0007675833231933146,
+      "p": 0.9889248825254096,
+      "n_blocks": 10,
+      "holm_rank": 42,
+      "holm_threshold": 0.0033333333333333335,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.023156288022110658,
+      "se": 0.006796223969074456,
+      "df": 33.60746473295329,
+      "lb95": -0.03465194783975402,
+      "ub95": -0.011660628204467298,
+      "ub99": -0.006556149440217499,
+      "p": 0.9991407881552495,
+      "holm_rank": 43,
+      "holm_threshold": 0.0035714285714285718,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "not faster than O4",
+   "verdict_reason": "screen: pooled d -2.32% <= 0, slower_than_o4 (pooled, packet, cli); Pettis-Hansen fallback, no LLVM bridge",
+   "in_o4r2": false
+  },
+  {
+   "arm": "o4_pwhopr",
+   "item": "A5",
+   "role": "challenger",
+   "rule": "BEST (challenger)",
+   "decided_in": "H",
+   "pooled": {
+    "d": 0.009299589472600199,
+    "se": 0.0029887063771727998,
+    "df": 143.9753449418118,
+    "lb95": 0.004351768094743633,
+    "ub95": 0.014247410850456766,
+    "ub99": 0.016330601480365768,
+    "p": 0.001122277263431493
+   },
+   "per_workload": {
+    "packet": {
+     "d": -0.0010645360642591584,
+     "se": 0.007450051825822969,
+     "df": 39,
+     "lb95": -0.013616943041050988,
+     "ub95": 0.011487870912532672,
+     "ub99": 0.017008108159499758,
+     "p": 0.5564435223361821,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": {
+     "d": 0.004725268566244445,
+     "se": 0.004354691648162777,
+     "df": 79,
+     "lb95": -0.002522555708563152,
+     "ub95": 0.011973092841052042,
+     "ub99": 0.01506540374514476,
+     "p": 0.14058917627987572,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": {
+     "d": 0.019686165592631255,
+     "se": 0.004926518480561242,
+     "df": 39,
+     "lb95": 0.01138559716808077,
+     "ub95": 0.02798673401718174,
+     "ub99": 0.03163711812860525,
+     "p": 0.00013859292364762523,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    }
+   },
+   "best": {
+    "H": {
+     "packet": {
+      "d": -0.0010645360642591584,
+      "se": 0.007450051825822969,
+      "df": 39,
+      "lb95": -0.013616943041050988,
+      "ub95": 0.011487870912532672,
+      "ub99": 0.017008108159499758,
+      "p": 0.5564435223361821,
+      "n_blocks": 40,
+      "holm_rank": 5,
+      "holm_threshold": 0.00625,
+      "holm_family_size": 12,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": 0.004725268566244445,
+      "se": 0.004354691648162777,
+      "df": 79,
+      "lb95": -0.002522555708563152,
+      "ub95": 0.011973092841052042,
+      "ub99": 0.01506540374514476,
+      "p": 0.14058917627987572,
+      "n_blocks": 80,
+      "holm_rank": 3,
+      "holm_threshold": 0.005,
+      "holm_family_size": 12,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "d": 0.019686165592631255,
+      "se": 0.004926518480561242,
+      "df": 39,
+      "lb95": 0.01138559716808077,
+      "ub95": 0.02798673401718174,
+      "ub99": 0.03163711812860525,
+      "p": 0.00013859292364762523,
+      "n_blocks": 40,
+      "holm_rank": 1,
+      "holm_threshold": 0.004166666666666667,
+      "holm_family_size": 12,
+      "verdict": "faster_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": 0.009299589472600199,
+      "se": 0.0029887063771727998,
+      "df": 143.9753449418118,
+      "lb95": 0.004351768094743633,
+      "ub95": 0.014247410850456766,
+      "ub99": 0.016330601480365768,
+      "p": 0.001122277263431493,
+      "holm_rank": 2,
+      "holm_threshold": 0.004545454545454546,
+      "holm_family_size": 12,
+      "verdict": "faster_than_o4",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "faster than O4: absorbed into O4-r2",
+   "verdict_reason": "BEST in H: cli d +1.97% (p 0.000139 <= 0.004167, Holm rank 1 of 12) and pooled +0.93% (p 0.00112 <= 0.004545, rank 2); packet -0.11% and uart +0.47% not shown",
+   "in_o4r2": true
+  },
+  {
+   "arm": "o4_hostall",
+   "item": "A6",
+   "role": "addon",
+   "rule": "ADD (timed in H)",
+   "decided_in": "H",
+   "status": "excluded",
+   "reason": "holm",
+   "g0": true,
+   "checks": {
+    "holm": false,
+    "noninferior_every_w": false
+   },
+   "pooled": {
+    "d": -0.04509100700025707,
+    "se": 0.0034461063189973,
+    "df": 120.67633387294427,
+    "lb95": -0.05080319915921078,
+    "ub95": -0.03937881484130336,
+    "ub99": -0.03696630841793966,
+    "p": 1.0
+   },
+   "per_workload": {
+    "packet": {
+     "d": -0.04051699268535014,
+     "se": 0.00645470054345562,
+     "df": 39,
+     "lb95": -0.051392357049117404,
+     "ub95": -0.029641628321582878,
+     "ub99": -0.024858912819591537,
+     "p": 0.9999998932429562,
+     "n_blocks": 40,
+     "lb_gt_log098": false
+    },
+    "uart": {
+     "d": -0.12445966543498788,
+     "se": 0.006789651175761608,
+     "df": 79,
+     "lb95": -0.13576016672993546,
+     "ub95": -0.11315916414004028,
+     "ub99": -0.1083377636685163,
+     "p": 1.0,
+     "n_blocks": 80,
+     "lb_gt_log098": false
+    },
+    "cli": {
+     "d": -0.003236091973196409,
+     "se": 0.005095702208005177,
+     "df": 39,
+     "lb95": -0.011821713851115629,
+     "ub95": 0.005349529904722811,
+     "ub99": 0.009125273454664531,
+     "p": 0.7354520712218384,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    }
+   },
+   "add_holm": {
+    "family_size": 6,
+    "rank": 6,
+    "rejected": false,
+    "threshold": 0.05
+   },
+   "best": {
+    "H": {
+     "packet": {
+      "d": -0.04051699268535014,
+      "se": 0.00645470054345562,
+      "df": 39,
+      "lb95": -0.051392357049117404,
+      "ub95": -0.029641628321582878,
+      "ub99": -0.024858912819591537,
+      "p": 0.9999998932429562,
+      "n_blocks": 40,
+      "holm_rank": 8,
+      "holm_threshold": 0.01,
+      "holm_family_size": 12,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.12445966543498788,
+      "se": 0.006789651175761608,
+      "df": 79,
+      "lb95": -0.13576016672993546,
+      "ub95": -0.11315916414004028,
+      "ub99": -0.1083377636685163,
+      "p": 1.0,
+      "n_blocks": 80,
+      "holm_rank": 10,
+      "holm_threshold": 0.016666666666666666,
+      "holm_family_size": 12,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.003236091973196409,
+      "se": 0.005095702208005177,
+      "df": 39,
+      "lb95": -0.011821713851115629,
+      "ub95": 0.005349529904722811,
+      "ub99": 0.009125273454664531,
+      "p": 0.7354520712218384,
+      "n_blocks": 40,
+      "holm_rank": 6,
+      "holm_threshold": 0.0071428571428571435,
+      "holm_family_size": 12,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.04509100700025707,
+      "se": 0.0034461063189973,
+      "df": 120.67633387294427,
+      "lb95": -0.05080319915921078,
+      "ub95": -0.03937881484130336,
+      "ub99": -0.03696630841793966,
+      "p": 1.0,
+      "holm_rank": 9,
+      "holm_threshold": 0.0125,
+      "holm_family_size": 12,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "excluded",
+   "verdict_reason": "ADD: Holm rank 6 of 6 (pooled p 1.0); LB_w fails on packet and uart; measured slower (pooled d -4.51%)",
+   "in_o4r2": false
+  },
+  {
+   "arm": "o4_tasks",
+   "item": "A2a",
+   "role": "addon",
+   "rule": "ADD",
+   "decided_in": "A2",
+   "status": "excluded",
+   "reason": "holm",
+   "g0": true,
+   "checks": {
+    "holm": false,
+    "noninferior_every_w": true
+   },
+   "pooled": {
+    "d": 0.009779329712546136,
+    "se": 0.007557194129182358,
+    "df": 39.0,
+    "lb95": -0.0029535986656588145,
+    "ub95": 0.022512258090751087,
+    "ub99": 0.02811188417252873,
+    "p": 0.1016308256372302
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.009779329712546136,
+     "se": 0.007557194129182358,
+     "df": 39,
+     "lb95": -0.0029535986656588145,
+     "ub95": 0.022512258090751087,
+     "ub99": 0.02811188417252873,
+     "p": 0.1016308256372302,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": "same_bytes_as_o4",
+    "cli": "same_bytes_as_o4"
+   },
+   "add_holm": {
+    "family_size": 6,
+    "rank": 2,
+    "rejected": false,
+    "threshold": 0.01
+   },
+   "best": {
+    "A2": {
+     "packet": {
+      "d": 0.009779329712546136,
+      "se": 0.007557194129182358,
+      "df": 39,
+      "lb95": -0.0029535986656588145,
+      "ub95": 0.022512258090751087,
+      "ub99": 0.02811188417252873,
+      "p": 0.1016308256372302,
+      "n_blocks": 40,
+      "holm_rank": 7,
+      "holm_threshold": 0.002,
+      "holm_family_size": 31,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "cli": {
+      "verdict": "same_bytes"
+     },
+     "uart": {
+      "verdict": "same_bytes"
+     }
+    }
+   },
+   "verdict": "excluded",
+   "verdict_reason": "ADD: Holm rank 2 of 6, pooled (packet-only) p 0.102 > 0.01. A hot-loop mode variant, moot under A5",
+   "in_o4r2": false
+  },
+  {
+   "arm": "w7bd_b3",
+   "item": "w7bd_b3",
+   "role": "challenger",
+   "rule": "BEST (challenger)",
+   "decided_in": "H",
+   "pooled": {
+    "d": -0.0356639802990289,
+    "se": 0.0037116963329980514,
+    "df": 126.5847113940842,
+    "lb95": -0.04181418796394477,
+    "ub95": -0.029513772634113027,
+    "ub99": -0.02691860282985543,
+    "p": 1.0
+   },
+   "per_workload": {
+    "packet": {
+     "d": -0.031397436851429816,
+     "se": 0.006922567712468838,
+     "df": 39,
+     "lb95": -0.04306109896853313,
+     "ub95": -0.019733774734326505,
+     "ub99": -0.014604385432823105,
+     "p": 0.9999732188874568,
+     "n_blocks": 40,
+     "lb_gt_log098": false
+    },
+    "uart": {
+     "d": -0.102676178343855,
+     "se": 0.007007478064329471,
+     "df": 79,
+     "lb95": -0.11433922448427611,
+     "ub95": -0.0910131322034339,
+     "ub99": -0.08603705063916087,
+     "p": 1.0,
+     "n_blocks": 80,
+     "lb_gt_log098": false
+    },
+    "cli": {
+     "d": 0.0050207129863455435,
+     "se": 0.005647421315011329,
+     "df": 39,
+     "lb95": -0.00449448668914133,
+     "ub95": 0.014535912661832417,
+     "ub99": 0.018720461470524447,
+     "p": 0.18971960869413274,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    }
+   },
+   "best": {
+    "H": {
+     "packet": {
+      "d": -0.031397436851429816,
+      "se": 0.006922567712468838,
+      "df": 39,
+      "lb95": -0.04306109896853313,
+      "ub95": -0.019733774734326505,
+      "ub99": -0.014604385432823105,
+      "p": 0.9999732188874568,
+      "n_blocks": 40,
+      "holm_rank": 7,
+      "holm_threshold": 0.008333333333333333,
+      "holm_family_size": 12,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.102676178343855,
+      "se": 0.007007478064329471,
+      "df": 79,
+      "lb95": -0.11433922448427611,
+      "ub95": -0.0910131322034339,
+      "ub99": -0.08603705063916087,
+      "p": 1.0,
+      "n_blocks": 80,
+      "holm_rank": 12,
+      "holm_threshold": 0.05,
+      "holm_family_size": 12,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "cli": {
+      "d": 0.0050207129863455435,
+      "se": 0.005647421315011329,
+      "df": 39,
+      "lb95": -0.00449448668914133,
+      "ub95": 0.014535912661832417,
+      "ub99": 0.018720461470524447,
+      "p": 0.18971960869413274,
+      "n_blocks": 40,
+      "holm_rank": 4,
+      "holm_threshold": 0.005555555555555556,
+      "holm_family_size": 12,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.0356639802990289,
+      "se": 0.0037116963329980514,
+      "df": 126.5847113940842,
+      "lb95": -0.04181418796394477,
+      "ub95": -0.029513772634113027,
+      "ub99": -0.02691860282985543,
+      "p": 1.0,
+      "holm_rank": 11,
+      "holm_threshold": 0.025,
+      "holm_family_size": 12,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "not faster than O4",
+   "verdict_reason": "BEST in H: slower_than_o4 on packet (-3.14%), uart (-10.27%) and pooled (-3.57%); cli +0.50% not shown",
+   "in_o4r2": false
+  },
+  {
+   "arm": "s6",
+   "item": "s6",
+   "role": "anchor",
+   "rule": "BEST (anchor)",
+   "decided_in": "A",
+   "pooled": {
+    "d": -0.1666821964937709,
+    "se": 0.006849269642395074,
+    "df": 36.340002910753654,
+    "lb95": -0.17824294647329073,
+    "ub95": -0.15512144651425105,
+    "ub99": -0.1500149195635231,
+    "p": 1.0
+   },
+   "per_workload": {
+    "packet": {
+     "d": -0.1420094408163859,
+     "se": 0.00992082537108088,
+     "df": 19,
+     "lb95": -0.15916386548289324,
+     "ub95": -0.12485501614987855,
+     "ub99": -0.11681567154940795,
+     "p": 0.9999999999937504,
+     "n_blocks": 20,
+     "lb_gt_log098": false
+    },
+    "uart": {
+     "d": -0.14819890518247547,
+     "se": 0.014525432697547075,
+     "df": 9,
+     "lb95": -0.17482566371278874,
+     "ub95": -0.12157214665216222,
+     "ub99": -0.10721629849219388,
+     "p": 0.9999984864952318,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    },
+    "cli": {
+     "d": -0.2194038405863008,
+     "se": 0.0124839847478025,
+     "df": 9,
+     "lb95": -0.24228839447859105,
+     "ub95": -0.19651928669401056,
+     "ub99": -0.18418105256339648,
+     "p": 0.9999999858491323,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    }
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": -0.1420094408163859,
+      "se": 0.00992082537108088,
+      "df": 19,
+      "lb95": -0.15916386548289324,
+      "ub95": -0.12485501614987855,
+      "ub99": -0.11681567154940795,
+      "p": 0.9999999999937504,
+      "n_blocks": 20,
+      "holm_rank": 54,
+      "holm_threshold": 0.016666666666666666,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.14819890518247547,
+      "se": 0.014525432697547075,
+      "df": 9,
+      "lb95": -0.17482566371278874,
+      "ub95": -0.12157214665216222,
+      "ub99": -0.10721629849219388,
+      "p": 0.9999984864952318,
+      "n_blocks": 10,
+      "holm_rank": 47,
+      "holm_threshold": 0.005,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.2194038405863008,
+      "se": 0.0124839847478025,
+      "df": 9,
+      "lb95": -0.24228839447859105,
+      "ub95": -0.19651928669401056,
+      "ub99": -0.18418105256339648,
+      "p": 0.9999999858491323,
+      "n_blocks": 10,
+      "holm_rank": 51,
+      "holm_threshold": 0.008333333333333333,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.1666821964937709,
+      "se": 0.006849269642395074,
+      "df": 36.340002910753654,
+      "lb95": -0.17824294647329073,
+      "ub95": -0.15512144651425105,
+      "ub99": -0.1500149195635231,
+      "p": 1.0,
+      "holm_rank": 56,
+      "holm_threshold": 0.05,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "not faster than O4",
+   "verdict_reason": "A: slower_than_o4 on every scope (pooled -16.67%)",
+   "in_o4r2": false
+  },
+  {
+   "arm": "s6b3",
+   "item": "s6b3",
+   "role": "anchor",
+   "rule": "BEST (anchor)",
+   "decided_in": "A",
+   "pooled": {
+    "d": -0.007995991034770304,
+    "se": 0.005449431611997132,
+    "df": 33.45662749476856,
+    "lb95": -0.01721475971966307,
+    "ub95": 0.0012227776501224624,
+    "ub99": 0.005317524624361629,
+    "p": 0.9241845844895318
+   },
+   "per_workload": {
+    "packet": {
+     "d": 0.0003534272930041382,
+     "se": 0.0072490533353174735,
+     "df": 19,
+     "lb95": -0.012181148681560061,
+     "ub95": 0.012888003267568338,
+     "ub99": 0.018762276385981127,
+     "p": 0.4808117217045714,
+     "n_blocks": 20,
+     "lb_gt_log098": true
+    },
+    "uart": {
+     "d": -0.001867115686891907,
+     "se": 0.01644487148914849,
+     "df": 9,
+     "lb95": -0.032012422289533354,
+     "ub95": 0.028278190915749537,
+     "ub99": 0.04453106840478124,
+     "p": 0.5439517558847731,
+     "n_blocks": 10,
+     "lb_gt_log098": false,
+     "alias_of": "o4_noregions"
+    },
+    "cli": {
+     "d": -0.02458135667139416,
+     "se": 0.00955788813409544,
+     "df": 9,
+     "lb95": -0.04210204501889396,
+     "ub95": -0.007060668323894362,
+     "ub99": 0.0023856313933049884,
+     "p": 0.9849515882369012,
+     "n_blocks": 10,
+     "lb_gt_log098": false,
+     "alias_of": "o4_noregions"
+    }
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": 0.0003534272930041382,
+      "se": 0.0072490533353174735,
+      "df": 19,
+      "lb95": -0.012181148681560061,
+      "ub95": 0.012888003267568338,
+      "ub99": 0.018762276385981127,
+      "p": 0.4808117217045714,
+      "n_blocks": 20,
+      "holm_rank": 21,
+      "holm_threshold": 0.001388888888888889,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.001867115686891907,
+      "se": 0.01644487148914849,
+      "df": 9,
+      "lb95": -0.032012422289533354,
+      "ub95": 0.028278190915749537,
+      "ub99": 0.04453106840478124,
+      "p": 0.5439517558847731,
+      "n_blocks": 10,
+      "holm_rank": 23,
+      "holm_threshold": 0.0014705882352941176,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": "o4_noregions"
+     },
+     "cli": {
+      "d": -0.02458135667139416,
+      "se": 0.00955788813409544,
+      "df": 9,
+      "lb95": -0.04210204501889396,
+      "ub95": -0.007060668323894362,
+      "ub99": 0.0023856313933049884,
+      "p": 0.9849515882369012,
+      "n_blocks": 10,
+      "holm_rank": 41,
+      "holm_threshold": 0.003125,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": "o4_noregions"
+     },
+     "pooled": {
+      "d": -0.007995991034770304,
+      "se": 0.005449431611997132,
+      "df": 33.45662749476856,
+      "lb95": -0.01721475971966307,
+      "ub95": 0.0012227776501224624,
+      "ub99": 0.005317524624361629,
+      "p": 0.9241845844895318,
+      "holm_rank": 34,
+      "holm_threshold": 0.002173913043478261,
+      "holm_family_size": 56,
+      "verdict": "not_shown",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "not faster than O4",
+   "verdict_reason": "A: not shown (pooled -0.80%); cli slower_than_o4; uart and cli have o4_noregions' bytes",
+   "in_o4r2": false
+  },
+  {
+   "arm": "p7",
+   "item": "p7",
+   "role": "anchor",
+   "rule": "BEST (anchor)",
+   "decided_in": "A",
+   "pooled": {
+    "d": -0.04579730879616756,
+    "se": 0.004735376484670454,
+    "df": 31.116155747830113,
+    "lb95": -0.053825305747368254,
+    "ub95": -0.03776931184496686,
+    "ub99": -0.03418461159144126,
+    "p": 0.9999999999659555
+   },
+   "per_workload": {
+    "packet": {
+     "d": -0.042730368465819346,
+     "se": 0.006173024735645654,
+     "df": 19,
+     "lb95": -0.053404348082555855,
+     "ub95": -0.03205638884908284,
+     "ub99": -0.027054075914339837,
+     "p": 0.9999993299368383,
+     "n_blocks": 20,
+     "lb_gt_log098": false
+    },
+    "uart": {
+     "d": -0.045415300655518465,
+     "se": 0.01880325810393223,
+     "df": 9,
+     "lb95": -0.0798837962619253,
+     "ub95": -0.010946805049111642,
+     "ub99": 0.007636924872980767,
+     "p": 0.9805449558732235,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    },
+    "cli": {
+     "d": -0.051051151457187416,
+     "se": 0.008025797398010305,
+     "df": 9,
+     "lb95": -0.06576334446236548,
+     "ub95": -0.03633895845200935,
+     "ub99": -0.028406862299860874,
+     "p": 0.9999344104500045,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    }
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": -0.042730368465819346,
+      "se": 0.006173024735645654,
+      "df": 19,
+      "lb95": -0.053404348082555855,
+      "ub95": -0.03205638884908284,
+      "ub99": -0.027054075914339837,
+      "p": 0.9999993299368383,
+      "n_blocks": 20,
+      "holm_rank": 48,
+      "holm_threshold": 0.005555555555555556,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.045415300655518465,
+      "se": 0.01880325810393223,
+      "df": 9,
+      "lb95": -0.0798837962619253,
+      "ub95": -0.010946805049111642,
+      "ub99": 0.007636924872980767,
+      "p": 0.9805449558732235,
+      "n_blocks": 10,
+      "holm_rank": 39,
+      "holm_threshold": 0.002777777777777778,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.051051151457187416,
+      "se": 0.008025797398010305,
+      "df": 9,
+      "lb95": -0.06576334446236548,
+      "ub95": -0.03633895845200935,
+      "ub99": -0.028406862299860874,
+      "p": 0.9999344104500045,
+      "n_blocks": 10,
+      "holm_rank": 45,
+      "holm_threshold": 0.004166666666666667,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.04579730879616756,
+      "se": 0.004735376484670454,
+      "df": 31.116155747830113,
+      "lb95": -0.053825305747368254,
+      "ub95": -0.03776931184496686,
+      "ub99": -0.03418461159144126,
+      "p": 0.9999999999659555,
+      "holm_rank": 53,
+      "holm_threshold": 0.0125,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "not faster than O4",
+   "verdict_reason": "A: slower_than_o4 on every scope (pooled -4.58%)",
+   "in_o4r2": false
+  },
+  {
+   "arm": "c7b3",
+   "item": "c7b3",
+   "role": "anchor",
+   "rule": "BEST (anchor)",
+   "decided_in": "A",
+   "pooled": null,
+   "per_workload": {
+    "packet": "same_bytes_as_o4",
+    "uart": "same_bytes_as_o4",
+    "cli": "same_bytes_as_o4"
+   },
+   "best": {
+    "A": {
+     "cli": {
+      "verdict": "same_bytes"
+     },
+     "packet": {
+      "verdict": "same_bytes"
+     },
+     "uart": {
+      "verdict": "same_bytes"
+     }
+    }
+   },
+   "verdict": "same bytes as O4-r1",
+   "verdict_reason": "cache.sc equals o4's on all three workloads",
+   "in_o4r2": false
+  },
+  {
+   "arm": "fl3",
+   "item": "fl3",
+   "role": "anchor",
+   "rule": "BEST (anchor)",
+   "decided_in": "A",
+   "pooled": {
+    "d": -0.14696732268765417,
+    "se": 0.0058043224340208035,
+    "df": 31.582859825302798,
+    "lb95": -0.15680307081731584,
+    "ub95": -0.1371315745579925,
+    "ub99": -0.1327445628496607,
+    "p": 1.0
+   },
+   "per_workload": {
+    "packet": {
+     "d": -0.07827208912833505,
+     "se": 0.010238363982710873,
+     "df": 19,
+     "lb95": -0.09597558022713668,
+     "ub95": -0.060568598029533426,
+     "ub99": -0.05227193589474859,
+     "p": 0.999999836648187,
+     "n_blocks": 20,
+     "lb_gt_log098": false
+    },
+    "uart": {
+     "d": -0.1705284651001744,
+     "se": 0.010862509002777212,
+     "df": 9,
+     "lb95": -0.19044067083426902,
+     "ub95": -0.15061625936607975,
+     "ub99": -0.13988057023879527,
+     "p": 0.9999999620422545,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    },
+    "cli": {
+     "d": -0.1860210005421763,
+     "se": 0.009257883370101663,
+     "df": 9,
+     "lb95": -0.20299174627694036,
+     "ub95": -0.16905025480741223,
+     "ub99": -0.15990045729629787,
+     "p": 0.999999995642748,
+     "n_blocks": 10,
+     "lb_gt_log098": false
+    }
+   },
+   "best": {
+    "A": {
+     "packet": {
+      "d": -0.07827208912833505,
+      "se": 0.010238363982710873,
+      "df": 19,
+      "lb95": -0.09597558022713668,
+      "ub95": -0.060568598029533426,
+      "ub99": -0.05227193589474859,
+      "p": 0.999999836648187,
+      "n_blocks": 20,
+      "holm_rank": 49,
+      "holm_threshold": 0.00625,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "uart": {
+      "d": -0.1705284651001744,
+      "se": 0.010862509002777212,
+      "df": 9,
+      "lb95": -0.19044067083426902,
+      "ub95": -0.15061625936607975,
+      "ub99": -0.13988057023879527,
+      "p": 0.9999999620422545,
+      "n_blocks": 10,
+      "holm_rank": 50,
+      "holm_threshold": 0.0071428571428571435,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "cli": {
+      "d": -0.1860210005421763,
+      "se": 0.009257883370101663,
+      "df": 9,
+      "lb95": -0.20299174627694036,
+      "ub95": -0.16905025480741223,
+      "ub99": -0.15990045729629787,
+      "p": 0.999999995642748,
+      "n_blocks": 10,
+      "holm_rank": 52,
+      "holm_threshold": 0.01,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     },
+     "pooled": {
+      "d": -0.14696732268765417,
+      "se": 0.0058043224340208035,
+      "df": 31.582859825302798,
+      "lb95": -0.15680307081731584,
+      "ub95": -0.1371315745579925,
+      "ub99": -0.1327445628496607,
+      "p": 1.0,
+      "holm_rank": 55,
+      "holm_threshold": 0.025,
+      "holm_family_size": 56,
+      "verdict": "slower_than_o4",
+      "alias_of": null
+     }
+    }
+   },
+   "verdict": "not faster than O4",
+   "verdict_reason": "A: slower_than_o4 on every scope (pooled -14.70%)",
+   "in_o4r2": false
+  }
+ ],
+ "groups": {
+  "host_inline (A4, A6, X1)": {
+   "accepted": [
+    "o4_nohi"
+   ],
+   "excluded": {
+    "o4_hotgraph": "screen, measured slower",
+    "o4_hostall": "Holm; LB_w on packet and uart"
+   },
+   "applied": "X1: host-inline removed (one member accepted, so no tie rule needed)"
+  },
+  "selection_mode (A5 against hot-loop and its knobs A1, A7, A8, A2a)": {
+   "absorbed": [
+    "o4_pwhopr"
+   ],
+   "hot_loop_knobs_accepted": [],
+   "applied": "A5 replaces hot-loop selection; no hot-loop knob was accepted, so nothing conflicts (A1, A7, A8 and A2a are moot under A5 in any case)"
+  },
+  "regions (X3 against A1, A7, A8, I1, A5)": {
+   "x3": "rejected (cli LB95 -2.50% < log 0.98)",
+   "applied": "regions stay; decide.py would also have superseded X3, because A5 is shown faster than O4; I1 is therefore not moot"
+  },
+  "spec (X2 within X4)": {
+   "accepted": [
+    "o4_nocp",
+    "o4_nospec"
+   ],
+   "applied": "X4 accepted, so X2 is moot (decide.py note)"
+  },
+  "compose (A1, A7, A8, I1)": {
+   "accepted": [
+    "o4_isb"
+   ],
+   "applied": "I1 alone; isb_boundary applies in any firmware-inline mode (fd-int firmware_inline.py: with_isb wraps the recursive and the flat plan of every mode except firmlooper-v3, which has its own rule), so it composes with A5's exhaustive selection"
+  },
+  "at_most_one_per_group": true
+ },
+ "best": {
+  "A": {
+   "family_size": 56,
+   "alpha": 0.05,
+   "holds": true,
+   "faster_than_o4": [],
+   "absorb": [],
+   "smallest_p": [
+    {
+     "arm": "o4_min2",
+     "scope": "pooled",
+     "d": 0.013104141561196712,
+     "p": 0.028120543983345035,
+     "holm_rank": 1,
+     "holm_threshold": 0.0008928571428571429,
+     "verdict": "not_shown"
+    },
+    {
+     "arm": "o4_min2",
+     "scope": "packet",
+     "d": 0.0164674427971212,
+     "p": 0.0357898917527327,
+     "holm_rank": 2,
+     "holm_threshold": 0.0009090909090909091,
+     "verdict": "not_shown"
+    },
+    {
+     "arm": "o4_isb",
+     "scope": "pooled",
+     "d": 0.01245037531043409,
+     "p": 0.0687380155442735,
+     "holm_rank": 3,
+     "holm_threshold": 0.000925925925925926,
+     "verdict": "not_shown"
+    },
+    {
+     "arm": "o4_isb",
+     "scope": "uart",
+     "d": 0.026769812658237413,
+     "p": 0.11082549219831922,
+     "holm_rank": 4,
+     "holm_threshold": 0.0009433962264150943,
+     "verdict": "not_shown"
+    }
+   ]
+  },
+  "A2": {
+   "family_size": 31,
+   "alpha": 0.05,
+   "holds": true,
+   "faster_than_o4": [],
+   "absorb": [],
+   "smallest_p": [
+    {
+     "arm": "fl3b3",
+     "scope": "packet",
+     "d": 0.02033572579680598,
+     "p": 0.0021606165901595373,
+     "holm_rank": 1,
+     "holm_threshold": 0.0016129032258064516,
+     "verdict": "not_shown"
+    },
+    {
+     "arm": "o4_chained",
+     "scope": "packet",
+     "d": 0.018200204689429178,
+     "p": 0.007745264241320353,
+     "holm_rank": 2,
+     "holm_threshold": 0.0016666666666666668,
+     "verdict": "not_shown"
+    },
+    {
+     "arm": "o4_rank",
+     "scope": "packet",
+     "d": 0.015127834617463698,
+     "p": 0.008832925853751311,
+     "holm_rank": 3,
+     "holm_threshold": 0.001724137931034483,
+     "verdict": "not_shown"
+    },
+    {
+     "arm": "o4_nocp",
+     "scope": "pooled",
+     "d": 0.00577261067803474,
+     "p": 0.04441511698013778,
+     "holm_rank": 4,
+     "holm_threshold": 0.0017857142857142859,
+     "verdict": "not_shown"
+    }
+   ]
+  },
+  "H": {
+   "family_size": 12,
+   "alpha": 0.05,
+   "holds": false,
+   "faster_than_o4": [
+    "o4_pwhopr"
+   ],
+   "absorb": [
+    "o4_pwhopr"
+   ],
+   "smallest_p": [
+    {
+     "arm": "o4_pwhopr",
+     "scope": "cli",
+     "d": 0.019686165592631255,
+     "p": 0.00013859292364762523,
+     "holm_rank": 1,
+     "holm_threshold": 0.004166666666666667,
+     "verdict": "faster_than_o4"
+    },
+    {
+     "arm": "o4_pwhopr",
+     "scope": "pooled",
+     "d": 0.009299589472600199,
+     "p": 0.001122277263431493,
+     "holm_rank": 2,
+     "holm_threshold": 0.004545454545454546,
+     "verdict": "faster_than_o4"
+    },
+    {
+     "arm": "o4_pwhopr",
+     "scope": "uart",
+     "d": 0.004725268566244445,
+     "p": 0.14058917627987572,
+     "holm_rank": 3,
+     "holm_threshold": 0.005,
+     "verdict": "not_shown"
+    },
+    {
+     "arm": "w7bd_b3",
+     "scope": "cli",
+     "d": 0.0050207129863455435,
+     "p": 0.18971960869413274,
+     "holm_rank": 4,
+     "holm_threshold": 0.005555555555555556,
+     "verdict": "not_shown"
+    }
+   ]
+  }
+ },
+ "absorption": {
+  "o4_pwhopr": {
+   "item": "A5",
+   "campaign": "H",
+   "best_hits": [
+    {
+     "scope": "cli",
+     "d": 0.019686165592631255,
+     "se": 0.004926518480561242,
+     "df": 39,
+     "lb95": 0.01138559716808077,
+     "ub95": 0.02798673401718174,
+     "ub99": 0.03163711812860525,
+     "p": 0.00013859292364762523,
+     "n_blocks": 40,
+     "holm_rank": 1,
+     "holm_threshold": 0.004166666666666667,
+     "holm_family_size": 12,
+     "verdict": "faster_than_o4",
+     "alias_of": null
+    },
+    {
+     "scope": "pooled",
+     "d": 0.009299589472600199,
+     "se": 0.0029887063771727998,
+     "df": 143.9753449418118,
+     "lb95": 0.004351768094743633,
+     "ub95": 0.014247410850456766,
+     "ub99": 0.016330601480365768,
+     "p": 0.001122277263431493,
+     "holm_rank": 2,
+     "holm_threshold": 0.004545454545454546,
+     "holm_family_size": 12,
+     "verdict": "faster_than_o4",
+     "alias_of": null
+    }
+   ],
+   "per_workload": {
+    "packet": {
+     "d": -0.0010645360642591584,
+     "se": 0.007450051825822969,
+     "df": 39,
+     "lb95": -0.013616943041050988,
+     "ub95": 0.011487870912532672,
+     "ub99": 0.017008108159499758,
+     "p": 0.5564435223361821,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    },
+    "uart": {
+     "d": 0.004725268566244445,
+     "se": 0.004354691648162777,
+     "df": 79,
+     "lb95": -0.002522555708563152,
+     "ub95": 0.011973092841052042,
+     "ub99": 0.01506540374514476,
+     "p": 0.14058917627987572,
+     "n_blocks": 80,
+     "lb_gt_log098": true
+    },
+    "cli": {
+     "d": 0.019686165592631255,
+     "se": 0.004926518480561242,
+     "df": 39,
+     "lb95": 0.01138559716808077,
+     "ub95": 0.02798673401718174,
+     "ub99": 0.03163711812860525,
+     "p": 0.00013859292364762523,
+     "n_blocks": 40,
+     "lb_gt_log098": true
+    }
+   },
+   "pooled": {
+    "d": 0.009299589472600199,
+    "se": 0.0029887063771727998,
+    "df": 143.9753449418118,
+    "lb95": 0.004351768094743633,
+    "ub95": 0.014247410850456766,
+    "ub99": 0.016330601480365768,
+    "p": 0.001122277263431493
+   },
+   "what_makes_it_faster": "Its firmware region selection. o4_pwhopr is O4-r1 with exactly one change: the firmware-inline params are {mode exhaustive, cost_model profile, phase steady, trust user, interrupts disabled, icount ignored, planner whopr, partitions 4, workers 4, member_slot_skip on} (design/pipelines/o4-pwhopr.toml) instead of hot-loop {min_call_count 1000, cost model auto with the nested profit gate}. Priced exhaustive selection considers every discovered call, not only hot-loop roots with >= 1000 calls, and admits a root when the steady profile prices its whole recursive region as profitable. On cli, where the gain is shown, its 14 roots are o4_min2's 13 plus 0x2daa (20 members); it refuses o4's root 0x83d06 (279 members) as not_profitable, and every region is entered once per run (cli VERIFY.md). uart: 27 regions (o4's 19 plus o4_min2's 7 plus 0x819c6). packet: 53 regions (+10 / -5 roots against o4), entered through lookup about 3,100 times per run against 52-55 for o4",
+   "composes_onto_o4_as_pipeline_change": true,
+   "how": "replace firmware-inline's params in O4-r1 with o4-pwhopr.toml's (the measured arm's exact delta); with I1, add isb_boundary = true, which firmware-inline applies in exhaustive mode; X1 and X4 remove other passes, and firmware-inline still runs after the B3 passes",
+   "included_in_o4r2": true,
+   "build_evidence": "o4_pwhopr itself passed G0 on all three workloads (gates/all.json); O4-r2 (o4r2) passes G0 and validity on all three (below)",
+   "replication_not_decisional": "H attempt 1 (failed on uart, not used): cli +1.84%, packet +0.41%, uart blocks 0-34 +1.03% (H-SUMMARY.md)",
+   "not_yet_measured": "the composition A5 + I1 + X1 + X4 itself; campaign B confirms it (B1 against O4-r1, B2 best-check) and 3.8 requires H to be rerun with o4r2 as the reference (firmware-inline and host-inline change)"
+  }
+ },
+ "composition_registered": {
+  "absorb_faster_configurations": [
+   "o4_pwhopr"
+  ],
+  "b2_rejected_with_highest_d": "o4_rank",
+  "notes": {
+   "o4_nocp": "accepted, moot: X4 removes the whole SPEC bundle"
+  },
+  "nothing_accepted": false,
+  "o4r2": {
+   "a2_pooled_d": {
+    "o4_isb": 0.001944447190762502,
+    "o4_nohi": 0.0023522525266693756,
+    "o4_nospec": 0.0032460265944579867
+   },
+   "addons": [],
+   "changes_firmware_inline": true,
+   "changes_host_inline": true,
+   "contains_addon": false,
+   "fidelity": [
+    "o4_isb"
+   ],
+   "items": [
+    "I1",
+    "X1",
+    "X4"
+   ],
+   "removals": [
+    "o4_nohi",
+    "o4_nospec"
+   ]
+  }
+ },
+ "composition": {
+  "name": "O4-r2",
+  "pipeline": "/data/scfix-o4/design/pipelines/O4-r2.toml",
+  "pipeline_sha256": "1ee63d43790eba149b412a04b6a9cb8367a32acc108d54c002bb6d745feec40b",
+  "base": "O4-r1 (design/pipelines/O4-r1.toml)",
+  "absorbed": [
+   "o4_pwhopr"
+  ],
+  "addons": [],
+  "removals": [
+   "o4_nohi",
+   "o4_nospec"
+  ],
+  "fidelity": [
+   "o4_isb"
+  ],
+  "items": [
+   "A5 (absorbed, BEST)",
+   "I1",
+   "X1",
+   "X4"
+  ],
+  "moot": {
+   "o4_nocp": "X2 accepted, contained in X4"
+  },
+  "changes_vs_r1": [
+   "A5 absorbed: firmware-inline params = o4-pwhopr.toml's (mode exhaustive, cost_model profile; min_call_count dropped)",
+   "I1: firmware-inline isb_boundary = true",
+   "X1: host-inline pass removed, INLINE_CALL dropped from allowed_capabilities (no --pgo-launch, no gdb-counted helper replay)",
+   "X4: specialize-returns, constant-propagation, branch-folding, dead-host-ops removed"
+  ],
+  "kept": [
+   "chain-returns (enabled, targets_per_exit 2)",
+   "chain-static (enabled, targets_per_exit 2)",
+   "firmware-inline trusted regions with member_slot_skip on, planner whopr"
+  ],
+  "changes_firmware_inline": true,
+  "changes_host_inline": true,
+  "contains_registered_addon": false,
+  "contains_speed_claim": true,
+  "b1_note": "decide.py's registered composition (composition_registered) does not know about the absorption: it lists I1, X1 and X4 only, with contains_addon false, so `make_plan.py B1 --decision p5/P5.decide.json` would carry that x_composition and decide.py would apply the REMOVE rule to B1. O4-r2 also carries A5, which is in O4-r2 only because it was shown faster; confirming that claim is the ADD-confirm rule (pooled LB > 0, LB_w > log 0.98). Which rule B1 uses, and how the x_composition is written, is for the B1 step to settle before its plan is made",
+  "b2_note": "B2 arms per 3.8: o4r2, o4r2-aa, o4, c7b3, s6b3, p7, fl3, the accepted single-item arms (o4_isb, o4_nohi, o4_nospec, and o4_pwhopr as the absorbed item), and the rejected candidate with the highest pooled d, o4_rank (decide.py: b2_rejected_with_highest_d). O4-r2 changes firmware-inline and host-inline, so H is rerun with o4r2 as the reference",
+  "adoption": "O4.toml and -O4 move to O4-r2 only if B1 and B2 pass (3.8); until then O4 stays at r1",
+  "build_pipeline": "/data/scfix-o4/design/pipelines/o4r2.toml",
+  "build_pipeline_sha256": "4ea2b72005203d5170476b5ea8fe0e7e023ba465f03c582e561a302a3b3d4f4d",
+  "build_pipeline_note": "arm o4r2 was built with --pipeline design/pipelines/o4r2.toml, O4-r2.toml with only name ('o4r2') and description changed (tomllib and scopt load_pipeline: to_json differs only in those two keys). Building with --pipeline O4-r2.toml itself fails in scopt's O4 preflight: \"pipeline 'O4-r2' is not the packaged /data/fastdyn-work/fd-int/tools/scopt/pipelines/O4-r2.toml; O4 is fixed: copy O4-rN.toml under another name to experiment\" (rc 2, before any pass; attempt kept in p5/failed/). The name does not reach cache.sc: O4-r1 via -O4 equals c7b3 (sealed-pgo-7-b3) byte for byte",
+  "builds": {
+   "packet": {
+    "sha256": "805e430a84114bcaad67c1407811a7629113a9a4c9d3d27ece06ec6b258411ec",
+    "cache": "/data/scfix-o4/packet-w/opt/o4r2/store/artifacts/0abca4248f8a941ce4e74efd8d271681828fb63361a9980a3fac9ec92310d233/cache.sc",
+    "same_bytes_as": null,
+    "same_bytes_checked_against": [
+     "o4",
+     "o4_isb",
+     "o4_nohi",
+     "o4_nospec",
+     "o4_pwhopr"
+    ],
+    "g0": true,
+    "validity_ok": true,
+    "validity": {
+     "pipeline_copy_equals_O4_r2": true,
+     "passes_are_O4_r2": true,
+     "stage_gate_all_edited_or_no_change": true,
+     "no_host_inline_receipt": true,
+     "spec_passes_absent": true,
+     "firmware_inline_exhaustive_profile": true,
+     "isb_boundary_true": true,
+     "member_slot_skip_enabled": true,
+     "build_within_8GiB_60min": true
+    },
+    "build": {
+     "rc": 0,
+     "wall_s": 62.0,
+     "time_v_peak_rss_kib": 937892,
+     "watchdog_peak_tree_rss_kib": 1829088
+    },
+    "effective_configuration": {
+     "chain-returns": "edited",
+     "chain-static": "edited",
+     "firmware-inline": "edited"
+    },
+    "firmware_inline": {
+     "embedded": 53.0,
+     "discovered": 193.0,
+     "nested_inlined_calls": 360.0,
+     "profit_net_ns": 21211886.93,
+     "refused": {
+      "not_profitable": 140.0,
+      "unpatchable_native_exit": 3.0
+     },
+     "isb_boundary_exits": 36,
+     "isb_boundary_regions": 17,
+     "members_total": 7036
+    },
+    "roots_vs_o4_pwhopr": {
+     "added": [],
+     "dropped": [],
+     "members_changed": [
+      "0x29d2",
+      "0x4b1c",
+      "0x4b1c",
+      "0x82920",
+      "0x82924",
+      "0x84dfa",
+      "0x8500e",
+      "0x8506a",
+      "0x850a8",
+      "0x856ec",
+      "0x871ec",
+      "0x87298",
+      "0x87c5e",
+      "0x8803a"
+     ],
+     "common": 53
+    },
+    "launch": "/data/scfix-o4/packet-w/arms/o4r2/launch.json",
+    "validity_file": "/data/scfix-o4/p5/packet-o4r2-validity.json"
+   },
+   "uart": {
+    "sha256": "839cf96bd65256b0c99e804684bebd05e944a2c4cb7f6f0d9555316bbd8cce1b",
+    "cache": "/data/scfix-o4/uart-w/opt/o4r2/store/artifacts/a72d50a0a4489c88e3581068d880a66cf5670cb9723159f2895a49b85ab171f7/cache.sc",
+    "same_bytes_as": null,
+    "same_bytes_checked_against": [
+     "o4",
+     "o4_isb",
+     "o4_nohi",
+     "o4_nospec",
+     "o4_pwhopr"
+    ],
+    "g0": true,
+    "validity_ok": true,
+    "validity": {
+     "pipeline_copy_equals_O4_r2": true,
+     "passes_are_O4_r2": true,
+     "stage_gate_all_edited_or_no_change": true,
+     "no_host_inline_receipt": true,
+     "spec_passes_absent": true,
+     "firmware_inline_exhaustive_profile": true,
+     "isb_boundary_true": true,
+     "member_slot_skip_enabled": true,
+     "build_within_8GiB_60min": true
+    },
+    "build": {
+     "rc": 0,
+     "wall_s": 40.8,
+     "time_v_peak_rss_kib": 759508,
+     "watchdog_peak_tree_rss_kib": 1154096
+    },
+    "effective_configuration": {
+     "chain-returns": "edited",
+     "chain-static": "edited",
+     "firmware-inline": "edited"
+    },
+    "firmware_inline": {
+     "embedded": 27.0,
+     "discovered": 202.0,
+     "nested_inlined_calls": 43.0,
+     "profit_net_ns": 11308093.302,
+     "refused": {
+      "not_profitable": 175.0,
+      "unpatchable_native_exit": 10.0
+     },
+     "isb_boundary_exits": 2,
+     "isb_boundary_regions": 2,
+     "members_total": 1228
+    },
+    "roots_vs_o4_pwhopr": {
+     "added": [],
+     "dropped": [],
+     "members_changed": [],
+     "common": 27
+    },
+    "launch": "/data/scfix-o4/uart-w/arms/o4r2/launch.json",
+    "validity_file": "/data/scfix-o4/p5/uart-o4r2-validity.json"
+   },
+   "cli": {
+    "sha256": "a4f6af65718360b35a2341fc4c95bcf68efb6263c9b62c89b09ad258b2d75ea2",
+    "cache": "/data/scfix-o4/cli-w/opt/o4r2/store/artifacts/c7431606b5abdacac1c2856f4ee17999ae927ca1b9382e0dea7654e973748e06/cache.sc",
+    "same_bytes_as": null,
+    "same_bytes_checked_against": [
+     "o4",
+     "o4_isb",
+     "o4_nohi",
+     "o4_nospec",
+     "o4_pwhopr"
+    ],
+    "g0": true,
+    "validity_ok": true,
+    "validity": {
+     "pipeline_copy_equals_O4_r2": true,
+     "passes_are_O4_r2": true,
+     "stage_gate_all_edited_or_no_change": true,
+     "no_host_inline_receipt": true,
+     "spec_passes_absent": true,
+     "firmware_inline_exhaustive_profile": true,
+     "isb_boundary_true": true,
+     "member_slot_skip_enabled": true,
+     "build_within_8GiB_60min": true
+    },
+    "build": {
+     "rc": 0,
+     "wall_s": 51.5,
+     "time_v_peak_rss_kib": 1039764,
+     "watchdog_peak_tree_rss_kib": 864096
+    },
+    "effective_configuration": {
+     "chain-returns": "edited",
+     "chain-static": "edited",
+     "firmware-inline": "edited"
+    },
+    "firmware_inline": {
+     "embedded": 14.0,
+     "discovered": 208.0,
+     "nested_inlined_calls": 32.0,
+     "profit_net_ns": 1599068.75,
+     "refused": {
+      "not_profitable": 194.0,
+      "unpatchable_native_exit": 14.0
+     },
+     "isb_boundary_exits": 0,
+     "isb_boundary_regions": 0,
+     "members_total": 1470
+    },
+    "roots_vs_o4_pwhopr": {
+     "added": [],
+     "dropped": [],
+     "members_changed": [],
+     "common": 14
+    },
+    "launch": "/data/scfix-o4/cli-w/arms/o4r2/launch.json",
+    "validity_file": "/data/scfix-o4/p5/cli-o4r2-validity.json"
+   }
+  }
+ },
+ "accepted": [
+  {
+   "arm": "o4_nohi",
+   "item": "X1",
+   "in_o4r2": true,
+   "note": "REMOVE rule passed; the only accepted member of the host-inline group (A4 excluded in the screen, A6 by Holm and LB_w)"
+  },
+  {
+   "arm": "o4_nocp",
+   "item": "X2",
+   "in_o4r2": false,
+   "note": "REMOVE rule passed (it also passes ADD unadjusted, LB +0.02%), but X4 removes the whole SPEC bundle, constant-propagation included"
+  },
+  {
+   "arm": "o4_nospec",
+   "item": "X4",
+   "in_o4r2": true,
+   "note": "REMOVE rule passed"
+  },
+  {
+   "arm": "o4_isb",
+   "item": "I1",
+   "in_o4r2": true,
+   "note": "FIDELITY rule passed (UB >= 0, LB > log 0.99, LB_w > log 0.98 on packet and uart; cli same bytes)"
+  }
+ ],
+ "rejected": [
+  {
+   "arm": "o4_chained",
+   "item": "A1",
+   "verdict": "excluded",
+   "reason": "ADD: Holm rank 5 of 6, pooled p 0.590 > 0.025; packet +1.82% but uart -0.99% (slower_than_o4 unadjusted). A hot-loop knob, moot under A5"
+  },
+  {
+   "arm": "o4_rank",
+   "item": "A3",
+   "verdict": "excluded",
+   "reason": "ADD: Holm rank 1 of 6, pooled (packet-only) p 0.00883 > 0.05/6 = 0.00833, so the step-down stops and no add-on is accepted; B2's 'rejected candidate with the highest pooled d'"
+  },
+  {
+   "arm": "o4_hotgraph",
+   "item": "A4",
+   "verdict": "excluded",
+   "reason": "screen: measured slower (UB99_packet < 0; pooled d -3.63%)"
+  },
+  {
+   "arm": "o4_min2",
+   "item": "A7",
+   "verdict": "excluded",
+   "reason": "ADD: Holm rank 4 of 6, pooled p 0.383 > 0.0167 (the screen's +1.31% did not replicate in A2: +0.10%). A hot-loop knob, moot under A5"
+  },
+  {
+   "arm": "o4_legacy",
+   "item": "A8",
+   "verdict": "excluded",
+   "reason": "ADD: Holm rank 3 of 6, pooled (packet-only) p 0.260 > 0.0125"
+  },
+  {
+   "arm": "o4_noregions",
+   "item": "X3",
+   "verdict": "rejected",
+   "reason": "REMOVE: cli d -1.65%, LB95_cli -2.50% < log 0.98 (noninferior_every_w fails); the regions stay. Also superseded by A5, which is shown faster than O4 (decide.py group rule)"
+  },
+  {
+   "arm": "fl3b3",
+   "item": "C1",
+   "verdict": "not faster than O4",
+   "reason": "BEST not shown in A (pooled +0.75%) or A2 (pooled +0.20%; packet +2.03%, p 0.00216 > Holm 0.001613)"
+  },
+  {
+   "arm": "fl3b3p",
+   "item": "C1p",
+   "verdict": "not faster than O4",
+   "reason": "screen: pooled d -0.70% <= 0, the screen row is its best-check; BEST not shown on any scope"
+  },
+  {
+   "arm": "b3l",
+   "item": "C2",
+   "verdict": "not faster than O4",
+   "reason": "screen: pooled d -2.32% <= 0, slower_than_o4 (pooled, packet, cli); Pettis-Hansen fallback, no LLVM bridge"
+  },
+  {
+   "arm": "o4_hostall",
+   "item": "A6",
+   "verdict": "excluded",
+   "reason": "ADD: Holm rank 6 of 6 (pooled p 1.0); LB_w fails on packet and uart; measured slower (pooled d -4.51%)"
+  },
+  {
+   "arm": "o4_tasks",
+   "item": "A2a",
+   "verdict": "excluded",
+   "reason": "ADD: Holm rank 2 of 6, pooled (packet-only) p 0.102 > 0.01. A hot-loop mode variant, moot under A5"
+  },
+  {
+   "arm": "w7bd_b3",
+   "item": "w7bd_b3",
+   "verdict": "not faster than O4",
+   "reason": "BEST in H: slower_than_o4 on packet (-3.14%), uart (-10.27%) and pooled (-3.57%); cli +0.50% not shown"
+  },
+  {
+   "arm": "s6",
+   "item": "s6",
+   "verdict": "not faster than O4",
+   "reason": "A: slower_than_o4 on every scope (pooled -16.67%)"
+  },
+  {
+   "arm": "s6b3",
+   "item": "s6b3",
+   "verdict": "not faster than O4",
+   "reason": "A: not shown (pooled -0.80%); cli slower_than_o4; uart and cli have o4_noregions' bytes"
+  },
+  {
+   "arm": "p7",
+   "item": "p7",
+   "verdict": "not faster than O4",
+   "reason": "A: slower_than_o4 on every scope (pooled -4.58%)"
+  },
+  {
+   "arm": "fl3",
+   "item": "fl3",
+   "verdict": "not faster than O4",
+   "reason": "A: slower_than_o4 on every scope (pooled -14.70%)"
+  }
+ ],
+ "absorbed_from_best": [
+  "o4_pwhopr"
+ ]
+}

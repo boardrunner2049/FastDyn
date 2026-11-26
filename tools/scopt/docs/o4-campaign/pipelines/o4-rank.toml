@@ -1,0 +1,47 @@
+# Experiment arm (not shipped): O4-r1 plus exactly the change named here.  See O4-design.md 1.8.
+# A3: chain-static rank_by_net_work = true with c_target_check = 0.0, so only the order changes.
+schema = "scopt.pipeline"
+version = 1
+name = "o4-rank"
+description = "O4-r1 + net-work ranked chain-static, no target-check charge (A3)"
+allowed_capabilities = ["INLINE_CALL", "EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, trusted_rank_by = "frequency", trusted_selected_root = true, hot_loop_only = true, min_site_calls = 1000 }
+
+[[pass]]
+name = "specialize-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2, rank_by_net_work = true, c_target_check = 0.0 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "hot-loop", phase = "steady", min_call_count = 1000, trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4, member_slot_skip = "on" }

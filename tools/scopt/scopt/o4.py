@@ -138,8 +138,9 @@ FIRMWARE_MODES: Mapping[str, Decision] = MappingProxyType({
         "measured_best", f"{_IN}: priced (cost_model profile) exhaustive selection expands every "
         "call of a region recursively (expand_nested); A5 o4_pwhopr against O4-r1 (H) pooled "
         "+0.93% [+0.44%, +1.42%]; O4-r3 (o4r3c) against O4-r1 (R3) pooled +1.06% (LB +0.61%), "
-        "packet +0.76%, uart +0.43%, cli +1.74%. Unpriced it regressed: s6/w7 0.8513 / 0.6921 / "
-        "0.9109", arm="o4_pwhopr", marginal="PROVEN_GAIN"),
+        "packet +0.76%, uart +0.43%, cli +1.74%. The unpriced w7 arms were slower (s6/w7 0.8513 / "
+        "0.6921 / 0.9109) but also copied unbounded helper graphs", arm="o4_pwhopr",
+        marginal="PROVEN_GAIN"),
     "hot-loop": _exc(
         "superseded", f"{_OUT}: O4-r1's mode (p7 against s6 R2 1.1259 / 1.1094 / 1.1690); "
         "superseded by priced exhaustive selection in O4-r3 (R3 +1.06% pooled; F: O4-r1 -1.01% "
@@ -178,8 +179,9 @@ def _knobs():
                              "recursively (expand_nested=True, depth 5 / 5 / 5; 7,052 / 1,228 / "
                              "1,470 members in A5's regions)")
     k[(fw, "cost_model")] = _inc("measured_best", f"{_IN}: 'profile' prices each recursive "
-                                 "closure from the sealed steady profile (A5; unpriced "
-                                 "exhaustive regressed, s6/w7 0.85 / 0.69 / 0.91)",
+                                 "closure from the sealed steady profile (A5 against O4-r1, "
+                                 "H pooled +0.93%; the unpriced w7 arms, which also copied "
+                                 "unbounded helper graphs, were slower: s6/w7 0.85 / 0.69 / 0.91)",
                                  params={"cost_model": "profile"}, arm="o4_pwhopr")
     k[(fw, "min_call_count")] = _exc(
         "superseded", f"{_CAND}: O4-r1's hot-loop gate (1000); priced exhaustive selection "
@@ -194,7 +196,8 @@ def _knobs():
         "packet (B1 -1.21%), so the rule stays off", arm="o4_isb")
     k[(fw, "planner")] = _inc(
         "reference", f"{_CAND}: 'whopr' as c7b3; its partition order is the pricing order and "
-        "changes admission (legacy: packet +2 roots, cli 1 swapped)",
+        "changes admission (legacy on O4-r1: packet roots differ, +0x82066 / -0x828da; uart and "
+        "cli O4-r1's bytes)",
         params={"planner": "whopr"}, arm="o4_legacy")
     k[(fw, "partitions")] = _inc("reference", f"{_CAND}: 4 as c7b3 (WHOPR planner)",
                                  params={"partitions": 4}, arm="o4_legacy")
@@ -223,7 +226,8 @@ def _knobs():
             "reverse_general_pair max_total_growth_bytes", _inc("default", f"{_IN}: {_B3_DEFAULT}"))
         k[(cp, "max_units")] = _inc(
             "default", f"{_IN}: the 256-unit cap binds only on packet chain-static (27 exits "
-            "refused slot_budget); raising it is a code change (B2)")
+            "refused slot_budget under O4-r1, 16 under O4-r3's ranking); listing chain-static "
+            "twice would lift it without code, not yet measured (docs/o4-recursive.md)")
     k[("chain-returns", "min_return_share")] = _inc("default", f"{_IN}: {_B3_DEFAULT}")
     for name, value in (("rank_by_net_work", True), ("c_target_check", 0.0)):
         k[("chain-static", name)] = _inc(

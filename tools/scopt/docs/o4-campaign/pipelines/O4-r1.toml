@@ -1,0 +1,62 @@
+# scopt O4, revision 1 (docs/O4.md; per-item decisions in scopt/o4.py).
+#
+# The rule (the user's words): "we should have one config that include all of our
+# good things let's call it O4 ... O4 remains the best ... Whatever the best speed
+# optimizations are there MUST BE included in O4".
+#
+# Revision 1 is sealed-pgo-7-b3, the measured best on the FirmBOLT -O4 packet, UART
+# and CLI captures (/data/scfix-r2/TIMING.md), with two differences that do not
+# change the published cache bytes: the three default-disabled B3 passes are opted
+# in here (enabled = true), and member_slot_skip = "on" turns the silent
+# shared-descriptor fallback into an optimize-time refusal.  It needs a trusted
+# sealed capture of an icount-off run, its sealed steady profile (--profile), the
+# sealed compiled launch (--pgo-launch), --prep, --elf, --runtime-identity and the
+# three runtime allowlists (--v6-exe, --v7-trusted-exe, --v7-member-skip-exe) naming
+# a QEMU with counters revision 4 (aacca05 or later).
+#
+# Frozen: a new decision adds O4-r2.toml; O4.toml always equals the newest revision.
+schema = "scopt.pipeline"
+version = 1
+name = "O4-r1"
+description = "scopt O4 revision 1: every measured scopt speed optimization for trusted sealed v7 captures (sealed-pgo-7-b3, B3 opted in, member skip required)."
+allowed_capabilities = ["INLINE_CALL", "EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, trusted_rank_by = "frequency", trusted_selected_root = true, hot_loop_only = true, min_site_calls = 1000 }
+
+[[pass]]
+name = "specialize-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "hot-loop", phase = "steady", min_call_count = 1000, trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4, member_slot_skip = "on" }

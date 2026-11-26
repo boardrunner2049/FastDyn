@@ -1,0 +1,48 @@
+# scopt O4: the moving alias of the newest frozen revision, now O4-r1.toml.
+# tests/unit/test_o4_manifest.py asserts that its passes and capabilities equal
+# that revision's.  See docs/O4.md and scopt/o4.py.
+schema = "scopt.pipeline"
+version = 1
+name = "O4"
+description = "scopt O4 (currently revision 1, O4-r1): every measured scopt speed optimization for trusted sealed v7 captures."
+allowed_capabilities = ["INLINE_CALL", "EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, trusted_rank_by = "frequency", trusted_selected_root = true, hot_loop_only = true, min_site_calls = 1000 }
+
+[[pass]]
+name = "specialize-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "hot-loop", phase = "steady", min_call_count = 1000, trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4, member_slot_skip = "on" }

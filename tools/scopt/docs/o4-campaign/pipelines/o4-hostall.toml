@@ -1,0 +1,47 @@
+# Experiment arm (not shipped): O4-r1 plus exactly the change named here.  See O4-design.md 1.8.
+# A6 (campaign H): w7bd's host-inline (bounded at 32768 B) on top of O4-r1.
+schema = "scopt.pipeline"
+version = 1
+name = "o4-hostall"
+description = "O4-r1 + bounded unrestricted host-inline (A6, heavy)"
+allowed_capabilities = ["INLINE_CALL", "EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, allow_partial = true, trusted_max_source_graph_bytes = 32768 }
+
+[[pass]]
+name = "specialize-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "hot-loop", phase = "steady", min_call_count = 1000, trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4, member_slot_skip = "on" }

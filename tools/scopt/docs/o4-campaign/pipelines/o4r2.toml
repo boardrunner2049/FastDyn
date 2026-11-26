@@ -1,0 +1,28 @@
+# Experiment arm o4r2 (not shipped): the build copy of O4-r2.toml (P5, O4-design 3.8).
+# Same [[pass]] entries and allowed_capabilities as O4-r2.toml; only the name, the
+# description and this header differ.  scopt optimize refuses a pipeline named O4-r2
+# that is not packaged in fd-int (the O4 preflight), and O4-r2 is packaged only after
+# campaign B passes.  The pipeline name does not reach cache.sc (O4-r1 via -O4 equals
+# c7b3 byte for byte).  Written by /data/scfix-o4/p5/make_arm_copy.py.
+schema = "scopt.pipeline"
+version = 1
+name = "o4r2"
+description = "arm o4r2: the build copy of O4-r2.toml (same passes and capabilities)"
+allowed_capabilities = ["EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "exhaustive", cost_model = "profile", phase = "steady", isb_boundary = true, trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4, member_slot_skip = "on" }

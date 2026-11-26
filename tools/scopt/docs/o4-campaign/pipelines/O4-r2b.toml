@@ -1,0 +1,50 @@
+# scopt O4, revision 2b (docs/O4.md; per-item decisions in scopt/o4.py).
+#
+# The rule (the user's words): "we should have one config that include all of our
+# good things let's call it O4 ... O4 remains the best ... Whatever the best speed
+# optimizations are there MUST BE included in O4".
+#
+# Revision 2b is the campaign-B retry of O4-r2 (O4-design.md 3.8): O4-r2 failed its
+# confirmation B1 against O4-r1 (ADD-confirm: pooled d +0.49%, LB95 -0.05% <= 0;
+# packet d -1.21%, LB95 -2.87% < log 0.98; /data/scfix-o4/B1.json), so its one
+# add-on, A5 (priced exhaustive firmware regions), is dropped and firmware-inline
+# returns to O4-r1's hot-loop selection.  What remains is O4-r1 with:
+#
+#   I1 included (rule FIDELITY): isb_boundary = true.  o4_isb: pooled d +0.19%
+#      [-0.36%, +0.75%]; cli has O4-r1's bytes.
+#   X1 accepted (rule REMOVE): host-inline removed, with INLINE_CALL; no --pgo-launch.
+#      o4_nohi: pooled d +0.24% [-0.30%, +0.77%].
+#   X4 accepted (rule REMOVE): specialize-returns, constant-propagation,
+#      branch-folding and dead-host-ops removed.  o4_nospec: pooled d +0.32%
+#      [-0.24%, +0.88%]; packet has O4-r1's bytes.
+#
+# The firmware-inline entry is exactly o4-isb.toml's.  B1 is repeated once for this
+# revision (REMOVE rule, no add-on left); if it fails, O4 stays at r1.  O4.toml and
+# -O4 move only if B1 and B2 pass.
+#
+# It needs a trusted sealed capture of an icount-off run, its sealed steady profile
+# (--profile), --prep, --elf, --runtime-identity and the three runtime allowlists
+# (--v6-exe, --v7-trusted-exe, --v7-member-skip-exe) naming a QEMU with counters
+# revision 4 (aacca05 or later).  --pgo-launch is not needed.
+schema = "scopt.pipeline"
+version = 1
+name = "O4-r2b"
+description = "scopt O4 revision 2b: O4-r1 with the ISB side-exit rule, and host-inline and the SPEC bundle removed (O4-r2 without A5); B3 chaining, hot-loop firmware regions and member skip kept."
+allowed_capabilities = ["EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "hot-loop", phase = "steady", min_call_count = 1000, isb_boundary = true, trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4, member_slot_skip = "on" }

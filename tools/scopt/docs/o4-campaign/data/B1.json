@@ -1,0 +1,364 @@
+{
+ "b1": {
+  "o4r2": {
+   "checks": {
+    "noninferior_every_w": false,
+    "pooled_lb_gt_0": false
+   },
+   "g0": true,
+   "missing": [],
+   "next": "drop o4_pwhopr (smallest A2 pooled d) and repeat B1 once",
+   "passed": false,
+   "pooled": {
+    "d": 0.004857807290324328,
+    "df": 114.99330533242835,
+    "lb95": -0.00045168501132646,
+    "p": 0.06598703297528025,
+    "se": 0.0032019369872590773,
+    "t95": 1.6582126140451692,
+    "t99": 2.3592134904220075,
+    "ub95": 0.010167299591975116,
+    "ub99": 0.012411860226147143
+   },
+   "reference_bias": {},
+   "retry": false,
+   "rule": "ADD-confirm",
+   "same_bytes": [],
+   "workloads": {
+    "cli": {
+     "d": 0.013420325781645204,
+     "df": 39,
+     "lb95": 0.0058071679621895704,
+     "n_blocks": 40,
+     "p": 0.0025369670718217866,
+     "se": 0.00451852942770105,
+     "t95": 1.6848751217116842,
+     "t99": 2.4258414097357672,
+     "ub95": 0.021033483601100838,
+     "ub99": 0.02438156157847207
+    },
+    "packet": {
+     "d": -0.01212788969810763,
+     "df": 39,
+     "lb95": -0.02868005775627783,
+     "n_blocks": 40,
+     "p": 0.8878019282885767,
+     "se": 0.009823973210165666,
+     "t95": 1.6848751217116842,
+     "t99": 2.4258414097357672,
+     "ub95": 0.00442427836006257,
+     "ub99": 0.01170351132324706
+    },
+    "uart": {
+     "d": -0.001513753678795915,
+     "df": 79,
+     "lb95": -0.010029638431368396,
+     "n_blocks": 80,
+     "p": 0.6159406117199695,
+     "se": 0.005116577168908881,
+     "t95": 1.6643714091364927,
+     "t99": 2.374481596937585,
+     "ub95": 0.007002131073776566,
+     "ub99": 0.010635464648089234
+    }
+   }
+  }
+ },
+ "best": {
+  "B1": {
+   "absorb": [],
+   "alpha": 0.05,
+   "family_size": 4,
+   "faster_than_o4": [
+    "o4r2"
+   ],
+   "holds": false,
+   "rows": [
+    {
+     "alias_of": null,
+     "arm": "o4r2",
+     "campaign": "B1",
+     "candidate": null,
+     "d": -0.01212788969810763,
+     "df": 39,
+     "holm_family_size": 4,
+     "holm_rank": 4,
+     "holm_threshold": 0.05,
+     "item": "O4-r2",
+     "lb95": -0.02868005775627783,
+     "n_blocks": 40,
+     "p": 0.8878019282885767,
+     "reference_bias": null,
+     "role": "composition",
+     "scope": "packet",
+     "se": 0.009823973210165666,
+     "t95": 1.6848751217116842,
+     "t99": 2.4258414097357672,
+     "ub95": 0.00442427836006257,
+     "ub99": 0.01170351132324706,
+     "verdict": "not_shown"
+    },
+    {
+     "alias_of": null,
+     "arm": "o4r2",
+     "campaign": "B1",
+     "candidate": null,
+     "d": -0.001513753678795915,
+     "df": 79,
+     "holm_family_size": 4,
+     "holm_rank": 3,
+     "holm_threshold": 0.025,
+     "item": "O4-r2",
+     "lb95": -0.010029638431368396,
+     "n_blocks": 80,
+     "p": 0.6159406117199695,
+     "reference_bias": null,
+     "role": "composition",
+     "scope": "uart",
+     "se": 0.005116577168908881,
+     "t95": 1.6643714091364927,
+     "t99": 2.374481596937585,
+     "ub95": 0.007002131073776566,
+     "ub99": 0.010635464648089234,
+     "verdict": "not_shown"
+    },
+    {
+     "alias_of": null,
+     "arm": "o4r2",
+     "campaign": "B1",
+     "candidate": null,
+     "d": 0.013420325781645204,
+     "df": 39,
+     "holm_family_size": 4,
+     "holm_rank": 1,
+     "holm_threshold": 0.0125,
+     "item": "O4-r2",
+     "lb95": 0.0058071679621895704,
+     "n_blocks": 40,
+     "p": 0.0025369670718217866,
+     "reference_bias": null,
+     "role": "composition",
+     "scope": "cli",
+     "se": 0.00451852942770105,
+     "t95": 1.6848751217116842,
+     "t99": 2.4258414097357672,
+     "ub95": 0.021033483601100838,
+     "ub99": 0.02438156157847207,
+     "verdict": "faster_than_o4"
+    },
+    {
+     "alias_of": null,
+     "arm": "o4r2",
+     "campaign": "B1",
+     "candidate": null,
+     "d": 0.004857807290324328,
+     "df": 114.99330533242835,
+     "holm_family_size": 4,
+     "holm_rank": 2,
+     "holm_threshold": 0.016666666666666666,
+     "item": "O4-r2",
+     "lb95": -0.00045168501132646,
+     "p": 0.06598703297528025,
+     "reference_bias": null,
+     "role": "composition",
+     "scope": "pooled",
+     "se": 0.0032019369872590773,
+     "t95": 1.6582126140451692,
+     "t99": 2.3592134904220075,
+     "ub95": 0.010167299591975116,
+     "ub99": 0.012411860226147143,
+     "verdict": "not_shown"
+    }
+   ]
+  }
+ },
+ "constants": {
+  "a2_seed": 20261130,
+  "alpha": 0.05,
+  "bound_quantiles": {
+   "lb95_ub95": 0.95,
+   "ub99": 0.99
+  },
+  "group_tie": 0.003,
+  "log_0_98": -0.020202707317519466,
+  "log_0_99": -0.01005033585350145,
+  "reference_distribution": "student_t: df_w = n_w - 1 per workload (n_w timed blocks, burn-in excluded); pooled df by Welch-Satterthwaite",
+  "rounds": 20000,
+  "se_floor": 1e-09,
+  "valid_quantiles": [
+   0.005,
+   0.995
+  ]
+ },
+ "decide_sha256": "0b7247476a39abade599000de4e2555c7edb1167b57d0989f4bac54cbaf1a438",
+ "estimates": {
+  "B1": {
+   "-": {
+    "o4r2": {
+     "alias_of": {},
+     "item": "O4-r2",
+     "missing": [],
+     "pooled": {
+      "d": 0.004857807290324328,
+      "df": 114.99330533242835,
+      "lb95": -0.00045168501132646,
+      "p": 0.06598703297528025,
+      "se": 0.0032019369872590773,
+      "t95": 1.6582126140451692,
+      "t99": 2.3592134904220075,
+      "ub95": 0.010167299591975116,
+      "ub99": 0.012411860226147143
+     },
+     "pooled_alias_of": null,
+     "reference_bias": {},
+     "role": "composition",
+     "same_bytes": [],
+     "workloads": {
+      "cli": {
+       "d": 0.013420325781645204,
+       "df": 39,
+       "lb95": 0.0058071679621895704,
+       "n_blocks": 40,
+       "p": 0.0025369670718217866,
+       "se": 0.00451852942770105,
+       "t95": 1.6848751217116842,
+       "t99": 2.4258414097357672,
+       "ub95": 0.021033483601100838,
+       "ub99": 0.02438156157847207
+      },
+      "packet": {
+       "d": -0.01212788969810763,
+       "df": 39,
+       "lb95": -0.02868005775627783,
+       "n_blocks": 40,
+       "p": 0.8878019282885767,
+       "se": 0.009823973210165666,
+       "t95": 1.6848751217116842,
+       "t99": 2.4258414097357672,
+       "ub95": 0.00442427836006257,
+       "ub99": 0.01170351132324706
+      },
+      "uart": {
+       "d": -0.001513753678795915,
+       "df": 79,
+       "lb95": -0.010029638431368396,
+       "n_blocks": 80,
+       "p": 0.6159406117199695,
+       "se": 0.005116577168908881,
+       "t95": 1.6643714091364927,
+       "t99": 2.374481596937585,
+       "ub95": 0.007002131073776566,
+       "ub99": 0.010635464648089234
+      }
+     }
+    }
+   }
+  }
+ },
+ "gates": {
+  "path": "gates/all.json",
+  "sha256": "6730c27494adfb22e4e9f432fcb43e157a2b7016e834b66f33d8e0a0b72bdb3d"
+ },
+ "inputs": [
+  {
+   "aa": "o4-aa",
+   "attempt": 1,
+   "blocks_used": 40,
+   "burn_in_blocks": 1,
+   "campaign": "B1",
+   "candidate": null,
+   "candidates": null,
+   "chosen": true,
+   "dir": "/data/scfix-o4/packet/timing-B1",
+   "observations_sha256": "56d779de4dc71f7a72fa699763a99e591f74b094efcdd987e367e0de9db93e8c",
+   "plan_sha256": "d581a5c99bb107badac8f2e409e9cdec570e61cb9a98703bb9445199c57adf82",
+   "reference": "o4",
+   "seed": 20261127,
+   "workload": "packet"
+  },
+  {
+   "aa": "o4-aa",
+   "attempt": 1,
+   "blocks_used": 80,
+   "burn_in_blocks": 1,
+   "campaign": "B1",
+   "candidate": null,
+   "candidates": null,
+   "chosen": true,
+   "dir": "/data/scfix-o4/uart/timing-B1",
+   "observations_sha256": "8f715d6f404bf5623ce0b115fa4b7937cc1a126e4c5cf9b67175f1c0725c3031",
+   "plan_sha256": "13091dccc15e6398139b2caba54cb1b6f4c13704f4c4a2c9bd93c4ce5ad3a9bf",
+   "reference": "o4",
+   "seed": 20261127,
+   "workload": "uart"
+  },
+  {
+   "aa": "o4-aa",
+   "attempt": 1,
+   "blocks_used": 40,
+   "burn_in_blocks": 1,
+   "campaign": "B1",
+   "candidate": null,
+   "candidates": null,
+   "chosen": true,
+   "dir": "/data/scfix-o4/cli/timing-B1",
+   "observations_sha256": "d7ad75ada2fefabe142ff19e8ef78962a9353d1495a330b9a19c7342ae005b77",
+   "plan_sha256": "4acb4f9c8b2322ba0c985ec5b8951ca17ad7716cda00ae35616f88555e84ad50",
+   "reference": "o4",
+   "seed": 20261127,
+   "workload": "cli"
+  }
+ ],
+ "registered": true,
+ "rerun_required": [],
+ "schema": "scfix-o4.decide/2",
+ "screen_input": null,
+ "valid": [
+  {
+   "a_w": 0.007901448533901956,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "B1",
+   "candidate": null,
+   "ci99": [
+    -0.014693802152558888,
+    0.03064349861026372
+   ],
+   "dir": "packet/timing-B1",
+   "n_blocks": 40,
+   "se": 0.008713515162228243,
+   "workload": "packet"
+  },
+  {
+   "a_w": 0.009149377264177971,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "B1",
+   "candidate": null,
+   "ci99": [
+    -0.003342888308893066,
+    0.021693602234581277
+   ],
+   "dir": "uart/timing-B1",
+   "n_blocks": 80,
+   "se": 0.005057250934709212,
+   "workload": "uart"
+  },
+  {
+   "a_w": -0.0025413274502801286,
+   "attempt": 1,
+   "biased": false,
+   "campaign": "B1",
+   "candidate": null,
+   "ci99": [
+    -0.01608634494232586,
+    0.012072545282990177
+   ],
+   "dir": "cli/timing-B1",
+   "n_blocks": 40,
+   "se": 0.005298181780444114,
+   "workload": "cli"
+  }
+ ],
+ "warnings": []
+}

@@ -1,0 +1,85 @@
+# scopt O4 round-3 variant o4r3a (experiment arm, not shipped; O4-design 3.8, round R3).
+#
+# The rule (the user's words): "we should have one config that include all of our
+# good things let's call it O4 ... O4 remains the best ... Whatever the best speed
+# optimizations are there MUST BE included in O4".
+#
+# o4r3a is O4-r1 (O4-r1.toml, = c7b3's bytes) with exactly the measured changes below,
+# each the exact delta of its measured arm file against O4-r1.toml (checked with
+# tomllib by /data/scfix-o4/r3/make_r3.py; the pass blocks are copied verbatim).
+# d is decide.py's Hodges-Lehmann block log-ratio against the pooled o4/o4-aa
+# reference, positive = faster than O4-r1; bounds are one-sided 95% (Student t).
+#
+#   A5 (o4-pwhopr.toml, arm o4_pwhopr): firmware-inline selects regions by priced
+#      exhaustive selection: mode = "exhaustive", cost_model = "profile" (no
+#      min_call_count), all other firmware-inline params as O4-r1.  Campaign H vs
+#      O4-r1 (/data/scfix-o4/H.json): pooled d +0.93% [one-sided 95% +0.44%, +1.42%],
+#      p 0.0011; packet -0.11%, uart +0.47%, cli +1.97% (LB +1.14%).  Against O4-r2b:
+#      H2 pooled +1.01% [+0.51%, +1.52%]; B2 pooled +1.56% [+0.62%, +2.50%], packet
+#      +2.06% (H2.json, B2.json).
+#
+# Not in o4r3a: X1, X4, A3 and I1.
+# Why round R3: O4-r1 (= c7b3) is not the fastest measured configuration: o4_pwhopr (A5) was
+# measured faster than it (H) and than O4-r2b (H2, B2).  O4-r2 (A5 + I1 + X1 + X4) failed its
+# B1 confirmation on packet (d -1.21%, LB95 -2.87% < log 0.98; cli +1.34%; pooled +0.49%
+# [-0.05%, +1.02%]), and which of I1 / X1 / X4 (if any) costs with A5 is unknown; O4-r2b
+# (I1 + X1 + X4, no A5) passed B1 but H2 found o4_pwhopr faster than it, so it was not
+# adopted.  R3 times o4r3a-o4r3d together against O4-r1 under the pre-registered rule in
+# /data/scfix-o4/driver/PREREG-R3.md (decide_r3.py).  I1 (isb_boundary, FIDELITY: o4_isb
+# pooled +0.19% [-0.36%, +0.75%]) is in no R3 variant: R3 combines A5 with the speed items
+# only; O4-r2, which carried I1, lost on packet.
+#
+# It needs a trusted sealed capture of an icount-off run, its sealed steady profile
+# (--profile), the sealed compiled launch (--pgo-launch, for host-inline's helper PGO),
+# --prep, --elf, --runtime-identity and the three runtime allowlists (--v6-exe,
+# --v7-trusted-exe, --v7-member-skip-exe) naming a QEMU with counters revision 4 (aacca05
+# or later).
+#
+# Timed in R3 as arm 'o4_pwhopr'.  The name avoids scopt's O4 preflight pattern
+# ^O4(-r\d+)?$; the pipeline name does not reach cache.sc (O4-r1 via -O4 equals c7b3
+# byte for byte).
+schema = "scopt.pipeline"
+version = 1
+name = "o4r3a"
+description = "R3 variant o4r3a: O4-r1 + A5 (priced exhaustive firmware regions); the passes of o4-pwhopr.toml"
+allowed_capabilities = ["INLINE_CALL", "EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, trusted_rank_by = "frequency", trusted_selected_root = true, hot_loop_only = true, min_site_calls = 1000 }
+
+[[pass]]
+name = "specialize-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "exhaustive", cost_model = "profile", phase = "steady", trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4, member_slot_skip = "on" }
