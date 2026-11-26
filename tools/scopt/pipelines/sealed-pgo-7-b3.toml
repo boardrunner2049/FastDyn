@@ -18,6 +18,7 @@
 #       --enable specialize-returns --enable chain-returns --enable chain-static ...
 # SFB does not apply to sealed captures (no icount entry).  sealed-pgo-7 itself
 # stays unchanged so archived provenance remains reproducible.
+# scopt O4 (O4-r1.toml, docs/O4.md) = this pipeline + enabled = true on those three + member_slot_skip = "on".
 schema = "scopt.pipeline"
 version = 1
 name = "sealed-pgo-7-b3"
