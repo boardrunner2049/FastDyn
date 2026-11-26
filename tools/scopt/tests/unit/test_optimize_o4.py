@@ -393,3 +393,35 @@ def test_o4_cli_exits_2_and_publishes_nothing_when_a_stage_degrades(monkeypatch,
     rows = {r["pass"]: r["status"] for r in doc["effective_configuration"]}
     assert rows["chain-static"] == INCOMPLETE and rows["host-inline"] == NO_CHANGE
     assert doc["o4"]["required_stages"] == O4_STAGES
+
+
+def test_o4_cli_gates_the_native_prefix_and_publishes_an_all_good_build(monkeypatch, tmp_path):
+    """host-inline runs as the native prefix, outside the B3 records: the gate must see
+    its receipt, or every real -O4 build is rejected as "host-inline: not_run"."""
+    import scopt.analysis.b3_inputs as BI
+    import scopt.manager_b3 as MB
+
+    o4 = _Env(tmp_path, monkeypatch, real_b3=True)
+    monkeypatch.setattr(BI, "resolve_for_snapshot", lambda *a, **k: None)
+    records = [_record(i, *r) for i, r in enumerate(_C7B3_ROUND2["uart"][1:])]
+    seen = []
+
+    def optimize_b3(snap, pl, store, *, required_stages=None, prior_stages=(), **kw):
+        seen.append({"required_stages": required_stages, "prior_stages": list(prior_stages)})
+        assert required_stage_problems([*prior_stages, *(p.to_json() for p in records)],
+                                       required_stages) == []
+        pk = SimpleNamespace(status="published", reason=None, artifact_id="sha256:" + "8" * 64,
+                             artifact_dir=str(tmp_path / "store" / "artifacts" / "a"),
+                             publish_status="new", rejection_path=None, validation=None)
+        return {"candidate": SimpleNamespace(passes=records), "package": pk,
+                "materialized": None, "path": "b3", "outcome": "published"}
+
+    monkeypatch.setattr(MB, "optimize_b3", optimize_b3)
+    result = o4.invoke("-O4")
+    assert result.exit_code == 0, result.output
+    kw, = seen
+    assert [r["pass"] for r in kw["prior_stages"]] == ["host-inline"]
+    assert kw["required_stages"] == O4_STAGES
+    doc = json.loads(result.output)
+    assert [r["pass"] for r in doc["effective_configuration"]] == O4_STAGES
+    assert {r["status"] for r in doc["effective_configuration"]} <= {EDITED, NO_CHANGE}
