@@ -285,9 +285,9 @@ name (0x822fc, 0x82fc4) do. The virtual names the executed copy only when the
 launch config does; the uart and cli configs had it remapped by hand.
 `tools/trebuchet/lib/gen_toml.py` derives `benchmark_start` from the symbol, so on
 a fresh `-O4` image both sources name the dead body and auto cannot find the copy;
-see the `--skip-funcs` build option below. On packet `-O4` keeps
-`vComputeWindowStart` out of line and executed, so both sources name 0x833e8
-(`not_chosen: same_address`). In the 2026-11-25 round-2 campaign auto picked
+see the `--skip-funcs` build option below. On packet `-O4` leaves
+`vComputeWindowStart` in place (0x833e8) and executed, so both sources name that
+address (`not_chosen: same_address`). In the 2026-11-25 round-2 campaign auto picked
 `launch_virtual:benchmark_start` on all three images and trained `sealed-pgo-7` on the
 same phase as round 1, whose UART and CLI builds had named the marker explicitly (its
 auto builds there fell back to the whole run and were byte-identical to them), so no
