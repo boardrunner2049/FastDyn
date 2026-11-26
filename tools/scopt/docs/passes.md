@@ -11,6 +11,8 @@ modes of `host-inline`. They are not additional passes. Likewise, "default enabl
 below means that a pass runs when it occurs in the selected pipeline; it does not mean
 that every pipeline contains the pass.
 
+Which of these passes scopt O4 (`scopt optimize -O4`) runs, with which parameters, and why each other pass is left out, is recorded in [O4](O4.md) and `scopt/o4.py`.
+
 ## Running one pass
 
 The general form is:

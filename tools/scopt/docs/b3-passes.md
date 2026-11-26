@@ -139,8 +139,8 @@ slots B3 registered. Each member carries their mask (`added_goto_tb_slots`):
   QEMU binaries by sha256. A digest it marks incapable of member skip (`a1bdec6`, the
   build in the `a79d340` checkout) is refused even when a flag or
   `SCOPT_V7_MEMBER_SKIP_EXES` names it (`known_incapable`; `on` fails the pass). Its
-  capable rows (`aacca05`) are admitted implicitly only by `scopt optimize -O4`;
-  every other pipeline still needs the flags, so existing command lines
+  capable rows (`aacca05`) are admitted implicitly only by `scopt optimize -O4`
+  ([O4](O4.md)); every other pipeline still needs the flags, so existing command lines
   keep their bytes.
 - In a composed directory the flags of a member-descriptor region's member must equal
   the sc6 slot set of its source (the OR of `1 << slot_n` over the sc6 slots with that

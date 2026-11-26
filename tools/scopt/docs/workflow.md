@@ -31,6 +31,8 @@ Every run goes through the WP8 harness:
 - a scrubbed environment;
 - `supercache_flat = false`.
 
+**scopt O4.** For a trusted sealed capture with a sealed steady profile, `scopt optimize -O4` builds the fixed configuration that includes every scopt speed optimization shown to help, with a preflight and a stage gate; see [O4](O4.md).
+
 ## 1. Prepare (preparation runs; never on the production vCPU path)
 
 | step | command | output | doc |
