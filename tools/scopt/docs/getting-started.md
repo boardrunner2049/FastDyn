@@ -66,7 +66,7 @@ sudo apt-get install -y \
 git clone -b scopt https://github.com/boardrunner2049/FastDyn.git
 cd FastDyn
 git submodule update --init third_party/common/qemu
-git -C third_party/common/qemu log --oneline -1   # 957530a637 on this revision
+git -C third_party/common/qemu log --oneline -1   # aacca05f69 on this revision
 ```
 
 If your checkout has no `tools/scopt/docs/getting-started.md`, or `scopt helper-effects

@@ -38,9 +38,14 @@ hash validation and in-QEMU fault recovery.  It retains per-TB interrupt polls
 by default; `QEMU_SC_SEALED_SKIP_IRQ=1` is a separate unsafe opt-out.  Full
 commands and limitations are in [`sealed-firmware.md`](sealed-firmware.md).
 
-The current submodule pin is `86f583abc6`. It includes the earlier restore and FastDyn
-runtime integration, firmware-region loading, and canonical v7 publication. The pinned
-source is ready to build.
+The current submodule pin is `aacca05f69`. `86f583abc6` and its ancestors bring the
+earlier restore and FastDyn runtime integration, firmware-region loading, and canonical
+v7 publication. On top of them come the safe-region entry index and skipped per-block
+integrity checks for trusted cache inputs (through `a79d340ace`); dispatcher-return
+counters, chainable trusted residual exits, sc6 activation on sealed lookups and B3
+composed with trusted firmware regions (through `a1bdec6743`); and member skip flags
+and trusted-to-trusted region chains (through `aacca05f69`, v7 stats counters
+revision 4). The pinned source is ready to build.
 
 The capture and profile modes run only in preparation runs, are mutually exclusive, and
 refuse a flat supercache. Nothing on the normal vCPU path changes when their variables
