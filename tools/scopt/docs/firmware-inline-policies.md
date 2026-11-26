@@ -71,7 +71,7 @@ Revision 2 changes four analysis rules:
 - **Word jump tables.** GCC's Thumb-2 switch `cmp idx,#last; bhi default; adr base,table; ldr.w pc,[base,idx,lsl #2]` joins the task CFG. It needs the `TBB`/`TBH` guards plus `base != idx`, a 4-aligned table that starts at a `$d` mapping symbol, and table words that all have the Thumb bit set.
 - **Reset is not an interrupt.** The boundary classification no longer seeds the reset entry as an interrupt root. That entry is vector word 1 or the ELF entry when it is not also an exception vector, or a function named `Reset_Handler`, `reset_handler`, `ResetISR` or `Reset_IRQHandler`. Under revision 1, everything reachable from `main` is exception-visible and stays public. Real vector entries are still seeded.
 
-**ISB side exit.** ISB ends its TB with a `goto_tb` to the next instruction. Inside a trusted region that edge would branch past the next member's interrupt poll, so a PendSV that cloned code sets just before the ISB would be taken only at the region exit. v3 keeps every branch out of a member whose last guest instruction is ISB as a side exit with reason `isb_boundary`. The exit is armed and chained like any other residual exit. When chained, it enters an ordinary TB at its entry poll or, on a QEMU with counters revision 4, a trusted region entry at its first byte (+0), so the entry's poll runs; QEMU chains into a region entry only when it verified that poll at load. An exit that is not chained returns to the dispatcher. With `boundaries=false` this is the only expansion rule.
+**ISB side exit.** ISB ends its TB with a `goto_tb` to the next instruction. Inside a trusted region that edge would branch past the next member's interrupt poll, so a PendSV that cloned code sets just before the ISB would be taken only at the region exit. v3 keeps every branch out of a member whose last guest instruction is ISB as a side exit with reason `isb_boundary`. The exit is armed and chained like any other residual exit. When chained, it enters an ordinary TB at its entry poll or, on a QEMU with counters revision 4, a trusted region entry at its first byte (+0), so the entry's poll runs; QEMU chains into a region entry only when it verified that poll at load. An exit that is not chained returns to the dispatcher. With `boundaries=false` this is the only expansion rule. Other modes apply the same rule only when asked, with the pass parameter [`isb_boundary = true`](#isb-side-exit-in-any-mode-isb_boundary).
 
 ### Why the RTOS boundaries remain
 
@@ -92,7 +92,7 @@ On flattened `-O4` images the task loops mostly call kernel APIs, so v3's main o
 | uart | 5 regions (`FreeRTOS_CLIProcessCommand`, `vComputeDone`) | The same 5 regions plus 2 `memset` regions. `TzCtrl`: `only_rtos_boundary_calls`. |
 | cli | `no_eligible_call`, 0 regions | 5 regions: the console loop's call to `FreeRTOS_CLIProcessCommand` (0x82dd0) and `TzCtrl`'s calls to `prvIsValidCommand` and `prvProcessCommand`. |
 
-None of the three images has an `isb_boundary` exit.
+None of the three images has an `isb_boundary` exit in its v3 regions. Hot-loop regions contain such edges: with `isb_boundary = true`, the O4 design probe (B3 + `hot-loop`, no host-inline) found 33 on packet (in 15 of 48 regions), 2 on UART and none on CLI.
 
 The round-2 campaign rebuilt v2 and v3 on captures from QEMU `aacca05`, with the same region counts, and timed them (20 paired blocks on packet, 10 on UART and CLI; [sealed firmware](sealed-firmware.md#round-2-follow-ups-2026-11-25)). v3 makes no trusted-to-trusted chain attempt on any image, and only some of its regions activate: 8 of 15, 4 of 7 and 2 of 5. time(v2) / time(v3) is 1.0621 [1.0405, 1.0773] on packet, faster in 20 of 20 blocks but within noise, because the interval crosses the A/A band edge 1.0526. It is 1.0428 on UART and 1.0331 on CLI, also within noise. The packet estimate cannot come through the `prvRxTask` -> `prvCrc16Byte` chain the design expected, and its mechanism is not diagnosed. Every point estimate has v3 slower than `sealed-pgo-7`: time(`sealed-pgo-7`) / time(v3) is 0.9580 (packet) and 0.9505 (UART), within noise, and 0.8736 on CLI, below the floor.
 
@@ -124,6 +124,18 @@ All are additive, and only v3 writes them.
 No stats keys are added.
 
 The firmware pass reports selected roots that were actually emitted in `embedded`. Its `private_guarded_returns` count covers return guards embedded inside these executable regions. The B3 public-slot count concerns separately registered slots. An unexpected guest return target or context uses the original lookup after guest return effects complete. Trusted private returns require a Cortex-M3 capture, a bound EnvLayout and an eligible lookup tail. Other CPU models preserve the original return lookup. If a requirement is unavailable, the receipt records a side exit. Trusted interrupt and instruction-count settings still apply.
+
+## ISB side exit in any mode (`isb_boundary`)
+
+The `firmware-inline` parameter `isb_boundary` (bool) makes the [v3 ISB side exit](#firmlooper-v3) a rule of its own, so it can be chosen, measured and decided separately from FirmLooper.
+
+- **Absent** (every shipped pipeline): each mode keeps its own rule. Only `firmlooper-v3` has one; the other modes, `hot-loop` included, expand a branch out of an ISB-ending member like any other branch. Plans, region ids and params hashes are those of the code before the parameter existed.
+- **`true`**: every branch out of a member whose last guest instruction is ISB stays a side exit with reason `isb_boundary`, in the recursive plan and in the one-level (flat) plan alike, so the whole-region gate compares two plans that both keep the exit. Root and nested call decisions still come from the policy, so `policy.nested_decisions` is kept. The nested-gain probes of the profit-gated recursion are built without the rule; that is a pricing approximation of a few nanoseconds per affected call. On `firmlooper-v3` the value is redundant and changes nothing.
+- **`false`**: the same as absent, except that `firmlooper-v3` refuses it (`invalid_params`), because v3 always keeps the exit.
+
+Receipts record the rule in force as `policy.isb_boundary` (true for v3 and for `isb_boundary = true`), and, when the parameter turned it on, `policy.isb_sources`: the number of snapshot units that end in ISB. Each cut edge of an embedded region is a `residual` row with reason `isb_boundary`.
+
+Without the rule, a PendSV that cloned kernel code requests just before an ISB (FreeRTOS `portYIELD_WITHIN_API`, for example in `xTaskResumeAll` and `xQueueGenericSend`) is taken at the region exit instead. The trusted contract (`interrupts=disabled`) allows that deferral.
 
 ## Profit model
 

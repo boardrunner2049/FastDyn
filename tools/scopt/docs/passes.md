@@ -270,6 +270,10 @@ next one; build_firmware_region's recursion guard still keeps recursive call edg
 public, and the whole-region gate decides between the recursive and the one-level
 region. `nested="public"` keeps one callee layer, `cost_model="off"` restores the
 unpriced selection (one layer, every in-loop root over `min_call_count`).
+`isb_boundary = true` keeps every branch out of an ISB-ending member a side exit,
+as FirmLooper v3 does
+([ISB side exit in any mode](firmware-inline-policies.md#isb-side-exit-in-any-mode-isb_boundary));
+absent, hot-loop expands those branches as before.
 
 Automatic training (`--pgo-launch` without `--profile`) keeps the pipeline's
 `phase="steady"`. `--pgo-phase auto` (the default) picks the marker in this order

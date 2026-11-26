@@ -23,6 +23,7 @@ from ..analysis.firmware_profit import (CHAIN_MODES, COST_MODES, MODEL as PROFIT
                                         admission)
 from ..analysis.helper_hot_loop import exact_loop_profile
 from ..analysis.firmware_whopr import balanced_partitions, summarize_firmware
+from ..analysis.rtos_boundaries import ExpansionAction
 from ..formats.region_v1 import unit_exits
 from ..link import region_exits_chainable
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
@@ -77,7 +78,8 @@ class FirmwareInline:
                        "entry_chain": str, "cost_poll_ns": float, "cost_lookup_ns": float,
                        "cost_guard_ns": float, "cost_dispatch_ns": float,
                        "cost_byte_ns": float, "cost_margin": float,
-                       "cost_min_net_per_call_ns": float, "member_slot_skip": str},
+                       "cost_min_net_per_call_ns": float, "member_slot_skip": str,
+                       "isb_boundary": bool},
     )
 
     def run(self, view: Any, ctx: Any, edits: Any) -> PassResult:
@@ -89,6 +91,16 @@ class FirmwareInline:
             policy = firmware_policy(mode)
         except PolicyError as e:
             return PassResult(Outcome.FAILED, "invalid_params", str(e))
+        # isb_boundary: absent keeps the mode's own rule (only firmlooper-v3
+        # has one); true makes every branch out of a member whose last guest
+        # instruction is ISB a side exit in any mode, as v3 does.
+        isb_param = ctx.params.get("isb_boundary")
+        if isb_param is not None and type(isb_param) is not bool:
+            return PassResult(Outcome.FAILED, "invalid_params", "isb_boundary must be a boolean")
+        if mode == "firmlooper-v3" and isb_param is False:
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "firmlooper-v3 always keeps the ISB side exit")
+        isb_rule = isb_param is True or mode == "firmlooper-v3"
         trust = ctx.params.get("trust", "safe")
         interrupts = ctx.params.get("interrupts", "preserved")
         icount = ctx.params.get("icount", "preserved")
@@ -141,6 +153,12 @@ class FirmwareInline:
         if image is None:
             return PassResult(Outcome.SKIPPED_UNKNOWN, "guest_image_missing",
                               "the exact firmware ELF is required")
+        isb_sources: frozenset[str] = frozenset()
+        if isb_param is True and mode != "firmlooper-v3":   # v3 applies it in its own expansion
+            from .firmware_policy import _ends_in_isb
+
+            isb_sources = frozenset(u.uid for u in ctx.b3.snapshot.units()
+                                    if _ends_in_isb(u, image))
         cost_mode = ctx.params.get("cost_model", "auto")
         residual_mode = ctx.params.get("residual_goto_tb", "auto")
         entry_mode = ctx.params.get("entry_chain", "auto")
@@ -265,11 +283,28 @@ class FirmwareInline:
         region_by_uid = {unit.uid: unit for unit in region_units}
         compatibility = firmware_compatibility_index(region_units) if planned_calls else None
 
+        def with_isb(inner):
+            """The plan's expansion with the isb_boundary rule in front of it.
+
+            Applied to recursive and flat plans alike.  Root and nested call
+            decisions still come from the policy (``inner``); a flat plan has
+            none, and every other site expands as without the rule.  The
+            nested-gain probes of NestedProfitExpansion are built without it."""
+            if not isb_sources:
+                return inner
+
+            def expansion(site, context):
+                if site.kind == "branch" and site.source_uid in isb_sources:
+                    return "isb_boundary"
+                return inner(site, context) if inner is not None else ExpansionAction.INLINE
+            return expansion
+
         def plan_call(call, nested=expand_nested):
             return build_firmware_region(
                 ctx.b3.snapshot, image, discovered, call, units=region_units,
                 by_uid=region_by_uid, compatibility=compatibility,
-                expand_nested=nested, expansion=selection.expansion if nested else None)
+                expand_nested=nested,
+                expansion=with_isb(selection.expansion if nested else None))
 
         if not planned_calls:
             plans = []
@@ -529,6 +564,7 @@ class FirmwareInline:
                               "nested_decisions": getattr(selection.expansion, "report",
                                                           lambda: None)(),
                               "nested_fallbacks": nested_fallbacks,
+                              "isb_boundary": isb_rule,
                               "member_slot_skip": {"enabled": skip_ok, "reason": skip_why,
                                                    "param": skip_param, "exe": skip_exe},
                               "interrupts": interrupts, "icount": icount,
@@ -539,6 +575,8 @@ class FirmwareInline:
                               "max_iterations": None, "max_wall_s": None}}
         if summary is not None:
             receipt["policy"]["selection_summary"] = summary
+        if isb_param is True and mode != "firmlooper-v3":
+            receipt["policy"]["isb_sources"] = len(isb_sources)
         if embedded:
             return PassResult(Outcome.CANDIDATE, "firmware_regions_emitted",
                               json.dumps(receipt, sort_keys=True),
