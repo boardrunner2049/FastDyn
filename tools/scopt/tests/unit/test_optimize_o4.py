@@ -29,6 +29,7 @@ from scopt.run.pass_policy import (
 AACCA05 = "951775b0300ea1421f32565af8f677c1eaee14e7e1de6238d32bdbe925eebc60"
 A1BDEC6 = "026f8e8bc17a3364b15af49d597e48ac827515548308538a16d6244b75630295"
 UNKNOWN = "cd" * 32
+SIGNATURE = 0xA1CBF008B2329BBB              # the -O4 captures' runtime_signature on aacca05
 O4_STAGES = [e.name for e in load_pipeline(PIPELINES_DIR / "O4.toml").passes]
 
 
@@ -55,6 +56,7 @@ class _Env:
         self.unit = SimpleNamespace(key=SimpleNamespace(cflags=0), inline_start=None)
         self.snap = SimpleNamespace(snapshot_id="sha256:" + "5" * 64, path=str(tmp_path),
                                     run_info=SimpleNamespace(flags=0), runtime=None,
+                                    header=SimpleNamespace(runtime_signature=SIGNATURE),
                                     units=lambda: [self.unit], unit_ids=lambda: ("u0",))
         monkeypatch.setattr(command, "_open_snapshot", lambda *a, **k: self.snap)
         monkeypatch.setattr(command, "_o4_profiles",
@@ -84,8 +86,11 @@ class _Env:
             (tmp_path / name).write_text("{}")
         self.runtime(AACCA05)
 
-    def runtime(self, exe):
-        (self.tmp / "runtime.json").write_text(json.dumps({"qemu_sha256": "sha256:" + exe}))
+    def runtime(self, exe, signature=f"0x{SIGNATURE:x}"):
+        doc = {"qemu_sha256": "sha256:" + exe, "runtime_signature": signature}
+        if signature is None:
+            del doc["runtime_signature"]
+        (self.tmp / "runtime.json").write_text(json.dumps(doc))
 
     def args(self, *extra, profile=True, ri=True, prep=True, elf=True, launch=True):
         t = self.tmp
@@ -290,6 +295,27 @@ def test_an_active_b3_calibration_is_refused(o4, tmp_path, monkeypatch):
     # A calibration equal to the built-in costs changes nothing and is not refused.
     _calibration(tmp_path / "runs/b3-explore/wp16/calibration.json", c_lookup=7.6, c_guard=1.5)
     assert o4.invoke("-O4").exit_code == 0
+
+
+def test_the_runtime_identity_must_describe_the_capturing_qemu(o4):
+    # The artifact keeps the snapshot's runtime_signature and ships its runtime identity,
+    # so a runtime.json of another QEMU would admit an artifact no QEMU can load.
+    o4.runtime(AACCA05, signature="0x1234")
+    _refused(o4.invoke("-O4"), "does not describe the QEMU that captured this snapshot",
+             f"runtime_signature 0x1234 against the snapshot's 0x{SIGNATURE:x}")
+    o4.runtime(AACCA05, signature=None)
+    _refused(o4.invoke("-O4"), "runtime_signature None against the snapshot's")
+    o4.runtime(AACCA05)
+    o4.snap.runtime = {"qemu_sha256": "sha256:" + A1BDEC6,
+                       "runtime_signature": f"0x{SIGNATURE:x}"}
+    _refused(o4.invoke("-O4"), "does not describe the QEMU that captured this snapshot",
+             f"qemu_sha256 {AACCA05} against the snapshot's {A1BDEC6}")
+    assert not o4.calls
+    o4.snap.runtime = {"qemu_sha256": "sha256:" + AACCA05,
+                       "runtime_signature": f"0x{SIGNATURE:x}"}
+    result = o4.invoke("-O4")
+    assert result.exit_code == 0, result.output
+    assert o4.calls[-1].o4["runtime"]["runtime_signature"] == f"0x{SIGNATURE:x}"
 
 
 def test_the_prep_launch_satisfies_the_training_requirement(o4, tmp_path, monkeypatch):

@@ -269,7 +269,8 @@ RUNTIME: Mapping[str, Decision] = MappingProxyType({
         "member flags (Q8, Q14)"),
     "artifact qemu_sha256 = launched QEMU": _inc(
         "required", f"{_RUN}: the v7 runtime_signature hashes the executable's identity, so "
-        "another QEMU discards the cache"),
+        "a sealed run on another QEMU refuses the cache; the -O4 preflight requires "
+        "--runtime-identity to be the capturing QEMU's"),
     "QEMU_SC_SEALED_SKIP_IRQ": _exc("unsafe", f"{_OUT}: changes the interrupt contract and "
                                     "disables trusted exit and T->T chaining (S6)"),
     "QEMU_SC_V7_EXPERIMENT": _exc(

@@ -319,6 +319,7 @@ def _o4_preflight(snap, pl, *, customized, profiles, ri_file, prep, elf, pgo_lau
     from ..analysis.helper_hot_loop import exact_loop_profile
     from ..analysis.profitability import calibration_params
     from ..analysis.store import profile_phase_info
+    from ..canon import hexaddr
     from ..decode.search import is_pcrel
     from ..formats.enums import RunInfoFlag
     from ..manager import DEFAULT_MIN_PROFILE_MATCH, PIPELINES_DIR, PipelineError, load_pipeline
@@ -373,14 +374,30 @@ def _o4_preflight(snap, pl, *, customized, profiles, ri_file, prep, elf, pgo_lau
 
     exes = {c: tuple(v) for c, v in exes.items()}
     runtime = {}
-    exe = None
+    exe = ri = None
     if ri_file:
         try:
-            exe = _ri_exe(json.loads(Path(ri_file).read_text()))
+            ri = json.loads(Path(ri_file).read_text())
+            exe = _ri_exe(ri)
             if exe is None:
                 problems.append(f"--runtime-identity {ri_file} names no qemu_sha256")
         except (OSError, ValueError, AttributeError) as e:
             problems.append(f"--runtime-identity {ri_file}: {e}")
+            ri = None
+    signature = hexaddr(snap.header.runtime_signature)
+    if isinstance(ri, dict):
+        # The capability table is consulted for this file's QEMU, but the artifact keeps
+        # the snapshot's runtime_signature and ships its runtime identity (validate.py):
+        # a sealed run refuses it on any QEMU other than the one that captured it.
+        snap_exe = _ri_exe(snap.runtime)
+        if ri.get("runtime_signature") != signature:
+            problems.append(f"--runtime-identity {ri_file} does not describe the QEMU that "
+                            f"captured this snapshot: runtime_signature "
+                            f"{ri.get('runtime_signature')} against the snapshot's {signature}")
+        if snap_exe is not None and snap_exe != exe:
+            problems.append(f"--runtime-identity {ri_file} does not describe the QEMU that "
+                            f"captured this snapshot: qemu_sha256 {exe} against the "
+                            f"snapshot's {snap_exe}")
     allowlists = {"v6": v6_capable_exes, "trusted_v7": trusted_v7_capable_exes,
                   "member_skip": member_skip_capable_exes}
     for capability in _o4_runtime_needs(pl) if exe else ():
@@ -401,7 +418,7 @@ def _o4_preflight(snap, pl, *, customized, profiles, ri_file, prep, elf, pgo_lau
                             f"allowlisted for {capability}: confirm it has counters revision 4, "
                             f"then pass {flag} sha256:{exe} (or set {env})")
             runtime[capability] = "unknown"
-    report["runtime"] = {"exe": exe, "capabilities": runtime}
+    report["runtime"] = {"exe": exe, "runtime_signature": signature, "capabilities": runtime}
 
     # A workspace or environment calibration changes the B3 passes' costs (manager.py);
     # O4 was measured with the built-in ones.
