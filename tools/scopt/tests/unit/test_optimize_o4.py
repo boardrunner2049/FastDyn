@@ -360,6 +360,21 @@ def test_firmware_inline_nothing_to_emit_is_no_change(outcome, reason, status):
     assert gate_status({**row, "pass": "chain-static"}) != NO_CHANGE or status != NO_CHANGE
 
 
+@pytest.mark.parametrize("stats, status", [
+    ({"refused:not_profitable": 3.0}, NO_CHANGE),
+    ({"refused:not_profitable": 3.0, "refused:profit_estimate_unknown": 0.0}, NO_CHANGE),
+    ({"refused:profit_estimate_unknown": 2.0}, INCOMPLETE),
+    ({"refused:not_profitable": 3.0, "refused:profit_estimate_unknown": 1.0}, INCOMPLETE),
+])
+def test_an_unpriced_root_is_not_nothing_to_emit(stats, status):
+    # firmware-inline says no_profitable_call also when roots could not be priced
+    # (executions_unknown, flow_not_converged): that is not "nothing worth a region".
+    row = {**_receipt("firmware-inline", "skipped_unknown", "no_profitable_call", 0),
+           "stats": stats}
+    assert gate_status(row) == status
+    assert (required_stage_problems([row], ["firmware-inline"]) == []) == (status == NO_CHANGE)
+
+
 def test_degraded_stages_are_named():
     rows = [_receipt(*r) for r in _C7B3_ROUND2["uart"]]
     rows[6] = _receipt("chain-static", "skipped_unknown", "incomplete_lookup_profile", 0)

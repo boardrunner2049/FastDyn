@@ -77,15 +77,20 @@ def stage_status(receipt: Mapping[str, Any]) -> str:
 #: a complete input and the firmware simply has no call worth a region.
 FIRMWARE_NOTHING_TO_EMIT = frozenset({"no_profitable_call", "no_eligible_call",
                                       "no_firmware_call"})
+#: firmware-inline stat of the roots it could not price (executions unknown, flow not
+#: converged); its ``no_profitable_call`` then does not mean "nothing worth a region".
+FIRMWARE_UNPRICED = "refused:profit_estimate_unknown"
 
 
 def gate_status(receipt: Mapping[str, Any]) -> str:
     """:func:`stage_status`, except that firmware-inline's nothing-to-emit outcomes count
-    as :data:`NO_CHANGE` (the ``scopt optimize -O4`` stage gate)."""
+    as :data:`NO_CHANGE` (the ``scopt optimize -O4`` stage gate), unless a root could not
+    be priced (:data:`FIRMWARE_UNPRICED`)."""
     if (receipt.get("pass") == "firmware-inline"
             and receipt.get("outcome") == Outcome.SKIPPED_UNKNOWN.value
             and receipt.get("reason") in FIRMWARE_NOTHING_TO_EMIT
-            and receipt.get("n_edits") == 0):
+            and receipt.get("n_edits") == 0
+            and not (receipt.get("stats") or {}).get(FIRMWARE_UNPRICED)):
         return NO_CHANGE
     return stage_status(receipt)
 
