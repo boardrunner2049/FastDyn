@@ -84,7 +84,7 @@ The SHARED, PUBLIC and `rtos_public_caller` boundaries are not required by the t
 
 ### FirmBOLT -O4 images
 
-On flattened `-O4` images the task loops mostly call kernel APIs, so v3's main output there is the per-task verdict. A region appears only where a hot task still calls application code. On the packet image, `prvRxTask` stayed unrewritten `-O0` code in `.bolt.org.text` and calls its moved callees through BOLT entry patches. Its switch is a word jump table, and its benchmark loop ends by returning from the task. Receipts from 2026-11-25 (selection only; v3 has not been timed):
+On flattened `-O4` images the task loops mostly call kernel APIs, so v3's main output there is the per-task verdict. A region appears only where a hot task still calls application code. On the packet image, `prvRxTask` stayed unrewritten `-O0` code in `.bolt.org.text` and calls its moved callees through BOLT entry patches. Its switch is a word jump table, and its benchmark loop ends by returning from the task. Receipts from 2026-11-25:
 
 | Image | `sealed-firmlooper-v2` | `sealed-firmlooper-v3` |
 | --- | --- | --- |
@@ -93,6 +93,8 @@ On flattened `-O4` images the task loops mostly call kernel APIs, so v3's main o
 | cli | `no_eligible_call`, 0 regions | 5 regions: the console loop's call to `FreeRTOS_CLIProcessCommand` (0x82dd0) and `TzCtrl`'s calls to `prvIsValidCommand` and `prvProcessCommand`. |
 
 None of the three images has an `isb_boundary` exit.
+
+The round-2 campaign rebuilt v2 and v3 on captures from QEMU `aacca05`, with the same region counts, and timed them (20 paired blocks on packet, 10 on UART and CLI; [sealed firmware](sealed-firmware.md#round-2-follow-ups-2026-11-25)). v3 makes no trusted-to-trusted chain attempt on any image, and only some of its regions activate: 8 of 15, 4 of 7 and 2 of 5. time(v2) / time(v3) is 1.0621 [1.0405, 1.0773] on packet, faster in 20 of 20 blocks but within noise, because the interval crosses the A/A band edge 1.0526. It is 1.0428 on UART and 1.0331 on CLI, also within noise. The packet estimate cannot come through the `prvRxTask` -> `prvCrc16Byte` chain the design expected, and its mechanism is not diagnosed. Every point estimate has v3 slower than `sealed-pgo-7`: time(`sealed-pgo-7`) / time(v3) is 0.9580 (packet) and 0.9505 (UART), within noise, and 0.8736 on CLI, below the floor.
 
 ### v3 receipt fields
 

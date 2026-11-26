@@ -162,10 +162,10 @@ separate case: executing per-site private helper copies
    never such a destination), and the same sealed or `incoming-chain` rule as
    ordinary-to-trusted chains. `QEMU_SC_V7_EXPERIMENT=no-trusted-to-trusted-chain`
    restores the refusal on the same bytes. Pricing is unchanged: the profit model still
-   charges such an exit a dispatch, which is conservative now. The estimated time effect
-   is below this harness's floor (about 0.6% of a CLI `sealed-pgo-7` run, at most about
-   1% of a UART `sealed-pgo-7` run with `cost_model = "off"` and `nested = "public"`), so
-   report the counter deltas, not a speedup.
+   charges such an exit a dispatch, which is conservative now. Timed in
+   [round 2](#round-2-follow-ups-2026-11-25), it has no measurable time effect: every
+   pair with and without it on the same bytes is within noise, including those where it
+   removes almost all residual exits.
 3. **No cost model.** `hot-loop` admitted every root above 1,000 training calls, such
    as the per-byte CRC-CCITT callee, whose saving per call (polls, two lookups, a
    guarded return) is smaller than one dispatcher round trip per unchained exit.
@@ -213,7 +213,8 @@ table is above its A/A floor.
   `no-trusted-exit-chain`): 1.063, 1.040 and 0.990, within noise. They remove about
   2.96M dispatcher returns per packet run and 1.08M per UART run. Most remaining
   residual exits on UART and CLI enter another trusted region, which QEMU `a1bdec6`
-  does not chain (counters revision 4 does; not timed).
+  does not chain (counters revision 4 does; within noise in
+  [round 2](#round-2-follow-ups-2026-11-25)).
 - The profit model, recursive nesting and steady training (against the same pipeline
   with `cost_model = "off"`, `nested = "public"` and whole-run training): 1.026, 1.051
   and 1.075, within the A/A band. On the CLI 6,000-command input alone it is 1.088,
@@ -227,7 +228,7 @@ table is above its A/A floor.
   CLI `sealed-pgo-7`, 0.997 for UART `sealed-firmlooper-v2`, both within the A/A band).
   Of the 74 composed regions in these artifacts, all but one (on packet) kept the shared
   descriptor. Member skip flags now give them member descriptors on a QEMU that honours
-  the flags; that has not been timed.
+  the flags; [round 2](#round-2-follow-ups-2026-11-25) timed that within noise.
 - `sealed-firmlooper-v2` selects no call on the packet and CLI `-O4` images: every
   in-loop call is an RTOS boundary or the task loop is not closed. On UART it is
   within noise of configuration 6. On packet and CLI, a benchmark task that ends by
@@ -238,11 +239,66 @@ table is above its A/A floor.
   interrupt, so everything reachable from `main` is classified public.
   `sealed-firmlooper-v3` addresses all four on analysis revision 2 and selects 15
   regions on packet (including the four `prvRxTask` CRC calls), 7 on UART and 5 on
-  CLI; see [FirmLooper v3](firmware-inline-policies.md#firmlooper-v3). It has not
-  been timed.
+  CLI; see [FirmLooper v3](firmware-inline-policies.md#firmlooper-v3).
+  [Round 2](#round-2-follow-ups-2026-11-25) timed it within noise of v2 on all three
+  images.
 
 Plans, observations and per-arm counters are in
 `/data/scfix-campaign/{packet,uart,cli}/timing-1`.
+
+### Round 2: follow-ups (2026-11-25)
+
+The follow-ups were captured again on QEMU `aacca05` (counters revision 4) and timed
+with the same driver: 20 paired blocks on packet, 10 on UART and CLI, ratios as above.
+The A/A bands are [0.9501, 1.0526] (packet), [0.9700, 1.0309] (UART) and
+[0.9802, 1.0202] (CLI). Packet's A/A interval excludes 1 (1.0322 [1.0035, 1.0526])
+because the configuration 6 reference ran slow, so every configuration-6-referenced
+packet ratio is inflated, by about 1.3-4.1% against its byte-identical twins. The new
+binary shows no measurable slowdown: time(round-1 configuration 6 on `a1bdec6`) /
+time(configuration 6 on `aacca05`) is 0.9885, 1.0099 and 1.0299, all within noise.
+
+- **Trusted-to-trusted chains** (time with `no-trusted-to-trusted-chain` / time without,
+  same bytes): all nine pairs are within noise. Where there is trusted-to-trusted
+  traffic, the chains remove almost all residual exits. With `sealed-pgo-7`,
+  `cost_model = "off"` and `nested = "public"` they fall from 38,101 to 17 on packet
+  (0.9962 [0.9782, 1.0205]) and from 194,859 to 19 per UART commands run
+  (0.9981 [0.9755, 1.0154]). The largest point estimate, CLI `sealed-pgo-7`, is
+  1.0354 [0.9996, 1.0768] (8 of 10 blocks), and its interval overlaps the band. On
+  packet the default `sealed-pgo-7` and `sealed-pgo-7-b3` make no trusted-to-trusted
+  attempt.
+- **`--pgo-phase auto`** chose `launch_virtual:benchmark_start` on all three workloads
+  and trained `sealed-pgo-7` on the same phase as round 1, so no time change is
+  attributable to it. Its premise does not hold on packet, where `-O4` left
+  `vComputeWindowStart` executed at the marker's address (`not_chosen: same_address`).
+  On UART and CLI round 1 named the steady marker explicitly, and its auto build, which
+  fell back to `whole_run_unreached`, was byte-identical to the steady-trained one.
+- **Member skip flags** (`sealed-pgo-7-b3` without / with `--v7-member-skip-exe`): regions
+  with member descriptors go from 1 of 48 to 48 of 48 (packet), 0 of 19 to 19 of 19
+  (UART) and 0 of 7 to 7 of 7 (CLI), and residual exits from 10 to 1, from 7,673 to 2
+  (UART commands) and from 10,488 to 3 (CLI commands). The time ratios are 1.0131,
+  1.0274 and 0.9769, all within noise. With the flags, the composed artifact against
+  configuration 6 is 1.1843 (packet; 1.164 against a byte-identical twin), 1.1616 and
+  1.2415, above the floor, and against 6 + B3 it is 1.0167, 0.9901 and 1.0148, within
+  noise.
+- **`sealed-firmlooper-v3`** selects 15, 7 and 5 regions where v2 selects 0, 5 and 0,
+  activates 8, 4 and 2 of them, and makes no trusted-to-trusted attempt. time(v2) /
+  time(v3) is 1.0621 [1.0405, 1.0773] on packet: 20 of 20 blocks, but within noise,
+  because the interval crosses the band edge 1.0526. v2 is byte-identical to
+  configuration 6 there and unbiased against its A/A copy. It is 1.0428 on UART and
+  1.0331 on CLI, also within noise. The packet estimate cannot come through the
+  `prvRxTask` -> `prvCrc16Byte` chain the design expected, and its mechanism is not
+  diagnosed. Every point estimate has v3 slower than `sealed-pgo-7`:
+  time(`sealed-pgo-7`) / time(v3) is 0.9580 and 0.9505 (within noise) and 0.8736 on CLI
+  (below the floor).
+- **`sealed-whopr-7`** is a regression: 0.8513, 0.6921 and 0.9109 against configuration
+  6, all below the floor (on packet against the slow reference; against its
+  byte-identical twins it is 0.826 and 0.831). Keeping `helper_lookup_tb_ptr` out of
+  its host-inline prefix removes the regression
+  ([`sealed-whopr-7-bounded`](sealed-whopr-7.md#bounded-helper-graphs-sealed-whopr-7-bounded)).
+
+Plans, observations and per-arm counters are in
+`/data/scfix-r2/{packet,uart,cli}/timing-1`, and the full report is
+`/data/scfix-r2/TIMING.md`.
 
 ## Remaining limitations
 
