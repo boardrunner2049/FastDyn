@@ -668,7 +668,7 @@ class OracleRefused(RuntimeError):
 def _semantic_runtime_refusal(art: Path, qemu: str | os.PathLike | None) -> tuple[str, str] | None:
     """``(code, detail)`` when ``art`` is a semantic-v7 artifact and the QEMU the
     runs would use (``qemu``, or the integrated runtime for None) is not a
-    v6-capable binary (:func:`scopt.validate.v6_capable_exes`): run there,
+    v6-capable binary (:func:`scopt.validate.semantic_capable_exes`): run there,
     every v6 run is ``INVALID_artifact_not_used``."""
     from .arms import sc_file_features, sc_file_version
     from .launcher import RunDirError, resolve_qemu
@@ -678,7 +678,7 @@ def _semantic_runtime_refusal(art: Path, qemu: str | os.PathLike | None) -> tupl
     from ..formats.sc_semantic import SC7_SEMANTIC_MARKER
     if not (sc_file_features(art) or 0) & SC7_SEMANTIC_MARKER:
         return None
-    from ..validate import v6_capable_exes
+    from ..validate import semantic_capable_exes
 
     try:
         q = resolve_qemu(qemu)
@@ -686,7 +686,7 @@ def _semantic_runtime_refusal(art: Path, qemu: str | os.PathLike | None) -> tupl
         return ("semantic_loader_required", f"cannot resolve the QEMU binary: {e}")
     sha = q.get("qemu_sha256")
     hexsha = None if sha is None else str(sha).removeprefix("sha256:")
-    if hexsha is None or hexsha not in v6_capable_exes():
+    if hexsha is None or hexsha not in semantic_capable_exes():
         return ("semantic_loader_required",
                 f"{art} is semantic v7 but QEMU {q.get('qemu')} (sha256 {hexsha}, "
                 f"{q.get('qemu_selection')}) is not semantic-v7-capable")
@@ -731,7 +731,7 @@ def dynamic_oracles(art_dir: str | os.PathLike, configs: Sequence[str | os.PathL
 
     Refuses (:class:`OracleRefused` ``v6_loader_required``, before any run) a
     ``.sc`` v6 artifact when the QEMU the runs would use is not a v6-capable
-    binary (:func:`scopt.validate.v6_capable_exes`).
+    binary (:func:`scopt.validate.semantic_capable_exes`).
 
     ``quiet=True`` runs FastDyn with ``-q``, which changes its ``log_level`` and so the
     bundle's ``contract_id``: an artifact whose bundle was computed for a non-quiet base is

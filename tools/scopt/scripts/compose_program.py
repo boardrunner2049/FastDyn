@@ -28,7 +28,7 @@ def main():
     out.mkdir(parents=True, exist_ok=False)
     inputs = load(base / "baseline.json")
     os.environ["SCOPT_ENVLAYOUT_PATH"] = str(base / "envlayouts")
-    os.environ["SCOPT_V6_EXES"] = inputs["qemu_sha256"]
+    os.environ["SCOPT_SEMANTIC_EXES"] = inputs["qemu_sha256"]
     qemu = load(base / "v10/dynamic.json")["qemu"]
     cli = [sys.executable, "-m", "scopt"]
 

@@ -100,7 +100,7 @@ class B3Env:
     """External inputs of a B3/B4 run (all optional; missing inputs fail closed).
 
     ``layout``: EnvLayout of the snapshot's exe (default: the store's ``envlayout@1``).
-    ``runtime``/``v6_exes``/``v7_exes``: the RuntimeIdentity the artifact targets
+    ``runtime``/``semantic_exes``/``v7_exes``: the RuntimeIdentity the artifact targets
     (V7/V20).  V7 admission is separate because its loader contract is not a
     compatible extension of v6.  ``member_skip_exes``: exe sha256 digests whose
     loader honours composed v7 member skip flags
@@ -113,7 +113,7 @@ class B3Env:
 
     layout: Any = None
     runtime: Mapping[str, Any] | None = None
-    v6_exes: tuple[str, ...] = ()
+    semantic_exes: tuple[str, ...] = ()
     v7_exes: tuple[str, ...] = ()
     trusted_v7_exes: tuple[str, ...] = ()
     member_skip_exes: tuple[str, ...] = ()
@@ -1071,7 +1071,7 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
     res = package_b3(snapshot, m.plan, store, candidate_id=cid,
                      placement=cand.working_set if cand.has_layout_changes else None,
                      pipeline=cand.pipeline_provenance(), profile_ids=cand.profile_rows(),
-                     runtime=env.runtime, v6_exes=env.v6_exes, v7_exes=env.v7_exes,
+                     runtime=env.runtime, semantic_exes=env.semantic_exes, v7_exes=env.v7_exes,
                      trusted_v7_exes=env.trusted_v7_exes,
                      member_skip_exes=env.member_skip_exes,
                      summaries=rows, hostsym=hs,

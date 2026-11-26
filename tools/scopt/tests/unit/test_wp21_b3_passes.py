@@ -300,7 +300,7 @@ def test_fb3_1_package_static_acceptance(tmp_path, monkeypatch):
 
     if st.get("kernel_id") != kernel_id():
         pytest.skip("stale self-test document")
-    r = optimize_b3(s, "b3", tmp_path, env=B3Env(runtime=ri6, v6_exes=(H.QINT_V6_SHA,),
+    r = optimize_b3(s, "b3", tmp_path, env=B3Env(runtime=ri6, semantic_exes=(H.QINT_V6_SHA,),
                                                  selftest=st), profiles=[pv], enable=B3_LINK_PASSES)
     pk = r["package"]
     assert r["path"] == "b3" and pk.status == "published", (pk.reason, pk.rejection_path)

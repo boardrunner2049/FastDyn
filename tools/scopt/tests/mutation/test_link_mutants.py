@@ -278,7 +278,7 @@ def test_validate_b3_runs_hostsym_callable(ctx, tmp_path, monkeypatch):
                         facts=(synthetic_fact("r0", val, name),)),)), off)
         d = tmp_path / name
         write_b3_files(d, s, res)
-        v, _ = validate_b3(s, res, d, runtime=ri6, v6_exes=[H.QINT_V6_SHA], hostsym=hs,
+        v, _ = validate_b3(s, res, d, runtime=ri6, semantic_exes=[H.QINT_V6_SHA], hostsym=hs,
                            skip_reimport=True)
         rows = {(r["code"], r["check"].split(":")[0]): r["result"] for r in v.rows
                 if r["code"] in ("V12", "V13", "V14")}

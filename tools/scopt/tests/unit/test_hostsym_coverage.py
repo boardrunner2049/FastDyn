@@ -92,7 +92,7 @@ def _pkg(tmp_path, monkeypatch, s, plan, hs, name, **kw):
 
     ri6 = H.v6_identity(monkeypatch)
     return package_b3(s, plan, tmp_path / name, candidate_id="sha256:" + name * 32,
-                      runtime=ri6, v6_exes=[H.QINT_V6_SHA], hostsym=hs, **kw)
+                      runtime=ri6, semantic_exes=[H.QINT_V6_SHA], hostsym=hs, **kw)
 
 
 def _fail_reasons(r):
@@ -229,7 +229,7 @@ def test_validate_b3_coverage_without_package(spec, tmp_path, monkeypatch):
     d = tmp_path / "v"
     write_b3_files(d, s, link_f)
     v, _ = validate_b3(s, link_f, d, plan=plan_f, runtime=H.v6_identity(monkeypatch),
-                       v6_exes=[H.QINT_V6_SHA], hostsym=_hostsym(link_f), skip_reimport=True)
+                       semantic_exes=[H.QINT_V6_SHA], hostsym=_hostsym(link_f), skip_reimport=True)
     assert [x["result"] for x in v.rows if x["check"] == "coverage"] == ["pass"] * 3
     assert uncertified_rows(v, link_f, plan_f) == []
     # the same rows judged against a link with one more changed unit: not covered

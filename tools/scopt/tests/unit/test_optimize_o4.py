@@ -41,7 +41,7 @@ class _Env:
     """optimize_cmd with the snapshot, profiles, training and native prefix faked."""
 
     def __init__(self, tmp_path, monkeypatch, *, real_b3=False):
-        for name in ("SCOPT_V6_EXES", "SCOPT_V7_TRUSTED_EXES", "SCOPT_V7_MEMBER_SKIP_EXES",
+        for name in ("SCOPT_SEMANTIC_EXES", "SCOPT_V7_TRUSTED_EXES", "SCOPT_V7_MEMBER_SKIP_EXES",
                      "SCOPT_PIPELINES_DIR", "SCOPT_B3_CALIBRATION"):
             monkeypatch.delenv(name, raising=False)
         # No workspace B3 calibration (runs/b3-explore/wp16/calibration.json).
@@ -72,9 +72,9 @@ class _Env:
                             lambda snap, stage, store, views, params: (snap, native))
 
         def optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
-                        v6_exes, v7_exes, trusted_v7_exes, *args, member_skip_exes=(), o4=None,
+                        semantic_exes, v7_exes, trusted_v7_exes, *args, member_skip_exes=(), o4=None,
                         **kwargs):
-            self.calls.append(SimpleNamespace(pl=pl, v6=v6_exes, trusted=trusted_v7_exes,
+            self.calls.append(SimpleNamespace(pl=pl, semantic=semantic_exes, trusted=trusted_v7_exes,
                                               skip=member_skip_exes, o4=o4, enable=kwargs.get("enable"),
                                               disable=disable))
 
@@ -131,9 +131,9 @@ def test_o4_resolves_to_the_packaged_pipeline_and_admits_the_table_exe(o4, monke
     assert call.pl.source == str(PIPELINES_DIR / "O4.toml")
     # aacca05 is capable in scopt/data/qemu_capabilities.json: no allowlist flag needed.
     want = ("sha256:" + AACCA05,)
-    assert (call.v6, call.trusted, call.skip) == (want, want, want)
+    assert (call.semantic, call.trusted, call.skip) == (want, want, want)
     assert call.o4["runtime"]["capabilities"] == dict.fromkeys(
-        ("v6", "trusted_v7", "member_skip"), "capability_table")
+        ("semantic", "trusted_v7", "member_skip"), "capability_table")
     assert call.o4["required_stages"] == O4_STAGES and call.o4["profile_match"] == 1.0
     assert call.o4["pgo_launch"] == "--pgo-launch"
     assert call.enable == () and call.disable == ()
@@ -251,7 +251,7 @@ def test_icount_on_and_ordinary_snapshots_are_refused(o4):
 
 def test_a_known_incapable_qemu_is_refused_even_when_flagged(o4):
     o4.runtime(A1BDEC6)
-    flags = [x for f in ("--v6-exe", "--v7-trusted-exe", "--v7-member-skip-exe")
+    flags = [x for f in ("--semantic-exe", "--v7-trusted-exe", "--v7-member-skip-exe")
              for x in (f, "sha256:" + A1BDEC6)]
     _refused(o4.invoke("-O4", *flags), f"QEMU {A1BDEC6} is marked incapable of member_skip",
              "no flag overrides that")
@@ -261,18 +261,18 @@ def test_a_known_incapable_qemu_is_refused_even_when_flagged(o4):
 def test_an_unknown_qemu_needs_every_flag(o4, monkeypatch):
     o4.runtime(UNKNOWN)
     result = o4.invoke("-O4")
-    _refused(result, "--v6-exe sha256:" + UNKNOWN, "SCOPT_V6_EXES",
+    _refused(result, "--semantic-exe sha256:" + UNKNOWN, "SCOPT_SEMANTIC_EXES",
              "--v7-trusted-exe sha256:" + UNKNOWN, "--v7-member-skip-exe sha256:" + UNKNOWN,
              "SCOPT_V7_MEMBER_SKIP_EXES", "counters revision 4")
-    result = o4.invoke("-O4", "--v6-exe", UNKNOWN, "--v7-trusted-exe", UNKNOWN)
+    result = o4.invoke("-O4", "--semantic-exe", UNKNOWN, "--v7-trusted-exe", UNKNOWN)
     _refused(result, "--v7-member-skip-exe sha256:" + UNKNOWN)
-    assert "--v6-exe sha256:" not in result.output
+    assert "--semantic-exe sha256:" not in result.output
     monkeypatch.setenv("SCOPT_V7_MEMBER_SKIP_EXES", UNKNOWN)
-    result = o4.invoke("-O4", "--v6-exe", UNKNOWN, "--v7-trusted-exe", UNKNOWN)
+    result = o4.invoke("-O4", "--semantic-exe", UNKNOWN, "--v7-trusted-exe", UNKNOWN)
     assert result.exit_code == 0, result.output
     call = o4.calls[-1]
     assert call.o4["runtime"]["capabilities"] == dict.fromkeys(
-        ("v6", "trusted_v7", "member_skip"), "allowlisted")
+        ("semantic", "trusted_v7", "member_skip"), "allowlisted")
     assert call.skip == ()                     # the environment allowlists it downstream
 
 

@@ -582,7 +582,7 @@ def manager_ctx(out: Path, mode: str, cfg: str) -> dict[str, Any]:
     resolve_for_snapshot(s, elf=str(b["elf"]), prep=str(b["prep"]))
     views, _ = _profiles([str(b["profile"])], s)
     ri = rd(b["ri"])
-    env = B3Env(runtime=ri, v6_exes=(), selftest=load_or_run(str(selftest_path(out))))
+    env = B3Env(runtime=ri, semantic_exes=(), selftest=load_or_run(str(selftest_path(out))))
     pm = PassManager(s, load_pipeline("b3"), tuple(views), FIXTURE_PARAMS, b3=env)
     cand = pm.execute()
     m = materialize(cand.b3_state, pm.b3ctx)
@@ -1043,7 +1043,7 @@ def o4_one(out: Path, mu: Mut, mode: str, k: int) -> dict[str, Any]:
     bypass = BYPASS_ROWS + tuple(mu.bypass_extra) + (("V2", "V3") if mu.unit_bytes else ())
     nr = package_negative(ctx["s"], plan, ndir, label=lab, mutant=mu.name,
                           detector=mu.detector, mutate=mutate, layout=ctx["lay"],
-                          runtime=ctx["ri"], v6_exes=[gi["sha"]], hostsym=ctx["hs"],
+                          runtime=ctx["ri"], semantic_exes=[gi["sha"]], hostsym=ctx["hs"],
                           summaries=ctx["rows"], bypass=bypass)
     codes = sorted({x["code"] for x in nr.bypassed})
     r.update(status=nr.status, reason=nr.reason, path=nr.path, bypass=list(bypass),
@@ -1154,7 +1154,7 @@ def mutants_cfg(out: Path, cfg: str) -> dict[str, Any]:
                                           label=lab, mutant=r.name,
                                           mutate=lambda L, sl=sl, atom=atom: mut(L, sl, atom),
                                           layout=ctx["lay"], runtime=ctx["ri"],
-                                          v6_exes=[gi["sha"]], hostsym=ctx["hs"],
+                                          semantic_exes=[gi["sha"]], hostsym=ctx["hs"],
                                           summaries=ctx["rows"], bypass=())
                     full.append({"mutant": r.name, "unit": r.unit, "slot": sl["i"],
                                  "status": pk.status, "reason": pk.reason,
@@ -1533,7 +1533,7 @@ def alias_mode(out: Path, mode: str) -> dict[str, Any]:
     nr = package_negative(s, plan, nd, label="alias-spec", mutant=None,
                           detector="F-B3-15 alias (TEST-ONLY artifact: the direct mps2 path has "
                                    "no ExecutionBundle/RuntimeIdentity, so V7/V8/V20 cannot pass)",
-                          layout=lay, runtime=None, v6_exes=[gi["sha"]],
+                          layout=lay, runtime=None, semantic_exes=[gi["sha"]],
                           bypass=BYPASS_ROWS + ("V7", "V8", "V20"))
     r["package"] = {"status": nr.status, "reason": nr.reason, "path": nr.path,
                     "failing_rows_bypassed": sorted({x["code"] for x in nr.bypassed}),
@@ -1684,7 +1684,7 @@ def smc17_mode(out: Path, mode: str) -> dict[str, Any]:
                           detector="F-B3-17 smc-ram (TEST-ONLY: SPEC link into a ram_resident "
                                    "C, built outside the manager; allow_ram_resident is not "
                                    "wired into it)",
-                          layout=ctx["lay"], runtime=ctx["ri"], v6_exes=[gi["sha"]],
+                          layout=ctx["lay"], runtime=ctx["ri"], semantic_exes=[gi["sha"]],
                           hostsym=ctx["hs"], summaries=ctx["rows"], bypass=())
     r["package"] = {"status": nr.status, "reason": nr.reason, "path": nr.path,
                     "rows_bypassed": sorted({x["code"] for x in nr.bypassed}),
@@ -1854,7 +1854,7 @@ def step_coverage_neg(out: Path) -> dict[str, Any]:
         rmtree(ndir / lab)
         nr = package_negative(ctx["s"], plan, ndir, label=lab, mutant="log_reg_ring_store",
                               detector="F-B3-23 (O6)", mutate=mutate, layout=ctx["lay"],
-                              runtime=ctx["ri"], v6_exes=[gi["sha"]], hostsym=ctx["hs"],
+                              runtime=ctx["ri"], semantic_exes=[gi["sha"]], hostsym=ctx["hs"],
                               summaries=ctx["rows"], bypass=BYPASS_ROWS)
         codes = sorted({x["code"] for x in nr.bypassed})
         r.update(what=what, status=nr.status, reason=nr.reason, path=nr.path,

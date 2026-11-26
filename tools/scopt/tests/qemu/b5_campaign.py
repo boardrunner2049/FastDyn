@@ -252,7 +252,7 @@ def build_arm(arm: dict[str, Any], base: dict[str, Any], out: Path, gate: dict[s
                 "from scopt.formats.envlayout_v1 import find_envlayout\n"
                 "snap,ri,store,sha,cid=sys.argv[1:6]\n"
                 "r=package_b3(open_snapshot(snap),B3Plan(force_semantic_table=True),store,candidate_id=cid,"
-                "runtime=json.load(open(ri)),v6_exes=[sha],layout=find_envlayout('sha256:'+sha))\n"
+                "runtime=json.load(open(ri)),semantic_exes=[sha],layout=find_envlayout('sha256:'+sha))\n"
                 "print(json.dumps({'status':r.status,'reason':r.reason,"
                 "'artifact_dir':r.artifact_dir}))\n")
         cid = "sha256:" + hashlib.sha256(f"b5:identity-v6:{base['snapshot']}".encode()

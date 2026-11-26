@@ -150,9 +150,9 @@ def test_gate_binary_record():
     g = json.loads(GATE_JSON.read_text())
     sha = g["exe_sha256"].removeprefix("sha256:")
     assert len(sha) == 64 and g["tag"] == "qint-v6-gate-1"
-    from scopt.validate import v6_capable_exes
+    from scopt.validate import semantic_capable_exes
 
-    assert sha in v6_capable_exes()
+    assert sha in semantic_capable_exes()
     exe = Path(g["exe_path"])
     if exe.is_file():
         import hashlib

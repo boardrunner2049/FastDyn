@@ -1720,18 +1720,14 @@ V_ROWS: dict[str, tuple[str, str, str]] = {
     "V24": ("native call correspondence", "host-inline", "implemented"),
 }
 
-#: the WP22 gate-binary record in the maintainer workspace (optional: absent
-#: elsewhere, then only ``extra`` and ``$SCOPT_V6_EXES`` count)
-V6_GATE_BINARY_JSON = fastdyn_root() / "runs/wp22/gate-binary.json"
-
 #: The checked-in QEMU capability table: loader capabilities of known
 #: executables, keyed by the binary's sha256 (O4-design.md 2.8).
 QEMU_CAPABILITIES_JSON = Path(__file__).resolve().parent / "data" / "qemu_capabilities.json"
 QEMU_CAPABILITIES_SCHEMA = "scopt.qemu-capabilities/1"
-#: The table's capability columns: ``v6`` (sc6 semantic extension loader),
+#: The table's capability columns: ``semantic`` (v7 semantic table loader),
 #: ``trusted_v7`` (trusted firmware-region v7 contract) and ``member_skip``
 #: (composed v7 member skip flags, QEMU stats counters revision 4).
-QEMU_CAPABILITIES = ("v6", "trusted_v7", "member_skip")
+QEMU_CAPABILITIES = ("semantic", "trusted_v7", "member_skip")
 
 
 def _exe_digest(exe: str) -> str:
@@ -1794,22 +1790,12 @@ def _without_incapable(exes: set[str], capability: str) -> frozenset[str]:
     return frozenset(x for x in exes if _exe_digest(x) not in incapable)
 
 
-def v6_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
-    """Exe sha256s (hex, no prefix) of QEMU binaries whose loader reads ``.sc`` v6:
-    ``extra``, ``$SCOPT_V6_EXES`` (comma separated) and the frozen gate binary
-    recorded by WP22 in ``runs/wp22/gate-binary.json`` (``exe_sha256``), minus
-    the digests :func:`qemu_capability_table` marks incapable of ``v6``."""
-    out = {x.removeprefix("sha256:") for x in extra if x}
-    out |= {x.strip().removeprefix("sha256:") for x in
-            os.environ.get("SCOPT_V6_EXES", "").split(",") if x.strip()}
-    try:
-        doc = json.loads(V6_GATE_BINARY_JSON.read_text())
-        v = doc.get("exe_sha256")
-        if isinstance(v, str):
-            out.add(v.removeprefix("sha256:"))
-    except (OSError, ValueError):
-        pass
-    return _without_incapable(out, "v6")
+def semantic_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
+    """Executables explicitly admitted for the semantic table in a canonical v7 cache."""
+    out = {_exe_digest(x) for x in extra if x}
+    for variable in ("SCOPT_SEMANTIC_EXES", "SCOPT_V6_EXES"):
+        out.update(_exe_digest(x) for x in os.environ.get(variable, "").split(",") if x.strip())
+    return _without_incapable(out, "semantic")
 
 
 def v7_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
@@ -2236,7 +2222,7 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
 
 def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
                 plan: Any = None, sidecar: Mapping[str, Any] | None = None,
-                layout: Any = None, v6_exes: Iterable[str] = (),
+                layout: Any = None, semantic_exes: Iterable[str] = (),
                 v7_exes: Iterable[str] = (),
                 trusted_v7_exes: Iterable[str] = (),
                 runtime: Mapping[str, Any] | None = None, scparse: Any = None,
@@ -2530,7 +2516,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
           else f"no sidecar given (checked by package_b3; expected {want_lr})")
     if has_ext:
         exe = _ri_exe(ri)
-        caps = v6_capable_exes(v6_exes)
+        caps = semantic_capable_exes(semantic_exes)
         v.add("V7", "v6_capable_runtime", exe is not None and exe in caps,
               f"RuntimeIdentity exe {exe} {'is' if exe in caps else 'is not'} a v6-capable "
               f"(qint-v6) binary ({len(caps)} known)", "v6_runtime_required")
@@ -3244,7 +3230,7 @@ def relocate_unit_body(u: Any, new_tb: int) -> bytes:
     return relocate_unit(u, new_tb).body
 
 
-__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "v7_capable_exes", "trusted_v7_capable_exes", "member_skip_capable_exes", "member_slot_skip_decision", "MEMBER_SLOT_SKIP_MODES", "QEMU_CAPABILITIES", "QEMU_CAPABILITIES_JSON", "qemu_capability_table", "qemu_capability", "known_capable_exes", "known_incapable_exes", "stub_rows", "relocate_unit_body",
+__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "semantic_capable_exes", "v7_capable_exes", "trusted_v7_capable_exes", "member_skip_capable_exes", "member_slot_skip_decision", "MEMBER_SLOT_SKIP_MODES", "QEMU_CAPABILITIES", "QEMU_CAPABILITIES_JSON", "qemu_capability_table", "qemu_capability", "known_capable_exes", "known_incapable_exes", "stub_rows", "relocate_unit_body",
             "multi_tb_rows"]
 
 
@@ -3462,7 +3448,7 @@ def certification_problems(sidecar: Mapping[str, Any], validation: Mapping[str, 
 def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_id: str,
                pipeline: Sequence[Mapping[str, Any]] | None = None,
                profile_ids: Sequence[Mapping[str, Any]] = (), layout: Any = None,
-               v6_exes: Iterable[str] = (), v7_exes: Iterable[str] = (),
+               semantic_exes: Iterable[str] = (), v7_exes: Iterable[str] = (),
                trusted_v7_exes: Iterable[str] = (),
                member_skip_exes: Iterable[str] = (),
                runtime: Mapping[str, Any] | None = None,
@@ -3637,7 +3623,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
                                    validation=None, link=link, reimport=None,
                                    publish_status=status)
         val, res = validate_b3(snapshot, link, stage, plan=plan, sidecar=sidecar, layout=layout,
-                               v6_exes=v6_exes, v7_exes=v7_exes,
+                               semantic_exes=semantic_exes, v7_exes=v7_exes,
                                trusted_v7_exes=trusted_v7_exes,
                                runtime=ri, scparse=scparse,
                                sc6parse=sc6parse, **vkw)

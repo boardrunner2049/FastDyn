@@ -550,7 +550,7 @@ def step_o4(out: Path, modes: list[str], art: dict[str, Any], exe: Path, exe_sha
         cdir = out / "o4" / "control-store" / m
         _rmtree(cdir)
         pr = package_b3(s, plan, cdir, candidate_id="sha256:" + __import__("hashlib").sha256(
-            f"wp27-o4-control-{m}".encode()).hexdigest(), runtime=ri, v6_exes=[exe_sha],
+            f"wp27-o4-control-{m}".encode()).hexdigest(), runtime=ri, semantic_exes=[exe_sha],
             summaries=rows, hostsym=hs)
         ctl: dict[str, Any] = {"status": pr.status, "reason": pr.reason,
                                "validation": None if pr.validation is None
@@ -601,7 +601,7 @@ def step_o4(out: Path, modes: list[str], art: dict[str, Any], exe: Path, exe_sha
             _rmtree(ndir / lab_m)
             nr = package_negative(s, mplan, ndir, label=lab_m, mutant=mu["mutant"],
                                   detector="F-B3-1 O1 (z/nz counts)", layout=lay, runtime=ri,
-                                  v6_exes=[exe_sha], hostsym=hs, summaries=rows,
+                                  semantic_exes=[exe_sha], hostsym=hs, summaries=rows,
                                   bypass=mu["bypass"])
             mr.update(status=nr.status, reason=nr.reason, path=nr.path,
                       bypassed=[{"code": x["code"], "check": x.get("check"),
@@ -729,7 +729,7 @@ def step_xrehy(out: Path, modes: list[str], exe: Path, exe_sha: str,
         cid = "sha256:" + __import__("hashlib").sha256(f"wp27-xrehy-{m}".encode()).hexdigest()
         st = out / "xrehy" / "store" / m
         _rmtree(st)
-        pr = package_b3(s, plan, st, candidate_id=cid, runtime=ri, v6_exes=[exe_sha],
+        pr = package_b3(s, plan, st, candidate_id=cid, runtime=ri, semantic_exes=[exe_sha],
                         summaries=rows, hostsym=hs)
         r["package_certified"] = {"status": pr.status, "reason": pr.reason,
                                   "validation": None if pr.validation is None
@@ -741,7 +741,7 @@ def step_xrehy(out: Path, modes: list[str], exe: Path, exe_sha: str,
             # allow_uncertified waives only the hostsym certification rows; record it
             st2 = out / "xrehy" / "store-uncertified" / m
             _rmtree(st2)
-            pr2 = package_b3(s, plan, st2, candidate_id=cid, runtime=ri, v6_exes=[exe_sha],
+            pr2 = package_b3(s, plan, st2, candidate_id=cid, runtime=ri, semantic_exes=[exe_sha],
                              summaries=rows, hostsym=hs, allow_uncertified=True)
             r["package_uncertified"] = {"status": pr2.status, "reason": pr2.reason,
                                         "validation": None if pr2.validation is None
@@ -767,7 +767,7 @@ def step_xrehy(out: Path, modes: list[str], exe: Path, exe_sha: str,
                                   mutant=None, detector="X-REHY experiment (not a mutant: the "
                                   "variant is sound for F-B3-23; validation cannot accept a "
                                   "guard under coverage)", layout=lay, runtime=ri,
-                                  v6_exes=[exe_sha], hostsym=hs, summaries=rows, bypass=byp)
+                                  semantic_exes=[exe_sha], hostsym=hs, summaries=rows, bypass=byp)
             r["package_experiment"] = {"status": nr.status, "reason": nr.reason,
                                        "path": nr.path,
                                        "bypassed": [{"code": x["code"], "check": x.get("check"),

@@ -411,7 +411,7 @@ def class_ledger_rows(prop: B4Proposal, *, ledger: Any = None) -> Any:
 
 def package_b4(snapshot: Any, prop: B4Proposal, store: Any, *, candidate_id: str,
                layout: Any, runtime: Mapping[str, Any] | None, selftest: Mapping[str, Any],
-               v6_exes: Iterable[str] = (), env_abs: tuple[int, int] | None = None,
+               semantic_exes: Iterable[str] = (), env_abs: tuple[int, int] | None = None,
                **kw: Any) -> Any:
     """Link the public records, validate (V1-V23 with V12 from ``hostsym`` under the strict call
     contract, V15 deletable class, V20 with D2/D3 needs) and publish ``prop``.
@@ -434,6 +434,6 @@ def package_b4(snapshot: Any, prop: B4Proposal, store: Any, *, candidate_id: str
                  "affected": sorted(prop.patches), "edit_digest": prop.edit_digest,
                  "duration_s": 0.0, "x_classes": prop.by_class()}]
     return package_b3(snapshot, plan, store, candidate_id=candidate_id, pipeline=pipeline,
-                      layout=layout, runtime=runtime, v6_exes=v6_exes, hostsym=hs,
+                      layout=layout, runtime=runtime, semantic_exes=semantic_exes, hostsym=hs,
                       need_d2=prop.need_d2(), need_d3=prop.need_d3(),
                       compile_only=True, **kw)

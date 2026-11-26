@@ -41,7 +41,7 @@ negative-control or test-policy artifact as an arm source
 (``negative_control_arm``, ``test_only_arm``; :mod:`scopt.run.policy`) and,
 when any arm deploys a semantic extension, requires the campaign's QEMU to support
 that payload (``semantic_arm_needs_qemu``, ``semantic_loader_required``;
-:func:`scopt.validate.v6_capable_exes`): every arm of a comparison runs on
+:func:`scopt.validate.semantic_capable_exes`): every arm of a comparison runs on
 that one binary (plan "Runtime rules", R13).
 
 Validity: a run is a timing sample only if it exited 0, did not time out,
@@ -788,13 +788,13 @@ def preflight(c: Campaign, out: Path) -> dict[str, Any]:
             semantic_arms.append(a.name)
         ids["arms"][a.name] = info
     if semantic_arms:
-        from ..validate import v6_capable_exes
+        from ..validate import semantic_capable_exes
 
         if not c.qemu:
             raise CampaignError("semantic_arm_needs_qemu", "arms " + ", ".join(semantic_arms) +
                                 " deploy semantic v7: name the capable QEMU "
                                 "(every arm runs on it)")
-        if _file_sha(c.qemu) not in v6_capable_exes():
+        if _file_sha(c.qemu) not in semantic_capable_exes():
             raise CampaignError("semantic_loader_required", f"{c.qemu} is not a "
                                 "semantic-v7-capable binary; arms " + ", ".join(semantic_arms))
         ids["semantic_arms"] = semantic_arms

@@ -363,7 +363,7 @@ def synthetic_artifact(base: S.Base, out: Path, exe_sha: str) -> S.Artifact:
                            "identity-clone variants")
     store = out / "artifacts" / spec.name
     r = package_b3(s, plan, store, candidate_id="sha256:" + "26" * 32, runtime=base.ri,
-                   allow_uncertified=True, v6_exes=[exe_sha])
+                   allow_uncertified=True, semantic_exes=[exe_sha])
     a = S.Artifact(spec, base, Path(r.artifact_dir) if r.artifact_dir else None, r.status,
                    r.reason)
     a.layout = {"status": r.status, "reason": r.reason,
@@ -400,7 +400,7 @@ def item_f_b3_18(bases: S.Bases, out: Path, gate: Path, exe_sha: str,
     res["controls"]["gate_v5_bare_on_qint_info"] = strip(foreign)
     # Discriminating control: a base prepared on qint (qint's runtime_signature).
     # Its v5 cache must PASS on qint, and an identity-semantic written by WP18 from
-    # it (v6_exes = [qint sha]: a test-only override of V7 v6_capable_runtime,
+    # it (semantic_exes = [qint sha]: a test-only override of V7 v6_capable_runtime,
     # this directory is never published or run on the gate) must be INVALID on
     # qint with semantic_header failed and no runtime_signature difference, so the
     # qint INVALID of the gate artifacts is caused by the v6 format.

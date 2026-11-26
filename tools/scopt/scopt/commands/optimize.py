@@ -273,7 +273,7 @@ def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, t
 #: named ``o4-...``.
 O4_PIPELINE_NAME = re.compile(r"O4(-r\d+)?")
 #: capability -> (flag, environment variable) of its explicit allowlist.
-_O4_ALLOWLISTS = {"v6": ("--v6-exe", "SCOPT_V6_EXES"),
+_O4_ALLOWLISTS = {"semantic": ("--semantic-exe", "SCOPT_SEMANTIC_EXES"),
                   "trusted_v7": ("--v7-trusted-exe", "SCOPT_V7_TRUSTED_EXES"),
                   "member_skip": ("--v7-member-skip-exe", "SCOPT_V7_MEMBER_SKIP_EXES")}
 _O4_HELP = "see docs/O4.md, 'Using O4'"
@@ -289,7 +289,7 @@ def _o4_runtime_needs(pl) -> list[str]:
 
     needs = []
     if pl.allowed_capabilities & {EditKind.CLONE, EditKind.REDIRECT_EXIT, EditKind.ADD_ENTRY}:
-        needs.append("v6")                      # the sc6 semantic extension
+        needs.append("semantic")                      # the sc6 semantic extension
     for entry in pl.passes:
         if entry.name == "firmware-inline":
             if entry.params.get("trust", "safe") == "user":
@@ -331,7 +331,7 @@ def _o4_preflight(snap, pl, *, customized, profiles, ri_file, prep, elf, pgo_lau
     from ..formats.enums import RunInfoFlag
     from ..manager import DEFAULT_MIN_PROFILE_MATCH, PIPELINES_DIR, PipelineError, load_pipeline
     from ..validate import (_ri_exe, member_skip_capable_exes, qemu_capability,
-                            trusted_v7_capable_exes, v6_capable_exes)
+                            trusted_v7_capable_exes, semantic_capable_exes)
 
     problems = []
     try:
@@ -405,7 +405,7 @@ def _o4_preflight(snap, pl, *, customized, profiles, ri_file, prep, elf, pgo_lau
             problems.append(f"--runtime-identity {ri_file} does not describe the QEMU that "
                             f"captured this snapshot: qemu_sha256 {exe} against the "
                             f"snapshot's {snap_exe}")
-    allowlists = {"v6": v6_capable_exes, "trusted_v7": trusted_v7_capable_exes,
+    allowlists = {"semantic": semantic_capable_exes, "trusted_v7": trusted_v7_capable_exes,
                   "member_skip": member_skip_capable_exes}
     for capability in _o4_runtime_needs(pl) if exe else ():
         flag, env = _O4_ALLOWLISTS[capability]
@@ -515,9 +515,8 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
                    "that allows a B3 kind).")
 @click.option("--runtime-identity", "ri_file", type=click.Path(exists=True, dir_okay=False),
               help="--b3: RuntimeIdentity the artifact targets (default: the snapshot's).")
-@click.option("--v6-exe", "v6_exes", multiple=True,
-              help="--b3: extra semantic-extension-capable exe sha256 (legacy option spelling; "
-                   "all published artifacts are v7).")
+@click.option("--semantic-exe", "--v6-exe", "semantic_exes", multiple=True,
+              help="--b3: admit a QEMU executable digest for the v7 semantic extension.")
 @click.option("--v7-exe", "v7_exes", multiple=True,
               help="--b3: firmware-region-v7-capable exe sha256 (repeatable; separate from the "
                    "semantic-extension capability).")
@@ -544,7 +543,7 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @selection_timing_options
 @click.option("--json", "as_json", is_flag=True)
 def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, params_file, b3_mode,
-                 ri_file, v6_exes, v7_exes, trusted_v7_exes, member_skip_exes, selftest_file, prep,
+                 ri_file, semantic_exes, v7_exes, trusted_v7_exes, member_skip_exes, selftest_file, prep,
                  elf, as_json, select_with=None, selection_out=None,
                  qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=(),
                  helper_pgo_launch=None, trust_input=False, pgo_phase="auto", opt_level=None):
@@ -581,9 +580,9 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         exes, o4 = _o4_preflight(
             snap, pl, customized=customized, profiles=profiles, ri_file=ri_file, prep=prep,
             elf=elf, pgo_launch=helper_pgo_launch,
-            exes={"v6": v6_exes, "trusted_v7": trusted_v7_exes, "member_skip": member_skip_exes})
-        v6_exes, trusted_v7_exes, member_skip_exes = (
-            exes["v6"], exes["trusted_v7"], exes["member_skip"])
+            exes={"semantic": semantic_exes, "trusted_v7": trusted_v7_exes, "member_skip": member_skip_exes})
+        semantic_exes, trusted_v7_exes, member_skip_exes = (
+            exes["semantic"], exes["trusted_v7"], exes["member_skip"])
     trust_input = trust_input or _user_trusted_pipeline(pl, params, disable)
     if trust_input:
         from ..formats.sc_records import trusted_record_input
@@ -715,7 +714,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         raise click.UsageError("native_combination_unsupported: native islands need a standalone pipeline")
     if b3_mode or (pl.allowed_capabilities & B3_EDIT_KINDS):
         _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
-                     v6_exes, v7_exes, trusted_v7_exes,
+                     semantic_exes, v7_exes, trusted_v7_exes,
                      selftest_file, prep, elf, as_json, native_stage=native_stage,
                      selection=(original_snapshot, select_with, selection_out, timing), enable=enable,
                      training_phase=training_phase, member_skip_exes=member_skip_exes, o4=o4)
@@ -762,7 +761,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
 
 
 def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
-                 v6_exes, v7_exes, trusted_v7_exes,
+                 semantic_exes, v7_exes, trusted_v7_exes,
                  selftest_file, prep, elf, as_json, native_stage=None, selection=None, enable=(),
                  training_phase=None, member_skip_exes=(), o4=None):
     from ..analysis.b3_inputs import resolve_for_snapshot
@@ -774,7 +773,7 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
     except Exception as e:  # noqa: BLE001 - a mismatching input is a usage error
         raise click.UsageError(f"{getattr(e, 'code', type(e).__name__)}: {e}") from e
     ri = json.loads(Path(ri_file).read_text()) if ri_file else None
-    env = B3Env(runtime=ri, v6_exes=tuple(v6_exes), v7_exes=tuple(v7_exes),
+    env = B3Env(runtime=ri, semantic_exes=tuple(semantic_exes), v7_exes=tuple(v7_exes),
                 trusted_v7_exes=tuple(trusted_v7_exes),
                 member_skip_exes=tuple(member_skip_exes),
                 selftest=None)

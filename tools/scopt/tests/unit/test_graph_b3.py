@@ -32,7 +32,7 @@ def _publish(tmp_path, name: str, n_hosts: int, n_general: int):
     try:
         ri6 = H.v6_identity(mp)
         r = package_b3(s, plan, tmp_path / "store", candidate_id="sha256:" + "22" * 32,
-                       runtime=ri6, v6_exes=[H.QINT_V6_SHA], allow_uncertified=True)
+                       runtime=ri6, semantic_exes=[H.QINT_V6_SHA], allow_uncertified=True)
         assert r.status == "published", r.reason
         res = reimport(r.artifact_dir, s)
         regs = [json.loads(x) for x in (Path(r.artifact_dir) / "regions.jsonl")

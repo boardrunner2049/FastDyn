@@ -107,7 +107,7 @@ def package_negative(snapshot: Any, plan: Any, out_dir: str | os.PathLike, *, la
                      mutant: str | None = None, detector: str | None = None,
                      mutate: Callable[[Any], Any] | None = None,
                      bypass: Iterable[str] = BYPASS_ROWS, layout: Any = None,
-                     runtime: Mapping[str, Any] | None = None, v6_exes: Iterable[str] = (),
+                     runtime: Mapping[str, Any] | None = None, semantic_exes: Iterable[str] = (),
                      scparse: Any = None, sc6parse: Any = None,
                      **vkw: Any) -> NegativeResult:
     """Package the mutant ``plan`` (+ ``mutate``) as ``out_dir/<label>/`` (see the
@@ -184,7 +184,7 @@ def package_negative(snapshot: Any, plan: Any, out_dir: str | os.PathLike, *, la
     if link.ext is not None:
         sidecar["x_ext_artifact_id8"] = bytes(link.ext.artifact_id8).hex()
     val, _res = validate_b3(snapshot, link, out, plan=plan, sidecar=sidecar, layout=layout,
-                            v6_exes=v6_exes, runtime=ri, scparse=scparse, sc6parse=sc6parse,
+                            semantic_exes=semantic_exes, runtime=ri, scparse=scparse, sc6parse=sc6parse,
                             **vkw)
     fails = val.fails()
     bypassed = [r for r in fails if r["code"] in bypass]

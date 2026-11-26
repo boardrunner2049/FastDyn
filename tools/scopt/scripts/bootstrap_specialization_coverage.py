@@ -17,6 +17,7 @@ import bootstrap_translation_coverage as producer
 
 def run(work: Path, qemu: Path, plugin_source: Path, selftest: Path | None) -> None:
     from scopt.canon import canonical_json
+    from scopt.formats.sc_semantic import read_semantic_cache
     from scopt.formats.translation_coverage import produce_coverage, select_coverage
     from scopt.importer.import_cache import open_snapshot
 
@@ -30,7 +31,7 @@ def run(work: Path, qemu: Path, plugin_source: Path, selftest: Path | None) -> N
     layouts.mkdir()
     env = dict(os.environ, FASTDYN_ROOT=str(producer.ROOT),
                SCOPT_RUNTIME_QEMU=str(qemu), SCOPT_RUNTIME_QEMU_SHA256=qemu_sha,
-               SCOPT_ENVLAYOUT_PATH=str(layouts), SCOPT_V6_EXES=qemu_sha)
+               SCOPT_ENVLAYOUT_PATH=str(layouts), SCOPT_SEMANTIC_EXES=qemu_sha)
     env.setdefault("SCOPT_FASTDYN_SRC", str(producer.ROOT))
     env.pop("QEMU_SCOPT_COVERAGE_TRACE", None)
     env.pop("QEMU_SCOPT_COVERAGE_RANGE", None)
@@ -83,10 +84,14 @@ def run(work: Path, qemu: Path, plugin_source: Path, selftest: Path | None) -> N
         params = work / f"{mode}-params.json"
         params.write_bytes(canonical_json({"specialize-edges": config_opts}) + b"\n")
         arm = work / mode
-        cli("optimize", snapshot, "--pipeline", "global-specialization", "--profile", profile,
-            "--runtime-identity", admission, "--prep", prep, "--elf", elf, "--v6-exe", qemu_sha,
+        cli("optimize", snapshot, "--pipeline", "global-specialization",
+            "--enable", "specialize-edges", "--profile", profile,
+            "--runtime-identity", admission, "--prep", prep, "--elf", elf, "--semantic-exe", qemu_sha,
             "--selftest", local_selftest, "--params", params, "--store", arm)
         artifact, = (arm / "artifacts").iterdir()
+        image = read_semantic_cache(artifact / "cache.sc")
+        if not image.loadable or image.ext is None or not image.ext.links:
+            raise ValueError(f"{mode} specialization emitted no loadable semantic links")
         dynamic = arm / "v10"
         cli("validate", artifact, "--dynamic", "-c", config, "--baseline", snapshot,
             "--qemu", qemu, *flags("heldout"), "--out", dynamic)

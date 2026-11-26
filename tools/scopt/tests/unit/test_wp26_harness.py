@@ -363,7 +363,7 @@ def v6_store(tmp_path, monkeypatch):
 
     s, plan, ri6, H = _v6_link(monkeypatch)
     r = package_b3(s, plan, tmp_path / "store", candidate_id="sha256:" + "61" * 32,
-                   runtime=ri6, v6_exes=[H.QINT_V6_SHA], allow_uncertified=True)
+                   runtime=ri6, semantic_exes=[H.QINT_V6_SHA], allow_uncertified=True)
     assert r.status == "published", r.reason
     return s, plan, ri6, H, Path(r.artifact_dir)
 
@@ -483,7 +483,7 @@ def negative(tmp_path, monkeypatch):
     s, plan, ri6, H = _v6_link(monkeypatch)
     r = package_negative(s, plan, tmp_path / "neg", label="v16-byte", mutant="undeclared "
                          "variant byte", detector="F-B3-1 O1", mutate=_flip_variant_byte,
-                         runtime=ri6, v6_exes=[H.QINT_V6_SHA])
+                         runtime=ri6, semantic_exes=[H.QINT_V6_SHA])
     return s, plan, ri6, H, r
 
 
@@ -571,17 +571,17 @@ def test_negative_control_refusals_elsewhere(negative, tmp_path):
     assert artifact_refusals(art, h, allow_negative_control=True)[0] == []
     # without the bypass the same mutant is refused by the packager (V16 is static)
     r2 = package_negative(s, plan, tmp_path / "neg2", label="nobypass",
-                          mutate=_flip_variant_byte, runtime=ri6, v6_exes=[H.QINT_V6_SHA],
+                          mutate=_flip_variant_byte, runtime=ri6, semantic_exes=[H.QINT_V6_SHA],
                           bypass=())
     assert r2.status == "refused" and r2.reason == "unbypassed:V16"
     assert not (tmp_path / "neg2" / "nobypass").exists()
     # never into a store's artifacts/ directory, never over an existing directory
     with pytest.raises(ValueError):
         package_negative(s, plan, tmp_path / "store" / "artifacts", label="x",
-                         runtime=ri6, v6_exes=[H.QINT_V6_SHA])
+                         runtime=ri6, semantic_exes=[H.QINT_V6_SHA])
     with pytest.raises(FileExistsError):
         package_negative(s, plan, Path(r.path).parent, label="v16-byte",
-                         runtime=ri6, v6_exes=[H.QINT_V6_SHA])
+                         runtime=ri6, semantic_exes=[H.QINT_V6_SHA])
 
 
 # ---------------------------------------------------------------------------
@@ -885,8 +885,6 @@ def test_preflight_refuses_negative_and_requires_v6_loader(negative, v6_store, t
     *_, r = negative
     *_, art = v6_store
     monkeypatch.delenv("SCOPT_V6_EXES", raising=False)
-    import scopt.validate as V
-    monkeypatch.setattr(V, "V6_GATE_BINARY_JSON", tmp_path / "none.json")
     c = campaign_from_args(base_config=str(base), arms=["warm", "neg"], out_name="t",
                            warm=str(art), artifacts={"neg": r.path})
     with pytest.raises(CampaignError) as e:
@@ -1411,7 +1409,7 @@ def test_dynamic_oracles_refuses_semantic_v7_on_incapable_qemu(tmp_path, monkeyp
     import hashlib
 
     from scopt.cli import cli, load_commands
-    from scopt.validate import v6_capable_exes
+    from scopt.validate import semantic_capable_exes
 
     art, base = tmp_path / "art", tmp_path / "base"
     art.mkdir()
@@ -1423,7 +1421,7 @@ def test_dynamic_oracles_refuses_semantic_v7_on_incapable_qemu(tmp_path, monkeyp
     exe.write_bytes(b"not a v6 loader")
     sha = hashlib.sha256(exe.read_bytes()).hexdigest()
     monkeypatch.delenv("SCOPT_V6_EXES", raising=False)
-    assert sha not in v6_capable_exes()
+    assert sha not in semantic_capable_exes()
     launched = []
     _fake_runs(monkeypatch)
     from scopt.run import launcher as L

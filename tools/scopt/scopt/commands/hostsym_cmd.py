@@ -167,7 +167,7 @@ def link_mutants_cmd(snapshot, limit, out):
             click.echo(f"link failed: {[f.to_json() for f in res.failures]}", err=True)
             sys.exit(2)
         suite.extend(guard_mutants(s, res, layout=lay, contract=c, offsets=off,
-                                   source="v6" if reg else "v5"))
+                                   source="semantic" if reg else "public"))
     suite.extend(fact_link_mutants(s, items, layout=lay, contract=c, offsets=off))
     suite.extend(shared_variant_mutants(s, items, layout=lay, contract=c, offsets=off))
     doc = suite.to_json()

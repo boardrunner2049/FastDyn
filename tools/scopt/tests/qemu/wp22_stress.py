@@ -19,7 +19,7 @@ outside any QEMU tree.
 2. **Artifacts** written by WP18 (``scopt.validate.package_b3``, NativeLinker
    v2 + ``sc_semantic`` writer, V1-V23 static rows; ``allow_uncertified=True``
    because the variants are identity clones and no WP19 certification input
-   exists for this loader test; ``v6_exes`` = the binary). Links are chosen
+   exists for this loader test; ``semantic_exes`` = the binary). Links are chosen
    from the fixture's symbols (``b3.nm``/``b3.lst``): R = the TB holding the
    callee's return, C = the TB at the return address Vc, the variant C' = a
    relocated clone of C without patches (so every run must equal the
@@ -332,7 +332,7 @@ def build_artifact(spec: ArtSpec, base: Base, out: Path, exe_sha: str) -> Artifa
         remove_tree(store)
     cid = "sha256:" + __import__("hashlib").sha256(spec.name.encode()).hexdigest()
     r = package_b3(s, plan, store, candidate_id=cid, runtime=base.ri, allow_uncertified=True,
-                   v6_exes=[exe_sha])
+                   semantic_exes=[exe_sha])
     art = Artifact(spec, base, Path(r.artifact_dir) if r.artifact_dir else None, r.status,
                    r.reason)
     art.layout = {"links": notes, "status": r.status, "reason": r.reason,

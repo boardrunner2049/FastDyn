@@ -25,7 +25,7 @@ def published(tmp_path_factory):
     ri6 = H.v6_identity(mp)
     store = tmp_path_factory.mktemp("store")
     r = package_b3(s, plan, store, candidate_id="sha256:" + "11" * 32, runtime=ri6,
-                   v6_exes=[H.QINT_V6_SHA], allow_uncertified=True)
+                   semantic_exes=[H.QINT_V6_SHA], allow_uncertified=True)
     yield s, plan, r
     mp.undo()
 

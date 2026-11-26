@@ -295,12 +295,12 @@ def test_linker_failures():
 # packaged artifacts: V-rows on minimal
 # ---------------------------------------------------------------------------
 
-def _artifact(tmp_path, s, plan, *, runtime=None, v6_exes=(), **kw):
+def _artifact(tmp_path, s, plan, *, runtime=None, semantic_exes=(), **kw):
     res = NativeLinkerV2(s, plan, offsets=H.offsets_for(s)).link()
     assert res.ok, res.failures
     d = tmp_path / "art"
     write_b3_files(d, s, res)
-    v, rr = validate_b3(s, res, d, plan=plan, runtime=runtime, v6_exes=v6_exes, **kw)
+    v, rr = validate_b3(s, res, d, plan=plan, runtime=runtime, semantic_exes=semantic_exes, **kw)
     return res, v, rr, d
 
 
@@ -345,7 +345,7 @@ def test_minimal_spec_and_general_artifact(tmp_path, monkeypatch):
     grow.update(dict(list(gen.items())[:3]))
     plan = B3Plan(grow=grow, variants=tuple(vs))
     ri6 = H.v6_identity(monkeypatch)
-    res, v, rr, d = _artifact(tmp_path, s, plan, runtime=ri6, v6_exes=[H.QINT_V6_SHA])
+    res, v, rr, d = _artifact(tmp_path, s, plan, runtime=ri6, semantic_exes=[H.QINT_V6_SHA])
     c = _codes(v)
     for k in ("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V11", "V13", "V15", "V16",
               "V17", "V19", "V21", "V23"):
@@ -550,7 +550,7 @@ def test_t_b3_2_grow_every_return_static_unit(tmp_path, monkeypatch, register):
     plan = B3Plan(grow=specs, register_slots=register)
     ri6 = H.v6_identity(monkeypatch)
     res, v, rr, _d = _artifact(tmp_path, s, plan, runtime=ri6 if register else None,
-                               v6_exes=[H.QINT_V6_SHA])
+                               semantic_exes=[H.QINT_V6_SHA])
     assert res.version == 7
     assert (res.ext is not None) == register
     _must_pass(v, ["V1", "V2", "V3", "V4", "V5", "V6", "V8", "V13", "V15", "V16", "V17",
@@ -569,7 +569,7 @@ def test_t_b3_3_clone_relocatable_units(tmp_path, monkeypatch):
     grow, vs = H.spec_pairs(s, hosts[:60], cs)
     plan = B3Plan(grow=grow, variants=tuple(vs), max_variants=len(vs))
     res, v, rr, _d = _artifact(tmp_path, s, plan, runtime=H.v6_identity(monkeypatch),
-                               v6_exes=[H.QINT_V6_SHA])
+                               semantic_exes=[H.QINT_V6_SHA])
     assert len(res.variants) == len(vs) >= 100
     _must_pass(v, ["V1", "V2", "V3", "V4", "V5", "V7", "V8", "V11", "V13", "V15", "V16",
                    "V17", "V19"])
@@ -692,7 +692,7 @@ def test_v13_spec_key_binding_from_bytes(tmp_path, monkeypatch, mut):
     d = tmp_path / mut
     write_b3_files(d, s, res)
     ri6 = H.v6_identity(monkeypatch)
-    v, _ = validate_b3(s, res, d, plan=plan, runtime=ri6, v6_exes=[H.QINT_V6_SHA],
+    v, _ = validate_b3(s, res, d, plan=plan, runtime=ri6, semantic_exes=[H.QINT_V6_SHA],
                        skip_reimport=True)
     row = next(r for r in v.rows if r["code"] == "V13" and r["check"] == "spec_key_binding")
     assert row["result"] == "fail" and row["reason"] == "guard_contract_violation", row
@@ -707,7 +707,7 @@ def test_v13_spec_key_binding_passes_on_valid(tmp_path, monkeypatch):
     d = tmp_path / "ok"
     write_b3_files(d, s, res)
     v, _ = validate_b3(s, res, d, plan=plan, runtime=H.v6_identity(monkeypatch),
-                       v6_exes=[H.QINT_V6_SHA], skip_reimport=True)
+                       semantic_exes=[H.QINT_V6_SHA], skip_reimport=True)
     row = next(r for r in v.rows if r["code"] == "V13" and r["check"] == "spec_key_binding")
     assert row["result"] == "pass", row
 
@@ -751,10 +751,10 @@ def test_package_b3_refuses_uncertified_and_maps_ext_codes(tmp_path, monkeypatch
     plan = B3Plan(grow={uid: (spec,)}, variants=tuple(vs))
     ri6 = H.v6_identity(monkeypatch)
     r = package_b3(s, plan, tmp_path / "s1", candidate_id="sha256:" + "31" * 32,
-                   runtime=ri6, v6_exes=[H.QINT_V6_SHA])
+                   runtime=ri6, semantic_exes=[H.QINT_V6_SHA])
     assert r.status == "rejected" and r.reason == "certification_not_run", r.reason
     r2 = package_b3(s, plan, tmp_path / "s2", candidate_id="sha256:" + "32" * 32,
-                    runtime=ri6, v6_exes=[H.QINT_V6_SHA], allow_uncertified=True)
+                    runtime=ri6, semantic_exes=[H.QINT_V6_SHA], allow_uncertified=True)
     assert r2.status == "published", r2.reason
     import json
     from pathlib import Path
@@ -768,7 +768,7 @@ def test_package_b3_refuses_uncertified_and_maps_ext_codes(tmp_path, monkeypatch
     monkeypatch.setattr(L, "spec_binding_problem", lambda *a, **k: None)
     r3 = package_b3(s, B3Plan(grow={uid: (sw,)}, variants=tuple(vs)), tmp_path / "s3",
                     candidate_id="sha256:" + "33" * 32, runtime=ri6,
-                    v6_exes=[H.QINT_V6_SHA], allow_uncertified=True)
+                    semantic_exes=[H.QINT_V6_SHA], allow_uncertified=True)
     assert r3.status == "rejected" and r3.reason == "failed:link_page_offset", r3.reason
 
 
@@ -896,7 +896,7 @@ def test_package_b3_with_hostsym_rows_and_refusals(tmp_path, monkeypatch):
                                       for i, v in enumerate(vs)]
     assert [lab for lab, _ in hs["entailment"]] == [uid]
     r = package_b3(s, plan, tmp_path / "s1", candidate_id="sha256:" + "41" * 32,
-                   runtime=ri6, v6_exes=[H.QINT_V6_SHA], hostsym=hs)
+                   runtime=ri6, semantic_exes=[H.QINT_V6_SHA], hostsym=hs)
     assert r.status == "published", r.reason
     c = r.validation.codes()
     assert c["V12"] == c["V13"] == c["V18"] == "pass"
@@ -907,11 +907,11 @@ def test_package_b3_with_hostsym_rows_and_refusals(tmp_path, monkeypatch):
     bad = dict(hs, equiv=[(lab, Verdict("mismatch", "validation_mismatch", "x", 1, 1))
                           if lab == f"R':{uid}" else (lab, v) for lab, v in hs["equiv"]])
     r2 = package_b3(s, plan, tmp_path / "s2", candidate_id="sha256:" + "42" * 32,
-                    runtime=ri6, v6_exes=[H.QINT_V6_SHA], hostsym=bad)
+                    runtime=ri6, semantic_exes=[H.QINT_V6_SHA], hostsym=bad)
     assert r2.status == "rejected" and r2.reason == "V12:validation_mismatch", r2.reason
     with pytest.raises(ValueError, match="skip_reimport"):
         package_b3(s, plan, tmp_path / "s3", candidate_id="sha256:" + "43" * 32,
-                   runtime=ri6, v6_exes=[H.QINT_V6_SHA], allow_uncertified=True,
+                   runtime=ri6, semantic_exes=[H.QINT_V6_SHA], allow_uncertified=True,
                    skip_reimport=True)
 
 

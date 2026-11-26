@@ -19,7 +19,7 @@ import scopt.validate as V
 from scopt.validate import (
     QEMU_CAPABILITIES, known_capable_exes, known_incapable_exes, member_skip_capable_exes,
     member_slot_skip_decision, qemu_capability, qemu_capability_table,
-    trusted_v7_capable_exes, v6_capable_exes,
+    trusted_v7_capable_exes, semantic_capable_exes,
 )
 
 AACCA05 = "951775b0300ea1421f32565af8f677c1eaee14e7e1de6238d32bdbe925eebc60"
@@ -35,9 +35,8 @@ def _ri(exe):
 
 @pytest.fixture(autouse=True)
 def _no_env_allowlists(monkeypatch):
-    for name in ("SCOPT_V6_EXES", "SCOPT_V7_TRUSTED_EXES", "SCOPT_V7_MEMBER_SKIP_EXES"):
+    for name in ("SCOPT_SEMANTIC_EXES", "SCOPT_V6_EXES", "SCOPT_V7_TRUSTED_EXES", "SCOPT_V7_MEMBER_SKIP_EXES"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(V, "V6_GATE_BINARY_JSON", V.QEMU_CAPABILITIES_JSON.parent / "absent")
 
 
 def _table(monkeypatch, rows):
@@ -58,26 +57,26 @@ def test_the_table_is_well_formed():
 
 def test_recorded_binaries():
     assert {c: qemu_capability(AACCA05, c) for c in QEMU_CAPABILITIES} == \
-        {"v6": True, "trusted_v7": True, "member_skip": True}
+        {"semantic": True, "trusted_v7": True, "member_skip": True}
     assert qemu_capability_table()[AACCA05]["counters_revision"] == 4
     assert qemu_capability("sha256:" + A1BDEC6, "member_skip") is False
     assert qemu_capability(A1BDEC6.upper(), "trusted_v7") is True
     assert qemu_capability(TREB_A79D340, "member_skip") is False
-    assert qemu_capability(TREB_A79D340, "v6") is None
+    assert qemu_capability(TREB_A79D340, "semantic") is None
     # 65e80cc has no recorded capability: unknown, flags required.
     assert all(qemu_capability(QEMU_65E80CC, c) is None for c in QEMU_CAPABILITIES)
-    assert qemu_capability(None, "v6") is None
+    assert qemu_capability(None, "semantic") is None
     with pytest.raises(ValueError):
         qemu_capability(AACCA05, "v7")
     assert known_capable_exes("member_skip") == {AACCA05}
     assert known_incapable_exes("member_skip") == {A1BDEC6, TREB_A79D340}
-    assert known_incapable_exes("v6") == known_incapable_exes("trusted_v7") == frozenset()
+    assert known_incapable_exes("semantic") == known_incapable_exes("trusted_v7") == frozenset()
 
 
 def test_capable_rows_are_not_implicit_outside_o4():
     # Without a flag the allowlists stay empty, exactly as before the table.
     assert member_skip_capable_exes() == trusted_v7_capable_exes() == frozenset()
-    assert v6_capable_exes() == frozenset()
+    assert semantic_capable_exes() == frozenset()
     assert member_slot_skip_decision("auto", _ri(AACCA05)) == (False, "not_allowlisted")
     assert member_slot_skip_decision("auto", _ri(AACCA05), (AACCA05,)) == (True, "allowlisted")
 
@@ -94,11 +93,11 @@ def test_a_flag_cannot_allowlist_a_known_incapable_member_skip_exe(monkeypatch):
     assert member_slot_skip_decision("off", _ri(A1BDEC6), flags) == (False, "param_off")
     # Their other capabilities are untouched.
     assert A1BDEC6 in trusted_v7_capable_exes((A1BDEC6,))
-    assert A1BDEC6 in v6_capable_exes((A1BDEC6,))
+    assert A1BDEC6 in semantic_capable_exes((A1BDEC6,))
 
 
 @pytest.mark.parametrize(("capability", "allowlist", "env"), [
-    ("v6", v6_capable_exes, "SCOPT_V6_EXES"),
+    ("semantic", semantic_capable_exes, "SCOPT_V6_EXES"),
     ("trusted_v7", trusted_v7_capable_exes, "SCOPT_V7_TRUSTED_EXES"),
     ("member_skip", member_skip_capable_exes, "SCOPT_V7_MEMBER_SKIP_EXES"),
 ])
@@ -108,7 +107,7 @@ def test_each_capability_subtracts_its_own_incapable_rows(monkeypatch, capabilit
     assert allowlist(("sha256:" + UNKNOWN, AACCA05)) == {AACCA05}
     monkeypatch.setenv(env, UNKNOWN)
     assert allowlist() == frozenset()
-    others = [f for c, f in (("v6", v6_capable_exes), ("trusted_v7", trusted_v7_capable_exes),
+    others = [f for c, f in (("semantic", semantic_capable_exes), ("trusted_v7", trusted_v7_capable_exes),
                              ("member_skip", member_skip_capable_exes)) if c != capability]
     for other in others:
         assert other((UNKNOWN,)) == {UNKNOWN}
@@ -125,12 +124,12 @@ def test_a_malformed_table_is_refused(monkeypatch, tmp_path):
         finally:
             V.qemu_capability_table.cache_clear()
 
-    ok = {"commit": "x", "v6": True, "trusted_v7": None, "member_skip": False, "evidence": "e"}
+    ok = {"commit": "x", "semantic": True, "trusted_v7": None, "member_skip": False, "evidence": "e"}
     assert set(load({"schema": "scopt.qemu-capabilities/1", "binaries": {UNKNOWN: ok}})) == {UNKNOWN}
     for doc in ({"schema": "other", "binaries": {}},
                 {"schema": "scopt.qemu-capabilities/1", "binaries": {"AB" * 32: ok}},
                 {"schema": "scopt.qemu-capabilities/1", "binaries": {"ab": ok}},
-                {"schema": "scopt.qemu-capabilities/1", "binaries": {UNKNOWN: {**ok, "v6": "yes"}}},
+                {"schema": "scopt.qemu-capabilities/1", "binaries": {UNKNOWN: {**ok, "semantic": "yes"}}},
                 {"schema": "scopt.qemu-capabilities/1", "binaries": {UNKNOWN: {**ok, "evidence": ""}}}):
         with pytest.raises(ValueError):
             load(doc)
@@ -162,3 +161,20 @@ def test_package_b3_refuses_a_flagged_known_incapable_exe(tmp_path):
                      candidate_id="sha256:" + "42" * 32, runtime=_ri(A1BDEC6),
                      member_skip_exes=(A1BDEC6,))
     assert (res.status, res.reason) == ("rejected", "failed:member_slot_skip_unsupported_runtime")
+
+
+def test_semantic_admission_ignores_retired_gate_record(monkeypatch, tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    gate = tmp_path / "runs/wp22/gate-binary.json"
+    gate.parent.mkdir(parents=True)
+    gate.write_text(json.dumps({"exe_sha256": UNKNOWN}))
+    monkeypatch.setenv("FASTDYN_ROOT", str(tmp_path))
+    for key in ("SCOPT_SEMANTIC_EXES", "SCOPT_V6_EXES"):
+        monkeypatch.delenv(key, raising=False)
+    probe = "from scopt.validate import semantic_capable_exes; print(sorted(semantic_capable_exes()))"
+    assert subprocess.check_output([sys.executable, "-c", probe], env=os.environ, text=True).strip() == "[]"
+    monkeypatch.setenv("SCOPT_SEMANTIC_EXES", "sha256:" + UNKNOWN)
+    assert UNKNOWN in semantic_capable_exes()
