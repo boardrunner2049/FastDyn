@@ -29,12 +29,21 @@ from scopt.paths import fastdyn_root
 DOCS = Path(__file__).parents[2] / "docs"
 
 
-def _schema(reg, name):
-    return reg.get(name, 1).descriptor.params_schema
-
-
 def _o4():
     return {e.name: e for e in load_pipeline(PIPELINES_DIR / "O4.toml").passes}
+
+
+def _schema(reg, name, by=None):
+    """The params schema of the version O4 runs (version 1 for a pass O4 does not run)."""
+    entry = (by if by is not None else _o4()).get(name)
+    return reg.get(name, entry.version if entry is not None else 1).descriptor.params_schema
+
+
+def _revisions_on_disk():
+    """The packaged ``O4-rN.toml`` names, oldest first."""
+    names = [p.stem for p in PIPELINES_DIR.glob("O4-r*.toml")]
+    assert all(re.fullmatch(r"O4-r\d+", n) for n in names), names
+    return tuple(sorted(names, key=lambda n: int(n.removeprefix("O4-r"))))
 
 
 def test_every_registered_pass_has_a_decision():
@@ -47,15 +56,15 @@ def test_every_firmware_mode_has_a_decision():                 # built-in and in
 
 
 def test_every_param_of_an_included_pass_is_decided():          # a new speed knob fails CI
-    reg = default_pass_registry()
+    reg, by = default_pass_registry(), _o4()
     for name, d in o4.PASSES.items():
-        for param in _schema(reg, name):
+        for param in _schema(reg, name, by):
             key = (name, param)
             if d.status == o4.INCLUDED:
                 assert (key in o4.KNOBS) != (key in o4.NON_SPEED), key
             else:                                               # decided at pass level
                 assert key not in o4.KNOBS and key not in o4.NON_SPEED, key
-    known = {(n, p) for n in o4.PASSES for p in _schema(reg, n)}
+    known = {(n, p) for n in o4.PASSES for p in _schema(reg, n, by)}
     assert set(o4.KNOBS) | set(o4.NON_SPEED) <= known
     assert all(reason for reason in o4.NON_SPEED.values())
 
@@ -82,6 +91,8 @@ def test_evidence_anchors_exist_in_the_note():
 
 
 def test_o4_toml_is_the_current_revision():
+    # Every packaged O4-rN.toml is a recorded revision, so O4.toml is the newest file.
+    assert _revisions_on_disk() == o4.REVISIONS
     assert o4.REVISIONS[-1] == o4.REVISION
     alias = load_pipeline(PIPELINES_DIR / "O4.toml")
     rev = load_pipeline(PIPELINES_DIR / f"{o4.REVISION}.toml")
@@ -103,8 +114,8 @@ def test_o4_carries_every_included_item_and_no_excluded_one():
     assert [m for m, d in o4.FIRMWARE_MODES.items() if d.status == o4.INCLUDED] == [fw]
     for (p, k), d in o4.KNOBS.items():
         params = by[p].params if p in by else {}
-        if d.status == o4.EXCLUDED:
-            assert params.get(k) != d.params[k], (p, k)
+        if d.status == o4.EXCLUDED:                             # unmeasured: no value yet
+            assert (k not in params) if not d.params else params.get(k) != d.params[k], (p, k)
         elif d.reason == "default":
             assert k not in params, (p, k)                      # "default" means the param is absent
         else:
@@ -126,9 +137,11 @@ def test_o4_contains_the_reference():
                 in ("measured_best", "required"), (e.name, k)
 
 
-def test_runtime_decisions_are_documented():
+def test_runtime_decisions_are_documented():                   # one table row per setting
     text = (DOCS / "O4.md").read_text(encoding="utf-8")
-    assert all(key in text for key in o4.RUNTIME), [k for k in o4.RUNTIME if k not in text]
+    missing = [k for k in o4.RUNTIME
+               if not re.search(rf"^\| `?{re.escape(k)}`? \|", text, flags=re.M)]
+    assert not missing, missing
 
 
 def test_runtime_matches_qemu_source():                         # every QEMU_SC_* variable is decided

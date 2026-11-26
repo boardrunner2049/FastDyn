@@ -34,8 +34,10 @@ def test_o4_r1_is_sealed_pgo_7_b3_with_b3_opted_in_and_member_skip_required():
 
 
 def test_o4_toml_is_the_newest_revision():
-    alias, rev = _load("O4"), _load("O4-r1")
-    assert alias.name == "O4" and rev.name == "O4-r1"
+    newest = max((p.stem for p in PIPELINES_DIR.glob("O4-r*.toml")),
+                 key=lambda n: int(n.removeprefix("O4-r")))
+    alias, rev = _load("O4"), _load(newest)
+    assert alias.name == "O4" and rev.name == newest
     assert alias.passes == rev.passes
     assert alias.allowed_capabilities == rev.allowed_capabilities
 
