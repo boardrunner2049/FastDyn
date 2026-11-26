@@ -511,7 +511,8 @@ thread-mode TBs, filtered exactly as the firmware `hot-loop` policy filters them
 FreeRTOS critical sections (`MSR BASEPRI`) end their TBs with `exit_tb(0)`, so under
 `transfer` their `helper_v7m_msr` and `helper_rebuild_hflags_m32_newel` sites are
 `outside_observed_loop` even inside a task loop. A non-default value is recorded in
-the receipt as `hot_loop_kinds`.
+the receipt as `hot_loop_kinds`. Setting `hot_loop_kinds` without `hot_loop_only` is
+`invalid_params`.
 
 The combined trusted configuration is described in [sealed PGO](sealed-whopr-7.md).
 

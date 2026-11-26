@@ -371,6 +371,19 @@ def test_hot_loop_only_no_longer_requires_selected_root(hot_world):
         assert (result.outcome, result.reason) == (Outcome.FAILED, "invalid_params"), bad
 
 
+@pytest.mark.parametrize("hot_loop_only", [False, None])
+@pytest.mark.parametrize("kinds", ["firmware", "transfer"])
+def test_hot_loop_kinds_requires_hot_loop_only(hot_world, kinds, hot_loop_only):
+    params = {**_HOTGRAPH_PARAMS, "hot_loop_kinds": kinds}
+    if hot_loop_only is None:
+        del params["hot_loop_only"]
+    else:
+        params["hot_loop_only"] = hot_loop_only
+    result, detail, _ = hot_world(params)
+    assert (result.outcome, result.reason) == (Outcome.FAILED, "invalid_params")
+    assert detail == "hot_loop_kinds requires hot_loop_only"
+
+
 @pytest.mark.parametrize("value", ["loops", "", "Firmware", 1, None])
 def test_invalid_hot_loop_kinds_is_invalid_params(hot_world, value):
     result, detail, _ = hot_world({**_HOTGRAPH_PARAMS, "hot_loop_kinds": value})

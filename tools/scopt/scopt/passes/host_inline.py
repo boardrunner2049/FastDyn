@@ -288,6 +288,11 @@ class HostInline:
         if params.get("hot_loop_kinds", "transfer") not in HOT_LOOP_KINDS:
             return PassResult(Outcome.FAILED, "invalid_params",
                               f"hot_loop_kinds must be one of {', '.join(HOT_LOOP_KINDS)}")
+        # ctx.params holds the declared params only (not _DEFAULTS): a pipeline that names
+        # hot_loop_kinds without hot_loop_only would otherwise be ignored silently.
+        if "hot_loop_kinds" in params and not params.get("hot_loop_only"):
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              "hot_loop_kinds requires hot_loop_only")
         if type(params.get("min_site_calls", 2)) is not int or params.get("min_site_calls", 2) < 1:
             return PassResult(Outcome.FAILED, "invalid_params", "min_site_calls must be positive")
         trusted_graph_limit = params.get("trusted_max_source_graph_bytes", 0)
