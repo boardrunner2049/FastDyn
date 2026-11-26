@@ -236,9 +236,18 @@ class PipelineEntry:
     name: str
     version: int
     params: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    #: The pipeline opts this :data:`DEFAULT_DISABLED_PASSES` member in, so it
+    #: runs without ``--enable`` (``--disable`` and ``--only`` still win).
+    enabled: bool = False
 
     def to_json(self) -> dict[str, Any]:
-        return {"name": self.name, "version": self.version, "params": dict(self.params)}
+        row = {"name": self.name, "version": self.version, "params": dict(self.params)}
+        # Written only when true, so every pipeline without the key keeps its
+        # pipeline_id.  scopt builds that predate the key reject it (strict
+        # entry keys) instead of silently running without the opted-in pass.
+        if self.enabled:
+            row["enabled"] = True
+        return row
 
 
 @dataclass(frozen=True)
@@ -302,7 +311,7 @@ class Pipeline:
 
 
 _PIPELINE_KEYS = {"schema", "version", "name", "description", "allowed_capabilities", "pass"}
-_ENTRY_KEYS = {"name", "version", "params"}
+_ENTRY_KEYS = {"name", "version", "params", "enabled"}
 
 
 def _strict_keys(d: Mapping[str, Any], allowed: set[str], where: str) -> None:
@@ -346,7 +355,14 @@ def pipeline_from_mapping(doc: Mapping[str, Any], source: str | None = None) -> 
         except TypeError as exc:
             raise PipelineError(f"{where}: pass[{i}] params are not JSON values: {exc}") \
                 from None
-        entries.append(PipelineEntry(pn, pv, MappingProxyType(dict(params))))
+        enabled = p.get("enabled", False)
+        if type(enabled) is not bool:
+            raise PipelineError(f"{where}: pass[{i}] ({pn}) 'enabled' must be a boolean")
+        if "enabled" in p and pn not in DEFAULT_DISABLED_PASSES:
+            raise PipelineError(
+                f"{where}: pass[{i}] ({pn}) runs by default; 'enabled' applies only to "
+                f"default-disabled passes ({', '.join(sorted(DEFAULT_DISABLED_PASSES))})")
+        entries.append(PipelineEntry(pn, pv, MappingProxyType(dict(params)), enabled))
     return Pipeline(name=name, passes=tuple(entries), allowed_capabilities=frozenset(caps),
                     version=1, description=str(doc.get("description", "")), source=source)
 
@@ -702,7 +718,9 @@ class PassManager:
         self.disable = frozenset(disable)
         enabled_by_request = frozenset(enable)
         self.pipeline.validate_pass_options(enabled_by_request, self.disable, only)
-        self.disabled_by_default = (names & DEFAULT_DISABLED_PASSES) - enabled_by_request - self.disable
+        opted_in = frozenset(e.name for e in self.pipeline.passes if e.enabled)
+        self.disabled_by_default = ((names & DEFAULT_DISABLED_PASSES) - opted_in
+                                    - enabled_by_request - self.disable)
         self.only = only
         unknown_params = sorted(set(self.params) - names)
         if unknown_params:

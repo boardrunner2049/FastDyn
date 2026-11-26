@@ -1,9 +1,10 @@
 """Request passes explicitly in replay and ablation drivers, and check what ran.
 
 Seven registered passes run only on request (``DEFAULT_DISABLED_PASSES``). Naming a
-pipeline that contains one does not request it, so a driver that means to measure
-such a stage has to pass ``--enable`` for it and then confirm, from the receipts,
-that the stage was not skipped by policy.
+pipeline that contains one does not request it unless the pipeline entry sets
+``enabled = true``, so a driver that means to measure such a stage passes ``--enable``
+for it (redundant, and harmless, for an opted-in entry) and then confirms, from the
+receipts, that the stage was not skipped by policy.
 """
 from __future__ import annotations
 

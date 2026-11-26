@@ -305,7 +305,8 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 @click.option("--enable", multiple=True,
               help="Opt a pipeline pass back in (repeatable). Accepts host-inline=<options>.")
 @click.option("--only", default=None,
-              help="Restrict execution to one pass. Accepts host-inline=<options>. Disabled passes still need --enable.")
+              help="Restrict execution to one pass. Accepts host-inline=<options>. Default-disabled "
+                   "passes still need --enable unless the pipeline entry sets enabled = true.")
 @click.option("--params", "params_file", type=click.Path(exists=True, dir_okay=False),
               help='JSON file {"<pass>": {<param>: <value>}} overlaid on the pipeline params.')
 @click.option("--b3", "b3_mode", is_flag=True,

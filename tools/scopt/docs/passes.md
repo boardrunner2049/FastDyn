@@ -29,6 +29,13 @@ specialize-returns       chain-returns           specialize-edges
 chain-static
 ```
 
+A pipeline can opt one of these passes in itself with `enabled = true` on its
+`[[pass]]` entry; it then runs without `--enable`, and `--disable` and `--only` still
+win. The key is rejected on every other pass, and it is written into the pipeline id
+only when true, so pipelines without it keep their ids. scopt builds older than the
+key reject a pipeline that uses it (unknown entry key) rather than run it without the
+opted-in pass.
+
 For example:
 
 ```sh
