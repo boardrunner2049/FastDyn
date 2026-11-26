@@ -31,6 +31,9 @@ in a diagnostic replay for the loaded region ID, activation counts and
 The remainder of this document describes the historical exhaustive graph
 experiment, still available as `sealed-whopr-7` and the Trebuchet recipe
 `whopr7`. Choose `pgo7` in current Trebuchet candidate plans.
+`sealed-whopr-7-bounded` keeps `helper_lookup_tb_ptr` out of line; it removes
+`sealed-whopr-7`'s regression but is not shown to beat `sealed-pgo-7`
+([bounded helper graphs](#bounded-helper-graphs-sealed-whopr-7-bounded)).
 
 The separate `sealed-firmlooper` pipeline uses task registration and static loop
 structure to select guest calls. See [Firmware inlining policies](firmware-inline-policies.md).
@@ -247,6 +250,88 @@ discovered and emitted 169 call-site regions containing 3,494 copied members,
 3,994 internal transfers and 1,071,165 private bytes.  It reached acyclic
 depth four.  Three calls retained unpatchable native exits; recursive/missing
 evidence remains residual rather than being guessed.
+
+## Bounded helper graphs: `sealed-whopr-7-bounded`
+
+`sealed-whopr-7-bounded` is `sealed-whopr-7` with one change: host-inline sets
+`trusted_max_source_graph_bytes = 32768`. `sealed-whopr-7-bounded-b3` is
+`sealed-whopr-7-b3` with the same change. `sealed-whopr-7` and `sealed-whopr-7-b3` stay
+unchanged so archived provenance remains reproducible.
+
+**Why.** Round 2 of the sealed follow-ups (2026-11-25, `/data/scfix-r2/TIMING.md`) timed
+`sealed-whopr-7` on the FirmBOLT `-O4` packet, UART and CLI captures on QEMU `aacca05`.
+It is a regression: time(configuration 6) / time(`sealed-whopr-7`) is 0.8513 (packet),
+0.6921 (UART) and 0.9109 (CLI), and time(`sealed-pgo-7`) / time(`sealed-whopr-7`) is
+0.7448, 0.6278 and 0.7756, all below the A/A floor. Its unbounded prefix inlines
+`helper_lookup_tb_ptr`, whose captured source graph is 50,345 B, at 1,747, 1,980 and
+2,184 sites. The copies also remove the lookup tails that firmware-inline needs, so
+760, 365 and 486 roots are refused as `lookup_tail_missing`.
+
+**Why 32768.** The bound charges a helper's whole captured source graph, the root and
+its direct-call graph ([host-inline](passes.md#host-inline1)). On these captures 32768
+excludes `helper_lookup_tb_ptr` and nothing else: the next largest graph is
+`helper_v7m_msr` at 6,500 B. 65536 is above 50,345 B and is a no-op: its packet and UART
+caches are byte-identical to `sealed-whopr-7`'s. The bound is on bytes, not helper
+names, so on another QEMU build or capture the receipt's `helper_graph_size_policy`
+refusals show which helpers it excludes.
+
+What the bound changes (`sealed-whopr-7` -> `sealed-whopr-7-bounded`):
+
+| | packet | UART | CLI |
+|---|---:|---:|---:|
+| `helper_lookup_tb_ptr` sites inlined | 1,747 -> 0 | 1,980 -> 0 | 2,184 -> 0 |
+| host-inline growth | 124.1 -> 1.7 MB | 142.4 -> 3.7 MB | 156.6 -> 3.5 MB |
+| `lookup_tail_missing` refusals | 760 -> 0 | 365 -> 0 | 486 -> 0 |
+| firmware regions | 30 -> 193 | 27 -> 202 | 25 -> 208 |
+| allocated cache | 192.5 -> 43.4 MB | 171.6 -> 26.7 MB | 204.9 -> 32.4 MB |
+
+**Measured.** Round 2 timed this policy as the arm `w7_nolookup`, built from a private
+TOML with the same passes and parameters under another name. On packet, a rebuild from
+the same snapshot with `--pipeline sealed-whopr-7-bounded` gives a `cache.sc` that is
+byte-identical (`cmp`) to the timed one; only the artifact id differs. Paired,
+block-randomised fresh-process blocks: 20 on packet, 10 on UART and CLI. Ratios are
+time(reference) /
+time(`sealed-whopr-7-bounded`), so above 1 means the bounded pipeline is faster; each
+cell gives the block-ratio median, its 95% bootstrap interval, the blocks above 1 and
+the verdict against the workload's A/A band (packet [0.9501, 1.0526], UART
+[0.9700, 1.0309], CLI [0.9802, 1.0202]).
+
+| Reference | packet | UART | CLI |
+|---|---|---|---|
+| `sealed-whopr-7` | 1.2979 [1.2593, 1.5067], 20/20, above floor | 1.4432 [1.1959, 1.5167], 10/10, above floor | 1.3254 [1.2947, 1.4188], 10/10, above floor |
+| `sealed-pgo-7` | 0.9845 [0.9538, 1.0036], 8/20, within noise | 0.9163 [0.8678, 0.9413], 0/10, below floor | 1.0513 [1.0089, 1.0941], 9/10, within noise |
+| configuration 6 | 1.0934 [1.0615, 1.1109], 19/20, above floor\* | 0.9910 [0.9395, 1.0289], 4/10, within noise | 1.2147 [1.1863, 1.2647], 10/10, above floor |
+
+\* Packet's A/A interval excludes 1 (configuration 6 against a byte-identical copy of
+its own cache: 1.0322 [1.0035, 1.0526]) because the configuration 6 reference ran slow,
+which inflates every configuration-6-referenced packet ratio. Against its byte-identical
+twins the bounded pipeline is 1.0635 (`sealed-firmlooper-v2`, which selects nothing on
+packet) and 1.0529 (the A/A copy), both within noise.
+
+The bound removes the regression against configuration 6 (within noise or above the
+floor on all three workloads), but the bounded pipeline is not shown to beat
+`sealed-pgo-7`: it is within noise of it on packet and CLI, and about 8% slower on UART
+(below the floor). On CLI its point estimate is 5% faster and the interval excludes 1,
+but the interval overlaps the A/A band, so neither parity nor a gain is shown.
+`sealed-pgo-7` (Trebuchet `pgo7`) stays the configuration 7 to choose.
+
+Not established:
+
+- The bound changes code size and region coverage together (6-8 times as many regions),
+  and round 2 cannot separate the two. `sealed-whopr-7` is slower than configuration 6,
+  which has no regions at all, so losing regions cannot by itself explain its
+  regression; that the inlined lookup copies cost time on their own is an inference.
+  Code size was not separated from page-fault cost.
+- `sealed-whopr-7-bounded-b3` has not been built or timed. Build it with
+  `--v7-member-skip-exe` for a QEMU that honours member skip flags: round 2 built
+  `sealed-whopr-7-b3` without it, so 6 of 30 (packet), 1 of 27 (UART) and 5 of 25 (CLI)
+  of its regions kept the shared descriptor.
+
+```sh
+scopt optimize "$SNAP" --pipeline sealed-whopr-7-bounded --elf "$ELF" \
+  --runtime-identity "$RUNTIME_JSON" --v7-trusted-exe "$QEMU_SHA256_ID" \
+  --store "$OUT" --json
+```
 
 ## Reproduction
 

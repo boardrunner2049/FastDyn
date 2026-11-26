@@ -293,8 +293,8 @@ def test_b3_grown_regions_are_priced_unchainable(monkeypatch):
     assert resolve_residual_goto_tb("auto", fx.region, {fx.unit.uid}) == "unchained"
 
 
-@pytest.mark.parametrize("base", ["sealed-pgo-7", "sealed-whopr-7", "sealed-firmlooper",
-                                  "sealed-firmlooper-v2"])
+@pytest.mark.parametrize("base", ["sealed-pgo-7", "sealed-whopr-7", "sealed-whopr-7-bounded",
+                                  "sealed-firmlooper", "sealed-firmlooper-v2"])
 def test_sealed_b3_pipelines_compose_b3_before_firmware_inline(base):
     from scopt.manager import load_pipeline
     from scopt.passes.base import EditKind

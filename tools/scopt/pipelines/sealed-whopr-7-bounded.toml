@@ -1,0 +1,44 @@
+# sealed-whopr-7 with its trusted helper graphs bounded at 32768 captured
+# source bytes, so helper_lookup_tb_ptr stays out of line.
+#
+# sealed-whopr-7's unbounded host-inline prefix copies helper_lookup_tb_ptr,
+# whose captured source graph (the root plus its finite direct-call graph) is
+# 50,345 bytes, into 1,747 / 1,980 / 2,184 sites on the FirmBOLT -O4 packet /
+# UART / CLI captures on QEMU aacca05; host-inline then grows native code by
+# 124 / 142 / 157 MB.  The copies also remove the lookup tails firmware-inline
+# needs (760 / 365 / 486 roots refused as lookup_tail_missing, leaving 30 / 27
+# / 25 regions), and sealed-whopr-7-b3's B3 passes refuse most exits as
+# exit_not_goto_ptr.  Round 2 timed sealed-whopr-7 below plain trusted sealed
+# and below sealed-pgo-7 on all three workloads.
+#
+# The bound is the only change.  32768 excludes helper_lookup_tb_ptr and
+# nothing else on those captures: the next largest graph is helper_v7m_msr at
+# 6,500 bytes.  65536 does not: it is above 50,345, and its packet and UART
+# caches are byte-identical to sealed-whopr-7's.  The bound is on bytes, not
+# helper names, so on another QEMU build or capture read the host-inline
+# receipt's helper_graph_size_policy refusals to see what it excludes.
+#
+# Round 2 (/data/scfix-r2/TIMING.md) timed this policy as w7_nolookup, built
+# from a private TOML with the same passes and params under another name (a
+# packet rebuild with this pipeline gives a byte-identical cache.sc):
+# 1.2979x / 1.4432x / 1.3254x faster than sealed-whopr-7 (above the A/A floor
+# on all three), but not shown faster than sealed-pgo-7 (within noise on packet
+# and CLI, about 8% slower on UART).  See docs/sealed-whopr-7.md.
+#
+# sealed-whopr-7 itself stays unchanged so archived provenance remains
+# reproducible.
+schema = "scopt.pipeline"
+version = 1
+name = "sealed-whopr-7-bounded"
+description = "Configuration 7 with trusted helper graphs bounded at 32768 captured source bytes (helper_lookup_tb_ptr stays out of line), plus GCC-style WPA/LTRANS sealed firmware regions."
+allowed_capabilities = ["INLINE_CALL", "EMIT_FIRMWARE_REGION"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, allow_partial = true, trusted_max_source_graph_bytes = 32768 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "exhaustive", trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4 }

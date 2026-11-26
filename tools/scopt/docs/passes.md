@@ -504,7 +504,10 @@ stack alignment, guest-state effects, fault paths, and recovery metadata.
   and the explicit `trusted_all_helpers` policy used only by configuration 7. Trusted
   graph experiments may set `trusted_max_source_graph_bytes` to a positive byte bound;
   zero is explicitly unbounded. The bound charges every captured function body in the
-  finite direct-call graph before any per-site copy is emitted. With an exact profile,
+  finite direct-call graph before any per-site copy is emitted. `sealed-whopr-7-bounded`
+  sets it to 32768, which keeps `helper_lookup_tb_ptr` (50,345 B) out of line
+  ([bounded helper graphs](sealed-whopr-7.md#bounded-helper-graphs-sealed-whopr-7-bounded)).
+  With an exact profile,
   `trusted_rank_by="frequency-density"` ranks sites by TB-entry weight divided by
   complete source-graph bytes; `trusted_min_tb_entries` rejects unexecuted/low-weight
   sites and `trusted_max_total_growth` admits the ranked prefix under an actual emitted

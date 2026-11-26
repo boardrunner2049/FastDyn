@@ -100,14 +100,16 @@ skip flags, below) and carries both `x_ext_artifact_id8` and `x_firmware_artifac
 Deploy recomputes the requirement from the file, and deploy and the post-run proof check
 both identities.
 
-Four pipelines add the six `b3` passes (with `b3.toml`'s parameters) between the
+Five pipelines add the six `b3` passes (with `b3.toml`'s parameters) between the
 host-inline prefix, if any, and `firmware-inline`, which stays last with its original
-parameters: `sealed-pgo-7-b3`, `sealed-whopr-7-b3`, `sealed-firmlooper-b3` and
-`sealed-firmlooper-v2-b3`. The original `sealed-*` pipelines are unchanged. Run them as for
-configuration 6 + B3 above (sealed steady profile, `--prep`, the three `--enable` flags) and
-add `--v7-trusted-exe` (and `--v7-member-skip-exe` for a QEMU that honours member skip
-flags). trebuchet names the stages `pgo7-b3`, `whopr7-b3`, `firmlooper-b3`
-and `firmlooper-v2-b3`.
+parameters: `sealed-pgo-7-b3`, `sealed-whopr-7-b3`, `sealed-whopr-7-bounded-b3`,
+`sealed-firmlooper-b3` and `sealed-firmlooper-v2-b3`. The original `sealed-*` pipelines
+are unchanged. Run them as for configuration 6 + B3 above (sealed steady profile,
+`--prep`, the three `--enable` flags) and add `--v7-trusted-exe` (and
+`--v7-member-skip-exe` for a QEMU that honours member skip flags). trebuchet names the
+stages `pgo7-b3`, `whopr7-b3`, `firmlooper-b3` and `firmlooper-v2-b3`.
+`sealed-whopr-7-bounded-b3` has no trebuchet stage and has not been built or timed
+([bounded helper graphs](sealed-whopr-7.md#bounded-helper-graphs-sealed-whopr-7-bounded)).
 
 Only trusted regions compose. A safe member reuses its public record's goto_tb offsets,
 to which B3 growth adds guard slots while the member keeps the pre-B3 code, so the linker
