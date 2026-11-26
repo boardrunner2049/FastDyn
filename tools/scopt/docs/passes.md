@@ -498,6 +498,19 @@ The compiler folds eligible roots and immediate leaf callees. Set
 call to shared QEMU code. Each emitted site's `call_lowering` receipt
 identifies the transfers retained, eliminated or introduced.
 
+`hot_loop_only` needs `trusted_all_helpers`, `trusted_rank_by="frequency"` and exact
+site counts (no TB-entry proxy). It no longer needs `trusted_selected_root`, so a
+hot-loop policy can lower complete helper graphs; bound them with
+`trusted_max_source_graph_bytes` (32768 keeps `helper_lookup_tb_ptr`, 50,345 B, out
+of line). `hot_loop_kinds` chooses which observed transfers close a cycle:
+`transfer` (the default, as in `sealed-pgo-7`) follows chained and looked-up
+transfers; `firmware` also follows unflagged `exit_null` transfers between
+thread-mode TBs, filtered exactly as the firmware `hot-loop` policy filters them.
+FreeRTOS critical sections (`MSR BASEPRI`) end their TBs with `exit_tb(0)`, so under
+`transfer` their `helper_v7m_msr` and `helper_rebuild_hflags_m32_newel` sites are
+`outside_observed_loop` even inside a task loop. A non-default value is recorded in
+the receipt as `hot_loop_kinds`.
+
 The combined trusted configuration is described in [sealed PGO](sealed-whopr-7.md).
 
 Both pipelines accept an existing phase-specific `--profile` for the observed

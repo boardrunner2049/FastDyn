@@ -15,7 +15,7 @@ from scopt.analysis.registry import AnalysisRegistry
 from scopt.analysis.store import AnalysisInput
 from scopt.canon import sha256_id
 from scopt.formats.enums import Encoding, SiteKind
-from scopt.manager import PassManager, PassRegistry, load_pipeline
+from scopt.manager import PIPELINES_DIR, PassManager, PassRegistry, load_pipeline
 from scopt.model.native import supports_tcg_integer_abi
 from scopt.model.unit import Bindings, HelperBinding, Site
 from scopt.passes import host_inline
@@ -187,3 +187,197 @@ def test_host_inline_refuses_stale_envlayout(world):
                                    lambda _ctx, _scope: {"bound": False}, dict), replace=True)
     result = PassManager(snap, "host-inline", analyses=registry).execute()
     assert not result.edits and result.passes[0].reason == "guard_layout_unbound"
+
+
+# -- hot_loop_kinds: which observed transfers close a hot_loop_only cycle -----
+
+#: The host-inline entry of sealed-pgo-7 and sealed-pgo-7-b3 (round 2's p7 and
+#: c7b3) and its params hash, recorded before hot_loop_kinds existed.  The
+#: parameter defaults to "transfer" in the pass, never in a pipeline, so the
+#: hash and the receipt of these pipelines stay as timed.
+_PGO7_HOST_PARAMS = {"mode": "maximal", "trusted_all_helpers": True, "trusted_rank_by": "frequency",
+                     "trusted_selected_root": True, "hot_loop_only": True, "min_site_calls": 1000}
+_PGO7_HOST_PARAMS_SHA256 = "sha256:1e16960e26dfd595395c0ddf2ba17a0d2a84ce7a157aa1be5859a8e6be2fc668"
+#: O4 candidate A4 (O4-design.md 1.8, o4-hotgraph.toml).
+_HOTGRAPH_PARAMS = {"mode": "maximal", "trusted_all_helpers": True,
+                    "trusted_max_source_graph_bytes": 32768, "trusted_rank_by": "frequency",
+                    "hot_loop_only": True, "hot_loop_kinds": "firmware", "min_site_calls": 1000}
+_LOOKUP_GRAPH_BYTES = 50_345      # helper_lookup_tb_ptr's captured graph on the -O4 images
+
+
+def _hot_edges():
+    """Profile rows (src, dst, kind, count) over the six hot-world units.
+
+    a <-> b: a thread-mode cycle closed only by exit_null (a BASEPRI critical
+    section); isr -> c exit_null from handler mode (a possible EXC_RETURN),
+    c -> isr chained; d <-> e: an ordinary chained/looked-up cycle.
+    """
+    return [("a", "b", "chain0", 5000), ("b", "a", "exit_null", 5000),
+            ("isr", "c", "exit_null", 5000), ("c", "isr", "chain0", 5000),
+            ("d", "e", "chain0", 5000), ("e", "d", "lookup_hit", 5000)]
+
+
+@pytest.fixture
+def hot_world(tmp_path, monkeypatch):
+    """One helper call per unit; exact edges and whole-run site counts for each."""
+    from scopt.passes.host_inline_graph import HostInlineGraph
+    from scopt.validate_sym.native_inline import NativeInlineError
+
+    from .test_firmware_inline import _fake_view
+
+    names = ("a", "b", "isr", "c", "d", "e")
+    units = {n: SimpleNamespace(
+        uid=f"tb:{n}", slot=i, key=SimpleNamespace(cs_base=1 if n == "isr" else 0),
+        sites=(SimpleNamespace(kind=SiteKind.HELPER_CALL, insn_off=0),),
+        bindings=SimpleNamespace(helpers=()), stub_start=None, native_fragments=(),
+        splice_applied=False, content_hash=sha256_id(n.encode()), vaddrs=(0x1000 + 4 * i,))
+        for i, n in enumerate(names)}
+    by_uid = {unit.uid: unit for unit in units.values()}
+    snapshot = SimpleNamespace(snapshot_id=sha256_id(b"hot world"),
+                               units=lambda: tuple(units.values()), unit=by_uid.__getitem__)
+    bindings = {}
+    for n, unit in units.items():
+        lookup = n == "a"
+        callee = SimpleNamespace(
+            path="/exact/to/qemu", elf_address=0x5000, image_offset=0x5000, image_id=_IMAGE_ID,
+            code_hash=sha256_id(b"\xc3"), size=1, code=b"\xc3", role="qemu", abi="sysv-amd64",
+            symbol="helper_lookup_tb_ptr" if lookup else "helper_v7m_msr",
+            frame_chain=(SimpleNamespace(code=bytes(_LOOKUP_GRAPH_BYTES - 1)),) if lookup else (),
+            runtime_address=0x9000, tcg_typemask=2)
+        call = HostCallSite(
+            uid=unit.uid, host_off=0, original_bytes=b"\xe8\0\0\0\0", encoding="rel32",
+            continuation_off=5, insn_idx=0, guest_pcs=unit.vaddrs, opmark_off=0, helper_id=7,
+            helper_name=callee.symbol[7:], helper_flags=5, target_abs=0x9000, pool_slot_off=None,
+            module="qemu", symbol=callee.symbol, call_class="pure", recovery_return_off=5, reason=None)
+        bindings[unit.uid] = (NativeCallBinding(call, callee, None, _NATIVE_INPUT),)
+    counts = tmp_path / "helper-calls.json"
+    counts.write_text(json.dumps({
+        "schema": "scopt.helper-call-profile/1", "complete": True,
+        "snapshot_id": snapshot.snapshot_id,
+        "counts": [{"unit": u.uid, "call_off": 0, "count": 5000} for u in units.values()]}))
+    profile = _fake_view(snapshot, [(f"tb:{s}", f"tb:{d}", k, c) for s, d, k, c in _hot_edges()])
+
+    def analysis(name, scope, min_version=1):
+        if name == "envlayout":
+            return SimpleNamespace(value={"bound": True})
+        assert name == "native-callees" and min_version == 2
+        return SimpleNamespace(value=bindings[scope.id])
+
+    def stub_lowering(self, unit, request, code_address, binding, params, growth_room):
+        # Selection is what is under test: every site that reaches lowering
+        # stops here with a recognizable reason.
+        raise NativeInlineError("reached_lowering", binding.callee.symbol)
+
+    monkeypatch.setattr(host_inline, "prepare_native_images",
+                        lambda *args, **kwargs: AnalysisInput(_NATIVE_INPUT, ()))
+    monkeypatch.setattr(host_inline, "InlineCall", lambda **fields: SimpleNamespace(**fields))
+    monkeypatch.setattr(HostInlineGraph, "_prepare_request", stub_lowering)
+    view = SimpleNamespace(header=SimpleNamespace(version=7, reserved=0, code_address=0x7fff0000),
+                           working_set=SimpleNamespace(base=snapshot, is_pinned=lambda uid: False),
+                           units=lambda: tuple(units.values()),
+                           unit=snapshot.unit)
+    site_profile = {"site_profile_path": str(counts),
+                    "site_profile_sha256": sha256_id(counts.read_bytes())}
+
+    def run(params):
+        ctx = SimpleNamespace(params={**params, **site_profile}, deadline=None,
+                              runtime={"supercache_flat": False}, snapshot_id=snapshot.snapshot_id,
+                              analysis=analysis, store=SimpleNamespace(set_input=lambda *a: None),
+                              profile=lambda phase: profile)
+        result = host_inline.HostInline().run(view, ctx, SimpleNamespace())
+        detail = json.loads(result.detail) if result.detail.startswith("{") else result.detail
+        outcomes = ({row["unit"][3:]: row["outcome"] for row in detail["sites"]}
+                    if isinstance(detail, dict) else None)
+        return result, detail, outcomes
+    return run
+
+
+def test_hot_loop_units_firmware_kinds_follow_thread_mode_exit_null():
+    units = {"a": SimpleNamespace(key=SimpleNamespace(cs_base=0)),
+             "b": SimpleNamespace(key=SimpleNamespace(cs_base=0)),
+             "isr": SimpleNamespace(key=SimpleNamespace(cs_base=1)),
+             "c": SimpleNamespace(key=SimpleNamespace(cs_base=0)),
+             "d": SimpleNamespace(key=SimpleNamespace(cs_base=0)),
+             "e": SimpleNamespace(key=SimpleNamespace(cs_base=0))}
+    edges = [dict(src=s, dst=d, kind=k, count=c, flags=(), status="exact")
+             for s, d, k, c in _hot_edges()]
+    assert host_inline.hot_loop_units(edges, "transfer", units.get) == {"d", "e"}
+    assert host_inline.hot_loop_units(edges, "firmware", units.get) == {"a", "b", "d", "e"}
+    # The firmware kinds are firmware hot-loop's, with the same exit_null filter.
+    from scopt.analysis.helper_hot_loop import FIRMWARE_LOOP_KINDS, observed_loop_units, real_exit_null
+
+    assert host_inline.hot_loop_units(edges, "firmware", units.get) == observed_loop_units(
+        edges, kinds=FIRMWARE_LOOP_KINDS, accept=real_exit_null(units.get))
+    assert host_inline.hot_loop_units(edges, "transfer", units.get) == observed_loop_units(edges)
+    with pytest.raises(ValueError):
+        host_inline.hot_loop_units(edges, "all", units.get)
+
+
+def test_hot_loop_kinds_defaults_to_transfer_and_keeps_sealed_pgo_7(hot_world):
+    from scopt.canon import canonical_json
+
+    assert host_inline._DEFAULTS["hot_loop_kinds"] == "transfer"
+    assert host_inline.HostInline.descriptor.params_schema["hot_loop_kinds"] is str
+    for name in ("sealed-pgo-7", "sealed-pgo-7-b3"):
+        entry = load_pipeline(PIPELINES_DIR / f"{name}.toml").passes[0]
+        assert (entry.name, dict(entry.params)) == ("host-inline", _PGO7_HOST_PARAMS)
+        assert sha256_id(canonical_json(dict(entry.params))) == _PGO7_HOST_PARAMS_SHA256
+    result, detail, outcomes = hot_world(_PGO7_HOST_PARAMS)
+    # Receipt and stats as before the parameter: transfer cycles only, so the
+    # critical-section cycle a <-> b stays outside_observed_loop.
+    assert result.reason == "no_eligible_native_calls"
+    assert set(detail) == {"native_images_id", "site_profile_sha256", "ranking", "sites"}
+    assert detail["ranking"] == "measured_site_calls_in_observed_loops"
+    assert outcomes == {"a": "outside_observed_loop", "b": "outside_observed_loop",
+                        "isr": "outside_observed_loop", "c": "outside_observed_loop",
+                        "d": "reached_lowering", "e": "reached_lowering"}
+    assert dict(result.stats) == {"sites_seen": 6, "sites_applied": 0, "emitted_growth_bytes": 0,
+                                  "selected_tb_entries_proxy": 0, "growth_policy_unbounded": 1,
+                                  "site_policy_unbounded": 1, "sites:outside_observed_loop": 4,
+                                  "sites:reached_lowering": 2, "loop_units": 2}
+    explicit = hot_world({**_PGO7_HOST_PARAMS, "hot_loop_kinds": "transfer"})
+    assert explicit[1] == detail and dict(explicit[0].stats) == dict(result.stats)
+
+
+def test_hot_loop_kinds_firmware_reaches_critical_section_sites_under_the_graph_cap(hot_world):
+    result, detail, outcomes = hot_world(_HOTGRAPH_PARAMS)
+    assert result.reason == "no_eligible_native_calls" and detail["hot_loop_kinds"] == "firmware"
+    # b's helper sits in a cycle closed by a thread-mode exit_null and is now
+    # hot; a's is helper_lookup_tb_ptr, whose 50,345-byte graph the 32768-byte
+    # cap keeps out; the handler-mode exit_null never closes isr <-> c.
+    assert outcomes == {"a": "helper_graph_size_policy", "b": "reached_lowering",
+                        "isr": "outside_observed_loop", "c": "outside_observed_loop",
+                        "d": "reached_lowering", "e": "reached_lowering"}
+    assert result.stats["loop_units"] == 4
+    # Without the cap the lookup graph would be lowered too (the full-graph
+    # path, not the selected-root path).
+    _, _, uncapped = hot_world({k: v for k, v in _HOTGRAPH_PARAMS.items()
+                                if k != "trusted_max_source_graph_bytes"})
+    assert uncapped["a"] == "reached_lowering"
+    # transfer kinds on the same graph policy: only the d <-> e cycle.
+    _, detail, outcomes = hot_world({**_HOTGRAPH_PARAMS, "hot_loop_kinds": "transfer"})
+    assert "hot_loop_kinds" not in detail
+    assert {n for n, o in outcomes.items() if o != "outside_observed_loop"} == {"d", "e"}
+
+
+def test_hot_loop_only_no_longer_requires_selected_root(hot_world):
+    params = {k: v for k, v in _PGO7_HOST_PARAMS.items() if k != "trusted_selected_root"}
+    result, _, outcomes = hot_world(params)
+    assert result.outcome is Outcome.NO_CHANGE and outcomes["d"] == "reached_lowering"
+    # It still needs trusted, frequency-ranked, exact-count helpers.
+    for bad in ({"trusted_rank_by": "all"}, {"trusted_allow_tb_entry_proxy": True},
+                {"trusted_all_helpers": False, "trusted_rank_by": "all"}):
+        result, detail, _ = hot_world({**params, **bad})
+        assert (result.outcome, result.reason) == (Outcome.FAILED, "invalid_params"), bad
+
+
+@pytest.mark.parametrize("value", ["loops", "", "Firmware", 1, None])
+def test_invalid_hot_loop_kinds_is_invalid_params(hot_world, value):
+    result, detail, _ = hot_world({**_HOTGRAPH_PARAMS, "hot_loop_kinds": value})
+    assert (result.outcome, result.reason) == (Outcome.FAILED, "invalid_params")
+    assert "hot_loop_kinds" in detail
+    from scopt.manager import _check_params
+
+    if not isinstance(value, str):
+        assert "hot_loop_kinds" in _check_params(host_inline.HostInline.descriptor,
+                                                 {"hot_loop_kinds": value})

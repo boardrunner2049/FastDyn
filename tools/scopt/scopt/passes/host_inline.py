@@ -55,6 +55,11 @@ _DEFAULTS = {
     "trusted_allow_tb_entry_proxy": False,
     "trusted_selected_root": False,
     "hot_loop_only": False,
+    # Which observed transfers close a hot_loop_only cycle.  transfer: chained
+    # and looked-up transfers (sealed-pgo-7).  firmware: also unflagged
+    # thread-mode exit_null transfers (FreeRTOS critical sections end their
+    # TBs with exit_tb(0)), filtered exactly as firmware hot-loop filters them.
+    "hot_loop_kinds": "transfer",
     "include_hot_shared_wrappers": False,
     "min_site_calls": 2,
     "site_profile_path": "",
@@ -74,7 +79,26 @@ _LIMITS = {
 _COMMON_SCHEMA = {k: type(v) for k, v in _DEFAULTS.items()}
 _EXTREME_SCHEMA = {"allow_partial": bool, "max_inline_depth": int, "compact_frame": bool}
 _MODES = ("island", "splice", "faulting", "extreme", "maximal")
+HOT_LOOP_KINDS = ("transfer", "firmware")
 _BRIDGE_ENV = {"LC_ALL": "C", "PATH": "/usr/bin:/bin"}
+
+
+def hot_loop_units(edges, kinds: str, unit_of) -> set[str]:
+    """Units of the observed cycles that ``hot_loop_only`` selects sites in.
+
+    ``transfer`` follows chained and looked-up transfers only.  ``firmware``
+    also follows unflagged ``exit_null`` transfers between thread-mode TBs,
+    exactly as the firmware ``hot-loop`` policy does
+    (``FIRMWARE_LOOP_KINDS`` with :func:`real_exit_null`; ``unit_of(uid)``
+    returns the snapshot unit or None).
+    """
+    from ..analysis.helper_hot_loop import FIRMWARE_LOOP_KINDS, observed_loop_units, real_exit_null
+
+    if kinds == "firmware":
+        return observed_loop_units(edges, kinds=FIRMWARE_LOOP_KINDS, accept=real_exit_null(unit_of))
+    if kinds != "transfer":
+        raise ValueError(f"hot_loop_kinds must be one of {HOT_LOOP_KINDS}")
+    return observed_loop_units(edges)
 
 
 def host_inline_mode(params: Mapping[str, Any]) -> str:
@@ -254,12 +278,16 @@ class HostInline:
             return PassResult(Outcome.FAILED, "invalid_params",
                               "trusted_selected_root requires trusted_all_helpers and "
                               "is exclusive with trusted_root_wrapper_only")
+        # A hot-loop policy may lower selected roots or (bounded with
+        # trusted_max_source_graph_bytes) complete helper graphs.
         if params.get("hot_loop_only") and not (
-                trusted_all and params.get("trusted_selected_root")
-                and params.get("trusted_rank_by") == "frequency"
+                trusted_all and params.get("trusted_rank_by") == "frequency"
                 and not params.get("trusted_allow_tb_entry_proxy")):
             return PassResult(Outcome.FAILED, "invalid_params",
-                              "hot loops require trusted frequency-ranked selected roots")
+                              "hot loops require trusted frequency-ranked helpers")
+        if params.get("hot_loop_kinds", "transfer") not in HOT_LOOP_KINDS:
+            return PassResult(Outcome.FAILED, "invalid_params",
+                              f"hot_loop_kinds must be one of {', '.join(HOT_LOOP_KINDS)}")
         if type(params.get("min_site_calls", 2)) is not int or params.get("min_site_calls", 2) < 1:
             return PassResult(Outcome.FAILED, "invalid_params", "min_site_calls must be positive")
         trusted_graph_limit = params.get("trusted_max_source_graph_bytes", 0)
@@ -397,7 +425,7 @@ class HostInline:
         site_counts = None
         loop_units = set()
         if params.get("hot_loop_only"):
-            from ..analysis.helper_hot_loop import exact_loop_profile, load_site_counts, observed_loop_units
+            from ..analysis.helper_hot_loop import exact_loop_profile, load_site_counts
 
             if not exact_loop_profile(profile, ctx.snapshot_id, params["phase"]):
                 return PassResult(Outcome.FAILED, "profile_required",
@@ -407,7 +435,15 @@ class HostInline:
                                                params["site_profile_sha256"])
             except (OSError, KeyError, TypeError, ValueError) as error:
                 return PassResult(Outcome.FAILED, "invalid_helper_profile", str(error))
-            loop_units = observed_loop_units(profile.edges(params["phase"]))
+            base = view.working_set.base
+
+            def unit_of(uid):
+                try:
+                    return base.unit(uid)
+                except KeyError:
+                    return None
+            loop_units = hot_loop_units(profile.edges(params["phase"]),
+                                        params.get("hot_loop_kinds", "transfer"), unit_of)
         if trusted_runtime_policy and profile is None:
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "profile_required",
                               "trusted runtime ranking requires the requested profile phase")
@@ -569,10 +605,13 @@ class HostInline:
         if site_counts is not None:
             ranking = "measured_site_calls_in_observed_loops"
             stats["loop_units"] = len(loop_units)
-        detail = json.dumps({"native_images_id": prepared.input_id,
-                             "site_profile_sha256": params.get("site_profile_sha256") or None,
-                             "ranking": ranking,
-                             "sites": diagnostics}, sort_keys=True)
+        receipt = {"native_images_id": prepared.input_id,
+                   "site_profile_sha256": params.get("site_profile_sha256") or None,
+                   "ranking": ranking,
+                   "sites": diagnostics}
+        if site_counts is not None and params.get("hot_loop_kinds", "transfer") != "transfer":
+            receipt["hot_loop_kinds"] = params["hot_loop_kinds"]  # absent for the default
+        detail = json.dumps(receipt, sort_keys=True)
         if not selected:
             return PassResult(Outcome.NO_CHANGE, "no_eligible_native_calls", detail, stats=stats)
         for uid in sorted(selected):
