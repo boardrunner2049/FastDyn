@@ -118,7 +118,8 @@ data to the sha256 of `qemu-system-arm`:
   with counters revision 4; never `a1bdec6`). These are feature capability sets, not
   competing output versions. `scopt/data/qemu_capabilities.json` records known binaries
   by sha256: a digest it marks incapable is removed from the matching set whatever lists
-  it, and `scopt optimize -O4` admits its fully capable rows (`aacca05`) without flags.
+  it, and `scopt optimize -O4` admits each capability a row marks true (all three for
+  `aacca05`) without a flag.
 
 Any rebuild (even of the same sources) changes the sha256 and the runtime signature.
 After a rebuild: prepare again (old snapshots and artifacts do not carry over), produce

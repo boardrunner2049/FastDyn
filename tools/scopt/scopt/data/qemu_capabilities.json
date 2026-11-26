@@ -1,6 +1,6 @@
 {
  "schema": "scopt.qemu-capabilities/1",
- "description": "Loader capabilities of known QEMU executables, keyed by the sha256 of the qemu-system-arm binary (the RuntimeIdentity qemu_sha256). true: capable; false: known incapable, refused even when a flag or environment variable lists the digest; null: not recorded. v6: semantic extension (sc6) loader; trusted_v7: trusted firmware-region v7 contract; member_skip: composed v7 member skip flags (QEMU stats counters revision 4). scopt optimize -O4 allowlists a digest whose three capabilities are all true; other pipelines still need --v6-exe/--v7-trusted-exe/--v7-member-skip-exe. Add a row only with evidence; a binary that is not listed is unknown.",
+ "description": "Loader capabilities of known QEMU executables, keyed by the sha256 of the qemu-system-arm binary (the RuntimeIdentity qemu_sha256). true: capable; false: known incapable, refused even when a flag or environment variable lists the digest; null: not recorded. v6: semantic extension (sc6) loader; trusted_v7: trusted firmware-region v7 contract; member_skip: composed v7 member skip flags (QEMU stats counters revision 4). scopt optimize -O4 admits each capability the table marks true and refuses one it marks false; a capability it leaves null still needs its flag, and other pipelines still need --v6-exe/--v7-trusted-exe/--v7-member-skip-exe for every capability. Add a row only with evidence; a binary that is not listed is unknown.",
  "binaries": {
   "951775b0300ea1421f32565af8f677c1eaee14e7e1de6238d32bdbe925eebc60": {
    "commit": "aacca05",
