@@ -9,6 +9,7 @@ The `firmware-inline` pass takes a `mode` that chooses which captured guest call
 | `firmlooper` | Captured calls whose precise guest BL instruction belongs to a persistent loop in a recognized task entry. No profile or count threshold is required. | Expand captured acyclic calls recursively, including other eligible calls reached after they return. |
 | `firmlooper-v2` | Also admits single-entry natural task loops whose exits have recognized terminal paths. | Recursively embeds application code. Stops cloning at classified RTOS, scheduler and exception boundaries. |
 | `firmlooper-v3` | As `firmlooper-v2`, on [analysis revision 2](#firmlooper-v3): a return from a FreeRTOS-created task entry is a terminal, BOLT entry patches and GCC word jump tables are followed, and the reset entry is not an interrupt root. | As `firmlooper-v2`. A branch out of a member that ends in ISB stays a side exit (`isb_boundary`). |
+| `hot-loop-tasks` | The [union](#hot-loops-plus-task-loops-hot-loop-tasks): every `hot-loop` root, unchanged, plus the `firmlooper-v3` task-loop roots the profile did not nominate, priced after the hot roots. | Hot roots as `hot-loop`. Task-loop-only roots keep v3's RTOS boundaries and ISB side exit, then the `hot-loop` profit rule. |
 
 `sealed-pgo-7` still runs both PGO host-helper inlining and the `hot-loop` firmware policy. `sealed-firmlooper` runs the firmware pass alone. Use the following command on a matching sealed capture, setting `SCOPT_ENVLAYOUT_PATH` to the directory containing the layout produced from the runtime executable.
 
@@ -137,6 +138,18 @@ Receipts record the rule in force as `policy.isb_boundary` (true for v3 and for 
 
 Without the rule, a PendSV that cloned kernel code requests just before an ISB (FreeRTOS `portYIELD_WITHIN_API`, for example in `xTaskResumeAll` and `xQueueGenericSend`) is taken at the region exit instead. The trusted contract (`interrupts=disabled`) allows that deferral.
 
+## Hot loops plus task loops (`hot-loop-tasks`)
+
+`mode = "hot-loop-tasks"` lets FirmLooper find region roots the training profile did not nominate, without changing anything `hot-loop` selects. It is O4 candidate A2a (arm `o4_tasks`, [O4](O4.md#candidates-and-their-status)); no shipped pipeline uses it.
+
+- **Roots.** Every `hot-loop` root, in `hot-loop`'s order, then every `firmlooper-v3` root (persistent task-loop call, not refused at an RTOS boundary) that `hot-loop` did not select: a call below `min_call_count`, or one whose transfers the profile did not count. A call in both sets is a hot root.
+- **Discovery** is `hot-loop`'s: the `firmware-calls` analysis, and with `planner = "whopr"` the `firmware-whopr` summary. v3's task-loop analysis (revision 2, `policy_options` as for `firmlooper-v3`, `signature_reference` included) only nominates roots. v3's own discovery would add calls (26 / 25 / 12 on the FirmBOLT -O4 images), and each of them had 0 profiled calls or an RTOS refusal.
+- **Expansion.** Hot roots expand exactly as under `hot-loop` (the profit-gated recursion, no RTOS boundaries, no ISB rule unless `isb_boundary = true`). A task-loop-only root first applies v3's rules, SHARED and PUBLIC RTOS boundaries and the ISB side exit, then `hot-loop`'s profit rule for nested calls. Both rules hold in the recursive plan and in its one-level fallback (`PolicySelection.flat_expansion`).
+- **Pricing.** The cost model is required (`cost_model = "off"` is `invalid_params`), and so is `nested = "profit"` (`nested = "public"` is `invalid_params`). Task-loop-only roots are priced after every hot root (`PolicySelection.price_after`). The hot roots are ordered among themselves, and see trusted entries, as if the task-loop-only roots were not planned, so every hot root gets `hot-loop`'s plan, admission and `profit.net_ns`. A task-loop-only root is priced against every planned caller and is credited only with the executions the admitted hot regions leave public. When it is admitted, a hot region's exit into its caller was priced as chainable, which costs at most one dispatch per such exit.
+- **Receipts** (additive). `policy.union`: `hot`, `static`, `static_only` and `both` (nominated roots). `policy.task_loops` is v3's loop report, `policy.hot_loop` holds `hot-loop`'s evidence (profile, phase, `min_call_count`, loop kinds), and `policy.firmlooper_v3` holds v3's `rtos_boundaries`, `analysis_revision` and `boundary_rules`. Every row carries `o4_evidence` (`profile_hot_loop`, `static_task_loop` or both), v3's `boundary` where v3 explains one, and `static_refusal` (v3's reason) for a call that is not a task-loop root. `policy.nested_decisions` is the one profit model's list: `hot-loop`'s rows, plus a row for any nested call that only a task-loop-only region reaches. `policy.isb_boundary` stays false unless the parameter is set. The rule applies only to task-loop-only roots, and their `isb_boundary` residual rows record it. There is no `selection_summary`.
+
+On the FirmBOLT -O4 images, the O4 design's probe (B3 + `hot-loop`) added one region on packet: the memset root at 0x48ec, with 14 calls and 7 members. Every hot root kept its members and price, and uart and cli kept the same bytes.
+
 ## Profit model
 
 `firmware-inline` can price each planned region with the exact training profile
@@ -164,11 +177,14 @@ exits cost what they cost in public code. A root is admitted when
 `saved >= (1 + cost_margin) * added`, `net > 0` and `net / calls >= cost_min_net_per_call_ns`.
 When several roots overlap, regions whose members contain another root's caller are
 priced first, and the later root is credited only with the executions those regions
-leave public; a root entered only through an earlier region is refused.
+leave public; a root entered only through an earlier region is refused.  Roots a
+policy lists in `PolicySelection.price_after` (`hot-loop-tasks`' task-loop-only roots)
+are priced after all others, and the others are ordered and priced as if they were not
+planned (`firmware_inline.pricing_order`).
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `cost_model` | `auto` | `auto`: on for `hot-loop` (and policies whose descriptor sets `cost_model_default`), `profile`: on for any mode (optimize then collects training edges for it), `off`. |
+| `cost_model` | `auto` | `auto`: on for `hot-loop` and `hot-loop-tasks` (and policies whose descriptor sets `cost_model_default`), `profile`: on for any mode (optimize then collects training edges for it), `off`. |
 | `residual_goto_tb` | `auto` | `auto`: safe regions keep public slots (chained); trusted regions chain unless a member source was grown by an earlier B3 pass (`region_exits_chainable`). That B3 rule is deliberately conservative and ignores `member_slot_skip`: the pre-B3 member copies drop B3's guards, and the internal-edge credit assumes lookups B3 already chains. `chained`/`unchained` override. |
 | `member_slot_skip` | `auto` | Composed (B3) artifacts only: whether trusted members may skip the goto_tb slots B3 registered (v7 member flags). `auto`: on when the target RuntimeIdentity exe is allowlisted (`--v7-member-skip-exe`, `SCOPT_V7_MEMBER_SKIP_EXES`) and not marked incapable in `scopt/data/qemu_capabilities.json` (`known_incapable`); `on`: fail the pass unless it is; `off`: never. Recorded in the receipt (`policy.member_slot_skip`) and the pass stat `member_slot_skip`. Pricing does not read it. |
 | `entry_chain` | `auto` | `auto`: unchained for a trusted region whose entry key is `CF_PCREL`. |
@@ -235,7 +251,7 @@ LISTED_SITES = FirmwarePolicy(select_listed, expand_nested=False)
 
 Use `--params` with `{"firmware-inline":{"mode":"listed-sites","policy_options":{"call_pcs":["0x8001234"]}}}` on the same pipeline. A policy receives the imported snapshot, firmware image, discovered calls, pass parameters, and optional profile. Set `requires_edges=True` on its descriptor to request the exact phase profile and opt into the CLI's automatic PGO workflow. `expand_nested=True` requests transitive expansion in admitted regions. `cost_model_default=True` prices the policy's regions unless `cost_model="off"`; the model is passed to the policy as `PolicyInput.profit`, and `scopt.analysis.firmware_profit.NestedProfitExpansion` is a ready-made profit-gated `expansion` callback (return it with `PolicySelection(expand_nested=True)`).
 
-Return a tuple of captured call-site IDs in `PolicySelection.roots`. An optional `PolicySelection.expansion(site, inline_context)` callback returns an `ExpansionAction` from `scopt.analysis.rtos_boundaries`, or a nonempty string that becomes the side exit's residual reason. The default allows every otherwise eligible transfer. A policy may also return per-site refusal reasons in `refusals`, per-site JSON evidence in `site_evidence`, and policy-level JSON evidence in `evidence`. Unselected IDs without an explicit reason appear as `excluded_by_policy`. Unknown, duplicated, and contradictory nominations fail compilation. Built-in names are reserved. A custom name must resolve to exactly one installed entry point.
+Return a tuple of captured call-site IDs in `PolicySelection.roots`. An optional `PolicySelection.expansion(site, inline_context)` callback returns an `ExpansionAction` from `scopt.analysis.rtos_boundaries`, or a nonempty string that becomes the side exit's residual reason. The default allows every otherwise eligible transfer. A policy may also return per-site refusal reasons in `refusals`, per-site JSON evidence in `site_evidence`, and policy-level JSON evidence in `evidence`. `price_after` (a frozenset of nominated roots) has the profit model price those roots after every other root. `flat_expansion` is the callback of the one-level fallback plans; by default they are built without one. Unselected IDs without an explicit reason appear as `excluded_by_policy`. Unknown, duplicated, and contradictory nominations fail compilation. Built-in names are reserved. A custom name must resolve to exactly one installed entry point.
 
 ## FreeRTOS signatures for stripped Thumb firmware
 

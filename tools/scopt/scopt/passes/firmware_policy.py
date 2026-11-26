@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib import metadata
 from typing import Any
 
@@ -40,6 +40,13 @@ class PolicySelection:
     expansion: Callable[[ExpansionSite, tuple[str, ...]], ExpansionAction | str] | None = None
     #: Overrides :attr:`FirmwarePolicy.expand_nested` for this selection.
     expand_nested: bool | None = None
+    #: Roots the profit model prices after every other root.  The other roots
+    #: are ordered and priced as if these were not planned (``hot-loop-tasks``).
+    price_after: frozenset[str] = frozenset()
+    #: Expansion callback of one-level (flat) plans; ``None`` builds them
+    #: without one.  Only branch sites reach it: a flat plan keeps nested
+    #: calls public before any callback is asked.
+    flat_expansion: Callable[[ExpansionSite, tuple[str, ...]], ExpansionAction | str] | None = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +296,58 @@ def _firmlooper_v3(inputs):
                            expansion=expansion)
 
 
+def _hot_loop_tasks(inputs):
+    """Hot-loop roots, unchanged, plus FirmLooper v3 task-loop roots the profile did not
+    nominate.  Discovery stays hot-loop's (firmware-calls); v3 loops only nominate roots.
+    Hot and 'both' roots expand exactly as hot-loop; v3 boundaries (with its ISB rule)
+    apply only to static-only roots, in recursive and flat plans alike, and those roots
+    are priced after every hot root."""
+    if inputs.profit is None:
+        raise PolicyError("hot-loop-tasks needs the firmware cost model")
+    if inputs.params.get("nested", "profit") != "profit":
+        raise PolicyError("hot-loop-tasks prices nested calls (nested must be 'profit')")
+    hot = _hot_loop(inputs)
+    loops = _v3_loops(inputs)
+    static = _firmlooper_v3(replace(inputs, task_loops=loops))
+    hot_set, static_set = frozenset(hot.roots), frozenset(static.roots)
+    static_only = tuple(c for c in static.roots if c not in hot_set)
+    late = frozenset(static_only)
+    roots = tuple(hot.roots) + static_only
+    root_set = frozenset(roots)
+    refusals = {c: hot.refusals.get(c) or static.refusals.get(c)
+                for c in (hot.refusals.keys() | static.refusals.keys()) - root_set}
+    evidence = {}
+    for c in hot.site_evidence.keys() | static.site_evidence.keys() | root_set:
+        row = {**static.site_evidence.get(c, {}), **hot.site_evidence.get(c, {}),
+               "o4_evidence": [n for n, hit in (("profile_hot_loop", c in hot_set),
+                                                ("static_task_loop", c in static_set)) if hit]}
+        if c in static.refusals:
+            row["static_refusal"] = static.refusals[c]
+        evidence[c] = row
+    by_site = {(c.source_uid, c.insn_vaddr): c.callsite_id for c in inputs.calls}
+    inner = hot.expansion
+
+    def expansion(site, context):
+        # context[0] is the root of every site inside a region; a root site
+        # (resolve_selection) has none and is found by its call instruction.
+        root = context[0] if context else by_site.get((site.source_uid, site.source_pc))
+        if root in late:
+            action = static.expansion(site, context)
+            if residual_reason(action):
+                return action
+        return inner(site, context)
+    expansion.report = inner.report            # keeps nested_decisions in the receipt
+    static_rules = {k: v for k, v in static.evidence.items() if k != "task_loops"}
+    return PolicySelection(roots, refusals, evidence,
+                           {"task_loops": loops.report(), "hot_loop": dict(hot.evidence),
+                            "firmlooper_v3": static_rules,
+                            "union": {"hot": len(hot_set), "static": len(static_set),
+                                      "static_only": len(static_only),
+                                      "both": len(hot_set & static_set)}},
+                           expansion=expansion, expand_nested=True, price_after=late,
+                           flat_expansion=expansion)
+
+
 #: Root refusals that come from the RTOS expansion boundaries.
 RTOS_BOUNDARY_REASONS = frozenset({"rtos_shared_public_lookup", "rtos_public_boundary",
                                    "rtos_public_caller"})
@@ -357,6 +416,10 @@ _BUILTINS = {
     "firmlooper": FirmwarePolicy(_firmlooper, expand_nested=True, discover_loops=_loop_evidence),
     "firmlooper-v2": FirmwarePolicy(_firmlooper_v2, expand_nested=True, discover_loops=_v2_loops),
     "firmlooper-v3": FirmwarePolicy(_firmlooper_v3, expand_nested=True, discover_loops=_v3_loops),
+    # No discover_loops: calls and the WHOPR summary come from the firmware-calls and
+    # firmware-whopr analyses, as for hot-loop; the policy runs v3 loop discovery itself.
+    "hot-loop-tasks": FirmwarePolicy(_hot_loop_tasks, expand_nested=False, requires_edges=True,
+                                     cost_model_default=True),
 }
 
 
@@ -385,8 +448,12 @@ def resolve_selection(inputs: PolicyInput, selected: PolicySelection):
         raise PolicyError("a firmware policy must return a PolicySelection")
     if selected.expand_nested is not None and type(selected.expand_nested) is not bool:
         raise PolicyError("PolicySelection.expand_nested must be a bool or None")
+    if selected.flat_expansion is not None and not callable(selected.flat_expansion):
+        raise PolicyError("PolicySelection.flat_expansion must be callable or None")
     calls = {c.callsite_id: c for c in inputs.calls}
     roots = set(selected.roots)
+    if not isinstance(selected.price_after, frozenset) or not selected.price_after <= roots:
+        raise PolicyError("PolicySelection.price_after must be a frozenset of nominated roots")
     if (len(roots) != len(selected.roots) or roots & selected.refusals.keys()
             or not (roots | selected.refusals.keys() | selected.site_evidence.keys()) <= calls.keys()):
         raise PolicyError("unknown, duplicated or contradictory firmware call-site selection")

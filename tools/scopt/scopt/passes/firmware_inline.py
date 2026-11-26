@@ -30,7 +30,7 @@ from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
 from .firmware_policy import (PolicyError, PolicyInput, firmware_policy, firmlooper_summary,
                               resolve_selection)
 
-__all__ = ["FirmwareInline", "PASSES", "boundary_residual_exits"]
+__all__ = ["FirmwareInline", "PASSES", "boundary_residual_exits", "pricing_order"]
 
 #: Receipt reasons for exits of the two root members that the region never
 #: expands: every exit of the caller except the root call, and every exit of
@@ -60,6 +60,25 @@ def boundary_residual_exits(plan: Any, exits_of: Any) -> list[tuple[int, Any, st
             if (index, exit_.id) not in edged:
                 out.append((index, exit_, reason))
     return out
+
+
+def pricing_order(calls: Any, plans: Any, price_after: frozenset[str] = frozenset()) -> list[int]:
+    """Indices of the planned ``calls`` in the order the profit model prices them.
+
+    Covering regions first: a root whose caller is a member of other planned
+    regions is entered only by the executions those regions leave public (see
+    ``captured``), so it is priced after them.  Roots in ``price_after``
+    (:attr:`PolicySelection.price_after`) come after every other root, and the
+    other roots count only each other's regions, so they keep the order they
+    have without the late roots.  The sort is stable: the policy order breaks ties.
+    """
+    late = [call.callsite_id in price_after for call in calls]
+    members_of = [frozenset(m.source_uid for m in p.members) if p.complete else frozenset()
+                  for p in plans]
+    covered = [sum(call.source_uid in members_of[j] for j in range(len(plans))
+                   if j != i and (late[i] or not late[j]))
+               for i, call in enumerate(calls)]
+    return sorted(range(len(calls)), key=lambda i: (late[i], covered[i]))
 
 
 class FirmwareInline:
@@ -197,7 +216,8 @@ class FirmwareInline:
         try:
             options = ctx.params.get("policy_options", {})
             signature_evidence = None
-            if (mode in ("firmlooper-v2", "firmlooper-v3") and isinstance(options, dict)
+            if (mode in ("firmlooper-v2", "firmlooper-v3", "hot-loop-tasks")
+                    and isinstance(options, dict)
                     and "signature_reference" in options):
                 from ..analysis.rtos_signatures import recover
                 from ..decode.guest_symbols import load_guest_image
@@ -307,7 +327,7 @@ class FirmwareInline:
                 ctx.b3.snapshot, image, discovered, call, units=region_units,
                 by_uid=region_by_uid, compatibility=compatibility,
                 expand_nested=nested,
-                expansion=with_isb(selection.expansion if nested else None))
+                expansion=with_isb(selection.expansion if nested else selection.flat_expansion))
 
         if not planned_calls:
             plans = []
@@ -379,23 +399,22 @@ class FirmwareInline:
             return (replace(plan, trusted=True, trusted_entry_offset=TRUSTED_ENTRY_OFFSET,
                             edges=tuple(sanitized_edges)), rows, None)
 
+        # A root is priced against the callers of the other planned trusted
+        # regions (an exit into one is never chained).  Roots outside
+        # price_after see only each other's callers, so they are priced as if
+        # the late roots were not planned; a late root sees every caller.
+        late = selection.price_after
         trusted_entries = frozenset(call.source_uid for call in planned_calls) if trusted \
             else frozenset()
+        early_entries = frozenset(call.source_uid for call in planned_calls
+                                  if call.callsite_id not in late) if trusted else frozenset()
         nested_fallbacks: list[dict[str, Any]] = []
         # Flow of each unit that admitted regions execute privately; a later
         # root whose caller is such a member is entered only by the rest.
         captured: Counter[str] = Counter()
         work = list(zip(planned_calls, plans))
         if profit is not None:
-            # Price covering regions first: a root whose caller is a member
-            # of other planned regions is entered only by the executions
-            # those regions leave public (see ``captured``), so it is priced
-            # after them.  The sort is stable, so the policy order breaks ties.
-            members_of = [frozenset(m.source_uid for m in p.members) if p.complete
-                          else frozenset() for p in plans]
-            covered = [sum(call.source_uid in members_of[j] for j in range(len(plans)) if j != i)
-                       for i, call in enumerate(planned_calls)]
-            work = [work[i] for i in sorted(range(len(work)), key=covered.__getitem__)]
+            work = [work[i] for i in pricing_order(planned_calls, plans, late)]
         for call, plan in work:
             # Candidates in preference order: the (possibly recursive) plan,
             # then, for a profit-gated recursive selection, the flat plan.
@@ -413,8 +432,9 @@ class FirmwareInline:
                     continue
                 est = None
                 if profit is not None and final is not None and final.complete:
+                    entries = trusted_entries if call.callsite_id in late else early_entries
                     est = profit.estimate(final, ctx.b3.snapshot, exits_of=exits_of,
-                                          trusted_entries=trusted_entries - {call.source_uid},
+                                          trusted_entries=entries - {call.source_uid},
                                           captured=captured)
                 options.append((attempt, final, rows, est))
             if not options:

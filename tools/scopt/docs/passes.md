@@ -277,6 +277,15 @@ as FirmLooper v3 does
 ([ISB side exit in any mode](firmware-inline-policies.md#isb-side-exit-in-any-mode-isb_boundary));
 absent, hot-loop expands those branches as before.
 
+`mode = "hot-loop-tasks"` keeps every hot-loop root and its plan, admission and price,
+and adds the FirmLooper v3 task-loop roots the profile did not nominate. Those roots keep
+v3's RTOS boundaries and ISB side exit, and they are priced after every hot root
+(`PolicySelection.price_after`). Discovery and the WHOPR summary stay hot-loop's, and the
+cost model and `nested = "profit"` are required. Its receipt adds `policy.union`
+(`hot` / `static` / `static_only` / `both`), and each row carries `o4_evidence`. See
+[Hot loops plus task loops](firmware-inline-policies.md#hot-loops-plus-task-loops-hot-loop-tasks).
+It is O4 candidate A2a (arm `o4_tasks`); no shipped pipeline uses it.
+
 Automatic training (`--pgo-launch` without `--profile`) keeps the pipeline's
 `phase="steady"`. `--pgo-phase auto` (the default) picks the marker in this order
 and passes it to the profiled replay:

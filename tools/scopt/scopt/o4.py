@@ -140,6 +140,11 @@ FIRMWARE_MODES: Mapping[str, Decision] = MappingProxyType({
         "measured_slower", f"{_OUT}: alone p7/fl3 0.9580 / 0.9505 / 0.8736 (cli below_floor); "
         "composed with B3 it is challenger C1 (fl3b3) and, priced, C1p (fl3b3p)",
         arm="fl3b3p"),
+    "hot-loop-tasks": _exc(
+        "unmeasured", f"{_CAND}: A2a, hot-loop's roots unchanged plus the FirmLooper v3 task-loop "
+        "roots the profile did not nominate, priced after them; probe2 packet +1 region (the "
+        "14-call memset at 0x48ec, 7 members), uart and cli the same bytes as B3 + hot-loop",
+        arm="o4_tasks"),
 })
 
 _CAL = "never swept; calibrated on the a1bdec6 packet run (F14)"
@@ -252,7 +257,8 @@ def _knobs():
 KNOBS: Mapping[tuple[str, str], Decision] = _knobs()
 
 NON_SPEED: Mapping[tuple[str, str], str] = MappingProxyType({
-    ("firmware-inline", "policy_options"): "read only by the firmlooper modes",
+    ("firmware-inline", "policy_options"): "read only by the firmlooper modes and "
+                                           "hot-loop-tasks (task-loop discovery)",
     ("host-inline", "site_profile_path"): "input plumbing: set by --pgo-launch training",
     ("host-inline", "site_profile_sha256"): "input plumbing: set by --pgo-launch training",
     ("host-inline", "max_wall_s"): "a wall-clock guard on compile time",
