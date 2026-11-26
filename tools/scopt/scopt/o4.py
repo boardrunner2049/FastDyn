@@ -68,8 +68,9 @@ PASSES: Mapping[str, Decision] = MappingProxyType({
     "chain-static": _inc("measured_best", f"{_IN}: {_B3}", enabled=True, marginal="PROVEN_GAIN"),
     "firmware-inline": _inc(
         "measured_best", f"{_IN}: part of c7b3; alone s6/p7 R2 1.1259 / 1.1094 / 1.1690. On top "
-        "of B3 NEUTRAL: s6b3/c7b3 R1 1.013 / 1.023 / 1.020, R2 1.0167 / 0.9901 / 1.0148, all "
-        "within_noise (mean about +1.3%)", arm="o4_noregions", marginal="NEUTRAL"),
+        "of B3 NEUTRAL: s6b3/c7b3 R1 1.013 / 1.023 / 1.020 (R1's c7b3 had no member skip), R2 "
+        "1.0167 / 0.9901 / 1.0148, all within_noise (mean about +1.3%)", arm="o4_noregions",
+        marginal="NEUTRAL"),
     "host-inline": _inc(
         "bundle", f"{_IN}: sealed-pgo-7 parameters, part of c7b3; applies 1 / 0 / 0 sites "
         "(packet helper_shl_cc); costs a gdb counted replay", arm="o4_nohi",
@@ -168,8 +169,9 @@ def _knobs():
         "56 / 23 / 7 regions, model gain at most +30.2 ms on packet after B3's credit",
         arm="o4_chained")
     k[(fw, "isb_boundary")] = _inc(
-        "default", f"{_CAND}: absent, so hot-loop regions defer PendSV at 33 / 2 / 0 ISB edges "
-        "under the trusted contract; fidelity item I1 decides it", arm="o4_isb")
+        "default", f"{_CAND}: absent, so hot-loop regions defer PendSV at their ISB edges under "
+        "the trusted contract (the O4 design probe, recursive plans only: 33 / 2 / 0 edges); "
+        "fidelity item I1 decides it, and its arm records O4-r1's exact count", arm="o4_isb")
     k[(fw, "planner")] = _inc(
         "reference", f"{_CAND}: 'whopr' as c7b3; its partition order is the pricing order and "
         "changes admission (legacy: packet +2 roots, cli 1 swapped)",
@@ -203,10 +205,12 @@ def _knobs():
             "default", f"{_IN}: the 256-unit cap binds only on packet chain-static (27 exits "
             "refused slot_budget); raising it is a code change (B2)")
     k[("chain-returns", "min_return_share")] = _inc("default", f"{_IN}: {_B3_DEFAULT}")
-    for cp in ("chain-returns", "chain-static"):
-        put(cp, "rank_by_net_work c_target_check", _inc(
-            "default", f"{_CAND}: never run on sealed; A3 ranks chain-static exits by net work "
-            "with c_target_check = 0.0 (B3)", arm="o4_rank"))
+    put("chain-static", "rank_by_net_work c_target_check", _inc(
+        "default", f"{_CAND}: never run on sealed; A3 ranks chain-static exits by net work "
+        "with c_target_check = 0.0 (B3)", arm="o4_rank"))
+    put("chain-returns", "rank_by_net_work c_target_check", _inc(
+        "default", f"{_IN}: {_B3_DEFAULT}; its unit cap does not bind (47 / 43 / 28 slots), so "
+        "no ranking arm (design 5, finding 10)"))
 
     sr = "specialize-returns"
     for name, value in (("targets_per_exit", 2), ("max_variants_per_c", 2), ("max_variants", 64),
