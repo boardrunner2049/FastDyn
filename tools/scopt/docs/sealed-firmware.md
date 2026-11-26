@@ -295,6 +295,10 @@ time(configuration 6 on `aacca05`) is 0.9885, 1.0099 and 1.0299, all within nois
   byte-identical twins it is 0.826 and 0.831). Keeping `helper_lookup_tb_ptr` out of
   its host-inline prefix removes the regression
   ([`sealed-whopr-7-bounded`](sealed-whopr-7.md#bounded-helper-graphs-sealed-whopr-7-bounded)).
+  Timed as a shipped pipeline in a later paired run, `sealed-whopr-7-bounded` is
+  1.2576, 1.4003 and 1.3149 times as fast as `sealed-whopr-7`, above the floor, and
+  within noise of `sealed-pgo-7` (0.9685, 0.9522 and 1.0230; on UART round 2's 0.9163
+  for the same bytes was below the floor).
 
 Plans, observations and per-arm counters are in
 `/data/scfix-r2/{packet,uart,cli}/timing-1`, and the full report is

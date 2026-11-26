@@ -7,7 +7,7 @@
 # UART / CLI captures on QEMU aacca05; host-inline then grows native code by
 # 124 / 142 / 157 MB.  The copies also remove the lookup tails firmware-inline
 # needs (760 / 365 / 486 roots refused as lookup_tail_missing, leaving 30 / 27
-# / 25 regions), and sealed-whopr-7-b3's B3 passes refuse most exits as
+# / 25 regions), and sealed-whopr-7-b3's B3 passes refuse every return exit as
 # exit_not_goto_ptr.  Round 2 timed sealed-whopr-7 below plain trusted sealed
 # and below sealed-pgo-7 on all three workloads.
 #
@@ -18,12 +18,20 @@
 # helper names, so on another QEMU build or capture read the host-inline
 # receipt's helper_graph_size_policy refusals to see what it excludes.
 #
-# Round 2 (/data/scfix-r2/TIMING.md) timed this policy as w7_nolookup, built
-# from a private TOML with the same passes and params under another name (a
-# packet rebuild with this pipeline gives a byte-identical cache.sc):
-# 1.2979x / 1.4432x / 1.3254x faster than sealed-whopr-7 (above the A/A floor
-# on all three), but not shown faster than sealed-pgo-7 (within noise on packet
-# and CLI, about 8% slower on UART).  See docs/sealed-whopr-7.md.
+# Measured on those captures (/data/scfix-r2/TIMING.md, "Bounded WHOPR timing";
+# ratios are time(reference) / time(this pipeline), 20 paired blocks on packet,
+# 10 on UART and CLI):
+# - lookup_tail_missing 0, 193 / 202 / 208 regions, host-inline growth
+#   1.7 / 3.7 / 3.5 MB.  The cache.sc is byte-identical to that of round 2's
+#   w7_nolookup arm (this policy under a private name), and it passes the
+#   functional checks (16 result words, counters revision 4, every poll entry
+#   verified) on every case.
+# - Against sealed-whopr-7: 1.2576 / 1.4003 / 1.3149, above the A/A floor and
+#   faster in every block (round 2: 1.2979 / 1.4432 / 1.3254).
+# - Against sealed-pgo-7: 0.9685 / 0.9522 / 1.0230, all within noise (round 2:
+#   0.9845 within noise, 0.9163 below the floor, 1.0513 within noise).  Not
+#   shown faster than sealed-pgo-7, and slower in every packet and UART point
+#   estimate.  See docs/sealed-whopr-7.md.
 #
 # sealed-whopr-7 itself stays unchanged so archived provenance remains
 # reproducible.

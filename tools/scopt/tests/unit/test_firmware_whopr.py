@@ -65,11 +65,20 @@ _LOOKUP_GRAPH_BYTES = 50_345
 _NEXT_GRAPH_BYTES = 6_500
 _BOUND = 32_768
 
-#: sealed-whopr-7 and sealed-whopr-7-b3 are archived provenance: never edit
-#: them, add a new pipeline instead.
+#: sealed-whopr-7 and sealed-whopr-7-b3 are archived provenance: their pipeline
+#: ids (name, description, capabilities, passes and params, not comments) must
+#: not change, so add a new pipeline instead of editing them.  The byte pins
+#: also catch comment edits; sealed-whopr-7-b3.toml's comments were last
+#: updated when composed region members gained skip flags.
 _WHOPR7_TOML_SHA256 = "b98ef880815ce00df60f2d9260a8d99a0684f050068313a6fd4d0564c7742510"
+_WHOPR7_B3_TOML_SHA256 = "a2588563d8aebdc3c05433cd93258143a943a744db61924ad8adeb0d553d9817"
 _WHOPR7_ID = "sha256:217d45302c84488b6a0a0cc2e390ed83dfdc4aa27d2d9e2fb91e126d36bc5f8d"
 _WHOPR7_B3_ID = "sha256:b3db04d53fd267ceaf09426c2fa7df2581286278c1eac2bad976d4c58ec5d2b5"
+
+#: Pipeline ids of the bounded builds that were functionally checked and timed
+#: on the FirmBOLT -O4 packet, UART and CLI captures (docs/sealed-whopr-7.md).
+_BOUNDED_ID = "sha256:6a9b166a1b09c8717cb8683758c7f62701d6d507b22f44ee70969ac74f2b7bb7"
+_BOUNDED_B3_ID = "sha256:c5c25c80de8bc4429376376512c52313f711763dd38dffb471f2ab70325a6383"
 
 
 def _without_bound(pipeline):
@@ -79,11 +88,20 @@ def _without_bound(pipeline):
             for p in pipeline.passes]
 
 
+def _toml_sha256(name):
+    return hashlib.sha256((pipelines_dir() / f"{name}.toml").read_bytes()).hexdigest()
+
+
 def test_configuration_7_pipelines_stay_unchanged():
-    toml = (pipelines_dir() / "sealed-whopr-7.toml").read_bytes()
-    assert hashlib.sha256(toml).hexdigest() == _WHOPR7_TOML_SHA256
+    assert _toml_sha256("sealed-whopr-7") == _WHOPR7_TOML_SHA256
+    assert _toml_sha256("sealed-whopr-7-b3") == _WHOPR7_B3_TOML_SHA256
     assert load_pipeline("sealed-whopr-7").pipeline_id == _WHOPR7_ID
     assert load_pipeline("sealed-whopr-7-b3").pipeline_id == _WHOPR7_B3_ID
+
+
+def test_bounded_configuration_7_pipelines_keep_their_timed_ids():
+    assert load_pipeline("sealed-whopr-7-bounded").pipeline_id == _BOUNDED_ID
+    assert load_pipeline("sealed-whopr-7-bounded-b3").pipeline_id == _BOUNDED_B3_ID
 
 
 def test_bounded_configuration_7_only_adds_the_graph_bound():

@@ -108,7 +108,9 @@ are unchanged. Run them as for configuration 6 + B3 above (sealed steady profile
 `--prep`, the three `--enable` flags) and add `--v7-trusted-exe` (and
 `--v7-member-skip-exe` for a QEMU that honours member skip flags). trebuchet names the
 stages `pgo7-b3`, `whopr7-b3`, `firmlooper-b3` and `firmlooper-v2-b3`.
-`sealed-whopr-7-bounded-b3` has no trebuchet stage and has not been built or timed
+`sealed-whopr-7-bounded-b3` has no trebuchet stage. On the FirmBOLT `-O4` packet, UART
+and CLI captures it runs correctly, its B3 passes place as many slots as
+`sealed-pgo-7-b3`'s, and its time is within noise of `sealed-pgo-7-b3`
 ([bounded helper graphs](sealed-whopr-7.md#bounded-helper-graphs-sealed-whopr-7-bounded)).
 
 Only trusted regions compose. A safe member reuses its public record's goto_tb offsets,

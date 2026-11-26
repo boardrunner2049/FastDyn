@@ -31,8 +31,10 @@ in a diagnostic replay for the loaded region ID, activation counts and
 The remainder of this document describes the historical exhaustive graph
 experiment, still available as `sealed-whopr-7` and the Trebuchet recipe
 `whopr7`. Choose `pgo7` in current Trebuchet candidate plans.
-`sealed-whopr-7-bounded` keeps `helper_lookup_tb_ptr` out of line; it removes
-`sealed-whopr-7`'s regression but is not shown to beat `sealed-pgo-7`
+`sealed-whopr-7-bounded` and `sealed-whopr-7-bounded-b3` keep `helper_lookup_tb_ptr`
+out of line. They remove the regression of `sealed-whopr-7` and `sealed-whopr-7-b3` and
+run correctly on the three FirmBOLT `-O4` workloads, but neither is shown faster than
+`sealed-pgo-7` or `sealed-pgo-7-b3`
 ([bounded helper graphs](#bounded-helper-graphs-sealed-whopr-7-bounded)).
 
 The separate `sealed-firmlooper` pipeline uses task registration and static loop
@@ -217,12 +219,15 @@ no-regions/default 0.935 with 7 of 8 blocks below 1, which runs contrary to the
 conclusion above, but it is inadmissible and remains unreconciled. It is distinct from
 the historical 169-region same-artifact ablation below.
 
-All configuration 7 numbers in this document predate chainable trusted residual exits.
-Their artifacts use the legacy shared descriptor, so every residual exit of a region
-(about 2.9M per packet run, nearly all from the never-expanded root continuation)
-returned to the dispatcher. Artifacts linked since then carry per-member descriptors
-whose residual goto_tb exits QEMU chains after first use; compare the two behaviours
-on the same bytes with `QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain`.
+The compute-image configuration 7 numbers in this document predate chainable trusted
+residual exits; the FirmBOLT `-O4` numbers in
+[bounded helper graphs](#bounded-helper-graphs-sealed-whopr-7-bounded) were measured on
+QEMU `aacca05` (counters revision 4). The compute-image artifacts use the legacy shared
+descriptor, so every residual exit of a region (about 2.9M per packet run, nearly all
+from the never-expanded root continuation) returned to the dispatcher. Artifacts linked
+since then carry per-member descriptors whose residual goto_tb exits QEMU chains after
+first use; compare the two behaviours on the same bytes with
+`QEMU_SC_V7_EXPERIMENT=no-trusted-exit-chain`.
 
 The current seven-number dashboard retains rows 1-6 from their original campaigns and
 uses the new valid all-helper measurement for row 7. Cross-campaign subtraction is not
@@ -260,20 +265,23 @@ unchanged so archived provenance remains reproducible.
 
 **Why.** Round 2 of the sealed follow-ups (2026-11-25, `/data/scfix-r2/TIMING.md`) timed
 `sealed-whopr-7` on the FirmBOLT `-O4` packet, UART and CLI captures on QEMU `aacca05`.
-It is a regression: time(configuration 6) / time(`sealed-whopr-7`) is 0.8513 (packet),
-0.6921 (UART) and 0.9109 (CLI), and time(`sealed-pgo-7`) / time(`sealed-whopr-7`) is
-0.7448, 0.6278 and 0.7756, all below the A/A floor. Its unbounded prefix inlines
-`helper_lookup_tb_ptr`, whose captured source graph is 50,345 B, at 1,747, 1,980 and
-2,184 sites. The copies also remove the lookup tails that firmware-inline needs, so
-760, 365 and 486 roots are refused as `lookup_tail_missing`.
+It is a regression: time(configuration 6) / time(`sealed-whopr-7`) is 0.8513 (packet,
+against a configuration 6 reference that ran slow; 0.826 and 0.831 against its
+byte-identical twins), 0.6921 (UART) and 0.9109 (CLI), and time(`sealed-pgo-7`) /
+time(`sealed-whopr-7`) is 0.7448, 0.6278 and 0.7756, all below the A/A floor. Its
+unbounded prefix inlines `helper_lookup_tb_ptr`, whose captured source graph is
+50,345 B, at 1,747, 1,980 and 2,184 sites. The copies also remove the lookup tails that
+firmware-inline needs, so 760, 365 and 486 roots are refused as `lookup_tail_missing`,
+and `sealed-whopr-7-b3`'s B3 passes refuse every return exit (395, 574 and 625) as
+`exit_not_goto_ptr`.
 
 **Why 32768.** The bound charges a helper's whole captured source graph, the root and
 its direct-call graph ([host-inline](passes.md#host-inline1)). On these captures 32768
 excludes `helper_lookup_tb_ptr` and nothing else: the next largest graph is
 `helper_v7m_msr` at 6,500 B. 65536 is above 50,345 B and is a no-op: its packet and UART
-caches are byte-identical to `sealed-whopr-7`'s. The bound is on bytes, not helper
-names, so on another QEMU build or capture the receipt's `helper_graph_size_policy`
-refusals show which helpers it excludes.
+caches are byte-identical to `sealed-whopr-7`'s (the CLI build was not completed). The
+bound is on bytes, not helper names, so on another QEMU build or capture the receipt's
+`helper_graph_size_policy` refusals show which helpers it excludes.
 
 What the bound changes (`sealed-whopr-7` -> `sealed-whopr-7-bounded`):
 
@@ -285,52 +293,148 @@ What the bound changes (`sealed-whopr-7` -> `sealed-whopr-7-bounded`):
 | firmware regions | 30 -> 193 | 27 -> 202 | 25 -> 208 |
 | allocated cache | 192.5 -> 43.4 MB | 171.6 -> 26.7 MB | 204.9 -> 32.4 MB |
 
-**Measured.** Round 2 timed this policy as the arm `w7_nolookup`, built from a private
-TOML with the same passes and parameters under another name. On packet, a rebuild from
-the same snapshot with `--pipeline sealed-whopr-7-bounded` gives a `cache.sc` that is
-byte-identical (`cmp`) to the timed one; only the artifact id differs. Paired,
-block-randomised fresh-process blocks: 20 on packet, 10 on UART and CLI. Ratios are
-time(reference) /
-time(`sealed-whopr-7-bounded`), so above 1 means the bounded pipeline is faster; each
-cell gives the block-ratio median, its 95% bootstrap interval, the blocks above 1 and
-the verdict against the workload's A/A band (packet [0.9501, 1.0526], UART
-[0.9700, 1.0309], CLI [0.9802, 1.0202]).
+**Builds and functional checks.** Both pipelines were built from round 2's snapshots on
+all three workloads (pipeline ids `6a9b166a…` and `c5c25c80…`, pinned in
+`tests/unit/test_firmware_whopr.py`). Host-inline inlines `helper_lookup_tb_ptr` at no
+site, and the bound refuses no other helper (its `helper_graph_size_policy` refusals,
+1,975, 2,050 and 2,331 sites, are all of the lookup). `sealed-whopr-7-bounded`'s
+`cache.sc` is byte-identical (`cmp`) to that of round 2's `w7_nolookup` arm, the same
+policy under a private name, on every workload; only the store metadata that hashes the
+pipeline id differs. Both pipelines pass the
+functional checks on every case: exit 0, the 16 result words and one BENCH line, the
+artifact loaded trusted with its `read_sc7` id8, counters revision 4 with no counter
+problems, every trusted poll entry verified (193, 202 and 208), and no
+trusted-to-trusted chain refused. Every timed run in both campaigns below reproduced
+the 16 words.
+
+In `sealed-whopr-7-bounded-b3`, built with `--v7-member-skip-exe`, B3 works again. Its
+passes place as many variants and slots as `sealed-pgo-7-b3` on the same capture:
+chain-returns places 47, 43 and 28 slots and chain-static 256, 50 and 43, where
+`sealed-whopr-7-b3` placed no chain-returns slot and 63, 2 and 10 chain-static slots.
+The only difference from `sealed-pgo-7-b3` is in chain-static's refusal reasons: 4, 2
+and 1 exits refused as `exit_not_goto_ptr`, and as many fewer as
+`target_not_profiled`. It embeds the same regions and members as
+`sealed-whopr-7-bounded`, every region keeps member descriptors (193, 202 and 208),
+and in the timing runs' regions replay the members skip 1,415, 390 and 261 B3 slots.
+
+**Measured.** Two paired campaigns timed the bounded policy on QEMU `aacca05` with the
+same driver, seeds and CPUs, 20 blocks on packet and 10 on UART and CLI:
+
+- *Round 2* (`/data/scfix-r2/{packet,uart,cli}/timing-1`) timed it as `w7_nolookup`.
+  A/A bands: packet [0.9501, 1.0526], UART [0.9700, 1.0309], CLI [0.9802, 1.0202].
+- The *bounded run* (`/data/scfix-r2/{packet,uart,cli}/timing-bounded`) timed the two
+  shipped pipelines next to configuration 6, `sealed-pgo-7`, `sealed-pgo-7-b3` (built
+  with `--v7-member-skip-exe`), `sealed-whopr-7` and `w7_nolookup`. A/A bands: packet
+  [0.9641, 1.0372], UART [0.9555, 1.0465] (about 1.5 times as wide as round 2's) and
+  CLI [0.9441, 1.0592] (about 3 times as wide).
+
+Ratios are time(reference) / time(bounded pipeline), so above 1 means the bounded
+pipeline is faster. Each cell gives the block-ratio median, its 95% bootstrap
+interval, the blocks above 1 and the verdict against that run's A/A band.
+
+`sealed-whopr-7-bounded`:
+
+| Reference | Run | packet | UART | CLI |
+|---|---|---|---|---|
+| `sealed-whopr-7` | bounded | 1.2576 [1.2167, 1.3116], 20/20, above floor | 1.4003 [1.2320, 1.4771], 10/10, above floor | 1.3149 [1.2886, 1.3926], 10/10, above floor |
+| | round 2 | 1.2979 [1.2593, 1.5067], 20/20, above floor | 1.4432 [1.1959, 1.5167], 10/10, above floor | 1.3254 [1.2947, 1.4188], 10/10, above floor |
+| `sealed-pgo-7` | bounded | 0.9685 [0.9314, 0.9910], 3/20, within noise | 0.9522 [0.8861, 0.9920], 1/10, within noise | 1.0230 [0.9963, 1.0844], 7/10, within noise |
+| | round 2 | 0.9845 [0.9538, 1.0036], 8/20, within noise | 0.9163 [0.8678, 0.9413], 0/10, below floor | 1.0513 [1.0089, 1.0941], 9/10, within noise |
+| configuration 6 | bounded | 1.0726 [1.0433, 1.1081], 19/20, above floor\* | 1.0461 [0.9559, 1.1483], 6/10, within noise | 1.2172 [1.1551, 1.2915], 10/10, above floor |
+| | round 2 | 1.0934 [1.0615, 1.1109], 19/20, above floor\* | 0.9910 [0.9395, 1.0289], 4/10, within noise | 1.2147 [1.1863, 1.2647], 10/10, above floor |
+| `w7_nolookup` (same bytes) | bounded | 1.0120 [0.9941, 1.0309], 12/20, within noise | 1.0045 [0.9699, 1.0518], 6/10, within noise | 0.9958 [0.9680, 1.0604], 4/10, within noise |
+
+`sealed-whopr-7-bounded-b3` (bounded run only):
 
 | Reference | packet | UART | CLI |
 |---|---|---|---|
-| `sealed-whopr-7` | 1.2979 [1.2593, 1.5067], 20/20, above floor | 1.4432 [1.1959, 1.5167], 10/10, above floor | 1.3254 [1.2947, 1.4188], 10/10, above floor |
-| `sealed-pgo-7` | 0.9845 [0.9538, 1.0036], 8/20, within noise | 0.9163 [0.8678, 0.9413], 0/10, below floor | 1.0513 [1.0089, 1.0941], 9/10, within noise |
-| configuration 6 | 1.0934 [1.0615, 1.1109], 19/20, above floor\* | 0.9910 [0.9395, 1.0289], 4/10, within noise | 1.2147 [1.1863, 1.2647], 10/10, above floor |
+| `sealed-whopr-7-bounded` | 1.0493 [1.0377, 1.0616], 17/20, above floor | 1.0072 [0.9719, 1.0787], 5/10, within noise | 1.0486 [1.0221, 1.0739], 9/10, within noise‡ |
+| `sealed-pgo-7-b3` | 0.9730 [0.9401, 0.9983], 5/20, within noise | 0.9285 [0.8228, 0.9568], 1/10, within noise† | 0.9978 [0.9827, 1.0470], 4/10, within noise |
+| `sealed-pgo-7` | 1.0119 [0.9708, 1.0399], 11/20, within noise | 0.9746 [0.9040, 1.0458], 3/10, within noise | 1.0809 [1.0401, 1.1368], 10/10, within noise‡ |
+| configuration 6 | 1.1239 [1.0948, 1.1464], 20/20, above floor\* | 1.0854 [0.9916, 1.1726], 8/10, within noise | 1.2632 [1.2139, 1.3563], 10/10, above floor |
 
-\* Packet's A/A interval excludes 1 (configuration 6 against a byte-identical copy of
-its own cache: 1.0322 [1.0035, 1.0526]) because the configuration 6 reference ran slow,
-which inflates every configuration-6-referenced packet ratio. Against its byte-identical
-twins the bounded pipeline is 1.0635 (`sealed-firmlooper-v2`, which selects nothing on
-packet) and 1.0529 (the A/A copy), both within noise.
+\* Packet's A/A interval excludes 1 in both runs, in opposite directions. In round 2
+the configuration 6 reference ran slow (A/A 1.0322 [1.0035, 1.0526]), which inflates
+configuration-6-referenced packet ratios: against its byte-identical twins the
+bounded policy is 1.0635 (`sealed-firmlooper-v2`, which selects nothing on packet) and
+1.0529 (the A/A copy), both within noise. In the bounded run it ran fast (A/A 0.9840
+[0.9641, 0.9926]), which deflates them: against the A/A copy `sealed-whopr-7-bounded`
+is 1.0990 and `sealed-whopr-7-bounded-b3` 1.1528, both above the floor.
 
-The bound removes the regression against configuration 6 (within noise or above the
-floor on all three workloads), but the bounded pipeline is not shown to beat
-`sealed-pgo-7`: it is within noise of it on packet and CLI, and about 8% slower on UART
-(below the floor). On CLI its point estimate is 5% faster and the interval excludes 1,
-but the interval overlaps the A/A band, so neither parity nor a gain is shown.
-`sealed-pgo-7` (Trebuchet `pgo7`) stays the configuration 7 to choose.
+† The interval's upper end, 0.9568, overlaps the band's lower edge, 0.9555, by 0.0013.
+Under round 2's UART band it would be below the floor.
+
+‡ Above the floor under round 2's CLI band.
+
+What the timing shows:
+
+- **The bound removes the regression.** `sealed-whopr-7-bounded` is 1.26-1.40 times as
+  fast as `sealed-whopr-7` in the bounded run and 1.30-1.44 times in round 2, faster in
+  every block of both runs. Against configuration 6 it is above the floor on CLI in
+  both runs and on packet in the bounded run against either reference, and within noise
+  on UART in both runs.
+- **It is not shown faster than `sealed-pgo-7`.** On packet and UART every point
+  estimate favours `sealed-pgo-7`: packet is within noise in both runs, and UART is
+  about 8% slower in round 2 (below the floor) and about 5% slower in the bounded run
+  (1 of 10 blocks; the interval excludes 1 but overlaps the wider band). On CLI the
+  bounded pipeline is 2-5% faster in point estimate, within noise in both runs.
+- **B3 on top of it is a measurable gain only on packet.**
+  `sealed-whopr-7-bounded-b3` is faster than `sealed-whopr-7-bounded` above the floor on
+  packet (1.0493), within noise on UART (1.0072) and within noise on CLI (1.0486, 9 of
+  10 blocks). It cannot be separated from `sealed-pgo-7-b3` on any workload; on UART its
+  point estimate is about 7% slower and only just within noise.
+- **The CLI region bypass did not cost time.** On CLI, B3 cuts region entries from
+  14,213 / 5,569 (commands / help) to 105 / 105, presumably because B3's chain slots
+  bypass the lookup through which regions are entered; `sealed-pgo-7-b3` shows the same
+  pattern against `sealed-pgo-7` (7 entries against 14,115). Yet
+  `sealed-whopr-7-bounded-b3` has the lowest CLI block-sum median, 57.97 ms, level with
+  `sealed-pgo-7-b3` (57.98 ms) and below `sealed-whopr-7-bounded` (60.82 ms).
+
+Both bounded pipelines run correctly on all three workloads. Use them instead of
+`sealed-whopr-7` and `sealed-whopr-7-b3` whenever the exhaustive WHOPR graph is wanted.
+Neither is shown faster than its profile-guided counterpart, and on UART both are
+slower in every point estimate, so `sealed-pgo-7` (Trebuchet `pgo7`) and
+`sealed-pgo-7-b3` stay the configuration 7 pipelines to choose.
 
 Not established:
 
-- The bound changes code size and region coverage together (6-8 times as many regions),
-  and round 2 cannot separate the two. `sealed-whopr-7` is slower than configuration 6,
-  which has no regions at all, so losing regions cannot by itself explain its
-  regression; that the inlined lookup copies cost time on their own is an inference.
-  Code size was not separated from page-fault cost.
-- `sealed-whopr-7-bounded-b3` has not been built or timed. Build it with
-  `--v7-member-skip-exe` for a QEMU that honours member skip flags: round 2 built
-  `sealed-whopr-7-b3` without it, so 6 of 30 (packet), 1 of 27 (UART) and 5 of 25 (CLI)
-  of its regions kept the shared descriptor.
+- The bound changes code size and region coverage together (about 6.4-8.3 times as
+  many regions), and neither campaign separates the two. `sealed-whopr-7` is slower
+  than configuration 6, which has no regions at all, so losing regions cannot by itself
+  explain its regression; that the inlined lookup copies cost time on their own is an
+  inference. Code size was not separated from page-fault cost.
+- On UART the bounded run's w7-class arms are bimodal and the cause is not diagnosed.
+  `sealed-whopr-7-bounded` commands took 545-580 ms in blocks 0-5 and 649-688 ms in
+  blocks 6-9, and `w7_nolookup` split in the same blocks; on the same bytes their help
+  medians differ (265.1 against 314.7 ms). Configuration 6, `sealed-pgo-7` and
+  `sealed-pgo-7-b3` do not split this way.
+- The bounded run's UART and CLI bands are wider than round 2's, and three of its
+  verdicts depend on which band is used (the † and ‡ cells).
+- Neither pipeline has a Trebuchet stage.
+
+`sealed-whopr-7-bounded` uses the `sealed-whopr-7` recipe:
 
 ```sh
 scopt optimize "$SNAP" --pipeline sealed-whopr-7-bounded --elf "$ELF" \
   --runtime-identity "$RUNTIME_JSON" --v7-trusted-exe "$QEMU_SHA256_ID" \
   --store "$OUT" --json
+```
+
+`sealed-whopr-7-bounded-b3` uses the `sealed-whopr-7-b3` recipe (a sealed steady profile,
+the sealed preparation, the three `--enable` flags and `--v6-exe`; see
+[configuration 7 + B3](b3-passes.md#sealed-firmware-regions--b3-configuration-7--b3)) plus
+`--v7-member-skip-exe` for a QEMU that honours member skip flags. Without that flag,
+regions whose member sources B3 grew keep the shared descriptor: round 2's
+`sealed-whopr-7-b3` builds had 6 of 30 (packet), 1 of 27 (UART) and 5 of 25 (CLI) such
+regions.
+
+```sh
+scopt optimize "$SNAP" --pipeline sealed-whopr-7-bounded-b3 \
+  --profile "$SEALED_STEADY_PROFILE" --prep "$SEALED_PREP" --elf "$ELF" \
+  --enable specialize-returns --enable chain-returns --enable chain-static \
+  --v6-exe "$QEMU_SHA256_ID" --v7-trusted-exe "$QEMU_SHA256_ID" \
+  --v7-member-skip-exe "$QEMU_SHA256_ID" \
+  --runtime-identity "$RUNTIME_JSON" --store "$OUT" --json
 ```
 
 ## Reproduction
@@ -427,8 +531,10 @@ table is the firmware-region-only predecessor, not the current all-helper artifa
 
 ## Limits
 
-- This is one real FreeRTOS compute image and one fixed meaningful input.  It
-  establishes an application result, not a universal policy.
+- The compute-image results are one real FreeRTOS image and one fixed meaningful
+  input; the bounded-helper-graph results cover the FirmBOLT `-O4` packet, UART and CLI
+  captures on QEMU `aacca05`. They establish application results, not a universal
+  policy.
 - Public exhaustive translations remain available for missing contexts and
   residual exits.  Configuration 7 does not make indirect targets known.
 - The trusted contract intentionally omits guest-code hash checks, live QEMU

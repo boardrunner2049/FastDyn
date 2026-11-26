@@ -514,11 +514,10 @@ stack alignment, guest-state effects, fault paths, and recovery metadata.
   finite direct-call graph before any per-site copy is emitted. `sealed-whopr-7-bounded`
   sets it to 32768, which keeps `helper_lookup_tb_ptr` (50,345 B) out of line
   ([bounded helper graphs](sealed-whopr-7.md#bounded-helper-graphs-sealed-whopr-7-bounded)).
-  With an exact profile,
-  `trusted_rank_by="frequency-density"` ranks sites by TB-entry weight divided by
-  complete source-graph bytes; `trusted_min_tb_entries` rejects unexecuted/low-weight
-  sites and `trusted_max_total_growth` admits the ranked prefix under an actual emitted
-  byte budget. Their zero/default values preserve configuration 7's exhaustive policy.
+  With an exact profile, `trusted_rank_by="frequency-density"` ranks sites by TB-entry
+  weight divided by complete source-graph bytes; `trusted_min_tb_entries` rejects
+  unexecuted/low-weight sites and `trusted_max_total_growth` admits the ranked prefix
+  under an actual emitted byte budget. Their zero/default values preserve configuration 7's exhaustive policy.
   `trusted_root_wrapper_only=true` is a separate runtime-profitability experiment:
   it admits tiny captured QEMU ABI wrappers, removes the outer indirect TCG helper
   call, and leaves the shared slow-path body shared. Exact tail wrappers become one

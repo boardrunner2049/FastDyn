@@ -5,16 +5,36 @@
 # (a 50,345-byte captured source graph) out of line; see
 # sealed-whopr-7-bounded.toml for why 32768 and not 65536.  Under
 # sealed-whopr-7-b3 the inlined lookups leave firmware-inline without the
-# lookup tails it needs (lookup_tail_missing) and B3 refusing most exits as
-# exit_not_goto_ptr, and B3 added no measurable gain on top of
-# sealed-whopr-7 in round 2 (/data/scfix-r2/TIMING.md).
+# lookup tails it needs (lookup_tail_missing), B3 refuses every return exit as
+# exit_not_goto_ptr, and B3 added no measurable gain on top of sealed-whopr-7
+# in round 2 (/data/scfix-r2/TIMING.md).
 #
-# This composition has not been built or timed.  Build it like
-# sealed-whopr-7-b3 (sealed steady --profile, --prep, --enable
-# specialize-returns --enable chain-returns --enable chain-static,
-# --v7-trusted-exe) and add --v7-member-skip-exe for a QEMU that honours
-# member skip flags; without it, regions whose member sources B3 grew keep
-# the shared descriptor (b3_registered_slot).
+# Build it like sealed-whopr-7-b3 and add --v7-member-skip-exe for a QEMU that
+# honours member skip flags; without it, regions whose member sources B3 grew
+# keep the shared descriptor (b3_registered_slot):
+#   scopt optimize S --pipeline sealed-whopr-7-bounded-b3 \
+#       --profile <sealed steady profile> --prep <sealed prep> --elf <ELF> \
+#       --enable specialize-returns --enable chain-returns --enable chain-static \
+#       --v6-exe <qemu sha256> --v7-trusted-exe <qemu sha256> \
+#       --v7-member-skip-exe <qemu sha256> --runtime-identity <runtime.json> ...
+# Without --v6-exe (or SCOPT_V6_EXES) the sc6 extension is refused as
+# v6_runtime_required.
+#
+# Measured on the FirmBOLT -O4 packet / UART / CLI captures on QEMU aacca05
+# with that recipe (/data/scfix-r2/TIMING.md, "Bounded WHOPR timing"; ratios
+# are time(reference) / time(this pipeline), 20 paired blocks on packet, 10 on
+# UART and CLI):
+# - lookup_tail_missing 0 and sealed-whopr-7-bounded's 193 / 202 / 208
+#   regions, every one with member descriptors.  B3 places as many slots as in
+#   sealed-pgo-7-b3 (chain-returns 47 / 43 / 28, chain-static 256 / 50 / 43;
+#   sealed-whopr-7-b3 placed no chain-returns slot and 63 / 2 / 10 chain-static
+#   slots).  It passes the functional checks (16 result words, counters
+#   revision 4, every poll entry verified) on every case.
+# - Against sealed-whopr-7-bounded: 1.0493 (above the A/A floor) / 1.0072 /
+#   1.0486 (within noise).
+# - Against sealed-pgo-7-b3: 0.9730 / 0.9285 / 0.9978, all within noise (UART
+#   only just).  Not shown faster than sealed-pgo-7-b3.  See
+#   docs/sealed-whopr-7.md.
 #
 # sealed-whopr-7-b3 itself stays unchanged so archived provenance remains
 # reproducible.
