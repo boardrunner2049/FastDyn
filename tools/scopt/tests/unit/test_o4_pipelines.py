@@ -1,4 +1,4 @@
-"""The scopt O4 pipelines: frozen ``O4-r1.toml`` and the moving alias ``O4.toml``.
+"""The scopt O4 pipelines: frozen ``O4-r1.toml`` and ``O4-r3.toml``, and the moving alias ``O4.toml``.
 
 O4 revision 1 is ``sealed-pgo-7-b3`` (round 2's c7b3) with the three default-disabled B3
 passes opted in by the pipeline (``enabled = true``) and ``member_slot_skip = "on"``.
@@ -33,6 +33,29 @@ def test_o4_r1_is_sealed_pgo_7_b3_with_b3_opted_in_and_member_skip_required():
     assert {e.name for e in o4.passes} & DEFAULT_DISABLED_PASSES == _B3_OPT_IN
 
 
+#: Frozen: O4-r3.toml must never change (a new decision adds O4-r4.toml).
+_O4_R3_ID = "sha256:48552af72b527e97fb66ba1a251a22ec46de31e782398a0e407c728d84048872"
+
+
+def test_o4_r3_is_frozen():
+    assert _load("O4-r3").pipeline_id == _O4_R3_ID
+
+
+def test_o4_r3_is_o4_r1_with_priced_recursive_regions_and_ranked_chain_static():
+    r1, r3 = _load("O4-r1"), _load("O4-r3")
+    assert r3.allowed_capabilities == r1.allowed_capabilities
+    assert [(e.name, e.version, e.enabled) for e in r3.passes] == \
+        [(e.name, e.version, e.enabled) for e in r1.passes]     # every revision-1 pass stays
+    for a, b in zip(r1.passes, r3.passes):
+        want = dict(a.params)
+        if a.name == "firmware-inline":
+            del want["min_call_count"]
+            want.update(mode="exhaustive", cost_model="profile")
+        if a.name == "chain-static":
+            want.update(rank_by_net_work=True, c_target_check=0.0)
+        assert dict(b.params) == want, a.name
+
+
 def test_o4_toml_is_the_newest_revision():
     newest = max((p.stem for p in PIPELINES_DIR.glob("O4-r*.toml")),
                  key=lambda n: int(n.removeprefix("O4-r")))
@@ -43,7 +66,7 @@ def test_o4_toml_is_the_newest_revision():
 
 
 def test_o4_runs_the_b3_passes_without_enable():
-    for name in ("O4", "O4-r1"):
+    for name in ("O4", "O4-r1", "O4-r3"):
         pm = PassManager(fake_snapshot(2), _load(name), b3=B3Env())
         assert pm.disabled_by_default == frozenset()
         run = pm.execute()

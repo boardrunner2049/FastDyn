@@ -1,0 +1,73 @@
+# scopt O4, revision 3 (docs/O4.md; per-item decisions in scopt/o4.py).
+#
+# The rule (the user's words): "we should have one config that include all of our
+# good things let's call it O4 ... Whatever the best speed optimizations are there MUST
+# BE included in O4"; refined: "Win in most cases is fine" and "the key is to have all
+# our optimizations in recursive manner".
+#
+# Revision 3 keeps every pass of revision 1 (host-inline, the SPEC bundle
+# specialize-returns / constant-propagation / branch-folding / dead-host-ops,
+# chain-returns, chain-static, firmware-inline with member skip) and changes two things:
+#   - firmware-inline selects regions by priced exhaustive selection (mode "exhaustive",
+#     cost_model "profile"). Exhaustive expands every call inside a region recursively
+#     (nested expansion, firmware_policy.py "exhaustive": expand_nested=True) and the
+#     profile cost model prices each recursive closure; no min_call_count gate.
+#   - chain-static ranks its slots by net work (rank_by_net_work, c_target_check 0.0).
+# Timing (/data/scfix-o4/TIMING.md, decide.py Hodges-Lehmann, positive = faster):
+#   R3, against O4-r1: pooled +1.06% (one-sided 95% LB +0.61%); packet +0.76%,
+#   uart +0.43%, cli +1.74% (arm o4r3c; /data/scfix-o4/R3.json).
+#   F, against o4r3d (the same minus host-inline and the SPEC bundle): +0.10%
+#   [-0.60%, +0.80%], a tie; O4-r1 there -1.01% (/data/scfix-o4/F.json).
+# O4-r2 and O4-r2b were campaign candidates that were never adopted, so the packaged
+# revisions go r1 -> r3.
+#
+# Frozen: a new decision adds O4-r4.toml; O4.toml always equals the newest revision.
+# Needs a trusted sealed capture of an icount-off run, its sealed steady profile
+# (--profile), --pgo-launch (host-inline helper PGO), --prep, --elf, --runtime-identity
+# and a QEMU with counters revision 4 and member skip (aacca05 or later; see
+# scopt/data/qemu_capabilities.json).
+schema = "scopt.pipeline"
+version = 1
+name = "O4-r3"
+description = "scopt O4 revision 3: every scopt optimization, recursive priced exhaustive firmware regions on top of host-inline, the SPEC bundle and B3 chaining"
+allowed_capabilities = ["INLINE_CALL", "EMIT_FIRMWARE_REGION", "CLONE", "REDIRECT_EXIT", "ADD_ENTRY", "ATTACH_FACT", "PURE_REWRITE"]
+
+[[pass]]
+name = "host-inline"
+version = 1
+params = { mode = "maximal", trusted_all_helpers = true, trusted_rank_by = "frequency", trusted_selected_root = true, hot_loop_only = true, min_site_calls = 1000 }
+
+[[pass]]
+name = "specialize-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2, max_variants_per_c = 2, max_variants = 64, growth_fraction = 0.10 }
+
+[[pass]]
+name = "constant-propagation"
+version = 1
+
+[[pass]]
+name = "branch-folding"
+version = 1
+
+[[pass]]
+name = "dead-host-ops"
+version = 1
+
+[[pass]]
+name = "chain-returns"
+version = 1
+enabled = true
+params = { targets_per_exit = 2 }
+
+[[pass]]
+name = "chain-static"
+version = 1
+enabled = true
+params = { targets_per_exit = 2, rank_by_net_work = true, c_target_check = 0.0 }
+
+[[pass]]
+name = "firmware-inline"
+version = 1
+params = { mode = "exhaustive", cost_model = "profile", phase = "steady", trust = "user", interrupts = "disabled", icount = "ignored", planner = "whopr", partitions = 4, workers = 4, member_slot_skip = "on" }

@@ -3,6 +3,9 @@
 The rule, in the user's words: "we should have one config that include all of our good
 things let's call it O4.  Do that! and O4 remains the best.  Note it down as well.
 Whatever the best speed optimizations are there MUST BE included in O4~!"
+Refined by the user on 2026-11-26: "We can't have a perfect configuration, that always win.
+Since its workload dependent. Win in most cases is fine" and "the key is to have all our
+optimizations in recursive manner".
 
 ``docs/O4.md`` states the rule and its three properties (Inclusion, Best, Decided);
 ``tests/unit/test_o4_manifest.py`` enforces Decided against this module and Best against
@@ -25,8 +28,8 @@ EXCLUDE_REASONS = frozenset({"measured_slower", "measured_neutral", "same_bytes"
                              "control", "unmeasured", "unmeasured_low",
                              "diagnostic"})   # instrumentation, never a speed setting
 MARGINALS = frozenset({"PROVEN_GAIN", "NEUTRAL", "HARMFUL", "UNMEASURED", None})
-REVISION = "O4-r1"
-REVISIONS = ("O4-r1",)                 # ordered history; evidence rows of every revision are kept
+REVISION = "O4-r3"
+REVISIONS = ("O4-r1", "O4-r3")                 # ordered history; evidence rows of every revision are kept
 REFERENCE = "sealed-pgo-7-b3"          # loaded from PIPELINES_DIR, never $SCOPT_PIPELINES_DIR
 WORKLOADS = ("packet", "uart", "cli")
 EVIDENCE = "docs/o4-evidence.json"
@@ -59,31 +62,36 @@ _CAND = "O4.md#candidates-and-their-status"
 _RUN = "O4.md#using-o4"
 _B3 = ("B3 GENERAL chaining is the gain: s6/s6b3 R2 1.1782 / 1.1850 / 1.2089, R1 1.151 / "
        "1.189 / 1.225, all above_floor; p7/c7b3 R2 1.0596 / 1.0839 / 1.0584")
-_SPEC = ("B3 SPEC bundle, never isolated on sealed: c7b3 makes 0 / 9 / 1 variants "
-         "(0 / 6 / 1 constant-propagation patches); ablation arm o4_nospec")
+_SPEC = ("B3 SPEC bundle: c7b3 makes 0 / 9 / 1 variants (0 / 6 / 1 constant-propagation "
+         "patches); kept, as O4 has every optimization; its removal X4 o4_nospec was neutral "
+         "(A2 +0.32% [-0.24%, +0.88%])")
 
 PASSES: Mapping[str, Decision] = MappingProxyType({
-    # -- in O4 (revision 1 = c7b3, the measured best composition) ---------------------
+    # -- in O4 (revision 3 = revision 1, c7b3, with recursive priced exhaustive regions and
+    #    net-work ranked chain-static; every pass of revision 1 stays) -------------------
     "chain-returns": _inc("measured_best", f"{_IN}: {_B3}", enabled=True, marginal="PROVEN_GAIN"),
     "chain-static": _inc("measured_best", f"{_IN}: {_B3}", enabled=True, marginal="PROVEN_GAIN"),
     "firmware-inline": _inc(
-        "measured_best", f"{_IN}: part of c7b3; alone s6/p7 R2 1.1259 / 1.1094 / 1.1690. On top "
+        "measured_best", f"{_IN}: recursive regions; part of c7b3; alone s6/p7 R2 1.1259 / 1.1094 / 1.1690. "
+        "Without regions O4 is slower: X3 o4_noregions cli -1.65% (A2), F -1.38% pooled. On top "
         "of B3 NEUTRAL: s6b3/c7b3 R1 1.013 / 1.023 / 1.020 (R1's c7b3 had no member skip), R2 "
         "1.0167 / 0.9901 / 1.0148, all within_noise (mean about +1.3%)", arm="o4_noregions",
         marginal="NEUTRAL"),
     "host-inline": _inc(
         "bundle", f"{_IN}: sealed-pgo-7 parameters, part of c7b3; applies 1 / 0 / 0 sites "
-        "(packet helper_shl_cc); costs a gdb counted replay", arm="o4_nohi",
-        marginal="UNMEASURED"),
+        "(packet helper_shl_cc); costs a gdb counted replay. Kept: O4 has every optimization; "
+        "its removal X1 was neutral (A2 +0.24% [-0.30%, +0.77%]) and F ties O4-r3's form with "
+        "o4r3d, which drops it and the SPEC bundle (+0.10% [-0.60%, +0.80%])", arm="o4_nohi",
+        marginal="NEUTRAL"),
     "specialize-returns": _inc("bundle", f"{_IN}: {_SPEC}", enabled=True, arm="o4_nospec",
-                               marginal="UNMEASURED"),
+                               marginal="NEUTRAL"),
     "constant-propagation": _inc(
         "bundle", f"{_IN}: {_SPEC}; HARMFUL on the fixture (0.943x prefix, 0.960x ablation)",
         arm="o4_nocp", marginal="HARMFUL"),
     "branch-folding": _inc("bundle", f"{_IN}: {_SPEC}; fixture prefix 0.985x [0.951, 0.999]",
-                           arm="o4_nospec", marginal="UNMEASURED"),
+                           arm="o4_nospec", marginal="NEUTRAL"),
     "dead-host-ops": _inc("bundle", f"{_IN}: {_SPEC}; fixture prefix 1.022x, ablation 0.982x",
-                          arm="o4_nospec", marginal="UNMEASURED"),
+                          arm="o4_nospec", marginal="NEUTRAL"),
     # -- not in O4 ----------------------------------------------------------------------
     "icount-entry-sfb": _exc(
         "not_applicable_sealed", f"{_OUT}: sealed TBs have no icount entry (P13; the ordinary "
@@ -126,13 +134,16 @@ PASSES: Mapping[str, Decision] = MappingProxyType({
 })
 
 FIRMWARE_MODES: Mapping[str, Decision] = MappingProxyType({
-    "hot-loop": _inc("measured_best", f"{_IN}: p7 against s6 R1 1.116 / 1.160 / 1.152, R2 "
-                     "1.1259 / 1.1094 / 1.1690; c7b3's firmware-inline mode",
-                     arm="o4_noregions", marginal="NEUTRAL"),
-    "exhaustive": _exc(
-        "measured_slower", f"{_OUT}: unpriced exhaustive (WHOPR) selection: s6/w7 0.8513 / "
-        "0.6921 / 0.9109 below_floor; c7b3/w7bd_b3 0.9730 / 0.9285 / 0.9978 within_noise. "
-        "The priced form is challenger A5", arm="o4_pwhopr"),
+    "exhaustive": _inc(
+        "measured_best", f"{_IN}: priced (cost_model profile) exhaustive selection expands every "
+        "call of a region recursively (expand_nested); A5 o4_pwhopr against O4-r1 (H) pooled "
+        "+0.93% [+0.44%, +1.42%]; O4-r3 (o4r3c) against O4-r1 (R3) pooled +1.06% (LB +0.61%), "
+        "packet +0.76%, uart +0.43%, cli +1.74%. Unpriced it regressed: s6/w7 0.8513 / 0.6921 / "
+        "0.9109", arm="o4_pwhopr", marginal="PROVEN_GAIN"),
+    "hot-loop": _exc(
+        "superseded", f"{_OUT}: O4-r1's mode (p7 against s6 R2 1.1259 / 1.1094 / 1.1690); "
+        "superseded by priced exhaustive selection in O4-r3 (R3 +1.06% pooled; F: O4-r1 -1.01% "
+        "against o4r3d)", arm="o4_pwhopr"),
     "firmlooper": _exc("superseded", f"{_OUT}: v1, superseded by v2 and v3 (F3)"),
     "firmlooper-v2": _exc("superseded", f"{_OUT}: superseded by v3; s6/fl2 R2 1.0134 / "
                           "0.9892 / 1.0037 (F4)"),
@@ -141,10 +152,10 @@ FIRMWARE_MODES: Mapping[str, Decision] = MappingProxyType({
         "composed with B3 it is challenger C1 (fl3b3) and, priced, C1p (fl3b3p)",
         arm="fl3b3p"),
     "hot-loop-tasks": _exc(
-        "unmeasured", f"{_CAND}: A2a, hot-loop's roots unchanged plus the FirmLooper v3 task-loop "
-        "roots the profile did not nominate, priced after them; probe2 packet +1 region (the "
-        "14-call memset at 0x48ec, 7 members), uart and cli the same bytes as B3 + hot-loop",
-        arm="o4_tasks"),
+        "measured_neutral", f"{_CAND}: A2a, hot-loop's roots plus the FirmLooper v3 task-loop "
+        "roots the profile did not nominate; packet +1 region (memset 0x48ec), uart and cli "
+        "O4-r1's bytes; A2 against O4-r1 p 0.10 (not shown faster), F -0.56% pooled; priced "
+        "exhaustive selection already admits every profitable root", arm="o4_tasks"),
 })
 
 _CAL = "never swept; calibrated on the a1bdec6 packet run (F14)"
@@ -160,23 +171,27 @@ def _knobs():
             k[(pass_name, name)] = decision
 
     fw = "firmware-inline"
-    k[(fw, "mode")] = _inc("measured_best", f"{_IN}: hot-loop roots, priced (F1)",
-                           params={"mode": "hot-loop"}, arm="o4_noregions", marginal="NEUTRAL")
-    k[(fw, "nested")] = _inc("default", f"{_IN}: hot-loop's default 'profit' with the flat "
-                             "fallback, as c7b3 (F8; c7b3 nests 289 / 26 / 19 calls)")
-    k[(fw, "cost_model")] = _inc("default", f"{_IN}: 'auto' prices hot-loop regions with "
-                                 "firmware-dispatch-v1, as c7b3 (F7)")
-    k[(fw, "min_call_count")] = _inc(
-        "reference", f"{_CAND}: 1000 as c7b3; A7 (2) gives 52 / 26 / 13 regions in probe2",
+    k[(fw, "mode")] = _inc("measured_best", f"{_IN}: priced exhaustive, recursive (A5; R3 "
+                           "+1.06% pooled against O4-r1)", params={"mode": "exhaustive"},
+                           arm="o4_pwhopr", marginal="PROVEN_GAIN")
+    k[(fw, "nested")] = _inc("default", f"{_IN}: exhaustive always expands nested calls "
+                             "recursively (expand_nested=True, depth 5 / 5 / 5; 7,052 / 1,228 / "
+                             "1,470 members in A5's regions)")
+    k[(fw, "cost_model")] = _inc("measured_best", f"{_IN}: 'profile' prices each recursive "
+                                 "closure from the sealed steady profile (A5; unpriced "
+                                 "exhaustive regressed, s6/w7 0.85 / 0.69 / 0.91)",
+                                 params={"cost_model": "profile"}, arm="o4_pwhopr")
+    k[(fw, "min_call_count")] = _exc(
+        "superseded", f"{_CAND}: O4-r1's hot-loop gate (1000); priced exhaustive selection "
+        "prices every call instead (A7 at 2 on hot-loop: +0.10%, not shown)",
         params={"min_call_count": 1000}, arm="o4_min2")
     k[(fw, "residual_goto_tb")] = _inc(
-        "default", f"{_CAND}: 'auto' prices B3-grown members unchainable; A1 ('chained') gives "
-        "56 / 23 / 7 regions, model gain at most +30.2 ms on packet after B3's credit",
-        arm="o4_chained")
+        "default", f"{_CAND}: 'auto' prices B3-grown members unchainable; A1 ('chained') is "
+        "workload dependent: A2 packet +1.82%, uart -0.99%, pooled -0.09%", arm="o4_chained")
     k[(fw, "isb_boundary")] = _inc(
-        "default", f"{_CAND}: absent, so hot-loop regions defer PendSV at their ISB edges under "
-        "the trusted contract (the O4 design probe, recursive plans only: 33 / 2 / 0 edges); "
-        "fidelity item I1 decides it, and its arm records O4-r1's exact count", arm="o4_isb")
+        "default", f"{_CAND}: absent, so regions defer PendSV at their ISB edges under the "
+        "trusted contract; I1 o4_isb +0.19% alone (A2), but O4-r2 (A5 + I1 + X1 + X4) lost on "
+        "packet (B1 -1.21%), so the rule stays off", arm="o4_isb")
     k[(fw, "planner")] = _inc(
         "reference", f"{_CAND}: 'whopr' as c7b3; its partition order is the pricing order and "
         "changes admission (legacy: packet +2 roots, cli 1 swapped)",
@@ -210,9 +225,11 @@ def _knobs():
             "default", f"{_IN}: the 256-unit cap binds only on packet chain-static (27 exits "
             "refused slot_budget); raising it is a code change (B2)")
     k[("chain-returns", "min_return_share")] = _inc("default", f"{_IN}: {_B3_DEFAULT}")
-    put("chain-static", "rank_by_net_work c_target_check", _inc(
-        "default", f"{_CAND}: never run on sealed; A3 ranks chain-static exits by net work "
-        "with c_target_check = 0.0 (B3)", arm="o4_rank"))
+    for name, value in (("rank_by_net_work", True), ("c_target_check", 0.0)):
+        k[("chain-static", name)] = _inc(
+            "measured_best", f"{_IN}: A3 ranks chain-static slots by net work; A2 against O4-r1 "
+            "packet +1.51% [+0.48%, +2.54%] (uart and cli same bytes); in O4-r3 (o4r3c) R3 packet "
+            "+0.76% against o4_pwhopr's -0.36%", params={name: value}, arm="o4_rank")
     put("chain-returns", "rank_by_net_work c_target_check", _inc(
         "default", f"{_IN}: {_B3_DEFAULT}; its unit cap does not bind (47 / 43 / 28 slots), so "
         "no ranking arm (design 5, finding 10)"))

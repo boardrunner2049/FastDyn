@@ -191,8 +191,9 @@ def test_an_arm_pipeline_is_not_o4(o4, tmp_path):
 
 def test_a_modified_file_named_o4_is_refused(o4, tmp_path):
     fake = tmp_path / "O4.toml"
-    fake.write_text((PIPELINES_DIR / "O4.toml").read_text().replace("min_call_count = 1000",
-                                                                     "min_call_count = 2"))
+    text = (PIPELINES_DIR / "O4.toml").read_text()
+    assert "partitions = 4" in text
+    fake.write_text(text.replace("partitions = 4", "partitions = 2"))
     _refused(o4.invoke("--pipeline", str(fake)), "is not the packaged", "O4 is fixed")
     same = tmp_path / "copy" / "O4.toml"
     same.parent.mkdir()

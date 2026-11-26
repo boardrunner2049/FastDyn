@@ -133,8 +133,9 @@ def test_o4_contains_the_reference():
         assert e.name in o4p
         for k, v in e.params.items():
             got = o4p[e.name].params.get(k)
-            assert got == v or o4.KNOBS[(e.name, k)].status == o4.INCLUDED and o4.KNOBS[(e.name, k)].reason \
-                in ("measured_best", "required"), (e.name, k)
+            d = o4.KNOBS[(e.name, k)]
+            assert got == v or d.status == o4.INCLUDED and d.reason in ("measured_best", "required") \
+                or d.status == o4.EXCLUDED and d.reason == "superseded", (e.name, k)
 
 
 def test_runtime_decisions_are_documented():                   # one table row per setting
@@ -170,5 +171,5 @@ def test_no_recorded_arm_beats_o4():                            # "O4 remains th
     for r in doc["rows"]:                                       # an arm that beat O4-rN is re-timed against O4-rN+1
         if r["verdict"] == "faster_than_o4" and r["revision"] != o4.REVISION:
             assert any(c["arm"] == r["arm"] and c["workload"] == r["workload"] for c in current), r
-    for w in o4.WORKLOADS:
-        assert any(r["workload"] == w and r["arm"] == "c7b3" for r in current), w
+    for w in o4.WORKLOADS:                                      # the revision's identity arm, per workload
+        assert any(r["workload"] == w and r["verdict"] == "same_bytes" for r in current), w
