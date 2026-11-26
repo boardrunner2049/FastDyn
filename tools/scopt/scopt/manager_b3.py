@@ -975,13 +975,25 @@ def materialize(state: B3State, b3: B3Ctx, *, register_slots: bool = True) -> Ma
 # end to end
 # ---------------------------------------------------------------------------
 
+#: Rejection reason of the ``required_stages`` gate (``scopt optimize -O4``).
+STAGE_DEGRADED = "o4_stage_degraded"
+
+
 def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
                 profiles: Iterable[Any] = (), params: Mapping[str, Mapping[str, Any]] | None = None,
                 disable: Iterable[str] = (), only: str | None = None,
-                candidate_id: str | None = None, **manager_kw: Any) -> dict[str, Any]:
+                candidate_id: str | None = None,
+                required_stages: Iterable[str] | None = None,
+                prior_stages: Iterable[Mapping[str, Any]] = (),
+                **manager_kw: Any) -> dict[str, Any]:
     """PassManager (B3 mode) -> :func:`materialize` -> :func:`scopt.validate.package_b3`
     (hostsym-certified) or, for a candidate without B3/B4 edits, the B1/B2
     :class:`~scopt.validate.ValidateAndPackage` (V9 byte identity).
+
+    ``required_stages`` (``scopt optimize -O4``): every named pass, among this run's
+    records and ``prior_stages`` (receipts of an earlier native prefix), must have run to
+    ``edited`` or ``no_change`` (:func:`scopt.run.pass_policy.gate_status`); otherwise the
+    candidate is rejected with :data:`STAGE_DEGRADED` before anything is published.
 
     Returns ``{"candidate", "materialized", "package", "outcome", "path"}``; ``outcome``
     is the artifact's outcome (``published`` or the §3.8 class of the rejection)."""
@@ -1006,6 +1018,19 @@ def optimize_b3(snapshot: Any, pipeline: Any, store: Any, *, env: B3Env,
                          Ledger(cand.ledger), None, None, f"{failed.name}: {failed.detail}")
         return {"candidate": cand, "materialized": None, "package": res,
                 "path": "b3", "outcome": "failed"}
+    if required_stages is not None:
+        from .run.pass_policy import required_stage_problems
+
+        problems = required_stage_problems(
+            [*prior_stages, *(p.to_json() for p in cand.passes)], required_stages)
+        if problems:
+            from .ledger import Ledger
+            from .validate import _reject_b3
+
+            res = _reject_b3(store, candidate_id or cand.candidate_id, STAGE_DEGRADED,
+                             Ledger(cand.ledger), None, None, "; ".join(problems))
+            return {"candidate": cand, "materialized": None, "package": res,
+                    "path": "b3", "outcome": "failed"}
     if st is None or st.empty:
         res = ValidateAndPackage(cand, store, profiles=profiles).run()
         return {"candidate": cand, "materialized": None, "package": res, "path": "v5_identity",

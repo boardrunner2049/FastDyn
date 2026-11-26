@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -259,6 +260,166 @@ def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, t
     return training
 
 
+#: Pipelines named like this are scopt O4 (docs/O4.md): ``-O4``, ``--pipeline O4`` or
+#: ``--pipeline O4-r1`` all run the preflight.  Experiment arms are named ``o4-...``.
+O4_PIPELINE_NAME = re.compile(r"O4(-r[1-9][0-9]*)?")
+#: capability -> (flag, environment variable) of its explicit allowlist.
+_O4_ALLOWLISTS = {"v6": ("--v6-exe", "SCOPT_V6_EXES"),
+                  "trusted_v7": ("--v7-trusted-exe", "SCOPT_V7_TRUSTED_EXES"),
+                  "member_skip": ("--v7-member-skip-exe", "SCOPT_V7_MEMBER_SKIP_EXES")}
+_O4_HELP = "see docs/O4.md, 'Using O4'"
+
+
+def is_o4_pipeline(pl) -> bool:
+    return bool(O4_PIPELINE_NAME.fullmatch(pl.name))
+
+
+def _o4_runtime_needs(pl) -> list[str]:
+    """The QEMU capabilities an artifact of ``pl`` needs at load time."""
+    from ..passes.base import EditKind
+
+    needs = []
+    if pl.allowed_capabilities & {EditKind.CLONE, EditKind.REDIRECT_EXIT, EditKind.ADD_ENTRY}:
+        needs.append("v6")                      # the sc6 semantic extension
+    for entry in pl.passes:
+        if entry.name == "firmware-inline":
+            if entry.params.get("trust", "safe") == "user":
+                needs.append("trusted_v7")
+            if entry.params.get("member_slot_skip", "auto") == "on":
+                needs.append("member_skip")
+    return list(dict.fromkeys(needs))
+
+
+def _o4_profiles(paths, snap):
+    """``(views, problems)``: the ``--profile`` files opened against ``snap``."""
+    from ..formats.profile_v1 import ProfileIncompatible, ProfileView, read_profile
+
+    views, problems = [], []
+    for path in paths:
+        try:
+            prof = read_profile(path)
+            views.append(ProfileView.open(prof, snap))
+        except ProfileIncompatible as e:
+            problems.append(f"--profile {path}: incompatible with the snapshot ({e})")
+        except (OSError, ValueError, KeyError) as e:
+            problems.append(f"--profile {path}: unreadable ({e})")
+    return views, problems
+
+
+def _o4_preflight(snap, pl, *, customized, profiles, ri_file, prep, elf, pgo_launch, exes):
+    """Fail fast, before any build work, when scopt O4 could not run as measured.
+
+    ``customized``: the option names given that change what runs.  ``exes``:
+    ``{capability: allowlist flag tuple}``.  Returns ``(exes, report)``: the allowlists with
+    the capability table's capable digest added, and the preflight record for the JSON
+    result.  Raises one :class:`click.UsageError` naming every problem."""
+    import shutil
+    from ..analysis.helper_hot_loop import exact_loop_profile
+    from ..analysis.store import profile_phase_info
+    from ..decode.search import is_pcrel
+    from ..formats.enums import RunInfoFlag
+    from ..manager import DEFAULT_MIN_PROFILE_MATCH, PIPELINES_DIR, PipelineError, load_pipeline
+    from ..validate import (_ri_exe, member_skip_capable_exes, qemu_capability,
+                            trusted_v7_capable_exes, v6_capable_exes)
+
+    problems = []
+    try:
+        packaged = load_pipeline(PIPELINES_DIR / f"{pl.name}.toml")
+    except PipelineError:
+        packaged = None
+    if packaged is None or packaged.pipeline_id != pl.pipeline_id:
+        problems.append(f"pipeline {pl.name!r} is not the packaged {PIPELINES_DIR / pl.name}.toml; "
+                        "O4 is fixed: copy O4-rN.toml under another name to experiment")
+    if customized:
+        problems.append(f"{', '.join(customized)}: O4 is fixed; copy O4-rN.toml under another "
+                        "name to experiment")
+    for flag, value in (("--runtime-identity", ri_file), ("--prep", prep), ("--elf", elf),
+                        ("--profile", profiles)):
+        if not value:
+            problems.append(f"{flag} is required")
+
+    phase = next((e.params.get("phase", "steady") for e in pl.passes
+                  if e.name == "firmware-inline"), "steady")
+    report = {"pipeline": pl.name, "pipeline_id": pl.pipeline_id, "phase": phase}
+    if profiles:
+        views, bad = _o4_profiles(profiles, snap)
+        problems += bad
+        exact = [v for v in views if exact_loop_profile(v, snap.snapshot_id, phase)]
+        if views and not exact:
+            problems.append(f"no --profile is an exact profile of this snapshot with phase "
+                            f"{phase!r} reached (complete, exact dispatch, no overflow, "
+                            "chaining disabled): record it with scopt profile run --sealed "
+                            f"--trusted --phase {phase}@<marker>")
+        matches = [profile_phase_info(v, phase, snap.unit_ids())[2] for v in exact]
+        best = max((m for m in matches if m is not None), default=None)
+        if exact and (best is None or best < DEFAULT_MIN_PROFILE_MATCH):
+            problems.append(f"profile match of phase {phase!r} is {best} "
+                            f"< {DEFAULT_MIN_PROFILE_MATCH}")
+        report["profile_match"] = best
+
+    run_info = snap.run_info
+    icount = run_info is None or bool(run_info.flags & RunInfoFlag.ICOUNT_ENABLED)
+    ordinary = any(is_pcrel(u.key.cflags) for u in snap.units())
+    if icount or ordinary:
+        problems.append(
+            ("the snapshot was captured with icount on (or has no run info)" if icount else
+             "the snapshot is not a sealed whole-firmware capture (CF_PCREL entry keys)")
+            + "; O4 targets sealed icount-off captures; for ordinary captures use the SFB+B3 "
+            "recipe (docs/b3-passes.md, configuration c5)")
+    report["snapshot"] = {"icount_off": not icount, "sealed": not ordinary}
+
+    exes = {c: tuple(v) for c, v in exes.items()}
+    runtime = {}
+    exe = None
+    if ri_file:
+        try:
+            exe = _ri_exe(json.loads(Path(ri_file).read_text()))
+            if exe is None:
+                problems.append(f"--runtime-identity {ri_file} names no qemu_sha256")
+        except (OSError, ValueError, AttributeError) as e:
+            problems.append(f"--runtime-identity {ri_file}: {e}")
+    allowlists = {"v6": v6_capable_exes, "trusted_v7": trusted_v7_capable_exes,
+                  "member_skip": member_skip_capable_exes}
+    for capability in _o4_runtime_needs(pl) if exe else ():
+        flag, env = _O4_ALLOWLISTS[capability]
+        verdict = qemu_capability(exe, capability)
+        if verdict is False:
+            problems.append(f"QEMU {exe} is marked incapable of {capability} in "
+                            "scopt/data/qemu_capabilities.json; no flag overrides that. O4 "
+                            "needs a QEMU with counters revision 4 and member skip (aacca05)")
+            runtime[capability] = "known_incapable"
+        elif verdict is True:
+            exes[capability] += ("sha256:" + exe,)
+            runtime[capability] = "capability_table"
+        elif exe in allowlists[capability](exes[capability]):
+            runtime[capability] = "allowlisted"
+        else:
+            problems.append(f"QEMU {exe} is not in scopt/data/qemu_capabilities.json and not "
+                            f"allowlisted for {capability}: confirm it has counters revision 4, "
+                            f"then pass {flag} sha256:{exe} (or set {env})")
+            runtime[capability] = "unknown"
+    report["runtime"] = {"exe": exe, "capabilities": runtime}
+
+    if any(e.name == "host-inline" and e.params.get("hot_loop_only") for e in pl.passes):
+        launch = None
+        if pgo_launch:
+            launch = "--pgo-launch"
+        elif prep and (Path(prep) / "launch.json").is_file():
+            launch = "prep launch.json"
+        elif prep and (Path(prep) / "run.toml").is_file() and shutil.which("fastdyn"):
+            launch = "prep run.toml"
+        if launch is None:
+            problems.append("host-inline hot_loop_only needs a training launch: --pgo-launch "
+                            "<sealed compiled launch.json>, or a --prep with launch.json, or "
+                            "with run.toml and fastdyn on PATH")
+        report["pgo_launch"] = launch
+    if problems:
+        raise click.UsageError("scopt O4 preflight failed (" + _O4_HELP + "):\n  - "
+                               + "\n  - ".join(problems))
+    report["required_stages"] = [e.name for e in pl.passes]
+    return exes, report
+
+
 def _select_output(doc, original_snapshot, cases_path, out, timing=None):
     doc["warm_baseline"] = str(original_snapshot) if original_snapshot is not None else None
     doc["warm_baseline_sha256"] = (timing or {}).get("expected_warm_sha256")
@@ -282,11 +443,14 @@ def _select_output(doc, original_snapshot, cases_path, out, timing=None):
 
 @click.command("optimize")
 @click.argument("snapshot")
-@click.option("--pipeline", "pipeline", required=True,
+@click.option("--pipeline", "pipeline", default=None,
               help="Pipeline name or TOML file. Combine host-inline options, e.g. host-inline=faulting,4-level. "
                    "N-level sets the maximum inline depth to a positive integer. Add extreme to "
                    "require full site coverage; maximal exhausts every supported certified "
                    "chain and keeps the proved subset.")
+@click.option("-O", "opt_level", type=click.Choice(["4"]), default=None,
+              help="-O4: scopt O4, the packaged pipelines/O4.toml with its preflight and stage "
+                   "gate (docs/O4.md). Exclusive with --pipeline.")
 @click.option("--store", required=True, type=click.Path(file_okay=False),
               help="Store: artifacts/ and rejections/ are written here.")
 @click.option("--trusted", "trust_input", is_flag=True,
@@ -348,17 +512,27 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                  ri_file, v6_exes, v7_exes, trusted_v7_exes, member_skip_exes, selftest_file, prep,
                  elf, as_json, select_with=None, selection_out=None,
                  qemu=None, pairs=12, seed=193483, timeout=90.0, alpha=0.05, warm_baseline=None, warm_stage=(),
-                 helper_pgo_launch=None, trust_input=False, pgo_phase="auto"):
+                 helper_pgo_launch=None, trust_input=False, pgo_phase="auto", opt_level=None):
     """Run PIPELINE on SNAPSHOT, link, check loadability, and publish the artifact.
 
     SNAPSHOT is a store snapshot directory or a SnapshotId in --store. Exit
     status 0 when an artifact is published, 2 when the candidate is rejected
-    (store/rejections/<candidate>.json; nothing published).
+    (store/rejections/<candidate>.json; nothing published).  -O4 runs scopt O4
+    (docs/O4.md): a preflight refuses inputs O4 was not measured on, and a stage
+    gate rejects (exit 2, nothing published) a build in which any O4 pass did not run.
     """
-    from ..manager import PipelineError
+    from ..manager import PIPELINES_DIR, PipelineError
     from ..passes.base import B3_EDIT_KINDS, NATIVE_EDIT_KINDS, EditKind
     from ..validate import optimize
 
+    if (pipeline is None) == (opt_level is None):
+        raise click.UsageError("give exactly one of --pipeline and -O4")
+    if opt_level == "4":
+        pipeline = str(PIPELINES_DIR / "O4.toml")      # the packaged O4, never $SCOPT_PIPELINES_DIR
+    customized = [flag for flag, given in (("--disable", disable), ("--enable", enable),
+                                           ("--only", only), ("--params", params_file),
+                                           (f"--pgo-phase {pgo_phase}", pgo_phase != "auto"))
+                  if given]
     snap = _open_snapshot(snapshot, store)
     params = json.loads(Path(params_file).read_text()) if params_file else None
     try:
@@ -367,6 +541,14 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
         pl.validate_pass_options(enable, disable, only)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
+    o4 = None
+    if is_o4_pipeline(pl):
+        exes, o4 = _o4_preflight(
+            snap, pl, customized=customized, profiles=profiles, ri_file=ri_file, prep=prep,
+            elf=elf, pgo_launch=helper_pgo_launch,
+            exes={"v6": v6_exes, "trusted_v7": trusted_v7_exes, "member_skip": member_skip_exes})
+        v6_exes, trusted_v7_exes, member_skip_exes = (
+            exes["v6"], exes["trusted_v7"], exes["member_skip"])
     trust_input = trust_input or _user_trusted_pipeline(pl, params, disable)
     if trust_input:
         from ..formats.sc_v5 import trusted_record_input
@@ -501,8 +683,10 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
                      v6_exes, v7_exes, trusted_v7_exes,
                      selftest_file, prep, elf, as_json, native_stage=native_stage,
                      selection=(original_snapshot, select_with, selection_out, timing), enable=enable,
-                     training_phase=training_phase, member_skip_exes=member_skip_exes)
+                     training_phase=training_phase, member_skip_exes=member_skip_exes, o4=o4)
         return
+    if o4 is not None:
+        raise click.UsageError("scopt O4 needs the B3 path (" + _O4_HELP + ")")
     try:
         res = optimize(snap, pl, store, profiles=views, params=params,
                        disable=disable, only=only, enable=enable)
@@ -545,7 +729,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
 def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
                  v6_exes, v7_exes, trusted_v7_exes,
                  selftest_file, prep, elf, as_json, native_stage=None, selection=None, enable=(),
-                 training_phase=None, member_skip_exes=()):
+                 training_phase=None, member_skip_exes=(), o4=None):
     from ..analysis.b3_inputs import resolve_for_snapshot
     from ..manager import PipelineError
     from ..manager_b3 import B3Env, optimize_b3
@@ -559,9 +743,12 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
                 trusted_v7_exes=tuple(trusted_v7_exes),
                 member_skip_exes=tuple(member_skip_exes),
                 selftest=None)
+    gate = {} if o4 is None else {
+        "required_stages": o4["required_stages"],
+        "prior_stages": native_stage["passes"] if native_stage else ()}
     try:
         r = optimize_b3(snap, pl, store, env=env, profiles=views, params=params,
-                        disable=disable, only=only, enable=enable)
+                        disable=disable, only=only, enable=enable, **gate)
     except PipelineError as e:
         raise click.UsageError(str(e)) from e
     c, pk, m = r["candidate"], r["package"], r["materialized"]
@@ -578,6 +765,11 @@ def _optimize_b3(snap, pl, store, views, notes, params, disable, only, ri_file,
     if native_stage:
         doc["native_stage"] = native_stage
         doc["passes"] = [*native_stage["passes"], *doc["passes"]]
+    if o4 is not None:
+        from ..run.pass_policy import effective_configuration, gate_status
+
+        doc["o4"] = o4
+        doc["effective_configuration"] = effective_configuration(doc, status=gate_status)
     if selection and pk.status == "published":
         _select_output(doc, *selection)
     if as_json:

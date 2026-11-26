@@ -73,9 +73,46 @@ def stage_status(receipt: Mapping[str, Any]) -> str:
     return INCOMPLETE
 
 
-def effective_configuration(result: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """One row per pipeline stage of an ``optimize --json`` result: what actually happened."""
-    return [{"pass": r["pass"], "status": stage_status(r), "outcome": r.get("outcome"),
+#: firmware-inline's "nothing worth a region" outcomes (SKIPPED_UNKNOWN): the pass ran on
+#: a complete input and the firmware simply has no call worth a region.
+FIRMWARE_NOTHING_TO_EMIT = frozenset({"no_profitable_call", "no_eligible_call",
+                                      "no_firmware_call"})
+
+
+def gate_status(receipt: Mapping[str, Any]) -> str:
+    """:func:`stage_status`, except that firmware-inline's nothing-to-emit outcomes count
+    as :data:`NO_CHANGE` (the ``scopt optimize -O4`` stage gate)."""
+    if (receipt.get("pass") == "firmware-inline"
+            and receipt.get("outcome") == Outcome.SKIPPED_UNKNOWN.value
+            and receipt.get("reason") in FIRMWARE_NOTHING_TO_EMIT
+            and receipt.get("n_edits") == 0):
+        return NO_CHANGE
+    return stage_status(receipt)
+
+
+def required_stage_problems(receipts: Iterable[Mapping[str, Any]],
+                            required: Iterable[str]) -> list[str]:
+    """One ``"<pass>: <status> (<reason>)"`` per required stage that did not run to
+    :data:`EDITED` or :data:`NO_CHANGE` (:func:`gate_status`), or ``"<pass>: not_run"``
+    when no receipt names it.  ``receipts`` are ``PassRecord.to_json()`` rows."""
+    rows = list(receipts)
+    problems = []
+    for name in dict.fromkeys(required):
+        mine = [r for r in rows if r.get("pass") == name]
+        if not mine:
+            problems.append(f"{name}: not_run")
+        for r in mine:
+            status = gate_status(r)
+            if status not in (EDITED, NO_CHANGE):
+                problems.append(f"{name}: {status} ({r.get('reason') or ''})")
+    return problems
+
+
+def effective_configuration(result: Mapping[str, Any], *,
+                            status=stage_status) -> list[dict[str, Any]]:
+    """One row per pipeline stage of an ``optimize --json`` result: what actually happened
+    (``status``: :func:`stage_status`, or :func:`gate_status` for the O4 gate's view)."""
+    return [{"pass": r["pass"], "status": status(r), "outcome": r.get("outcome"),
              "reason": r.get("reason") or "", "n_edits": r.get("n_edits")}
             for r in result.get("passes", ())]
 
