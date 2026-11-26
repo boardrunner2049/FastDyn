@@ -41,8 +41,10 @@ class _Env:
 
     def __init__(self, tmp_path, monkeypatch, *, real_b3=False):
         for name in ("SCOPT_V6_EXES", "SCOPT_V7_TRUSTED_EXES", "SCOPT_V7_MEMBER_SKIP_EXES",
-                     "SCOPT_PIPELINES_DIR"):
+                     "SCOPT_PIPELINES_DIR", "SCOPT_B3_CALIBRATION"):
             monkeypatch.delenv(name, raising=False)
+        # No workspace B3 calibration (runs/b3-explore/wp16/calibration.json).
+        monkeypatch.setenv("FASTDYN_ROOT", str(tmp_path))
         self.tmp = tmp_path
         self.flags = 0
         self.cflags = 0
@@ -244,6 +246,28 @@ def test_an_unknown_qemu_needs_every_flag(o4, monkeypatch):
     assert call.o4["runtime"]["capabilities"] == dict.fromkeys(
         ("v6", "trusted_v7", "member_skip"), "allowlisted")
     assert call.skip == ()                     # the environment allowlists it downstream
+
+
+def _calibration(path, **costs):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"constants": {k: {"value_ns": v} for k, v in costs.items()}}))
+    return path
+
+
+def test_an_active_b3_calibration_is_refused(o4, tmp_path, monkeypatch):
+    # The environment variable ...
+    monkeypatch.setenv("SCOPT_B3_CALIBRATION",
+                       str(_calibration(tmp_path / "cal.json", c_lookup=30.0, c_guard=0.5)))
+    _refused(o4.invoke("-O4"), "B3 cost calibration {'c_lookup': 30.0, 'c_guard': 0.5} is active",
+             "measured with the built-in costs")
+    # ... or the workspace file.
+    monkeypatch.delenv("SCOPT_B3_CALIBRATION")
+    _calibration(tmp_path / "runs/b3-explore/wp16/calibration.json", c_guard=2.0)
+    _refused(o4.invoke("-O4"), "B3 cost calibration {'c_guard': 2.0} is active")
+    assert not o4.calls
+    # A calibration equal to the built-in costs changes nothing and is not refused.
+    _calibration(tmp_path / "runs/b3-explore/wp16/calibration.json", c_lookup=7.6, c_guard=1.5)
+    assert o4.invoke("-O4").exit_code == 0
 
 
 def test_the_prep_launch_satisfies_the_training_requirement(o4, tmp_path, monkeypatch):

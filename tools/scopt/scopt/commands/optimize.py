@@ -315,6 +315,7 @@ def _o4_preflight(snap, pl, *, customized, profiles, ri_file, prep, elf, pgo_lau
     result.  Raises one :class:`click.UsageError` naming every problem."""
     import shutil
     from ..analysis.helper_hot_loop import exact_loop_profile
+    from ..analysis.profitability import calibration_params
     from ..analysis.store import profile_phase_info
     from ..decode.search import is_pcrel
     from ..formats.enums import RunInfoFlag
@@ -399,6 +400,14 @@ def _o4_preflight(snap, pl, *, customized, profiles, ri_file, prep, elf, pgo_lau
                             f"then pass {flag} sha256:{exe} (or set {env})")
             runtime[capability] = "unknown"
     report["runtime"] = {"exe": exe, "capabilities": runtime}
+
+    # A workspace or environment calibration changes the B3 passes' costs (manager.py);
+    # O4 was measured with the built-in ones.
+    cal = calibration_params()
+    if cal:
+        problems.append(f"B3 cost calibration {cal} is active (SCOPT_B3_CALIBRATION or "
+                        "$FASTDYN_ROOT/runs/b3-explore/wp16/calibration.json); O4 was measured "
+                        "with the built-in costs")
 
     if any(e.name == "host-inline" and e.params.get("hot_loop_only") for e in pl.passes):
         launch = None
