@@ -335,13 +335,17 @@ class B3State:
     def variant_sources(self) -> frozenset[str]:
         return frozenset(v.src_uid for v in self.variants.values())
 
+    def firmware_member_sources(self) -> frozenset[str]:
+        return frozenset(member.source_uid for region in self.firmware_regions.values()
+                         for member in region.members)
+
     def variants_of(self, src_uid: str) -> list[VariantPlan]:
         return [v for v in self.variants.values() if v.src_uid == src_uid]
 
     def growth_bytes(self, units: Mapping[str, Any]) -> int:
         """Specialization growth (§3.4 ``max_code_growth_bytes``): variant bytes plus the
         stubs of exits that carry a SPEC slot. GENERAL-only stubs (chain-returns,
-        chain-static) have their own budget (≤ 2 slots/unit, 256 units, §3.6) and are
+        chain-static) have their own source-unit policy and two QEMU slots per unit. They are
         reported by V21, not budgeted here."""
         g = sum(stub_bytes_estimate(len(x.slots), any(s.r0_zero for s in x.slots)) for x in self.exits.values()
                 if any(s.kind == "SPEC" for s in x.slots))

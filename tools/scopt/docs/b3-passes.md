@@ -157,8 +157,9 @@ slots B3 registered. Each member carries their mask (`added_goto_tb_slots`):
 unchainable, whatever the capability (see
 [firmware-inline-policies](firmware-inline-policies.md#profit-model)). With a host-inline
 prefix, `specialize-returns` does not clone a spliced unit
-(`refused:native_layout_unsupported`). Layout placement still cannot be combined with
-firmware regions (`firmware_region_terminal_stage`).
+(`refused:native_layout_unsupported`). Public layout uses the final sizes of grown records. The linker then places private
+variants and firmware regions beyond the final public extents and binds their source
+slots to the relocated records. `--pipeline O4-layout` exercises this composition.
 
 Composed artifacts are published compile-only. `validate_b3` refuses to audit them
 (`composed_v7_audit_unsupported`). The importer reads both payloads, and the snapshot id
@@ -205,7 +206,7 @@ directory and member bytes).
 | constant-propagation | `no_same_length_encoding` (including live flags when the zero-immediate MOV will not fit), `not_profitable` |
 | branch-folding | `fact_unused` (no decided branch), `no_same_length_encoding`, `not_profitable` |
 | dead-host-ops | `flags_live`, `not_profitable` |
-| chain-returns / chain-static | the exit's §3.1 code, `no_free_slot`, `unit_not_relocatable`, `continuation_key_mismatch`, `not_profitable`, `slot_budget` (256 units) |
+| chain-returns / chain-static | the exit's §3.1 code, `no_free_slot`, `unit_not_relocatable`, `continuation_key_mismatch`, `not_profitable`, `slot_budget` (256 source units by default, `chain-static.max_units = -1` removes that limit) |
 
 `tbb`, `ldr pc,[rX]` (non-SP base), `bx rX`, `blx rX` exits are `indirect_multiway` (§3.1
 rule 2) and are never guarded in v1 (deferred; candidate `chain-indirect`, §14).

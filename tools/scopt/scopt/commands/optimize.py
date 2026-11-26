@@ -267,11 +267,9 @@ def _automatic_loop_pgo(snap, store, launch, prep, views, options, *, helpers, t
     return training
 
 
-#: Pipelines named like this (design 2.7: ``^O4(-r\d+)?$``) are scopt O4 (docs/O4.md):
-#: ``-O4``, ``--pipeline O4`` or ``--pipeline O4-r1`` all run the preflight, and a name
-#: such as ``O4-r01`` that is no packaged revision is refused by it.  Experiment arms are
-#: named ``o4-...``.
-O4_PIPELINE_NAME = re.compile(r"O4(-r\d+)?")
+#: Frozen revisions, the current alias and the layout comparison all require the
+#: packaged pipeline, the sealed runtime preflight and the complete stage gate.
+O4_PIPELINE_NAME = re.compile(r"O4(?:-r\d+|-layout)?")
 #: capability -> (flag, environment variable) of its explicit allowlist.
 _O4_ALLOWLISTS = {"semantic": ("--semantic-exe", "SCOPT_SEMANTIC_EXES"),
                   "trusted_v7": ("--v7-trusted-exe", "SCOPT_V7_TRUSTED_EXES"),

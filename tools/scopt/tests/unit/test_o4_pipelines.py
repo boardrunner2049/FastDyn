@@ -72,3 +72,16 @@ def test_o4_runs_the_b3_passes_without_enable():
         run = pm.execute()
         for stage in _B3_OPT_IN:
             assert run.outcome(stage).reason not in (R.DISABLED_BY_DEFAULT, R.ABLATION_DISABLED)
+
+
+def test_o4_layout_retains_the_reference_stages_and_their_parameters():
+    reference, variant = _load("O4-r3"), _load("O4-layout")
+    layout = ["hotcold-partition", "cluster-hot", "order-cold"]
+    expected = [entry.name for entry in reference.passes]
+    index = expected.index("firmware-inline")
+    assert [entry.name for entry in variant.passes] == expected[:index] + layout + expected[index:]
+    for entry in reference.passes:
+        selected = next(stage for stage in variant.passes if stage.name == entry.name)
+        assert (selected.enabled, selected.version) == (entry.enabled, entry.version)
+        changes = {"max_units": -1} if entry.name == "chain-static" else {}
+        assert selected.params == {**entry.params, **changes}

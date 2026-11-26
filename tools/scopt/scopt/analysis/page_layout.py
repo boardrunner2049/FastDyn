@@ -31,6 +31,7 @@ def improve_page_layout(
     max_rounds: int,
     max_swaps: int,
     check_budget: Callable[[], None],
+    baseline_starts: Sequence[int] | None = None,
 ) -> PageLayout:
     """Preserve captured adjacency and improve weighted page crossings.
 
@@ -65,7 +66,7 @@ def improve_page_layout(
                 distance += weight * abs(target - transfer)
         return crossings, distance
 
-    before = cost(range(len(edges)))
+    before = cost(range(len(edges)), dict(enumerate(baseline_starts)) if baseline_starts is not None else None)
     swaps = considered = blocked_adjacency = blocked_distance = 0
     for _ in range(max_rounds):
         start_swaps = swaps

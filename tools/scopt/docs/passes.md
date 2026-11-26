@@ -170,7 +170,9 @@ return chaining, but applies to static transfers.
 
 - Opt-in. Requires exact steady edge evidence and the native/layout analyses.
 - Controls include target count, pass share, hit floor, guard/check/link costs,
-  compact guards, ranking, unit limits, and total growth.
+  compact guards, ranking, unit limits, and total growth. Set `max_units = -1` to
+  consider every eligible static source. The default is 256, and each source still
+  has at most two QEMU jump slots.
 - Example: B3 arguments plus `--pipeline b3 --only chain-static --enable chain-static`.
 - Evidence: active in a measured B3 bundle; there is no retained final isolated number.
 - Source: `scopt/passes/chain_static.py`; details: `docs/b3-passes.md`.

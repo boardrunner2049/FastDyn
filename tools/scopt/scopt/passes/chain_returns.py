@@ -15,7 +15,8 @@ Refusals (stats, stable codes): the exit's §3.1 reason (``exit_not_goto_ptr``,
 remaining slots are claimed), ``unit_not_relocatable`` (R is the source of a
 variant: WP19 note item 4, fail closed), ``continuation_key_mismatch`` (the
 target's guard key differs from the one already on the exit),
-``not_profitable`` (§10.3), ``slot_budget`` (256 units per pass).
+``not_profitable`` (§10.3), ``slot_budget`` (256 source units by default).
+``chain-static`` accepts ``max_units=-1`` to consider all source units.
 ``tbb``/``ldr pc,[rX]``/``bx rX`` exits are ``indirect_multiway`` and are
 never guarded in v1 (design §3.1 rule 2, §14: candidate ``chain-indirect``).
 
@@ -63,7 +64,9 @@ def _descriptor(name: str) -> PassDescriptor:
         requires=(("hostops", 1), ("return-edges", 1), ("envlayout", 1), ("profile.counts", 1)),
         requires_profile_phase="steady", min_profile_match=0.95,
         capabilities=frozenset({EditKind.REDIRECT_EXIT}),
-        budgets=Budgets(max_wall_s=120.0, max_units=MAX_UNITS),
+        # Static chaining applies its configured limit during candidate selection.
+        # A second fixed limit here would reject the entire proposal after selection.
+        budgets=Budgets(max_wall_s=120.0, max_units=MAX_UNITS if name == "chain-returns" else None),
         preserves=frozenset({"profile.counts", "cfg.known_edges"}),
         invalidates=frozenset({"code", "meta", "layout"}),
         params_schema=params)
@@ -145,6 +148,9 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
     if min_target_hits < 0:
         raise ValueError("min_target_hits must be nonnegative")
     max_units = int(p.get("max_units", MAX_UNITS))
+    if exit_class == "static" and max_units < -1:
+        raise ValueError("max_units must be nonnegative or -1 for unlimited static chaining")
+    unlimited_units = exit_class == "static" and max_units == -1
     ranked = p.get("rank_by_net_work", False)
     compare_cost = float(p.get("c_target_check", guard if ranked else 0.0))
     byte_limit = p.get("max_total_growth_bytes")
@@ -205,7 +211,8 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
         if row.uid in vsrc:
             refused["unit_not_relocatable"] += 1
             continue
-        if not ranked and byte_limit is None and len(scan_order_units) >= max_units and row.uid not in scan_order_units:
+        if (not unlimited_units and not ranked and byte_limit is None
+                and len(scan_order_units) >= max_units and row.uid not in scan_order_units):
             refused["slot_budget"] += 1
             continue
         x = st.exit_plan(row.uid, row.tail_off)
@@ -288,7 +295,7 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
         if byte_limit is not None:
             additional_bytes = stub_size_bound(len(have) + len(picked), compact) - (_exit_bound(x) if x else 0)
         plans.append(_GeneralPlan(row, picked, total, total - guarded, marginal, compact, additional_bytes))
-        if not ranked and byte_limit is None:
+        if not unlimited_units and not ranked and byte_limit is None:
             scan_order_units.add(row.uid)
         if ranked and byte_limit is not None and len(picked) == 2:
             first_weight = int(picked[0][0].count)
@@ -305,7 +312,7 @@ def general_slots(view: Any, ctx: Any, edits: Any, exit_class: str) -> PassResul
         exit_key = (row.uid, row.tail_off)
         if exit_key in selected_exits:
             continue
-        if row.uid not in touched and len(touched) >= max_units:
+        if not unlimited_units and row.uid not in touched and len(touched) >= max_units:
             refused["slot_budget"] += 1
             continue
         slots = {(row.uid, pick[2]) for pick in plan.picks}

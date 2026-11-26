@@ -213,8 +213,9 @@ Nothing else ([`DESIGN.md`](o4-campaign/recursive/DESIGN.md) §0 item 2;
   runs inside a region.
 - **No pass is scoped to members.** The manager's `region` scope means a SPEC variant
   (`scopt/manager.py:1009-1031`).
-- **firmware-inline is the terminal stage.** Layout placement with regions fails the link
-  (`firmware_region_terminal_stage`, `scopt/link.py:1893-1895`).
+- **At the time of this campaign, firmware-inline was the terminal stage.** The current
+  linker composes public placement with private firmware regions. See the subsequent
+  [O4-layout replay](O4.md#public-layout-and-uncapped-static-chaining).
 - **The pass manager cannot iterate.** It runs each entry once, in order
   (`scopt/manager.py:773-774`).
 - **Profiling never sees regions.** `sc7_try_region` returns NULL while profiling

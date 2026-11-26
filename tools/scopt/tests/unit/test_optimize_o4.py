@@ -149,7 +149,7 @@ def test_o4_is_exclusive_with_pipeline(o4):
     assert not o4.calls
 
 
-@pytest.mark.parametrize("name", ["O4", "O4-r1", str(PIPELINES_DIR / "O4-r1.toml")])
+@pytest.mark.parametrize("name", ["O4", "O4-r1", "O4-layout", str(PIPELINES_DIR / "O4-r1.toml")])
 def test_any_o4_named_pipeline_runs_the_preflight(o4, name):
     result = o4.invoke("--pipeline", name, elf=False)
     _refused(result, "--elf is required")

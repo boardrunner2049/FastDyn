@@ -100,20 +100,20 @@ PASSES: Mapping[str, Decision] = MappingProxyType({
         "not_applicable_sealed", f"{_OUT}: its shape check needs the can_do_io=0 store that "
         "sealed hot TBs do not have, and a rewritten poll fails trusted_irq_prefix_shape (P15)"),
     "align-trace-pages": _exc(
-        "not_composable", f"{_OUT}: layout placement cannot be combined with firmware regions (P1; 1.003x, "
-        "0.992x elsewhere)"),
+        "unmeasured", f"{_OUT}: page-offset placement now composes with regions. Its marginal "
+        "effect on sealed O4 is unmeasured (P1 was measured separately)", arm="align-trace-pages"),
     "page-aware-local-layout": _exc(
-        "not_composable", f"{_OUT}: layout placement cannot be combined with firmware regions (P21; never measured)"),
-    "cluster-hot": _exc(
-        "not_composable", f"{_OUT}: a layout pass; refused with firmware regions "
-        "(firmware_region_terminal_stage) (P5)", arm="b3l"),
+        "unmeasured", f"{_OUT}: page-aware placement now composes with regions. Its marginal "
+        "effect on sealed O4 is unmeasured", arm="page-aware-local-layout"),
     "llvm-cache-layout": _exc(
-        "not_composable", f"{_OUT}: a layout pass; refused with firmware regions (P16; fixture "
-        "1.023x prefix); challenger C2 (b3-llvm) is the B3-tier alternative", arm="b3l"),
-    "order-cold": _exc("not_composable", f"{_OUT}: a layout pass; refused with firmware "
-                       "regions (P20; neutral or inconclusive)", arm="b3l"),
-    "hotcold-partition": _exc("not_composable", f"{_OUT}: annotation for the layout passes "
-                              "(P12; 1.015x unattributable)", arm="b3l"),
+        "unmeasured", f"{_OUT}: alternative to cluster-hot. Earlier C2 used B3 alone. "
+        "Its LLVM order with firmware regions has no O4 timing", arm="b3l"),
+    "cluster-hot": _exc("measured_neutral", f"{_OUT}: O4-layout public placement bundle, "
+                        "paired packet/UART/CLI ratios 0.9874/1.0007/0.9879", arm="O4-layout"),
+    "order-cold": _exc("measured_neutral", f"{_OUT}: O4-layout public placement bundle, "
+                       "all three comparisons within the A/A noise band", arm="O4-layout"),
+    "hotcold-partition": _exc("measured_neutral", f"{_OUT}: classifier used by O4-layout's "
+                              "public placement bundle", arm="O4-layout"),
     "specialize-edges": _exc("measured_slower", f"{_OUT}: fixture ablation 0.927x "
                              "[0.902, 0.992] (P26)"),
     "eliminate-state-sync": _exc("measured_neutral", f"{_OUT}: compute +0.14% "
@@ -226,8 +226,8 @@ def _knobs():
             "reverse_general_pair max_total_growth_bytes", _inc("default", f"{_IN}: {_B3_DEFAULT}"))
         k[(cp, "max_units")] = _inc(
             "default", f"{_IN}: the 256-unit cap binds only on packet chain-static (27 exits "
-            "refused slot_budget under O4-r1, 16 under O4-r3's ranking); listing chain-static "
-            "twice would lift it without code, not yet measured (docs/o4-recursive.md)")
+            "refused slot_budget under O4-r1, 16 under O4-r3's ranking); O4-layout uses -1 "
+            "for chain-static, admitting 272 packet sources. See the packet ablation")
     k[("chain-returns", "min_return_share")] = _inc("default", f"{_IN}: {_B3_DEFAULT}")
     for name, value in (("rank_by_net_work", True), ("c_target_check", 0.0)):
         k[("chain-static", name)] = _inc(

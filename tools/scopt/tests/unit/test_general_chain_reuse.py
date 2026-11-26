@@ -11,6 +11,7 @@ from scopt.ids import TBKey
 from scopt.manager import load_pipeline
 from scopt.passes.base import Outcome
 from scopt.passes.chain_returns import _exact_return_hits, general_slots
+from scopt.passes.chain_static import ChainStatic
 
 
 def run_slots(monkeypatch, hits, *, params=None, replays=1, exit_class="return",
@@ -159,6 +160,25 @@ def test_net_work_ranks_exits_before_applying_global_unit_limit(monkeypatch):
         assert chosen == [0xa00]
         assert ranked.stats["estimated_train_lookups_avoided"] > control.stats["estimated_train_lookups_avoided"]
         assert ranked.stats["eligible_exit_plans"] == 3
+
+
+@pytest.mark.parametrize("ranked", [False, True])
+def test_static_chaining_can_select_more_than_256_profitable_sources(monkeypatch, ranked):
+    rows = [(f"source-{i}", 10, 0x800 + 4 * i) for i in range(258)]
+    # The last source would spend its sole hit installing a link.
+    rows[-1] = ("one-shot", 1, 0xe00)
+    params = {"rank_by_net_work": ranked}
+    for limit, expected in [(None, 256), (0, 0), (257, 257), (-1, 258)]:
+        if limit is not None:
+            params["max_units"] = limit
+        result, targets = run_slots(monkeypatch, [(10, "exact")], extra_rows=rows,
+                                    exit_class="static", params=params)
+        assert len(targets) == result.stats["units"] == expected
+        assert 0xe00 not in targets
+    assert result.stats.get("refused:slot_budget", 0) == 0
+    assert result.stats["targets_without_estimated_reuse"] == 1
+    # A fixed descriptor budget would cause the manager to discard every edit.
+    assert ChainStatic.descriptor.budgets.max_units is None
 
 
 def test_second_target_must_pay_compare_cost_on_remaining_traffic(monkeypatch):

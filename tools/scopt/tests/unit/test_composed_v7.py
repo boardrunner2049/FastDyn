@@ -270,7 +270,7 @@ def test_deploy_and_proof_check_both_payloads(tmp_path):
     assert {"ext", "firmware_regions"} <= failed
 
 
-def test_linker_composes_only_trusted_regions_without_placement():
+def test_b3_semantic_edits_still_require_trusted_regions():
     fx = _fixture()
     uid = fx.unit.uid
     safe = SimpleNamespace(**{**vars(fx.region), "trusted": False})
@@ -279,10 +279,63 @@ def test_linker_composes_only_trusted_regions_without_placement():
                             derive_captures=False).link()
     assert not edited.ok
     assert edited.failures[0].reason == "firmware_region_safe_composition"
-    placement = SimpleNamespace(base=snapshot)
-    placed = NativeLinkerV2(snapshot, B3Plan(firmware_regions=(fx.region,)),
-                            placement=placement, derive_captures=False).link()
-    assert not placed.ok and placed.failures[0].reason == "firmware_region_terminal_stage"
+
+
+@pytest.mark.parametrize("trusted", [False, True])
+def test_layout_preserves_private_descriptors_and_recovery_contract(tmp_path, trusted):
+    from scopt.decode.search import SearchRow, encode_search
+    from scopt.model.snapshot import WorkingSet
+    from scopt.model.unit import Fixup, RecoveryPoint
+    from scopt.validate import validate_firmware_v7, write_b3_files
+    from tests.synth.fake_snapshot import FakeSnapshot
+
+    fx = _fixture()
+    unit = fx.unit
+    descriptor_site = unit.sites[1]
+    descriptor = fx.header.code_address + unit.tb_offset
+    code = bytearray(unit.code)
+    struct.pack_into("<Q", code, descriptor_site.field_off, descriptor)
+    fixup = Fixup(descriptor_site.field_off, 8, "abs_plus_delta", int(descriptor_site.kind),
+                  "own_struct", descriptor)
+    words = (unit.vaddrs[0], 0, 0)
+    search = encode_search([SearchRow(words, len(code))])
+    end = unit.tc_offset + len(code) + len(search)
+    record = ScRecord.from_bytes(unit.record).replace(end_offset=end)
+    unit = replace(unit, code=bytes(code), search=search, end_offset=end,
+                   record=record.to_bytes(fix_checksum=True),
+                   recovery=(RecoveryPoint("r0", 20, 0, words, "raddr"),),
+                   reloc=replace(unit.reloc, fixups=(fixup,)))
+    snap = FakeSnapshot((unit,), fx.snapshot.snapshot_id, fx.header)
+    snap.run_info = SimpleNamespace(flags=0, tb_ret_off=0, code_address=fx.header.code_address)
+    region = SimpleNamespace(**dict(vars(fx.region), trusted=trusted,
+                                    trusted_entry_offset=15 if trusted else 0))
+    plan = B3Plan(firmware_regions=(region,))
+    placement = WorkingSet(snap, placements={fx.unit.uid: 0x4000})
+    link = NativeLinkerV2(snap, plan, placement=placement, derive_captures=False).link()
+    assert link.ok, link.failures
+    write_b3_files(tmp_path, snap, link)
+    path = tmp_path / "cache.sc"
+    directory = read_region_directory(path)
+    assert directory.trusted == trusted
+    members = decode_directory(directory)["members"]
+    assert len(members) == 2
+    with path.open("rb") as stream:
+        public_tc = 0x4000 + unit.tc_offset - unit.tb_offset
+        stream.seek(SC_CODE_OFFSET + public_tc + descriptor_site.field_off)
+        assert struct.unpack("<Q", stream.read(8))[0] == fx.header.code_address + 0x4000
+        for member in members:
+            assert member["source_tb_offset"] == 0x4000
+            stream.seek(SC_CODE_OFFSET + member["tc_offset"] + descriptor_site.field_off)
+            descriptor, = struct.unpack("<Q", stream.read(8))
+            assert descriptor == fx.header.code_address + member["tb_offset"]
+            if not trusted:
+                stream.seek(SC_CODE_OFFSET + member["search_offset"])
+                assert stream.read(len(search)) == search
+    audit, imported = validate_firmware_v7(
+        snap, link, tmp_path, sidecar={"loader_requirement": loader_requirement(directory)},
+        runtime={"qemu_sha256": _NEW_QEMU}, v7_exes=(_NEW_QEMU,), trusted_v7_exes=(_NEW_QEMU,))
+    assert audit.accepted, audit.fails()
+    assert imported.snapshot.firmware_regions[0]["source_tb_offset"] == 0x4000
 
 
 def test_b3_grown_regions_are_priced_unchainable(monkeypatch):
@@ -386,6 +439,43 @@ def _guard_layout():
     defaults = GuardOffsets()
     names = {name: getattr(defaults, key) for key, name in GuardOffsets.FIELDS.items()}
     return SimpleNamespace(offset=names.__getitem__, envlayout_id=None)
+
+
+def test_moved_region_source_and_variant_round_trip(tmp_path):
+    from scopt.formats.region_v1 import unit_exits
+    from scopt.model.snapshot import WorkingSet
+    from scopt.validate import write_b3_files
+
+    snap, source, plan = _grown_member_plan(member_slot_skip=True)
+    target = snap.unit(plan.variants[0].src_uid)
+    placement = WorkingSet(snap, placements={source.uid: 0x4000, target.uid: 0x8000})
+    exit_, = unit_exits(source)
+    region, = plan.firmware_regions
+    edge = SimpleNamespace(source_member=0, target_member=1, exit_id=exit_.id, kind="call")
+    region = SimpleNamespace(**{**vars(region), "edges": (edge,)})
+    plan = replace(plan, firmware_regions=(region,))
+    link = NativeLinkerV2(snap, plan, placement=placement, derive_captures=False).link()
+    assert link.ok, link.failures
+    write_b3_files(tmp_path, snap, link)
+    path = tmp_path / "cache.sc"
+    semantic = read_semantic_cache(path)
+    assert semantic.problem is None
+    assert {s.src_tb_offset for s in semantic.ext.slots} == {0x4000}
+    variant, = semantic.ext.variants
+    assert variant.general_tb_offset == 0x8000
+    rows = decode_directory(read_region_directory(path))
+    emitted, = rows["regions"]
+    assert emitted["start_offset"] >= variant.end_offset
+    assert emitted["source_tb_offset"] == 0x4000
+    caller, callee = rows["members"]
+    assert caller["source_tb_offset"] == callee["source_tb_offset"] == 0x4000
+    assert caller["flags"] == callee["flags"] == 3
+    internal, = rows["edges"]
+    field = caller["tc_offset"] + internal["field_offset"]
+    with path.open("rb") as stream:
+        stream.seek(SC_CODE_OFFSET + field)
+        displacement, = struct.unpack("<i", stream.read(4))
+    assert field + 4 + displacement == callee["tc_offset"] + region.trusted_entry_offset
 
 
 @pytest.mark.parametrize("member_slot_skip", [True, False])

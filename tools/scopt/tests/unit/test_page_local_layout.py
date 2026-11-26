@@ -25,6 +25,17 @@ def test_adjacent_swap_reduces_profiled_self_loop_prefix_crossing():
     assert result.weighted_distance == (0, 0)
 
 
+def test_score_packed_candidate_against_default_appended_growth():
+    result = improve_page_layout(
+        starts=[64, 320], spans=[256, 128], tc_deltas=[32, 32],
+        edges=[edge(1, 1)], directed_weights={}, movable=set(),
+        page_size=256, max_rounds=1, max_swaps=1, check_budget=lambda: None,
+        baseline_starts=[384, 192])
+    # In capture order the second entry is at 224 and crosses a page.
+    # Repacking with a grown first TB moves it to 352 and removes the crossing.
+    assert result.swaps == 0 and result.weighted_crossings == (10, 0)
+
+
 def test_original_directed_adjacency_protects_even_unlocated_transfer():
     result = improve([edge(1, 1)], protected={(0, 1): 1})
     assert result.order == (0, 1)

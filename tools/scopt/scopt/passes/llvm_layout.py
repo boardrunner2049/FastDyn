@@ -54,8 +54,8 @@ class LLVMCacheLayout(ClusterHot):
         known = sorted((uid for uid in movable if uid in heat), key=lambda u: (original[u], u))
         units = [snap.unit(uid) for uid in known]
         guarded = {}
-        private_sources = set()
         state = getattr(ctx, "b3_state", None)
+        private_sources = set(state.firmware_member_sources()) if state is not None else set()
         profile = ctx.profile(ctx.params.get("phase", "steady"))
         replays = None
         if ctx.params.get("estimate_general_reuse") and profile is not None and profile.profile is not None:
@@ -77,7 +77,7 @@ class LLVMCacheLayout(ClusterHot):
                 return fallback(f"cannot preview B3 node extents: {exc}")
             units = [effective[uid] for uid in known]
             guarded = guarded_lookups(grown, state, ctx.b3.page_bits)
-            private_sources = {variant.src_uid for variant in plan.variants}
+            private_sources.update(variant.src_uid for variant in plan.variants)
         # A source-profile entry count for a cloned body includes subsequent
         # executions of its private copies. These cannot be separate exact
         # LLVM node counts until the transformed artifact has been profiled.

@@ -10,7 +10,7 @@ from ..analysis.llvm_layout import build_cache_directed_request
 from ..analysis.page_layout import improve_page_layout
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
 from .cluster import DEFAULT_KINDS
-from .public_input import page_layout_refusal
+from .public_input import public_input_refusal, public_layout_geometry
 
 
 def align(offset):
@@ -31,7 +31,7 @@ class PageAwareLocalLayout:
 
     def run(self, snap, ctx, edits):
         h = snap.header
-        refusal = page_layout_refusal(h, ctx.b3_state)
+        refusal = public_input_refusal(h)
         if refusal is not None:
             return refusal
         units = sorted(snap.units(), key=lambda u: u.tb_offset)
@@ -58,13 +58,16 @@ class PageAwareLocalLayout:
         pc, view = phase_profile_counts(ctx, snap, "steady")
         if view is None:
             return PassResult(Outcome.SKIPPED_UNKNOWN, "missing_steady_profile")
+        effective, baseline, private, grown = public_layout_geometry(units, ctx)
+        units = [effective[u.uid] for u in units]
         exact_counts = {uid: int(count.value or 0) for uid, count in pc.phase("steady").items()
                         if count.status == "exact"}
         by_uid = {u.uid: i for i, u in enumerate(units)}
         graph = tuple(edge for edge in view.edges("steady") if edge["kind"] in DEFAULT_KINDS)
         eligible = [edge for edge in graph if edge["status"] == "exact" and not edge["flags"]
                     and edge["src"] in by_uid and edge["dst"] in by_uid
-                    and edge["count"] > 0]
+                    and edge["count"] > 0 and edge["src"] not in grown
+                    and edge["src"] not in private and edge["dst"] not in private]
         # Protect exact directed adjacency even if the native site is not known.
         directed = Counter()
         for edge in eligible:
@@ -77,12 +80,18 @@ class PageAwareLocalLayout:
             {**e, "src": exact_units[e["src"]], "dst": exact_units[e["dst"]]}
             for e in request["edges"]
         ]
+        spans = [align(u.end_offset - u.tb_offset) for u in units]
+        starts = []
+        cursor = h.code_address + align(h.prologue_end)
+        for span in spans:
+            starts.append(cursor)
+            cursor += span
         plan = improve_page_layout(
-            [h.code_address + u.tb_offset for u in units],
-            [align(u.end_offset - u.tb_offset) for u in units],
+            starts, spans,
             [u.tc_offset - u.tb_offset for u in units],
             edges, directed, set(exact_units), page_size=h.host_page_size,
             max_rounds=max_rounds, max_swaps=max_swaps, check_budget=ctx.budget,
+            baseline_starts=[h.code_address + baseline[u.uid] for u in units],
         )
         all_weight = sum(int(e["count"]) for e in graph)
         weight = sum(e["count"] for e in edges)
@@ -103,12 +112,22 @@ class PageAwareLocalLayout:
             "page_gains_blocked_by_original_adjacency": plan.blocked_by_original_adjacency,
             "page_gains_blocked_by_native_distance": plan.blocked_by_native_distance,
         }
-        if not plan.swaps:
+        # Grown units normally move to the end. Compare the proposed packed
+        # layout (including growth) with that actual no-layout baseline.
+        if (plan.weighted_crossings[1] >= plan.weighted_crossings[0]
+                or plan.weighted_distance[1] > plan.weighted_distance[0]):
             return PassResult(Outcome.NO_CHANGE, "no_profitable_local_swap", stats=stats)
         order = tuple(units[i].uid for i in plan.order)
         edits.layout_order("hot", order)
+        affected = []
+        cursor = align(h.prologue_end)
+        for i in plan.order:
+            uid = units[i].uid
+            if baseline[uid] != cursor:
+                affected.append(uid)
+            cursor += spans[i]
         return PassResult(Outcome.CANDIDATE, "weighted_page_crossings_reduced",
-                          affected=tuple(uid for u, uid in zip(units, order) if u.uid != uid),
+                          affected=tuple(affected),
                           stats=stats)
 
 

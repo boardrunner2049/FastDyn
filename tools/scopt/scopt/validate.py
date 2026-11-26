@@ -3070,8 +3070,8 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
     if sum(per_c.values()) > max_all:
         bad21.append(f"context_budget: > {max_all} variants")
     # §3.4 max_code_growth_bytes budgets specialization (variants + the stubs of exits
-    # with a SPEC slot); GENERAL-only stubs have their own budget (≤2 slots/unit, 256
-    # units, §3.6) and are reported, not budgeted (WP21)
+    # with a SPEC slot). GENERAL-only stubs are selected under each chain pass's
+    # source-unit policy and counted here separately (WP21).
     spec_stub = sum(len(st.code) for g in grown.values() for _sp, st in g.stubs
                     if any(si.kind == "SPEC" for si in st.slots))
     budget = getattr(plan, "max_code_growth_bytes", None)

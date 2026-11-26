@@ -23,12 +23,21 @@ def test_public_only_pass_reports_input_features(cls):
     assert "0x80000001" in result.detail
 
 
-@pytest.mark.parametrize("cls", [arena_slide.AlignTracePages, page_layout.PageAwareLocalLayout])
-def test_page_layout_identifies_incompatible_pending_edits(cls):
-    snap = SimpleNamespace(header=SimpleNamespace(version=7, reserved=0))
-    for state, reason in [(B3State(exits={("source", 0): object()}), "pending_exit_growth_changes_layout"),
-                          (B3State(firmware_regions={"region": object()}), "firmware_region_terminal_stage")]:
-        assert cls().run(snap, SimpleNamespace(b3_state=state), None).reason == reason
+@pytest.mark.parametrize("mod,cls", [(arena_slide, arena_slide.AlignTracePages),
+                                     (page_layout, page_layout.PageAwareLocalLayout)])
+def test_page_passes_with_regions_drop_ambiguous_private_traffic(mod, cls, monkeypatch):
+    snapshot = fake_snapshot(16)
+    source, target = snapshot.units()[-2:]
+    region = SimpleNamespace(members=[SimpleNamespace(source_uid=source.uid)])
+    state = B3State(firmware_regions={"r": region})
+    edge = dict(src=source.uid, dst=target.uid, kind="chain0", status="exact", flags=[], count=10)
+    profile = SimpleNamespace(edges=lambda phase: [edge])
+    counts = {u.uid: SimpleNamespace(value=10, status="exact") for u in snapshot.units()}
+    monkeypatch.setattr(mod, "phase_profile_counts", lambda *args: (
+        SimpleNamespace(phase=lambda phase: counts), profile))
+    ctx = SimpleNamespace(b3_state=state, budget=lambda: None, params={})
+    result = cls().run(WorkingSetView(WorkingSet(snapshot)), ctx, None)
+    assert result.outcome == Outcome.NO_CHANGE and result.stats["located_transfer_weight"] == 0
 
 
 def test_alignment_composes_with_a_public_rewrite_in_the_semantic_linker(monkeypatch):

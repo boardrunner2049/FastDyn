@@ -1013,7 +1013,7 @@ __all__ += [
     "LookupTail", "lookup_tails", "tail_problem", "GuardedExitSpec", "GrownUnit", "grow_unit",
     "apply_pure_rewrite", "rewrite_unit", "VariantSpec", "B3Plan", "VariantLink",
     "LinkResultV2", "NativeLinkerV2", "R2", "exit_class_of", "variant_key", "free_slots",
-    "derive_scm_v2", "tb_ret_abs_of",
+    "derive_scm_v2", "tb_ret_abs_of", "unplaced_public_offsets",
     "trusted_firmware_entry_problem", "trusted_firmware_edge_problem",
     "TRUSTED_ENTRY_OFFSET", "b3_edited_uids", "region_exits_chainable",
     "residual_goto_tb_slots", "added_goto_tb_slots", "MEMBER_CODE_ALIGN",
@@ -1611,6 +1611,22 @@ class LinkResultV2(LinkResult):
         return d
 
 
+def unplaced_public_offsets(units: Sequence[TBUnit], effective: Mapping[str, TBUnit],
+                            grown: Mapping[str, GrownUnit]) -> tuple[dict[str, int], int]:
+    """Default B3 placement. Append grown records after every captured extent in slot order."""
+    cursor = round_up(max((u.end_offset for u in units), default=0), TB_ALIGN)
+    starts = {}
+    for unit in units:
+        uid = unit.uid
+        if uid in grown:
+            start = round_up(cursor, TB_ALIGN)
+            cursor = start + effective[uid].end_offset - effective[uid].tb_offset
+        else:
+            start = unit.tb_offset
+        starts[uid] = start
+    return starts, cursor
+
+
 class NativeLinkerV2:
     """Materialize a :class:`B3Plan` on ``snapshot`` (see the section comment)."""
 
@@ -1891,9 +1907,6 @@ class NativeLinkerV2:
         plan, h = self.plan, self.header
         ca = h.code_address
         units = list(self.snap.units())
-        if plan.firmware_regions and self.placement is not None:
-            return self._fail("", "firmware_region_terminal_stage",
-                              "layout placement cannot be combined with firmware regions")
         # B3 edits compose only with trusted regions (the composed v7 subtype):
         # a safe member reuses its public record's goto_tb offsets, and B3
         # growth adds guard slots to that record while the member keeps the
@@ -1922,26 +1935,23 @@ class NativeLinkerV2:
             return self._fail(e.uid or "", e.reason, e.detail)
         # -- placement ---------------------------------------------------------
         limit = arena_limit(h)
-        cursor = round_up(max((u.end_offset for u in units), default=0), TB_ALIGN)
-        new_tb: dict[str, int] = {}
         if self.placement is not None:
             placer = NativeLinker(self.placement, derive_captures=False)
             new_tb = placer.plan(effective=eff, append_unordered=frozenset(grown))
             failures = placer._check_plan(new_tb, eff)
             if failures:
                 return LinkResultV2(False, h, (), tuple(failures))
+            # Private variants and regions follow the final public extents,
+            # including B3 growth. Their fixups still use captured input bytes.
             cursor = max((new_tb[u.uid] + u.end_offset - u.tb_offset for u in eff.values()),
                          default=h.prologue_end)
         else:
-            for u in units:
-                if u.uid in grown:
-                    new_tb[u.uid] = round_up(cursor, TB_ALIGN)
-                    cursor = new_tb[u.uid] + (eff[u.uid].end_offset - eff[u.uid].tb_offset)
+            new_tb, cursor = unplaced_public_offsets(units, eff, grown)
         links: list[UnitLink] = []
         try:
             for out_slot, u in enumerate(units):
                 e = eff[u.uid]
-                lu = relocate_unit(e, new_tb.get(u.uid, e.tb_offset))
+                lu = relocate_unit(e, new_tb[u.uid])
                 if u.uid not in grown and not lu.moved:
                     lu = replace(lu, record=bytes(u.record))
                 links.append(replace(lu, slot=out_slot, input_slot=u.slot))

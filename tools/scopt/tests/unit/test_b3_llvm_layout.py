@@ -1,4 +1,7 @@
 from dataclasses import replace
+from types import SimpleNamespace
+
+from scopt.guard import GuardOffsets
 
 from scopt.formats.sc_records import ScRecord
 from scopt.link import B3Plan, NativeLinker, NativeLinkerV2, TB_ALIGN, round_up
@@ -45,14 +48,12 @@ def test_effective_geometry_controls_order_and_checks_growth_in_place():
     assert [(f.uid, f.reason) for f in failures] == [(first.uid, "place_overlap")]
 
 
-def test_private_suffix_follows_final_predecessor_order_and_ext_bindings(tmp_path):
-    from scopt.analysis.llvm_layout import guarded_lookups
+def guarded_snapshot():
     from scopt.formats.enums import Encoding, SiteKind
-    from scopt.guard import GuardOffsets, GuardTarget
+    from scopt.guard import GuardTarget
     from scopt.link import GuardedExitSpec, VariantSpec
     from scopt.model.unit import HelperBinding, PoolEntry, Site
     from tests.synth.fake_snapshot import FakeSnapshot
-    from types import SimpleNamespace
 
     base = fake_snapshot(3)
     pred_a, pred_b, target = base.units()
@@ -85,8 +86,43 @@ def test_private_suffix_follows_final_predecessor_order_and_ext_bindings(tmp_pat
     plan = B3Plan(grow={pred_a.uid: (a_spec,), pred_b.uid: (b_spec,)},
                   variants=tuple(VariantSpec(target.uid, u.uid, 0, key=u.uid)
                                  for u in (pred_a, pred_b)), order_private_by_predecessor=True)
+    snap.run_info = SimpleNamespace(code_address=snap.header.code_address, tb_ret_off=0)
+    return snap, plan, layout
+
+
+def test_page_layout_uses_final_grown_extents_and_unplaced_slot_order():
+    from scopt.manager_b3 import B3State, ExitPlan, SlotPlan, materialize
+    from scopt.passes.public_input import public_layout_geometry
+
+    snap, plan, _ = guarded_snapshot()
+    pred_a, pred_b, target = snap.units()
+    exits = {}
+    for uid, specs in plan.grow.items():
+        spec, = specs
+        slots = tuple(SlotPlan(t.slot_n, t.vaddr, "GENERAL", target.uid, None, "test")
+                      for t in spec.targets)
+        exits[uid, spec.tail_off] = ExitPlan(uid, "x0", spec.tail_off, spec.exit_class,
+                                            spec.key_flags, spec.key_cs_base, slots)
+    state = B3State(exits=exits)
+    ctx = SimpleNamespace(b3_state=state, b3=SimpleNamespace(
+        snapshot=snap, units=lambda: {u.uid: u for u in snap.units()}, offsets=GuardOffsets()))
+    baseline = NativeLinkerV2(snap, materialize(state, ctx.b3).plan,
+                              derive_captures=False).link()
+    assert baseline.ok, baseline.failures
+    effective, starts, private, grown = public_layout_geometry(tuple(reversed(snap.units())), ctx)
+    assert starts == {u.uid: u.new_tb_offset for u in baseline.units}
+    assert {uid: u.tc_size for uid, u in effective.items()} == {
+        lu.uid: ScRecord.from_bytes(lu.record).tc_size for lu in baseline.units}
+    assert not private and grown == {pred_a.uid, pred_b.uid}
+
+
+def test_private_suffix_follows_final_predecessor_order_and_ext_bindings(tmp_path):
+    from scopt.analysis.llvm_layout import guarded_lookups
+
+    snap, plan, layout = guarded_snapshot()
+    pred_a, pred_b, target = snap.units()
     result = NativeLinkerV2(snap, plan, placement=layout, offsets=GuardOffsets(),
-                            tb_ret_abs=base.header.code_address, derive_captures=False).link()
+                            derive_captures=False).link()
     assert result.ok, result.failures
     assert [v.pred_uid for v in result.variants] == [pred_b.uid, pred_a.uid]
     # Ext entries use the new indices and the actual relocated records.
@@ -100,7 +136,7 @@ def test_private_suffix_follows_final_predecessor_order_and_ext_bindings(tmp_pat
     second = SimpleNamespace(slot_n=1, vaddr=pred_b.vaddrs[0], c_uid=pred_b.uid)
     state = SimpleNamespace(exit_plan=lambda uid, _: SimpleNamespace(
         slots=(slot, second) if uid == pred_a.uid else (slot,)))
-    routes = guarded_lookups(result.grown, state, base.header.target_page_bits)
+    routes = guarded_lookups(result.grown, state, snap.header.target_page_bits)
     for uid, source in result.grown.items():
         route = routes[uid].transfers[0]
         assert route.kind == "SPEC" and route.destination == target.uid
