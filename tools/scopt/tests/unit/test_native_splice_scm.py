@@ -13,7 +13,7 @@ from scopt.formats.scm_v1 import ScmEncodeError, ScmInsn, TbChunk, parse_scm
 from scopt.importer.crosscheck import _native_splice_error, _relocated_splice_code
 from scopt.model.native import InlineCall, NativeFragment, NativeFrameBody, NativeOrigin, NativeRelocation, NativeSplice
 from scopt.model.unit import Bindings, HelperBinding, Insn, OpMark, RecoveryPoint, Site
-from scopt.formats.sc_v5 import ScRecord
+from scopt.formats.sc_records import ScRecord
 from scopt.splice_layout import (materialize_splice, materialize_splices, prepare_splice_layout,
                                  splice_group_offsets, splice_offsets)
 from scopt.validate_sym.native_inline import NativeInlineError

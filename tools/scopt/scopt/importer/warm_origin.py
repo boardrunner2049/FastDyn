@@ -9,8 +9,8 @@ import re
 import tempfile
 
 from ..formats.artifact import ArtifactError, MANIFEST, SIDECAR, read_artifact, verify_manifest
-from ..formats.sc_v5 import sha256_sparse
-from ..formats.sc_v7 import canonical_snapshot_id
+from ..formats.sc_records import sha256_sparse
+from ..formats.supercache import canonical_snapshot_id
 
 
 @dataclass(frozen=True)

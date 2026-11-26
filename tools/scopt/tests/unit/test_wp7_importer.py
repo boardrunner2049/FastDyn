@@ -18,7 +18,7 @@ from scopt.canon import sha256_id
 from scopt.formats import scm_v1 as S
 from scopt.formats.enums import RunInfoFlag, TbFlag
 from scopt.formats.region_v1 import validate_region
-from scopt.formats.sc_v5 import ScHeader
+from scopt.formats.sc_records import ScHeader
 from scopt.ids import bundle_id
 from scopt.importer.import_cache import (ImportRejected, import_snapshot, manifest_contract_id,
                                          manifest_plan_hash, open_snapshot)

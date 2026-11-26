@@ -2,9 +2,9 @@
   "schema": "scopt.host-inline-source-lock/1",
   "reviewed_fastdyn": "72c398a748a2a6220e6965a17b8614f9f57258d6",
   "starting_fastdyn": "4108598b0942477159446ce01b33216d972f6de9",
-  "runtime_source_ref": "817ca5ef7f91c2494dceba6929cd63dbcfae52f7",
+  "runtime_source_ref": "f566dcebcf3e09c6340db5ce731fe442b24a5542",
   "fastdyn_url": "https://github.com/boardrunner2049/FastDyn.git",
-  "qemu": "934890ed5119ef70da69276991d921573f23ed4f",
+  "qemu": "aacca05f691231799c5c2dddae8e17b9b009b8e8",
   "qemu_url": "https://github.com/boardrunner2049/qemu.git",
   "qemu_integrated_history": [
     "12f5e68",
@@ -12,7 +12,9 @@
     "2dfce24",
     "409e90c",
     "a0681a6",
-    "934890e"
+    "934890e",
+    "bd331f8",
+    "aacca05"
   ],
   "setup_patch_checks": [
     {

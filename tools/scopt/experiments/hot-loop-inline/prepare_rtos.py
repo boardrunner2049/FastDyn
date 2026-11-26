@@ -9,7 +9,7 @@ import sys
 
 from scopt.canon import canonical_json
 from scopt.formats.bundle_v1 import run_info_fields, runtime_identity
-from scopt.formats.sc_v5 import ScHeader
+from scopt.formats.sc_records import ScHeader
 from scopt.formats.scm_v1 import read_scm
 
 

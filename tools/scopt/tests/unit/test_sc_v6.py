@@ -1,6 +1,6 @@
 """WP18 T-B3-1: ``.sc`` v6 writer, reader and the independent parser (design §5.2-5.4, V11).
 
-Round trip through ``scopt.formats.sc_v6`` and ``independent/sc6parse.py``
+Round trip through ``scopt.formats.sc_semantic`` and ``independent/sc6parse.py``
 (written from the C loader of ``wt/qemu-v6``) on synthetic and real tables;
 every corruption case gives the loader's reason (the message ``sc6_die``
 prints) in both parsers.
@@ -14,11 +14,12 @@ from pathlib import Path
 import pytest
 
 from scopt.canon import fnv1a64
-from scopt.formats.sc_v5 import ScFormatError, ScRecord, read_sc, write_sc
-from scopt.formats.sc_v6 import (FEAT_EXT_TABLE, FEAT_GUARDED_SLOTS, FEAT_VARIANTS,
+from scopt.formats.sc_records import ScFormatError, ScRecord, read_sc, write_sc
+from scopt.formats.sc_semantic import (FEAT_EXT_TABLE, FEAT_GUARDED_SLOTS, FEAT_VARIANTS,
                                  EXIT_DIRECT, KIND_GENERAL, KIND_SPEC, SC6PARSE, ExtTable, LinkEntry, SlotEntry,
-                                 VariantEntry, ext_problem, read_sc6, sc6_snapshot_id,
-                                 sc6parse_compare, write_sc6)
+                                 VariantEntry, ext_problem, read_semantic_cache, semantic_snapshot_id,
+                                 sc6parse_compare)
+from scopt.formats.supercache import write_semantic_cache
 from scopt.link import B3Plan, NativeLinkerV2, arena_limit
 from tests.synth import b3 as H
 
@@ -42,14 +43,14 @@ def _base(name: str = "minimal"):
     plan = B3Plan(grow=grow, variants=tuple(vs))
     res = NativeLinkerV2(s, plan, offsets=H.offsets_for(s), derive_captures=False).link()
     assert res.ok, res.failures
-    assert res.version == 6 and res.ext.links and res.ext.variants
+    assert res.version == 7 and res.ext.links and res.ext.variants
     return s, res
 
 
 def _write(tmp: Path, s, res, *, ext=None, features=None, parts=None, bodies=None,
            check=False, header=None) -> Path:
     p = tmp / "cache.sc"
-    write_sc6(p, header or s.header, parts if parts is not None else [(u.record, u.body) for u in res.units],
+    write_semantic_cache(p, header or s.header, parts if parts is not None else [(u.record, u.body) for u in res.units],
               ext if ext is not None else res.ext,
               bodies if bodies is not None else [v.body for v in res.variants],
               features=features, check=check, fsync=False)
@@ -57,7 +58,7 @@ def _write(tmp: Path, s, res, *, ext=None, features=None, parts=None, bodies=Non
 
 
 def _both(p: Path):
-    f = read_sc6(p)
+    f = read_semantic_cache(p)
     ok, det, doc = sc6parse_compare(p, f)
     return f, ok, det, doc
 
@@ -66,20 +67,19 @@ def test_roundtrip_real_minimal(tmp_path):
     s, res = _base()
     p = _write(tmp_path, s, res, check=True)
     f, ok, det, doc = _both(p)
-    assert f.problem is None and f.is_v6, f.problem
+    assert f.problem is None and f.has_ext, f.problem
     assert ok, det
-    assert doc["verdict"] == "v6_ok"
+    assert doc["verdict"] == "v7_semantic_ok"
     assert f.ext.variants == res.ext.variants and f.ext.slots == res.ext.slots
     assert f.ext.links == res.ext.links
     assert list(f.variant_bodies) == [v.body for v in res.variants]
-    # header: version 6, feature flags, covered by the checksum
-    assert f.sc.header.version == 6 and f.sc.header.checksum_ok
+    # header: version 7, feature flags, covered by the checksum
+    assert f.sc.header.version == 7 and f.sc.header.checksum_ok
     assert f.features == FEAT_EXT_TABLE | FEAT_VARIANTS | FEAT_GUARDED_SLOTS
-    # the stock (v5) reader refuses the file, as the v5 loader does
-    assert read_sc(p).header_problems == ("version",)
+    assert not read_sc(p).header_problems
     # canonical: nothing but header, ext, variants, records
     assert not f.structural_findings()
-    assert sc6_snapshot_id(f) != f.sc.snapshot_id()
+    assert semantic_snapshot_id(f) != f.sc.snapshot_id()
 
 
 @pytest.mark.real
@@ -91,17 +91,17 @@ def test_roundtrip_real_compute(tmp_path):
     assert f.problem is None and ok, (f.problem, det)
 
 
-def test_identity_v6_and_v5(tmp_path):
+def test_identity_with_and_without_semantic_table(tmp_path):
     s = H.snap("minimal")
-    res = NativeLinkerV2(s, B3Plan(force_v6=True), derive_captures=False).link()
-    assert res.ok and res.version == 6 and not res.ext.variants and not res.ext.slots
+    res = NativeLinkerV2(s, B3Plan(force_semantic_table=True), derive_captures=False).link()
+    assert res.ok and res.version == 7 and not res.ext.variants and not res.ext.slots
     p = _write(tmp_path, s, res, check=True)
     f, ok, det, _ = _both(p)
     assert f.problem is None and ok, det
     assert f.features == FEAT_EXT_TABLE
     assert [f.sc.record_bytes[i] for i in f.sc.valid_slots] == [u.record for u in s.units()]
     res5 = NativeLinkerV2(s, B3Plan(), derive_captures=False).link()
-    assert res5.version == 5 and res5.ext is None
+    assert res5.version == 7 and res5.ext is None
 
 
 @pytest.mark.parametrize("direct", ["ordinary", "private", "general_refused"])
@@ -113,7 +113,7 @@ def test_synthetic_table_roundtrip(tmp_path, direct):
     units = B.simple_units(3)
     h = B.sc_header_fields(units, {})
     h.pop("checksum")
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
 
     hdr = ScHeader(**h, checksum=0).with_checksum()
     res = [B.resolve_unit(u) for u in units]
@@ -143,7 +143,7 @@ def test_synthetic_table_roundtrip(tmp_path, direct):
         ext = replace(ext, slots=(slot,), variants=(private,), links=(LinkEntry(0, 0),))
     if direct == "general_refused":
         ext = replace(ext, slots=(replace(ext.slots[0], exit_class=EXIT_DIRECT),))
-    write_sc6(p, hdr, parts, ext, bodies, check=direct != "general_refused")
+    write_semantic_cache(p, hdr, parts, ext, bodies, check=direct != "general_refused")
     f, ok, det, _ = _both(p)
     assert ok, det
     if direct == "general_refused":
@@ -409,15 +409,15 @@ def test_ext_problem_reads_hashes_lazily(base):
     with tempfile.TemporaryDirectory() as td:
         p = _write(Path(td), s, res, **_flip_variant({"res": res}),
                    features=res.ext.features(rewritten=True))
-        f = read_sc(p, versions=(5, 6))
+        f = read_sc(p)
         fd = os.open(p, os.O_RDONLY)
         try:
             def rd(off, n):
                 b = os.pread(fd, n, off)
                 return b + bytes(n - len(b))
             loaded = [f.records[i] for i in f.valid_slots]
-            assert ext_problem(f.header, loaded, rd, check_hashes=False)[1] is None
-            assert ext_problem(f.header, loaded, rd)[1][0] == "variant_code_hash"
+            assert ext_problem(f.header.replace(reserved=f.header.reserved & 0xf), loaded, rd, check_hashes=False)[1] is None
+            assert ext_problem(f.header.replace(reserved=f.header.reserved & 0xf), loaded, rd)[1][0] == "variant_code_hash"
         finally:
             os.close(fd)
 

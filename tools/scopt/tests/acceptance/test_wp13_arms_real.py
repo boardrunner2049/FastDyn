@@ -15,7 +15,7 @@ import pytest
 from click.testing import CliRunner
 
 from scopt.cli import cli, load_commands
-from scopt.formats.sc_v5 import sha256_sparse
+from scopt.formats.sc_records import sha256_sparse
 from scopt.run.launcher import B0_QEMU, FASTDYN_SRC
 from scopt.paths import fastdyn_root
 

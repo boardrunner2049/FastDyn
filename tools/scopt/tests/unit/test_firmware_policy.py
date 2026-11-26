@@ -91,7 +91,7 @@ def test_private_trusted_return_patches_guard_success_and_keeps_lookup_on_miss()
 
     from scopt.formats.enums import Encoding, SiteKind
     from scopt.formats.region_v1 import unit_exits
-    from scopt.formats.sc_v5 import ScRecord
+    from scopt.formats.sc_records import ScRecord
     from scopt.guard import GuardOffsets, decode_guard
     from scopt.link import B3Plan, NativeLinkerV2, trusted_return_guard_problem
     from scopt.model.firmware_region import FirmwareRegionEdge, FirmwareRegionMember

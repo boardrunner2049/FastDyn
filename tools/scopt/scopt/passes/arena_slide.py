@@ -4,6 +4,7 @@ from ..analysis.layout import TB_ALIGN
 from ..analysis.llvm_layout import _transfer_offsets
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
 from .cluster import DEFAULT_KINDS
+from .public_input import page_layout_refusal
 
 
 def best_page_shift(transfers, page, slack, check_budget):
@@ -38,8 +39,9 @@ class AlignTracePages:
 
     def run(self, snap, ctx, edits):
         h = snap.header
-        if h is None or (h.version, h.reserved) != (7, 0) or ctx.b3 is not None:
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_public_v7")
+        refusal = page_layout_refusal(h, ctx.b3_state)
+        if refusal is not None:
+            return refusal
         units = {u.uid: u for u in snap.units()}
         if not units or h.host_page_size < TB_ALIGN or h.host_page_size % TB_ALIGN:
             return PassResult(Outcome.NO_CHANGE, "no_page_alignment_choices")

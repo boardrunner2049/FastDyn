@@ -207,10 +207,10 @@ def variant_diff(sc_path: Path, r0_off: int, in_vaddrs: list[int | None]) -> dic
     ``in_vaddrs``: the input snapshot's first guest vaddr per unit in slot order (the
     records' own ``pc`` is 0 for these PC-relative TBs; the artifact keeps the input's
     unit order, as ``scopt.validate.artifact_link`` assumes)."""
-    from scopt.formats.sc_v6 import KIND_GENERAL, KIND_SPEC, read_sc6
+    from scopt.formats.sc_semantic import KIND_GENERAL, KIND_SPEC, read_semantic_cache
 
-    f = read_sc6(sc_path)
-    out: dict[str, Any] = {"version": f.version, "loadable": f.loadable,
+    f = read_semantic_cache(sc_path)
+    out: dict[str, Any] = {"version": f.version, "semantic_table": f.has_ext, "loadable": f.loadable,
                            "problem": f.problem, "variants": [], "slots": []}
     if f.ext is None:
         return out
@@ -594,7 +594,7 @@ def step_indirect(out: Path, modes: list[str], exe: Path, exe_sha: str,
     must still publish and pass O1/O2a/O2b (arbitrary entry reaches the general C)."""
     sys.path.insert(0, str(FIX))
     import b3conf  # noqa: E402
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
 
     bx = b3conf.resolve(str(FIX / "b3.elf"), "b3_6_bxr3")
     bases = step_bases(out, modes, exe, exe_sha, cfg="6")
@@ -632,7 +632,7 @@ def step_indirect(out: Path, modes: list[str], exe: Path, exe_sha: str,
             side = json.loads((Path(adir) / "cache.sc.scopt.json").read_text())
             grown = set((side.get("x_b3") or {}).get("grown") or [])
             r["bx_r3_units_guarded"] = sum(1 for u in holders if u in grown)
-            f = read_sc6(Path(adir) / "cache.sc")
+            f = read_semantic_cache(Path(adir) / "cache.sc")
             if f.ext is not None:
                 r["slots"] = {"SPEC": sum(1 for s in f.ext.slots if s.kind == 2),
                               "GENERAL": sum(1 for s in f.ext.slots if s.kind == 1)}

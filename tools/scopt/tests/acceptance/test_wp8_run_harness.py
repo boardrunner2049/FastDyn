@@ -17,7 +17,7 @@ import pytest
 from scopt.formats.bundle_v1 import (BundleMismatch, check_bundle, identity_bundle,
                                      runtime_identity)
 from scopt.ids import runtime_identity_id
-from scopt.formats.sc_v5 import ScHeader, sparse_copy
+from scopt.formats.sc_records import ScHeader, sparse_copy
 from scopt.run.deploy import DeployError, deploy_new, oracle
 from scopt.run.diag import diag_exec
 from scopt.run.launcher import (B0_QEMU, FASTDYN_SRC, RunDir, RunDirError, create_run_dir,
@@ -87,13 +87,9 @@ def test_4_v6_header_is_invalid(tmp_path):
     h = ScHeader.from_bytes(os.pread(fd, 80, 0)).replace(version=6).with_checksum()
     os.pwrite(fd, h.to_bytes(), 0)
     os.close(fd)
-    rd, dep = _deploy(tmp_path, "v6", artifact=v6)
-    assert dep["artifact_header_problems"] == ["version"]
-    r = launch(rd)
-    assert r["proof"]["verdict"] == "INVALID_artifact_not_used"
-    assert r["proof"]["failed"] == ["header"]
-    assert "version: 6 -> 5" in r["proof"]["checks"][1]["detail"]
-    assert r["appended"] is None
+    with pytest.raises(DeployError) as exc:
+        _deploy(tmp_path, "v6", artifact=v6)
+    assert exc.value.code == "legacy_cache_version"
 
 
 def test_5_bundle_stable_and_mismatch(tmp_path):

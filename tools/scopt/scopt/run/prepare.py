@@ -30,7 +30,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ..formats.sc_v5 import read_sc, sha256_sparse
+from ..formats.sc_records import read_sc, sha256_sparse
 from .launcher import RunDir, RunDirError, _cleanup_tmpfs_ram, create_run_dir, file_sha256, launch, write_json
 
 __all__ = ["PrepareError", "prepare", "CAPTURE_BANNER"]
@@ -87,7 +87,7 @@ def prepare(base_toml: str | os.PathLike, out: str | os.PathLike, *,
             raise PrepareError("run_dir_not_fresh", f"{scm} exists")
         before = None
         if k > 0 and rd.cache is not None and rd.cache.is_file():
-            before = read_sc(rd.cache, versions=(7,)).header.record_count
+            before = read_sc(rd.cache).header.record_count
         doc = launch(rd, timeout_s=timeout_s, extra_env={"QEMU_SC_CAPTURE": str(scm)},
                      prove=False, capture_files_ok=True, allow_rerun=k > 0,
                      run_json="run.json" if k == 0 else f"run-{k}.json",
@@ -104,7 +104,7 @@ def prepare(base_toml: str | os.PathLike, out: str | os.PathLike, *,
             "records_before": before,
         }
         if rd.cache is not None and rd.cache.is_file():
-            sc = read_sc(rd.cache, versions=(7,))
+            sc = read_sc(rd.cache)
             rec["records_after"] = sc.header.record_count
             rec["valid_records"] = len(sc.valid_slots)
         if doc["exit_code"] != 0:

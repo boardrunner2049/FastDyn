@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..formats.enums import Encoding, SiteKind
-from ..formats.sc_v5 import ScFile, ScRecord
+from ..formats.sc_records import ScFile, ScRecord
 
 __all__ = ["UnitImage", "unit_images", "per_key_compare", "maps_layout", "scm_checks"]
 

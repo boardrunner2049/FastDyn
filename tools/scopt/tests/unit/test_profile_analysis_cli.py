@@ -13,7 +13,7 @@ from scopt.analysis import profile as A
 from scopt.analysis.api import AnalysisSpec, B1_ANALYSES, ScopeRef
 from scopt.cli import cli, load_commands
 from scopt.formats import profile_v1 as P
-from scopt.formats.sc_v5 import read_sc
+from scopt.formats.sc_records import read_sc
 from tests.synth.profile_world import RUNTIME, SHA_BUNDLE, SHA_CONTRACT, make_world
 
 

@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from scopt.formats.enums import Encoding, SiteKind
-from scopt.formats.sc_v5 import read_sc
+from scopt.formats.sc_records import read_sc
 from scopt.formats.scm_v1 import read_scm
 from scopt.run.identity_cmp import maps_layout, per_key_compare, scm_checks, unit_images
 from scopt.paths import fastdyn_root
@@ -144,7 +144,7 @@ def test_scm_checks(ev):
 
 def _write_relocated(src_sc, scm, dst, d):
     """``src_sc`` with every unit moved by ``d`` (a nondeterministic run's placement)."""
-    from scopt.formats.sc_v5 import write_sc
+    from scopt.formats.sc_records import write_sc
 
     imgs = unit_images(src_sc)
     units = []
@@ -163,7 +163,7 @@ def test_qualify_capture_gate_per_key_mode(ev, tmp_path, monkeypatch, fake_runti
     another binary as off3 makes it fail."""
     import shutil
 
-    from scopt.formats.sc_v5 import sparse_copy
+    from scopt.formats.sc_records import sparse_copy
     from scopt.run import qualify as Q
 
     on, off, scm = ev

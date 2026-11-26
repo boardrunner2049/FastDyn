@@ -19,7 +19,7 @@ import pytest
 from scopt.canon import content_id, hexaddr
 from scopt.formats import artifact as A
 from scopt.formats import scm_v1 as S
-from scopt.formats.sc_v5 import ScHeader, read_sc, sha256_sparse, write_sc
+from scopt.formats.sc_records import ScHeader, read_sc, sha256_sparse, write_sc
 from scopt.ids import bundle_id
 from scopt.importer.import_cache import import_snapshot
 from scopt.link import (INT32_MAX, INT32_MIN, LinkError, NativeLinker, apply_fixup,

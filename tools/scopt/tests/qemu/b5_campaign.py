@@ -251,7 +251,7 @@ def build_arm(arm: dict[str, Any], base: dict[str, Any], out: Path, gate: dict[s
                 "from scopt.link import B3Plan\nfrom scopt.validate import package_b3\n"
                 "from scopt.formats.envlayout_v1 import find_envlayout\n"
                 "snap,ri,store,sha,cid=sys.argv[1:6]\n"
-                "r=package_b3(open_snapshot(snap),B3Plan(force_v6=True),store,candidate_id=cid,"
+                "r=package_b3(open_snapshot(snap),B3Plan(force_semantic_table=True),store,candidate_id=cid,"
                 "runtime=json.load(open(ri)),v6_exes=[sha],layout=find_envlayout('sha256:'+sha))\n"
                 "print(json.dumps({'status':r.status,'reason':r.reason,"
                 "'artifact_dir':r.artifact_dir}))\n")
@@ -308,15 +308,21 @@ def build_arm(arm: dict[str, Any], base: dict[str, Any], out: Path, gate: dict[s
 
 def revalidate_and_v10(adir: Path, name: str, base: dict[str, Any], out: Path,
                        gate: dict[str, Any], heldout: list[Path]) -> dict[str, Any]:
-    from scopt.run.arms import sc_file_version
+    from scopt.formats.layouts import SC_VERSION
+    from scopt.run.arms import sc_file_features, sc_file_version
 
     row: dict[str, Any] = {}
-    if sc_file_version(adir) == 6:
-        # scopt validate cannot read v6 artifacts (WP21 note 7); the verified re-check of
-        # a v6 artifact is scopt publish (manifest, accepted validation.json, output
-        # SnapshotId recomputed from the bytes, staged copy = source manifest), as in WP28
-        row["revalidate"] = {"verdict": "accepted", "by": "scopt publish (v6; WP21 note 7)",
-                             "seconds": 0.0}
+    if sc_file_version(adir) != SC_VERSION:
+        raise ValueError(f"{adir}: expected a canonical v{SC_VERSION} SuperCache")
+    if sc_file_features(adir):
+        # The static public-record audit has no inputs for extension proofs.
+        # Verify the publication manifest, validation receipt and full cache identity.
+        rc, so, dt = cli(["publish", adir, "--store", out / "pubstore" / name, "--json"],
+                         out / "logs" / f"validate-{name}.log")
+        doc = jload(so)
+        accepted = rc == 0 and doc.get("status") in ("created", "exists")
+        row["revalidate"] = {"rc": rc, "verdict": "accepted" if accepted else "rejected",
+                             "by": "scopt publish", "seconds": round(dt, 1)}
     else:
         rc, so, dt = cli(["validate", adir, "--snapshot", base["snapshot"], "--json"],
                          out / "logs" / f"validate-{name}.log")

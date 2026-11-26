@@ -1,4 +1,4 @@
-""".sc v5 reader and sparse writer (design §0 G1, §2.7, §4.6, §5.8 V1/V9). WP1.
+"""SuperCache public-record reader and sparse writer (design §0 G1, §2.7, §4.6, §5.8 V1/V9). WP1.
 
 File layout (qemu tcg/supercache.c):
 
@@ -30,7 +30,7 @@ Reason codes (stable; tests and the rejection suite assert them):
   ``bounds``.
 
 A header problem means QEMU would not reuse the file at all: ``loadable`` is
-false and :meth:`ScFile.units` is empty. The records are still parsed (for v5
+false and :meth:`ScFile.units` is empty. The records are still parsed (for canonical
 files) so that ``scopt sc dump`` can show them.
 """
 
@@ -143,18 +143,12 @@ class ScHeader:
         """Exact size of a canonical file with ``n_records`` records."""
         return SC_CODE_OFFSET + self.code_size + n_records * RECORD_SIZE
 
-    def problems(self, expect: Mapping[str, int] | None = None, *,
-                 versions: tuple[int, ...] = (SC_VERSION,)) -> list[str]:
-        """Reason codes for which QEMU's ``valid_header`` would reject this header.
-
-        ``versions`` are the header versions the modelled loader accepts: ``(5,)``
-        for the stock/qint loader, ``(5, 6)`` for the ``qint-v6`` loader (B3/B4
-        design §5.4: ``valid_header`` accepts both; the v6 feature bits are
-        checked later by ``sc6_load_ext``, see :mod:`scopt.formats.sc_v6`)."""
+    def problems(self, expect: Mapping[str, int] | None = None) -> list[str]:
+        """Check the one supported SuperCache header and optional runtime fields."""
         out = []
         if self.magic != SC_MAGIC:
             out.append("magic")
-        if self.version not in versions:
+        if self.version != SC_VERSION:
             out.append("version")
         if self.header_size != HEADER_SIZE:
             out.append("header_size")
@@ -435,17 +429,15 @@ def _pread_exact(fd: int, n: int, off: int) -> bytes:
 
 
 def read_sc(path: str | os.PathLike, *, expect: Mapping[str, int] | None = None,
-            strict: bool = False, versions: tuple[int, ...] = (SC_VERSION,)) -> ScFile:
-    """Parse a v5 ``.sc`` the way QEMU's ``valid_header`` + ``load_records`` do.
+            strict: bool = False) -> ScFile:
+    """Parse the public records of a SuperCache the way QEMU's ``valid_header`` + ``load_records`` do.
 
     Only the header, the record array and each valid record's
     ``[tc_offset, end_offset)`` are read, so a 2 GiB sparse file is cheap.
     ``expect`` optionally checks runtime header fields (``code_size``,
     ``runtime_signature``, ``host_page_size``, ``target_page_bits``,
     ``tb_size``). With ``strict``, any header problem, file problem or skipped
-    record raises :class:`ScFormatError`. ``versions`` are the header versions
-    accepted (default: v5 only, what the stock loader does; :mod:`sc_v6` passes
-    ``(5, 6)``).
+    record raises :class:`ScFormatError`.
     """
     path = os.fspath(path)
     fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
@@ -459,7 +451,7 @@ def read_sc(path: str | os.PathLike, *, expect: Mapping[str, int] | None = None,
                 raise ScFormatError(f"{path}: truncated_header ({size} bytes)")
             return sc
         hdr = ScHeader.from_bytes(raw_hdr)
-        hprobs = tuple(hdr.problems(expect, versions=versions))
+        hprobs = tuple(hdr.problems(expect))
 
         problems: list[Finding] = []
         records: list[ScRecord | None] = []
@@ -543,9 +535,8 @@ def _pwrite_all(fd: int, data: bytes, off: int) -> None:
 
 def write_sc(path: str | os.PathLike, header: ScHeader | bytes, units: Iterable, *,
              sparse: bool = True, check: bool = True, fsync: bool = True,
-             versions: tuple[int, ...] = (SC_VERSION,),
              extra: Iterable[tuple[int, bytes]] = ()) -> ScHeader:
-    """Write a v5 ``.sc`` (§4.6): truncate to size, then pwrite header, bodies, records.
+    """Write a canonical SuperCache (§4.6): truncate to size, then pwrite header, bodies, records.
 
     ``units`` are, in slot order, :class:`ScUnit` objects, ``TBUnit``-like
     objects (``record`` plus ``code`` and ``search``), or ``(record, body)``
@@ -562,20 +553,21 @@ def write_sc(path: str | os.PathLike, header: ScHeader | bytes, units: Iterable,
     With ``sparse`` the file is created by ``ftruncate`` and only non-zero
     regions are written, so holes stay holes; otherwise every byte is written.
 
-    ``versions`` (header versions accepted by the check) and ``extra``
-    (``(file offset, bytes)`` written after the bodies, before the records;
-    the caller guarantees they lie inside ``[80, records_offset)``) exist for
-    the ``.sc`` v6 writer (:mod:`scopt.formats.sc_v6`): the extension table at
-    0x100 and the variant bodies in the arena.
+    Extension writers pass their tables and private code as additional
+    (file offset, bytes) pairs in ``extra``.
     """
     path = os.fspath(path)
     if isinstance(header, (bytes, bytearray, memoryview)):
         header = ScHeader.from_bytes(bytes(header))
+    if header.version != SC_VERSION:
+        raise ScFormatError(f"unsupported SuperCache header version {header.version}")
+    if header.reserved and not extra and check:
+        raise ScFormatError("cache with extension flags requires its extension payload")
     parts = [_unit_parts(u) for u in units]
     hdr = header.replace(record_count=len(parts)).with_checksum()
     hraw = hdr.to_bytes()
     if check:
-        probs = hdr.problems(versions=versions)
+        probs = hdr.problems()
         if probs:
             raise ScFormatError(f"header invalid: {probs}")
         floor = _round_up(hdr.prologue_end, TB_ALIGN)
@@ -746,7 +738,7 @@ def structural_findings(sc: ScFile, *, scan_zeros: bool = True,
     ``scan_zeros``) every byte outside the header, the bodies and the record
     array is zero. For such a file ``write(read(x))`` is byte-identical (V9).
     ``extra_covered`` are further ``[start, end)`` file ranges that may hold
-    data (the v6 extension table and variant bodies, :mod:`sc_v6`).
+    data (the v6 extension table and variant bodies, :mod:`sc_semantic`).
     """
     out = [Finding(p) for p in sc.header_problems]
     if not sc.loadable:
@@ -882,6 +874,22 @@ def identity_copy(src: str | os.PathLike, dst: str | os.PathLike) -> IdentityRes
     sc = read_sc(src)
     if not sc.loadable:
         raise ScFormatError(f"{os.fspath(src)}: not loadable: {list(sc.header_problems)}")
+    if os.path.exists(dst) and os.path.samefile(src, dst):
+        raise ScFormatError("identity-copy requires a separate destination")
+    if sc.header.reserved:
+        from .supercache import canonical_snapshot_id, canonical_structural_findings
+
+        findings = canonical_structural_findings(sc)
+        if findings:
+            raise ScFormatError(f"cannot copy malformed extended cache: {findings[0].code}")
+        source_id = canonical_snapshot_id(src)
+        sparse_copy(src, dst)
+        input_hash = sha256_sparse(src)
+        output_hash = sha256_sparse(dst)
+        output_id = canonical_snapshot_id(dst)
+        status = "identity" if input_hash == output_hash and source_id == output_id else "fail"
+        return IdentityResult(status, input_hash, output_hash, source_id, output_id,
+                              len(sc.valid_slots), (), ())
     findings = structural_findings(sc)
     write_sc(dst, sc.header, sc.units(), check=not findings)
     in_sha = sha256_sparse(src)

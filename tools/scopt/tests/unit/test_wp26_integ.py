@@ -39,7 +39,7 @@ def test_launch_style_verdict_follows_the_launcher(W):
 
 def _gate(**kw):
     r = {"qemu_ok": True, "verdict": "PASS", "proof": "PASS", "exit_code": 0,
-         "proof_rows": {"header": True, "records": True, "v6_header": True, "ext": True}}
+         "proof_rows": {"header": True, "records": True, "semantic_header": True, "ext": True}}
     r.update(kw)
     return r
 
@@ -50,14 +50,14 @@ def test_judge_gate(W):
     assert W.judge_gate(_gate(verdict="INVALID_artifact_not_used"))
     # a v5 proof (no v6 rows) is not a proved v6 run
     assert W.judge_gate(_gate(proof_rows={"header": True, "records": True,
-                                          "v6_header": None, "ext": None}))
+                                          "semantic_header": None, "ext": None}))
     assert W.judge_gate(_gate(proof_rows={"header": True, "records": True,
-                                          "v6_header": True, "ext": False}))
+                                          "semantic_header": True, "ext": False}))
 
 
 def _qint(**kw):
     r = {"qemu_ok": True, "verdict": "INVALID_artifact_not_used",
-         "proof": "INVALID_artifact_not_used", "failed": ["header", "v6_header"],
+         "proof": "INVALID_artifact_not_used", "failed": ["header", "semantic_header"],
          "exit_code": 0}
     r.update(kw)
     return r

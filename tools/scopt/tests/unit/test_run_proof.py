@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from scopt.formats.layouts import SC_CODE_OFFSET
-from scopt.formats.sc_v5 import RECORD_SIZE, ScHeader, sparse_copy
+from scopt.formats.sc_records import RECORD_SIZE, ScHeader, sparse_copy
 from scopt.run.launcher import norm_b0, norm_guest, parse_bench, scrub_env
 from scopt.run.proof import (VERDICT_INVALID, VERDICT_PASS, deploy_refusal, deployed_state,
                              prove, prove_run)

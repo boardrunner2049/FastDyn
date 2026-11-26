@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
-from ..formats.sc_v5 import ScHeader
+from ..formats.sc_records import ScHeader
 from ..ids import TBKey
 from .unit import TBUnit
 

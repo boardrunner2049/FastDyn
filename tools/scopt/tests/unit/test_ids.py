@@ -13,7 +13,7 @@ import struct
 import pytest
 
 from scopt import canon, ids
-from scopt.formats.sc_v5 import ScHeader, ScRecord
+from scopt.formats.sc_records import ScHeader, ScRecord
 
 # ---------------------------------------------------------------------------
 # FNV-1a-64 (published test vectors + QEMU constants)
@@ -139,11 +139,11 @@ GOLDEN = {
     0: ("tb:dc8f22270b9cf2c0f14137dd01fc6fd9", 0x28098740, 8, 2, 0x45AB127C5D80DEF9),
     11: ("tb:6af7da373b90d84ea38b0bf67cc1d857", 0x28098766, 8, 4, 0xA16F58218A9FA0E7),
 }
-GOLDEN_SNAPSHOT_ID = "sha256:3a96366bb7f3d5dae72dec5a90dc45dd1fff7ca01962c08f7e1661653ea627ae"
+GOLDEN_SNAPSHOT_ID = "sha256:da14cfa75f52ce5ee3b752356f0b74676fbd6d0a1d19e4d8d69871f16de72b47"
 GOLDEN_HEADER = dict(code_size=0x80000000, code_address=0x7FFF6C000000, prologue_end=0x2D,
                      record_count=163, runtime_signature=0xCD59117CBC9F8837,
                      host_page_size=4096, target_page_bits=10, tb_size=152,
-                     checksum=0x1A7C702B57653DE8)
+                     checksum=0x78E592E387C0CF8E)
 
 
 def _read_minimal(path):
@@ -171,7 +171,7 @@ def test_minimal_header_and_checksums(minimal):
     h = ScHeader.from_bytes(hdr)
     for k, v in GOLDEN_HEADER.items():
         assert getattr(h, k) == v, k
-    assert h.magic == b"QSCACHE1" and h.version == 5 and h.header_size == 80
+    assert h.magic == b"QSCACHE1" and h.version == 7 and h.header_size == 80
     assert canon.sc_header_checksum(hdr) == h.checksum
     assert h.checksum_ok and h.to_bytes() == hdr
     assert len(recs) == 163

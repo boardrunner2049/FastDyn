@@ -67,8 +67,7 @@ cannot load v6 (``OracleRefused("v6_loader_required")``). With a negative
 control it runs in O4 mode (its verdict is O4's; see its docstring).
 Otherwise its verdicts: ``fail`` when an oracle fails or is
 ``vacuous`` (or a deploy is refused); ``incomplete`` when a requested oracle
-was not run in some case (``not_run``: e.g. no stats file because a v6
-artifact ran on a v5-only binary, a run that was not proved); ``pass`` only
+was not run in some case (``not_run``: e.g. no stats file from a runtime without semantic counters, a run that was not proved); ``pass`` only
 when every requested oracle ran in every case and none failed. Only ``pass``
 exits 0 from ``scopt validate --dynamic --oracles`` (unknown is never
 acceptable).
@@ -494,8 +493,7 @@ def o4_detected(results: Iterable[OracleResult], *, artifact_run: Mapping[str, A
 
     * the control run's post-run proof is not ``PASS``, or its launch verdict
       is not ``PASS``/``INVALID_exit_code`` (e.g. ``INVALID_artifact_not_used``:
-      the loader refused or rebuilt the file, or a v6 control ran on a
-      v5-only binary; stray capture files): ``not_run``, the mutant never ran;
+      the loader refused or rebuilt the file, or the runtime lacked the control’s required features; stray capture files): ``not_run``, the mutant never ran;
     * the reference run is not ``PASS``: ``not_run``;
     * a ``fail`` counts as detection only when it records a concrete
       difference (O1 ``data["differences"]``: exit code, outputs, fixture
@@ -677,7 +675,7 @@ def _semantic_runtime_refusal(art: Path, qemu: str | os.PathLike | None) -> tupl
 
     if sc_file_version(art) != 7:
         return ("legacy_cache_version", f"{art} is not canonical top-level v7")
-    from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+    from ..formats.sc_semantic import SC7_SEMANTIC_MARKER
     if not (sc_file_features(art) or 0) & SC7_SEMANTIC_MARKER:
         return None
     from ..validate import v6_capable_exes

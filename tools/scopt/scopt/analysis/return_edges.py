@@ -226,7 +226,7 @@ class ReturnEdges:
 # ---------------------------------------------------------------------------
 
 def _record(u: Any):
-    from ..formats.sc_v5 import ScRecord
+    from ..formats.sc_records import ScRecord
 
     return ScRecord.from_bytes(u.record) if len(u.record) >= 104 else None
 

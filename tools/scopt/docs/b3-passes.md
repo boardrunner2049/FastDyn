@@ -144,7 +144,7 @@ slots B3 registered. Each member carries their mask (`added_goto_tb_slots`):
   keep their bytes.
 - In a composed directory the flags of a member-descriptor region's member must equal
   the sc6 slot set of its source (the OR of `1 << slot_n` over the sc6 slots with that
-  `src_tb_offset`); every other member has flags 0. `read_sc7` (run at publish readback)
+  `src_tb_offset`); every other member has flags 0. `read_region_directory` (run at publish readback)
   and QEMU's loader both enforce this. Any flag raises the sidecar's `loader_requirement`
   to `qemu-sc-v7-trusted-firmware-regions+sc6+member-skip`.
 - The sidecar records `x_b3.member_slot_skip` and, per region,

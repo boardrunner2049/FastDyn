@@ -2,7 +2,7 @@
 from ..analysis.syncdead import b4_pair_anchors
 from ..decode.x86 import decoder, sweep
 from ..formats.enums import OpMarkKind, SiteKind
-from ..formats.sc_v5 import ScRecord
+from ..formats.sc_records import ScRecord
 from ..validate_sym.program import program_of
 
 

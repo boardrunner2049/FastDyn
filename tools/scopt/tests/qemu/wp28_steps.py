@@ -55,12 +55,12 @@ def step_aa(out: Path) -> dict[str, Any]:
 def _ws_artifact(out: Path, mode: str, cfg: str, adir: Path | None = None):
     """A ``wp22_stress.Artifact`` for a published (or negative-control) directory."""
     import wp22_stress as WS
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
     from scopt.importer.import_cache import open_snapshot
 
     b = base_info(out, mode, cfg)
     adir = adir or published_dir(out, mode, cfg)
-    f = read_sc6(adir / "cache.sc")
+    f = read_semantic_cache(adir / "cache.sc")
     ca = f.sc.header.code_address
     base = WS.Base(cfg, b["toml"], b["inputs"][0], open_snapshot(b["snapshot"]), rd(b["ri"]),
                    {"snapshot": str(b["snapshot"])})
@@ -160,7 +160,7 @@ def _rerun_with_gdb(src: str, d: Path, *, script: Path | None, inp: Path, sig: f
 
     import gdb_guest as GG
     import qemu_rerun
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
     from scopt.run.diag import parse_hits
 
     rmtree(d)
@@ -175,7 +175,7 @@ def _rerun_with_gdb(src: str, d: Path, *, script: Path | None, inp: Path, sig: f
         "supercache=")[1].split(",")[0]).name
     cps: list[tuple[str, int]] = []
     try:
-        f6 = read_sc6(cache)
+        f6 = read_semantic_cache(cache)
         ca = f6.sc.header.code_address
         cps = [(f"variant {v.variant_id} C'", ca + v.tc_offset) for v in f6.ext.variants][:4] \
             if f6.ext else []
@@ -606,10 +606,10 @@ def link_of(ctx: dict[str, Any], plan: Any = None) -> Any:
 def plan_matches_artifact(ctx: dict[str, Any], art: Path) -> dict[str, Any]:
     """The in-process plan, linked, gives the published artifact's bytes (every record body
     and every variant body, as multisets)."""
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
 
     lk = link_of(ctx)
-    f = read_sc6(art / "cache.sc")
+    f = read_semantic_cache(art / "cache.sc")
     mine_u = sorted(bytes(u.body) for u in lk.units)
     theirs_u = sorted(bytes(x or b"") for x in f.sc.bodies if x)
     mine_v = sorted(bytes(v.body) for v in lk.variants)
@@ -1185,7 +1185,7 @@ def step_mutants(out: Path) -> dict[str, Any]:
                                          if k in syn}}
     doc["synthetic_all_rejected"] = syn.get("all_rejected")
     cfgs = [c for c in FIXTURES if published_dir(out, "icount", c) is not None and
-            (rd(out / "artifacts.json") or {})["rows"][f"icount/{c}"].get("version") == 6]
+            (rd(out / "artifacts.json") or {})["rows"][f"icount/{c}"].get("semantic_table") is True]
 
     def real(cfg: str) -> dict[str, Any]:
         b = base_info(out, "icount", cfg)
@@ -1283,7 +1283,7 @@ def step_roundtrip(out: Path) -> dict[str, Any]:
              "multi_tb_region_rows": nreg, "n_spec": a.get("n_spec"),
              "n_general": a.get("n_general"), "version": a.get("version")}
         r["ok"] = rc == 0 and bool(srows) and r["summary_units_cover_return_units"] and (
-            a.get("version") == 5 or (
+            a.get("semantic_table") is False or (
             r["v19_pass"] and (r["n_spec"] == 0 or r["multi_tb_region_rows"] >= r["n_spec"])))
         return r
     keys = [k for k in sorted(arts) if arts[k].get("status") == "published"]
@@ -1387,9 +1387,9 @@ def step_compute(out: Path) -> dict[str, Any]:
 
             adir = Path(r["artifact_dir"])
             r["validation"] = W._validation(adir)
-            from scopt.formats.sc_v6 import read_sc6
+            from scopt.formats.sc_semantic import read_semantic_cache
 
-            f = read_sc6(adir / "cache.sc")
+            f = read_semantic_cache(adir / "cache.sc")
             r["version"] = f.version
             r["n_variants"] = len(f.ext.variants) if f.ext else 0
             r["n_slots"] = len(f.ext.slots) if f.ext else 0
@@ -2008,11 +2008,11 @@ def step_compute_static(out: Path) -> dict[str, Any]:
         r = _optimize_noelf(out, b, arm, store, dis)
         if r.get("artifact_dir"):
             import wp21_integ as W
-            from scopt.formats.sc_v6 import read_sc6
+            from scopt.formats.sc_semantic import read_semantic_cache
 
             adir = Path(r["artifact_dir"])
             r["validation"] = W._validation(adir)
-            f = read_sc6(adir / "cache.sc")
+            f = read_semantic_cache(adir / "cache.sc")
             r["version"] = f.version
             r["n_variants"] = len(f.ext.variants) if f.ext else 0
             r["n_slots"] = len(f.ext.slots) if f.ext else 0

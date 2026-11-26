@@ -598,8 +598,8 @@ class TbChunk:
 
     @property
     def sc_record(self):
-        """The embedded record as ``scopt.formats.sc_v5.ScRecord``."""
-        from .sc_v5 import ScRecord
+        """The embedded record as ``scopt.formats.sc_records.ScRecord``."""
+        from .sc_records import ScRecord
         return ScRecord.from_bytes(self.record)
 
     def guest_fnv64(self) -> int:
@@ -1326,7 +1326,7 @@ def _flags_names(v: int) -> list[str]:
 
 
 def _record_json(record: bytes) -> dict[str, Any]:
-    from .sc_v5 import ScRecord
+    from .sc_records import ScRecord
     r = ScRecord.from_bytes(record)
     return {
         "tb_offset": hexaddr(r.tb_offset), "end_offset": hexaddr(r.end_offset),

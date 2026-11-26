@@ -44,7 +44,7 @@ from ..decode.symbols import (PAGE_SIZE, SETARCH_R_PIE_BASE, ElfImage, Maps, Mod
 from ..decode.thumb import check_lengths, lengths_from_words
 from ..decode.x86 import (Arena, DecodedRef, Insn, RefKind, bad_insns, extract_refs,
                           sweep_to_pool, tiles)
-from ..formats.sc_v5 import ScFile, ScUnit, read_sc
+from ..formats.sc_records import ScFile, ScUnit, read_sc
 from ..paths import fastdyn_root, fastdyn_src
 
 __all__ = [

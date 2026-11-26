@@ -1,4 +1,4 @@
-"""Build a training-only ordinary v5 cache with bounded direct-exit TB compaction."""
+"""Build a training-only public SuperCache with bounded direct-exit TB compaction."""
 import json
 import tempfile
 from collections import Counter
@@ -9,8 +9,8 @@ import click
 
 from ..compact_nops import Ineligible, compact
 from ..formats.profile_v1 import check_flow, read_profile
-from ..formats.sc_v5 import read_sc
-from ..formats.sc_v7 import write_sc7_public
+from ..formats.sc_records import read_sc
+from ..formats.supercache import write_public_cache
 from ..formats.scm_v1 import encode_scm
 from ..importer.classify import context_for
 from ..importer.crosscheck import crosscheck_unit
@@ -24,9 +24,11 @@ def register(group):
 def generate(snapshot, profile_path, out, *, max_units=1):
     if max_units < 1:
         raise ValueError("max_units must be positive")
-    sc = read_sc(snapshot / "cache.sc", versions=(7,))
+    sc = read_sc(snapshot / "cache.sc")
     if not sc.loadable or sc.problems or sc.skipped:
-        raise ValueError("requires a clean ordinary v5 input with all record slots intact")
+        raise ValueError("requires a valid SuperCache with all record slots intact")
+    if sc.header.reserved:
+        raise ValueError("compaction requires public records without extension tables")
     meta = json.loads((snapshot / "snapshot.json").read_text())
     verified = read_profile(profile_path)
     profile = verified.doc
@@ -97,7 +99,7 @@ def generate(snapshot, profile_path, out, *, max_units=1):
     with tempfile.TemporaryDirectory(dir=out.parent) as temp:
         stage = Path(temp) / "candidate"
         stage.mkdir()
-        write_sc7_public(stage / "cache.sc", sc.header, units)
+        write_public_cache(stage / "cache.sc", sc.header, units)
         paths = []
         replacements = {id(bindings.slots[i].chunk): chunk for i, chunk in selected.items()}
         for index, file in enumerate(bindings.captures):
@@ -106,7 +108,7 @@ def generate(snapshot, profile_path, out, *, max_units=1):
             dest = stage / ("cache.scm" if index == 0 else f"cache.{index}.scm")
             dest.write_bytes(encode_scm((file.header, rows)))
             paths.append(dest)
-        result = read_sc(stage / "cache.sc", versions=(7,))
+        result = read_sc(stage / "cache.sc")
         rebound = join(result, paths)
         if (result.problems or result.unit_ids() != identifiers
                 or any(not rebound.slots[i].bound or rebound.slots[i].chunk != expected

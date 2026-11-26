@@ -15,7 +15,7 @@ cwd inside a QEMU tree.
    ``admission identity``). Three v6 artifacts written by WP18
    (``scopt.validate.package_b3``):
 
-   * ``identity-v6``: ``B3Plan(force_v6=True)`` (empty extension table);
+   * ``identity-semantic``: ``B3Plan(force_semantic_table=True)`` (empty extension table);
    * ``b3-1-spec``: the F-B3-1 v6 artifact of the design (R = ``f_b3_1``,
      SPEC slot to ``vc_b3_1``, an identity-clone variant);
    * ``wp18-synthetic-v6``: the synthetic plan of WP18's unit tests
@@ -24,18 +24,18 @@ cwd inside a QEMU tree.
 
    Per artifact: the artifact **directory** on the gate binary (full
    RuntimeIdentity checks; expect launch verdict and proof PASS with the v6
-   proof rows ``v6_header`` and ``ext`` true, fixture oracle clean, O1 equal
+   proof rows ``semantic_header`` and ``ext`` true, fixture oracle clean, O1 equal
    to the v5 warm reference on the gate binary); the artifact directory on
    ``qint`` (expect a deploy refusal: its RuntimeIdentity names the gate
    exe); the bare ``cache.sc`` on ``qint`` (no identity check; expect proof
-   INVALID with ``v6_header`` failed and launch verdict
+   INVALID with ``semantic_header`` failed and launch verdict
    ``INVALID_artifact_not_used``). Controls: the v5 base cache on the gate
    binary (the O1 reference) and bare on ``qint`` (expect PASS, so the qint
    INVALID is caused by the v6 format, not by the cache being foreign).
 
 2. **O2b on F-B4-3** (``o2b``). Base snapshot of phase F-B4-3 on the gate
-   binary, its identity-v6 artifact. Runs on the gate binary: v5 warm
-   reference (``launch``); identity-v6 (``launch``); identity-v6 under a
+   binary, its identity-semantic artifact. Runs on the gate binary: v5 warm
+   reference (``launch``); identity-semantic (``launch``); identity-semantic under a
    guest ``arm-none-eabi-gdb -nx`` on the gdbstub with a **control**
    script (watch ``g_sweep``, change nothing) and with the **shift**
    script (when ``systick_start`` stores the sweep pointer, advance it by
@@ -93,7 +93,7 @@ PY = sys.executable
 GATE_JSON = ROOT / "runs/wp22/gate-binary.json"
 QINT = ROOT / "wt/qemu-int/build/qemu-system-arm"
 QINT_SHA = "8864c72671971cf4488b5afa76eeee02a3e2a472c45af81ec1314464e6035f41"
-V6_PROOF_ROWS = ("header", "records", "v6_header", "ext")
+V6_PROOF_ROWS = ("header", "records", "semantic_header", "ext")
 S_WARNING = "qemu-system-arm: warning: icount sleep disabled and no active timers"
 
 CONTROL_GDB = """\
@@ -161,7 +161,7 @@ def judge_gate(run: dict[str, Any]) -> list[str]:
     if run.get("proof") != "PASS":
         why.append(f"proof {run.get('proof')}")
     rows = run.get("proof_rows") or {}
-    for k in ("v6_header", "ext"):
+    for k in ("semantic_header", "ext"):
         if rows.get(k) is not True:
             why.append(f"proof row {k} = {rows.get(k)}")
     if run.get("exit_code") != 0:
@@ -171,7 +171,7 @@ def judge_gate(run: dict[str, Any]) -> list[str]:
 
 def judge_qint(run: dict[str, Any]) -> list[str]:
     """F-B3-18, qint side: why the run does not show the old loader refusing
-    the v6 file ([] = pass: proof INVALID with ``v6_header`` failed)."""
+    the v6 file ([] = pass: proof INVALID with ``semantic_header`` failed)."""
     why = []
     if "deploy_refused" in run:
         return [f"deploy refused {run['deploy_refused']} (no run)"]
@@ -179,8 +179,8 @@ def judge_qint(run: dict[str, Any]) -> list[str]:
         why.append(f"ran {run.get('qemu')}, not qint")
     if run.get("proof") == "PASS" or not str(run.get("proof", "")).startswith("INVALID"):
         why.append(f"proof {run.get('proof')}")
-    if "v6_header" not in (run.get("failed") or []):
-        why.append(f"v6_header not in failed {run.get('failed')}")
+    if "semantic_header" not in (run.get("failed") or []):
+        why.append(f"semantic_header not in failed {run.get('failed')}")
     if run.get("exit_code") != 0:
         why.append(f"exit {run.get('exit_code')} (the guest should still run, uncached)")
     return why
@@ -381,8 +381,8 @@ def item_f_b3_18(bases: S.Bases, out: Path, gate: Path, exe_sha: str,
     base = bases.get("1")
     res: dict[str, Any] = {"base": base.info, "toml": str(base.toml), "artifacts": {},
                            "controls": {}}
-    arts = [S.build_artifact(S.ArtSpec("identity-v6", "1", identity=True,
-                                       notes="identity-v6 written by WP18"), base, out, exe_sha),
+    arts = [S.build_artifact(S.ArtSpec("identity-semantic", "1", identity=True,
+                                       notes="identity-semantic written by WP18"), base, out, exe_sha),
             S.build_artifact(S.ArtSpec("b3-1-spec", "1",
                                        (S.Grow(S.nm()["f_b3_1"],
                                                (("SPEC", S.nm()["vc_b3_1"]),)),),
@@ -399,10 +399,10 @@ def item_f_b3_18(bases: S.Bases, out: Path, gate: Path, exe_sha: str,
                     timeout)
     res["controls"]["gate_v5_bare_on_qint_info"] = strip(foreign)
     # Discriminating control: a base prepared on qint (qint's runtime_signature).
-    # Its v5 cache must PASS on qint, and an identity-v6 written by WP18 from
+    # Its v5 cache must PASS on qint, and an identity-semantic written by WP18 from
     # it (v6_exes = [qint sha]: a test-only override of V7 v6_capable_runtime,
     # this directory is never published or run on the gate) must be INVALID on
-    # qint with v6_header failed and no runtime_signature difference, so the
+    # qint with semantic_header failed and no runtime_signature difference, so the
     # qint INVALID of the gate artifacts is caused by the v6 format.
     qbases = S.Bases(QINT, out / "qint")
     paths = [bases.env["SCOPT_ENVLAYOUT_PATH"], qbases.env["SCOPT_ENVLAYOUT_PATH"]]
@@ -413,8 +413,8 @@ def item_f_b3_18(bases: S.Bases, out: Path, gate: Path, exe_sha: str,
     qsnap = next((out / "qint/base/1/store/snapshots").iterdir())
     ctl = plain(qsnap, qbase, out / "runs/f18-ctl-qint-v5", QINT, timeout)
     res["controls"]["qint_v5_on_qint"] = strip(ctl)
-    qa = S.build_artifact(S.ArtSpec("identity-v6-qintsig", "1", identity=True,
-                                    notes="identity-v6 of the qint-prepared base (control)"),
+    qa = S.build_artifact(S.ArtSpec("identity-semantic-qintsig", "1", identity=True,
+                                    notes="identity-semantic of the qint-prepared base (control)"),
                           qbase, out / "qint", QINT_SHA)
     res["controls"]["qintsig_identity_v6"] = {"package": qa.layout,
                                               "dir": str(qa.dir) if qa.dir else None}
@@ -431,14 +431,14 @@ def item_f_b3_18(bases: S.Bases, out: Path, gate: Path, exe_sha: str,
     if not (ctl.get("verdict") == "PASS" and ctl.get("qemu_ok") is True):
         cw.append(f"qint v5 control {ctl.get('verdict')}")
     if qs is None:
-        cw.append(f"qint-signature identity-v6 not packaged: {qa.status} {qa.reason}")
+        cw.append(f"qint-signature identity-semantic not packaged: {qa.status} {qa.reason}")
     else:
-        cw += [f"qint-signature identity-v6: {w}" for w in judge_qint(qs)]
+        cw += [f"qint-signature identity-semantic: {w}" for w in judge_qint(qs)]
         if sig_diff is not False:
-            cw.append(f"qint-signature identity-v6: runtime_signature differs ({sig_diff})")
+            cw.append(f"qint-signature identity-semantic: runtime_signature differs ({sig_diff})")
     res["controls"]["why"] = cw
     res["controls"]["ok"] = ctl_ok = not cw
-    log(f"  controls: {'ok' if ctl_ok else cw}; qint-signature identity-v6 on qint "
+    log(f"  controls: {'ok' if ctl_ok else cw}; qint-signature identity-semantic on qint "
         f"{None if qs is None else (qs.get('verdict'), qs.get('failed_detail'))}")
     for a in arts:
         name = a.spec.name
@@ -476,15 +476,15 @@ def item_o2b(bases: S.Bases, out: Path, gate: Path, exe_sha: str,
              timeout: float) -> dict[str, Any]:
     base = bases.get("b4-3")
     res: dict[str, Any] = {"base": base.info, "toml": str(base.toml), "runs": {}, "o2b": {}}
-    a = S.build_artifact(S.ArtSpec("b4-3-identity-v6", "b4-3", identity=True,
-                                   notes="identity-v6 of F-B4-3 (WP18)"), base, out, exe_sha)
+    a = S.build_artifact(S.ArtSpec("b4-3-identity-semantic", "b4-3", identity=True,
+                                   notes="identity-semantic of F-B4-3 (WP18)"), base, out, exe_sha)
     res["artifact"] = {"dir": str(a.dir) if a.dir else None, "status": a.status,
                        "reason": a.reason}
     if a.status != "published":
         res["pass"] = False
         return res
     snapdir = next((out / "base/b4-3/store/snapshots").iterdir())
-    log("O2b: F-B4-3 v5 reference, identity-v6, gdb control, gdb shift (gate binary)")
+    log("O2b: F-B4-3 v5 reference, identity-semantic, gdb control, gdb shift (gate binary)")
     runs = {"reference_v5": plain(snapdir, base, out / "runs/o2b-ref-v5", gate, timeout),
             "identity_v6": plain(a.dir, base, out / "runs/o2b-id6", gate, timeout),
             "gdb_control": guest_gdb_run(a.dir, base, out / "runs/o2b-gdb-control", gate,
@@ -505,7 +505,7 @@ def item_o2b(bases: S.Bases, out: Path, gate: Path, exe_sha: str,
         j = o.to_json()
         res["o2b"][k] = j
         good = o.verdict == want and r.get("verdict") == "PASS" and \
-            r["proof_rows"].get("v6_header") is True and r["proof_rows"].get("ext") is True
+            r["proof_rows"].get("semantic_header") is True and r["proof_rows"].get("ext") is True
         j["field_differences"] = field_differences(ref["guest_norm"], r["doc"]["guest_norm"])
         if k == "gdb_shift":
             fd = j["field_differences"]

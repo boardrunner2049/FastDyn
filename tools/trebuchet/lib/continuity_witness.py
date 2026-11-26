@@ -15,7 +15,7 @@ from scopt.analysis.hostops import OpKind, build_hostops
 from scopt.analysis.obs_contract import D1_FIELDS
 from scopt.formats.enums import SiteKind
 from scopt.formats.profile_v1 import ProfileView, read_profile
-from scopt.formats.sc_v5 import ScRecord
+from scopt.formats.sc_records import ScRecord
 from scopt.importer.import_cache import open_snapshot
 
 

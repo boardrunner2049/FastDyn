@@ -1,4 +1,4 @@
-"""Frozen binary layouts: ``.sc`` v5, ``.scm`` v1 (§2.5) and ``.qprof`` v1 (§3.5).
+"""Frozen binary layouts: ``.sc`` v7, ``.scm`` v1 (§2.5) and ``.qprof`` v1 (§3.5).
 
 Frozen by WP0. These ``struct.Struct`` objects are the single Python statement
 of the byte layouts. Readers and writers (WP1, WP4, WP6) and the QEMU smoke

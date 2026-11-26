@@ -56,6 +56,21 @@ def _section35_patches(c):
             SimplePatch(i + 5, bytes(c.code[i + 5:i + 11]), bytes.fromhex("669066906690"))]
 
 
+def test_public_fixture_emits_canonical_cache(tmp_path):
+    from .test_composed_v7 import _grown_member_plan, _guard_layout
+
+    snap, member, _ = _grown_member_plan(False)
+    params = dict(r_vaddr=member.vaddrs[0], vc=snap.units()[1].vaddrs[0],
+                  patches=(), layout=_guard_layout())
+    checks = build_inplace_copy(snap, tmp_path, out_dir=tmp_path / "copy", **params)["checks"]
+    assert checks["ok"]
+    assert (checks["header_version"], checks["header_features"]) == (7, 0)
+
+    snap.header = snap.header.replace(reserved=1)
+    with pytest.raises(InPlaceError, match="requires_public_cache"):
+        build_inplace_copy(snap, tmp_path, out_dir=tmp_path / "refused", **params)
+
+
 @needs_snap
 def test_find_units(snap):
     R, tail, C = find_units(snap, R_RET, VC)
@@ -68,7 +83,7 @@ def test_find_units(snap):
 
 @needs_snap
 def test_build_inplace_copy(snap, layout, tmp_path):
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
 
     _, _, C = find_units(snap, R_RET, VC)
     pats = _section35_patches(C)
@@ -77,14 +92,14 @@ def test_build_inplace_copy(snap, layout, tmp_path):
     ch = d["checks"]
     assert ch["ok"], ch
     assert d["label"] == LABEL and d["published"] is False
-    assert ch["header_version"] == 5 and ch["header_problems"] == []
+    assert (ch["header_version"], ch["header_features"]) == (7, 0) and ch["header_problems"] == []
     assert ch["records"] == ch["base_records"] and not ch["other_units_identical"]["different"]
     assert ch["c_in_place"]["bytes_changed"] == 11 and ch["c_in_place"]["record_unchanged"]
     g = ch["r_grown"]
     assert g["decoded"]["slot_kind"] == "GENERAL" and g["decoded"]["registered"]
     assert g["decoded"]["reset_kind"] == "exit_tb" and g["decoded"]["targets"] == [hex(VC)]
     assert g["decoded"]["atoms"] == ["g_bp", "g_thumb", "g_cond", "g_flags", "g_flags2", "g_pc"]
-    # the file is what the stock v5 loader reads: R's slot registered in its record
+    # the file is public-only: R's slot registered in its record
     sc = read_sc(tmp_path / "copy" / "cache.sc")
     assert sc.loadable
     rec = next(sc.records[i] for i in sc.valid_slots

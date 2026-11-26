@@ -17,7 +17,7 @@ outside any QEMU tree.
    ``bundle runtime-identity``, ``import`` and ``admission identity``
    (RuntimeIdentity v2 with the EnvLayout of the exe).
 2. **Artifacts** written by WP18 (``scopt.validate.package_b3``, NativeLinker
-   v2 + ``sc_v6`` writer, V1-V23 static rows; ``allow_uncertified=True``
+   v2 + ``sc_semantic`` writer, V1-V23 static rows; ``allow_uncertified=True``
    because the variants are identity clones and no WP19 certification input
    exists for this loader test; ``v6_exes`` = the binary). Links are chosen
    from the fixture's symbols (``b3.nm``/``b3.lst``): R = the TB holding the
@@ -324,7 +324,7 @@ def build_artifact(spec: ArtSpec, base: Base, out: Path, exe_sha: str) -> Artifa
         grow[R.uid] = (GuardedExitSpec(t.off, xc if xc in ("return", "static") else "static",
                                        tuple(tgs), c0.key.flags & ~PSTATE_SS,
                                        (c0.key.cs_base & ~CS_CONDEXEC_MASK) | CS_THUMB),)
-    plan = B3Plan(grow=grow, variants=tuple(variants), force_v6=spec.identity)
+    plan = B3Plan(grow=grow, variants=tuple(variants), force_semantic_table=spec.identity)
     store = out / "artifacts" / spec.name
     if store.exists():
         from scopt.formats.artifact import remove_tree
@@ -341,15 +341,15 @@ def build_artifact(spec: ArtSpec, base: Base, out: Path, exe_sha: str) -> Artifa
                   "uncertified": None}
     if r.status != "published":
         return art
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
 
-    sc = read_sc6(art.dir / "cache.sc")
+    sc = read_semantic_cache(art.dir / "cache.sc")
     ca = sc.sc.header.code_address
     ext = sc.ext
     side = json.loads((art.dir / "sidecar.json").read_text()) if (art.dir / "sidecar.json").is_file() \
         else {}
     art.layout.update(
-        version=sc.version, code_address=ca,
+        version=sc.version, semantic_table=sc.has_ext, code_address=ca,
         uncertified=side.get("x_uncertified"),
         variants=[{"id": i, "tc": ca + v.tc_offset, "tb": ca + v.tb_offset,
                    "general_tb": ca + v.general_tb_offset, "tc_size": v.tc_size}
@@ -650,7 +650,7 @@ def art_specs() -> list[ArtSpec]:
                 notes="F-B3-1: R = f_b3_1 (adds; bx lr), C = vc_b3_1 (cbz)"),
         ArtSpec("b3-1-general", "1", (Grow(S["f_b3_1"], (("GENERAL", S["vc_b3_1"]),)),),
                 notes="F-B3-1 with a GENERAL slot (main loop chains R|n)"),
-        ArtSpec("b3-1-identity", "1", identity=True, notes="identity-v6 written by WP18"),
+        ArtSpec("b3-1-identity", "1", identity=True, notes="identity-semantic written by WP18"),
         ArtSpec("b3-6r", "6r", (
             Grow(0x10078, (("SPEC", S["rec_b3_cont"]), ("SPEC", S["vc_b3_6r"]))),
             Grow(S["rec_b3_ret"], (("SPEC", S["rec_b3_cont"]),))),
@@ -714,7 +714,7 @@ def run_all(qemu: Path, out: Path, only: list[str], timeout: float) -> dict[str,
         items = [("package_b3 published (WP18 writer, static V-rows)", a.status == "published",
                   a.reason)]
         if a.status == "published":
-            items.append(("file version 6", a.layout.get("version") == 6,
+            items.append(("semantic table in SuperCache", a.layout.get("semantic_table") is True,
                           a.layout.get("version")))
         record(f"package:{k}", items, None)
 
@@ -731,7 +731,7 @@ def run_all(qemu: Path, out: Path, only: list[str], timeout: float) -> dict[str,
                  ("appended 0", r["appended"] == 0, r["appended"]),
                  ("fixture oracle (icount .norm + invariants)", not r["oracle_failures"],
                   r["oracle_failures"][:4]),
-                 ("v6 extension loaded", st.get("loaded") is True and st.get("file_version") == 6,
+                 ("semantic table loaded", st.get("loaded") is True and st.get("file_version") == a.layout["version"],
                   (st.get("loaded"), st.get("file_version"))),
                  ("no 'invalid v6 extension' / 'discarding v6 file'", not r["v6_log"],
                   r["v6_log"]),

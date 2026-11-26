@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from scopt.formats.sc_v5 import ScHeader
+from scopt.formats.sc_records import ScHeader
 from scopt.ids import artifact_id
 
 _SPEC = importlib.util.spec_from_file_location(

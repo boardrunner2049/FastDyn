@@ -3,7 +3,7 @@
 A snapshot is one ``.sc`` v5 file plus zero or more ``.scm`` v1 captures (one
 per prep run that added records to that ``.sc``). This module decides, for
 every *valid* slot of the ``.sc`` (validity mirrors QEMU's ``load_records``,
-:mod:`scopt.formats.sc_v5`), which TB chunk describes it.
+:mod:`scopt.formats.sc_records`), which TB chunk describes it.
 
 Snapshot-level rejections (:class:`ImportRejected`, the import fails, exit 2):
 
@@ -47,7 +47,7 @@ from typing import Any
 
 from ..canon import fnv1a64
 from ..formats.enums import RunInfoFlag
-from ..formats.sc_v5 import ScFile, read_sc
+from ..formats.sc_records import ScFile, read_sc
 from ..formats.scm_v1 import ScmFile, ScmHeaderError, TbChunk, read_scm
 
 __all__ = [

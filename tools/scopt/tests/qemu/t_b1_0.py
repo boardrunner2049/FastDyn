@@ -79,7 +79,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scopt.formats.sc_v5 import read_sc, sha256_sparse, sparse_copy  # noqa: E402
+from scopt.formats.sc_records import read_sc, sha256_sparse, sparse_copy  # noqa: E402
 from scopt.run.deploy import deploy_new  # noqa: E402
 from scopt.run.launcher import (B0_QEMU, FASTDYN_SRC, create_run_dir, file_sha256,  # noqa: E402
                                 launch, norm_b0, write_json)

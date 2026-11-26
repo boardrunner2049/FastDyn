@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from scopt.formats.sc_v5 import sparse_copy
+from scopt.formats.sc_records import sparse_copy
 from scopt.run.helper_pgo import _guest_lines, _launch
 from scopt.run.v7_stats import (COUNTERS_REVISION, SCHEMA, counter_problems,
                                 summary)

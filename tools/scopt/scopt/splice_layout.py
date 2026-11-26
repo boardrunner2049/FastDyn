@@ -8,7 +8,7 @@ from .canon import sha256_id
 from .decode.search import decode_search, encode_search, is_pcrel
 from .decode.x86 import sweep, tiles
 from .formats.enums import Encoding, OpMarkKind, SiteKind
-from .formats.sc_v5 import ScRecord
+from .formats.sc_records import ScRecord
 from .model.native import (BRANCH_RELAXATION_GROWTH, MAX_BRANCH_RELAXATIONS,
                            MAX_INTEGER_SPLICES, InlineCall, NativeBranchRelaxation)
 from .model.unit import Fixup, TBUnit

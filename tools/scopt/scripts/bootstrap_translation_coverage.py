@@ -19,7 +19,6 @@ FIXTURE = SCOPT / "fixtures/translation-coverage"
 HOST_FIXTURE = SCOPT / "fixtures/host-inline"
 PATCH = SCOPT / "patches/qemu-fixture-pretranslate.patch"
 REVOCATION_PATCH = SCOPT / "patches/qemu-coverage-revocation.patch"
-_QEMU = "934890ed5119ef70da69276991d921573f23ed4f"
 
 
 def command(*args, cwd=ROOT, env=None):
@@ -33,13 +32,17 @@ def cli(*args, env=None):
 def build_probe_qemu(source: Path, target: Path, *, revocation: bool = False) -> Path:
     revision = subprocess.check_output(["git", "-C", source, "rev-parse", "HEAD"],
                                        text=True).strip()
-    if revision != _QEMU or not (source / "build/qemu-system-arm").is_file():
-        raise ValueError("producer requires a built arm-softmmu tree at the locked QEMU revision")
+    pinned = subprocess.check_output(
+        ["git", "-C", ROOT, "rev-parse", "HEAD:third_party/common/qemu"], text=True).strip()
+    if revision != pinned or not (source / "build/qemu-system-arm").is_file():
+        raise ValueError(f"producer requires arm-softmmu built at FastDyn's QEMU pin {pinned}")
+    command("git", "diff", "--quiet", "HEAD", "--", "accel/tcg/cpu-exec.c",
+            "tcg/supercache.c", "include/tcg/supercache.h", cwd=source)
     shutil.copytree(source, target, symlinks=True, ignore=shutil.ignore_patterns(".git"))
-    command("patch", "-p1", "-i", PATCH, cwd=target)
+    command("patch", "--forward", "--batch", "--fuzz=0", "-p1", "-i", PATCH, cwd=target)
     outputs = ["libsystem.a.p/accel_tcg_cpu-exec.c.o"]
     if revocation:
-        command("patch", "-p1", "-i", REVOCATION_PATCH, cwd=target)
+        command("patch", "--forward", "--batch", "--fuzz=0", "-p1", "-i", REVOCATION_PATCH, cwd=target)
         outputs.append("libsystem.a.p/tcg_supercache.c.o")
     build = target / "build"
     # Recompile the modified sources and relink with the existing flags. This retains
@@ -124,8 +127,8 @@ def produce(work: Path, qemu_source: Path, plugin_source: Path) -> None:
     env = dict(os.environ)
     env.pop("QEMU_SCOPT_COVERAGE_TRACE", None)
     env.pop("QEMU_SCOPT_COVERAGE_RANGE", None)
-    env.update(FASTDYN_ROOT=str(ROOT), SCOPT_FASTDYN_SRC=str(ROOT),
-               SCOPT_RUNTIME_QEMU=str(qemu))
+    env.setdefault("SCOPT_FASTDYN_SRC", str(ROOT))
+    env.update(FASTDYN_ROOT=str(ROOT), SCOPT_RUNTIME_QEMU=str(qemu))
     control, prep = work / "control", work / "prep"
     cli("prepare", "-c", cfg, "--out", control, "--qemu", qemu,
         "--inputs", train, "--no-oracle", env=env)

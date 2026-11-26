@@ -87,7 +87,7 @@ from .enums import (
     EDGE_FLAG_NAMES, EDGE_KIND_NAMES,
 )
 from .qprof_v1 import QprofFile, read_qprof
-from .sc_v5 import ScFile, ScHeader, read_sc
+from .sc_records import ScFile, ScHeader, read_sc
 
 __all__ = [
     "SCHEMA", "VERSION", "METHOD", "DEFAULT_MIN_PROFILE_MATCH", "RUNTIME_COMPAT_FIELDS",
@@ -241,7 +241,10 @@ class SnapshotUnits:
             r = u.record
             units.append(UnitRef(uid, u.slot, r.tb_offset, r.end_offset, r.key, r.guest_size,
                                  r.icount, r.guest_hash, u.record_bytes, u.body))
-        return cls(sc.snapshot_id(), sc.header, tuple(units), sc.path)
+        from .supercache import canonical_snapshot_id
+
+        sid = canonical_snapshot_id(sc.path) if sc.header.reserved else sc.snapshot_id()
+        return cls(sid, sc.header, tuple(units), sc.path)
 
     @classmethod
     def from_any(cls, obj: Any) -> "SnapshotUnits":

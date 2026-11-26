@@ -77,7 +77,7 @@ def sha256_file(p: str | os.PathLike) -> str:
 
 
 def sha256_sc(p: str | os.PathLike) -> str:
-    from scopt.formats.sc_v5 import sha256_sparse
+    from scopt.formats.sc_records import sha256_sparse
 
     return "sha256:" + sha256_sparse(p)
 

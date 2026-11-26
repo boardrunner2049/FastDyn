@@ -39,10 +39,10 @@ def summarize(blocks, candidate, reference):
 
 def compare_coverage_caches(sources):
     from scopt.canon import sha256_id
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
 
     caches = {name: Path(sources[name]) / "cache.sc" for name in ("partial", "complete")}
-    partial, complete = (read_sc6(path) for path in caches.values())
+    partial, complete = (read_semantic_cache(path) for path in caches.values())
     if not (partial.loadable and complete.loadable and partial.ext and complete.ext):
         raise ValueError("coverage mechanism comparison requires loadable v6 caches")
     hashes = {name: file_sha256(path) for name, path in caches.items()}

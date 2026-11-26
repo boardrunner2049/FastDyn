@@ -35,7 +35,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ..formats.sc_v5 import sha256_sparse
+from ..formats.sc_records import sha256_sparse
 from .launcher import write_json
 
 __all__ = ["ProfileRunError", "profile_env", "profile_run", "target_key_mode", "tree_hashes"]
@@ -95,7 +95,7 @@ def target_key_mode(target: str | os.PathLike) -> str | None:
     ``"mixed"`` otherwise; ``None`` when there is no readable ``.sc`` or no record
     (deploy then reports the problem)."""
     from ..decode.search import is_pcrel
-    from ..formats.sc_v5 import ScFormatError, read_sc
+    from ..formats.sc_records import ScFormatError, read_sc
     from .deploy import resolve_artifact
 
     sc = Path(resolve_artifact(target)["sc"])

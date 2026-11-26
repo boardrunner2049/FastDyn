@@ -39,10 +39,18 @@ def dump(path: str, as_json: bool, no_records: bool, slot: tuple[int, ...],
     rejected.
     """
     from ..decode.search import SearchDecodeError, decode_search, is_pcrel
-    from ..formats.sc_v5 import read_sc, structural_findings
+    from ..formats.sc_records import ScFormatError, read_sc
+    from ..formats.supercache import canonical_snapshot_id, canonical_structural_findings
 
     f = read_sc(path)
     doc = f.to_json(records=not no_records)
+    if f.loadable and f.header.reserved:
+        try:
+            doc["snapshot_id"] = canonical_snapshot_id(path)
+        except ScFormatError as exc:
+            doc["loadable"] = False
+            doc["problems"].append({"code": "extension", "detail": str(exc)})
+            doc.pop("snapshot_id", None)
     if slot and "records" in doc:
         doc["records"] = [r for r in doc["records"] if r["slot"] in set(slot)]
     if with_search and "records" in doc:
@@ -64,8 +72,8 @@ def dump(path: str, as_json: bool, no_records: bool, slot: tuple[int, ...],
                 row["search"] = {"error": str(e)}
     if with_check:
         doc["structural_findings"] = [{"code": x.code, "detail": x.detail}
-                                      for x in structural_findings(f)]
-    rc = 2 if not f.loadable else (1 if (f.skipped or f.problems) else 0)
+                                      for x in canonical_structural_findings(f)]
+    rc = 2 if not doc["loadable"] else (1 if (f.skipped or f.problems) else 0)
     if as_json:
         click.echo(json.dumps(doc, indent=1))
         sys.exit(rc)
@@ -73,11 +81,11 @@ def dump(path: str, as_json: bool, no_records: bool, slot: tuple[int, ...],
     h = doc["header"]
     click.echo(f"file {path}  size {f.file_size}")
     click.echo("header " + " ".join(f"{k}={v}" for k, v in h.items()))
-    click.echo(f"loadable={f.loadable} header_problems={list(f.header_problems)} "
+    click.echo(f"loadable={doc['loadable']} header_problems={list(f.header_problems)} "
                f"count={f.count} available={f.available_records} "
                f"valid={len(f.valid_slots)} skipped={len(f.skipped)} max_end={doc['max_end']}")
-    for p in f.problems:
-        click.echo(f"problem {p.code}: {p.detail}")
+    for problem in doc["problems"]:
+        click.echo(f"problem {problem['code']}: {problem['detail']}")
     for s in f.skipped:
         click.echo(f"skipped slot {s.slot}: {s.reason} ({s.detail})")
     if "snapshot_id" in doc:
@@ -121,7 +129,7 @@ def identity_copy_cmd(src: str, dst: str, require_identity: bool) -> None:
     canonicalized, 1 fail (hash mismatch on canonical input), 2 SRC not
     loadable, 3 canonicalized with --require-identity.
     """
-    from ..formats.sc_v5 import ScFormatError, identity_copy
+    from ..formats.sc_records import ScFormatError, identity_copy
 
     try:
         res = identity_copy(src, dst)

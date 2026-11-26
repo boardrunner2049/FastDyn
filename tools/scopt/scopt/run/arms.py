@@ -26,12 +26,12 @@ Arm kinds:
   ``<out>/frozen/<arm>.sc``.
 
 The spec's remaining primary arms (``semantic``, ``combined``) cannot be
-built in B1/B2 (they need ``.sc`` v6); a campaign lists them as
+built in B1/B2 (they need the semantic extension); a campaign lists them as
 ``unsupported`` so that the report shows them as rows, unless an artifact is
 given for them (B3/B4).
 
 B3/B4 arms (WP26, design §10.1, §9.4): :data:`B3B4_ARMS` defines the
-evaluation arms (``identity-v6``, ``b3-chain``, ``b3-static``, ``b3-spec``,
+evaluation arms (``identity-semantic``, ``b3-chain``, ``b3-static``, ``b3-spec``,
 ``b4``, ``semantic``, ``combined`` on top of the B2 ones) with their loader
 requirement and pipeline, :data:`FIXTURE_ARMS` the per-fixture differential
 arms of §9.4, :func:`b3b4_arm_specs` turns given artifacts into
@@ -39,8 +39,8 @@ arms of §9.4, :func:`b3b4_arm_specs` turns given artifacts into
 :func:`ablation_arms` names the §10.1 ablations. Preflight refuses a
 negative-control or test-policy artifact as an arm source
 (``negative_control_arm``, ``test_only_arm``; :mod:`scopt.run.policy`) and,
-when any arm deploys a ``.sc`` v6, requires the campaign's QEMU to be a
-v6-capable binary (``v6_arm_needs_qemu``, ``v6_loader_required``;
+when any arm deploys a semantic extension, requires the campaign's QEMU to support
+that payload (``semantic_arm_needs_qemu``, ``semantic_loader_required``;
 :func:`scopt.validate.v6_capable_exes`): every arm of a comparison runs on
 that one binary (plan "Runtime rules", R13).
 
@@ -96,6 +96,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..formats.layouts import SC_VERSION
 from .launcher import (FASTDYN_SRC, RunDirError, create_run_dir, launch, write_json)
 
 __all__ = [
@@ -116,8 +117,8 @@ SPLITS = ("train", "heldout", "final", "fixed")
 CAMPAIGN_SPLITS = SPLITS + ("unlabelled",)
 # Spec §8 primary arms that B1/B2 cannot build (design §4.9, §9).
 SPEC_UNSUPPORTED_ARMS = {
-    "semantic": "capability_not_enabled: semantic cross-TB passes are B3/B4 and need .sc v6",
-    "combined": "capability_not_enabled: needs the semantic arm (B3/B4, .sc v6)",
+    "semantic": "capability_not_enabled: semantic cross-TB passes are B3/B4 and need the semantic extension",
+    "combined": "capability_not_enabled: needs the semantic arm (B3/B4 semantic extension)",
 }
 
 
@@ -127,12 +128,16 @@ class ArmDef:
 
     name: str
     kind: str          # nocache | empty | deploy
-    loader: str        # v5 | v6 | none: the .sc version the arm deploys
+    payload: str       # public, semantic, or none
     passes: tuple[str, ...] = ()  # pipeline passes (B3/B4 pass names; "b2-layout" for layout)
     content: str = ""
 
+    @property
+    def loader(self) -> str:
+        return f"v{SC_VERSION}" if self.kind == "deploy" else "none"
+
     def to_json(self) -> dict[str, Any]:
-        return asdict(self)
+        return {**asdict(self), "loader": self.loader}
 
 
 _B3_SPEC = ("specialize-returns", "constant-propagate", "branch-fold", "dead-host-op")
@@ -140,31 +145,31 @@ _B3_SPEC = ("specialize-returns", "constant-propagate", "branch-fold", "dead-hos
 B3B4_ARMS: dict[str, ArmDef] = {a.name: a for a in (
     ArmDef("nocache", "nocache", "none", (), "cache disabled"),
     ArmDef("empty", "empty", "none", (), "persistent cache enabled, empty at start"),
-    ArmDef("warm", "deploy", "v5", (), "the unoptimized warm cache (primary reference)"),
-    ArmDef("identity", "deploy", "v5", ("identity",), "identity pipeline, v5 file"),
-    ArmDef("identity-v6", "deploy", "v6", ("identity",),
-           "identity pipeline as .sc v6 with an empty ext table (loader overhead)"),
-    ArmDef("layout", "deploy", "v5", ("b2-layout",), "B2 pipeline re-run on the new binary"),
-    ArmDef("b3-chain", "deploy", "v6", ("chain-returns",), "chain-returns only"),
-    ArmDef("b3-static", "deploy", "v6", ("chain-static",),
+    ArmDef("warm", "deploy", "public", (), "the unoptimized warm cache (primary reference)"),
+    ArmDef("identity", "deploy", "public", ("identity",), "identity pipeline, public records"),
+    ArmDef("identity-semantic", "deploy", "semantic", ("identity",),
+           "identity pipeline with an empty semantic extension (loader overhead)"),
+    ArmDef("layout", "deploy", "public", ("b2-layout",), "B2 pipeline re-run on the new binary"),
+    ArmDef("b3-chain", "deploy", "semantic", ("chain-returns",), "chain-returns only"),
+    ArmDef("b3-static", "deploy", "semantic", ("chain-static",),
            "chain-static only (beyond the spec's return scope; reported separately)"),
-    ArmDef("b3-spec", "deploy", "v6", _B3_SPEC, "specialize-returns + CP + BF + DHO"),
-    ArmDef("b4", "deploy", "v5", ("eliminate-state-sync",), "eliminate-state-sync only (v5)"),
-    ArmDef("semantic", "deploy", "v6",
+    ArmDef("b3-spec", "deploy", "semantic", _B3_SPEC, "specialize-returns + CP + BF + DHO"),
+    ArmDef("b4", "deploy", "public", ("eliminate-state-sync",), "eliminate-state-sync on public records"),
+    ArmDef("semantic", "deploy", "semantic",
            ("chain-returns", "chain-static") + _B3_SPEC + ("eliminate-state-sync",),
            "b3-chain + b3-static + b3-spec + b4"),
-    ArmDef("combined", "deploy", "v6",
+    ArmDef("combined", "deploy", "semantic",
            ("chain-returns", "chain-static") + _B3_SPEC + ("eliminate-state-sync", "b2-layout"),
            "semantic + layout"),
 )}
-#: design §9.4: arms per fixture (each in a fresh run dir, v6 post-run proof)
+#: design §9.4: arms per fixture (each in a fresh run dir, post-run proof)
 FIXTURE_ARMS: dict[str, ArmDef] = {a.name: a for a in (
-    ArmDef("warm", "deploy", "v5", (), "v5 reference"),
-    ArmDef("identity-v6", "deploy", "v6", ("identity",), "v6 header, empty ext table"),
-    ArmDef("chain", "deploy", "v6", ("chain-returns", "chain-static"), "GENERAL slots"),
-    ArmDef("spec", "deploy", "v6", _B3_SPEC, "SPEC slots + CP/BF/DHO"),
-    ArmDef("b4", "deploy", "v5", ("eliminate-state-sync",), "B4 rewrites"),
-    ArmDef("combined", "deploy", "v6",
+    ArmDef("warm", "deploy", "public", (), "public reference"),
+    ArmDef("identity-semantic", "deploy", "semantic", ("identity",), "empty semantic extension"),
+    ArmDef("chain", "deploy", "semantic", ("chain-returns", "chain-static"), "GENERAL slots"),
+    ArmDef("spec", "deploy", "semantic", _B3_SPEC, "SPEC slots + CP/BF/DHO"),
+    ArmDef("b4", "deploy", "public", ("eliminate-state-sync",), "B4 rewrites"),
+    ArmDef("combined", "deploy", "semantic",
            ("chain-returns", "chain-static") + _B3_SPEC + ("eliminate-state-sync",),
            "chain + spec + b4"),
 )}
@@ -175,10 +180,10 @@ def ablation_arms(table: Mapping[str, ArmDef] = B3B4_ARMS) -> list[ArmDef]:
     """§10.1 ablations: ``semantic-no-<pass>`` for every pass of ``semantic`` and
     the B4 per-class arms ``b4-<class>`` (``--param classes=<class>``)."""
     sem = table["semantic"]
-    out = [ArmDef(f"semantic-no-{p}", "deploy", sem.loader,
+    out = [ArmDef(f"semantic-no-{p}", "deploy", sem.payload,
                   tuple(x for x in sem.passes if x != p), f"semantic without {p}")
            for p in sem.passes]
-    out += [ArmDef(f"b4-{c}", "deploy", "v5", ("eliminate-state-sync",),
+    out += [ArmDef(f"b4-{c}", "deploy", "public", ("eliminate-state-sync",),
                    f"eliminate-state-sync with classes={c}") for c in B4_CLASSES]
     return out
 
@@ -516,7 +521,7 @@ def _hex(s: str | None) -> str | None:
 
 def source_identity(src: str) -> dict[str, Any]:
     """What a deploy arm runs: the ``.sc`` path, its sha256 and its artifact id."""
-    from ..formats.sc_v5 import sha256_sparse
+    from ..formats.sc_records import sha256_sparse
 
     p = Path(src)
     info: dict[str, Any] = {"source": str(p)}
@@ -774,11 +779,11 @@ def preflight(c: Campaign, out: Path) -> dict[str, Any]:
                                 f"{a.name}: sha256 {info['sha256']} != frozen {a.expect_sha256}")
         info["file_version"] = sc_file_version(a.source)
         info["file_features"] = sc_file_features(a.source)
-        if info["file_version"] != 7:
+        if info["file_version"] != SC_VERSION:
             raise CampaignError("legacy_cache_version",
                                 f"{a.name}: top-level cache version "
                                 f"{info['file_version']} is not canonical v7")
-        from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+        from ..formats.sc_semantic import SC7_SEMANTIC_MARKER
         if info["file_features"] is not None and info["file_features"] & SC7_SEMANTIC_MARKER:
             semantic_arms.append(a.name)
         ids["arms"][a.name] = info
@@ -867,7 +872,7 @@ def _sha_lines(lines: Iterable[str] | None) -> str | None:
 
 def _cache_after(rd_root: Path) -> dict[str, Any] | None:
     """Record count and sizes of the run directory's .sc after the run (empty arm)."""
-    from ..formats.sc_v5 import HEADER_SIZE, ScHeader
+    from ..formats.sc_records import HEADER_SIZE, ScHeader
 
     cache = rd_root / "cache"
     scs = sorted(cache.glob("*.sc")) if cache.is_dir() else []
@@ -954,7 +959,7 @@ def _run_one(c: Campaign, arm: ArmSpec, src: str | None, step: Mapping[str, Any]
 
 def _record_warm(c: Campaign, arm: ArmSpec, out: Path) -> dict[str, Any]:
     """``source = "auto"``: one cold run with the campaign QEMU, frozen as the warm cache."""
-    from ..formats.sc_v5 import read_sc, sparse_copy
+    from ..formats.sc_records import read_sc, sparse_copy
 
     root = out / "seed" / f"{arm.name}-cold"
     rd = create_run_dir(c.base_config, root, quiet=c.quiet, qemu=c.qemu,
@@ -975,7 +980,7 @@ def _record_warm(c: Campaign, arm: ArmSpec, out: Path) -> dict[str, Any]:
                             f"cold seed run exit {doc.get('exit_code')}; see {root}")
     if doc.get("stray_capture_files"):
         raise CampaignError("warm_seed_failed", f"stray capture files in {root}")
-    sc = read_sc(rd.cache, versions=(7,))
+    sc = read_sc(rd.cache)
     if not sc.loadable or not sc.valid_slots:
         raise CampaignError("warm_seed_failed", f"{rd.cache}: no valid records")
     frozen = out / "frozen"

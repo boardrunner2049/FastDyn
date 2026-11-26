@@ -50,10 +50,10 @@ import struct
 import subprocess
 
 from scopt.formats.layouts import SC_CODE_OFFSET
-from scopt.formats.sc_v5 import ScHeader, read_sc, sparse_copy
-from scopt.formats.sc_v6 import ARRAYS_OFFSET, EXT_OFFSET, read_sc6
-from scopt.formats.sc_v7 import SC7_COMPOSED_DIR_OFFSET, SC7_FEATURE_SC6_REGIONS, \
-    SC7_REGION_MEMBER_DESCRIPTORS, _HEADER, _MEMBER, _REGION, decode_directory, read_sc7
+from scopt.formats.sc_records import ScHeader, read_sc, sparse_copy
+from scopt.formats.sc_semantic import ARRAYS_OFFSET, EXT_OFFSET, read_semantic_cache
+from scopt.formats.supercache import SC7_COMPOSED_DIR_OFFSET, SC7_FEATURE_SC6_REGIONS, \
+    SC7_REGION_MEMBER_DESCRIPTORS, _HEADER, _MEMBER, _REGION, decode_directory, read_region_directory
 from scopt.link import residual_goto_tb_slots
 from scopt.run.helper_pgo import _guest_lines, _launch
 from scopt.run.v7_stats import MEMBER_SKIP_REVISION, counter_problems, per_build_bounds
@@ -134,7 +134,7 @@ def static_slots(source, directory):
     """``(chainable, skipped)`` residual slots per region (0 for legacy
     regions), from the file: what QEMU arms and skips each time it builds
     that region."""
-    sc = read_sc(source, versions=(7,))
+    sc = read_sc(source)
     by_tb = {sc.records[i].tb_offset: sc.records[i] for i in sc.valid_slots}
     rows = decode_directory(directory)
     chainable = [0] * len(rows["regions"])
@@ -175,7 +175,7 @@ def _member_flags(member, flags):
 def member_mutants(source, directory, revision):
     """The ``member_*`` mutants this directory supports on a QEMU reporting
     counters ``revision``: (name, mutate, needle)."""
-    sc = read_sc(source, versions=(7,))
+    sc = read_sc(source)
     by_tb = {sc.records[i].tb_offset: sc.records[i] for i in sc.valid_slots}
     rows = decode_directory(directory)
     region_of = {}
@@ -218,10 +218,10 @@ def main():
     args = parser.parse_args()
     launch = json.loads(args.launch.read_text())
     source = source_cache(launch)
-    semantic = read_sc6(source)
+    semantic = read_semantic_cache(source)
     assert semantic.is_composed and semantic.problem is None, \
         f"{source} is not a loadable composed v7 cache ({semantic.problem})"
-    directory = read_sc7(source)
+    directory = read_region_directory(source)
     assert directory.composed and directory.trusted
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)

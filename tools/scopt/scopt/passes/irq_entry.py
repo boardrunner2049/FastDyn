@@ -6,6 +6,7 @@ from ..link import tb_ret_abs_of
 from ..validate_sym.equiv import check_equiv
 from ..validate_sym.program import patched, program_of, world_of
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult, Patch
+from .public_input import public_input_refusal
 
 
 class IrqEntryMemCompare:
@@ -20,10 +21,12 @@ class IrqEntryMemCompare:
         if ctx.b3 is None or not ctx.b3.layout_bound:
             return PassResult(Outcome.SKIPPED_UNKNOWN, "unbound_native_layout")
         base = ctx.b3.snapshot
-        if ((base.header.version, base.header.reserved) != (7, 0) or
-                ctx.b3_state.rewrites or ctx.b3_state.exits
-                or ctx.b3_state.variants):
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_canonical_public_v7")
+        refusal = public_input_refusal(base.header)
+        if refusal is not None:
+            return refusal
+        if not ctx.b3_state.empty:
+            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "pending_semantic_edits",
+                              "IRQ fusion analyzes the captured instruction stream")
         counts, view = phase_profile_counts(ctx, snap, "steady")
         if view is None:
             return PassResult(Outcome.SKIPPED_UNKNOWN, "missing_steady_profile")

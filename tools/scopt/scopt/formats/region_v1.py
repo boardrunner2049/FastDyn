@@ -60,7 +60,7 @@ def key_json(u: TBUnit) -> dict[str, Any]:
 
 
 def _rec_offsets(u: TBUnit) -> tuple[tuple[int, int], tuple[int, int]]:
-    from .sc_v5 import ScRecord
+    from .sc_records import ScRecord
 
     r = ScRecord.from_bytes(u.record)
     return r.jmp_insn_offset, r.jmp_reset_offset

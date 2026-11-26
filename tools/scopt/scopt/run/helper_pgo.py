@@ -24,8 +24,8 @@ from ..analysis.host_calls import _crosscheck
 from ..decode.x86 import decode_one
 from ..formats.enums import SiteKind
 from ..formats.qprof_v1 import read_qprof
-from ..formats.sc_v5 import ScRecord, sparse_copy
-from ..formats.sc_v7 import write_sc7_public
+from ..formats.sc_records import ScRecord, sparse_copy
+from ..formats.supercache import write_public_cache
 from ..importer.import_cache import open_compiler_snapshot
 
 _COUNTER_MAGIC = b"SCHPROF1"
@@ -286,7 +286,7 @@ def _diagnostic_cache(snapshot, path):
             body += payload
             record = record.replace(tc_size=len(body), end_offset=end + len(unit.search)).with_checksum()
         parts.append((record, body + unit.search))
-    write_sc7_public(path, header, parts)
+    write_public_cache(path, header, parts)
     return rows, header.code_address + data
 
 

@@ -9,7 +9,7 @@ WP18 implementation note at its end. Plan: `docs/design/IMPLEMENTATION-PLAN-B3B4
 |---|---|
 | `scopt/guard.py` | canonical guard template `guard-v1` (§4.1): `emit_guard`, strict `decode_guard`, `guard_key` (Kf/Kf2, THUMB/CONDEXEC/SS rules), `guard_atoms`, `GuardOffsets.from_layout(EnvLayout)` |
 | `scopt/link.py` (v2 part) | `lookup_tails`, `tail_problem`, `exit_class_of`, `free_slots`, `grow_unit`, `apply_pure_rewrite`, `rewrite_unit`, `B3Plan`, `VariantSpec`, `NativeLinkerV2`, `derive_scm_v2` |
-| `scopt/formats/sc_v6.py` | `write_sc6`, `read_sc6`, `ext_problem` (the loader's checks and messages, in its order), `ExtTable`/`VariantEntry`/`SlotEntry`/`LinkEntry`, `sc6_snapshot_id`, `sc6parse_compare` (V11) |
+| `scopt/formats/sc_semantic.py` | `write_sc6`, `read_semantic_cache`, `ext_problem` (the loader's checks and messages, in its order), `ExtTable`/`VariantEntry`/`SlotEntry`/`LinkEntry`, `semantic_snapshot_id`, `sc6parse_compare` (V11) |
 | `independent/sc6parse.py` | independent parser written from the C loader (the gate QEMU tree `tcg/supercache.c`); stdlib only |
 | `scopt/formats/scm_v1.py` | TB chunk v2 (`stub_start` in the low u32 of `reserved`), chunk 9 `VARIANT` (Python-only) |
 | `scopt/formats/region_v1.py` | `guarded_slot` exits of grown units, `build_multi_tb_region` |
@@ -35,7 +35,7 @@ r = package_b3(snapshot, plan, store, candidate_id=..., runtime=v6_identity)
   are not registered and every reset path is `jmp F` (stock `tb_add_jump` would
   patch `tc.ptr + 0xffff` for an unregistered slot, so `exit_tb(R|n)` is never
   used there).
-* `force_v6=True` with an empty plan gives the identity-v6 artifact (V9').
+* `force_semantic_table=True` with an empty plan gives the identity-v6 artifact (V9').
 * V7 accepts a v6 artifact only when the RuntimeIdentity's exe sha256 is v6-capable:
   `v6_exes=` / `$SCOPT_V6_EXES` / the maintainer's evaluation data (not in the repository) (`exe_sha256`).
 * A SPEC slot is bound to the key of the C whose clone it enters: the linker refuses

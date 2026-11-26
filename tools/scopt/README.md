@@ -9,11 +9,19 @@ preflight. Independent reimport, correspondence, recovery, provenance, symbolic,
 dynamic proof work is opt-in through `scopt audit`; a published artifact is not thereby
 audited.
 
-All newly published artifacts use one canonical top-level format: **SuperCache v7**.
-Public-only, semantic-extension, safe firmware-region and trusted firmware-region
-artifacts are v7 feature modes, not separate file versions. Import may accept an older
-captured cache when a compatibility path explicitly supports it, but publication
-canonicalizes the result to v7; do not describe a new artifact as v5 or v6.
+QEMU and scopt use one on-disk format, **SuperCache v7**. The feature word
+describes four payload combinations: public translation blocks alone, blocks
+with a semantic table (variants and chain slots), blocks with a firmware-region
+directory, or blocks with both tables. Capture, sealing and placement are
+separate choices. Recapture files with any other top-level version.
+
+Python callers publish through `scopt.formats.supercache` using
+`write_public_cache`, `write_semantic_cache`, `write_region_cache` or
+`write_composed_cache`. Use `canonical_snapshot_id` for the identity of the
+whole artifact. `sc_records` and `sc_semantic` implement the public records
+and optional semantic table of that same format. `scopt sc identity-copy`
+preserves all payloads. `scopt load --trusted` checks their structure and
+bounds without hashing each translation block.
 
 ## Pass defaults
 
@@ -115,7 +123,7 @@ To keep parallel branches free of merge conflicts:
   the shared `tests/conftest.py`.
 - **Package `__init__.py` files** are empty on purpose. Do not add re-exports
   to them.
-- **Stubs.** WP0 left some modules as stubs: `formats/sc_v5.py` (WP1) and
+- **Stubs.** WP0 left some modules as stubs: `formats/sc_records.py` (WP1) and
   `tests/synth/builders.py` (WP4/WP6). Keep their signatures and replace the
   bodies.
 
@@ -125,7 +133,7 @@ To keep parallel branches free of merge conflicts:
 scopt/
   canon.py ids.py                    # WP0 (frozen)
   formats/enums.py layouts.py schemas.py schemas/*.json   # WP0 (frozen)
-  formats/sc_v5.py                   # WP1 (WP0 stub: header/record structs)
+  formats/sc_records.py                   # WP1 (WP0 stub: header/record structs)
   formats/{scm_v1,qprof_v1,profile_v1,bundle_v1,region_v1,artifact}.py  # WP4/6/8/7/10
   model/unit.py                      # WP0 (frozen interfaces); snapshot.py view.py: WP7/WP9
   analysis/api.py                    # WP0 (frozen §5.3 types); store.py etc.: WP9/WP7/WP11

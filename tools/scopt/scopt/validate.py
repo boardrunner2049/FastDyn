@@ -21,8 +21,8 @@ Checks (§5.8; ``in`` = the input snapshot, ``out`` = the written artifact):
 
 * **V1 structural** — ``out`` header equals ``in`` except ``checksum`` (and
   ``record_count`` when ``in`` had invalid records); QEMU would load it
-  (``valid_header``/``load_records`` replicated by :mod:`scopt.formats.sc_v5`);
-  :func:`~scopt.formats.sc_v5.structural_findings` is empty (``tb%64``,
+  (``valid_header``/``load_records`` replicated by :mod:`scopt.formats.sc_records`);
+  :func:`~scopt.formats.sc_records.structural_findings` is empty (``tb%64``,
   ``tc-tb``, disjoint intervals above ``ROUND_UP(prologue_end, 64)``, zero
   bytes outside the records, exact file size); ``max_end < code_size -
   host_page - 1024``; slot order (UnitId per slot) unchanged; the
@@ -89,7 +89,7 @@ from .decode.search import decode_search, is_pcrel, unwind
 from .decode.x86 import Arena, extract_refs, sweep, tiles
 from .formats import artifact as A
 from .formats.region_v1 import build_region, validate_region
-from .formats.sc_v5 import (ScFile, ScFormatError, ScRecord, read_sc, sha256_sparse,
+from .formats.sc_records import (ScFile, ScFormatError, ScRecord, read_sc, sha256_sparse,
                             structural_findings, write_sc)
 from .ids import bundle_id as _bundle_id
 from .ledger import Ledger, LedgerRow, utc_now
@@ -284,9 +284,9 @@ def _regions(res: Any, bundle: Mapping[str, Any] | None, ri_id: str | None) -> l
 # ---------------------------------------------------------------------------
 
 def _canonical_sha256(in_path: str | os.PathLike) -> str | None:
-    """sha256 of ``write(read(in))`` (sc_v5's identity writer, into a scratch
+    """sha256 of ``write(read(in))`` (sc_records's identity writer, into a scratch
     directory; sparse). None when the input is not loadable at all."""
-    from .formats.sc_v5 import identity_copy
+    from .formats.sc_records import identity_copy
 
     with tempfile.TemporaryDirectory(prefix="scopt-v9-") as td:
         try:
@@ -593,7 +593,7 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
     t0 = time.monotonic()
 
     # ---- V1 structural ------------------------------------------------------
-    out = read_sc(out_path, versions=(7,))
+    out = read_sc(out_path)
     hdr_fields = [k for k in h_in.__dataclass_fields__
                   if k not in ("checksum", "record_count", "version", "reserved")]
     diff = [k for k in hdr_fields if getattr(out.header, k) != getattr(h_in, k)]
@@ -925,7 +925,7 @@ def validate_static(snapshot: Any, link: LinkResult, art_dir: str | os.PathLike,
             v.add("V9", "identity_sha256", False, "input cache.sc not available",
                   "input_unavailable")
         else:
-            sc_in = read_sc(in_path, versions=(7,))
+            sc_in = read_sc(in_path)
             fin = structural_findings(sc_in)
             in_sha = sha256_sparse(in_path)
             v.data["in_sha256"] = in_sha
@@ -999,7 +999,7 @@ def _pinned_rows(candidate: Any, link: LinkResult) -> list[dict[str, Any]]:
 def _compiler_snapshot(snapshot: Any, link: LinkResult, header: Any, snapshot_id: str,
                        path: str | os.PathLike) -> Any:
     """In-memory output model for a following compiler stage; no reimport."""
-    from .formats.sc_v5 import ScRecord
+    from .formats.sc_records import ScRecord
     from .model.cache_snapshot import CacheSnapshot
 
     units = []
@@ -1178,9 +1178,9 @@ class ValidateAndPackage:
     def _package(self, stage: Path, snap: Any, link: LinkResult) -> PackageResult:
         c = self.candidate
         try:
-            from .formats.sc_v7 import write_sc7_public
+            from .formats.supercache import write_public_cache
 
-            write_sc7_public(stage / "cache.sc", snap.header,
+            write_public_cache(stage / "cache.sc", snap.header,
                              [(u.record, u.body) for u in link.units])
         except ScFormatError as e:
             self.ledger.emit("artifact", c.candidate_id, "compiled", "fail", "write_sc")
@@ -1202,7 +1202,7 @@ class ValidateAndPackage:
                                  f"delta:{lu.delta}")
         self.ledger.emit("artifact", c.candidate_id, "compiled", "pass",
                          f"{sum(1 for u in link.units if u.moved)} moved")
-        out = read_sc(stage / "cache.sc", versions=(7,))
+        out = read_sc(stage / "cache.sc")
         out_sid = out.snapshot_id()
         pinned = _pinned_rows(c, link)
         sidecar: dict[str, Any] = {
@@ -1369,7 +1369,7 @@ def artifact_link(snapshot: Any, art_dir: str | os.PathLike) -> LinkResult:
     from .ordinary_exit import retired_slots
 
     root = Path(art_dir)
-    out = read_sc(root / "cache.sc", versions=(7,))
+    out = read_sc(root / "cache.sc")
     captures = sorted(root.glob("*.scm"))
     binding = join(out, captures).slots if captures and out.loadable else {}
     if not out.loadable:
@@ -2017,14 +2017,14 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
                          trusted_v7_exes: Iterable[str] = (),
                          skip_reimport: bool = False) -> tuple[Validation, Any]:
     """Structural, recovery and reimport checks for firmware-region artifacts."""
-    from .formats.sc_v7 import (build_directory, decode_directory, loader_requirement,
-                                read_sc7, sc7_snapshot_id)
+    from .formats.supercache import (build_directory, decode_directory, loader_requirement,
+                                read_region_directory, region_snapshot_id)
 
     v = Validation()
     path = Path(art_dir) / "cache.sc"
     try:
-        directory = read_sc7(path)
-        out = read_sc(path, versions=(7,))
+        directory = read_region_directory(path)
+        out = read_sc(path)
     except (OSError, ScFormatError, ValueError) as exc:
         v.add("V1", "firmware_directory", False, str(exc), "sc7_directory")
         return v, None
@@ -2218,7 +2218,7 @@ def validate_firmware_v7(snapshot: Any, link: Any, art_dir: str | os.PathLike, *
                  "edges": decoded["edges"][row["first_edge"]:
                                              row["first_edge"] + row["n_edges"]]}
                 for row in decoded["regions"]]
-            ok = (result.snapshot.snapshot_id == sc7_snapshot_id(path) and
+            ok = (result.snapshot.snapshot_id == region_snapshot_id(path) and
                   list(result.snapshot.firmware_regions) == expected_regions)
             v.add("V8", "reimport", ok,
                   f"snapshot {result.snapshot.snapshot_id}; "
@@ -2287,7 +2287,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
                                     trusted_v7_exes=trusted_v7_exes,
                                     skip_reimport=skip_reimport)
     from .formats.envlayout_v1 import find_envlayout
-    from .formats.sc_v6 import KIND_SPEC, read_sc6, sc6_snapshot_id, sc6parse_compare
+    from .formats.sc_semantic import KIND_SPEC, read_semantic_cache, semantic_snapshot_id, sc6parse_compare
     from .guard import GuardError, GuardOffsets, decode_guard, guard_key
     from .link import lookup_tails, tb_ret_abs_of
 
@@ -2308,7 +2308,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
     ca, cs = h_in.code_address, h_in.code_size
 
     # ---- V1 structural (v6-aware) -------------------------------------------------
-    f6 = read_sc6(out_path)
+    f6 = read_semantic_cache(out_path)
     out = f6.sc
     has_ext = f6.has_ext
     want_v = 7
@@ -2523,7 +2523,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
         v.add("V7", "supercache_flat", ri.get("supercache_flat") is False,
               f"supercache_flat={ri.get('supercache_flat')!r}", "unsupported_flat")
     lr = None if sidecar is None else sidecar.get("loader_requirement")
-    from .formats.sc_v7 import LOADER_V7_CANONICAL
+    from .formats.supercache import LOADER_V7_CANONICAL
     want_lr = LOADER_V7_CANONICAL
     v.add("V7", "loader_requirement", None if sidecar is None else lr == want_lr,
           f"{lr} (expected {want_lr})" if sidecar is not None
@@ -2536,7 +2536,7 @@ def validate_b3(snapshot: Any, link: Any, art_dir: str | os.PathLike, *,
               f"(qint-v6) binary ({len(caps)} known)", "v6_runtime_required")
 
     # ---- V8 provenance / re-import ------------------------------------------------------------
-    out_sid = sc6_snapshot_id(f6) if out.loadable else None
+    out_sid = semantic_snapshot_id(f6) if out.loadable else None
     res = None
     if not skip_reimport:
         try:
@@ -3255,27 +3255,27 @@ __all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v
 def write_b3_files(stage: str | os.PathLike, snapshot: Any, link: Any) -> None:
     """Write canonical top-level-v7 ``cache.sc``, derived captures and identity
     files of a :class:`~scopt.link.LinkResultV2` into ``stage``."""
-    from .formats.sc_v7 import write_sc7_public, write_sc7_semantic
+    from .formats.supercache import write_public_cache, write_semantic_cache
 
     st = Path(stage)
     st.mkdir(parents=True, exist_ok=True)
     parts = [(u.record, u.body) for u in link.units]
     if getattr(link, "firmware_regions", ()) and getattr(link, "ext", None) is not None:
-        from .formats.sc_v7 import write_sc7_composed
+        from .formats.supercache import write_composed_cache
 
-        write_sc7_composed(st / "cache.sc", snapshot.header, parts, link,
+        write_composed_cache(st / "cache.sc", snapshot.header, parts, link,
                            [x.body for x in link.variants],
                            rewritten=bool(link.grown or link.rewritten))
     elif getattr(link, "firmware_regions", ()):
-        from .formats.sc_v7 import write_sc7
+        from .formats.supercache import write_region_cache
 
-        write_sc7(st / "cache.sc", snapshot.header, parts, link)
+        write_region_cache(st / "cache.sc", snapshot.header, parts, link)
     elif getattr(link, "ext", None) is not None:
-        write_sc7_semantic(st / "cache.sc", snapshot.header, parts, link.ext,
+        write_semantic_cache(st / "cache.sc", snapshot.header, parts, link.ext,
                            [x.body for x in link.variants],
                            rewritten=bool(link.grown or link.rewritten))
     else:
-        write_sc7_public(st / "cache.sc", snapshot.header, parts)
+        write_public_cache(st / "cache.sc", snapshot.header, parts)
     for name, data in link.derived_scms:
         (st / name).write_bytes(data)
     if snapshot.bundle is not None:
@@ -3500,8 +3500,8 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
     the target RuntimeIdentity exe is in :func:`member_skip_capable_exes`
     (``member_skip_exes``)."""
     from .formats.envlayout_v1 import find_envlayout
-    from .formats.sc_v6 import ScExtRefused
-    from .formats.sc_v7 import (LOADER_V7, LOADER_V7_TRUSTED, LOADER_V7_TRUSTED_SC6,
+    from .formats.sc_semantic import ScExtRefused
+    from .formats.supercache import (LOADER_V7, LOADER_V7_TRUSTED, LOADER_V7_TRUSTED_SC6,
                                 LOADER_V7_TRUSTED_SC6_MEMBER_SKIP)
     from .link import NativeLinkerV2
 
@@ -3545,7 +3545,7 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
             return _reject_b3(store, candidate_id, "write_sc", led, link, None, str(e))
         if ri is not None and runtime is not None:
             A.write_json_file(stage / "runtime_identity.json", ri)
-        from .formats.sc_v7 import canonical_snapshot_id
+        from .formats.supercache import canonical_snapshot_id
 
         out_sid = canonical_snapshot_id(stage / "cache.sc")
         if pipeline is None:
@@ -3588,16 +3588,16 @@ def package_b3(snapshot: Any, plan: Any, store: str | os.PathLike, *, candidate_
         if link.ext is not None:
             sidecar["x_ext_artifact_id8"] = bytes(link.ext.artifact_id8).hex()
         if link.firmware_regions:
-            from .formats.sc_v7 import read_sc7
+            from .formats.supercache import read_region_directory
 
             sidecar["x_firmware_artifact_id8"] = \
-                read_sc7(stage / "cache.sc").artifact_id8.hex()
+                read_region_directory(stage / "cache.sc").artifact_id8.hex()
         for k, x in (sidecar_extra or {}).items():
             if not k.startswith("x_"):
                 raise ValueError(f"sidecar_extra key {k!r} must start with 'x_'")
             sidecar[k] = x
         if compile_only:
-            public = read_sc(stage / "cache.sc", versions=(7,))
+            public = read_sc(stage / "cache.sc")
             compiler_ok = (public.loadable and not public.skipped
                            and len(public.valid_slots) == len(link.units)
                            and [public.record_bytes[i] for i in public.valid_slots]

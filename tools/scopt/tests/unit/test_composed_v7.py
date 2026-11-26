@@ -19,19 +19,19 @@ import pytest
 from scopt.analysis.firmware_calls import discover_firmware_calls
 from scopt.canon import fnv1a64
 from scopt.formats.layouts import SC_CODE_OFFSET
-from scopt.formats.sc_v5 import ScFormatError, ScRecord, write_sc
-from scopt.formats.sc_v6 import (ARRAYS_OFFSET, COMPOSED_DIR_OFFSET, EXIT_STATIC, EXT_OFFSET,
+from scopt.formats.sc_records import ScFormatError, ScRecord, write_sc
+from scopt.formats.sc_semantic import (ARRAYS_OFFSET, COMPOSED_DIR_OFFSET, EXIT_STATIC, EXT_OFFSET,
                                  KIND_GENERAL, KIND_SPEC, SC7_SC6_REGIONS_MARKER,
                                  SC7_SEMANTIC_MARKER, ExtTable, LinkEntry, ScExtRefused,
-                                 SlotEntry, VariantEntry, max_ext_entries, read_sc6,
-                                 sc6_snapshot_id)
-from scopt.formats.sc_v7 import (LOADER_V7_TRUSTED, LOADER_V7_TRUSTED_SC6,
+                                 SlotEntry, VariantEntry, max_ext_entries, read_semantic_cache,
+                                 semantic_snapshot_id)
+from scopt.formats.supercache import (LOADER_V7_TRUSTED, LOADER_V7_TRUSTED_SC6,
                                  LOADER_V7_TRUSTED_SC6_MEMBER_SKIP, SC7_COMPOSED_DIR_OFFSET,
                                  SC7_FEATURE_SC6_REGIONS, SC7_MAGIC, build_directory,
                                  canonical_snapshot_id, decode_directory, directory_size,
-                                 is_composed_features, loader_requirement, read_sc7,
-                                 sc7_snapshot_id, write_sc7, write_sc7_composed,
-                                 write_sc7_semantic)
+                                 is_composed_features, loader_requirement, read_region_directory,
+                                 region_snapshot_id, write_region_cache, write_composed_cache,
+                                 write_semantic_cache)
 from scopt.link import B3Plan, NativeLinkerV2, relocate_unit, round_up
 
 from .test_firmware_inline import (_TRUSTED_PREFIX, _b3_grown_unit, _link_trusted, _snapshot,
@@ -86,7 +86,7 @@ def _fixture(*, variant_tb: int = 0x1000, member_descriptors: bool = True,
 
 def _write(tmp_path, fx, name="composed.sc", **kw):
     path = tmp_path / name
-    write_sc7_composed(path, fx.header, fx.parts, fx.link, fx.bodies, fsync=False, **kw)
+    write_composed_cache(path, fx.header, fx.parts, fx.link, fx.bodies, fsync=False, **kw)
     return path
 
 
@@ -109,12 +109,12 @@ def _patch_directory(path, offset, data):
 def test_composed_round_trip(tmp_path, member_descriptors):
     fx = _fixture(member_descriptors=member_descriptors)
     path = _write(tmp_path, fx)
-    semantic = read_sc6(path)
+    semantic = read_semantic_cache(path)
     assert semantic.problem is None and semantic.is_composed
     assert semantic.sc.header.reserved == (SC7_SEMANTIC_MARKER | SC7_SC6_REGIONS_MARKER |
                                            fx.ext.features())
     assert semantic.ext.variants == fx.ext.variants
-    directory = read_sc7(path)
+    directory = read_region_directory(path)
     assert directory.composed and directory.trusted
     assert loader_requirement(directory) == (LOADER_V7_TRUSTED_SC6_MEMBER_SKIP
                                              if member_descriptors else LOADER_V7_TRUSTED_SC6)
@@ -130,13 +130,13 @@ def test_composed_round_trip(tmp_path, member_descriptors):
     # The composed identity covers both payloads and differs from either
     # single-payload artifact of the same parts.
     composed_id = canonical_snapshot_id(path)
-    assert composed_id == sc7_snapshot_id(path)
-    assert composed_id != sc6_snapshot_id(semantic)
+    assert composed_id == region_snapshot_id(path)
+    assert composed_id != semantic_snapshot_id(semantic)
     semantic_only = tmp_path / "semantic.sc"
-    write_sc7_semantic(semantic_only, fx.header, fx.parts, fx.ext, fx.bodies, fsync=False)
+    write_semantic_cache(semantic_only, fx.header, fx.parts, fx.ext, fx.bodies, fsync=False)
     firmware_only = tmp_path / "firmware.sc"
-    write_sc7(firmware_only, fx.header, fx.plain_parts, fx.plain_link, fsync=False)
-    assert loader_requirement(read_sc7(firmware_only)) == LOADER_V7_TRUSTED
+    write_region_cache(firmware_only, fx.header, fx.plain_parts, fx.plain_link, fsync=False)
+    assert loader_requirement(read_region_directory(firmware_only)) == LOADER_V7_TRUSTED
     assert len({composed_id, canonical_snapshot_id(semantic_only),
                 canonical_snapshot_id(firmware_only)}) == 3
 
@@ -151,9 +151,9 @@ def test_writer_refuses_a_variant_overlapping_a_region(tmp_path):
     with pytest.raises(ScFormatError, match="overlaps"):
         _write(tmp_path, fx)
     path = _write(tmp_path, fx, "unchecked.sc", check=False)
-    assert read_sc6(path).problem is None                  # sc6 alone cannot see regions
+    assert read_semantic_cache(path).problem is None                  # sc6 alone cannot see regions
     with pytest.raises(ScFormatError, match="overlap"):
-        read_sc7(path)
+        read_region_directory(path)
 
 
 def test_writer_refuses_safe_regions(tmp_path):
@@ -167,7 +167,7 @@ def test_reader_refuses_a_safe_composed_directory(tmp_path):
     path = _write(tmp_path, _fixture(member_descriptors=False))
     _patch_directory(path, 8, struct.pack("<I", 2))        # ext_version: safe
     with pytest.raises(ScFormatError, match="trusted firmware directory"):
-        read_sc7(path)
+        read_region_directory(path)
 
 
 def test_reader_refuses_a_flipped_directory_header_byte(tmp_path):
@@ -177,9 +177,9 @@ def test_reader_refuses_a_flipped_directory_header_byte(tmp_path):
         byte = stream.read(1)
         stream.seek(SC7_COMPOSED_DIR_OFFSET + 56)
         stream.write(bytes([byte[0] ^ 1]))
-    assert read_sc6(path).problem is None                  # outside the sc6 checksum
+    assert read_semantic_cache(path).problem is None                  # outside the sc6 checksum
     with pytest.raises(ScFormatError, match="checksum mismatch"):
-        read_sc7(path)
+        read_region_directory(path)
 
 
 def test_arrays_must_end_before_the_composed_directory(tmp_path):
@@ -199,20 +199,33 @@ def test_arrays_must_end_before_the_composed_directory(tmp_path):
     hdr = fx.header.replace(version=7, reserved=(SC7_SEMANTIC_MARKER | SC7_SC6_REGIONS_MARKER |
                                                  big.features()))
     path = tmp_path / "big.sc"
-    write_sc(path, hdr, fx.parts, check=False, fsync=False, versions=(7,),
+    write_sc(path, hdr, fx.parts, check=False, fsync=False,
              extra=[(EXT_OFFSET, big.encode())])
-    assert read_sc6(path).problem[0] == "ext_table_too_large"
+    assert read_semantic_cache(path).problem[0] == "ext_table_too_large"
+
+
+def test_dump_identifies_all_payloads_without_reporting_them_as_padding(tmp_path):
+    from click.testing import CliRunner
+    from scopt.commands.sc import sc
+    import json
+
+    path = _write(tmp_path, _fixture())
+    result = CliRunner().invoke(sc, ["dump", str(path), "--check", "--no-records", "--json"])
+    assert result.exit_code == 0, result.output
+    dump = json.loads(result.output)
+    assert dump["snapshot_id"] == canonical_snapshot_id(path)
+    assert dump["structural_findings"] == []
 
 
 def test_bit_30_alone_is_unknown(tmp_path):
     fx = _fixture()
     path = tmp_path / "bit30.sc"
     write_sc(path, fx.header.replace(version=7, reserved=SC7_FEATURE_SC6_REGIONS), fx.parts,
-             fsync=False, versions=(7,))
+             fsync=False, check=False)
     assert not is_composed_features(SC7_FEATURE_SC6_REGIONS)
-    assert not read_sc6(path).is_semantic_v7
+    assert not read_semantic_cache(path).is_semantic_v7
     with pytest.raises(ScFormatError, match="feature bits"):
-        read_sc7(path)
+        read_region_directory(path)
     with pytest.raises(ScFormatError, match="feature bits"):
         canonical_snapshot_id(path)
 
@@ -225,12 +238,12 @@ def test_deploy_and_proof_check_both_payloads(tmp_path):
     art = tmp_path / "artifact"
     art.mkdir()
     path = _write(art, fx, "cache.sc")
-    directory = read_sc7(path)
+    directory = read_region_directory(path)
     sidecar = {"loader_requirement": LOADER_V7_TRUSTED_SC6_MEMBER_SKIP,
                "x_ext_artifact_id8": fx.ext.artifact_id8.hex(),
                "x_firmware_artifact_id8": directory.artifact_id8.hex()}
     (art / "cache.sc.scopt.json").write_text(json.dumps(sidecar))
-    header = read_sc6(path).sc.header
+    header = read_semantic_cache(path).sc.header
     entry = {"path": str(art), "sc": str(path), "kind": "artifact_dir"}
     reasons, info = artifact_refusals(entry, header)
     assert reasons == [] and info["firmware_artifact_id8"] == directory.artifact_id8.hex()
@@ -246,7 +259,7 @@ def test_deploy_and_proof_check_both_payloads(tmp_path):
         assert reason in artifact_refusals(entry, header)[0]
     state = deployed_state(path, None, frontend="none")
     assert state["v7_kind"] == "composed"
-    assert state["ext_sha256"] and state["firmware_snapshot_id"] == sc7_snapshot_id(path)
+    assert state["ext_sha256"] and state["firmware_snapshot_id"] == region_snapshot_id(path)
     assert all(c["ok"] for c in prove(state)["checks"])
     with path.open("r+b") as stream:                       # inside [0xFF00, 0xFF50)
         stream.seek(SC7_COMPOSED_DIR_OFFSET + 56)
@@ -398,11 +411,11 @@ def test_composed_member_skip_flags_equal_sc6_slots(tmp_path, member_slot_skip):
     else:
         assert region.member_descriptor_refusal == "b3_registered_slot"
         assert [m.skip_slots for m in region.members] == [0, 0]
-    # write_sc7_composed reads the file back with both readers (sc6 equality).
+    # write_composed_cache reads the file back with both readers (sc6 equality).
     from scopt.validate import write_b3_files
 
     write_b3_files(tmp_path / "art", snap, link)
-    directory = read_sc7(tmp_path / "art" / "cache.sc")
+    directory = read_region_directory(tmp_path / "art" / "cache.sc")
     decoded = decode_directory(directory)
     want = LOADER_V7_TRUSTED_SC6_MEMBER_SKIP if member_slot_skip else LOADER_V7_TRUSTED_SC6
     assert loader_requirement(directory) == want
@@ -433,7 +446,7 @@ def test_composed_member_skip_flags_equal_sc6_slots(tmp_path, member_slot_skip):
 def _patch_member_flags(path, flags_by_member, members):
     """Rewrite member flags in a composed directory, refreshing the checksum
     and the artifact identity (``members``: the linked member payloads)."""
-    from scopt.formats.sc_v7 import _HEADER, _MEMBER, _REGION, _artifact_id8
+    from scopt.formats.supercache import _HEADER, _MEMBER, _REGION, _artifact_id8
 
     with path.open("r+b") as stream:
         stream.seek(SC7_COMPOSED_DIR_OFFSET)
@@ -464,17 +477,17 @@ def _patch_member_flags(path, flags_by_member, members):
 def test_composed_reader_rejects_skip_mutants(tmp_path, member_descriptors, flags, needle):
     fx = _fixture(member_descriptors=member_descriptors)
     path = _write(tmp_path, fx)
-    decoded = decode_directory(read_sc7(path))
+    decoded = decode_directory(read_region_directory(path))
     assert [m["flags"] for m in decoded["members"]] == ([2, 2] if member_descriptors
                                                          else [0, 0])
     assert decoded["regions"][0]["flags"] == (7 if member_descriptors else 3)
     _patch_member_flags(path, flags, fx.linked.members)
     with pytest.raises(ScFormatError, match=needle):
-        read_sc7(path)
+        read_region_directory(path)
     # The unmutated table with a refreshed identity still reads.
     _patch_member_flags(path, {i: m["flags"] for i, m in enumerate(decoded["members"])},
                         fx.linked.members)
-    read_sc7(path)
+    read_region_directory(path)
 
 
 def test_v7_writer_rejects_bad_member_skip_flags():

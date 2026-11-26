@@ -7,7 +7,7 @@ from .decode.search import CF_PCREL
 from .decode.x86 import sweep
 from .formats.enums import Encoding, OpMarkKind, SiteKind
 from .formats.scm_v1 import ScmSite
-from .formats.sc_v5 import ScRecord
+from .formats.sc_records import ScRecord
 
 RUNTIME = "sha256:2da1d94f82da8f182282877b47959507b1282e11469e7b418fdf7913e99f28b6"
 PASS = "retire-ordinary-exits"

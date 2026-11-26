@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WP22 unit acceptance of the QEMU ``.sc`` v6 loader on hand-made v6 files.
+"""QEMU acceptance of the semantic extension inside a v7 SuperCache.
 
     v6_unit.py --qemu QINT_V6 --out OUT [--only CASE ...] [--keep]
 
@@ -9,16 +9,16 @@ deploy, ``setarch x86_64 -R``, timeout, ``supercache_flat=false``):
 1. ``scopt prepare`` + bundle/runtime identity + ``scopt import`` of the
    minimal fixture (``src/fastdyn/configs/b0-sc.toml``) **on the given
    binary** (``runtime_signature`` binds the file to the exe);
-2. ``v5`` control: the base snapshot warm (proof PASS, appended 0, B0 output);
-3. ``identity-v6``: the same file as v6 with an empty extension table
+2. Public control: the base snapshot warm (proof PASS, appended 0, B0 output);
+3. ``identity-semantic``: the same v7 file with an empty extension table
    (EXT_TABLE only) -> exit 0, proof PASS, appended 0, guest output equal to
-   the v5 control, ``QEMU_SC_V6_STATS`` reports the table loaded;
+   the public control, ``QEMU_SC_V6_STATS`` reports the table loaded;
 4. ``guarded``: grown R units with SPEC slots + variants (relocated clones of
    C) and GENERAL slots (``v6_synth.py``) -> exit 0, output equal, proof PASS,
    appended 0, links armed, no invariant violation; a second warm run with
    ``QEMU_SC_V6_STATS`` unset gives the same output;
-5. ``stale-signature``: identity-v6 with another ``runtime_signature`` ->
-   ``supercache: discarding v6 file: runtime signature`` and the stock
+5. ``stale-signature``: identity-semantic with another ``runtime_signature`` ->
+   ``supercache: discarding v7 file: runtime signature`` and the stock
    truncate + cold run (exit 0, proof INVALID by design);
 6. one malformed file per mutation of ``v6_synth.MUTATIONS`` -> QEMU exits
    non-zero with ``supercache: invalid v6 extension: <reason>``, no guest line
@@ -45,7 +45,9 @@ from typing import Any
 WT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from scopt.formats.sc_v5 import ScHeader, sha256_sparse  # noqa: E402
+from scopt.formats.sc_records import ScHeader, sha256_sparse  # noqa: E402
+from scopt.formats.layouts import SC_VERSION
+from scopt.formats.sc_semantic import SC7_SEMANTIC_MARKER
 from scopt.run.deploy import deploy_new  # noqa: E402
 from scopt.run.launcher import file_sha256, launch  # noqa: E402
 
@@ -128,7 +130,11 @@ class Unit:
                 "before": before, "after": after,
                 "stats": json.loads(st.read_text()) if st.is_file() else None,
                 "log_lines": [l for l in text.splitlines()
-                              if "supercache" in l and ("v6" in l or "invalid" in l)][:8]}
+                              if "supercache" in l and ("discarding" in l or "invalid" in l)][:8]}
+
+    def header(self, run):
+        with Path(run["run_dir"], "cache/minimal.sc").open("rb") as stream:
+            return ScHeader.from_bytes(stream.read(80))
 
     def check(self, name: str, ok_items: list[tuple[str, bool, Any]], run: dict[str, Any],
               extra: dict[str, Any] | None = None) -> None:
@@ -141,11 +147,11 @@ class Unit:
                                               if not ok), flush=True)
 
     # -- cases ----------------------------------------------------------------
-    def case_v5(self) -> None:
-        r = self.run("v5-control", self.base_sc)
-        self.v5_guest = r["guest_norm"]
+    def case_public(self) -> None:
+        r = self.run("public-control", self.base_sc)
+        self.public_guest = r["guest_norm"]
         st = r["stats"] or {}
-        self.check("v5-control", [
+        self.check("public-control", [
             ("exit 0", r["exit_code"] == 0, r["exit_code"]),
             ("proof PASS, appended 0", r["proof"] == "PASS" and r["appended"] == 0,
              (r["proof"], r["appended"])),
@@ -155,24 +161,24 @@ class Unit:
         ], r)
 
     def case_identity(self) -> None:
-        p = self.out / "files/identity-v6.sc"
+        p = self.out / "files/identity-semantic.sc"
         meta = V.identity_model(str(self.base_sc)).write(p)
-        r = self.run("identity-v6", p)
+        r = self.run("identity-semantic", p)
         st = r["stats"] or {}
-        self.check("identity-v6", [
+        header = self.header(r)
+        self.check("identity-semantic", [
             ("exit 0", r["exit_code"] == 0, r["exit_code"]),
             ("proof PASS, appended 0", r["proof"] == "PASS" and r["appended"] == 0,
              (r["proof"], r["appended"])),
-            ("guest output equals the v5 control", r["guest_norm"] == self.v5_guest,
+            ("guest output equals the public control", r["guest_norm"] == self.public_guest,
              r["guest_norm"]),
-            ("stats: loaded, version 6, 0 entries, nothing armed",
-             st.get("loaded") is True and st.get("file_version") == 6
+            ("stats: loaded, canonical version, 0 entries, nothing armed",
+             st.get("loaded") is True and st.get("file_version") == SC_VERSION
              and (st.get("n_variants"), st.get("n_slots"), st.get("n_links")) == (0, 0, 0)
              and st.get("links_armed") == 0, {k: st.get(k) for k in (
                  "loaded", "file_version", "feature_flags", "n_variants", "n_slots", "n_links")}),
-            ("file still version 6 after the run (not rewritten as v5)",
-             ScHeader.from_bytes(open(Path(r["run_dir"]) / "cache/minimal.sc", "rb").read(80)
-                                 ).version == 6, None),
+            ("semantic table retained after replay", (header.version, header.reserved) ==
+             (SC_VERSION, SC7_SEMANTIC_MARKER | V.FEAT_EXT_TABLE), None),
         ], r, {"file": meta})
 
     def case_guarded(self) -> None:
@@ -188,8 +194,8 @@ class Unit:
              (r["exit_code"], r2["exit_code"])),
             ("proof PASS, appended 0", r["proof"] == "PASS" and r["appended"] == 0,
              (r["proof"], r["appended"])),
-            ("guest output equals the v5 control (stats on and off)",
-             r["guest_norm"] == self.v5_guest and r2["guest_norm"] == self.v5_guest,
+            ("guest output equals the public control (stats on and off)",
+             r["guest_norm"] == self.public_guest and r2["guest_norm"] == self.public_guest,
              (r["guest_norm"], r2["guest_norm"])),
             ("table loaded with all entries",
              (st.get("n_variants"), st.get("n_slots"), st.get("n_links"))
@@ -206,16 +212,16 @@ class Unit:
         m.header = m.header.replace(runtime_signature=m.header.runtime_signature ^ 1)
         m.write(p)
         r = self.run("stale-signature", p)
+        header = self.header(r)
         self.check("stale-signature", [
-            ("warning 'discarding v6 file: runtime signature'",
-             any("discarding v6 file: runtime signature" in l for l in r["log_lines"]),
+            ("warning 'discarding v7 file: runtime signature'",
+             any("discarding v7 file: runtime signature" in l for l in r["log_lines"]),
              r["log_lines"]),
             ("exit 0 (stock truncate + cold run)", r["exit_code"] == 0, r["exit_code"]),
-            ("file rewritten as a fresh v5 cache", r["after"]["sha256"] != r["before"]["sha256"]
-             and ScHeader.from_bytes(open(Path(r["run_dir"]) / "cache/minimal.sc", "rb")
-                                     .read(80)).version == 5, None),
-            ("guest output equals the v5 control (apart from the warning line)",
-             [l for l in r["guest_norm"] if "discarding v6 file" not in l] == self.v5_guest,
+            ("file rewritten as a fresh public cache", r["after"]["sha256"] != r["before"]["sha256"]
+             and (header.version, header.reserved) == (SC_VERSION, 0), None),
+            ("guest output equals the public control (apart from the warning line)",
+             [l for l in r["guest_norm"] if "discarding v7 file" not in l] == self.public_guest,
              r["guest_norm"]),
         ], r)
 
@@ -255,7 +261,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--qemu", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--only", nargs="*", help="v5 identity guarded stale mutants mut:<name>")
+    ap.add_argument("--only", nargs="*", help="public identity guarded stale mutants mut:<name>")
     a = ap.parse_args()
     out = a.out.resolve()
     if out.exists() and any(out.iterdir()):
@@ -265,7 +271,7 @@ def main() -> int:
     t0 = time.time()
     u.prepare()
     only = set(a.only) if a.only else None
-    u.case_v5()
+    u.case_public()
     if not only or "identity" in only:
         u.case_identity()
     if not only or "guarded" in only:

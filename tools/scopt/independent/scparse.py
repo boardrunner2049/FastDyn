@@ -7,6 +7,8 @@ path=sys.argv[1]
 f=open(path,'rb')
 hdr=f.read(80)
 magic,ver,hsz,code_size,code_addr,prol_end,rcount,sig,hps,tpb,tbsz,res,ck=struct.unpack('<8sIIQQQQQIIIIQ',hdr)
+if magic != b'QSCACHE1' or ver != 7:
+    raise SystemExit(f'unsupported SuperCache header: magic={magic!r} version={ver}')
 print('magic',magic,'ver',ver,'hsz',hsz,'code_size',hex(code_size),'code_addr',hex(code_addr),'prologue_end',hex(prol_end),'records',rcount,'sig',hex(sig),'host_page',hps,'target_page_bits',tpb,'tb_size',tbsz,'hdr_ck_ok',fnv(hdr[:72])==ck)
 roff=0x10000+code_size
 f.seek(roff); data=f.read()

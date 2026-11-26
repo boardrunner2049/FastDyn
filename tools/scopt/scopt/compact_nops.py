@@ -7,7 +7,7 @@ from .canon import fnv1a64
 from .decode.search import decode_search, encode_search, is_pcrel, unwind
 from .decode.x86 import sweep, tiles
 from .formats.enums import Encoding, NONE_U32, OpMarkKind, SiteKind, TbFlag
-from .formats.sc_v5 import ScRecord
+from .formats.sc_records import ScRecord
 
 
 class Ineligible(ValueError):

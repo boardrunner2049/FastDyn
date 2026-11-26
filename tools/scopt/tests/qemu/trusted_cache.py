@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from scopt.formats.sc_v5 import HEADER_SIZE, RECORD_SIZE, ScHeader, ScRecord, sparse_copy
+from scopt.formats.sc_records import HEADER_SIZE, RECORD_SIZE, ScHeader, ScRecord, sparse_copy
 from scopt.run.helper_pgo import _guest_lines, _launch
 from scopt.run.v7_stats import counter_problems
 

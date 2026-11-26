@@ -199,7 +199,7 @@ def patch_unit(link: Any, uid: str, patches: Sequence[tuple[int, bytes]]) -> Any
 
 def add_link(link: Any, slot_index: int, variant_index: int) -> Any:
     """``link`` with one more ext LinkEntry ``slot -> variant`` (the variant shared)."""
-    from ..formats.sc_v6 import LinkEntry
+    from ..formats.sc_semantic import LinkEntry
 
     ext = link.ext
     links = tuple(lk for lk in ext.links if lk.slot_index != slot_index) + \
@@ -386,7 +386,7 @@ def _verdict(name: str, uid: str, lc: LinkCheck, *, structural: str | None = Non
 
 def _structural(link: Any, uid: str, st_off: int, offsets: Any, code_address: int) -> str:
     """WP18's strict template decoder on the (mutated) placed stub (informational)."""
-    from ..formats.sc_v5 import ScRecord
+    from ..formats.sc_records import ScRecord
     from ..guard import GuardError, decode_guard
 
     lu = link.by_uid()[uid]

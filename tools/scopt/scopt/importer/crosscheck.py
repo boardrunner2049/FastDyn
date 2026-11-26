@@ -61,7 +61,7 @@ from ..decode.x86 import (Arena, DecodeMemo, DecodedRef, Insn as X86Insn, RefKin
 from ..formats.enums import NONE_U32, Encoding, OpMarkKind, SiteKind, TbFlag
 from ..model.native import (FULL_UDIV_CLEANUP_KIND, FULL_UDIV_KINDS, GUARDED_UDIV_KINDS,
                             UDIV_29_INLINE_KIND, UDIV_29_KIND, UDIV_CLEANUP_KIND, UDIV_KIND, UDIV_TYPEMASK)
-from ..formats.sc_v5 import ScHeader, ScUnit
+from ..formats.sc_records import ScHeader, ScUnit
 from ..formats.scm_v1 import TbChunk
 from ..model.unit import (AnchoredPointer, Fixup, HelperBinding, Insn, Ldst, OpMark,
                           PoolEntry, RecoveryPoint, Site)

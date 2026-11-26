@@ -1,24 +1,9 @@
 --- a/accel/tcg/cpu-exec.c
 +++ b/accel/tcg/cpu-exec.c
-@@ -41,6 +41,10 @@
- #include "exec/icount.h"
- #include "exec/replay-core.h"
- #include "system/tcg.h"
-+#ifndef CONFIG_USER_ONLY
-+#include "system/address-spaces.h"
-+#include "system/memory.h"
-+#endif
- #include "exec/helper-proto-common.h"
- #include "tb-jmp-cache.h"
- #include "tb-hash.h"
-@@ -937,7 +941,96 @@
-         cpu->cflags_next_tb = (tb->cflags & ~CF_COUNT_MASK) | insns_left;
-     }
- #endif
-+}
-+
-+#ifndef CONFIG_USER_ONLY
-+/*
+@@ -956,6 +956,93 @@
+
+ #ifndef CONFIG_USER_ONLY
+ /*
 + * Offline coverage probe for a fixed, mapped Cortex-M fixture. The harness
 + * starts this at its agreed reset entry and supplies a bounded Thumb range.
 + * Probe the live translation flags and the exact one-insn count variant.
@@ -103,18 +88,17 @@
 +        error_report("cannot finalize scopt coverage trace");
 +        exit(EXIT_FAILURE);
 +    }
- }
-+#endif
- 
- /* main execution loop */
- 
-@@ -969,6 +1062,9 @@
-                 cpu->cflags_next_tb = -1;
-             }
- 
-+#ifndef CONFIG_USER_ONLY
++}
++
++/*
+  * Whole-firmware sealed-cache producer.  The caller supplies immutable ROM
+  * ranges as START-END pairs.  At the first ordinary reset-context dispatch,
+  * generate a canonical one-instruction TB for every Thumb halfword without
+@@ -1102,6 +1189,7 @@
+
+ #ifndef CONFIG_USER_ONLY
+             scopt_sealed_pretranslate(cpu, &s);
 +            scopt_pretranslate(cpu, s);
-+#endif
+ #endif
+
              if (check_for_breakpoints(cpu, s.pc, &s.cflags)) {
-                 break;
-             }

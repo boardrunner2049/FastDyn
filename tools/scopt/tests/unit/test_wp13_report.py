@@ -212,18 +212,19 @@ def _profile_doc(uids, entries, statuses=None, reached=True):
                       for u, n, s in zip(uids, entries, statuses)]}
 
 
-@pytest.mark.parametrize("version", [5, 6])
-def test_hotset_metrics(tmp_path, version):
-    from scopt.formats.sc_v5 import read_sc
+@pytest.mark.parametrize("semantic", [False, True])
+def test_hotset_metrics(tmp_path, semantic):
+    from scopt.formats.sc_records import read_sc
     units = simple_units(4)
     p = tmp_path / "a.sc"
     build_sc(units, path=str(p))
     sc = read_sc(p)
     uids = sc.unit_ids()
-    if version == 6:
-        from scopt.formats.sc_v6 import ExtTable, write_sc6
+    if semantic:
+        from scopt.formats.sc_semantic import ExtTable
+        from scopt.formats.supercache import write_semantic_cache
 
-        write_sc6(p, sc.header, [(u.record, u.body) for u in sc.units()], ExtTable(artifact_id8=b"footprnt"), rewritten=True)
+        write_semantic_cache(p, sc.header, [(u.record, u.body) for u in sc.units()], ExtTable(artifact_id8=b"footprnt"), rewritten=True)
     doc = _profile_doc(uids + ["tb:missing#0"], [100, 0, 5, 1, 0],
                        ["exact", "exact", "exact", "unknown", "exact"])
     h = hotset_metrics(doc, p, coverage=0.9)

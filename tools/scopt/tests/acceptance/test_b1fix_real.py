@@ -18,7 +18,7 @@ import pytest
 
 from scopt.formats import artifact as A
 from scopt.formats import scm_v1 as S
-from scopt.formats.sc_v5 import RECORD_SIZE, read_sc, sparse_copy
+from scopt.formats.sc_records import RECORD_SIZE, read_sc, sparse_copy
 from scopt.importer.import_cache import import_snapshot, open_snapshot
 from scopt.link import round_up
 from scopt.manager import PassManager, default_pass_registry

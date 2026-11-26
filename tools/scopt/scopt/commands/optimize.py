@@ -24,25 +24,32 @@ def register(group: click.Group) -> None:
 @click.option("--runtime-identity", "runtime_file",
               type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help="RuntimeIdentity to check against the cache header.")
-@click.option("--trusted", is_flag=True, help="Trust stored public record checksums.")
+@click.option("--trusted", is_flag=True, help="Trust stored record and payload checksums while checking structural bounds and references.")
 @click.option("--json", "as_json", is_flag=True)
 def load_cmd(artifact: Path, runtime_file: Path | None, as_json: bool, trusted: bool) -> None:
     """Check only loader-required format, bounds, and runtime compatibility."""
     from contextlib import nullcontext
     from ..canon import hexaddr
     from ..formats.artifact import SIDECAR
-    from ..formats.sc_v5 import read_sc, structural_findings, trusted_record_input
+    from ..formats.sc_records import ScFormatError, read_sc, structural_findings, trusted_record_input
+    from ..formats.supercache import checked_cache_end
 
     cache = artifact / "cache.sc"
     if not cache.is_file():
         raise click.ClickException("artifact has no cache.sc")
     with trusted_record_input() if trusted else nullcontext():
-        parsed = read_sc(cache, versions=(7,))
+        parsed = read_sc(cache)
     problems = list(parsed.header_problems)
     problems.extend(f"slot {row.slot}: {row.reason}" for row in parsed.skipped[:8])
     problems.extend(f"{row.code}: {row.detail}" for row in
                     structural_findings(parsed, scan_zeros=False)
                     if row.code not in parsed.header_problems)
+    end = parsed.max_end
+    if not problems:
+        try:
+            end = checked_cache_end(parsed, trusted_input=trusted)
+        except ScFormatError as exc:
+            problems.append(str(exc))
     runtime = json.loads(runtime_file.read_text()) if runtime_file else None
     if runtime is not None:
         for key in ("runtime_signature", "code_address", "code_size", "prologue_end"):
@@ -74,7 +81,7 @@ def load_cmd(artifact: Path, runtime_file: Path | None, as_json: bool, trusted: 
                     problems.append(f"runtime mismatch: {key} {expected} != {actual}")
     doc = {"loadable": not problems, "problems": problems, "user_trusted_input": trusted,
            "version": parsed.header.version, "units": len(parsed.valid_slots),
-           "max_end": parsed.max_end,
+           "max_end": end,
            "assurance": None if sidecar is None else sidecar.get("x_assurance"),
            "audited": None if sidecar is None else sidecar.get("x_audited")}
     if as_json:
@@ -579,7 +586,7 @@ def optimize_cmd(snapshot, pipeline, store, profiles, disable, enable, only, par
             exes["v6"], exes["trusted_v7"], exes["member_skip"])
     trust_input = trust_input or _user_trusted_pipeline(pl, params, disable)
     if trust_input:
-        from ..formats.sc_v5 import trusted_record_input
+        from ..formats.sc_records import trusted_record_input
         click.get_current_context().with_resource(trusted_record_input())
     if bool(select_with) != bool(selection_out):
         raise click.UsageError("Use --select-with and --selection-out together.")
@@ -929,7 +936,7 @@ def validate_cmd(artifact, snapshot, dynamic, configs, out_dir, reps, qemu, base
             for f in doc["failures"]:
                 click.echo(f"  {f}")
         sys.exit(0 if doc["verdict"] == "pass" else 1)
-    from ..formats.sc_v5 import ScFormatError
+    from ..formats.sc_records import ScFormatError
     from ..validate import static_not_applicable
 
     info = read_artifact(artifact)

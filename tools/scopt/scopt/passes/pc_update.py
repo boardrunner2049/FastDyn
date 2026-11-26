@@ -3,6 +3,7 @@ from ..analysis.hotness import phase_profile_counts
 from ..analysis.pc_update import folded_exits, layout_matches, recorded_targets
 from ..validate_sym.equiv import check_equiv
 from ..validate_sym.program import patched, program_of, world_of
+from .public_input import public_input_refusal
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult, Patch
 
 
@@ -18,10 +19,11 @@ class FoldExitPcUpdate:
         if ctx.b3 is None or not ctx.b3.layout_bound or not layout_matches(ctx.b3.layout):
             return PassResult(Outcome.SKIPPED_UNKNOWN, "unbound_arm_pc")
         base = ctx.b3.snapshot
-        if ((base.header.version, base.header.reserved) != (7, 0) or
-                ctx.b3_state.rewrites or ctx.b3_state.exits
-                or ctx.b3_state.variants):
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_canonical_public_v7")
+        refusal = public_input_refusal(base.header)
+        if refusal is not None:
+            return refusal
+        if ctx.b3_state.rewrites or ctx.b3_state.exits or ctx.b3_state.variants:
+            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_unmodified_public_blocks")
         counts, view = phase_profile_counts(ctx, snap, "steady")
         if view is None:
             return PassResult(Outcome.SKIPPED_UNKNOWN, "missing_steady_profile")

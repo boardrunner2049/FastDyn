@@ -42,7 +42,7 @@ STAGES = ("inspected", "optimized", "compiled", "accepted", "validated_dynamic",
 # Spec §8 primary arms, in report order.
 SPEC_ARMS = ("nocache", "empty", "warm", "identity", "layout", "semantic", "combined")
 SPEC_UNSUPPORTED = {
-    "semantic": "capability_not_enabled: semantic cross-TB passes are B3/B4 (need .sc v6)",
+    "semantic": "capability_not_enabled: semantic cross-TB passes are B3/B4 (need the semantic extension)",
     "combined": "capability_not_enabled: needs the semantic arm (B3/B4)",
 }
 # metric name -> (row key, unit label, scale to display unit)
@@ -137,7 +137,8 @@ def sc_metrics(path: str | os.PathLike) -> dict[str, Any]:
     empty cache) and ``reason`` says why. File size and allocated blocks come
     from ``stat`` and are kept whenever the file exists.
     """
-    from ..formats.sc_v5 import read_sc
+    from ..formats.sc_records import read_sc
+    from ..formats.supercache import canonical_snapshot_id
 
     p = Path(path)
     doc: dict[str, Any] = {"path": str(p), "status": "unknown", "reason": None,
@@ -149,6 +150,7 @@ def sc_metrics(path: str | os.PathLike) -> dict[str, Any]:
         doc.update(logical_file_size=st.st_size, allocated_blocks=st.st_blocks,
                    allocated_bytes=st.st_blocks * 512)  # 512-byte units (stat st_blocks)
         sc = read_sc(p)
+        sid = canonical_snapshot_id(p) if sc.loadable and sc.header.reserved else sc.snapshot_id()
     except Exception as e:  # noqa: BLE001 - an unreadable file is a row, not a crash
         doc["reason"] = f"unreadable: {type(e).__name__}: {e}"
         return doc
@@ -177,16 +179,16 @@ def sc_metrics(path: str | os.PathLike) -> dict[str, Any]:
         "prologue_end": h.prologue_end,
         "max_end": sc.max_end,
         "used_span_bytes": (sc.max_end - min(r.tb_offset for r in recs)) if recs else 0,
-        "snapshot_id": sc.snapshot_id(),
+        "snapshot_id": sid,
     })
     return doc
 
 
 def _sc_units_layout(path: str | os.PathLike) -> dict[str, tuple[int, int, int, int]]:
     """UnitId -> (tb_offset, tc_offset, tc_size, end_offset) for the valid slots."""
-    from ..formats.sc_v6 import read_sc6
+    from ..formats.sc_semantic import read_semantic_cache
 
-    cache = read_sc6(path)
+    cache = read_semantic_cache(path)
     if not cache.loadable:
         raise ValueError(f"unloadable cache layout: {cache.problem or cache.sc.header_problems}")
     sc = cache.sc

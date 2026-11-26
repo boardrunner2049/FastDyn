@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from scopt.formats.sc_v6 import read_sc6
+from scopt.formats.sc_semantic import read_semantic_cache
 from scopt.formats.scm_v1 import read_scm
 from scopt.manager import load_pipeline
 from scopt.run.pass_policy import check_requested, policy_arguments
@@ -49,7 +49,7 @@ def main():
     doc = load(out / "result.json")
     (out / "effective.json").write_text(json.dumps(check_requested(doc, stages, stages=stages), indent=1) + "\n")
     result = Path(doc["artifact_dir"])
-    image = read_sc6(result / "cache.sc")
+    image = read_semantic_cache(result / "cache.sc")
     certs = [tb for f in result.glob("cache*.scm") for tb in read_scm(f).tbs.values()
              if tb.native_fragments]
     moves = load(result / "cache.sc.scopt.json").get("move_map")

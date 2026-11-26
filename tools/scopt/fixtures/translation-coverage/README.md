@@ -66,14 +66,14 @@ scopt-env/bin/python tools/scopt/scripts/check_coverage_revocation.py \
 On emulated x86-64 hosts, use the repository's QEMU hostsym oracle to generate
 the V18 witness and pass it to `bootstrap_specialization_coverage.py --selftest`.
 
-The revocation regression binds an optional dispatch guard to the loaded v6
+The revocation regression binds an optional dispatch guard to the loaded semantic
 extension checksum and runtime signature, and exercises it at one compiled
 fixture entry. It injects an unexpected count-limited key after a real optimized
 link has armed. The loader checks synchronous unlinking, persistent no-rearm
 state, and guest output after baseline reentry. A changed extension checksum
 is refused during startup. The verified run armed one incoming link, unlinked
 it and both internal slots, and appended one baseline TB for the new key.
-The optional guard exercises the existing v6 disarm path. Closure-dependent
+The optional guard exercises the existing semantic-slot disarm path. Closure-dependent
 entry removal remains disabled pending mandatory runtime binding and checks for
 direct JIT transfers.
 

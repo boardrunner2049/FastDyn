@@ -19,7 +19,7 @@ from click.testing import CliRunner
 
 from scopt.formats import artifact as A
 from scopt.formats import scm_v1 as S
-from scopt.formats.sc_v5 import RECORD_SIZE, SC_CODE_OFFSET, ScHeader, read_sc, write_sc
+from scopt.formats.sc_records import RECORD_SIZE, SC_CODE_OFFSET, ScHeader, read_sc, write_sc
 from scopt.importer.import_cache import import_snapshot
 from scopt.ledger import Ledger, LedgerError, LedgerRow
 from scopt.manager import PassManager

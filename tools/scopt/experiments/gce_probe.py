@@ -51,7 +51,7 @@ from typing import Any, Iterable, Mapping
 
 from scopt.decode.search import decode_search, encode_search, is_pcrel, SearchRow
 from scopt.decode.x86 import sweep
-from scopt.formats.sc_v5 import ScRecord, read_sc, write_sc
+from scopt.formats.sc_records import ScRecord, read_sc, write_sc
 from scopt.link import apply_fixup, round_up
 
 LABEL = "experimental_unsound_without_v6_tlb_hook"

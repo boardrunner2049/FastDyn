@@ -37,7 +37,7 @@ FIXTURE = (fastdyn_root() / "fixtures/b3")
 
 
 def _canonical_cache(features: int = 0) -> bytes:
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
 
     return ScHeader(b"QSCACHE1", 7, 80, 1 << 16, 0x7fff6c000000, 0, 0, 0,
                     4096, 10, 152, features, 0).with_checksum().to_bytes()
@@ -370,11 +370,11 @@ def v6_store(tmp_path, monkeypatch):
 
 @pytest.mark.real
 def test_artifact_probe_addrs(v6_store):
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
 
     *_, art = v6_store
     rows = artifact_probe_addrs(art / "cache.sc")
-    f = read_sc6(art / "cache.sc")
+    f = read_semantic_cache(art / "cache.sc")
     base = f.sc.header.code_address
     kinds = [r["kind"] for r in rows]
     assert kinds.count("variant") == len(f.ext.variants) == 2
@@ -400,7 +400,7 @@ def test_artifact_probe_addrs(v6_store):
 # ---------------------------------------------------------------------------
 
 def _copy_sc(src: Path, dst: Path) -> Path:
-    from scopt.formats.sc_v5 import sparse_copy
+    from scopt.formats.sc_records import sparse_copy
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     sparse_copy(src, dst)
@@ -410,7 +410,7 @@ def _copy_sc(src: Path, dst: Path) -> Path:
 
 @pytest.mark.real
 def test_proof_v6_pass_old_loader_and_ext(v6_store, tmp_path):
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
     from scopt.run.proof import VERDICT_INVALID, VERDICT_PASS, deployed_state, prove
 
     *_, art = v6_store
@@ -418,12 +418,12 @@ def test_proof_v6_pass_old_loader_and_ext(v6_store, tmp_path):
     man = sc.parent / "c.sc.fastdyn.json"
     man.write_text(json.dumps({"version": 1, "fingerprint": "ab" * 32}))
     st = deployed_state(sc, man)
-    assert st["file_version"] == 6 and st["ext_sha256"].startswith("sha256:")
+    assert st["file_version"] == 7 and st["ext_sha256"].startswith("sha256:")
     side = json.loads((art / "cache.sc.scopt.json").read_text())
     assert st["ext_artifact_id8"] == side["x_ext_artifact_id8"]
     r = prove(st)
-    assert r["verdict"] == VERDICT_PASS and r["file_version"] == 6
-    assert {c["check"] for c in r["checks"]} >= {"v6_header", "ext"}
+    assert r["verdict"] == VERDICT_PASS and r["file_version"] == 7
+    assert {c["check"] for c in r["checks"]} >= {"semantic_header", "ext"}
     # an ext byte changed during the run
     fd = os.open(sc, os.O_RDWR)
     b = os.pread(fd, 1, 0x100 + 70)
@@ -442,9 +442,9 @@ def test_proof_v6_pass_old_loader_and_ext(v6_store, tmp_path):
     os.close(fd)
     r = prove(st)
     # (the record bytes are still there; header and v6_header name the rewrite)
-    assert r["verdict"] == VERDICT_INVALID and r["failed"] == ["header", "v6_header"]
-    assert "fresh v5 header" in next(c["detail"] for c in r["checks"]
-                                     if c["check"] == "v6_header")
+    assert r["verdict"] == VERDICT_INVALID and r["failed"] == ["header", "semantic_header"]
+    assert "version 7 -> 5" in next(c["detail"] for c in r["checks"]
+                                     if c["check"] == "semantic_header")
     assert r["appended"] is None
 
 
@@ -489,7 +489,7 @@ def negative(tmp_path, monkeypatch):
 
 @pytest.mark.real
 def test_negative_control_packaged_and_tagged(negative):
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
     from scopt.run.policy import NEGATIVE_MARKER, artifact_tags
 
     *_, r = negative
@@ -502,7 +502,7 @@ def test_negative_control_packaged_and_tagged(negative):
     assert tag["byte_mutation"] and tag["reimport"] == "skipped"
     assert (d / NEGATIVE_MARKER).is_file() and artifact_tags(d)["negative_control"]
     # resealed: the loader would load it (no ext problem), and the sidecar id matches
-    f = read_sc6(d / "cache.sc")
+    f = read_semantic_cache(d / "cache.sc")
     assert f.loadable and f.problem is None
     assert side["x_ext_artifact_id8"] == bytes(f.ext.artifact_id8).hex()
     val = json.loads((d / "validation.json").read_text())
@@ -558,7 +558,7 @@ def test_negative_control_refused_by_scopt_publish(negative, v6_store, tmp_path)
 
 @pytest.mark.real
 def test_negative_control_refusals_elsewhere(negative, tmp_path):
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
     from scopt.run.deploy import artifact_refusals, resolve_artifact
     from scopt.run.negative import package_negative
 
@@ -698,7 +698,7 @@ def _sc6_artifact_dir(art: Path, dst: Path) -> Path:
 
 @pytest.mark.real
 def test_artifact_refusals_v6_consistency_and_policies(v6_store, tmp_path):
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
     from scopt.run.deploy import artifact_refusals, resolve_artifact
     from scopt.run.policy import tag_sidecar
 
@@ -712,7 +712,7 @@ def test_artifact_refusals_v6_consistency_and_policies(v6_store, tmp_path):
         return artifact_refusals(a, h, **kw)
 
     rs, info = refs()
-    assert rs == [] and info["file_version"] == 6 and info["ext_artifact_id8"] == \
+    assert rs == [] and info["file_version"] == 7 and info["ext_artifact_id8"] == \
         info["sidecar_ext_artifact_id8"]
     sp = d / "cache.sc.scopt.json"
     side = json.loads(sp.read_text())
@@ -752,7 +752,7 @@ def test_deploy_refuses_test_only_before_the_oracle(tmp_path, monkeypatch):
     records the refusal in deploy.json (so launch refuses the run dir)."""
     from types import SimpleNamespace
 
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
     import scopt.run.deploy as D
     from scopt.run.proof import deploy_refusal
 
@@ -787,7 +787,7 @@ echo "alias nz=00000000"
 
 
 def _small_sc(path: Path) -> Path:
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
 
     h = ScHeader(b"QSCACHE1", 7, 80, 1 << 16, 0x7fff6c000000, 0, 0, 0, 4096, 10, 152, 0, 0)
     path.write_bytes(h.with_checksum().to_bytes())
@@ -840,13 +840,13 @@ def test_direct_deploy_and_launch(tmp_path):
 def test_arm_tables():
     from scopt.run.arms import B3B4_ARMS, FIXTURE_ARMS, ablation_arms, b3b4_arm_specs
 
-    assert list(B3B4_ARMS) == ["nocache", "empty", "warm", "identity", "identity-v6", "layout",
+    assert list(B3B4_ARMS) == ["nocache", "empty", "warm", "identity", "identity-semantic", "layout",
                                "b3-chain", "b3-static", "b3-spec", "b4", "semantic",
                                "combined"]
-    assert list(FIXTURE_ARMS) == ["warm", "identity-v6", "chain", "spec", "b4", "combined"]
-    assert {a.loader for a in B3B4_ARMS.values() if a.name in ("b4", "warm", "layout")} == {"v5"}
-    assert B3B4_ARMS["semantic"].loader == "v6" and "eliminate-state-sync" in \
-        B3B4_ARMS["semantic"].passes
+    assert list(FIXTURE_ARMS) == ["warm", "identity-semantic", "chain", "spec", "b4", "combined"]
+    for arm in (*B3B4_ARMS.values(), *FIXTURE_ARMS.values(), *ablation_arms()):
+        assert arm.loader == ("v7" if arm.kind == "deploy" else "none")
+    assert "eliminate-state-sync" in B3B4_ARMS["semantic"].passes
     assert set(B3B4_ARMS["combined"].passes) == set(B3B4_ARMS["semantic"].passes) | {"b2-layout"}
     names = [a.name for a in ablation_arms()]
     assert "semantic-no-branch-fold" in names and "b4-D2" in names
@@ -895,17 +895,17 @@ def test_preflight_refuses_negative_and_requires_v6_loader(negative, v6_store, t
     c = campaign_from_args(base_config=str(base), arms=["warm"], out_name="t", warm=str(art))
     with pytest.raises(CampaignError) as e:
         preflight(c, tmp_path / "o2")
-    assert e.value.code == "v6_arm_needs_qemu"
+    assert e.value.code == "semantic_arm_needs_qemu"
     q = tmp_path / "qemu"
     q.write_bytes(b"not a v6 binary")
     c.qemu = str(q)
     with pytest.raises(CampaignError) as e:
         preflight(c, tmp_path / "o3")
-    assert e.value.code == "v6_loader_required"
+    assert e.value.code == "semantic_loader_required"
     import hashlib
     monkeypatch.setenv("SCOPT_V6_EXES", hashlib.sha256(q.read_bytes()).hexdigest())
     ids = preflight(c, tmp_path / "o4")
-    assert ids["v6_arms"] == ["warm"] and ids["arms"]["warm"]["file_version"] == 6
+    assert ids["semantic_arms"] == ["warm"] and ids["arms"]["warm"]["file_version"] == 7
 
 
 FAKE_CAPTURE_QEMU = """#!/bin/sh
@@ -935,7 +935,7 @@ def test_prepare_direct_plumbing(tmp_path, monkeypatch):
 
 
 def test_proof_rejects_legacy_top_level_version(tmp_path):
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
     from scopt.run.proof import deployed_state
 
     h = ScHeader(b"QSCACHE1", 6, 80, 1 << 16, 0x7fff6c000000, 0, 0, 0, 4096, 10, 152, 0, 0)
@@ -987,6 +987,31 @@ def _rewrite_validation(d, edit):
     _reseal_manifest(d)
 
 
+def test_publish_composed_cache_uses_region_and_semantic_identity(tmp_path):
+    from scopt.canon import sha256_id
+    from scopt.commands.run_b3 import publish_directory
+    from scopt.formats import artifact as A
+    from scopt.formats.supercache import canonical_snapshot_id, loader_requirement, read_region_directory
+    from .test_composed_v7 import _fixture, _write
+    from .test_contracts import _sidecar
+
+    source = tmp_path / "source"
+    source.mkdir()
+    cache = _write(source, _fixture(), "cache.sc")
+    identity = canonical_snapshot_id(cache)
+    side = _sidecar()
+    side.update(input_snapshot_id=identity, output_snapshot_id=identity,
+                loader_requirement=loader_requirement(read_region_directory(cache)))
+    validation = {"input_snapshot_id": identity, "output_snapshot_id": identity,
+                  "verdict": "accepted", "rows": []}
+    side["validation_sha256"] = sha256_id(A.write_json_file(source / A.VALIDATION, validation))
+    A.write_json_file(source / A.SIDECAR, side)
+    _reseal_manifest(source)
+
+    published = publish_directory(str(source), str(tmp_path / "store"))
+    assert canonical_snapshot_id(Path(published["artifact_dir"]) / "cache.sc") == identity
+
+
 @pytest.mark.real
 def test_scopt_publish_verifies_the_source(v6_store, tmp_path):
     """Blocking review issue 1: `scopt publish` refuses a source whose cache.sc
@@ -996,7 +1021,7 @@ def test_scopt_publish_verifies_the_source(v6_store, tmp_path):
     from scopt.cli import cli, load_commands
     from scopt.commands.run_b3 import publish_directory
     from scopt.formats import artifact as A
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
     from scopt.link import B3Plan
     from scopt.validate import package_b3
 
@@ -1069,7 +1094,7 @@ def test_scopt_publish_verifies_the_source(v6_store, tmp_path):
 @pytest.mark.real
 def test_bare_sc_of_a_negative_control_is_refused(negative, tmp_path):
     """Review minor: deploying `<neg_dir>/cache.sc` does not bypass the tags."""
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
     from scopt.run.deploy import artifact_refusals, resolve_artifact
     from scopt.run.policy import artifact_tags, deploy_refusals
 

@@ -10,9 +10,10 @@ from scopt.canon import canonical_json, fnv1a64, sha256_id
 from scopt.formats import artifact as artifact_format
 from scopt.formats import scm_v1
 from scopt.formats.profile_v1 import ProfileView, read_profile
-from scopt.formats.sc_v5 import ScRecord
-from scopt.formats.sc_v6 import (EXIT_DIRECT, KIND_SPEC, ExtTable, LinkEntry,
-                                SlotEntry, VariantEntry, read_sc6, sc6_snapshot_id, sc6parse_compare, write_sc6)
+from scopt.formats.sc_records import ScRecord
+from scopt.formats.sc_semantic import (EXIT_DIRECT, KIND_SPEC, ExtTable, LinkEntry,
+                                SlotEntry, VariantEntry, read_semantic_cache, semantic_snapshot_id, sc6parse_compare)
+from scopt.formats.supercache import write_semantic_cache
 from scopt.importer.import_cache import ImportCache, open_snapshot
 from scopt.run.deploy import artifact_refusals, resolve_artifact
 from scopt.link import TB_ALIGN, arena_limit, relocate_unit, round_up
@@ -110,8 +111,8 @@ def write_capture_evidence(path, snap, ext, report, guest_elf):
 
 def publish(path, snap, ext, body, report, guest_elf):
     cache = path / "cache.sc"
-    write_sc6(cache, snap.header, snap.units(), ext, [body])
-    output = read_sc6(cache)
+    write_semantic_cache(cache, snap.header, snap.units(), ext, [body])
+    output = read_semantic_cache(cache)
     require(output.problem is None and output.ext is not None and
             (output.ext.variants, output.ext.slots, output.ext.links, output.ext.artifact_id8) ==
             (ext.variants, ext.slots, ext.links, ext.artifact_id8) and
@@ -129,7 +130,7 @@ def publish(path, snap, ext, body, report, guest_elf):
     params = {k: report[k] for k in ("source", "slot", "destination", "phase")}
     sidecar = {
         "schema": "fastdyn.artifact_sidecar", "version": 1,
-        "input_snapshot_id": snap.snapshot_id, "output_snapshot_id": sc6_snapshot_id(output),
+        "input_snapshot_id": snap.snapshot_id, "output_snapshot_id": semantic_snapshot_id(output),
         "bundle_id": snap.bundle["bundle_id"], "runtime_identity_id": snap.runtime["runtime_identity_id"],
         "profile_ids": [{"profile_id": report["profile"], "verdict": "compatible", "x_same_snapshot": True}],
         "pipeline": [{"pass": "direct-slot-carrier", "version": 1, "params_sha256": sha256_id(canonical_json(params)),

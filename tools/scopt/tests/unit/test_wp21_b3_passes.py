@@ -431,7 +431,7 @@ class _SnapProxy:
 
 
 def test_t_b3_41_chain_static_no_free_slot():
-    from scopt.formats.sc_v5 import ScRecord
+    from scopt.formats.sc_records import ScRecord
     from scopt.formats.profile_v1 import ProfileView, read_profile
 
     s, _ = fx1()

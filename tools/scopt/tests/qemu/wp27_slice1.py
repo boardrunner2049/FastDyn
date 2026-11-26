@@ -23,7 +23,7 @@ Steps:
   CalleeSummary row the slice-1 FactRef must cite).
 * ``artifact`` (step 6): ``scopt optimize --pipeline b3 --b3 --disable chain-returns
   --disable chain-static`` (the ``b3-spec`` arm) on each F-B3-1 base. Checked from the
-  output ``cache.sc`` (``read_sc6``, independent of the manager): ``.sc`` v6 with exactly
+  output ``cache.sc`` (``read_semantic_cache``, independent of the manager): a semantic table with exactly
   one variant, one slot (SPEC, R = ``f_b3_1`` -> Vc = ``vc_b3_1``) and one link; the
   variant bytes equal §3.5's full-pipeline form (capstone diff against the general C);
   V1-V8, V11-V21, V23 pass (V9/V22 skip); CP/BF/DHO ledger rows with their byte deltas;
@@ -162,11 +162,11 @@ def _optimize(out: Path, b: dict[str, Any], tag: str, store: Path,
 
 
 def ext_summary(sc: Path) -> dict[str, Any]:
-    """Version, variants, slots and links of a ``.sc`` file (``read_sc6``)."""
-    from scopt.formats.sc_v6 import read_sc6
+    """Version, variants, slots and links of a ``.sc`` file (``read_semantic_cache``)."""
+    from scopt.formats.sc_semantic import read_semantic_cache
 
-    f = read_sc6(sc)
-    d: dict[str, Any] = {"version": f.version, "loadable": f.loadable, "problem": f.problem}
+    f = read_semantic_cache(sc)
+    d: dict[str, Any] = {"version": f.version, "semantic_table": f.has_ext, "loadable": f.loadable, "problem": f.problem}
     if f.ext is None:
         d.update(variants=0, slots=[], links=[])
         return d
@@ -212,7 +212,7 @@ def step_artifact(out: Path, modes: list[str], summary: dict[str, Any]) -> dict[
             e = r["ext"]
             slot = (e.get("slots") or [{}])[0]
             r["one_variant_one_spec_slot_one_link"] = (
-                e.get("version") == 6 and e.get("variants") == 1 and len(e.get("slots")) == 1 and
+                e.get("semantic_table") is True and e.get("variants") == 1 and len(e.get("slots")) == 1 and
                 slot.get("kind") == "SPEC" and len(e.get("links")) == 1 and
                 e["links"][0] == {"slot": 0, "variant": 0})
             spec = [s for s in vd["slots"] if s["kind"] == "SPEC"]
@@ -506,7 +506,7 @@ def _rows_summary(val: Any) -> dict[str, Any]:
 def step_o4(out: Path, modes: list[str], art: dict[str, Any], exe: Path, exe_sha: str,
             timeout: float) -> dict[str, Any]:
     from scopt.formats.envlayout_v1 import find_envlayout
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
     from scopt.importer.import_cache import open_snapshot
     from scopt.passes.base import Patch
     from scopt.run.negative import BYPASS_ROWS, package_negative
@@ -556,8 +556,8 @@ def step_o4(out: Path, modes: list[str], art: dict[str, Any], exe: Path, exe_sha
                                "validation": None if pr.validation is None
                                else _rows_summary(pr.validation)}
         if pr.artifact_dir:
-            mine = read_sc6(Path(pr.artifact_dir) / "cache.sc")
-            theirs = read_sc6(Path(a["artifact_dir"]) / "cache.sc")
+            mine = read_semantic_cache(Path(pr.artifact_dir) / "cache.sc")
+            theirs = read_semantic_cache(Path(a["artifact_dir"]) / "cache.sc")
             ctl["variant_body_equal_manager"] = [bytes(x) for x in mine.variant_bodies] == \
                 [bytes(x) for x in theirs.variant_bodies]
             ctl["records_and_bodies_equal_manager"] = (

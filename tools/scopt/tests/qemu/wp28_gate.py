@@ -417,21 +417,21 @@ def refusal_counts(passes: list[dict[str, Any]], name: str = "specialize-returns
     return {}
 
 
-def static_rows_ok(val: dict[str, Any], version: int, n_spec: int) -> tuple[bool, str]:
-    """V1-V21 and V23 pass on a B3 (v6) artifact; V9 and V22 skip (V22: WP23 not approved);
+def static_rows_ok(val: dict[str, Any], semantic_table: bool, n_spec: int) -> tuple[bool, str]:
+    """V1-V21 and V23 pass on a semantic-extension artifact; V9 and V22 skip (V22: WP23 not approved);
     V14 may skip only when the artifact has no SPEC link. A pipeline whose passes made no
-    B3 edit is packaged by the v5 writer (design §9.6 "Identity"): V1-V9 pass there."""
+    B3 edit is packaged with public records only (design §9.6 "Identity"): V1-V9 pass there."""
     codes = val["codes"]
     if val["verdict"] != "accepted":
         return False, "not accepted"
-    if version == 5:
+    if not semantic_table:
         ok = all(codes.get(f"V{i}") == "pass" for i in (1, 2, 3, 4, 5, 6, 7, 9)) and \
             codes.get("V8") in ("pass", "skip")
-        return ok, "v5 (no B3 edit): V1-V7, V9 pass, V8 pass|skip"
+        return ok, "public records (no B3 edit): V1-V7, V9 pass, V8 pass|skip"
     skip_ok = set(WANT_SKIP) | ({"V14"} if n_spec == 0 else set())
     ok = all(codes.get(c) == "pass" for c in STATIC_ROWS if c not in skip_ok) and \
         all(codes.get(c) in ("pass", "skip") for c in skip_ok)
-    return ok, "v6: V1-V21, V23 pass; V9, V22 skip" + ("; V14 skip (no SPEC link)"
+    return ok, "semantic extension: V1-V21, V23 pass; V9, V22 skip" + ("; V14 skip (no SPEC link)"
                                                        if n_spec == 0 else "")
 
 
@@ -484,13 +484,14 @@ def static_one(out: Path, mode: str, cfg: str) -> dict[str, Any]:
                      for u in open_snapshot(b["snapshot"]).units()]
         vd = W.variant_diff(adir / "cache.sc", lay.offset("regs[0]"), in_vaddrs)
         r["version"] = vd["version"]
+        r["semantic_table"] = vd["semantic_table"]
         r["slots"] = vd["slots"]
         r["variants"] = [{k: v.get(k) for k in ("index", "c_vaddr", "size_equal", "relocations",
                                                  "patches", "sites")} for v in vd["variants"]]
         r["validation"] = W._validation(adir)
         spec = [s for s in vd["slots"] if s["kind"] == "SPEC"]
         r["n_spec"], r["n_general"] = len(spec), len(vd["slots"]) - len(spec)
-        r["static_rows_ok"], r["static_rows_rule"] = static_rows_ok(r["validation"], vd["version"],
+        r["static_rows_ok"], r["static_rows_rule"] = static_rows_ok(r["validation"], vd["semantic_table"],
                                                                     len(spec))
         r["v22"] = r["validation"]["codes"].get("V22")
         want_vc = {sym(v, b3conf.BY_NAME[cfg].elf) for v in fx.vc}
@@ -571,9 +572,9 @@ def probe_rows(sc: Path) -> list[dict[str, Any]]:
 
 def general_tc_of(sc: Path, vaddr_rows: list[dict[str, Any]]) -> dict[str, int]:
     """host address of the general C record of every variant (label -> addr)."""
-    from scopt.formats.sc_v6 import read_sc6
+    from scopt.formats.sc_semantic import read_semantic_cache
 
-    f = read_sc6(sc)
+    f = read_semantic_cache(sc)
     if f.ext is None:
         return {}
     base = f.sc.header.code_address
@@ -606,9 +607,9 @@ def fixture_inputs(cfg: str) -> list[str]:
 
 def c_prime_labels_for_vc(sc: Path, cfg: str) -> list[str]:
     """C' labels of the variants whose SPEC slot targets one of the fixture's vc symbols."""
-    from scopt.formats.sc_v6 import KIND_SPEC, read_sc6
+    from scopt.formats.sc_semantic import KIND_SPEC, read_semantic_cache
 
-    f = read_sc6(sc)
+    f = read_semantic_cache(sc)
     if f.ext is None:
         return []
     want = {sym(v, b3conf.BY_NAME[cfg].elf) for v in FIXTURES[cfg].vc}

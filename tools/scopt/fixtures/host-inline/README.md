@@ -4,7 +4,7 @@ This Cortex-M3 workload performs 65,536 iterations of a 32-bit bit reversal and 
 
 ## Reproduce
 
-Use an x86-64 Linux FastDyn checkout containing these fixture sources. The instructions were reviewed against `72c398a`. This source lock starts from `4108598`, which includes the independent cache parsers. It pins QEMU at `934890ed5119ef70da69276991d921573f23ed4f`, with the capture, profile and loader patches already integrated. The bootstrap checks for changes outside `tools/scopt` relative to the recorded FastDyn commit.
+Use an x86-64 Linux FastDyn checkout containing these fixture sources. The runtime source lock uses FastDyn `f566dce` and its QEMU gitlink `aacca05`, which provides canonical SuperCache capture and loading. The bootstrap checks for changes outside the scopt and Trebuchet tool directories relative to the recorded FastDyn commit.
 
 Install Python 3.12 and the Ubuntu 24.04 packages and versions listed in `source-lock.json`. The lock includes GDB for DWARF extraction and `binutils-arm-none-eabi` for the firmware. Run from the FastDyn checkout root. Choose a fresh output directory.
 

@@ -1,4 +1,4 @@
-""".sc v5 reader/writer (WP1; T-B1-2 and the static half of V9).
+"""Canonical SuperCache public records (WP1; T-B1-2 and the static half of V9).
 
 Real-data tests use the read-only golden ``runs/b0/cache/minimal.sc``; every
 corruption is applied to a sparse copy in ``tmp_path``.
@@ -18,7 +18,7 @@ import pytest
 from click.testing import CliRunner
 
 from scopt import canon
-from scopt.formats.sc_v5 import (
+from scopt.formats.sc_records import (
     HEADER_SIZE, RECORD_SIZE, SC_CODE_OFFSET, SC_RECORD_COMMIT, ScFormatError, ScHeader,
     ScRecord, ScUnit, identity_copy, read_sc, sha256_sparse, sparse_copy, structural_findings,
     write_sc,
@@ -60,7 +60,7 @@ def test_minimal_golden(minimal_sc):
     sc = read_sc(minimal_sc)
     h = sc.header
     assert sc.loadable and not sc.header_problems and not sc.problems and not sc.skipped
-    assert (h.magic, h.version, h.header_size) == (b"QSCACHE1", 5, 80)
+    assert (h.magic, h.version, h.header_size) == (b"QSCACHE1", 7, 80)
     assert h.tb_size == 152 and h.target_page_bits == 10 and h.host_page_size == 4096
     assert h.record_count == N_MINIMAL == sc.count == len(sc.valid_slots)
     assert sc.file_size == sc.expected_file_size == SC_CODE_OFFSET + h.code_size + 163 * 104

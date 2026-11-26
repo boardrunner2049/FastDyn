@@ -58,7 +58,7 @@ from typing import Any
 WT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WT))
 from scopt.decode.search import decode_search, is_pcrel, unwind  # noqa: E402
-from scopt.formats.sc_v5 import read_sc, sha256_sparse  # noqa: E402
+from scopt.formats.sc_records import read_sc, sha256_sparse  # noqa: E402
 from scopt.model.cache_snapshot import snapshot_dir_name  # noqa: E402
 
 ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
@@ -765,7 +765,7 @@ class Workload:
         names the guest pc 2 bytes earlier: static V6 must flag it, and the printed stacked
         PC must change (the check above is not vacuous)."""
         from scopt.decode.search import SearchRow, encode_search
-        from scopt.formats.sc_v5 import SC_CODE_OFFSET, sparse_copy
+        from scopt.formats.sc_records import SC_CODE_OFFSET, sparse_copy
         tb = (getattr(self, "fault_tbs", None) or {}).get("plus64") or []
         if len(IMAGES[self.image]) != 1 or not tb or not tb[0].get("uid"):
             return

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from scopt.decode.search import decode_search, is_pcrel, unwind
 from scopt.decode.x86 import sweep
 from scopt.formats.layouts import SCM_TB_CHUNK_VERSION_4
-from scopt.formats.sc_v5 import ScRecord
+from scopt.formats.sc_records import ScRecord
 from scopt.formats.scm_v1 import ScmInsn, ScmOpMark, ScmPool, TbChunk, parse_scm
 from scopt.importer.crosscheck import _native_splice_error
 from scopt.link import _scm_sites

@@ -46,7 +46,7 @@ from typing import Any
 from ..canon import canonical_json
 from ..ids import artifact_id as _artifact_id
 from . import schemas
-from .sc_v5 import sha256_sparse
+from .sc_records import sha256_sparse
 
 __all__ = [
     "SIDECAR", "MANIFEST", "VALIDATION", "LEDGER", "REGIONS", "PROFILES", "LOADER_V7",

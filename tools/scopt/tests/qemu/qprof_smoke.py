@@ -255,7 +255,7 @@ def _sum_by(edges, key):
 
 
 # --------------------------------------------------------------------------
-# .sc v5 (staged copy) and the §3.6 join
+# Public SuperCache records (staged copy) and the §3.6 join
 # --------------------------------------------------------------------------
 
 def read_sc(path: Path) -> tuple[dict, list[dict]]:
@@ -265,6 +265,8 @@ def read_sc(path: Path) -> tuple[dict, list[dict]]:
              "record_count", "runtime_signature", "host_page_size", "target_page_bits", "tb_size",
              "reserved", "checksum")
     h = dict(zip(names, f))
+    if h["magic"] != L.SC_MAGIC or h["version"] != L.SC_VERSION:
+        raise QprofError(f"unsupported SuperCache header in {path}")
     base = L.SC_CODE_OFFSET + h["code_size"]
     recs = []
     for i in range(h["record_count"]):

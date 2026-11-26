@@ -29,7 +29,7 @@ import pytest
 from scopt.canon import fnv1a64
 from scopt.formats import scm_v1 as S
 from scopt.formats.enums import QprofHeaderFlag, RunInfoFlag, SiteKind
-from scopt.formats.sc_v5 import HEADER_SIZE, RECORD_SIZE, ScHeader, read_sc, sparse_copy
+from scopt.formats.sc_records import HEADER_SIZE, RECORD_SIZE, ScHeader, read_sc, sparse_copy
 from scopt.importer.import_cache import ImportRejected, import_snapshot
 from tests.synth import builders as B
 from tests.synth.rich_tb import rich_tb, rich_units, with_meta, write_rich_pair
@@ -477,45 +477,17 @@ def test_manifest_that_fails_to_verify(tmp_path):
 
 
 @pytest.mark.qemu
-def test_post_run_proof_on_v6_stamped_copy(real, tmp_path):
-    from scopt.run.deploy import deploy_new
-    from scopt.run.launcher import launch
+def test_deploy_refuses_obsolete_header_before_launch(real, tmp_path):
+    from scopt.run.deploy import DeployError, deploy_new
 
     snap = _one("store/snapshots/*")
-    v6 = tmp_path / "v6.sc"
-    sparse_copy(snap / "cache.sc", v6, fsync=False)
-    _set_header(v6, version=6)
-    ri = json.loads(real["ri"].read_text())
-    qemu = ri["qemu_exe_stat"]["path"]
-    rd, dep = deploy_new(v6, real["config"], tmp_path / "rd", qemu=qemu)
-    assert dep["artifact_header_problems"] == ["version"]
-    r = launch(rd)
-    log = Path(r["stdout_log"]).read_text(errors="replace")
-    # The expectation depends on the loader, chosen by the exe identity (not by the
-    # output under test, so a v6 loader that silently truncated would fail here).
-    from scopt.validate import v6_capable_exes
-    exe = str(ri.get("qemu_sha256") or "").removeprefix("sha256:")
-    if exe and exe in v6_capable_exes():
-        # A v6 loader (qint-v6, WP22; design B3-B4 §5.1 row 3, §5.2 [R2]): version 6 with
-        # the EXT_TABLE feature bit clear fails loud before guest execution and does not
-        # touch the file, instead of the v5 truncate. The B1 intent of this case, "a run
-        # that could not use the artifact is never a valid sample", is then carried by the
-        # run verdict (QEMU exit != 0 -> INVALID_exit_code, launcher.py), while the proof
-        # passes because the file is byte-identical. This branch was added after the first
-        # T-B3-27 run on the gate binary failed on the v5 expectation; see the B3-B4
-        # design implementation note "B3/B4 audit fix: T-B1-9 v6-stamped copy".
-        assert "supercache: invalid v6 extension: feature EXT_TABLE clear" in log
-        assert r["exit_code"] != 0
-        assert r["verdict"] == "INVALID_exit_code"
-        assert r["proof"]["verdict"] == "PASS"     # file byte-identical: nothing was rewritten
-        assert not any(l.startswith(("Reg ", "[BENCH]")) for l in r["guest_norm"])
-        return
-    # A v5 loader (qint): valid_header fails, the copy is truncated and rebuilt (B1 §4.8).
-    assert "supercache: invalid v6 extension" not in log
-    assert r["proof"]["verdict"] == "INVALID_artifact_not_used"
-    assert r["proof"]["failed"] == ["header"]
-    assert r["verdict"] == "INVALID_artifact_not_used"
-    assert r["appended"] is None
+    old = tmp_path / "obsolete.sc"
+    sparse_copy(snap / "cache.sc", old, fsync=False)
+    _set_header(old, version=6)
+    qemu = json.loads(real["ri"].read_text())["qemu_exe_stat"]["path"]
+    with pytest.raises(DeployError) as exc:
+        deploy_new(old, real["config"], tmp_path / "rd", qemu=qemu)
+    assert exc.value.code == "legacy_cache_version"
 
 
 # ---------------------------------------------------------------------------

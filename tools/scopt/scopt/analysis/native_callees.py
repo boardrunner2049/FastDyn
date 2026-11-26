@@ -11,7 +11,7 @@ from typing import Any
 
 from ..canon import is_sha256_id, sha256_id
 from ..formats.bundle_v1 import runtime_identity_id
-from ..formats.sc_v5 import read_sc
+from ..formats.sc_records import read_sc
 from ..formats.scm_v1 import parse_scm
 from ..importer.classify import HostContext
 from ..importer.join import ImportRejected, join
@@ -90,7 +90,7 @@ def _snapshot_captures(snapshot: Any, *, authenticate: bool):
         capture = parse_scm(data, path=str(p))
         ids[str(p)] = capture_id
         captures.append(capture)
-    return join(read_sc(d / "cache.sc", versions=(7,)), captures), ids
+    return join(read_sc(d / "cache.sc"), captures), ids
 
 
 def prepare_native_images(snapshot: Any, *, backend_revision: str, bridge_version: int,

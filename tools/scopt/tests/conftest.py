@@ -21,11 +21,32 @@ def fastdyn_root() -> Path:
 
 
 @pytest.fixture(scope="session")
-def minimal_sc() -> Path:
+def minimal_sc(tmp_path_factory) -> Path:
     """Path of the read-only B0 golden cache; skips if it is not present."""
     if not MINIMAL_SC.exists():
         pytest.skip(f"{MINIMAL_SC} not present")
-    return MINIMAL_SC
+    # The immutable B0 record corpus predates v7. Build a canonical test
+    # fixture from its known public records without changing the archive.
+    from scopt.formats.layouts import SC_CODE_OFFSET, SC_VERSION
+    from scopt.formats.sc_records import HEADER_SIZE, RECORD_SIZE, ScHeader, ScRecord
+    from scopt.formats.supercache import write_public_cache
+
+    with MINIMAL_SC.open("rb") as stream:
+        header = ScHeader.from_bytes(stream.read(HEADER_SIZE))
+        if header.version == SC_VERSION:
+            return MINIMAL_SC
+        if (header.version, header.checksum, header.record_count) != (5, 0x1A7C702B57653DE8, 163):
+            pytest.fail("unrecognized minimal.sc fixture")
+        stream.seek(header.records_offset)
+        records = [stream.read(RECORD_SIZE) for _ in range(header.record_count)]
+        parts = []
+        for raw in records:
+            record = ScRecord.from_bytes(raw)
+            stream.seek(SC_CODE_OFFSET + record.tc_offset)
+            parts.append((raw, stream.read(record.end_offset - record.tc_offset)))
+    path = tmp_path_factory.mktemp("canonical-golden") / "minimal.sc"
+    write_public_cache(path, header.replace(version=SC_VERSION), parts)
+    return path
 
 
 @pytest.fixture(scope="session")

@@ -37,7 +37,7 @@ WT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WT))
 from scopt.formats import scm_v1 as S  # noqa: E402
 from scopt.formats.enums import SiteKind  # noqa: E402
-from scopt.formats.sc_v5 import sparse_copy  # noqa: E402
+from scopt.formats.sc_records import sparse_copy  # noqa: E402
 from scopt.model.cache_snapshot import snapshot_dir_name  # noqa: E402
 from tests.synth import builders as B  # noqa: E402
 

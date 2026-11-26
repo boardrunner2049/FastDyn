@@ -159,7 +159,7 @@ def test_reimport_byte_deterministic(minimal, tmp_path):
     f1 = sorted(str(p.relative_to(d1)) for p in d1.rglob("*") if p.is_file())
     f2 = sorted(str(p.relative_to(d2)) for p in d2.rglob("*") if p.is_file())
     assert f1 == f2
-    from scopt.formats.sc_v5 import sha256_sparse
+    from scopt.formats.sc_records import sha256_sparse
 
     for f in f1:
         if f == "cache.sc":

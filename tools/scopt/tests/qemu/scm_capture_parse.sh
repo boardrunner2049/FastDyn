@@ -70,7 +70,7 @@ cat "$out_root/scm.summary.txt"
 import sys
 from scopt.canon import fnv1a64
 from scopt.formats.layouts import SC_CODE_OFFSET
-from scopt.formats.sc_v5 import ScHeader, ScRecord
+from scopt.formats.sc_records import ScHeader, ScRecord
 from scopt.formats.scm_v1 import read_scm
 scm = read_scm(sys.argv[1])
 with open(sys.argv[2], "rb") as f:

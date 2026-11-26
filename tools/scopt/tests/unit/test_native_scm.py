@@ -58,7 +58,7 @@ def test_native_capture_rejects_bad_geometry_and_corrupted_certificate():
 @pytest.mark.parametrize("indirect", [False, True])
 def test_native_materialization_preserves_offsets_and_search(indirect):
     from scopt.formats.enums import Encoding, OpMarkKind, SiteKind
-    from scopt.formats.sc_v5 import ScRecord
+    from scopt.formats.sc_records import ScRecord
     from scopt.link import transplant_native
     from scopt.model.unit import Fixup, OpMark, PoolEntry, RecoveryPoint, RelocInfo, Site
 

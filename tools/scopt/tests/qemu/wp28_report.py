@@ -312,9 +312,9 @@ def main(argv: list[str] | None = None) -> int:
     w("")
     pub = [x for x in arts.values() if x.get("status") == "published"]
     a23 = [arts.get(f"{m}/23") or {} for m in ("icount", "noicount")]
-    s23 = ("F-B3-23 (no B3 edit) is a v5 identity artifact with V1-V9." if all(
-        x.get("version") == 5 for x in a23) else
-        "F-B3-23 (coverage) is a v6 artifact in both modes (SPEC/GENERAL slots " +
+    s23 = ("F-B3-23 (no B3 edit) is a public identity artifact with V1-V9." if all(
+        x.get("semantic_table") is False for x in a23) else
+        "F-B3-23 (coverage) has a semantic extension in both modes (SPEC/GENERAL slots " +
         ", ".join(f"{x.get('n_spec')}/{x.get('n_general')}" for x in a23) + ").")
     w(f"- **{len(pub)} fixture artifacts** published (31 configs × 2 modes); static rows "
       f"V1-V21 and V23 pass on every one (V9 skip: not an identity candidate; V22 skip: "

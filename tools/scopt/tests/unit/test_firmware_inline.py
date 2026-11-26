@@ -16,10 +16,10 @@ from scopt.decode.thumb_sem import decode_at, direct_call_target
 from scopt.formats.enums import Encoding, SiteKind
 from scopt.formats.scm_v1 import ScmSite, ScmStaticExit
 from scopt.ids import TBKey
-from scopt.formats.sc_v7 import (LOADER_V7_TRUSTED, build_directory, decode_directory,
-                                 directory_size, loader_requirement, read_sc7,
-                                 sc7_snapshot_id, write_sc7)
-from scopt.formats.sc_v5 import ScFormatError, ScHeader
+from scopt.formats.supercache import (LOADER_V7_TRUSTED, build_directory, decode_directory,
+                                 directory_size, loader_requirement, read_region_directory,
+                                 region_snapshot_id, write_region_cache)
+from scopt.formats.sc_records import ScFormatError, ScHeader
 from scopt.link import (FirmwareMemberLink, FirmwareRegionLink, relocate_unit,
                         retarget_private_descriptor_refs, round_up,
                         trusted_firmware_edge_problem, trusted_firmware_entry_problem)
@@ -266,8 +266,8 @@ def test_v7_export_and_reimport_directory(tmp_path):
                            firmware_table_offset=round_up(region.end_offset, 8))
     link.firmware_table_size = directory_size(link.firmware_regions)
     path = tmp_path / "cache.sc"
-    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
-    parsed = read_sc7(path)
+    write_region_cache(path, snapshot.header, ((public.record, public.body),), link)
+    parsed = read_region_directory(path)
     assert parsed.n_regions == parsed.n_members == 1
     assert parsed.n_edges == 0
     assert parsed.table_offset == link.firmware_table_offset
@@ -305,8 +305,8 @@ def test_v7_writes_out_of_line_search_and_tracks_copy_origins(tmp_path):
                            firmware_table_offset=round_up(end, 8))
     link.firmware_table_size = directory_size(link.firmware_regions)
     path = tmp_path / "cache.sc"
-    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
-    parsed = read_sc7(path)
+    write_region_cache(path, snapshot.header, ((public.record, public.body),), link)
+    parsed = read_region_directory(path)
     decoded = decode_directory(parsed)
     assert [row["source_tb_offset"] for row in decoded["origins"]] == \
         [source.tb_offset, source.tb_offset]
@@ -318,7 +318,7 @@ def test_v7_writes_out_of_line_search_and_tracks_copy_origins(tmp_path):
         stream.seek(SC_CODE_OFFSET + search0)
         assert stream.read(len(source.search)) == source.search
         assert decoded["regions"][0]["composite"]["tc_size"] == 2 * source.tc_size
-    assert sc7_snapshot_id(path) == sc7_snapshot_id(path)
+    assert region_snapshot_id(path) == region_snapshot_id(path)
 
 
 def test_v7_trusted_uses_one_descriptor_no_search_and_skip_poll_edges(tmp_path):
@@ -349,8 +349,8 @@ def test_v7_trusted_uses_one_descriptor_no_search_and_skip_poll_edges(tmp_path):
                            firmware_table_offset=round_up(end, 8))
     link.firmware_table_size = directory_size(link.firmware_regions)
     path = tmp_path / "trusted.sc"
-    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
-    directory = read_sc7(path)
+    write_region_cache(path, snapshot.header, ((public.record, public.body),), link)
+    directory = read_region_directory(path)
     decoded = decode_directory(directory)
     assert directory.directory_version == 3 and directory.trusted
     assert loader_requirement(directory) == LOADER_V7_TRUSTED
@@ -438,7 +438,7 @@ def test_v7_rejects_noncomposite_member_geometry():
 
 
 def test_v7_rejects_malformed_header_and_directory_counts(tmp_path):
-    import scopt.formats.sc_v7 as V7
+    import scopt.formats.supercache as V7
 
     snapshot, _image = _snapshot()
     source = snapshot.units()[0]
@@ -456,16 +456,16 @@ def test_v7_rejects_malformed_header_and_directory_counts(tmp_path):
                            firmware_table_offset=round_up(region.end_offset, 8))
     link.firmware_table_size = directory_size(link.firmware_regions)
     path = tmp_path / "cache.sc"
-    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
+    write_region_cache(path, snapshot.header, ((public.record, public.body),), link)
 
     with path.open("r+b") as stream:
         header = ScHeader.from_bytes(stream.read(80))
         stream.seek(0)
         stream.write(header.replace(reserved=2).with_checksum().to_bytes())
     with pytest.raises(ScFormatError, match="feature bits"):
-        read_sc7(path)
+        read_region_directory(path)
 
-    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
+    write_region_cache(path, snapshot.header, ((public.record, public.body),), link)
     with path.open("r+b") as stream:
         stream.seek(V7.SC7_OFFSET)
         raw = stream.read(V7._HEADER.size)
@@ -474,9 +474,9 @@ def test_v7_rejects_malformed_header_and_directory_counts(tmp_path):
         stream.seek(V7.SC7_OFFSET)
         stream.write(V7._HEADER.pack(*fields))
     with pytest.raises(ScFormatError, match="directory header"):
-        read_sc7(path)
+        read_region_directory(path)
 
-    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
+    write_region_cache(path, snapshot.header, ((public.record, public.body),), link)
     with path.open("r+b") as stream:
         stream.seek(V7.SC7_OFFSET)
         raw = stream.read(V7._HEADER.size)
@@ -485,7 +485,7 @@ def test_v7_rejects_malformed_header_and_directory_counts(tmp_path):
         stream.seek(V7.SC7_OFFSET)
         stream.write(V7._HEADER.pack(*fields))
     with pytest.raises(ScFormatError, match="count/size"):
-        read_sc7(path)
+        read_region_directory(path)
 
 
 def test_decode_directory_rejects_truncated_array():
@@ -537,7 +537,7 @@ def _trusted_member_unit(snapshot, call, *, slot=20):
     """
     import struct
 
-    from scopt.formats.sc_v5 import ScRecord
+    from scopt.formats.sc_records import ScRecord
     from scopt.model.unit import Site
 
     original = snapshot.unit(call.source_uid)
@@ -577,7 +577,7 @@ def _b3_grown_unit(unit, *, insn=None):
     past the pre-B3 code whose reset goto_tb registers the free slot 1
     (``e9`` + zero rel32 at ``insn``, 4-aligned, reset at ``insn + 4``).  A
     member copies the pre-B3 bytes, which do not have that slot."""
-    from scopt.formats.sc_v5 import ScRecord
+    from scopt.formats.sc_records import ScRecord
 
     if insn is None:
         insn = len(unit.code) + 1
@@ -629,7 +629,7 @@ def test_trusted_region_links_one_descriptor_per_member():
 
 @pytest.mark.parametrize("case", ["b3_registered_slot", "misaligned", "output_record"])
 def test_trusted_region_falls_back_to_shared_descriptor(case):
-    from scopt.formats.sc_v5 import ScRecord
+    from scopt.formats.sc_records import ScRecord
     from scopt.link import b3_edited_uids
 
     snapshot, image = _snapshot()
@@ -687,7 +687,7 @@ def test_skip_capable_region_with_a_bad_armed_slot_falls_back_without_flags(tmp_
     assert (linked.skipped_b3_slots, linked.chainable_residual_slots) == (0, 0)
     assert {m.tb_offset for m in linked.members} == {0x4000}           # shared descriptor
     path, _ = _write_trusted_md(tmp_path, snapshot, call, grown, linked)
-    decoded = decode_directory(read_sc7(path))
+    decoded = decode_directory(read_region_directory(path))
     assert decoded["regions"][0]["flags"] == 3
     assert [m["flags"] for m in decoded["members"]] == [0, 0]
 
@@ -698,20 +698,20 @@ def _write_trusted_md(tmp_path, snapshot, call, unit, linked, name="md.sc"):
                            firmware_table_offset=round_up(linked.end_offset, 8))
     link.firmware_table_size = directory_size(link.firmware_regions)
     path = tmp_path / name
-    write_sc7(path, snapshot.header, ((public.record, public.body),), link)
+    write_region_cache(path, snapshot.header, ((public.record, public.body),), link)
     return path, link
 
 
 def test_v7_trusted_member_descriptors_layout(tmp_path):
     from scopt.formats.layouts import SC_CODE_OFFSET
-    from scopt.formats.sc_v7 import SC7_REGION_MEMBER_DESCRIPTORS
+    from scopt.formats.supercache import SC7_REGION_MEMBER_DESCRIPTORS
 
     snapshot, image = _snapshot()
     call, = discover_firmware_calls(snapshot, image).calls
     unit = _trusted_member_unit(snapshot, call)
     linked, _ = _link_trusted(snapshot, _trusted_two_member_region(snapshot, call, unit), unit)
     path, link = _write_trusted_md(tmp_path, snapshot, call, unit, linked)
-    directory = read_sc7(path)
+    directory = read_region_directory(path)
     decoded = decode_directory(directory)
     region = decoded["regions"][0]
     assert SC7_REGION_MEMBER_DESCRIPTORS == 4
@@ -731,7 +731,7 @@ def test_v7_trusted_member_descriptors_layout(tmp_path):
                               {"grow": {unit.uid: ()}}, {unit.uid: _b3_registered_record(unit)})
     assert legacy.member_descriptor_refusal == "b3_registered_slot"
     legacy_path, _ = _write_trusted_md(tmp_path, snapshot, call, unit, legacy, "legacy.sc")
-    assert decode_directory(read_sc7(legacy_path))["regions"][0]["flags"] == 3
+    assert decode_directory(read_region_directory(legacy_path))["regions"][0]["flags"] == 3
 
 
 @pytest.mark.parametrize(("where", "data", "needle"), [
@@ -766,9 +766,9 @@ def test_v7_reader_rejects_member_descriptor_mutants(tmp_path, where, data, need
                                firmware_table_offset=round_up(broken.end_offset, 8))
         link.firmware_table_size = directory_size(link.firmware_regions)
         path = tmp_path / "mutant.sc"
-        write_sc7(path, snapshot.header, ((public.record, public.body),), link, check=False)
+        write_region_cache(path, snapshot.header, ((public.record, public.body),), link, check=False)
     with pytest.raises(ScFormatError, match=needle):
-        read_sc7(path)
+        read_region_directory(path)
 
 
 def test_v7_reader_rejects_skip_flags_outside_a_composed_directory(tmp_path):
@@ -785,7 +785,7 @@ def test_v7_reader_rejects_skip_flags_outside_a_composed_directory(tmp_path):
         _write_trusted_md(tmp_path, snapshot, call, unit, flagged)
     # ... and so does any later read of it.
     with pytest.raises(ScFormatError, match="v7 member 0: skip flags 0x2 != B3 slot mask 0x0"):
-        read_sc7(tmp_path / "md.sc")
+        read_region_directory(tmp_path / "md.sc")
 
 
 def test_v7_member_descriptors_need_trusted_contiguous_descriptors(tmp_path):
@@ -815,7 +815,7 @@ def test_v7_member_descriptors_need_trusted_contiguous_descriptors(tmp_path):
             second, tc_offset=first.tc_offset + first.tc_size))))
     # A safe (version 2) directory never accepts the flag.
     path, _ = _write_trusted_md(tmp_path, snapshot, call, unit, linked)
-    from scopt.formats.sc_v7 import SC7_OFFSET, _HEADER
+    from scopt.formats.supercache import SC7_OFFSET, _HEADER
 
     with path.open("r+b") as stream:
         stream.seek(SC7_OFFSET)
@@ -830,11 +830,11 @@ def test_v7_member_descriptors_need_trusted_contiguous_descriptors(tmp_path):
         stream.seek(SC7_OFFSET)
         stream.write(_HEADER.pack(*fields))
     with pytest.raises(ScFormatError, match="region 0: invalid bounds"):
-        read_sc7(path)
+        read_region_directory(path)
 
 
 def test_residual_goto_tb_slots_mirrors_qemu_load_check():
-    from scopt.formats.sc_v5 import ScRecord
+    from scopt.formats.sc_records import ScRecord
     from scopt.link import residual_goto_tb_slots
 
     snapshot, image = _snapshot()
@@ -919,7 +919,7 @@ def test_trusted_region_rewrite_or_variant_source_keeps_member_descriptors():
 
 
 def test_trusted_region_skips_b3_registered_slots():
-    from scopt.formats.sc_v5 import ScRecord
+    from scopt.formats.sc_records import ScRecord
     from scopt.link import added_goto_tb_slots, residual_goto_tb_slots
 
     snapshot, image = _snapshot()
@@ -961,7 +961,7 @@ def test_internal_coincident_b3_slot_is_flagged(monkeypatch):
     pre-B3 code length, so a B3-registered slot can name the rel32 field of
     an internal edge.  The skip bit is still set and counted: QEMU tests it
     before the internal check."""
-    from scopt.formats.sc_v5 import ScRecord
+    from scopt.formats.sc_records import ScRecord
     from scopt.link import NativeLinkerV2, residual_goto_tb_slots
 
     snapshot, image = _snapshot()

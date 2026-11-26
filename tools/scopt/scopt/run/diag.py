@@ -25,7 +25,7 @@ directory, QEMU under ``setarch x86_64 -R`` and ``timeout``, gdb always
   ``-d int`` only run that O2a compares) and ``v6_stats``.
 * **Stats file collection** (:func:`stats_env`, :func:`read_v6_stats`):
   ``QEMU_SC_V6_STATS=<abs path>`` (opt-in, written at exit by the ``qint-v6``
-  loader, schema ``qemu-sc-v6-stats@1``). Absent on a v5-only binary: the
+  loader, schema ``qemu-sc-v6-stats@1``). When the runtime supplies no counters the
   reader then reports ``present = false`` (unknown, never zero).
 * **gdb hit counters** (:func:`gdb_hits`): hardware breakpoints (``hbreak``,
   at most 4 per gdb run; more targets are split into several runs) with an
@@ -34,7 +34,7 @@ directory, QEMU under ``setarch x86_64 -R`` and ``timeout``, gdb always
   ``info breakpoints``. Hardware breakpoints write no ``int3`` into the
   shared file mapping of the cache. :func:`artifact_probe_addrs` gives the
   addresses of every variant ``C'.tc.ptr``, guard stub ``S`` and fallback
-  ``F`` of a v6 file.
+  ``F`` of a cache with a semantic table.
 * **Diag twin** (:func:`diag_twin`): the plan's m-CE7 TLB counter, ported from
   ``experiments/diag_twin.py`` (WP16): counting breakpoints on every
   ``tlb_flush*`` entry point, the flush workers and ``tcg_commit[_cpu]``,
@@ -59,7 +59,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..formats.sc_v5 import read_sc, sparse_copy
+from ..formats.sc_records import read_sc, sparse_copy
 from ..paths import fastdyn_root, fastdyn_src
 from .launcher import FASTDYN_SRC, RunDir, qmp_socket_path, scrub_env, write_json
 from .toml_rewrite import memory_banks
@@ -316,16 +316,16 @@ def diag_exec(run_dir: str | os.PathLike, out: str | os.PathLike, *, nochain: bo
     else:
         parsed = {"trace_lines": 0, "tc_counts": collections.Counter(),
                   "entries": collections.Counter(), "links": []}
-    snap = read_sc(sc, versions=(7,))
+    snap = read_sc(sc)
     base = snap.header.code_address
     snap_tc = {base + snap.records[i].tc_offset: i for i in snap.valid_slots}
     variant_tc: dict[int, int] = {}
-    from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+    from ..formats.sc_semantic import SC7_SEMANTIC_MARKER
 
     if snap.header.version == 7 and snap.header.reserved & SC7_SEMANTIC_MARKER:
-        from ..formats.sc_v6 import read_sc6
+        from ..formats.sc_semantic import read_semantic_cache
 
-        f6 = read_sc6(sc)
+        f6 = read_semantic_cache(sc)
         if f6.ext is not None:
             variant_tc = {base + v.tc_offset: v.variant_id for v in f6.ext.variants}
     counts = parsed["tc_counts"]
@@ -394,13 +394,13 @@ def read_v6_stats(path: str | os.PathLike | None) -> dict[str, Any]:
     """Parse a ``qemu-sc-v6-stats@1`` file.
 
     Returns ``{"present": False, ...}`` when the file does not exist (a
-    v5-only binary ignores the variable; counters are then unknown, never 0),
+    runtime without semantic statistics ignores the variable; counters are then unknown, never 0),
     otherwise the document plus ``present = True`` and ``problems`` (schema
     or type errors; a counter that is not a non-negative integer is a problem,
     not a zero)."""
     if path is None or not Path(path).is_file():
         return {"present": False, "path": None if path is None else str(path),
-                "problems": ["stats file not written (v5-only binary, QEMU did not exit, "
+                "problems": ["stats file not written (counters unavailable, QEMU did not exit, "
                              "or QEMU_SC_V6_STATS unset)"]}
     try:
         doc = json.loads(Path(path).read_text())
@@ -455,15 +455,15 @@ def parse_hits(text: str) -> dict[int, int]:
 
 
 def artifact_probe_addrs(sc: str | os.PathLike) -> list[dict[str, Any]]:
-    """Host addresses of a v6 file's variants and guard stubs (absolute, in the
+    """Host addresses of the semantic table's variants and guard stubs (absolute, in the
     arena at the header's ``code_address``): per variant ``C'.tc.ptr``; per slot
     the stub start ``S`` and its fallback ``F`` (decoded with the guard template;
     when the stub does not decode, ``F`` is the last 11 bytes of the guard
     range, the original lookup tail, and the row says so)."""
-    from ..formats.sc_v6 import read_sc6
+    from ..formats.sc_semantic import read_semantic_cache
     from ..guard import GuardError, decode_guard
 
-    f = read_sc6(sc)
+    f = read_semantic_cache(sc)
     if f.ext is None:
         return []
     base = f.sc.header.code_address

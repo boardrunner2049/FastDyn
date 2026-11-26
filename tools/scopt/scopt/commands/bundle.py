@@ -86,7 +86,7 @@ def bundle_validate(path):
 def bundle_runtime_identity(run_dir, sc, scm, out):
     """RuntimeIdentity of a run directory (QEMU/plugin, build options, .sc runtime fields)."""
     from ..formats.bundle_v1 import BundleError, run_info_fields, runtime_identity
-    from ..formats.sc_v5 import ScHeader
+    from ..formats.sc_records import ScHeader
     from ..run.launcher import FASTDYN_SRC, RunDir
 
     rd = RunDir.open(run_dir)

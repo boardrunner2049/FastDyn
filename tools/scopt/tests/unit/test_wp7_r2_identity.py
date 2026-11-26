@@ -95,7 +95,7 @@ def test_bundle_without_manifest_is_unverified(tmp_path):
 
 def _ri(sc_path: str, scm_path: str, **over) -> dict:
     h = S.read_scm(scm_path).run_info
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
 
     hdr = read_sc(sc_path).header
     doc = {"schema": "scopt.runtime_identity/1",

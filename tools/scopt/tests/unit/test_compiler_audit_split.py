@@ -12,7 +12,7 @@ from scopt import validate as V
 from scopt.canon import hexaddr, sha256_id
 from scopt.cli import cli, load_commands
 from scopt.formats import artifact as A
-from scopt.formats.sc_v5 import read_sc, sparse_copy
+from scopt.formats.sc_records import read_sc, sparse_copy
 from scopt.importer.compiler_ir import NAME as COMPILER_IR, write_compiler_ir
 from scopt.importer.import_cache import open_compiler_snapshot
 from scopt.model.cache_snapshot import CacheSnapshot
@@ -65,7 +65,7 @@ def test_optimize_emits_unaudited_compiler_receipt_without_normal_proof(compiled
 
 def test_load_accepts_matching_runtime_and_refuses_mismatch(compiled, tmp_path):
     _snap, _result, artifact = compiled
-    header = read_sc(artifact / "cache.sc", versions=(7,)).header
+    header = read_sc(artifact / "cache.sc").header
     runtime = json.loads((artifact / "runtime_identity.json").read_text())
     runtime_path = tmp_path / "runtime.json"
     runtime_path.write_text(json.dumps(runtime))
@@ -138,7 +138,7 @@ def test_trusted_load_skips_only_record_checksum_and_restores_default(compiled, 
     artifact.mkdir()
     cache = artifact / "cache.sc"
     sparse_copy(source / "cache.sc", cache)
-    parsed = read_sc(cache, versions=(7,))
+    parsed = read_sc(cache)
     rec = parsed.records[0]
     runner, commands = CliRunner(), load_commands(cli)
 

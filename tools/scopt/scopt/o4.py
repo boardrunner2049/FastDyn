@@ -100,10 +100,10 @@ PASSES: Mapping[str, Decision] = MappingProxyType({
         "not_applicable_sealed", f"{_OUT}: its shape check needs the can_do_io=0 store that "
         "sealed hot TBs do not have, and a rewritten poll fails trusted_irq_prefix_shape (P15)"),
     "align-trace-pages": _exc(
-        "not_applicable_sealed", f"{_OUT}: requires a public-only v7 and no B3 (P1; 1.003x, "
+        "not_composable", f"{_OUT}: layout placement cannot be combined with firmware regions (P1; 1.003x, "
         "0.992x elsewhere)"),
     "page-aware-local-layout": _exc(
-        "not_applicable_sealed", f"{_OUT}: requires no B3 (P21; never measured)"),
+        "not_composable", f"{_OUT}: layout placement cannot be combined with firmware regions (P21; never measured)"),
     "cluster-hot": _exc(
         "not_composable", f"{_OUT}: a layout pass; refused with firmware regions "
         "(firmware_region_terminal_stage) (P5)", arm="b3l"),

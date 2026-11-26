@@ -41,7 +41,7 @@ from typing import Any
 
 WT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WT))
-from scopt.formats.sc_v5 import sha256_sparse  # noqa: E402
+from scopt.formats.sc_records import sha256_sparse  # noqa: E402
 
 ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
 PY = sys.executable

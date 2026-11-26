@@ -145,9 +145,9 @@ def profile_view(doc: Mapping[str, Any], phase: str = "steady") -> dict[str, Any
 
 
 def _sc_units(path: str | os.PathLike) -> tuple[Any, dict[int, str], dict[str, Any]]:
-    from ..formats.sc_v6 import read_sc6
+    from ..formats.sc_semantic import read_semantic_cache
 
-    f = read_sc6(path)
+    f = read_semantic_cache(path)
     sc = f.sc
     by_off, by_uid = {}, {}
     for uid, u in zip(sc.unit_ids(), sc.units()):
@@ -157,7 +157,7 @@ def _sc_units(path: str | os.PathLike) -> tuple[Any, dict[int, str], dict[str, A
 
 
 def guarded_lookup_model(sc_path: str | os.PathLike, pv: Mapping[str, Any]) -> dict[str, Any]:
-    """MODEL: lookups per run that a v6 artifact's guarded slots replace. For every slot
+    """MODEL: lookups per run that a linked cache's guarded slots replace. For every slot
     the ``lookup_hit`` edges from its R unit to a unit at the slot's target vaddr (the
     edges the guard passes on); SPEC slots also count as C' entries."""
     f, by_off, _ = _sc_units(sc_path)
@@ -811,7 +811,7 @@ def render_b5(sec: Mapping[str, Any]) -> list[str]:
                        + (f" (model {used})" if used else "")])
     L += _table(["arm", "slots", "train guarded lookups/run (share)", "predicted ms (qint)",
                  "set", "measured saving", "DERIVED ns/lookup"], lr) if lr else \
-        ["not_run: no v6 artifact with guarded slots resolved."]
+        ["not_run: no cache with semantic guard slots resolved."]
     L.append("")
     L.append("### Removed env stores: MODEL vs MEASURED")
     L.append("")

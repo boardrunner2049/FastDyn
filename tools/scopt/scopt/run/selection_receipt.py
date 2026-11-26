@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import random
 
-from ..formats.sc_v5 import data_extents, sha256_sparse
+from ..formats.sc_records import data_extents, sha256_sparse
 from .deploy import resolve_artifact
 from .launcher import file_sha256, norm_b0, norm_guest, parse_bench
 from .warm_selection import ARMS, DEFAULT_ALPHA, MIN_PAIRS, _paired_evidence, _paired_orders

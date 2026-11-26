@@ -53,7 +53,7 @@ from scopt.formats import scm_v1 as S
 from scopt.formats.enums import (
     NONE_U32, ChunkType, Encoding, MapsTag, OpMarkKind, SiteKind, TbFlag,
 )
-from scopt.formats.sc_v5 import ScHeader, ScRecord
+from scopt.formats.sc_records import ScHeader, ScRecord
 from scopt.ids import TBKey
 from scopt.model import unit as U
 
@@ -745,7 +745,7 @@ def qprof_binding(sc: bytes | str) -> dict[str, Any]:
     """The ``.qprof`` header fields that bind a profile to the snapshot ``sc``
     (bytes or a path): code_address, runtime_signature and the ``loaded_*``
     fields as QEMU computes them when it loads that file."""
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
     import tempfile
 
     if isinstance(sc, (bytes, bytearray)):

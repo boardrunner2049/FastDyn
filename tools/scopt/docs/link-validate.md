@@ -92,7 +92,7 @@ pipeline's params (for example, `move-units` moves for F-B2-1/F-B2-5).
   a candidate that moves units it is `skip`. On a canonical input, the output
   sha256 must equal the input's (`status: identity`). On a non-canonical input
   (records skipped, stray bytes, a wrong size), the output must equal an
-  independent canonical rewrite of the input (`sc_v5.identity_copy`). The row
+  independent canonical rewrite of the input (`sc_records.identity_copy`). The row
   then passes with `status: identity_canonicalized`, and its `dropped` field
   lists `[{slot, reason}]`.
 - **V7** requires the input snapshot to carry a bundle and a RuntimeIdentity

@@ -1,8 +1,8 @@
 --- a/accel/tcg/cpu-exec.c
 +++ b/accel/tcg/cpu-exec.c
-@@ -399,6 +399,11 @@
+@@ -403,6 +403,11 @@
      }
- 
+
      tb = tb_lookup(cpu, s);
 +    if (unlikely(tcg_supercache_v6_check_coverage(&s, tb))) {
 +        /* Fall back to the dispatcher before using the selected pointer. */
@@ -12,9 +12,9 @@
      if (tb == NULL) {
          if (unlikely(scp_active)) {
              scp_lookup_miss();          /* P3 miss */
-@@ -974,6 +979,11 @@
+@@ -1197,6 +1202,11 @@
              }
- 
+
              tb = tb_lookup(cpu, s);
 +            if (unlikely(tcg_supercache_v6_check_coverage(&s, tb))) {
 +                /* No incoming edge may be patched on the violating dispatch. */
@@ -26,15 +26,15 @@
                  uint32_t h;
 --- a/tcg/supercache.c
 +++ b/tcg/supercache.c
-@@ -741,6 +741,7 @@
+@@ -789,6 +789,7 @@
      SC6_FORBID_ONE_INSN,
      SC6_FORBID_PLUGIN,
      SC6_FORBID_TLB_BUDGET,
 +    SC6_FORBID_COVERAGE,
  };
- 
+
  static const char *const sc6_forbid_names[] = {
-@@ -748,8 +749,23 @@
+@@ -796,7 +797,22 @@
      [SC6_FORBID_ONE_INSN] = "one_insn_per_tb",
      [SC6_FORBID_PLUGIN] = "plugin_reset",
      [SC6_FORBID_TLB_BUDGET] = "tlb_disarm_budget",
@@ -45,7 +45,6 @@
 +    uint64_t pc, page0, page1, cs_base;
 +    uint32_t flags, cflags;
 +} Sc6CoverageKey;
- 
 +static struct {
 +    uint64_t start, end;
 +    GArray *keys;
@@ -55,11 +54,11 @@
 +    uint64_t variant_exits_at_revocation;
 +} sc6_coverage;
 +
+
  /* Set once QEMU_SC_V6_STATS was accepted; read by cpu-exec/translate-all. */
  bool tcg_sc6_stats_active;
- 
-@@ -877,6 +893,70 @@
-  * load_records() and before loaded_max_end is set.  Every failure exits.
+@@ -2049,6 +2065,71 @@
+  * loaded_max_end is set.  Every failure exits.
   * The two code hashes are checked later, after the code pread (Q4).
   */
 +/*
@@ -126,21 +125,24 @@
 +    }
 +}
 +
- static void sc6_load_ext(void)
++
+ static void sc6_load_ext(uint32_t features, uint64_t arrays_limit)
  {
      const SupercacheHeader *h = &supercache.header;
-@@ -1162,6 +1242,7 @@
- 
+@@ -2336,6 +2417,7 @@
+
      /* Q4: variant code is loaded and never overwritten by translations. */
      supercache.max_end = MAX(supercache.max_end, max_end);
 +    sc6_configure_coverage(&x);
      sc6.loaded = true;
      sc6.st.ext_load_ns = (g_get_monotonic_time() - t0) * 1000;
  }
-@@ -1476,6 +1557,50 @@
+@@ -2651,6 +2733,50 @@
+     if (!qatomic_xchg(&sc6.forbidden, true)) {
+         qatomic_set(&sc6.forbid_reason, reason);
      }
- }
- 
++}
++
 +/*
 + * Called on the single vCPU at dispatch, before executing the selected TB.
 + * Treat a missing translation as a violation as well; appending it cannot
@@ -183,12 +185,10 @@
 +        sc6.st.disarm_forbid_links += sc6_unlink_all();
 +    }
 +    return true;
-+}
-+
+ }
+
  /* Q7: end of every vCPU TLB-flush worker (cputlb.c). */
- void tcg_supercache_mapping_changed(CPUState *cpu)
- {
-@@ -1628,6 +1753,12 @@
+@@ -2814,6 +2940,12 @@
          sc6.st.variant_slots_unlinked, sc6.st.variant_exits,
          sc6.st.variant_entry_exits, sc6.st.variant_restores,
          sc6.st.invariant_checks, sc6.st.invariant_violations);
@@ -201,21 +201,23 @@
      g_string_append(j, "  \"links\": [");
      for (uint32_t i = 0; i < sc6.n_links; i++) {
          g_string_append_printf(j, "%s{\"armed\": %s, \"disarmed_epoch\": %s}",
-@@ -1700,6 +1831,10 @@
+@@ -2885,6 +3017,12 @@
          }
      }
- 
+
 +    if (getenv("QEMU_SCOPT_COVERAGE_GUARD") &&
-+        (!reuse || disk_header.version != SC6_VERSION)) {
-+        sc6_die("coverage guard requires matching .sc v6");
++        (!reuse || !(disk_header.reserved & SC7_FEAT_SC6_EXTENSION) ||
++         (disk_header.reserved & SC7_FEAT_SC6_FIRMWARE_REGIONS) ||
++         supercache.sealed)) {
++        sc6_die("coverage guard requires a matching ordinary semantic SuperCache");
 +    }
      supercache.size = size;
-     if (!reuse) {
-         if (ftruncate(supercache.fd, code_end) < 0) {
-@@ -2215,6 +2350,11 @@
+     if (supercache.sealed && !reuse) {
+         error_setg(errp, "sealed supercache requires an existing complete cache");
+@@ -4734,6 +4872,11 @@
  {
  }
- 
+
 +bool tcg_supercache_v6_check_coverage(TCGTBCPUState *state, TranslationBlock *tb)
 +{
 +    return false;
@@ -226,24 +228,24 @@
  }
 --- a/include/tcg/supercache.h
 +++ b/include/tcg/supercache.h
-@@ -34,6 +34,7 @@
- extern bool tcg_sc6_stats_active;
+@@ -66,6 +66,7 @@
+ extern bool tcg_sc7_stats_active;
  void tcg_supercache_mapping_changed(CPUState *cpu);
  void tcg_supercache_v6_one_insn_per_tb(void);
 +bool tcg_supercache_v6_check_coverage(TCGTBCPUState *state, TranslationBlock *tb);
  void tcg_supercache_v6_note_exit(TranslationBlock *tb, int tb_exit);
  void tcg_supercache_v6_note_restore(TranslationBlock *tb);
  #else
-@@ -104,6 +105,12 @@
+@@ -193,6 +194,12 @@
+
+ static inline void tcg_supercache_v6_one_insn_per_tb(void)
  {
- }
- 
++}
++
 +static inline bool tcg_supercache_v6_check_coverage(TCGTBCPUState *state,
 +                                                     TranslationBlock *tb)
 +{
 +    return false;
-+}
-+
+ }
+
  static inline void tcg_supercache_v6_note_exit(TranslationBlock *tb,
-                                                int tb_exit)
- {

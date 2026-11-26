@@ -236,8 +236,8 @@ def _spec_keys(link: Any, snapshot: Any) -> dict[tuple[str, int], tuple[int, int
 def r_prime(link: Any, uid: str, world: World, *, offsets: Any,
             snapshot: Any = None) -> Program:
     """The Program of grown unit ``uid`` as placed in ``link`` (see the module doc)."""
-    from ..formats.sc_v5 import ScRecord
-    from ..formats.sc_v6 import KIND_SPEC
+    from ..formats.sc_records import ScRecord
+    from ..formats.sc_semantic import KIND_SPEC
     from ..guard import GuardError, guard_key
 
     g = link.grown[uid]
@@ -277,7 +277,7 @@ def r_prime(link: Any, uid: str, world: World, *, offsets: Any,
 
 def placed_program(link: Any, uid: str, world: World) -> Program:
     """A rewritten (not grown) unit as placed: its effective metadata, the linked bytes."""
-    from ..formats.sc_v5 import ScRecord
+    from ..formats.sc_records import ScRecord
 
     eff = link.effective[uid]
     lu = link.by_uid()[uid]

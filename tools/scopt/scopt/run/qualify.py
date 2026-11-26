@@ -43,7 +43,7 @@ import struct
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..formats.sc_v5 import read_sc, sha256_sparse, sparse_copy
+from ..formats.sc_records import read_sc, sha256_sparse, sparse_copy
 from .identity_cmp import per_key_compare, scm_checks, unit_images
 from .launcher import FASTDYN_SRC, create_run_dir, file_sha256, launch, write_json
 

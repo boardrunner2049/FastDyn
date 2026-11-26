@@ -12,7 +12,7 @@ from scopt.canon import sha256_id
 from scopt.decode.search import decode_search, encode_search, is_pcrel, unwind
 from scopt.decode.x86 import sweep
 from scopt.formats.enums import Encoding, OpMarkKind, SiteKind
-from scopt.formats.sc_v5 import ScRecord
+from scopt.formats.sc_records import ScRecord
 from scopt.model.native import InlineCall, NativeFragment
 from scopt.model.unit import Bindings, HelperBinding, Insn, OpMark, PoolEntry, RecoveryPoint, Site
 from scopt.splice_layout import materialize_splice, prepare_splice_layout

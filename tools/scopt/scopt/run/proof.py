@@ -27,17 +27,10 @@ keeps the inode but fails check 1).
 Any failed check gives the verdict ``INVALID_artifact_not_used``; such a run
 is never a timing sample. All checks pass: ``PASS``.
 
-``.sc`` v6 (B3/B4 design §5.1, §9.4; WP26). For a deployed file whose header
-version is 6 with the EXT_TABLE feature bit set the state also records the sha256 of the extension bytes
-``[0x100, 0x10000)`` and the ext table's ``artifact_id8``, and :func:`prove`
-adds two checks:
-
-4. ``v6_header``: the header is still version 6 with the deployed feature
-   flags. An old (v5-only) loader fails ``valid_header`` on a v6 file,
-   truncates it and writes a fresh v5 header (F-B3-18); this check names
-   that case (``header`` fails too).
-5. ``ext``: the extension bytes are unchanged after the run (the v6 loader
-   never writes them; an append keeps them, WP22 note 7).
+For a canonical cache with a semantic extension, ``semantic_header``
+checks the feature flags and ``ext`` checks the extension bytes against the
+deploy-time digest. For a cache containing firmware regions, the proof also
+checks the firmware directory identity. A composed cache runs both checks.
 
 A direct QEMU run without the FastDyn frontend (:func:`deployed_state` with
 ``frontend="none"``, the mps2 alias path of :mod:`scopt.run.deploy`) has no
@@ -53,15 +46,14 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ..formats.layouts import SC_CODE_OFFSET
-from ..formats.sc_v5 import HEADER_SIZE, RECORD_SIZE, ScHeader
+from ..formats.layouts import SC_CODE_OFFSET, SC_VERSION
+from ..formats.sc_records import HEADER_SIZE, RECORD_SIZE, ScHeader
 
-#: v6 extension bytes covered by the post-run ``ext`` check (design §5.3, G2)
+#: semantic extension bytes covered by the post-run ``ext`` check (design §5.3, G2)
 EXT_BEGIN = 0x100
 EXT_END = SC_CODE_OFFSET
 #: offset of ``artifact_id8`` in the ext header (file offset 0x130)
 EXT_ID8_OFFSET = EXT_BEGIN + 48
-SC7_VERSION = 7
 
 __all__ = ["deployed_state", "prove", "prove_run", "deploy_refusal", "VERDICT_PASS",
            "VERDICT_INVALID", "ext_state", "EXT_BEGIN", "EXT_END"]
@@ -100,7 +92,7 @@ def _manifest_state(manifest: str | os.PathLike | None) -> dict[str, Any] | None
 
 
 def ext_state(fd: int) -> dict[str, Any]:
-    """sha256 of the v6 extension bytes ``[0x100, 0x10000)`` and ``artifact_id8``."""
+    """sha256 of the semantic extension bytes ``[0x100, 0x10000)`` and ``artifact_id8``."""
     ext = _read_exact(fd, EXT_END - EXT_BEGIN, EXT_BEGIN)
     ext = ext + bytes(EXT_END - EXT_BEGIN - len(ext))
     a = EXT_ID8_OFFSET - EXT_BEGIN
@@ -122,13 +114,13 @@ def deployed_state(sc_path: str | os.PathLike,
         if len(hb) < HEADER_SIZE:
             raise ValueError(f"{sc_path}: truncated header")
         h = ScHeader.from_bytes(hb)
-        if h.version != SC7_VERSION:
+        if h.version != SC_VERSION:
             raise ValueError(f"{sc_path}: legacy cache version {h.version} is not deployable")
         roff = SC_CODE_OFFSET + h.code_size
         avail = max(0, (st.st_size - roff) // RECORD_SIZE) if st.st_size > roff else 0
         n = min(h.record_count, avail)
         recs = _read_exact(fd, n * RECORD_SIZE, roff) if n else b""
-        from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+        from ..formats.sc_semantic import SC7_SEMANTIC_MARKER
 
         ext = ext_state(fd) if h.reserved & SC7_SEMANTIC_MARKER else None
     finally:
@@ -149,30 +141,30 @@ def deployed_state(sc_path: str | os.PathLike,
     }
     if ext is not None:
         out.update(ext)
-    from ..formats.sc_v7 import is_composed_features
+    from ..formats.supercache import is_composed_features
 
     if is_composed_features(h.reserved):
         # ext_state hashes [0x100, 0x10000), which includes the composed
         # directory header at 0xFF00; the directory identity covers the rest.
-        from ..formats.sc_v6 import read_sc6
-        from ..formats.sc_v7 import read_sc7, sc7_snapshot_id
+        from ..formats.sc_semantic import read_semantic_cache
+        from ..formats.supercache import read_region_directory, region_snapshot_id
 
-        semantic = read_sc6(sc_path)
+        semantic = read_semantic_cache(sc_path)
         if not semantic.loadable or semantic.ext is None:
             raise ValueError(f"{sc_path}: invalid composed semantic extension")
-        directory = read_sc7(sc_path)
+        directory = read_region_directory(sc_path)
         out.update(v7_kind="composed", firmware_artifact_id8=directory.artifact_id8.hex(),
-                   firmware_snapshot_id=sc7_snapshot_id(sc_path))
+                   firmware_snapshot_id=region_snapshot_id(sc_path))
     elif h.reserved == 1:
-        from ..formats.sc_v7 import read_sc7, sc7_snapshot_id
+        from ..formats.supercache import read_region_directory, region_snapshot_id
 
-        directory = read_sc7(sc_path)
+        directory = read_region_directory(sc_path)
         out.update(v7_kind="firmware", firmware_artifact_id8=directory.artifact_id8.hex(),
-                   firmware_snapshot_id=sc7_snapshot_id(sc_path))
+                   firmware_snapshot_id=region_snapshot_id(sc_path))
     elif ext is not None:
-        from ..formats.sc_v6 import read_sc6
+        from ..formats.sc_semantic import read_semantic_cache
 
-        semantic = read_sc6(sc_path)
+        semantic = read_semantic_cache(sc_path)
         if not semantic.loadable or semantic.ext is None:
             raise ValueError(f"{sc_path}: invalid canonical semantic extension")
         out["v7_kind"] = "semantic"
@@ -228,7 +220,7 @@ def prove(state: dict[str, Any]) -> dict[str, Any]:
                 if post is None:
                     add("semantic_header", False, "no header after the run")
                 else:
-                    okv = post.version == SC7_VERSION and post.reserved == dep.reserved
+                    okv = post.version == SC_VERSION and post.reserved == dep.reserved
                     add("semantic_header", okv, "" if okv else
                         f"version {dep.version} -> {post.version}, feature_flags "
                         f"{dep.reserved:#x} -> {post.reserved:#x}")
@@ -241,15 +233,15 @@ def prove(state: dict[str, Any]) -> dict[str, Any]:
                     add("v7_header", False, "no header after the run")
                     add("firmware_regions", False, "no v7 artifact after the run")
                 else:
-                    okv = post.version == SC7_VERSION and post.reserved == dep.reserved
+                    okv = post.version == SC_VERSION and post.reserved == dep.reserved
                     add("v7_header", okv, "" if okv else
                         f"version {dep.version} -> {post.version}, feature_flags "
                         f"{dep.reserved:#x} -> {post.reserved:#x}")
                     try:
-                        from ..formats.sc_v7 import read_sc7, sc7_snapshot_id
+                        from ..formats.supercache import read_region_directory, region_snapshot_id
 
-                        directory = read_sc7(sc)
-                        sid = sc7_snapshot_id(sc)
+                        directory = read_region_directory(sc)
+                        sid = region_snapshot_id(sc)
                         okr = (directory.artifact_id8.hex() ==
                                state.get("firmware_artifact_id8") and
                                sid == state["firmware_snapshot_id"])
@@ -297,7 +289,7 @@ def frozen_append_counts(run):
     checks = proof.get("checks") or []
     names = {c.get("check") for c in checks}
     required = {"sc_exists", "header", "records", "inode", "manifest"}
-    if proof.get("file_version") != 7:
+    if proof.get("file_version") != SC_VERSION:
         raise ValueError("frozen deployment is not a canonical-v7 cache")
     if proof.get("v7_kind") not in ("public", "semantic", "firmware"):
         raise ValueError("frozen deployment has no canonical-v7 subtype")

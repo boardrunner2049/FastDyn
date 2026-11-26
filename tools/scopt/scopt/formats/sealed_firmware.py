@@ -10,7 +10,7 @@ from typing import Any
 
 from elftools.elf.elffile import ELFFile
 
-from .sc_v5 import read_sc
+from .sc_records import read_sc
 
 TRACE_SCHEMA = "scopt-sealed-coverage-v1"
 MANIFEST_SCHEMA = "scopt.sealed_firmware_coverage/1"
@@ -84,7 +84,7 @@ def verify(elf_path: Path, trace_path: Path, cache_path: Path,
     trace = parse_trace(trace_path.read_text())
     if trace["ranges"] != declared:
         raise ValueError("producer ranges differ from executable ELF PT_LOAD ranges")
-    cache = read_sc(cache_path, versions=(7,), strict=True)
+    cache = read_sc(cache_path, strict=True)
     records: dict[tuple[int, ...], list[Any]] = defaultdict(list)
     for record in cache.records:
         key = (record.pc, record.page_addr0, record.page_addr1, record.flags,

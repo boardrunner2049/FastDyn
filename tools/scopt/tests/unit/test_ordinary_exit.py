@@ -12,7 +12,7 @@ from scopt.decode.search import SearchRow, encode_search
 from scopt.decode.x86 import sweep
 from scopt.formats.enums import Encoding, OpMarkKind, SiteKind
 from scopt.formats.layouts import SC_MAGIC, SC_RECORD_COMMIT
-from scopt.formats.sc_v5 import ScHeader, ScRecord
+from scopt.formats.sc_records import ScHeader, ScRecord
 from scopt.formats.scm_v1 import RunInfo, ScmInsn, ScmOpMark, ScmSite, ScmStaticExit, TbChunk
 from scopt.ordinary_exit import RUNTIME, capture, retire, retired_slots, targets
 from scopt.passes.ordinary_exit import observed_installations

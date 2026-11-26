@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from .canon import fnv1a64
 from .formats.enums import Encoding, OpMarkKind, SiteKind
-from .formats.sc_v5 import ScRecord
+from .formats.sc_records import ScRecord
 
 
 def _check(condition, message):

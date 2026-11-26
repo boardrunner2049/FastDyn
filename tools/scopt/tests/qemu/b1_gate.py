@@ -57,7 +57,7 @@ from typing import Any
 
 WT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WT))
-from scopt.formats.sc_v5 import read_sc, sha256_sparse, write_sc  # noqa: E402
+from scopt.formats.sc_records import read_sc, sha256_sparse, write_sc  # noqa: E402
 from scopt.model.cache_snapshot import snapshot_dir_name  # noqa: E402
 
 ROOT = Path(os.environ.get("FASTDYN_ROOT") or Path(__file__).resolve().parents[4])
@@ -215,6 +215,7 @@ class Gate:
         return rc1 == 0 and rc2 == 0
 
     def t2(self) -> None:
+        from scopt.formats.layouts import SC_HEADER, SC_MAGIC, SC_VERSION
         from scopt.validate import scparse_compare
 
         c = Checks()
@@ -225,7 +226,8 @@ class Gate:
         c.add("header and records valid", sc.loadable and not sc.header_problems
               and not sc.problems and not sc.skipped,
               {"header_problems": sc.header_problems, "skipped": len(sc.skipped)})
-        c.add("magic/v5/header_size", (h.magic, h.version, h.header_size) == (b"QSCACHE1", 5, 80))
+        c.add("canonical cache header", (h.magic, h.version, h.header_size) ==
+              (SC_MAGIC, SC_VERSION, SC_HEADER.size))
         c.add("tb_size 152", h.tb_size == 152, h.tb_size)
         c.add("target_page_bits 10", h.target_page_bits == 10, h.target_page_bits)
         c.add("tb % 64 == 0", all(r.tb_offset % 64 == 0 for r in sc.records if r))

@@ -28,9 +28,10 @@ def run(work: Path, qemu: Path, plugin_source: Path, selftest: Path | None) -> N
         qemu_sha = hashlib.file_digest(stream, "sha256").hexdigest()
     layouts = work / "envlayouts"
     layouts.mkdir()
-    env = dict(os.environ, FASTDYN_ROOT=str(producer.ROOT), SCOPT_FASTDYN_SRC=str(producer.ROOT),
+    env = dict(os.environ, FASTDYN_ROOT=str(producer.ROOT),
                SCOPT_RUNTIME_QEMU=str(qemu), SCOPT_RUNTIME_QEMU_SHA256=qemu_sha,
                SCOPT_ENVLAYOUT_PATH=str(layouts), SCOPT_V6_EXES=qemu_sha)
+    env.setdefault("SCOPT_FASTDYN_SRC", str(producer.ROOT))
     env.pop("QEMU_SCOPT_COVERAGE_TRACE", None)
     env.pop("QEMU_SCOPT_COVERAGE_RANGE", None)
 

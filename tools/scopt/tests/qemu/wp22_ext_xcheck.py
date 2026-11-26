@@ -6,12 +6,12 @@
 ``ART_DIR`` is a v6 artifact published by WP18's ``package_b3`` (e.g. the
 ``b3-14`` artifact of ``wp22_stress.py``: SPEC and GENERAL slots, a variant of
 a grown unit). Each mutant below changes one field of its header or extension
-table (decoded with ``scopt.formats.sc_v6.ExtTable`` and re-encoded, so the
+table (decoded with ``scopt.formats.sc_semantic.ExtTable`` and re-encoded, so the
 ext checksum is recomputed unless the mutant is about the checksum; header
 mutants recompute the header checksum). For every mutant:
 
-* WP18's prediction: ``read_sc6(mutant).problem`` = ``(code, loader message)``
-  (``scopt.formats.sc_v6.ext_problem``, the Python statement of the loader's
+* WP18's prediction: ``read_semantic_cache(mutant).problem`` = ``(code, loader message)``
+  (``scopt.formats.sc_semantic.ext_problem``, the Python statement of the loader's
   checks in order);
 * the loader: the mutant is deployed with the scopt harness and run on QEMU;
   it must exit non-zero before any guest output with
@@ -37,8 +37,8 @@ from typing import Any, Callable
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1]))
-from scopt.formats.sc_v5 import ScHeader, sha256_sparse  # noqa: E402
-from scopt.formats.sc_v6 import (EXT_OFFSET, KIND_GENERAL, ExtTable, read_sc6)  # noqa: E402
+from scopt.formats.sc_records import ScHeader, sha256_sparse  # noqa: E402
+from scopt.formats.sc_semantic import (EXT_OFFSET, KIND_GENERAL, ExtTable, read_semantic_cache)  # noqa: E402
 from scopt.run.deploy import deploy_new  # noqa: E402
 from scopt.run.launcher import file_sha256, launch  # noqa: E402
 
@@ -48,7 +48,7 @@ MSG_RE = re.compile(r"supercache: invalid v6 extension: (.*)$")
 
 
 def read_ext(path: Path) -> ExtTable:
-    f = read_sc6(path)
+    f = read_semantic_cache(path)
     if f.ext is None or f.problem is not None:
         raise SystemExit(f"{path}: not a loadable v6 file ({f.problem})")
     # decode() keeps the stored counts, max_end and checksum; a mutant must have
@@ -184,7 +184,7 @@ def main() -> int:
         raise SystemExit(f"{out} exists and is not empty")
     (out / "files").mkdir(parents=True)
     src = a.artifact / "cache.sc"
-    f0 = read_sc6(src)
+    f0 = read_semantic_cache(src)
     ext = read_ext(src)
     records = [r for r in f0.sc.records if r is not None]
     if not records:
@@ -207,7 +207,7 @@ def main() -> int:
             write_features(p, what)
         else:
             write_ext(p, what)
-        pred = read_sc6(p).problem
+        pred = read_semantic_cache(p).problem
         r = run_one(p, a.config, a.input, out / "runs" / name, a.qemu, a.timeout)
         items = [("WP18 model refuses the mutant", pred is not None, pred),
                  ("the mutant reaches its own check (not a checksum mismatch)",

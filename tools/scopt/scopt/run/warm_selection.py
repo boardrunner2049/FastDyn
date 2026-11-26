@@ -14,7 +14,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from ..formats.sc_v5 import sha256_sparse
+from ..formats.sc_records import sha256_sparse
 from .deploy import DeployError, deploy, resolve_artifact
 from .launcher import RunDirError, create_run_dir, file_sha256, launch, write_json
 

@@ -12,7 +12,7 @@ import tomllib
 
 from ..canon import is_sha256_id
 from ..decode.search import is_pcrel
-from ..formats.sc_v5 import ScRecord, sha256_sparse
+from ..formats.sc_records import ScRecord, sha256_sparse
 from ..run.launcher import file_sha256
 
 _PAGES = (4096, 16384)

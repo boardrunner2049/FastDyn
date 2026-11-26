@@ -1,41 +1,8 @@
-"""``.sc`` v6 writer and reader (B3/B4 design §5.2-5.4, §9.1 V11). WP18.
+"""SuperCache semantic extension: private variants, chain slots and links.
 
-A v6 file is a v5 file (:mod:`scopt.formats.sc_v5`) with
-
-* header ``version = 6`` and ``reserved`` (byte 68) used as ``feature_flags``:
-  bit0 EXT_TABLE (must be set), bit1 VARIANTS, bit2 GUARDED_SLOTS, bit3
-  REWRITTEN_RECORDS (informational); covered by the header checksum;
-* an **extension table** at file offset 0x100 (inside the untouched
-  ``[80, 0x10000)`` gap): a 64-byte :class:`ExtHeader`, then from 0x140 the
-  arrays ``variants`` (64 B each), ``slots`` (32 B) and ``links`` (16 B);
-* **variant bodies** in the arena (file offset ``0x10000 + tc_offset``), outside
-  every record: ``[tc_offset, end_offset)`` of each variant (its struct
-  ``[tb_offset, tc_offset)`` stays a hole, as for records).
-
-Records keep the v5 104-byte layout; grown and rewritten units are ordinary
-records.
-
-The reader mirrors the ``qint-v6`` loader (WP22, ``tcg/supercache.c``
-``sc6_load_ext`` + ``sc6_verify_hashes``): :func:`ext_problem` returns the
-first check that fails, as ``(code, message)``, where ``message`` is the text
-the loader prints after ``supercache: invalid v6 extension:`` (the loader exits
-before any guest instruction on such a file, design §5.1). The order of the
-checks is the loader's. The rules beyond the §5.3 table that the loader added
-(design implementation note WP22 item 2) are included: ``guard_off +
-guard_len <= R.tc_size``; R's registered jump field (+4) and reset offset lie in
-the guard range; the jump field is 4-aligned; no duplicate ``(R, n)``;
-VARIANTS/GUARDED_SLOTS feature bits iff the arrays are non-empty; variant
-``flags`` bits beyond bit0 and every ``reserved`` field are zero; a link's
-target has C's page offset; duplicate record ``tb_offset`` refuses the file;
-an all-zero ``artifact_id8`` is refused.
-
-:func:`write_sc6` is the packager's writer: it computes ``feature_flags``,
-``variants_max_end`` and the checksum, writes through
-:func:`scopt.formats.sc_v5.write_sc` (sparse), and by default re-reads the
-file and refuses to leave one the loader would reject (``ScFormatError`` with
-the loader's reason). The independent parser
-``independent/sc6parse.py`` (written from the C loader) is run by
-:func:`sc6parse_compare` (V11).
+The canonical v7 header marks this optional payload in its feature word.
+The extension occupies the gap at 0x100 before public code. The independent
+parser checks the same payload against the pinned QEMU loader.
 """
 
 from __future__ import annotations
@@ -52,21 +19,20 @@ from pathlib import Path
 from typing import Any
 
 from ..canon import fnv1a64
-from .layouts import SC_CODE_OFFSET
-from .sc_v5 import (ScFile, ScFormatError, ScHeader, ScRecord, _pread_exact, read_sc,
+from .layouts import SC_CODE_OFFSET, SC_VERSION
+from .sc_records import (ScFile, ScFormatError, ScHeader, ScRecord, _pread_exact, read_sc,
                     structural_findings, write_sc)
 
 __all__ = [
-    "SC6_VERSION", "EXT_OFFSET", "ARRAYS_OFFSET", "EXT_MAGIC", "FEAT_EXT_TABLE",
+    "EXT_OFFSET", "ARRAYS_OFFSET", "EXT_MAGIC", "FEAT_EXT_TABLE",
     "FEAT_VARIANTS", "FEAT_GUARDED_SLOTS", "FEAT_REWRITTEN", "KNOWN_FEATURES",
     "KIND_GENERAL", "KIND_SPEC", "EXIT_RETURN", "EXIT_STATIC", "EXIT_DIRECT", "VARIANT_FACTS",
-    "VariantEntry", "SlotEntry", "LinkEntry", "ExtTable", "Sc6File", "read_sc6", "write_sc6",
+    "VariantEntry", "SlotEntry", "LinkEntry", "ExtTable", "SemanticCache", "read_semantic_cache",
     "ext_problem", "sc6parse_compare", "SC6PARSE", "max_ext_entries", "TB_STRUCT_ROUND",
     "SC7_SEMANTIC_MARKER", "SC7_SC6_REGIONS_MARKER", "COMPOSED_DIR_OFFSET",
-    "sc6_snapshot_id", "ScExtRefused",
+    "semantic_snapshot_id", "ScExtRefused",
 ]
 
-SC6_VERSION = 6
 EXT_OFFSET = 0x100
 ARRAYS_OFFSET = 0x140
 EXT_MAGIC = b"QSCX6EXT"
@@ -314,7 +280,7 @@ def ext_problem(header: ScHeader, loaded: Sequence[ScRecord], read: Any, *,
             raise _Die("ext_table_too_large", "ext table too large")
         arrays = read(ARRAYS_OFFSET, asz)
         tab = ExtTable.decode(xb, arrays)
-        if fnv1a64(arrays, fnv1a64(xb[:56])) != ck:
+        if check_hashes and fnv1a64(arrays, fnv1a64(xb[:56])) != ck:
             raise _Die("ext_checksum", "ext checksum mismatch")
         if bool(feat & FEAT_VARIANTS) != bool(nv):
             raise _Die("feature_variants", f"feature VARIANTS disagrees with n_variants {nv}")
@@ -452,8 +418,8 @@ def ext_problem(header: ScHeader, loaded: Sequence[ScRecord], read: Any, *,
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class Sc6File:
-    """A parsed ``.sc`` (v5 or v6) as the ``qint-v6`` loader sees it."""
+class SemanticCache:
+    """Public records and optional semantic extension of a SuperCache."""
 
     sc: ScFile  # header/records/bodies (records loaded as load_records does)
     ext: ExtTable | None = None
@@ -465,13 +431,8 @@ class Sc6File:
         return self.sc.header.version
 
     @property
-    def is_v6(self) -> bool:
-        """False for every production artifact; retained as an API migration aid."""
-        return False
-
-    @property
     def is_semantic_v7(self) -> bool:
-        return (self.sc.loadable and self.sc.header.version == 7 and
+        return (self.sc.loadable and self.sc.header.version == SC_VERSION and
                 bool(self.sc.header.reserved & SC7_SEMANTIC_MARKER))
 
     @property
@@ -521,20 +482,25 @@ class Sc6File:
                 "records": len(self.sc.valid_slots), "max_end": hex(self.max_end)}
 
 
-def read_sc6(path: str | os.PathLike, *, host_page_size: int | None = None,
-             expect: Mapping[str, int] | None = None) -> Sc6File:
+def read_semantic_cache(path: str | os.PathLike, *, host_page_size: int | None = None,
+             expect: Mapping[str, int] | None = None) -> SemanticCache:
     """Read the semantic-extension payload of a canonical top-level-v7 cache."""
-    path = os.fspath(path)
-    sc = read_sc(path, expect=expect, versions=(7,))
-    semantic_v7 = (sc.loadable and sc.header.version == 7 and
+    return read_semantic_payload(read_sc(path, expect=expect), host_page_size=host_page_size)
+
+
+def read_semantic_payload(sc: ScFile, *, host_page_size: int | None = None,
+                          check_hashes: bool = True, include_bodies: bool = True) -> SemanticCache:
+    """Decode the semantic table using the already-read public records."""
+    path = sc.path
+    semantic_v7 = (sc.loadable and sc.header.version == SC_VERSION and
                    bool(sc.header.reserved & SC7_SEMANTIC_MARKER))
     if not sc.loadable or not semantic_v7:
-        return Sc6File(sc)
+        return SemanticCache(sc)
     unknown = sc.header.reserved & ~(SC7_SEMANTIC_MARKER | SC7_SC6_REGIONS_MARKER |
                                      KNOWN_FEATURES)
     composed = bool(sc.header.reserved & SC7_SC6_REGIONS_MARKER)
     if unknown:
-        return Sc6File(sc, problem=("feature_flags",
+        return SemanticCache(sc, problem=("feature_flags",
                                     f"unknown feature bits 0x{unknown:x}"))
     ext_header = sc.header
     if semantic_v7:
@@ -548,28 +514,26 @@ def read_sc6(path: str | os.PathLike, *, host_page_size: int | None = None,
 
         loaded = [sc.records[i] for i in sc.valid_slots]
         tab, prob = ext_problem(ext_header, loaded, read, host_page_size=host_page_size,
+                                check_hashes=check_hashes,
                                 arrays_limit=COMPOSED_DIR_OFFSET if composed else
                                 SC_CODE_OFFSET)
         bodies: tuple[bytes, ...] = ()
-        if tab is not None and prob is None:
+        if include_bodies and tab is not None and prob is None:
             bodies = tuple(read(SC_CODE_OFFSET + v.tc_offset, v.end_offset - v.tc_offset)
                            for v in tab.variants)
     finally:
         os.close(fd)
-    return Sc6File(sc, tab, prob, bodies)
+    return SemanticCache(sc, tab, prob, bodies)
 
 
-def sc6_snapshot_id(f: "Sc6File") -> str:
-    """SnapshotId of a ``.sc`` as the v6 loader sees it.
-
-    v5 files: :meth:`ScFile.snapshot_id` (unchanged). v6 files: ``sha256:`` of
-    ``"scopt.snapshot_id.v6/1" ‖ <v5-style SnapshotId of header + valid slots> ‖
-    ext table bytes ‖ every variant body`` (the header bytes already carry
-    version 6 and the feature flags)."""
+def semantic_snapshot_id(f: "SemanticCache") -> str:
+    """Include the semantic table and variant bodies in the cache identity."""
     import hashlib
 
     sc = f.sc
-    if not f.has_ext or f.ext is None:
+    if not f.loadable:
+        raise ScFormatError(f"invalid semantic cache: {f.problem or sc.header_problems}")
+    if f.ext is None:
         return sc.snapshot_id()
     h = hashlib.sha256(b"scopt.snapshot_id.v7-semantic/1")
     h.update(sc.snapshot_id().encode())
@@ -583,53 +547,11 @@ def sc6_snapshot_id(f: "Sc6File") -> str:
 # writer
 # ---------------------------------------------------------------------------
 
-def write_sc6(path: str | os.PathLike, header: ScHeader, units: Iterable, ext: ExtTable,
-              variant_bodies: Sequence[bytes] = (), *, rewritten: bool = False,
-              features: int | None = None, check: bool = True, fsync: bool = True,
-              host_page_size: int | None = None) -> ScHeader:
-    """Write a canonical top-level-v7 cache with the semantic payload: the
-    public parts (``units`` as for :func:`~scopt.formats.sc_v5.write_sc`) and ``feature_flags``
-    (``features`` overrides the computed value), the extension table at 0x100
-    and ``variant_bodies[i]`` at ``0x10000 + ext.variants[i].tc_offset``.
-
-    With ``check`` the table must fit the gap, the bodies must match the
-    entries' extents, and the written file must load (the v6 rules,
-    :func:`ext_problem`); otherwise :class:`ScFormatError` (the file is left on
-    disk for inspection). ``check=False`` writes mutants as given.
-    """
-    path = os.fspath(path)
-    enc = ext.encode()
-    if ARRAYS_OFFSET + len(enc) - 64 > SC_CODE_OFFSET:
-        raise ScExtRefused("ext_table_too_large", "the extension arrays do not fit before 0x10000")
-    if check and len(variant_bodies) != len(ext.variants):
-        raise ScFormatError(f"{len(variant_bodies)} variant bodies for {len(ext.variants)} "
-                            "variants")
-    extra = [(EXT_OFFSET, enc)]
-    for v, b in zip(ext.variants, variant_bodies):
-        if check and len(b) != v.end_offset - v.tc_offset:
-            raise ScFormatError(f"variant {v.variant_id}: body is {len(b)} bytes, entry says "
-                                f"{v.end_offset - v.tc_offset}")
-        extra.append((SC_CODE_OFFSET + v.tc_offset, bytes(b)))
-    feat = ext.features(rewritten=rewritten) if features is None else features
-    if check and feat & ~KNOWN_FEATURES:
-        raise ScFormatError(f"unknown semantic extension features 0x{feat:x}")
-    hdr = header.replace(version=7, reserved=SC7_SEMANTIC_MARKER | feat)
-    out = write_sc(path, hdr, units, check=check, fsync=fsync, versions=(7,),
-                   extra=extra)
-    if check:
-        f = read_sc6(path, host_page_size=host_page_size)
-        if f.problem is not None:
-            raise ScExtRefused(f.problem[0], f"semantic extension refused: {f.problem[1]}")
-        if f.sc.skipped:
-            raise ScFormatError(f"records skipped by load_records: {f.sc.skipped[:3]}")
-    return out
-
-
 # ---------------------------------------------------------------------------
 # V11: the independent parser
 # ---------------------------------------------------------------------------
 
-def sc6parse_compare(path: str | os.PathLike, f: Sc6File, *,
+def sc6parse_compare(path: str | os.PathLike, f: SemanticCache, *,
                      script: str | os.PathLike | None = None, timeout_s: float = 600.0,
                      host_page_size: int | None = None) -> tuple[bool, str, dict[str, Any]]:
     """Run ``sc6parse.py`` on ``path`` and compare every header field, the loaded
@@ -662,7 +584,8 @@ def sc6parse_compare(path: str | os.PathLike, f: Sc6File, *,
     mine_loaded = [f.sc.records[i].tb_offset for i in f.sc.valid_slots] if f.sc.loadable else []
     if doc.get("loaded") != mine_loaded:
         probs.append(f"loaded records differ ({len(doc.get('loaded', []))} vs {len(mine_loaded)})")
-    want_verdict = ("invalid_header" if not f.sc.loadable or not f.is_semantic_v7 else
+    want_verdict = ("invalid_header" if not f.sc.loadable else
+                    "v7_no_semantic_table" if not f.is_semantic_v7 else
                     "v7_semantic_ok" if f.problem is None else "v7_semantic_die")
     if doc.get("verdict") != want_verdict:
         probs.append(f"verdict {doc.get('verdict')} vs {want_verdict}")

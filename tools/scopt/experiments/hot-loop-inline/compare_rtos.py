@@ -15,8 +15,8 @@ import sys
 
 from fastdyn.compiled_launch import emit_bundle
 from scopt.formats.qprof_v1 import read_qprof
-from scopt.formats.sc_v5 import ScHeader, sparse_copy
-from scopt.formats.sc_v7 import SC7_FEATURE_FIRMWARE_REGIONS, is_composed_features, read_sc7
+from scopt.formats.sc_records import ScHeader, sparse_copy
+from scopt.formats.supercache import SC7_FEATURE_FIRMWARE_REGIONS, is_composed_features, read_region_directory
 from scopt.run import paired_stats
 from scopt.run.v7_stats import counter_problems, summary as counter_summary
 
@@ -66,7 +66,7 @@ def has_firmware_directory(reserved):
     Plain trusted v7 (``reserved == 1``) and composed v7 (bits 31 and 30) carry
     private regions to prove.  An sc6-only semantic v7 (configuration 6 + B3,
     ``1<<31 | sc6 bits``) has none: its v7 stats report loaded=false and
-    ``read_sc7`` refuses the file.
+    ``read_region_directory`` refuses the file.
     """
     return reserved == SC7_FEATURE_FIRMWARE_REGIONS or is_composed_features(reserved)
 
@@ -361,7 +361,7 @@ def main():
                         evidence["loaded"]
                         and evidence["user_trusted_input"]
                         and evidence["artifact_id8"]
-                        == read_sc7(cache).artifact_id8.hex()
+                        == read_region_directory(cache).artifact_id8.hex()
                         and evidence["public_record_checksum_checks"]
                         == evidence["guest_hash_checks"]
                         == 0

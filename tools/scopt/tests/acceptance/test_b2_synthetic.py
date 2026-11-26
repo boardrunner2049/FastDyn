@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from scopt.formats import artifact as A
-from scopt.formats.sc_v5 import read_sc
+from scopt.formats.sc_records import read_sc
 from scopt.importer.import_cache import import_snapshot
 from scopt.link import NativeLinker
 from scopt.manager import PassManager

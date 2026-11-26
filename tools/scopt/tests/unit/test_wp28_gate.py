@@ -40,33 +40,33 @@ def _val(codes, verdict="accepted"):
     return {"verdict": verdict, "codes": codes}
 
 
-def _v6_codes(**over):
+def _semantic_codes(**over):
     c = {f"V{i}": "pass" for i in range(1, 24)}
     c.update(V9="skip", V22="skip", V10=None)
     c.update(over)
     return c
 
 
-def test_static_rows_ok_v6(G):
-    ok, why = G.static_rows_ok(_val(_v6_codes()), 6, 1)
+def test_static_rows_ok_semantic(G):
+    ok, why = G.static_rows_ok(_val(_semantic_codes()), True, 1)
     assert ok and "V9, V22 skip" in why
     # V14 may skip only without a SPEC link
-    assert G.static_rows_ok(_val(_v6_codes(V14="skip")), 6, 0)[0]
-    assert not G.static_rows_ok(_val(_v6_codes(V14="skip")), 6, 1)[0]
+    assert G.static_rows_ok(_val(_semantic_codes(V14="skip")), True, 0)[0]
+    assert not G.static_rows_ok(_val(_semantic_codes(V14="skip")), True, 1)[0]
     # any failing row, or a rejected artifact, fails
-    assert not G.static_rows_ok(_val(_v6_codes(V13="fail")), 6, 1)[0]
-    assert not G.static_rows_ok(_val(_v6_codes(), "rejected"), 6, 1)[0]
+    assert not G.static_rows_ok(_val(_semantic_codes(V13="fail")), True, 1)[0]
+    assert not G.static_rows_ok(_val(_semantic_codes(), "rejected"), True, 1)[0]
     # V22 is never required to pass (WP23 not approved) but must not fail
-    assert not G.static_rows_ok(_val(_v6_codes(V22="fail")), 6, 1)[0]
+    assert not G.static_rows_ok(_val(_semantic_codes(V22="fail")), True, 1)[0]
 
 
-def test_static_rows_ok_v5_identity(G):
+def test_static_rows_ok_public_identity(G):
     c = {f"V{i}": "pass" for i in range(1, 10)}
     c["V8"] = "skip"
-    ok, why = G.static_rows_ok(_val(c), 5, 0)
-    assert ok and why.startswith("v5")
+    ok, why = G.static_rows_ok(_val(c), False, 0)
+    assert ok and why.startswith("public records")
     c["V9"] = "fail"
-    assert not G.static_rows_ok(_val(c), 5, 0)[0]
+    assert not G.static_rows_ok(_val(c), False, 0)[0]
 
 
 def test_fixture_table_is_consistent(G):

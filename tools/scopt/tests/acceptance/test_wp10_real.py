@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 
 from scopt.formats import artifact as A
-from scopt.formats.sc_v5 import sha256_sparse
+from scopt.formats.sc_records import sha256_sparse
 from scopt.importer.import_cache import import_snapshot, open_snapshot
 from scopt.link import NativeLinker, round_up
 from scopt.manager import PassManager

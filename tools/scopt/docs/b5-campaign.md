@@ -25,7 +25,7 @@ bytes; `prep` checks it).
 |---|---|---|
 | `nocache`, `empty` | baseline | derived by `scopt run` |
 | `warm` | reference | the base snapshot |
-| `identity` (v5), `identity-v6` (empty ext table) | control | built: `optimize --pipeline identity`; `package_b3(B3Plan(force_v6=True))` |
+| `identity` (v5), `identity-v6` (empty ext table) | control | built: `optimize --pipeline identity`; `package_b3(B3Plan(force_semantic_table=True))` |
 | `layout` | b2 | built: `optimize --pipeline b2-layout` with the base's train profile |
 | `b3-chain`, `b3-static`, `b3-spec`, `b3` (all six B3 passes) | b3 | reused: WP28's published compute artifacts |
 | `b4` | b4 | reused: WP29 |

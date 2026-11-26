@@ -16,7 +16,7 @@ import pytest
 
 from scopt.canon import fnv1a64
 from scopt.formats.enums import Encoding, OpMarkKind, SiteKind
-from scopt.formats.sc_v5 import ScRecord
+from scopt.formats.sc_records import ScRecord
 from scopt.guard import (CS_CONDEXEC_MASK, CS_THUMB, NOTCACHED2, GuardError, GuardOffsets,
                          GuardTarget, decode_guard, emit_guard, guard_atoms, guard_key)
 from scopt.link import (B3Plan, GuardedExitSpec, LinkError, NativeLinkerV2, VariantSpec,
@@ -239,13 +239,13 @@ def test_linker_v5_unregistered_and_v6_registered():
     specs = H.dummy_specs(s, limit=4)
     r5 = NativeLinkerV2(s, B3Plan(grow=specs, register_slots=False),
                         offsets=H.offsets_for(s), derive_captures=False).link()
-    assert r5.ok and r5.version == 5 and r5.ext is None
+    assert r5.ok and r5.version == 7 and r5.ext is None
     for uid in specs:
         rec = ScRecord.from_bytes(r5.by_uid()[uid].record)
         assert rec.jmp_insn_offset == ScRecord.from_bytes(s.unit(uid).record).jmp_insn_offset
     r6 = NativeLinkerV2(s, B3Plan(grow=specs), offsets=H.offsets_for(s),
                         derive_captures=False).link()
-    assert r6.ok and r6.version == 6 and len(r6.ext.slots) == len(specs)
+    assert r6.ok and r6.version == 7 and len(r6.ext.slots) == len(specs)
     assert not r6.ext.variants
     lim_end = max(ScRecord.from_bytes(u.record).end_offset for u in s.units())
     for uid in specs:
@@ -316,14 +316,14 @@ def test_v6_import_rejection_reasons(tmp_path):
     """A v6 file whose extension the loader refuses is import rejection
     ``sc6_extension``; a version-6 header without the extension (EXT_TABLE
     clear) keeps B1-9's stable reason ``version`` (test_b1_9_rejections)."""
-    from scopt.formats.sc_v6 import EXT_OFFSET
+    from scopt.formats.sc_semantic import EXT_OFFSET
     from scopt.importer.import_cache import ImportRejected
     from scopt.validate import reimport
 
     s = H.snap("minimal")
     plan = B3Plan(grow=dict(list(H.dummy_specs(s, limit=2).items())))
     res = NativeLinkerV2(s, plan, offsets=H.offsets_for(s)).link()
-    assert res.ok and res.version == 6, res.failures
+    assert res.ok and res.version == 7, res.failures
     d = tmp_path / "art"
     write_b3_files(d, s, res)
     assert reimport(d, s).ext is not None  # control: the written file imports
@@ -333,7 +333,7 @@ def test_v6_import_rejection_reasons(tmp_path):
     sc.write_bytes(bytes(b))
     with pytest.raises(ImportRejected) as e:
         reimport(d, s)
-    assert e.value.reason == "sc6_extension" and "ext_checksum" in e.value.detail
+    assert e.value.reason == "cache_extension" and "ext_checksum" in e.value.detail
 
 
 def test_minimal_spec_and_general_artifact(tmp_path, monkeypatch):
@@ -365,7 +365,7 @@ def test_v9_identity_v5_and_identity_v6(tmp_path):
     _res, v, _rr, _d = _artifact(tmp_path / "a", s, B3Plan())
     row = next(r for r in v.rows if r["code"] == "V9")
     assert row["check"] == "identity_sha256" and row["result"] == "pass", row
-    _res, v6, _rr, _d = _artifact(tmp_path / "b", s, B3Plan(force_v6=True))
+    _res, v6, _rr, _d = _artifact(tmp_path / "b", s, B3Plan(force_semantic_table=True))
     row = next(r for r in v6.rows if r["code"] == "V9")
     assert row["check"] == "identity_v6" and row["result"] == "pass", row
 
@@ -539,7 +539,7 @@ def _must_pass(v, codes):
 
 @pytest.mark.real
 @pytest.mark.slow
-@pytest.mark.parametrize("register", [True, False], ids=["v6", "v5"])
+@pytest.mark.parametrize("register", [True, False], ids=["semantic", "public"])
 def test_t_b3_2_grow_every_return_static_unit(tmp_path, monkeypatch, register):
     """T-B3-2: grow every relocatable compute return/static unit with a dummy
     guard; V1-V5, V13 (structural), V15, V16, V17 pass; the derived .scm
@@ -551,7 +551,8 @@ def test_t_b3_2_grow_every_return_static_unit(tmp_path, monkeypatch, register):
     ri6 = H.v6_identity(monkeypatch)
     res, v, rr, _d = _artifact(tmp_path, s, plan, runtime=ri6 if register else None,
                                v6_exes=[H.QINT_V6_SHA])
-    assert res.version == (6 if register else 5)
+    assert res.version == 7
+    assert (res.ext is not None) == register
     _must_pass(v, ["V1", "V2", "V3", "V4", "V5", "V6", "V8", "V13", "V15", "V16", "V17",
                    "V19", "V23"] + (["V7", "V11"] if register else []))
     assert all(u.stub_start is not None for u in rr.snapshot.units() if u.uid in specs)
@@ -944,7 +945,7 @@ def test_v7_loader_requirement_wrong_sidecar_value(tmp_path):
     s = H.snap("minimal")
     plan = B3Plan(grow=H.dummy_specs(s, limit=1))
     res = NativeLinkerV2(s, plan, offsets=H.offsets_for(s)).link()
-    assert res.ok and res.version == 6
+    assert res.ok and res.version == 7
     d = tmp_path / "a"
     write_b3_files(d, s, res)
     for lr, want in (("qemu-sc-v5-unmodified", "fail"), (None, "fail"), ("qemu-sc-v6", "pass")):

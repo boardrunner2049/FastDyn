@@ -15,7 +15,7 @@ from ..formats import artifact as A
 from ..formats.bundle_v1 import (admission_facts, check_bundle, identity_bundle,
                                  read_runtime_identity)
 from ..formats.enums import TbFlag
-from ..formats.sc_v5 import read_sc, sha256_sparse, sparse_copy, structural_findings
+from ..formats.sc_records import read_sc, sha256_sparse, sparse_copy, structural_findings
 from ..importer.import_cache import ImportCache, open_snapshot
 from ..importer.join import join
 from ..paths import fastdyn_root
@@ -238,7 +238,7 @@ def package_restore_hints(snapshot_dir, config, qemu, store):
     manifest_path = directory / "manifest.json"
     runtime_path = directory / "runtime_identity.json"
     frozen = {p: _fingerprint(p) for p in (config, qemu, sc_path, manifest_path, runtime_path)}
-    sc = read_sc(sc_path, versions=(7,))
+    sc = read_sc(sc_path)
     require(sc.loadable and (sc.header.version, sc.header.reserved) == (7, 0),
             "invalid canonical public v7 cache")
     require(not structural_findings(sc, scan_zeros=False), "cache has invalid header or records")

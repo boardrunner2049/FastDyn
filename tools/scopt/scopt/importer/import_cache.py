@@ -4,7 +4,7 @@
 
 1. take ``flock(LOCK_SH|LOCK_NB)`` on the ``.sc`` (QEMU holds ``LOCK_EX`` while
    it runs, supercache.c:581; failure: ``cache_locked``);
-2. parse the header and records like QEMU (:mod:`scopt.formats.sc_v5`), bind
+2. parse the header and records like QEMU (:mod:`scopt.formats.sc_records`), bind
    the captures (:mod:`scopt.importer.join`), check the bundle against the
    FastDyn manifest (``bundle_mismatch``) and reject unsupported setups
    (``unsupported_flat``, ``unsupported_arena_below_4g``, ``run_info_mismatch:*``);
@@ -59,7 +59,7 @@ from ..decode.x86 import DecodeMemo
 from ..formats import bundle_v1 as _bv1
 from ..formats import schemas
 from ..formats.region_v1 import build_region
-from ..formats.sc_v5 import ScFile, ScFormatError, read_sc, sha256_sparse, sparse_copy
+from ..formats.sc_records import ScFile, ScFormatError, read_sc, sha256_sparse, sparse_copy
 from ..ids import bundle_id as _bundle_id
 from ..ids import tb_uid, unit_ids
 from ..model.cache_snapshot import CacheSnapshot, snapshot_dir_name
@@ -285,7 +285,7 @@ class ImportResult:
     store_status: str | None = None  # created | exists
     identity_checks: dict[str, Any] | None = None
     # .sc v6 (B3, WP18): the extension table and the re-imported variants
-    ext: Any = None  # scopt.formats.sc_v6.ExtTable (v6 files only)
+    ext: Any = None  # scopt.formats.sc_semantic.ExtTable (v6 files only)
     variants: list[dict[str, Any]] = field(default_factory=list)
     firmware_regions: list[dict[str, Any]] = field(default_factory=list)
 
@@ -434,45 +434,15 @@ class ImportCache:
         manifest = json.loads(man_bytes) if man_bytes is not None else None
         bchk = check_bundle(self.bundle, manifest, files=self.verify_files)
         with _ShLock(self.sc_path):
-            # The unreleased pipeline has one production cache ABI.  Lower-level
-            # v5/v6 codecs remain available to format tests, but imports must be
-            # recaptured as canonical v7 rather than silently mixing ABIs.
-            sc = read_sc(self.sc_path, versions=(7,))
-            f6 = None
-            f7 = None
-            if sc.loadable and sc.header.version == 7 and \
-                    sc.header.reserved & (1 << 31):
-                from ..formats.sc_v6 import read_sc6
+            sc = read_sc(self.sc_path)
+            from ..formats.supercache import payload_snapshot_id, read_cache_payloads
 
-                f6 = read_sc6(self.sc_path)
-                if f6.problem is not None:
-                    # A version-6 header without the v6 extension at all (feature
-                    # EXT_TABLE clear) is a bad version, as B1-9 has it (stable
-                    # reason "version"); a present but refused extension is
-                    # "sc6_extension".
-                    code = "version" if f6.problem[0] == "ext_table_clear" else "sc6_extension"
-                    raise ImportRejected(code, f"{f6.problem[0]}: {f6.problem[1]}")
-                sc = f6.sc
-                if f6.is_composed:
-                    # Composed v7: the trusted firmware directory at 0xFF00
-                    # is imported next to the semantic extension.
-                    from ..formats.sc_v7 import read_sc7
-
-                    try:
-                        f7 = read_sc7(self.sc_path)
-                    except ScFormatError as exc:
-                        raise ImportRejected("sc7_extension", str(exc)) from exc
-            elif sc.loadable and sc.header.version == 7 and sc.header.reserved == 1:
-                from ..formats.sc_v7 import read_sc7
-
+            f6 = f7 = None
+            if sc.loadable and sc.header.reserved:
                 try:
-                    f7 = read_sc7(self.sc_path)
+                    f6, f7 = read_cache_payloads(sc)
                 except ScFormatError as exc:
-                    code = "version" if sc.header.reserved != 1 else "sc7_extension"
-                    raise ImportRejected(code, str(exc)) from exc
-            elif sc.loadable and sc.header.version == 7 and sc.header.reserved != 0:
-                raise ImportRejected("version",
-                                     f"unknown v7 feature bits 0x{sc.header.reserved:x}")
+                    raise ImportRejected("cache_extension", str(exc)) from exc
             j = join(sc, self.scm_paths)
         rchk = None
         for f in (j.captures or (None,)):
@@ -497,17 +467,7 @@ class ImportCache:
         uids = unit_ids(u.record.tb_uid for u in units_in)
         checks: dict[int, UnitCheck] = {}
         units: list[TBUnit] = []
-        if f7 is not None:
-            # Composed files take the domain-separated composed identity.
-            from ..formats.sc_v7 import sc7_snapshot_id
-
-            sid = sc7_snapshot_id(self.sc_path)
-        elif f6 is not None:
-            from ..formats.sc_v6 import sc6_snapshot_id
-
-            sid = sc6_snapshot_id(f6)
-        else:
-            sid = sc.snapshot_id()
+        sid = payload_snapshot_id(sc, f6, f7)
         for su, uid in zip(units_in, uids):
             b = j.slots[su.slot]
             r = su.record
@@ -598,7 +558,7 @@ class ImportCache:
         first_ri = next((f.run_info for f in j.captures if f.run_info is not None), None)
         firmware_regions = []
         if f7 is not None:
-            from ..formats.sc_v7 import decode_directory
+            from ..formats.supercache import decode_directory
 
             directory = decode_directory(f7)
             firmware_regions = [
@@ -941,15 +901,9 @@ def write_store(res: ImportResult, store: str | os.PathLike,
         with _ShLock(res.sc_path):
             sparse_copy(res.sc_path, tmp / "cache.sc")
         os.chmod(tmp / "cache.sc", 0o444)
-        cp = read_sc(tmp / "cache.sc", versions=(7,))
-        if cp.header.version == 7:
-            from ..formats.sc_v7 import canonical_snapshot_id
-            copied_sid = canonical_snapshot_id(tmp / "cache.sc")
-        else:
-            from ..formats.sc_v6 import read_sc6, sc6_snapshot_id
-            cp6 = read_sc6(tmp / "cache.sc")
-            cp = cp6.sc
-            copied_sid = sc6_snapshot_id(cp6)
+        cp = read_sc(tmp / "cache.sc")
+        from ..formats.supercache import payload_snapshot_id, read_cache_payloads
+        copied_sid = payload_snapshot_id(cp, *read_cache_payloads(cp))
         if copied_sid != res.snapshot.snapshot_id or \
                 cp.record_bytes != res.join.sc.record_bytes:  # pragma: no cover
             raise ImportRejected("store_copy", "cache.sc copy differs from the imported file")

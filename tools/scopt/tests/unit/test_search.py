@@ -155,7 +155,7 @@ def test_unwind_after_decode():
 
 @pytest.mark.real
 def test_minimal_search_data(minimal_sc):
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
 
     sc = read_sc(minimal_sc)
     page = 1 << sc.header.target_page_bits
@@ -182,7 +182,7 @@ def test_minimal_search_data(minimal_sc):
 
 @pytest.mark.real
 def test_minimal_slot0_matches_hand_vector(minimal_sc):
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
 
     u = read_sc(minimal_sc).units()[0]
     assert u.record.icount == 2

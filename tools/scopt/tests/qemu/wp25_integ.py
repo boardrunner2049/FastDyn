@@ -289,7 +289,7 @@ def rewritten_probes(art_dir: Path, s: Any, prop_units: dict[str, int], cfg: str
                      limit: int = 8) -> list[dict[str, Any]]:
     """Entry addresses of rewritten units that hold the fixture's kernel label (else the
     rewritten units nearest to it), checked against the artifact's bytes."""
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
 
     f = read_sc(art_dir / "cache.sc")
     by_tb = {r.tb_offset: i for i, r in enumerate(f.records) if r is not None}

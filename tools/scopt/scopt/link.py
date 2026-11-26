@@ -72,11 +72,12 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .formats.layouts import SC_VERSION
 from .canon import fnv1a64, hexaddr
 from .formats import scm_v1 as S
 from .formats.enums import Encoding, OpMarkKind, SiteKind
 from .formats.layouts import SC_CODE_OFFSET
-from .formats.sc_v5 import ScHeader, ScRecord, read_sc
+from .formats.sc_records import ScHeader, ScRecord, read_sc
 from .model.snapshot import LAYOUT_SECTIONS, WorkingSet
 from .model.unit import Fixup, Site, TBUnit
 
@@ -890,7 +891,7 @@ def capture_join(snapshot: Any) -> Any:
     caps = [d / c for c in meta.get("files", {}).get("captures", [])]
     if not caps:
         return None
-    return join(read_sc(d / "cache.sc", versions=(7,)), caps)
+    return join(read_sc(d / "cache.sc"), caps)
 
 
 def _rewrite_tb(tb: S.TbChunk, link: UnitLink, code_address: int) -> S.TbChunk:
@@ -1471,7 +1472,7 @@ class B3Plan:
     variants: tuple[VariantSpec, ...] = ()
     rewrites: Mapping[str, tuple[Any, ...]] = field(default_factory=dict)
     register_slots: bool = True  # v6; False: v5 artifact (GENERAL slots not registered)
-    force_v6: bool = False  # identity-v6 (empty ext table)
+    force_semantic_table: bool = False  # emit an empty semantic table for a control run
     max_variants_per_c: int = 2
     max_variants: int = 64
     max_code_growth_bytes: int | None = None
@@ -1561,8 +1562,8 @@ class FirmwareRegionLink:
 
 @dataclass
 class LinkResultV2(LinkResult):
-    version: int = 5
-    ext: Any = None  # scopt.formats.sc_v6.ExtTable (v6)
+    version: int = SC_VERSION
+    ext: Any = None  # scopt.formats.sc_semantic.ExtTable (v6)
     variants: tuple[VariantLink, ...] = ()
     grown: Mapping[str, GrownUnit] = field(default_factory=dict)
     rewritten: Mapping[str, tuple[Any, ...]] = field(default_factory=dict)
@@ -1883,7 +1884,7 @@ class NativeLinkerV2:
         return effective, grown
 
     def link(self) -> LinkResultV2:
-        from .formats.sc_v6 import (COMPOSED_DIR_OFFSET, EXIT_RETURN, EXIT_STATIC,
+        from .formats.sc_semantic import (COMPOSED_DIR_OFFSET, EXIT_RETURN, EXIT_STATIC,
                                     KIND_GENERAL, KIND_SPEC, VARIANT_FACTS, ExtTable,
                                     LinkEntry, SlotEntry, VariantEntry, max_ext_entries)
 
@@ -2002,7 +2003,7 @@ class NativeLinkerV2:
                     cursor, by_uid, {lu.uid: lu.record for lu in links})
             except LinkError as e:
                 return self._fail(e.uid or "", e.reason, e.detail)
-            from .formats.sc_v7 import directory_size
+            from .formats.supercache import directory_size
 
             table_offset = round_up(cursor, 8)
             table_size = directory_size(firmware_links)
@@ -2061,15 +2062,14 @@ class NativeLinkerV2:
         if not max_ext_entries(len(variants), len(slots), len(lks),
                                limit=COMPOSED_DIR_OFFSET if firmware_links else SC_CODE_OFFSET):
             return self._fail(units[0].uid, R2.EXT_TOO_LARGE)
-        v6 = bool(slots or variants or plan.force_v6)
         ext = None
-        if v6:
+        if slots or variants or plan.force_semantic_table:
             ext = ExtTable(tuple(variants), tuple(slots), tuple(lks))
             ext = replace(ext, artifact_id8=_artifact_id8(ext, links, vlinks))
         # All newly published scopt artifacts use the canonical top-level v7.
         # ``ext`` and ``firmware_regions`` select its payload; with both, the
         # composed subtype (sc6 at 0x100, trusted directory at 0xFF00).
-        res = LinkResultV2(True, h, tuple(links), version=7, ext=ext,
+        res = LinkResultV2(True, h, tuple(links), ext=ext,
                            variants=tuple(vlinks), grown=grown,
                            rewritten={k: tuple(v) for k, v in plan.rewrites.items()},
                            effective=eff, firmware_regions=firmware_links,

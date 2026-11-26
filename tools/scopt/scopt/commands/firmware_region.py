@@ -38,11 +38,11 @@ def recover(artifact: Path, host_pc: int | None, native_offset: int | None,
     if (host_pc is None) == (native_offset is None):
         raise click.UsageError("provide exactly one of --host-pc or --native-offset")
     path = artifact / "cache.sc" if artifact.is_dir() else artifact
-    from ..formats.sc_v5 import read_sc
-    from ..formats.sc_v7 import decode_directory, read_sc7
+    from ..formats.sc_records import read_sc
+    from ..formats.supercache import decode_directory, read_region_directory
 
-    sc = read_sc(path, versions=(7,))
-    directory = read_sc7(path)
+    sc = read_sc(path)
+    directory = read_region_directory(path)
     offset = native_offset if native_offset is not None else host_pc - sc.header.code_address
     rows = decode_directory(directory)
     matches = [origin for origin in rows["origins"]

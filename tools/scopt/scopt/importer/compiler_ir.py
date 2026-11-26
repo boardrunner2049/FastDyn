@@ -13,7 +13,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from ..formats.enums import Encoding, OpMarkKind, SiteKind
-from ..formats.sc_v5 import ScHeader
+from ..formats.sc_records import ScHeader
 from ..formats.scm_v1 import RunInfo
 from ..ids import TBKey
 from ..model.cache_snapshot import CacheSnapshot

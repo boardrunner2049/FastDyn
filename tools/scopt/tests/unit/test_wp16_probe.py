@@ -323,7 +323,7 @@ def test_gce_copies_static_checks(compute, tmp_path):
     m = res["model"]
     assert m["top_set_units"] > 0 and 0 < m["removed_lookup_share_of_all_lookups"] < 1
     assert res["admission"]["refused_units"].get("indirect_multiway", 0) >= 1  # tbb, bx rX
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
     a = read_sc(res["copies"]["gce"]["sc"], strict=True)
     b = read_sc(res["copies"]["gce-fail"]["sc"], strict=True)
     assert len(a.valid_slots) == len(b.valid_slots) == len(snap.units())

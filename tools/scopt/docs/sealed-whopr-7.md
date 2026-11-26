@@ -302,7 +302,7 @@ site, and the bound refuses no other helper (its `helper_graph_size_policy` refu
 policy under a private name, on every workload; only the store metadata that hashes the
 pipeline id differs. Both pipelines pass the
 functional checks on every case: exit 0, the 16 result words and one BENCH line, the
-artifact loaded trusted with its `read_sc7` id8, counters revision 4 with no counter
+artifact loaded trusted with its `read_region_directory` id8, counters revision 4 with no counter
 problems, every trusted poll entry verified (193, 202 and 208), and no
 trusted-to-trusted chain refused. Every timed run in both campaigns below reproduced
 the 16 words.

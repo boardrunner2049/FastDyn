@@ -11,7 +11,7 @@ from scopt.canon import canonical_json
 from scopt.formats import profile_v1 as P
 from scopt.formats import schemas
 from scopt.formats.enums import QprofHeaderFlag
-from scopt.formats.sc_v5 import read_sc
+from scopt.formats.sc_records import read_sc
 from tests.synth import builders as B
 from tests.synth.profile_world import (
     PHASES, RUNTIME, SHA_BUNDLE, SHA_CONTRACT, TRANSIENT_OFF, make_world,

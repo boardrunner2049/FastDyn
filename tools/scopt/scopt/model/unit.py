@@ -21,7 +21,7 @@ from .native import InlineCall
 from ..ids import TBKey
 
 if TYPE_CHECKING:  # pragma: no cover
-    from ..formats.sc_v5 import ScHeader
+    from ..formats.sc_records import ScHeader
 
 __all__ = [
     "TBKey", "Insn", "Site", "PoolEntry", "Ldst", "OpMark", "StaticExit", "Fixup",

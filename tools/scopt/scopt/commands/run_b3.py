@@ -33,7 +33,7 @@ def publish_directory(src: str, store: str) -> dict:
        ``coverage`` rows name and certify every edited unit, guarded R' and
        variant (:func:`scopt.validate.certification_problems`);
     6. the output SnapshotId recomputed from the ``cache.sc`` bytes (as the
-       v5/v6 loader sees them) equals that SnapshotId;
+       canonical loader sees them) equals that SnapshotId;
     7. the staged copy hashes to the source manifest byte for byte, so the
        published ArtifactId is the source's.
 
@@ -46,8 +46,8 @@ def publish_directory(src: str, store: str) -> dict:
 
     from ..canon import sha256_id
     from ..formats import artifact as A
-    from ..formats.sc_v5 import ScFormatError, sparse_copy
-    from ..formats.sc_v6 import read_sc6, sc6_snapshot_id
+    from ..formats.sc_records import ScFormatError, sparse_copy
+    from ..formats.supercache import canonical_snapshot_id
     from ..run.policy import publish_refusal
 
     p = Path(src).resolve()
@@ -107,8 +107,7 @@ def publish_directory(src: str, store: str) -> dict:
         # and SPEC link (validate_b3 coverage rows), not any one passing row
         raise A.ArtifactError("certification_coverage", "; ".join(cp[:5]))
     try:
-        f6 = read_sc6(p / "cache.sc")
-        sid = sc6_snapshot_id(f6) if f6.loadable else None
+        sid = canonical_snapshot_id(p / "cache.sc")
     except (ScFormatError, OSError, ValueError) as e:
         raise A.ArtifactError("output_snapshot_mismatch", f"cache.sc unreadable: {e}") from e
     if sid is None or sid != doc.get("output_snapshot_id"):

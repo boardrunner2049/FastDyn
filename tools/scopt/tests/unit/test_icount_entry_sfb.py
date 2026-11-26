@@ -117,7 +117,7 @@ def test_compute_matches_wp16_timed_copy(tmp_path):
     except end_offset (16-aligned search padding here) and in every code/search byte."""
     if not WP16_SFB.is_file():
         pytest.skip(f"{WP16_SFB} not present")
-    from scopt.formats.sc_v5 import ScRecord, read_sc, write_sc
+    from scopt.formats.sc_records import ScRecord, read_sc, write_sc
 
     s = _snap(COMPUTE)
     prop = F.propose_sfb(s)
@@ -144,7 +144,7 @@ def test_link_sfb_last_unit_grows_after_a_move(tmp_path):
     warm-appended units last: "units 2014 and 1 overlap")."""
     from dataclasses import replace
 
-    from scopt.formats.sc_v5 import ScRecord, write_sc
+    from scopt.formats.sc_records import ScRecord, write_sc
     from tests.synth.builders import simple_units
     from tests.unit.test_wp10_link import make_snapshot
 

@@ -2,28 +2,27 @@
 
 Labelled ``experimental_unsound_in_place_specialization``. **Never published.**
 
-A v5 ``.sc`` copy of a base snapshot in which
+A public-only SuperCache copy of a base snapshot in which
 
 * the return unit R gets one **GENERAL** guarded slot ``n`` towards ``Vc``
   (canonical guard ``guard-v1``, §4.1). The slot is **registered** in R's record
   (``jmp_insn_offset[n]``/``jmp_reset_offset[n]``) and its reset path is
   ``exit_tb(R|n)``, so the stock (``qint``) main loop links it after its own lookup
-  (cpu-exec.c ``tb_add_jump``), exactly as WP16's v5 GENERAL-slot probe did. The v6
-  loader would read the same slot from the ext table; here no ext table is written
-  (header version 5);
+  (cpu-exec.c ``tb_add_jump``), as in WP16's GENERAL-slot probe. This fixture uses the ordinary record offsets
+  and omits the semantic extension table;
 * the slice-0a ``C'`` patches (CP/BF/DHO, same-length, relative to C's ``tc``) are
   written **in place into the general C**.
 
 This is behaviour-preserving only for F-B3-1: C has one predecessor (R), the FastDyn
 modifier ``r0 <- 0`` on ``f``'s ``bx lr`` makes r0 = 0 at every entry of C, and no
 handler touches r0. It is unsound in general (every other entry of C would run the
-specialized bytes) and has no v6 TLB-flush disarm hook (``qint``), which is why the
+specialized bytes) and bypasses semantic slot disarm on TLB flush (``qint``), which is why the
 plan's m-CE7 diag twin is required for each run.
 
 NativeLinker v2 (WP18) does the work: :class:`scopt.link.B3Plan` with
 ``grow={R: GENERAL spec}``, ``rewrites={C: patches}``, ``register_slots=True``. Its
-result is a v6 link (it has a registered slot); this module writes the records and
-bodies with the **v5** writer and drops the ext table. Everything else (R moved
+result includes a registered slot. This experiment emits the linked public records
+and bodies with the public-only writer. Everything else (R moved
 behind the arena end, C rewritten in place, every other unit byte-identical) is
 NativeLinker v2's.
 """
@@ -89,11 +88,13 @@ def find_units(snap: Any, r_vaddr: int, vc: int) -> tuple[Any, Any, Any]:
 def build_inplace_copy(snap: Any, snap_dir: str | Path, *, r_vaddr: int, vc: int, patches: Sequence[Any],
                        out_dir: str | Path, layout: Any, slot_n: int | None = None,
                        provenance: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Write ``out_dir/cache.sc`` (v5) and ``out_dir/EXPERIMENTAL_UNSOUND.json``; copy the
+    """Write the public-only ``out_dir/cache.sc`` and ``out_dir/EXPERIMENTAL_UNSOUND.json``; copy the
     base snapshot's ``bundle.json``/``runtime_identity.json`` next to it so deploy runs its
     identity checks. Returns the description (also in the label file), including the
     host probe offsets (relative to the code arena) for the gdb diag runs."""
-    from scopt.formats.sc_v5 import read_sc, write_sc
+    from scopt.formats.layouts import SC_VERSION
+    from scopt.formats.sc_records import read_sc
+    from scopt.formats.supercache import write_public_cache
     from scopt.guard import GuardOffsets, GuardTarget, decode_guard
     from scopt.link import B3Plan, GuardedExitSpec, NativeLinkerV2, free_slots
 
@@ -101,6 +102,8 @@ def build_inplace_copy(snap: Any, snap_dir: str | Path, *, r_vaddr: int, vc: int
     if out.exists() and any(out.iterdir()):
         raise InPlaceError("out_dir_not_fresh", str(out))
     out.mkdir(parents=True, exist_ok=True)
+    if snap.header.version != SC_VERSION or snap.header.reserved:
+        raise InPlaceError("requires_public_cache", "fixture expects public records without extensions")
     R, tail, C = find_units(snap, r_vaddr, vc)
     free = free_slots(R)
     n = slot_n if slot_n is not None else (free[0] if free else None)
@@ -117,15 +120,16 @@ def build_inplace_copy(snap: Any, snap_dir: str | Path, *, r_vaddr: int, vc: int
     if not link.ok:
         f = link.failures[0]
         raise InPlaceError(f"link:{f.reason}", f.detail)
-    # -- write v5 (records + bodies only; no ext table) ---------------------------
+    # Write and independently decode the public-only fixture.
     parts = [(u.record, u.body) for u in link.units]
-    write_sc(out / "cache.sc", snap.header, parts)
+    write_public_cache(out / "cache.sc", snap.header, parts)
     sc = read_sc(out / "cache.sc")
     hdr_problems = list(sc.header_problems)
     # -- static self-check of the written file, independent of the link object -----
     by_uid = {lu.uid: lu for lu in link.units}
     lr = by_uid[R.uid]
     checks: dict[str, Any] = {"header_version": sc.header.version,
+                              "header_features": sc.header.reserved,
                               "header_problems": hdr_problems,
                               "records": len(sc.valid_slots), "base_records": len(snap.units())}
     rec_of = {sc.records[i].tb_offset: (i, sc.records[i]) for i in sc.valid_slots}
@@ -180,7 +184,7 @@ def build_inplace_copy(snap: Any, snap_dir: str | Path, *, r_vaddr: int, vc: int
             _relocated_prefix(R, rrec.tb_offset)[:tail.off]),
         "old_slot_free_in_base": n in free,
     }
-    ok = (sc.header.version == 5 and not hdr_problems and
+    ok = ((sc.header.version, sc.header.reserved) == (SC_VERSION, 0) and not hdr_problems and
           checks["records"] == checks["base_records"] and not diff and
           checks["c_in_place"]["same_offsets"] and
           checks["c_in_place"]["code_equals_base_plus_patches"] and
@@ -206,7 +210,7 @@ def build_inplace_copy(snap: Any, snap_dir: str | Path, *, r_vaddr: int, vc: int
         "valid_for": "F-B3-1 only (C has one predecessor R; the modifier r0 <- 0 makes r0 = 0 "
                      "at every entry of C; no handler touches r0)",
         "unsound_because": ["every entry of the general C runs the specialized bytes",
-                            "v5 loader: no TLB-flush disarm hook for the linked slot (m-CE7 "
+                            "public-only fixture omits semantic slot disarm on TLB flush (m-CE7 "
                             "diag twin required)"],
         "base_snapshot_id": snap.snapshot_id,
         "base_cache_sc": str(Path(snap_dir) / "cache.sc"),

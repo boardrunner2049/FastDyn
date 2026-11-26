@@ -81,7 +81,7 @@ def clone_launcher(launcher: Path, dest: Path) -> Path:
     configuration) stays shared.  The cache copy keeps holes and must hash
     equal to the source cache.
     """
-    from scopt.formats.sc_v5 import sparse_copy
+    from scopt.formats.sc_records import sparse_copy
 
     source = launcher.resolve(strict=True).parent
     dest = dest.resolve()

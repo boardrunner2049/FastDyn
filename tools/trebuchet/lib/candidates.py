@@ -13,7 +13,7 @@ from pathlib import Path
 
 from scopt.formats.bundle_v1 import read_bundle
 from scopt.formats.profile_v1 import ProfileView, read_profile
-from scopt.formats.sc_v5 import sha256_sparse
+from scopt.formats.sc_records import sha256_sparse
 from scopt.ids import canonical_json, runtime_identity_id, sha256_id
 from scopt.importer.import_cache import ImportRejected, import_snapshot, open_snapshot
 from scopt.importer.warm_origin import ordinary_warm

@@ -7,7 +7,7 @@ output field by field with its own reader. A disagreement fails validation.
 | script | format | written from | used by |
 |---|---|---|---|
 | `scparse.py` | `.sc` v5 (header, records, checksums) | the v5 file layout of the QEMU loader (`tcg/supercache.c`) | V1 (`scopt.validate.scparse_compare`) |
-| `sc6parse.py` | `.sc` v6 (v5 plus the extension table: variants, slots, links) | the v6 loader in `tcg/supercache.c` (QEMU branch `scopt`) | V11 (`scopt.formats.sc_v6.sc6parse_compare`) |
+| `sc6parse.py` | `.sc` v6 (v5 plus the extension table: variants, slots, links) | the v6 loader in `tcg/supercache.c` (QEMU branch `scopt`) | V11 (`scopt.formats.sc_semantic.sc6parse_compare`) |
 
 Rules that keep them useful as a cross-check:
 

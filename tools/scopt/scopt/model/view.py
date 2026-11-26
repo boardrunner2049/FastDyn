@@ -44,7 +44,7 @@ def unit_exits(u: TBUnit) -> tuple[Exit, ...]:
 
     This is the pass-facing summary; WP7's region builder is authoritative.
     """
-    from ..formats.sc_v5 import ScRecord
+    from ..formats.sc_records import ScRecord
 
     rec = ScRecord.from_bytes(u.record) if len(u.record) >= 104 else None
     rows: list[tuple[int, Exit]] = []

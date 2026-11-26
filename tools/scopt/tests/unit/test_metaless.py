@@ -14,7 +14,7 @@ import pytest
 from scopt.decode.search import SearchRow, encode_search
 from scopt.decode.symbols import ElfImage, ElfSegment, ElfSymbol, MapEntry, Maps
 from scopt.decode.x86 import tiles
-from scopt.formats.sc_v5 import ScHeader, ScRecord, read_sc, write_sc
+from scopt.formats.sc_records import ScHeader, ScRecord, read_sc, write_sc
 from scopt.formats.layouts import SC_MAGIC, SC_RECORD_COMMIT
 from scopt.importer.metaless import (B0_FIRMWARE, B0_PLUGIN, B0_QEMU, G17,
                                      classify_sc, format_g17, infer_plugin_base,

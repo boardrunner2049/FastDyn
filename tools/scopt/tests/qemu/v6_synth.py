@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Hand-made ``.sc`` v6 files for the WP22 loader unit tests (design §5.2-5.4, §4.1).
+"""Hand-made v7 semantic-extension files for the WP22 loader unit tests (design §5.2-5.4, §4.1).
 
-This is a **test generator**, not the WP18 writer (``scopt/formats/sc_v6.py``):
-it builds v6 files from a v5 snapshot of the ``qint-v6`` binary so that the
-loader can be exercised before WP18 lands. It is independent of WP18 on
-purpose (a second implementation of the §5.3 layout).
+This is a **test generator**, not the WP18 writer (``scopt/formats/sc_semantic.py``):
+it builds the semantic table directly inside a copy of a public cache.
+The independent table encoding exercises the runtime loader.
 
 What it can build from an imported snapshot (``open_snapshot``):
 
-* **identity-v6**: the v5 file with ``version = 6``, ``feature_flags =
-  EXT_TABLE`` and an extension table with zero entries;
+* **identity-semantic**: the public v7 file with the semantic marker and ``EXT_TABLE`` and an extension table with zero entries;
 * **guarded links**: for an R unit whose static exit leaves the page through
   ``lookup_and_goto_ptr`` (``StaticExit.slot == 0xFF``) and a C unit at its
   destination, R is moved (NativeLinker v1 ``relocate_unit``) past ``max_end``
@@ -46,8 +44,10 @@ from typing import Any
 WT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WT))
 from scopt.canon import fnv1a64  # noqa: E402
-from scopt.formats.sc_v5 import (RECORD_SIZE, SC_CODE_OFFSET, ScHeader, ScRecord,  # noqa: E402
+from scopt.formats.sc_records import (RECORD_SIZE, SC_CODE_OFFSET, ScHeader, ScRecord,  # noqa: E402
                                  read_sc, sparse_copy)
+from scopt.formats.layouts import SC_VERSION
+from scopt.formats.sc_semantic import SC7_SEMANTIC_MARKER
 from scopt.link import relocate_unit  # noqa: E402
 
 EXT_OFFSET = 0x100
@@ -237,7 +237,7 @@ class V6Model:
         ext = self.ext_bytes()
         if ARRAYS_OFFSET + len(ext) - 64 > SC_CODE_OFFSET:
             raise ValueError("ext table too large for the gap")
-        hdr = self.header.replace(version=6, reserved=self.features).with_checksum()
+        hdr = self.header.replace(version=SC_VERSION, reserved=SC7_SEMANTIC_MARKER | self.features).with_checksum()
         fd = os.open(out, os.O_WRONLY)
         try:
             os.pwrite(fd, hdr.to_bytes(), 0)
@@ -255,6 +255,8 @@ class V6Model:
 
 def identity_model(base_sc: str, artifact_id8: bytes = b"WP22TEST") -> V6Model:
     sc = read_sc(base_sc)
+    if not sc.loadable or sc.problems or sc.skipped or sc.header.reserved:
+        raise ValueError("fixture construction requires a valid public-only SuperCache")
     return V6Model(base_sc=base_sc, header=sc.header, features=FEAT_EXT_TABLE, ext={
         "magic": EXT_MAGIC, "ext_version": 1, "ext_header_size": 64,
         "variant_entry_size": 64, "slot_entry_size": 32, "link_entry_size": 16,

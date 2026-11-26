@@ -78,7 +78,7 @@ from typing import Any
 from ..canon import canonical_json, fnv1a64, hexaddr, sha256_id
 from ..decode.search import SearchRow, decode_search, encode_search, is_pcrel
 from ..decode.x86 import sweep
-from ..formats.sc_v5 import ScRecord
+from ..formats.sc_records import ScRecord
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
 
 __all__ = ["IcountEntrySfb", "PASSES", "SFB_SHIFT", "SfbReason", "EntryShape", "parse_entry",
@@ -626,7 +626,7 @@ def validate_sfb(snapshot: Any, link: SfbLink, art_dir: str | os.PathLike, *,
     from ..analysis.hlive import build_hlive
     from ..analysis.hostops import build_hostops
     from ..formats.envlayout_v1 import find_envlayout
-    from ..formats.sc_v5 import read_sc
+    from ..formats.sc_records import read_sc
     from ..validate import reimport, scparse_compare
 
     v = SfbValidation()
@@ -634,7 +634,7 @@ def validate_sfb(snapshot: Any, link: SfbLink, art_dir: str | os.PathLike, *,
     h = snapshot.header
     ca = h.code_address
     in_units = {u.uid: u for u in snapshot.units()}
-    sc = read_sc(art / "cache.sc", strict=True, versions=(7,))
+    sc = read_sc(art / "cache.sc", strict=True)
     v.add("SFB1", "records", len(sc.valid_slots) == len(in_units),
           f"{len(sc.valid_slots)} valid records of {len(in_units)}")
     if scparse:
@@ -944,10 +944,10 @@ class SfbPackageResult:
 def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
                 candidate_id: str, native: bool = True,
                 native_lows: Iterable[int] | None = None) -> SfbPackageResult:
-    """Rebuild the annotated units, link, write a v5 artifact, validate (SFB1-SFB9)
+    """Rebuild the annotated units, link, write a public SuperCache, validate (SFB1-SFB9)
     and publish into ``store`` (or write a rejection)."""
     from ..formats import artifact as A
-    from ..formats.sc_v7 import write_sc7_public
+    from ..formats.supercache import write_public_cache
     from ..ledger import Ledger
 
     ca = snapshot.header.code_address
@@ -980,7 +980,7 @@ def package_sfb(snapshot: Any, prop: SfbProposal, store: str | os.PathLike, *,
         return reject(f"failed:{link.failure[0]}", link.failure[1], link=link)
     stage = A.staging_dir(store)
     try:
-        write_sc7_public(stage / "cache.sc", snapshot.header,
+        write_public_cache(stage / "cache.sc", snapshot.header,
                          [(x.record, x.body) for x in link.units])
         for name, data in link.derived_scms:
             (stage / name).write_bytes(data)

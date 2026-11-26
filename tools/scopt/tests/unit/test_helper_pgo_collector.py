@@ -6,7 +6,7 @@ from dataclasses import replace
 import pytest
 
 from scopt.formats.enums import Encoding, SiteKind
-from scopt.formats.sc_v5 import ScRecord, read_sc
+from scopt.formats.sc_records import ScRecord, read_sc
 from scopt.model.unit import PoolEntry, Site
 from scopt.run.helper_pgo import _COUNTER_MAGIC, _diagnostic_cache, _guest_lines, _launch
 from tests.synth.fake_snapshot import FakeSnapshot, fake_snapshot
@@ -31,7 +31,7 @@ def test_call_counting_preserves_both_return_pcs_and_distinguishes_sites(tmp_pat
     snapshot = FakeSnapshot([unit], fixture.snapshot_id, fixture.header.replace(version=7))
     path = tmp_path / "counted.sc"
     rows, counter = _diagnostic_cache(snapshot, path)
-    image = read_sc(path, versions=(7,), strict=True).units()[0]
+    image = read_sc(path, strict=True).units()[0]
     assert image.search == unit.search
     assert [row["call_off"] for row in rows] == [0, 5]
     assert image.code[5] == 0x90

@@ -47,10 +47,10 @@ B3/B4 additions (WP26, design §5.1, §5.7, §9.4, §9.5):
   artifact built under a test policy is refused ``test_only_artifact:<policy>``
   unless ``test_policies`` names that policy (``allow_ram_resident`` for
   F-B3-15/17); an unknown policy is ``unknown_test_policy:<policy>``.
-* **v6 consistency** (artifact directories): the ``.sc`` header version and the
+* **Extension consistency** (artifact directories): the ``.sc`` header version and the
   sidecar's ``loader_requirement`` must agree (``loader_requirement_mismatch``),
-  and a v6 file's ext ``artifact_id8`` must equal the sidecar's
-  ``x_ext_artifact_id8`` (``ext_artifact_id_mismatch``; a v6 sidecar without
+  and the semantic table's ``artifact_id8`` must equal the sidecar's
+  ``x_ext_artifact_id8`` (``ext_artifact_id_mismatch``; a semantic sidecar without
   it is ``ext_artifact_id_missing``). The loader cannot make this comparison
   (WP22 note 2).
 * **Staleness (F-B3-16).** A changed patch plan (a) and a coverage-enabled
@@ -81,7 +81,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..formats.sc_v5 import HEADER_SIZE, ScHeader, sparse_copy
+from ..formats.layouts import SC_VERSION
+from ..formats.sc_records import HEADER_SIZE, ScHeader, sparse_copy
 from .launcher import (FASTDYN_PY, FASTDYN_SRC, FDSHIM, RunDir, RunDirError, fastdyn_args, file_sha256,
                        launch, scrub_env, write_json)
 from .policy import deploy_refusals
@@ -250,40 +251,40 @@ def _ext_id8_of(sc: str | os.PathLike) -> str | None:
 def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
                       allow_negative_control: bool = False,
                       test_policies: Any = ()) -> tuple[list[str], dict[str, Any]]:
-    """Reason codes from the artifact itself (test-only tags, v6 consistency)."""
+    """Reason codes from the artifact itself (test-only tags, extension consistency)."""
     from .policy import artifact_tags
 
     info: dict[str, Any] = {"file_version": header.version}
     reasons = deploy_refusals(art["path"], allow_negative_control=allow_negative_control,
                               test_policies=test_policies)
     info["tags"] = artifact_tags(art["path"])  # a bare .sc too (its dir marker, sidecar)
-    from ..formats.sc_v6 import SC7_SEMANTIC_MARKER
+    from ..formats.sc_semantic import SC7_SEMANTIC_MARKER
 
-    if header.version != 7:
+    if header.version != SC_VERSION:
         reasons.append("legacy_cache_version")
-    from ..formats.sc_v7 import is_composed_features
+    from ..formats.supercache import is_composed_features
 
-    semantic = header.version == 7 and bool(header.reserved & SC7_SEMANTIC_MARKER)
-    public = header.version == 7 and header.reserved == 0
+    semantic = header.version == SC_VERSION and bool(header.reserved & SC7_SEMANTIC_MARKER)
+    public = header.version == SC_VERSION and header.reserved == 0
     # Composed v7 carries both payloads; both identities are checked.
     composed = semantic and is_composed_features(header.reserved)
-    firmware = header.version == 7 and (header.reserved == 1 or composed)
-    if header.version == 7 and not (public or semantic or firmware):
+    firmware = header.version == SC_VERSION and (header.reserved == 1 or composed)
+    if header.version == SC_VERSION and not (public or semantic or firmware):
         reasons.append("unknown_v7_features")
     id8 = _ext_id8_of(art["sc"]) if semantic else None
     if semantic:
-        from ..formats.sc_v6 import read_sc6
+        from ..formats.sc_semantic import read_semantic_cache
 
-        semantic_file = read_sc6(art["sc"])
+        semantic_file = read_semantic_cache(art["sc"])
         if not semantic_file.loadable or semantic_file.ext is None:
             reasons.append("semantic_extension_invalid")
     firmware_id8 = None
     firmware_directory = None
     if firmware:
         try:
-            from ..formats.sc_v7 import read_sc7
+            from ..formats.supercache import read_region_directory
 
-            firmware_directory = read_sc7(art["sc"])
+            firmware_directory = read_region_directory(art["sc"])
             firmware_id8 = firmware_directory.artifact_id8.hex()
         except (OSError, ValueError):
             reasons.append("firmware_region_directory_invalid")
@@ -299,7 +300,7 @@ def artifact_refusals(art: dict[str, Any], header: ScHeader, *,
                 side = None
     if isinstance(side, dict):
         from ..formats.artifact import LOADER_V7
-        from ..formats.sc_v7 import loader_requirement
+        from ..formats.supercache import loader_requirement
 
         lr = side.get("loader_requirement")
         info["loader_requirement"] = lr
@@ -400,7 +401,7 @@ def deploy(artifact: str | os.PathLike, rd: RunDir, *, check: bool = False,
     doc: dict[str, Any] = {"schema": DEPLOY_SCHEMA, "artifact": art, "method": method,
                            "run_dir": str(rd.root),
                            # informational: QEMU will rebuild such a file; the proof catches it
-                           "artifact_header_problems": header.problems(versions=(7,))}
+                           "artifact_header_problems": header.problems()}
     try:
         reasons, ainfo = artifact_refusals(art, header,
                                            allow_negative_control=allow_negative_control,
@@ -481,7 +482,7 @@ def deploy(artifact: str | os.PathLike, rd: RunDir, *, check: bool = False,
         if doc.get("restore_hint_sha256") != expected_hint_sha256:
             write_json(rd.root / "deploy.json", {**doc, "refused": ["selected_restore_hint_changed"]})
             raise DeployError("selected_restore_hint_changed", str(dest_hint))
-        from ..formats.sc_v5 import sha256_sparse
+        from ..formats.sc_records import sha256_sparse
         actual = "sha256:" + sha256_sparse(rd.cache)
         if actual != expected_sc_sha256:
             write_json(rd.root / "deploy.json", {**doc, "refused": ["selected_cache_changed"]})
@@ -533,7 +534,7 @@ def deploy_direct(artifact: str | os.PathLike, run_dir: str | os.PathLike, *,
     ``cache/<cache_name>`` (a sparse copy), ``direct.json`` (the expanded argv)
     and ``deploy.json`` (``method = "direct"``, ``identity.checked = false``,
     state with ``frontend = "none"``). Refusals as :func:`deploy` (test-only
-    tags, v6 consistency); an artifact directory whose RuntimeIdentity names
+    tags, extension consistency); an artifact directory whose RuntimeIdentity names
     another QEMU sha256 is ``runtime_mismatch:qemu_sha256``."""
     from ..formats.bundle_v1 import BundleError, read_runtime_identity
     from .launcher import file_sha256
@@ -559,7 +560,7 @@ def deploy_direct(artifact: str | os.PathLike, run_dir: str | os.PathLike, *,
     full = [exe] + [a.replace(PH_SC, str(cache)).replace(PH_RUN, str(root)) for a in argv[1:]]
     doc: dict[str, Any] = {"schema": DEPLOY_SCHEMA, "artifact": art, "method": "direct",
                            "run_dir": str(root),
-                           "artifact_header_problems": header.problems(versions=(7,))}
+                           "artifact_header_problems": header.problems()}
     reasons, ainfo = artifact_refusals(art, header, allow_negative_control=allow_negative_control,
                                        test_policies=test_policies)
     ids: dict[str, Any] = {"checked": False, "reasons": [], "frontend": "none",

@@ -10,6 +10,7 @@ from ..analysis.llvm_layout import build_cache_directed_request
 from ..analysis.page_layout import improve_page_layout
 from .base import Budgets, EditKind, Outcome, PassDescriptor, PassResult
 from .cluster import DEFAULT_KINDS
+from .public_input import page_layout_refusal
 
 
 def align(offset):
@@ -30,8 +31,9 @@ class PageAwareLocalLayout:
 
     def run(self, snap, ctx, edits):
         h = snap.header
-        if h is None or (h.version, h.reserved) != (7, 0) or ctx.b3 is not None:
-            return PassResult(Outcome.SKIPPED_UNSUPPORTED, "requires_public_v7")
+        refusal = page_layout_refusal(h, ctx.b3_state)
+        if refusal is not None:
+            return refusal
         units = sorted(snap.units(), key=lambda u: u.tb_offset)
         if not units:
             return PassResult(Outcome.NO_CHANGE, "empty_arena")

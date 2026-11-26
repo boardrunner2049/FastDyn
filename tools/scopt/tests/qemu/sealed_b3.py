@@ -23,8 +23,8 @@ import os
 from pathlib import Path
 import subprocess
 
-from scopt.formats.sc_v5 import sparse_copy
-from scopt.formats.sc_v6 import read_sc6
+from scopt.formats.sc_records import sparse_copy
+from scopt.formats.sc_semantic import read_semantic_cache
 from scopt.run.helper_pgo import _guest_lines, _launch
 
 ARMS = (("sc6", {}),
@@ -69,7 +69,7 @@ def main():
     args = parser.parse_args()
     launch = json.loads(args.launch.read_text())
     source = source_cache(launch)
-    f = read_sc6(source)
+    f = read_semantic_cache(source)
     assert f.has_ext and f.problem is None and f.ext is not None, \
         f"{source} carries no loadable B3 extension ({f.problem})"
     out = args.out.resolve()

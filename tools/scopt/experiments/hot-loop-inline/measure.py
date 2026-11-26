@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 from fastdyn.compiled_launch import emit_bundle
-from scopt.formats.sc_v5 import sparse_copy
+from scopt.formats.sc_records import sparse_copy
 from scopt.run import paired_stats
 from scopt.run.helper_pgo import _launch
 

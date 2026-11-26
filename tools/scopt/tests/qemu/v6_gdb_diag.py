@@ -95,7 +95,7 @@ def evaluate(u: U.Unit, scenario: str, r: dict[str, Any]) -> list[tuple[str, boo
     g, st = r["gdb"], r["stats"] or {}
     exit_ok = g.get("exit_code") == 0
     out_ok = [l for l in r["guest_norm"] if l.startswith(("Reg ", "[BENCH]"))] == \
-        [l for l in u.v5_guest if l.startswith(("Reg ", "[BENCH]"))]
+        [l for l in u.public_guest if l.startswith(("Reg ", "[BENCH]"))]
     items = [("QEMU exit 0 under gdb", exit_ok, g.get("exit_code")),
              ("guest output (Reg/BENCH lines) equals the v5 control", out_ok, r["guest_norm"]),
              ("no invariant violation", st.get("invariant_violations") == 0,
@@ -171,7 +171,7 @@ def main() -> int:
     (out / "files").mkdir(parents=True)
     u = U.Unit(a.qemu.resolve(), out)
     u.prepare()
-    u.case_v5()
+    u.case_public()
     p = out / "files/guarded.sc"
     meta = V.guarded_model(str(u.base_sc), u.snap, U.SPEC, U.GENERAL).write(p)
     results: dict[str, Any] = {}
@@ -186,7 +186,7 @@ def main() -> int:
     verdict = "PASS" if all(v["verdict"] == "PASS" for v in results.values()) else "FAIL"
     doc = {"schema": "wp22.v6-gdb-diag/1", "verdict": verdict, "qemu": str(u.qemu),
            "qemu_sha256": file_sha256(u.qemu), "base": u.base_info, "file": meta,
-           "v5_control": u.cases.get("v5-control", {}).get("verdict"),
+           "public_control": u.cases.get("public-control", {}).get("verdict"),
            "summary": {k: v["verdict"] for k, v in results.items()}, "scenarios": results}
     (out / "v6-gdb-diag.json").write_text(json.dumps(doc, indent=1, default=str) + "\n")
     print(f"verdict {verdict} -> {out / 'v6-gdb-diag.json'}")

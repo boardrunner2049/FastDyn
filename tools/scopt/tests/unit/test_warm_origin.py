@@ -5,7 +5,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from scopt.commands.optimize import optimize_cmd
-from scopt.formats.sc_v5 import sha256_sparse
+from scopt.formats.sc_records import sha256_sparse
 from scopt.importer.import_cache import import_snapshot
 from scopt.importer.warm_origin import ordinary_warm
 from tests.synth import rich_tb as RT

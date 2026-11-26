@@ -100,7 +100,7 @@ def test_reader_rejections(bundle, tmp_path):
 
 
 def test_runtime_identity(manifest, minimal_sc):
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
 
     qemu = manifest["inputs"]["native_files"]["qemu"]["path"]
     plugin = manifest["inputs"]["native_files"]["plugin"]["path"]
@@ -128,7 +128,7 @@ def test_runtime_identity_stat_fields(minimal_sc):
     plugin = (fastdyn_root() / "src/fastdyn/build/libfastdyn.so")
     if not (qemu.exists() and plugin.exists()):
         pytest.skip(f"{qemu} or {plugin} not present")
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
 
     h = ScHeader.from_bytes(minimal_sc.open("rb").read(80))
     ri = runtime_identity(qemu=qemu, plugin=plugin, config_text=B0_SC.read_text(), sc_header=h)
@@ -157,7 +157,7 @@ def test_runtime_identity_from_run_info():
 
     from scopt.formats.bundle_v1 import run_info_fields
     from scopt.formats.scm_v1 import read_scm
-    from scopt.formats.sc_v5 import ScHeader
+    from scopt.formats.sc_records import ScHeader
 
     scm = read_scm(scm_p)
     h = ScHeader.from_bytes(sc_p.open("rb").read(80))

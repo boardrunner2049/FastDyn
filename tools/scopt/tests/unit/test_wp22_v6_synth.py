@@ -1,4 +1,4 @@
-"""WP22: offline checks of the hand-made v6 file generator (tests/qemu/v6_synth.py).
+"""WP22: offline checks of the semantic table generator (tests/qemu/v6_synth.py).
 
 The generator is the test input of the QEMU loader unit tests, so its layout
 must match design §5.2-5.3 byte for byte. These tests re-parse what it writes
@@ -28,10 +28,10 @@ FNV = 1469598103934665603
 
 
 def _base_sc(tmp_path: Path) -> Path:
-    """A minimal valid-looking v5 file: header only, no records (sparse)."""
+    """A minimal public-only v7 cache: header only, no records (sparse)."""
     p = tmp_path / "base.sc"
     code_size = 0x200000
-    hdr = bytearray(SC_HEADER.pack(b"QSCACHE1", 5, 80, code_size, 0x7FFF6C000000, 0x2D, 0,
+    hdr = bytearray(SC_HEADER.pack(b"QSCACHE1", 7, 80, code_size, 0x7FFF6C000000, 0x2D, 0,
                                    0x1234, 4096, 10, 152, 0, 0))
     hdr[72:80] = struct.pack("<Q", fnv1a64(bytes(hdr[:72])))
     with open(p, "wb") as f:
@@ -61,7 +61,7 @@ def _read_ext(p: Path) -> tuple[dict, bytes, bytes]:
     return hd, arrays, h
 
 
-def test_identity_v6_layout(tmp_path):
+def test_semantic_table_layout(tmp_path):
     base = _base_sc(tmp_path)
     out = tmp_path / "id.sc"
     V.identity_model(str(base), b"ABCDEFGH").write(out)
@@ -69,7 +69,7 @@ def test_identity_v6_layout(tmp_path):
     version, = struct.unpack_from("<I", raw, 8)
     feat, = struct.unpack_from("<I", raw, 68)          # reserved -> feature_flags (G1)
     ck, = struct.unpack_from("<Q", raw, 72)
-    assert version == 6 and feat == 1                    # EXT_TABLE only
+    assert (version, feat) == (7, (1 << 31) | 1)  # Semantic marker plus EXT_TABLE
     assert ck == fnv1a64(raw[:72])
     hd, arrays, h = _read_ext(out)
     assert hd["magic"] == b"QSCX6EXT" and hd["ext_version"] == 1 and hd["ext_header_size"] == 64
@@ -78,6 +78,38 @@ def test_identity_v6_layout(tmp_path):
     assert hd["variants_max_end"] == 0 and hd["artifact_id8"] == b"ABCDEFGH"
     assert hd["checksum"] == fnv1a64(arrays, fnv1a64(h[:56]))
     assert os.path.getsize(out) == os.path.getsize(base)
+
+
+def test_public_compactor_refuses_semantic_table(tmp_path):
+    from scopt.commands.compact_nops import generate
+
+    base = _base_sc(tmp_path)
+    V.identity_model(str(base)).write(tmp_path / "cache.sc")
+    output = tmp_path / "output"
+    with pytest.raises(ValueError, match="without extension tables"):
+        generate(tmp_path, tmp_path / "profile.json", output)
+    assert not output.exists()
+
+
+def test_semantic_fixture_refuses_nonpublic_source(tmp_path):
+    base = _base_sc(tmp_path)
+    path = tmp_path / "semantic.sc"
+    V.identity_model(str(base)).write(path)
+    with pytest.raises(ValueError, match="public-only"):
+        V.identity_model(str(path))
+
+
+def test_independent_checker_rejects_unknown_semantic_flags(tmp_path):
+    from scopt.formats.sc_semantic import read_semantic_cache, sc6parse_compare
+
+    model = V.identity_model(str(_base_sc(tmp_path)))
+    model.features |= 1 << 6
+    path = tmp_path / "unknown-flag.sc"
+    model.write(path)
+    parsed = read_semantic_cache(path)
+    assert parsed.problem[0] == "feature_flags"
+    agrees, detail, _ = sc6parse_compare(path, parsed)
+    assert agrees, detail
 
 
 def test_entry_layout_and_checksum(tmp_path):

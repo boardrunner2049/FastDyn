@@ -3,7 +3,7 @@
 This module turns a ``build_sc``/``build_scm`` pair into ``TBUnit`` objects
 directly, without WP7's importer (``CacheSnapshot``), so the WP9 unit tests
 control relocatability and meta status exactly: the ``.sc`` is
-parsed by ``scopt.formats.sc_v5`` and the ``.scm`` by ``scopt.formats.scm_v1``,
+parsed by ``scopt.formats.sc_records`` and the ``.scm`` by ``scopt.formats.scm_v1``,
 and each valid slot becomes a unit with its UnitId, key, bytes and captured
 arrays. There is no cross-check: relocatability and meta status are whatever
 the test asks for (``not_relocatable`` / ``no_meta`` index sets).
@@ -19,7 +19,7 @@ from types import MappingProxyType
 from typing import Any
 
 from scopt.formats import scm_v1 as S
-from scopt.formats.sc_v5 import ScHeader, read_sc
+from scopt.formats.sc_records import ScHeader, read_sc
 from scopt.ids import TBKey
 from scopt.model.unit import Bindings, RelocInfo, TBUnit
 

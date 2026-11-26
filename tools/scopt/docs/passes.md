@@ -124,7 +124,7 @@ loaded-artifact identity, behavior checks, and the declared paired timing protoc
 
 Slides the entire captured arena by a 64-byte-aligned delta. Relative distances remain
 unchanged; the objective is fewer weighted host-page crossings. It requires an exact
-steady profile and an original, relocatable v5 layout. It rejects pinned/non-relocatable
+steady profile and an original, relocatable public-record layout. It rejects pinned/non-relocatable
 layouts and returns no change when the captured alignment already scores best.
 
 - Controls: no pass parameters.
@@ -228,7 +228,7 @@ fallback visibility are part of admission.
 ## `fold-exit-pc-update@1`
 
 At proved exits, replaces the recognized ARM-PC load/add/store sequence with one x86
-memory add. It only operates on original v5 code with a bound ARM-PC layout and exact
+memory add. It only operates on original public-record code with a bound ARM-PC layout and exact
 steady evidence.
 
 - Controls: no pass parameters.
@@ -449,7 +449,7 @@ translation context, and fall back to the original lookup path on mismatch.
   (`caller_exit`) and every exit of the root continuation (`continuation_exit`); the
   stat `residual_boundary_exits` counts them. These rows are receipt-only: plan edges,
   `region_id` and the artifact are unchanged, and the caller loop is not pulled into the
-  region. Embedded rows record `residual_exits_chainable`. The v7 directory is arena-resident, so it does not inherit v6's fixed
+  region. Embedded rows record `residual_exits_chainable`. The v7 directory is arena-resident, so it does not inherit the semantic extension’s fixed
   64 KiB extension-table limit. Reimport retains `firmware-regions.jsonl`.
 - Trusted runtime entry uses a load-time first-match index from public source TB to
   private region. `QEMU_SC_V7_EXPERIMENT=linear-source-scan` is a diagnostic ablation
@@ -481,7 +481,7 @@ translation context, and fall back to the original lookup path on mismatch.
   trusted residual exits: every region exit then returned to the dispatcher.
 
 - Source: `scopt/passes/firmware_inline.py`, `scopt/analysis/firmware_calls.py`,
-  `scopt/analysis/firmware_regions.py`, `scopt/formats/sc_v7.py`, and the v7 loader in
+  `scopt/analysis/firmware_regions.py`, `scopt/formats/supercache.py`, and the v7 loader in
   `third_party/common/qemu/tcg/supercache.c`.
 
 Whole-firmware translation coverage and the unsafe fail-closed runtime mode
@@ -628,7 +628,7 @@ for import, linking, validation, publication, and loading.
 ## `irq-entry-mem-compare@1`
 
 Fuses the native scratch load and sign test at an eligible non-icount IRQ poll. It
-requires a bound native layout, dead scratch value, original v5 code, whole-block
+requires a bound native layout, dead scratch value, original public-record code, whole-block
 equivalence, and exact steady execution evidence.
 
 - Controls: none.
@@ -711,8 +711,8 @@ Starts from the dense capture order and performs bounded adjacent swaps that red
 weighted host-page crossings. It protects exact directed adjacency and reports when a
 potential page gain is blocked by original adjacency or native-distance constraints.
 
-- Requires an original, dense, unplaced, relocatable v5 arena and an exact steady
-  profile; it does not run in B3 mode.
+- Requires a dense, unplaced public arena with relocatable records and an exact steady
+  profile. Run before adding exit guards or firmware regions.
 - Controls: positive `max_rounds` and `max_swaps` (defaults 3 and 32 in the pass).
 - Example: `--pipeline b2-page-local --only page-aware-local-layout`.
 - Evidence: no retained runtime measurement was found. This was the one canonical pass

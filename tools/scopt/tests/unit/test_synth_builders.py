@@ -14,7 +14,7 @@ from scopt.canon import fnv1a64
 from scopt.formats import layouts as L
 from scopt.formats import scm_v1 as S
 from scopt.formats.enums import Encoding, SiteKind
-from scopt.formats.sc_v5 import ScHeader, ScRecord
+from scopt.formats.sc_records import ScHeader, ScRecord
 from tests.synth import builders as B
 
 

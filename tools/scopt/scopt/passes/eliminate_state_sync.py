@@ -7,7 +7,7 @@ pseudo sync points, D2 ``can_do_io`` stores, D3 ``plugin_mem_value_*`` stores
 under the RuntimeIdentity contract). Each store becomes **one** multi-byte NOP
 (template ``b4_nop_store``). Nothing is moved, no instruction boundary, search
 row, icount immediate, LDST block, exit stub or pool byte changes, so a B4-only
-plan is a **v5** artifact (``B3Plan(rewrites=…, register_slots=False)``).
+plan is a public-record artifact (``B3Plan(rewrites=…, register_slots=False)``).
 
 Params (``params_schema``):
 
@@ -381,7 +381,7 @@ def propose_b4(snapshot: Any, *, layout: Any, runtime: Mapping[str, Any] | None,
 
 
 def plan_of(prop: B4Proposal | Mapping[str, Sequence[Patch]]) -> Any:
-    """The ``B3Plan`` of a B4-only proposal: rewrites only, v5 (no slot registered)."""
+    """The ``B3Plan`` of a B4-only proposal: public records with rewrites only (no slot registered)."""
     from ..link import B3Plan
 
     patches = prop.patches if isinstance(prop, B4Proposal) else prop
@@ -413,7 +413,7 @@ def package_b4(snapshot: Any, prop: B4Proposal, store: Any, *, candidate_id: str
                layout: Any, runtime: Mapping[str, Any] | None, selftest: Mapping[str, Any],
                v6_exes: Iterable[str] = (), env_abs: tuple[int, int] | None = None,
                **kw: Any) -> Any:
-    """Link (v5), validate (V1-V23 with V12 from ``hostsym`` under the strict call
+    """Link the public records, validate (V1-V23 with V12 from ``hostsym`` under the strict call
     contract, V15 deletable class, V20 with D2/D3 needs) and publish ``prop``.
 
     ``selftest`` is the V18 document (``scopt.validate_sym.selftest.load_or_run``)."""

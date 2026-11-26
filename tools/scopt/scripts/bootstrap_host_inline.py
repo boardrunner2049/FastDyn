@@ -48,7 +48,7 @@ def build(work: Path, lock: dict, log: Path, reuse_build: Path | None = None) ->
     if lock["schema"] != "scopt.host-inline-source-lock/1":
         raise ValueError("unsupported source lock")
     command(log, ["git", "diff", "--quiet", lock.get("runtime_source_ref", lock["starting_fastdyn"]), "--", ".",
-                  ":(exclude)tools/scopt"])
+                  ":(exclude)tools/scopt", ":(exclude)tools/trebuchet"])
     observed = {pkg: output(["dpkg-query", "-W", "-f=${Version}", pkg])
                 for pkg in lock["build_dependencies"]}
     for pkg, version in lock["build_dependencies"].items():
@@ -157,7 +157,7 @@ def _qualify_config(work, qemu, plugin, log, config, phase, inputs, ram_root):
                       SCOPT_RUNTIME_QEMU_SHA256=qemu_hash)
     # Load the harness after setting its checkout paths.
     from scopt.formats.envlayout_v1 import check_binding, read_envlayout
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
     from scopt.run.deploy import deploy
     from scopt.run.launcher import create_run_dir, launch
 

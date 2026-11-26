@@ -13,7 +13,7 @@ from scopt.analysis.syncdead import nop_bytes, syncdead_unit
 from scopt.formats.envlayout_v1 import find_envlayout
 from scopt.formats import scm_v1 as S
 from scopt.formats.enums import Encoding, OpMarkKind, SiteKind
-from scopt.formats.sc_v5 import write_sc
+from scopt.formats.sc_records import write_sc
 from scopt.importer.import_cache import import_snapshot
 from scopt.link import B3Plan, LinkError, NativeLinker, NativeLinkerV2, rewrite_unit
 from scopt.model.snapshot import WorkingSet

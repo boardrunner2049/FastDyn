@@ -115,7 +115,7 @@ def package_negative(snapshot: Any, plan: Any, out_dir: str | os.PathLike, *, la
     fixture/oracle that must detect it (both recorded in the tag)."""
     from ..formats import artifact as A
     from ..formats.envlayout_v1 import find_envlayout
-    from ..formats.sc_v5 import ScFormatError
+    from ..formats.sc_records import ScFormatError
     from ..guard import GuardError, GuardOffsets
     from ..ledger import Ledger
     from ..link import NativeLinkerV2
@@ -157,7 +157,7 @@ def package_negative(snapshot: Any, plan: Any, out_dir: str | os.PathLike, *, la
                               link=link)
     if ri is not None and runtime is not None:
         A.write_json_file(out / "runtime_identity.json", ri)
-    from ..formats.sc_v7 import canonical_snapshot_id
+    from ..formats.supercache import canonical_snapshot_id
 
     out_sid = canonical_snapshot_id(out / "cache.sc")
     tag = {"schema": NEGATIVE_SCHEMA, "label": label, "mutant": mutant, "detector": detector,

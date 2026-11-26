@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise QEMU's permanent coverage disarm on a real armed v6 artifact."""
+"""Exercise QEMU's permanent coverage disarm on a real armed semantic SuperCache."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 from scopt.canon import canonical_json
-from scopt.formats.sc_v6 import read_sc6
+from scopt.formats.sc_semantic import read_semantic_cache
 from scopt.importer.import_cache import open_snapshot
 from scopt.run.deploy import deploy
 from scopt.run.launcher import create_run_dir, launch
@@ -24,13 +24,13 @@ def run(qualification: Path, out: Path, trigger: str) -> None:
     os.environ["SCOPT_RUNTIME_QEMU"] = str(qemu)
     with qemu.open("rb") as stream:
         os.environ["SCOPT_RUNTIME_QEMU_SHA256"] = hashlib.file_digest(stream, "sha256").hexdigest()
-    source = read_sc6(artifact / "cache.sc")
+    source = read_semantic_cache(artifact / "cache.sc")
     snap = open_snapshot(data["snapshot"])
     pc = data[f"{trigger}_pc"]
     keys = {u.key for u in snap.units() if pc in u.vaddrs}
     if (not source.loadable or source.ext is None or not source.ext.links
             or source.ext.checksum is None or not keys):
-        raise ValueError("need a linked v6 artifact and exact observed translation keys")
+        raise ValueError("need a linked semantic table and exact observed translation keys")
 
     out.mkdir(parents=True)
     guard = out / "guard.txt"
@@ -62,11 +62,11 @@ def run(qualification: Path, out: Path, trigger: str) -> None:
         if actual != expected:
             raise ValueError(f"{arm} guest output differs from checked baseline")
         stats = json.loads(stats_path.read_text())
-        sc = read_sc6(rd.cache)
+        sc = read_semantic_cache(rd.cache)
         appended = len(sc.sc.valid_slots) - original_count
         if (not sc.loadable or not stats["loaded"] or stats["invariant_violations"]
                 or stats["links_armed"] < 1):
-            raise ValueError(f"{arm} did not execute with a clean armed v6 chain")
+            raise ValueError(f"{arm} did not execute with a clean armed semantic chain")
         if sc.sc.record_bytes[:original_count] != source.sc.record_bytes:
             raise ValueError(f"{arm} changed the original cache records")
         new_keys = [r.key for r in sc.sc.records[original_count:] if r is not None]

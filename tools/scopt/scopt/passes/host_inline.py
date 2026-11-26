@@ -18,6 +18,7 @@ from ..canon import sha256_id
 from ..model.native import (MAX_INTEGER_SPLICES, InlineCall, NativeFragment, NativeOrigin,
                             supports_tcg_integer_abi)
 from ..validate_sym.native_inline import NativeInlineError, check_leaf, verify_fragment, verify_site
+from .public_input import public_input_refusal
 from .base import BudgetExceeded, Budgets, EditKind, Outcome, PassDescriptor, PassResult
 
 BACKEND_REVISION = "58df0ef89dd64126512e4ee27b4ac3fd8ddf6247"
@@ -390,10 +391,12 @@ class HostInline:
         outer_deadline = float("inf") if ctx.deadline is None else ctx.deadline
         deadline = outer_deadline if unbounded_growth else min(
             outer_deadline, time.monotonic() + params["max_wall_s"])
-        if (view.header.version, view.header.reserved) != (7, 0) or \
-                (ctx.runtime or {}).get("supercache_flat") is not False:
+        refusal = public_input_refusal(view.header)
+        if refusal is not None:
+            return refusal
+        if (ctx.runtime or {}).get("supercache_flat") is not False:
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "native_runtime_unsupported",
-                              "requires a non-flat x86-64 canonical public v7 runtime")
+                              "requires a non-flat x86-64 runtime")
         layout = ctx.analysis("envlayout", ScopeRef("snapshot", ctx.snapshot_id)).value
         if not layout["bound"] and not params.get("trusted_all_helpers", False):
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "guard_layout_unbound",

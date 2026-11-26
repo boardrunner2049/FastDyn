@@ -510,7 +510,7 @@ def test_compute_b4_artifact_reproduced_and_rebuild_units_still_certified():
     if not (COMPUTE_ART / "cache.sc").is_file() or not (COMPUTE_SNAP / "snapshot.json").is_file():
         pytest.skip(f"{COMPUTE_ART / 'cache.sc'} or {COMPUTE_SNAP / 'snapshot.json'} not present")
     from scopt.formats import artifact as A
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
     from scopt.importer.import_cache import open_snapshot
     from scopt.analysis.obs_contract import build_contract
     from scopt.passes.eliminate_state_sync import propose_b4, strict_contract
@@ -523,7 +523,7 @@ def test_compute_b4_artifact_reproduced_and_rebuild_units_still_certified():
     lay = find_envlayout(GATE)
     prop = propose_b4(s, layout=lay, runtime=ri, classes="D1|D2|D3")
     assert prop.by_class() == {"D1": 334, "D2": 1207, "D3": 3409}  # the published x_classes
-    out = read_sc(COMPUTE_ART / "cache.sc", versions=(5, 6))
+    out = read_sc(COMPUTE_ART / "cache.sc")
     recs = {uid: (out.records[i], bytes(out.bodies[i]))
             for uid, i in zip(out.unit_ids(), out.valid_slots)}
     units = {u.uid: u for u in s.units()}

@@ -25,7 +25,7 @@ import pytest
 
 from scopt.formats import profile_v1 as P
 from scopt.formats.qprof_v1 import read_qprof
-from scopt.formats.sc_v5 import read_sc
+from scopt.formats.sc_records import read_sc
 from tests.conftest import FASTDYN_ROOT, MINIMAL_SC
 
 pytestmark = pytest.mark.real

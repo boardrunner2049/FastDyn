@@ -48,9 +48,9 @@ from pathlib import Path
 import subprocess
 
 from scopt.formats.layouts import SC_CODE_OFFSET
-from scopt.formats.sc_v5 import read_sc, sparse_copy
-from scopt.formats.sc_v7 import (SC7_REGION_MEMBER_DESCRIPTORS, decode_directory,
-                                 read_sc7)
+from scopt.formats.sc_records import read_sc, sparse_copy
+from scopt.formats.supercache import (SC7_REGION_MEMBER_DESCRIPTORS, decode_directory,
+                                 read_region_directory)
 from scopt.link import residual_goto_tb_slots
 from scopt.run.helper_pgo import _guest_lines, _launch
 from scopt.run.v7_stats import T2T_REVISION, counter_problems, per_build_bounds, summary
@@ -70,8 +70,8 @@ def residual_slots(cache):
     counts when it builds that region (0 for legacy regions); the decoded
     directory; and (member index, absolute field offset in the file) of every
     armed residual slot."""
-    sc = read_sc(cache, versions=(7,))
-    rows = decode_directory(read_sc7(cache))
+    sc = read_sc(cache)
+    rows = decode_directory(read_region_directory(cache))
     by_tb = {sc.records[i].tb_offset: sc.records[i] for i in sc.valid_slots}
     out = []
     armed = [0] * len(rows["regions"])

@@ -1538,7 +1538,7 @@ def host_abs_sites(s: Any, lay: Any) -> list[dict[str, Any]]:
 
 def host_addr(sc_path: Path, tb_offset: int, off: int) -> int:
     """Run-time host address of byte ``off`` of the unit at ``tb_offset`` in ``sc_path``."""
-    from scopt.formats.sc_v5 import read_sc
+    from scopt.formats.sc_records import read_sc
 
     f = read_sc(sc_path)
     i = next(k for k, r in enumerate(f.records) if r is not None and r.tb_offset == tb_offset)

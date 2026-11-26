@@ -13,8 +13,8 @@ import statistics
 import subprocess
 import sys
 
-from scopt.formats.sc_v5 import sha256_sparse
-from scopt.formats.sc_v6 import read_sc6
+from scopt.formats.sc_records import sha256_sparse
+from scopt.formats.sc_semantic import read_semantic_cache
 from scopt.manager import HOST_INLINE_ALIASES, load_pipeline
 from scopt.run.benchmark_memory import benchmark_ram_override
 from scopt.run.pass_policy import PolicyMismatch, check_requested, policy_arguments
@@ -186,7 +186,7 @@ def main():
             return name, row
         artifact = Path(result["artifact_dir"])
         cache = artifact / "cache.sc"
-        image = read_sc6(cache)
+        image = read_semantic_cache(cache)
         row["sc_bytes"] = cache.stat().st_size
         row["sc_allocated_bytes"] = cache.stat().st_blocks * 512
         row["base_native_bytes"] = sum(image.sc.records[i].tc_size for i in image.sc.valid_slots)

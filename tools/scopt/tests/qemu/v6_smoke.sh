@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# WP22 unit smoke of the QEMU .sc v6 loader (qint-v6 binary).
+# WP22 unit smoke of the QEMU semantic-table loader on canonical SuperCache files.
 #
 #   v6_smoke.sh <qemu-system-arm (qint-v6)> <out_root>
 #
-# 1. v6_unit.py: v5 control, identity-v6 (empty extension table), guarded
+# 1. v6_unit.py: public control, identity-semantic (empty extension table), guarded
 #    synthetic file (SPEC links + variants, GENERAL slots), stale runtime
 #    signature, and one malformed file per v6_synth.MUTATIONS entry
 #    (fail loud before guest execution, file not truncated);

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Independent parser of `.sc` v6 files (B3/B4 design V11; WP18).
+"""Independent parser of public records and semantic tables inside a v7 SuperCache.
 
 Written from the C loader of `wt/qemu-v6` (tcg/supercache.c: valid_header,
 load_records, sc6_load_ext, sc6_verify_hashes; commit 4671d5ceda), NOT from
-scopt/formats/sc_v6.py. Standalone: no scopt import, stdlib only.
+scopt/formats/sc_semantic.py. Standalone: no scopt import, stdlib only.
 
 usage: sc6parse.py FILE.sc OUT.json [--host-page N]
 
 OUT.json = {"header": {...}, "records": [...], "loaded": [...tb_offsets...],
             "ext": {...} | null, "variants": [...], "slots": [...], "links": [...],
-            "die": "<first sc6_die message>" | null, "verdict": "v5" | "v6_ok" | "v6_die" |
+            "die": "<first sc6_die message>" | null, "verdict": "v7_no_semantic_table" | "v7_semantic_ok" | "v7_semantic_die" |
             "invalid_header"}
 
 `die` is the text the loader prints after "supercache: invalid v6 extension: "
@@ -90,8 +90,8 @@ def main(argv):
                          record_count=rcount, runtime_signature=sig, host_page_size=hps,
                          target_page_bits=tpb, tb_size=tbsz, feature_flags=feat, checksum=ck,
                          checksum_ok=fnv(hb[:72]) == ck)
-    semantic_v7 = ver == 7 and bool(feat & (1 << 31))
-    if magic != b'QSCACHE1' or not semantic_v7 or \
+    semantic = bool(feat & (1 << 31))
+    if magic != b'QSCACHE1' or ver != 7 or \
             hsz != 80 or fnv(hb[:72]) != ck:
         doc["verdict"] = "invalid_header"
         json.dump(doc, open(out, 'w'))
@@ -120,10 +120,16 @@ def main(argv):
         if ok:
             loaded.append(r)
     doc["loaded"] = [r["tb_offset"] for r in loaded]
+    if not semantic:
+        # Firmware regions have their own validator. This parser only reports
+        # the public records and whether the semantic table exists.
+        doc["verdict"] = "v7_no_semantic_table"
+        json.dump(doc, open(out, 'w'))
+        return 0
     try:
         vs, ss, rs = load_ext(doc, data, loaded, code_size, prol_end,
-                              feat & 0xf, tbsz, tpb,
-                              host_page)
+                              feat & ~((1 << 31) | (1 << 30)), tbsz, tpb, host_page,
+                              0xff00 if feat & (1 << 30) else CODE_OFF)
         verify_hashes(data, vs, ss, rs)
         doc["verdict"] = "v7_semantic_ok"
     except Die as e:
@@ -133,7 +139,7 @@ def main(argv):
     return 0
 
 
-def load_ext(doc, data, loaded, code_size, prol_end, feat, tbsz, tpb, host_page):
+def load_ext(doc, data, loaded, code_size, prol_end, feat, tbsz, tpb, host_page, arrays_limit):
     if feat & ~KNOWN:
         raise Die("unknown feature bits 0x%x" % (feat & ~KNOWN))
     if not feat & 1:
@@ -157,7 +163,7 @@ def load_ext(doc, data, loaded, code_size, prol_end, feat, tbsz, tpb, host_page)
     if r0 or r1:
         raise Die("reserved header fields not zero")
     asz = nv * 64 + ns * 32 + nl * 16
-    if ARR_OFF + asz > CODE_OFF:
+    if ARR_OFF + asz > arrays_limit:
         raise Die("ext table too large")
     arr = data[ARR_OFF:ARR_OFF + asz]
     if len(arr) != asz:

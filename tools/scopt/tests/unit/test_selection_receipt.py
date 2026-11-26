@@ -5,7 +5,7 @@ import pytest
 from click.testing import CliRunner
 
 from scopt.commands.deploy import _selected_cache, deploy_cmd
-from scopt.formats.sc_v5 import sparse_copy
+from scopt.formats.sc_records import sparse_copy
 from scopt.run import warm_selection as gate
 from scopt.run.deploy import resolve_artifact
 from scopt.run.launcher import file_sha256, norm_b0, norm_guest, parse_bench, write_json

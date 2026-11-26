@@ -162,7 +162,7 @@ def test_campaign_from_args_rows(base_toml, warm_sc, tmp_path):
 
 
 def test_load_campaign_toml(tmp_path, base_toml, warm_sc):
-    from scopt.formats.sc_v5 import sha256_sparse
+    from scopt.formats.sc_records import sha256_sparse
     f = tmp_path / "camp.toml"
     f.write_text(f"""
 [campaign]

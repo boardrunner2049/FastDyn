@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from scopt.formats.sc_v5 import ScRecord
+from scopt.formats.sc_records import ScRecord
 from scopt.link import B3Plan, NativeLinker, NativeLinkerV2, TB_ALIGN, round_up
 from scopt.model.snapshot import WorkingSet
 from scopt.passes.base import Patch

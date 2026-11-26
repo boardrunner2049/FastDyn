@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from scopt.formats.sc_v5 import read_sc, sha256_sparse
+from scopt.formats.sc_records import read_sc, sha256_sparse
 from scopt.paths import fastdyn_root
 
 ROOT = fastdyn_root()
