@@ -137,9 +137,12 @@ class FirmwareInline:
             return PassResult(Outcome.FAILED, "invalid_params", str(e))
         skip_exe = _ri_exe(skip_runtime)
         if skip_param == "on" and not skip_ok:
+            remedy = ("scopt/data/qemu_capabilities.json marks its loader incapable of member "
+                      "skip flags; no allowlist overrides that" if skip_why == "known_incapable"
+                      else "--v7-member-skip-exe / SCOPT_V7_MEMBER_SKIP_EXES")
             return PassResult(Outcome.FAILED, "member_slot_skip_unsupported_runtime",
                               f"member_slot_skip=on but RuntimeIdentity exe {skip_exe} is "
-                              f"{skip_why} (--v7-member-skip-exe / SCOPT_V7_MEMBER_SKIP_EXES)")
+                              f"{skip_why} ({remedy})")
         if not trusted and (not ctx.b3.layout_bound or ctx.b3.offsets is None):
             return PassResult(Outcome.SKIPPED_UNSUPPORTED, "guard_layout_unbound",
                               ctx.b3.layout_reason or "")

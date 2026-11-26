@@ -135,6 +135,13 @@ slots B3 registered. Each member carries their mask (`added_goto_tb_slots`):
   allowlisted fails the pass (`member_slot_skip_unsupported_runtime`), and `package_b3`
   re-checks it before linking. QEMU `a1bdec6` rejects any member flag, so do not list it;
   `--v7-trusted-exe` is a separate list.
+- The checked-in capability table `scopt/data/qemu_capabilities.json` records known
+  QEMU binaries by sha256. A digest it marks incapable of member skip (`a1bdec6`, the
+  build in the `a79d340` checkout) is refused even when a flag or
+  `SCOPT_V7_MEMBER_SKIP_EXES` names it (`known_incapable`; `on` fails the pass). Its
+  capable rows (`aacca05`) are admitted implicitly only by `scopt optimize -O4`;
+  every other pipeline still needs the flags, so existing command lines
+  keep their bytes.
 - In a composed directory the flags of a member-descriptor region's member must equal
   the sc6 slot set of its source (the OR of `1 << slot_n` over the sc6 slots with that
   `src_tb_offset`); every other member has flags 0. `read_sc7` (run at publish readback)
@@ -144,7 +151,7 @@ slots B3 registered. Each member carries their mask (`added_goto_tb_slots`):
   `x_b3.firmware_region_links` (`member_descriptors`, `member_descriptor_refusal`,
   `skipped_b3_slots`, `chainable_residual_slots`). The firmware-inline receipt records
   `policy.member_slot_skip` (`enabled`, `reason`: `allowlisted`, `not_allowlisted`,
-  `no_runtime_identity` or `param_off`, and the exe).
+  `known_incapable`, `no_runtime_identity` or `param_off`, and the exe).
 
 `firmware-inline` still prices a trusted region whose member source B3 grew as
 unchainable, whatever the capability (see

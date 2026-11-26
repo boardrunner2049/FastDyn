@@ -1724,11 +1724,81 @@ V_ROWS: dict[str, tuple[str, str, str]] = {
 #: elsewhere, then only ``extra`` and ``$SCOPT_V6_EXES`` count)
 V6_GATE_BINARY_JSON = fastdyn_root() / "runs/wp22/gate-binary.json"
 
+#: The checked-in QEMU capability table: loader capabilities of known
+#: executables, keyed by the binary's sha256 (O4-design.md 2.8).
+QEMU_CAPABILITIES_JSON = Path(__file__).resolve().parent / "data" / "qemu_capabilities.json"
+QEMU_CAPABILITIES_SCHEMA = "scopt.qemu-capabilities/1"
+#: The table's capability columns: ``v6`` (sc6 semantic extension loader),
+#: ``trusted_v7`` (trusted firmware-region v7 contract) and ``member_skip``
+#: (composed v7 member skip flags, QEMU stats counters revision 4).
+QEMU_CAPABILITIES = ("v6", "trusted_v7", "member_skip")
+
+
+def _exe_digest(exe: str) -> str:
+    return str(exe).strip().removeprefix("sha256:").lower()
+
+
+@cache
+def qemu_capability_table() -> Mapping[str, Mapping[str, Any]]:
+    """``{exe sha256: row}`` from :data:`QEMU_CAPABILITIES_JSON`.
+
+    Each row has the :data:`QEMU_CAPABILITIES` columns, each ``true``
+    (capable), ``false`` (known incapable) or ``null`` (not recorded), plus
+    ``commit`` and ``evidence``.  A malformed table raises ValueError."""
+    from types import MappingProxyType
+
+    doc = json.loads(QEMU_CAPABILITIES_JSON.read_text(encoding="utf-8"))
+    if doc.get("schema") != QEMU_CAPABILITIES_SCHEMA:
+        raise ValueError(f"{QEMU_CAPABILITIES_JSON}: schema is not {QEMU_CAPABILITIES_SCHEMA}")
+    rows = {}
+    for exe, row in doc["binaries"].items():
+        if len(exe) != 64 or exe != exe.lower() or any(c not in "0123456789abcdef" for c in exe):
+            raise ValueError(f"{QEMU_CAPABILITIES_JSON}: {exe!r} is not a lowercase sha256")
+        for capability in QEMU_CAPABILITIES:
+            if row.get(capability, None) not in (True, False, None):
+                raise ValueError(f"{QEMU_CAPABILITIES_JSON}: {exe} {capability} must be "
+                                 "true, false or null")
+        if not row.get("evidence"):
+            raise ValueError(f"{QEMU_CAPABILITIES_JSON}: {exe} has no evidence")
+        rows[exe] = MappingProxyType(dict(row))
+    return MappingProxyType(rows)
+
+
+def qemu_capability(exe: str | None, capability: str) -> bool | None:
+    """The table's verdict on ``exe`` (sha256, ``sha256:`` prefix optional) for
+    ``capability``: True, False (known incapable) or None (unknown)."""
+    if capability not in QEMU_CAPABILITIES:
+        raise ValueError(f"unknown QEMU capability {capability!r}")
+    if not exe:
+        return None
+    row = qemu_capability_table().get(_exe_digest(exe))
+    return None if row is None else row.get(capability)
+
+
+def known_capable_exes(capability: str) -> frozenset[str]:
+    """Digests the table marks capable of ``capability``.  Only ``scopt
+    optimize -O4`` admits them implicitly; every other caller passes flags."""
+    return frozenset(exe for exe in qemu_capability_table()
+                     if qemu_capability(exe, capability) is True)
+
+
+def known_incapable_exes(capability: str) -> frozenset[str]:
+    """Digests the table marks incapable of ``capability``: no flag or
+    environment variable can allowlist them."""
+    return frozenset(exe for exe in qemu_capability_table()
+                     if qemu_capability(exe, capability) is False)
+
+
+def _without_incapable(exes: set[str], capability: str) -> frozenset[str]:
+    incapable = known_incapable_exes(capability)
+    return frozenset(x for x in exes if _exe_digest(x) not in incapable)
+
 
 def v6_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
     """Exe sha256s (hex, no prefix) of QEMU binaries whose loader reads ``.sc`` v6:
     ``extra``, ``$SCOPT_V6_EXES`` (comma separated) and the frozen gate binary
-    recorded by WP22 in ``runs/wp22/gate-binary.json`` (``exe_sha256``)."""
+    recorded by WP22 in ``runs/wp22/gate-binary.json`` (``exe_sha256``), minus
+    the digests :func:`qemu_capability_table` marks incapable of ``v6``."""
     out = {x.removeprefix("sha256:") for x in extra if x}
     out |= {x.strip().removeprefix("sha256:") for x in
             os.environ.get("SCOPT_V6_EXES", "").split(",") if x.strip()}
@@ -1739,7 +1809,7 @@ def v6_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
             out.add(v.removeprefix("sha256:"))
     except (OSError, ValueError):
         pass
-    return frozenset(out)
+    return _without_incapable(out, "v6")
 
 
 def v7_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
@@ -1757,11 +1827,12 @@ def v7_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
 
 
 def trusted_v7_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
-    """Explicit executable identities for the unsafe trusted v7 contract."""
+    """Explicit executable identities for the unsafe trusted v7 contract, minus
+    the digests :func:`qemu_capability_table` marks incapable of ``trusted_v7``."""
     out = {x.removeprefix("sha256:") for x in extra if x}
     out |= {x.strip().removeprefix("sha256:") for x in
             os.environ.get("SCOPT_V7_TRUSTED_EXES", "").split(",") if x.strip()}
-    return frozenset(out)
+    return _without_incapable(out, "trusted_v7")
 
 
 def member_skip_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
@@ -1772,12 +1843,15 @@ def member_skip_capable_exes(extra: Iterable[str] = ()) -> frozenset[str]:
     that list names binaries (such as ``a1bdec6``) that reject any member
     flag.  Callers pass ``--v7-member-skip-exe`` digests or set
     ``SCOPT_V7_MEMBER_SKIP_EXES`` (comma separated sha256, ``sha256:``
-    prefix optional).  No executable is admitted implicitly.
+    prefix optional).  No executable is admitted implicitly here (``scopt
+    optimize -O4`` passes the table's capable digests itself), and a digest
+    :func:`qemu_capability_table` marks incapable of ``member_skip`` is never
+    admitted, whatever lists it.
     """
     out = {x.removeprefix("sha256:") for x in extra if x}
     out |= {x.strip().removeprefix("sha256:") for x in
             os.environ.get("SCOPT_V7_MEMBER_SKIP_EXES", "").split(",") if x.strip()}
-    return frozenset(out)
+    return _without_incapable(out, "member_skip")
 
 
 #: ``firmware-inline`` ``member_slot_skip`` values.
@@ -1791,9 +1865,10 @@ def member_slot_skip_decision(param: Any, runtime: Mapping[str, Any] | None,
     ``param`` is the firmware-inline ``member_slot_skip`` value (``auto``,
     ``on`` or ``off``; anything else raises ValueError).  ``runtime`` is the
     RuntimeIdentity the artifact targets.  Returns ``(False, 'param_off')``,
-    ``(False, 'no_runtime_identity')``, ``(True, 'allowlisted')`` or
-    ``(False, 'not_allowlisted')``.  The caller treats ``on`` with a False
-    result as an error; there is no force override.
+    ``(False, 'no_runtime_identity')``, ``(False, 'known_incapable')`` (the
+    capability table marks the exe incapable; no allowlist overrides it),
+    ``(True, 'allowlisted')`` or ``(False, 'not_allowlisted')``.  The caller
+    treats ``on`` with a False result as an error; there is no force override.
     """
     if param not in MEMBER_SLOT_SKIP_MODES:
         raise ValueError(f"member_slot_skip must be one of {MEMBER_SLOT_SKIP_MODES}, "
@@ -1803,6 +1878,8 @@ def member_slot_skip_decision(param: Any, runtime: Mapping[str, Any] | None,
     exe = _ri_exe(runtime)
     if exe is None:
         return False, "no_runtime_identity"
+    if qemu_capability(exe, "member_skip") is False:
+        return False, "known_incapable"
     if exe in member_skip_capable_exes(extra_exes):
         return True, "allowlisted"
     return False, "not_allowlisted"
@@ -3167,7 +3244,7 @@ def relocate_unit_body(u: Any, new_tb: int) -> bytes:
     return relocate_unit(u, new_tb).body
 
 
-__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "v7_capable_exes", "trusted_v7_capable_exes", "member_skip_capable_exes", "member_slot_skip_decision", "MEMBER_SLOT_SKIP_MODES", "stub_rows", "relocate_unit_body",
+__all__ += ["STATIC_CODES", "static_not_applicable", "V_ROWS", "validate_b3", "v6_capable_exes", "v7_capable_exes", "trusted_v7_capable_exes", "member_skip_capable_exes", "member_slot_skip_decision", "MEMBER_SLOT_SKIP_MODES", "QEMU_CAPABILITIES", "QEMU_CAPABILITIES_JSON", "qemu_capability_table", "qemu_capability", "known_capable_exes", "known_incapable_exes", "stub_rows", "relocate_unit_body",
             "multi_tb_rows"]
 
 

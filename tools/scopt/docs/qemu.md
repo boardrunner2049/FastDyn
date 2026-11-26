@@ -116,7 +116,9 @@ data to the sha256 of `qemu-system-arm`:
   `SCOPT_V7_TRUSTED_EXES` / `--v7-trusted-exe`, and member skip flags in composed
   artifacts use `SCOPT_V7_MEMBER_SKIP_EXES` / `--v7-member-skip-exe` (only a QEMU
   with counters revision 4; never `a1bdec6`). These are feature capability sets, not
-  competing output versions.
+  competing output versions. `scopt/data/qemu_capabilities.json` records known binaries
+  by sha256: a digest it marks incapable is removed from the matching set whatever lists
+  it, and `scopt optimize -O4` admits its fully capable rows (`aacca05`) without flags.
 
 Any rebuild (even of the same sources) changes the sha256 and the runtime signature.
 After a rebuild: prepare again (old snapshots and artifacts do not carry over), produce

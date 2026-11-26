@@ -26,6 +26,7 @@ scopt = "scopt.cli:main"
 include = ["scopt", "scopt.*"]
 
 [tool.setuptools.package-data]
+"scopt" = ["data/*.json"]
 "scopt.formats" = ["schemas/*.json", "envlayouts/*.json", "helper_effects/*.json"]
 
 [tool.pytest.ini_options]

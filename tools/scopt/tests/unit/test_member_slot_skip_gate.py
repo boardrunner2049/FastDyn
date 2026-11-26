@@ -23,6 +23,8 @@ from .test_firmware_inline import _continuation_exit_snapshot, _fake_view
 #: QEMU treb-wip a1bdec6 (rejects member flags).
 A1BDEC6 = "026f8e8bc17a3364b15af49d597e48ac827515548308538a16d6244b75630295"
 NEW = "ab" * 32
+#: A digest the capability table does not know.
+OTHER = "ef" * 32
 
 
 def _ri(exe):
@@ -37,7 +39,9 @@ def _no_env_allowlist(monkeypatch):
 def test_decision_needs_an_allowlisted_target_exe(monkeypatch):
     assert member_slot_skip_decision("auto", _ri(NEW), (NEW,)) == (True, "allowlisted")
     assert member_slot_skip_decision("on", _ri(NEW), ("sha256:" + NEW,)) == (True, "allowlisted")
-    assert member_slot_skip_decision("auto", _ri(A1BDEC6), (NEW,)) == (False, "not_allowlisted")
+    assert member_slot_skip_decision("auto", _ri(OTHER), (NEW,)) == (False, "not_allowlisted")
+    # The capability table marks a1bdec6 incapable (scopt/data/qemu_capabilities.json).
+    assert member_slot_skip_decision("auto", _ri(A1BDEC6), (NEW,)) == (False, "known_incapable")
     assert member_slot_skip_decision("auto", None, (NEW,)) == (False, "no_runtime_identity")
     assert member_slot_skip_decision("off", _ri(NEW), (NEW,)) == (False, "param_off")
     # The exe may also come from the admission block.
@@ -54,7 +58,9 @@ def test_env_allowlist_is_separate_from_the_trusted_v7_list(monkeypatch):
     assert member_slot_skip_decision("auto", _ri(NEW)) == (True, "allowlisted")
     # SCOPT_V7_TRUSTED_EXES names a1bdec6, which rejects member flags.
     monkeypatch.setenv("SCOPT_V7_TRUSTED_EXES", A1BDEC6)
-    assert member_slot_skip_decision("auto", _ri(A1BDEC6)) == (False, "not_allowlisted")
+    assert member_slot_skip_decision("auto", _ri(A1BDEC6)) == (False, "known_incapable")
+    monkeypatch.setenv("SCOPT_V7_TRUSTED_EXES", OTHER)
+    assert member_slot_skip_decision("auto", _ri(OTHER)) == (False, "not_allowlisted")
 
 
 def _run_firmware_inline(monkeypatch, params, *, runtime=None, member_skip_exes=None):
@@ -101,7 +107,8 @@ def test_firmware_inline_on_with_an_unlisted_exe_fails(monkeypatch):
 @pytest.mark.parametrize(("params", "runtime", "exes", "enabled", "reason"), [
     ({}, _ri(NEW), (NEW,), True, "allowlisted"),
     ({"member_slot_skip": "on"}, _ri(NEW), (NEW,), True, "allowlisted"),
-    ({}, _ri(A1BDEC6), (NEW,), False, "not_allowlisted"),
+    ({}, _ri(A1BDEC6), (NEW,), False, "known_incapable"),
+    ({}, _ri("ef" * 32), (NEW,), False, "not_allowlisted"),
     ({}, None, None, False, "no_runtime_identity"),
     ({"member_slot_skip": "off"}, _ri(NEW), (NEW,), False, "param_off"),
 ])

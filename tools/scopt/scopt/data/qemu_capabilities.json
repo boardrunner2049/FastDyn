@@ -1,0 +1,30 @@
+{
+ "schema": "scopt.qemu-capabilities/1",
+ "description": "Loader capabilities of known QEMU executables, keyed by the sha256 of the qemu-system-arm binary (the RuntimeIdentity qemu_sha256). true: capable; false: known incapable, refused even when a flag or environment variable lists the digest; null: not recorded. v6: semantic extension (sc6) loader; trusted_v7: trusted firmware-region v7 contract; member_skip: composed v7 member skip flags (QEMU stats counters revision 4). scopt optimize -O4 allowlists a digest whose three capabilities are all true; other pipelines still need --v6-exe/--v7-trusted-exe/--v7-member-skip-exe. Add a row only with evidence; a binary that is not listed is unknown.",
+ "binaries": {
+  "951775b0300ea1421f32565af8f677c1eaee14e7e1de6238d32bdbe925eebc60": {
+   "commit": "aacca05",
+   "v6": true,
+   "trusted_v7": true,
+   "member_skip": true,
+   "counters_revision": 4,
+   "evidence": "/data/scfix-r2/TIMING.md: every round-2 arm ran on it (/data/qemu-scfix-bin/aacca05/qemu-system-arm); counters_revision 4 in every regions replay; composed member skip loads (c7b3)"
+  },
+  "026f8e8bc17a3364b15af49d597e48ac827515548308538a16d6244b75630295": {
+   "commit": "a1bdec6",
+   "v6": true,
+   "trusted_v7": true,
+   "member_skip": false,
+   "counters_revision": null,
+   "evidence": "/data/qemu-scfix-bin/a1bdec6/qemu-system-arm: the loader exits on any member flag: sc7_die -> exit(EXIT_FAILURE) (supercache.c 'member %u has invalid source, region, or flags'); round-1 arms ran on it"
+  },
+  "ab3fcecd62055ffa54424e605375d6edc0d9576858bb23ff298c6558f7f9a63c": {
+   "commit": "a79d340 checkout (the binary, built 2026-11-23 01:28 -0500, predates that commit)",
+   "v6": null,
+   "trusted_v7": null,
+   "member_skip": false,
+   "counters_revision": null,
+   "evidence": "/data/trebuchet-clean/FastDyn/third_party/common/qemu/build/qemu-system-arm: the a79d340 source has the same sc7_die on any member flag (supercache.c:1151-1152) and the binary has that message but not aacca05's member-skip check ('member %u skip flags 0x%x != B3 slot mask 0x%x')"
+  }
+ }
+}
